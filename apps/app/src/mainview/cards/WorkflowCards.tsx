@@ -94,6 +94,7 @@ export const WorkflowRunCardBody = ({
         workflowCatalogs={workflowCatalogs}
         flowDurations={flowDurations}
         fileCards={fileCards}
+        childCards={childCards}
       />
       <ChildRuns card={card} collection={childCards} onRunCommand={onRunCommand} />
       {facetRequest?.state === "failed" ? <p className="sui-approval-error" role="alert">{facetRequest.error}</p> : null}

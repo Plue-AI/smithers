@@ -321,6 +321,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly selectCodingChange: RunsController["selectCodingChange"]
   readonly traceView: RunsController["traceView"]
   readonly graphFollow: RunsController["graphFollow"]
+  readonly graphExecution: RunsController["graphExecution"]
   /* The node drawer both graph cards open (see controller/graph.ts). */
   readonly selectGraphNode: GraphController["selectGraphNode"]
   readonly graphNodeTab: GraphController["graphNodeTab"]
@@ -1723,6 +1724,7 @@ export const createAppController = (
     selectCodingChange: runs.selectCodingChange,
     traceView: runs.traceView,
     graphFollow: runs.graphFollow,
+    graphExecution: runs.graphExecution,
     selectGraphNode: graph.selectGraphNode,
     graphNodeTab: graph.graphNodeTab,
     selectPlanNode: graph.selectPlanNode,

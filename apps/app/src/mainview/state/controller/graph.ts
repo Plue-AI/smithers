@@ -14,7 +14,7 @@
  * nodes a plan snapshot never had (FlowGraphStatus.ts). An id neither answers
  * to is refused by name rather than opening a drawer over nothing.
  */
-import { foldRunGraph, runGraphOf } from "../../cards/FlowGraphStatus"
+import { drawnGraphOf, runForestOf } from "../../cards/RunForest"
 import { triggerNodeId } from "../../cards/FlowGraphTriggerNode"
 import type { CommandResult } from "../../flows/Flows"
 import type { Card } from "../AppState"
@@ -205,11 +205,12 @@ export const createGraphController = (
   /** Every node id this run's graph can draw: the plan's own, and the journal's. */
   const runNodeIds = (card: RunTraceCard): ReadonlySet<string> => {
     const ids = new Set((card.payload.plan?.nodes ?? []).map((node) => node.id))
-    const recorded = runGraphOf(foldRunGraph(card.payload.events), {
-      ...(ids.size === 0 ? {} : { planNodeIds: [...ids] }),
-      flow: card.payload.workflow
-    })
-    for (const node of recorded?.nodes ?? []) ids.add(node.id)
+    const { drawn, defaultExecutionId } = drawnGraphOf(card)
+    const drawnNodes = drawn?.nodes ?? []
+    /* The forest around the drawn execution is selectable too (RunForest.ts). */
+    const forest = runForestOf(card, [...store.collections.cards.values()], { nodes: drawnNodes, edges: [] },
+      drawn?.executionId, defaultExecutionId)
+    for (const node of forest.nodes) ids.add(node.id)
     return ids
   }
 
@@ -295,11 +296,7 @@ export const createGraphController = (
    * canvas picks its nodes (FlowRunGraph.graphOf).
    */
   const runSite = (card: RunTraceCard, nodeId: string) => {
-    const ids = (card.payload.plan?.nodes ?? []).map((node) => node.id)
-    const recorded = runGraphOf(foldRunGraph(card.payload.events), {
-      ...(ids.length === 0 ? {} : { planNodeIds: ids }),
-      flow: card.payload.workflow
-    })
+    const recorded = drawnGraphOf(card).drawn
     if (recorded !== undefined && recorded.nodes.length > 0) {
       return {
         declaredAt: recorded.nodes.find((node) => node.id === nodeId)?.declaredAt,

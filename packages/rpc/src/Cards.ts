@@ -1169,7 +1169,12 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
        * The graph view's own reader state: `follow` keeps the camera on the
        * running node, and `node` with `tab` is the drawer a reader opened.
        */
-      graph: z.object({ follow: z.boolean().optional(), ...GraphDrawerSchema.shape }).optional(),
+      graph: z.object({
+        follow: z.boolean().optional(),
+        /** The run-forest execution a reader opened; absent draws the run's own (cards/RunForest.ts). */
+        execution: z.string().optional(),
+        ...GraphDrawerSchema.shape
+      }).optional(),
       /** The predicted Change inspected within the recorded coding plan. */
       codingChangeId: z.string().optional(),
       /** Local launch intent, retained until the authoring run's real receipt arrives. */

@@ -596,6 +596,26 @@ describe("the run card's graph door", () => {
       .toBe("run-1 off")
   })
 
+  test("the forest: a child execution is a node whose drawer opens it in place, and the opened one leads back up", () => {
+    const gate = "c7eac2d2567599c2bcbcbaa35ac4e07acf21e6e01c23753262361a60a7e0f07d"
+    const { host, dispatched } = renderTrace({ traceView: "graph", plan: RECORDED.plan, events: RECORDED.rows,
+      graph: { node: `exec:${gate}` } })
+    const node = host.querySelector(`[data-node="exec:${gate}"]`)!
+    expect(node.getAttribute("data-forest")).toBe("flow")
+    expect(node.querySelector(".flow-run-node-id")?.textContent).toBe("flow")
+    expect(wordOf(node)).toBe("done")
+    const open = [...host.querySelectorAll(".flow-graph-drawer button")].find((button) => button.textContent === "Open") as HTMLElement
+    act(() => open.click())
+    expect(dispatched).toEqual([{ name: "runs.graph.execution", args: `sourceCard=flow-run-run-1 run-1 ${gate}` }])
+    const inside = renderTrace({ traceView: "graph", plan: RECORDED.plan, events: RECORDED.rows, graph: { execution: gate } }).host
+    expect(inside.querySelector('[data-node="root.flow"]')?.textContent).toContain("gateway/graph/Ask")
+    /* Up to GraphFixture's own execution, down to Ask: Gate's only child. */
+    expect([...inside.querySelectorAll("[data-forest]")].map((drawn) => drawn.getAttribute("data-node")).sort()).toEqual([
+      "exec:4a0aecfbb21495fde89acbe6a57600012dd57ff64e2034095bd56dd2b537d55e",
+      "exec:ddcd621539b72b2d3afc7e9b441375c887e57854122ac9745667192c63bf0b31"
+    ])
+  })
+
   test("a graph asked for by a run that has none falls back to its turns", () => {
     const { host } = renderTrace({ traceView: "graph", plan: { ...RECORDED.plan, nodes: [] } })
     expect(host.querySelector(".run-trace-bar[data-view=\"graph\"]")).toBeNull()

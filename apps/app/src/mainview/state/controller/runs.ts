@@ -18,6 +18,7 @@
  */
 import { questionOf } from "../../cards/ApprovalQuestion"
 import { codingPlanOf } from "../../cards/CodingPlan"
+import { drawableExecution } from "../../cards/RunForest"
 import { runHandoff } from "../../cards/RunHandoff"
 import type { TraceFilter } from "../../cards/RunTrace"
 import { traceFromJournal } from "../../cards/RunTrace"
@@ -82,6 +83,8 @@ export interface RunsController {
   readonly traceView: (runId: string, view: TraceView, sourceCard?: string) => Promise<CommandResult>
   /** `runs.graph.follow <runId> <on|off>`: whether the graph's camera follows the running node. */
   readonly graphFollow: (runId: string, follow: boolean, sourceCard?: string) => Promise<CommandResult>
+  /** `runs.graph.execution <runId> [executionId]`: which execution of the run forest the graph draws; none is the default. */
+  readonly graphExecution: (runId: string, executionId?: string, sourceCard?: string) => Promise<CommandResult>
   readonly traceLive: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly selectCodingChange: (runId: string, changeId: string, sourceCard?: string) => Promise<CommandResult>
   readonly stopAllRuns: (repo?: string, sourceCard?: string) => Promise<CommandResult>
@@ -856,6 +859,27 @@ export const createRunsController = (
     return { value: `graph-follow run=${runId} follow=${follow ? "on" : "off"}` }
   }
 
+  const graphExecution = async (runId: string, executionId?: string, sourceCard?: string): Promise<CommandResult> => {
+    const target = resolveRun(runId, sourceCard)
+    if ("error" in target) return target.error
+    const card = runCardFor(target, sourceCard)
+    if (card === undefined) return `Open the run first (runs.open ${runId}): the graph lives on its card.`
+    /* The canvas draws only an execution that recorded a graph (RunForest.ts); anything else is refused, not saved. */
+    if (executionId !== undefined && !drawableExecution(card, executionId)) return `Run ${runId} has no graph for execution ${executionId}.`
+    // Another execution draws other nodes, so the open drawer closes with it;
+    // the camera is the reader's and stays. Replace, never merge: a cleared
+    // field must not survive in the JSON journal.
+    const { graph: _graph, ...payload } = card.payload
+    const { execution: _execution, node: _node, tab: _tab, codeError: _error, ...held } = card.payload.graph ?? {}
+    const graph = executionId === undefined ? held : { ...held, execution: executionId }
+    await store.dispatch({
+      type: "card.upsert",
+      actor: ctx.commandActor,
+      card: { ...card, payload: Object.keys(graph).length === 0 ? payload : { ...payload, graph } }
+    }).isPersisted.promise
+    return { value: `graph-execution run=${runId} execution=${executionId ?? "default"}` }
+  }
+
   const traceLive = async (runId: string, sourceCard?: string): Promise<CommandResult> => {
     const target = resolveRun(runId, sourceCard)
     if ("error" in target) return target.error
@@ -1225,6 +1249,7 @@ export const createRunsController = (
     selectCodingChange,
     traceView,
     graphFollow,
+    graphExecution,
     traceLive,
     stopAllRuns,
     listApprovals,

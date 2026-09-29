@@ -85,6 +85,9 @@ export interface DrawerNode {
   readonly word?: string
   /** Where the declaration was written, repo-relative, when the writer knew (D-037, D-047). */
   readonly declaredAt?: { readonly path: string; readonly line: number }
+  /** A forest node (RunForest.ts) has no records of its own: its drawer is its word and, where it has one, Open. */
+  readonly forest?: true
+  readonly door?: RunGraphNode["door"]
   /**
    * The execution whose journal recorded this node.
    *
@@ -168,7 +171,9 @@ export const runDrawerNode = (node: RunGraphNode, run: NodeRun | undefined, exec
   kind: node.kind,
   dependsOn: node.dependsOn,
   tier: node.tier,
-  word: stateWord(run),
+  word: node.word ?? stateWord(run),
+  ...(node.forest === undefined ? {} : { forest: node.forest }),
+  ...(node.door === undefined ? {} : { door: node.door }),
   ...(node.action === undefined ? {} : { action: node.action }),
   ...(node.declaredAt === undefined ? {} : { declaredAt: node.declaredAt }),
   ...(executionId === undefined ? {} : { executionId }),
@@ -589,6 +594,20 @@ export const FlowGraphDrawer = ({
    * worse thing to hand a screen reader than none.
    */
   const strip = `${doors.target}-${node.id}`
+  if (node.forest === true) {
+    return (
+      <aside className="flow-graph-drawer" role="group" data-node={node.id} aria-label={node.action ?? node.id}>
+        <div className="flow-graph-drawer-head">
+          <span className="flow-graph-drawer-tag">{node.action ?? node.id}</span>
+          {node.word === undefined ? null : <span className="flow-graph-drawer-word" data-state={node.word}>{node.word}</span>}
+          {node.door === undefined ? null
+            : <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, node.door.flow, node.door.args)}>Open</button>}
+          <button type="button" className="flow-graph-drawer-close" aria-label="Close"
+            {...flowAction(onRunCommand, doors.select, graphSelectArgs(doors))}>×</button>
+        </div>
+      </aside>
+    )
+  }
   return (
     <aside
       className="flow-graph-drawer"

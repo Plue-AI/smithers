@@ -606,6 +606,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (rest.length > 0) return no("runs.graph.follow takes a run id and on or off")
     return ok({ runId, follow })
   },
+  "runs.graph.execution": (args) => {
+    const [runId, executionId, ...rest] = tokensOf(args)
+    if (runId === undefined) return no("runs.graph.execution needs a run id")
+    if (rest.length > 0) return no("runs.graph.execution takes a run id and at most one execution")
+    return ok(executionId === undefined ? { runId } : { runId, executionId })
+  },
   /* The graph's drill-in (L5): a node to open, or nothing at all to close the one that is open. */
   "runs.graph.select": (args) => {
     const structured = graphObject(args, "runId", "nodeId")

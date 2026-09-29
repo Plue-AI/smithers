@@ -177,6 +177,15 @@
 	stroke-dasharray: 4 3;
 }
 
+/* The run forest (cards/RunForest.ts): a POC lane never lands, so its edge and its box are dashed. */
+.flow-graph-edge-poc .react-flow__edge-path {
+	stroke-dasharray: 6 4;
+}
+
+.flow-graph-node[data-forest="poc"] {
+	border-style: dashed;
+}
+
 /*
  * The schedules that fire the plan (cards/FlowGraphTrigger.tsx).
  *

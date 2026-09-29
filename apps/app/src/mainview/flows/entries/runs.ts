@@ -238,6 +238,16 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, follow, sourceCard }) => actions.graphFollow(runId, follow === "on", sourceCard)
   }),
   flow({
+    /* The run forest (RunForest.ts): open a child execution in place, or none to return to the run's own. */
+    name: "runs.graph.execution",
+    summary: "Draw one execution of a run's forest on its graph, or the run's own",
+    runtimeAny: ["cloud"],
+    hidden: true,
+    args: "[sourceCard=id] <runId> [executionId]",
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, executionId: Schema.optional(Schema.String) }),
+    handler: ({ runId, executionId, sourceCard }) => actions.graphExecution(runId, executionId, sourceCard)
+  }),
+  flow({
     name: "runs.trace.live",
     summary: "Return a run's trace to its latest recorded turn",
     runtimeAny: ["cloud"],

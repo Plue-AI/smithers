@@ -19,7 +19,10 @@ import { flowAction } from "../flows/FlowAction"
 import type { Card, FlowDurationsRow } from "../state/AppState"
 import type { RunCommand } from "./CardFamily"
 import type { JournalRecord } from "./RunTrace"
-import { foldRunGraph, runGraphOf, type NodeRun, type RunGraphEdge, type RunGraphNode } from "./FlowGraphStatus"
+import type { NodeRun, RunGraphEdge, RunGraphNode } from "./FlowGraphStatus"
+import { drawnGraphOf, runForestOf } from "./RunForest"
+import { useCardRows } from "../state/useCardRows"
+import type { CardProjectionAuthority } from "./CardFamily"
 
 const EMPTY_DURATIONS: ReadonlyArray<FlowDurationsRow> = []
 
@@ -34,6 +37,8 @@ export interface RunGraphView {
   readonly focusId?: string
   /** The execution these nodes were recorded under; absent when the plan is all the card has. */
   readonly executionId?: string
+  /** The execution the card draws when no reader opened another (RunForest.ts). */
+  readonly defaultExecutionId?: string
   /**
    * The revision the declaration sites on these nodes were read at, when
    * their source named one.
@@ -180,10 +185,7 @@ export const runGraphOfCard = (card: RunTraceCard): RunGraphView | undefined => 
 
 const graphOf = (card: RunTraceCard): RunGraphView | undefined => {
   const plan = planNodes(card)
-  const recorded = runGraphOf(foldRunGraph(card.payload.events), {
-    ...(plan.length === 0 ? {} : { planNodeIds: plan.map((node) => node.id) }),
-    flow: card.payload.workflow
-  })
+  const { drawn: recorded, opened, defaultExecutionId } = drawnGraphOf(card)
   const fromRecord = recorded !== undefined && recorded.nodes.length > 0
   const nodes = fromRecord ? recorded!.nodes : plan
   if (nodes.length === 0) return undefined
@@ -193,11 +195,14 @@ const graphOf = (card: RunTraceCard): RunGraphView | undefined => {
   const sourceRevision = fromRecord ? recorded!.sourceRevision : card.payload.plan?.graph?.sourceRevision
   return {
     nodes,
-    edges: recorded !== undefined && recorded.edges.length > 0 ? recorded.edges : planEdges(card, nodes),
+    edges: recorded !== undefined && recorded.edges.length > 0 ? recorded.edges
+      : opened ? nodes.flatMap((node) => node.dependsOn.map((from) => ({ from, to: node.id })))
+      : planEdges(card, nodes),
     status,
     ...(focusId === undefined ? {} : { focusId }),
     ...(sourceRevision === undefined ? {} : { sourceRevision }),
-    ...(recorded === undefined ? {} : { executionId: recorded.executionId })
+    ...(recorded === undefined ? {} : { executionId: recorded.executionId }),
+    ...(defaultExecutionId === undefined ? {} : { defaultExecutionId })
   }
 }
 
@@ -230,13 +235,7 @@ export const observedAtOf = (events: ReadonlyArray<JournalRecord> = []): number 
  * The camera switch is a flow like every other act, so the agent and the
  * keyboard reach it too; pan and zoom stay the reader's own gestures.
  */
-export const FlowRunGraph = ({
-  card,
-  view,
-  onRunCommand,
-  flowDurations = EMPTY_DURATIONS,
-  fileCards = []
-}: {
+interface FlowRunGraphProps {
   readonly card: RunTraceCard
   readonly view: RunGraphView
   readonly onRunCommand: RunCommand
@@ -244,8 +243,31 @@ export const FlowRunGraph = ({
   readonly flowDurations?: ReadonlyArray<FlowDurationsRow>
   /** The files already read into this conversation; the drawer's Code tab renders the declared one. */
   readonly fileCards?: ReadonlyArray<Extract<Card, { kind: "file" }>>
-}) => {
+  /** The open cards, read live, so the forest states its parent and child runs (RunForest.ts). */
+  readonly childCards?: CardProjectionAuthority["collections"]["cards"] | undefined
+}
+
+const NO_CARDS: ReadonlyArray<Card> = []
+
+const LiveFlowRunGraph = ({ collection, ...props }: FlowRunGraphProps & {
+  readonly collection: NonNullable<FlowRunGraphProps["childCards"]>
+}) => <RunGraphBody {...props} cards={useCardRows(collection)} />
+
+/** The run forest's graph, reading the open cards live when the store is there. */
+export const FlowRunGraph = (props: FlowRunGraphProps) =>
+  props.childCards === undefined ? <RunGraphBody {...props} cards={NO_CARDS} />
+    : <LiveFlowRunGraph {...props} collection={props.childCards} />
+
+const RunGraphBody = ({
+  card,
+  view,
+  onRunCommand,
+  flowDurations = EMPTY_DURATIONS,
+  fileCards = [],
+  cards
+}: FlowRunGraphProps & { readonly cards: ReadonlyArray<Card> }) => {
   const { runId, graph, repo, events } = card.payload
+  const forest = useMemo(() => runForestOf(card, cards, view, view.executionId, view.defaultExecutionId), [card, cards, view])
   const measured = useMemo(() => flowDurations.filter((row) => row.repo === repo && row.flowId === card.payload.workflow && row.workspaceId === card.payload.workspaceId), [flowDurations, repo, card.payload.workflow, card.payload.workspaceId])
   // The surface extends this last engine timestamp with a subscribed
   // monotonic clock while nodes run, even between journal pages.
@@ -295,8 +317,8 @@ export const FlowRunGraph = ({
       </div>
       <Suspense fallback={<ViewSkeleton />}>
         <FlowRunGraphSurface
-          nodes={view.nodes}
-          edges={view.edges}
+          nodes={forest.nodes}
+          edges={forest.edges}
           status={view.status}
           focusId={follow ? view.focusId : undefined}
           durations={measured}

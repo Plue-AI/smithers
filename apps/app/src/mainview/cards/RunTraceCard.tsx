@@ -21,7 +21,7 @@ import { CodingPocBody } from "./CodingPocCard"
 import { CodingVibeBody } from "./CodingVibeCard"
 import type { Card, FlowDurationsRow } from "../state/AppState"
 import { timeLabel } from "../Timestamps"
-import type { RunCommand } from "./CardFamily"
+import type { CardProjectionAuthority, RunCommand } from "./CardFamily"
 import {
   durationWords,
   spanMatches,
@@ -174,9 +174,12 @@ export const RunTraceBody = ({
   workflowCatalogs,
   flowDurations,
   fileCards,
+  childCards,
   admin = false
 }: {
   readonly card: RunTraceCard
+  /** The open cards, so the graph's forest states parent and child runs. */
+  readonly childCards?: CardProjectionAuthority["collections"]["cards"] | undefined
   /** A Smithers admin decides admin-decided waits; nobody else is offered them. */
   readonly admin?: boolean
   readonly workflowCatalogs?: ReadonlyArray<Extract<Card, { kind: "workflow-list" }>>
@@ -327,6 +330,7 @@ export const RunTraceBody = ({
           onRunCommand={onRunCommand}
           flowDurations={flowDurations}
           fileCards={fileCards}
+          childCards={childCards}
         />
       ) : view === "turns" || view === "graph" ? (
         <>

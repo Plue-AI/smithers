@@ -430,10 +430,11 @@ describe("launch-law parity: every affordance is a command", () => {
       /*
        * The node a graph has open (L5): its close, the tab strip's one
        * handler, one per dependency the node waits on, the Code tab's
-       * `Open file`, and the trigger drawer's own close. Every one is a
-       * `flowAction` door on the card the drawer belongs to.
+       * `Open file`, the trigger drawer's own close, and a run-forest
+       * node's Open and close (RunForest.ts). Every one is a `flowAction`
+       * door on the card the drawer belongs to.
        */
-      "../cards/FlowGraphDrawer.tsx": 5,
+      "../cards/FlowGraphDrawer.tsx": 7,
       /*
        * The repository welcome and its three answers (controller/onboarding.ts):
        * every door (the welcome's three, the maintainer's reads, the

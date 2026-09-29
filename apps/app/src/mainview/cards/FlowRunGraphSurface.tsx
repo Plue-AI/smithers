@@ -50,7 +50,10 @@ const EDGE_CLASS = {
   continuation: "flow-graph-edge flow-graph-edge-continuation",
   failure: "flow-graph-edge flow-graph-edge-failure",
   conflict: "flow-graph-edge flow-graph-edge-conflict",
-  "lane-merge": "flow-graph-edge flow-graph-edge-lane-merge"
+  "lane-merge": "flow-graph-edge flow-graph-edge-lane-merge",
+  spawn: "flow-graph-edge flow-graph-edge-spawn",
+  fires: "flow-graph-edge flow-graph-edge-fires",
+  poc: "flow-graph-edge flow-graph-edge-poc"
 } as const
 
 /** How long a settled node really took, when its records timed both ends. */
@@ -153,7 +156,8 @@ const decorateGraph = (
        * (D-032). An `unproven` node is a node whose history has a hole, and a
        * prediction beside it would read as a node still to come.
        */
-      const predicted = run === undefined || run.status === "pending" || run.status === "running"
+      /* A forest node is a whole flow, run or trigger with its own word: no node history predicts it. */
+      const predicted = node.forest !== true && (run === undefined || run.status === "pending" || run.status === "running")
         ? durations?.get(node.id)
         : undefined
       return {
@@ -173,7 +177,7 @@ const decorateGraph = (
         draggable: false,
         connectable: false,
         deletable: false,
-        ariaLabel: graphNodeLabel(node.action, node.id, stateWord(run))
+        ariaLabel: graphNodeLabel(node.action, node.forest === true ? node.kind : node.id, node.word ?? stateWord(run))
       }
     }),
     edges: topology.edges
@@ -202,7 +206,9 @@ const FlowRunNode = memo(({ data }: NodeProps) => {
     readonly elapsedMs?: number
     readonly selected?: boolean
   }
-  const word = stateWord(run)
+  const word = node.word ?? stateWord(run)
+  /* A forest node (RunForest.ts) is a whole flow, run or trigger: its kind says which, not an address. */
+  const forest = node.forest === true
   /*
    * What this node took, or what its history says it takes. A settled node
    * has both its own timestamps, so it states the measurement; anything else
@@ -231,12 +237,13 @@ const FlowRunNode = memo(({ data }: NodeProps) => {
       data-node={node.id}
       data-tier={node.tier}
       data-state={word}
+      {...(forest ? { "data-forest": node.kind } : {})}
       {...(selected === undefined ? {} : { "data-selected": selected ? "true" : "false" })}
     >
       <Handle type="target" position={Position.Top} isConnectable={false} className="flow-graph-handle" />
       <Handle type="source" position={Position.Bottom} isConnectable={false} className="flow-graph-handle" />
       <WorkflowNodeContent className="flow-graph-node-foot">
-        <span className="flow-run-node-id">{node.id}</span>
+        <span className="flow-run-node-id">{forest ? node.kind : node.id}</span>
         {run !== undefined && run.attempts > 1 ? <span className="flow-run-node-attempt">attempt {run.attempts}</span> : null}
         <span className="flow-graph-node-word" data-state={word}>{word}</span>
         {time === undefined ? null : (

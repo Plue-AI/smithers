@@ -125,6 +125,12 @@ export interface RunGraphNode {
   readonly action?: string
   /** Where the declaration was written, repo-relative, when the writer knew. */
   readonly declaredAt?: { readonly path: string; readonly line: number }
+  /** Drawn around the recorded graph (RunForest.ts): a whole flow, run or trigger, with no records of its own. */
+  readonly forest?: true
+  /** A forest node's own state word; a recorded node reads its word off the fold. */
+  readonly word?: string
+  /** What a forest node's Open button runs: the execution in place, or the run's own card. */
+  readonly door?: { readonly flow: "runs.graph.execution" | "runs.open"; readonly args: string }
 }
 
 /**
@@ -133,6 +139,8 @@ export interface RunGraphNode {
  * graph builder can state (`ControlSchema.PlanEdgeReason`).
  */
 export type RunGraphEdgeReason = "value" | "continuation" | "failure" | "conflict" | "lane-merge"
+  /* The run forest's own three (RunForest.ts): a spawn, a trigger firing, a POC lane that never lands. */
+  | "spawn" | "fires" | "poc"
 
 /**
  * One edge of that graph.

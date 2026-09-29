@@ -626,13 +626,13 @@ describe("the run trace card's graph view", () => {
     const parsed = trace({
       traceView: "graph",
       plan: { planId: "plan-1", digest: "d1", nodes: [node] },
-      graph: { follow: true }
+      graph: { follow: true, execution: "c7eac2d2" }
     })
     expect(parsed.success).toBe(true)
     expect(parsed.data?.payload).toMatchObject({
       traceView: "graph",
       plan: { planId: "plan-1", digest: "d1", nodes: [node] },
-      graph: { follow: true }
+      graph: { follow: true, execution: "c7eac2d2" }
     })
     // The plan carries the node's address, its key, its edges, its tier and
     // what it dispatches. A node's key MATERIAL is tens of kilobytes of JSON

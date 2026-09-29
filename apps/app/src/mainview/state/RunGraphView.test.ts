@@ -15,6 +15,7 @@ import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { json, loadBox, memoryStorage, settle, silentAgent, waitFor } from "./TestFixtures"
+import { readFileSync } from "node:fs"
 
 const createAppController = scopedControllers()
 const webStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -254,5 +255,33 @@ describe("the graph view's reader gestures", () => {
     await signIn(store)
     expect(said(await controller.commands.run("runs.trace.view", "run-9 graph"))).toContain("runs.open run-9")
     expect(said(await controller.commands.run("runs.graph.follow", "run-9 on"))).toContain("runs.open run-9")
+  })
+})
+
+describe("runs.graph.execution: which execution of the run forest the graph draws", () => {
+  /* The recorded GraphFixture run: its journal names run-1, and Gate is a child execution with a graph. */
+  const RECORDED: { readonly rows: ReadonlyArray<Record<string, unknown>> } =
+    JSON.parse(readFileSync(new URL("../cards/fixtures/GraphRunJournal.json", import.meta.url), "utf8"))
+  const GATE = "c7eac2d2567599c2bcbcbaa35ac4e07acf21e6e01c23753262361a60a7e0f07d"
+
+  test("opens a recorded child in place, closes the open drawer, keeps the camera, and returns by replacement", async () => {
+    const { store, controller } = await launched()
+    const card = runCard(store)!
+    await store.dispatch({ type: "card.upsert", actor: "system",
+      card: { ...card, payload: { ...card.payload, events: [...RECORDED.rows], graph: { follow: false, node: "gate", tab: "events" } } } }).isPersisted.promise
+    expect(said(await controller.commands.runForAgent("runs.graph.execution", `${RUN} nope`))).toBe(`Run ${RUN} has no graph for execution nope.`)
+    expect(runCard(store)?.payload.graph).toEqual({ follow: false, node: "gate", tab: "events" })
+    expect(said(await controller.commands.runForAgent("runs.graph.execution", `${RUN} ${GATE}`))).toBe(`graph-execution run=${RUN} execution=${GATE}`)
+    expect(runCard(store)?.payload.graph).toEqual({ follow: false, execution: GATE })
+    expect(said(await controller.commands.runForAgent("runs.graph.execution", RUN))).toBe(`graph-execution run=${RUN} execution=default`)
+    /* A replacement, not a merge: the cleared execution does not come back from the journal. */
+    expect(runCard(store)?.payload.graph).toEqual({ follow: false })
+  })
+
+  test("needs the run's card first", async () => {
+    const store = await webStore()
+    const controller = createAppController(store, silentAgent, relay().services)
+    await signIn(store)
+    expect(said(await controller.commands.run("runs.graph.execution", "run-9"))).toContain("runs.open run-9")
   })
 })
