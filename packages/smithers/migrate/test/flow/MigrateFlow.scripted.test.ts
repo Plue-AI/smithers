@@ -24,7 +24,8 @@ import * as MigrateFlow from "@smthrs/migrate/flow/MigrateFlow"
 import * as Transform from "@smthrs/migrate/flow/Transform"
 import * as Effect from "effect/Effect"
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { copyFixture, fixture, hashTree } from "../fixtures/helpers.ts"
@@ -121,6 +122,31 @@ const emptyAnswer = (unit: string): string =>
 const unitOf = (asked: string): string => /# Unit `([^`]+)`/.exec(asked)?.[1] ?? "unknown"
 
 describe("apply over a single-file JSX project", () => {
+  it.effect("applies in a linked Git worktree with a native checkpoint", () =>
+    Effect.gen(function*() {
+      const main = copyFixture("jsx-single")
+      committed(main)
+      const linked = mkdtempSync(join(tmpdir(), "migrate-linked-worktree-"))
+      try {
+        execFileSync("git", ["worktree", "add", "--detach", linked, "HEAD"], { cwd: main, stdio: "ignore" })
+        expect(statSync(join(linked, ".git")).isFile()).toBe(true)
+
+        const { report } = yield* apply(linked)
+
+        const checkpoint = report.units.find((unit) => unit.id === "workflow:simple-workflow")?.checkpoint
+        expect(checkpoint?.vcs).toBe("git")
+        expect(checkpoint?.ref).toContain("refs/smithers-migrate/")
+        expect(
+          execFileSync("git", ["rev-parse", "--verify", checkpoint!.ref], { cwd: linked, encoding: "utf8" })
+            .trim()
+        ).toMatch(/^[a-f0-9]{40,64}$/)
+        expect(readFileSync(join(linked, "flows", "simple-workflow", "flow.ts"), "utf8")).toBe(golden)
+      } finally {
+        execFileSync("git", ["worktree", "remove", "--force", linked], { cwd: main, stdio: "ignore" })
+        rmSync(linked, { recursive: true, force: true })
+      }
+    }))
+
   it.effect("migrates the workflow, checkpoints it, verifies it, and archives the old source", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")

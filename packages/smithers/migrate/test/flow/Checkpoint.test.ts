@@ -27,7 +27,7 @@ import {
 } from "node:fs"
 import { userInfo } from "node:os"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 
 const platform = NodeServices.layer
 
@@ -99,6 +99,25 @@ describe("Checkpoint.detectVcs", () => {
     Effect.gen(function*() {
       expect(yield* Checkpoint.detectVcs(scratch("plain"))).toBe("none")
       expect(yield* Checkpoint.detectVcs(gitProject("detect"))).toBe("git")
+    }).pipe(Effect.provide(platform)))
+
+  it.effect("follows a relative Git worktree pointer and refuses a dangling one", () =>
+    Effect.gen(function*() {
+      const main = gitProject("linked-detect")
+      const linked = scratch("linked-detect-worktree")
+      execFileSync("git", ["worktree", "add", "--detach", linked, "HEAD"], { cwd: main, stdio: "ignore" })
+      const gitFile = join(linked, ".git")
+      const original = readFileSync(gitFile, "utf8")
+      const metadata = original.trim().slice("gitdir: ".length)
+      try {
+        writeFileSync(gitFile, `gitdir: ${relative(linked, metadata)}\r\n`)
+        expect(yield* Checkpoint.detectVcs(linked)).toBe("git")
+        writeFileSync(gitFile, "gitdir: missing-worktree-metadata\n")
+        expect(yield* Checkpoint.detectVcs(linked)).toBe("none")
+      } finally {
+        writeFileSync(gitFile, original)
+        execFileSync("git", ["worktree", "remove", "--force", linked], { cwd: main, stdio: "ignore" })
+      }
     }).pipe(Effect.provide(platform)))
 })
 

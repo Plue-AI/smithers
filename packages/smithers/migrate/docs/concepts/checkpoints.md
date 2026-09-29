@@ -15,7 +15,7 @@ Before a unit edits anything, the checkpoint records three things.
 
 **A version-control reference.** A jj change, a git ref, or, with
 `--allow-no-vcs`, a file copy. The report prints the command that restores each
-one.
+one. Git linked worktrees use the same git ref checkpoint as a main checkout.
 
 **A manifest of the unit's own files.** Every declared source and target is
 copied aside, and each path is recorded with whether it existed and what its

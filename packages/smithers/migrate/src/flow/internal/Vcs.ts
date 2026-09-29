@@ -20,7 +20,8 @@ const isDirectory = (target: string) =>
   })
 
 /**
- * Reads version-control directories, preferring colocated jj.
+ * Reads version-control metadata, preferring colocated jj. Git linked
+ * worktrees and submodules use a .git file pointing to their metadata.
  *
  * @since 1.0.0-rc.0
  * @private
@@ -28,8 +29,23 @@ const isDirectory = (target: string) =>
 export const detect = (root: string) =>
   Effect.gen(function*() {
     const path = yield* Path.Path
+    const fs = yield* FileSystem.FileSystem
     if (yield* isDirectory(path.join(root, ".jj"))) return "jj" as const
-    if (yield* isDirectory(path.join(root, ".git"))) return "git" as const
+    const gitPath = path.join(root, ".git")
+    const gitInfo = yield* Fs.optionalNotFound(fs.stat(gitPath))
+    if (Option.isSome(gitInfo)) {
+      if (gitInfo.value.type === "Directory") return "git" as const
+      if (gitInfo.value.type === "File") {
+        const pointer = /^gitdir: (.+)\r?\n?$/.exec(yield* fs.readFileString(gitPath))?.[1]
+        if (pointer !== undefined) {
+          const gitDir = path.resolve(root, pointer)
+          if (yield* isDirectory(gitDir)) {
+            const head = yield* Fs.optionalNotFound(fs.stat(path.join(gitDir, "HEAD")))
+            if (Option.isSome(head) && head.value.type === "File") return "git" as const
+          }
+        }
+      }
+    }
     return "none" as const
   })
 
