@@ -3,6 +3,43 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { docsText } from "../../site/scripts/docs-text.mjs"
 import { parseScripts } from "../scripts/scripts.mjs"
+import { providerFixture } from "../scripts/provider-fixture.mjs"
+import { monitorCell } from "../scripts/scenarios.mjs"
+
+test("monitor recording uses HTTP judge", async () => {
+  const fixture = await providerFixture({ judge: true })
+  try {
+    const url = fixture.env.SMITHERS_ACCOUNT_POOL_URL
+    const routes = await (await fetch(url + "/routes")).json()
+    assert.deepEqual(routes, { routes: ["chatgpt"] })
+    const reply = async (body: object) => {
+      const response = await fetch(url + "/responses", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      })
+      assert.equal(response.status, 200)
+      const stream = await response.text()
+      return stream.split("\n").filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice(6))).find((event) => event.type === "response.output_text.delta").delta as string
+    }
+    const coordinator = await reply({ input: [] })
+    assert.ok(coordinator.includes(monitorCell))
+    assert.ok((await reply({ input: [] })).includes(monitorCell))
+    const judge = await reply({
+      instructions: "Judge the supplied evidence against every question.",
+      input: [{ role: "user", content: [{ text: JSON.stringify({
+        questions: { notable: { type: "boolean" } }
+      }) }] }]
+    })
+    assert.match(judge, /"probability":0\.99/)
+    const luna = await reply({
+      instructions: "Write one line (at most 120 characters) telling the user the notable update."
+    })
+    assert.match(luna, /Addition checks passed\./)
+    assert.deepEqual(fixture.calls, { coordinator: 2, judge: 1, luna: 1 })
+  } finally {
+    await fixture.close()
+  }
+})
 
 test("installation page on noexec temp", () => {
   const site = new URL("../../site/", import.meta.url)

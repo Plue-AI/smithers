@@ -63,6 +63,7 @@ const cells = {
   estimates:
     "console.log(await ctx.call(\"tab.eta\",{}));ctx.done(\"Estimates use the recorded history of these tasks.\");"
 }
+export const monitorCell = cells.monitor
 export const scenarioNames = [
   "basic",
   "fix-add",

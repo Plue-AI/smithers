@@ -25,7 +25,11 @@ Capture "Stop the monitor and retain its recorded updates."
 Use "monitor-refusal"
 Type "Monitor the addition check output."
 Press Enter
-Wait for "Jev is unavailable"
+Wait for answer "Monitor request settled."
+Wait for monitor "checks" status "active"
+Type "!printf '3 checks passed\\n' > check-status.txt"
+Press Enter
+Wait for monitor "checks" status "failed"
 Press Ctrl+O
 Capture "Inspect a monitor creation refusal when judging is unavailable."
 ```

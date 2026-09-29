@@ -1,7 +1,9 @@
 /** Local network boundary for monitor demonstrations; no live credentials or paid requests. */
 import { once } from "node:events"
 import { createServer } from "node:http"
+import { monitorCell } from "./scenarios.mjs"
 export async function providerFixture({ judge = false } = {}) {
+  const calls = { coordinator: 0, judge: 0, luna: 0 }
   const server = createServer(async (request, response) => {
     if (request.url === "/routes") {
       response.setHeader("Content-Type", "application/json")
@@ -12,7 +14,11 @@ export async function providerFixture({ judge = false } = {}) {
     for await (const chunk of request) chunks.push(chunk)
     const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
     let content
-    if (judge && body.instructions?.startsWith("Judge the supplied evidence")) {
+    const kind = body.instructions?.startsWith("Judge the supplied evidence") ? "judge"
+      : JSON.stringify(body).includes("Write one line (at most 120 characters) telling the user") ? "luna"
+      : "coordinator"
+    calls[kind]++
+    if (judge && kind === "judge") {
       const { questions } = JSON.parse(body.input.find((item) => item.role === "user").content[0].text)
       const passing = new Set(["on_target", "complete", "notable"])
       content = JSON.stringify({
@@ -27,6 +33,8 @@ export async function providerFixture({ judge = false } = {}) {
           ])
         )
       })
+    } else if (judge && kind === "coordinator") {
+      content = `\`\`\`cell\n${monitorCell}\n\`\`\``
     } else {
       content = JSON.stringify(body).includes("You estimate how long")
         ? JSON.stringify({ minutes: 0.1, tokens: 800, low_minutes: 0.05, high_minutes: 0.3 })
@@ -42,6 +50,7 @@ export async function providerFixture({ judge = false } = {}) {
   await once(server, "listening")
   const url = `http://127.0.0.1:${server.address().port}`
   return {
+    calls,
     env: {
       SMITHERS_ACCOUNT_POOL_URL: url,
       SMITHERS_ACCOUNT_POOL_KEY: "docs-fixture",
