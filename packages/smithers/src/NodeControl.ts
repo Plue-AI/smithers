@@ -47,7 +47,10 @@ import type { EngineDurable, ModuleRegistration } from "./internal/NativeControl
 
 import * as CommandStatus from "./internal/CommandStatus.ts"
 
+import { Client } from "./internal/backend/Client.ts"
 import { Session } from "./internal/backend/Session.ts"
+import { sshArgs } from "./internal/backend/SSH.ts"
+import { workspaceSSH } from "./internal/backend/Workspaces.ts"
 import * as NodeWebSocket from "./internal/NodeWebSocket.ts"
 import * as SupervisorMemory from "./internal/SupervisorMemory.ts"
 import * as Output from "./Output.ts"
@@ -265,6 +268,29 @@ export {
  * @since 1.0.0
  */
 export const supervisorStance = SupervisorMemory.stance
+
+/**
+ * The `ssh` argv prefix that reaches a Smithers Cloud workspace through the
+ * public `GET /api/repos/{owner}/{repo}/workspaces/{id}/ssh` endpoint, with the
+ * advertised host keys pinned. `reference` is `OWNER/REPO/WORKSPACE_ID`; the
+ * API URL and token come from `environment` and the CLI's configuration. The
+ * embedded grant expires, so ask again for a later command.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const workspaceSshPrefix = (
+  environment: Readonly<Record<string, string | undefined>>,
+  reference: string
+): Promise<Array<string>> => {
+  const match = /^([\w.-]+\/[\w.-]+)\/([\w-]+)$/.exec(reference)
+  if (match === null) return Promise.reject(new Error("Expected OWNER/REPO/WORKSPACE_ID"))
+  const client = new Client({ environment })
+  return workspaceSSH(client, match[2]!, { repo: match[1] }).then(async (endpoint) => [
+    "ssh",
+    ...await sshArgs(client, endpoint)
+  ])
+}
 
 /**
  * The flow sources a local CLI discovers: the project `flows/` directory, whose
