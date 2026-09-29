@@ -1173,6 +1173,12 @@
   "github": {
     "mirror": "pull",
     "issues": "two-way",
-    "changes": "send-upstream"
+    "changes": "send-upstream",
+    "agentIssueSources": [
+      "run"
+    ],
+    "todoAuthors": [
+      "roninjin10"
+    ]
   }
 }

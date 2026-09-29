@@ -1131,6 +1131,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
+	mythicalService.SetPolicyReader(repoHostClient)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)

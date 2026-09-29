@@ -98,7 +98,8 @@ export const FactoryGithubSchema = z.object({
   changes: z.enum(["land", "send-upstream", "none"]),
   protectedPaths: z.array(z.string()).optional(),
   reviewerAgents: z.array(z.string()).optional(),
-  agentIssueSources: z.array(z.enum(["run", "linear", "trial"])).optional()
+  agentIssueSources: z.array(z.enum(["run", "linear", "trial"])).optional(),
+  todoAuthors: z.array(z.string()).optional()
 })
 
 /**

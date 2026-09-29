@@ -37,8 +37,11 @@ type mythicalIssue struct {
 	// TextByMaintainer: the author and the last writers of the title and
 	// body are maintainer persons (issueTextByMaintainerField).
 	TextByMaintainer bool
-	Labels           []string
-	PullRequest      bool
+	// TextSource is the agent source that filed the issue and wrote all its
+	// text (authoredText.TextSource), or "".
+	TextSource  string
+	Labels      []string
+	PullRequest bool
 }
 
 // mythicalPull is one GitHub pull request as the stack follows it.
@@ -76,6 +79,8 @@ type mythicalGitHub interface {
 	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error)
 	// Comment posts one comment on an issue.
 	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
+	// AddLabel puts label on an issue.
+	AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 	// RemoveLabel takes label off an issue; an absent label is removed.
 	RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 }
@@ -165,6 +170,7 @@ type mythicalGitHubIssue struct {
 	User             gitHubActor      `json:"user"`
 	ViaApp           *json.RawMessage `json:"performed_via_github_app"`
 	TextByMaintainer bool             `json:"smithers_text_by_maintainer"`
+	TextSource       string           `json:"smithers_text_source"`
 	Labels           []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
@@ -174,7 +180,7 @@ type mythicalGitHubIssue struct {
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
 		Author: i.User, ViaApp: i.ViaApp != nil && string(*i.ViaApp) != "null",
-		TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
+		TextByMaintainer: i.TextByMaintainer, TextSource: i.TextSource, PullRequest: i.PullRequest != nil}
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
@@ -368,6 +374,22 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 	}
 	if status != http.StatusCreated {
 		return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
+	}
+	return nil
+}
+
+func (g *mythicalGitHubAPI) AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error {
+	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	if err != nil {
+		return err
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/labels"
+	status, err := g.api.request(ctx, token, http.MethodPost, path, map[string][]string{"labels": {label}}, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "edit issue labels")
 	}
 	return nil
 }

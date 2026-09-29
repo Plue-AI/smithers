@@ -36,6 +36,9 @@ const labelAppliedByMaintainerField = "smithers_applied_by_maintainer"
 type gitHubLabelApplication struct {
 	Label        string
 	ByMaintainer bool
+	// AutoTodo, when set, is why the factory makes this issue a TODO without
+	// the label under the owner's committed policy (mythicalAutoTodo).
+	AutoTodo string
 }
 
 // gitHubLabelApplied reads the label application from a stamped issue event.

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -178,11 +179,20 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		// A label a maintainer person applied counts while it stays on the
 		// issue: a TODO needs no new label for its maintainer's own edit.
 		checks := mythicalChecksOf(existing)
-		checks.Todo = issueCarriesLabel(issue.Labels, todoLabel) && (appliedByMaintainer(applied, todoLabel) || checks.Todo)
+		// The owner's policy makes an issue a TODO once, without the label;
+		// the label then keeps it one like any other.
+		auto := applied.AutoTodo != "" && checks.AutoTodo == ""
+		if auto {
+			checks.AutoTodo = applied.AutoTodo
+		}
+		checks.Todo = auto || issueCarriesLabel(issue.Labels, todoLabel) && (appliedByMaintainer(applied, todoLabel) || checks.Todo)
 		checks.Automerge = issueCarriesLabel(issue.Labels, automergeLabel) && (appliedByMaintainer(applied, automergeLabel) || checks.Automerge)
 		approved := ""
 		switch {
 		case !checks.Todo:
+		case applied.AutoTodo != "":
+			// The policy approves the text of an author or source it names.
+			approved = digest
 		case approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, todoLabel):
 			approved = digest
 		case existing.ApprovedDigest == digest:
@@ -299,6 +309,7 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 		}
 	}
 	open := make(map[int64]bool, len(issues))
+	autoTodo := s.autoTodoPolicy(ctx, repositoryID)
 	for _, issue := range issues {
 		open[issue.Number] = true
 		// A listing names no writer. Text the item already holds keeps the
@@ -325,10 +336,12 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 			applied = []gitHubLabelApplication{{}}
 		}
 		for _, application := range applied {
+			application.AutoTodo = autoTodo(issue)
 			if err := s.ObserveIssue(ctx, repositoryID, issue, application); err != nil {
 				return counts, err
 			}
 		}
+		s.labelAutoTodo(ctx, repositoryID, issue)
 	}
 	if items, err = q.ListMythicalItems(ctx, repositoryID, 1000); err != nil {
 		return counts, err
@@ -2061,15 +2074,80 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	if err != nil {
 		return err
 	}
+	issue := event.Issue.issue()
 	for _, id := range ids {
-		if err := s.ObserveIssue(ctx, id, event.Issue.issue(), applied); err != nil {
+		applied := applied
+		applied.AutoTodo = s.autoTodoPolicy(ctx, id)(issue)
+		if err := s.ObserveIssue(ctx, id, issue, applied); err != nil {
 			return err
 		}
 		if !applied.ByMaintainer && (strings.EqualFold(applied.Label, todoLabel) || strings.EqualFold(applied.Label, automergeLabel)) {
 			s.revertLabel(ctx, id, event.Issue.Number, applied.Label)
 		}
+		s.labelAutoTodo(ctx, id, issue)
 	}
 	return nil
+}
+
+// autoTodoPolicy reads the owner's committed policy once and answers, for
+// an issue, why it is a TODO without the label: the factory filed it (a
+// listed agent source wrote all its text), or a listed TODO author wrote it.
+// An unreadable policy makes nothing a TODO.
+func (s *MythicalService) autoTodoPolicy(ctx context.Context, repositoryID int64) func(mythicalIssue) string {
+	none := func(mythicalIssue) string { return "" }
+	if s.policy == nil {
+		return none
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err != nil {
+		return none
+	}
+	policy, err := readRepositoryPolicy(ctx, s.policy, owner, repository.Name, repository.DefaultBookmark)
+	if err != nil {
+		s.logger.Warn("mythical.policy_unreadable", "repository_id", repositoryID, "error", err)
+		return none
+	}
+	return func(issue mythicalIssue) string { return mythicalAutoTodo(policy, issue) }
+}
+
+// mythicalAutoTodo is why the policy makes an issue a TODO, or "".
+func mythicalAutoTodo(policy factoryGitHubPolicy, issue mythicalIssue) string {
+	if issue.TextSource != "" && slices.Contains(policy.AgentIssueSources, issue.TextSource) {
+		return "filed by the factory (" + issue.TextSource + ")"
+	}
+	for _, author := range policy.TodoAuthors {
+		if issue.TextByMaintainer && strings.EqualFold(strings.TrimSpace(author), issue.Author.Login) {
+			return "written by " + issue.Author.Login + ", a TODO author"
+		}
+	}
+	return ""
+}
+
+// labelAutoTodo applies todo to an issue the factory made a TODO without
+// it, so the issue shows what it is. A failure only leaves the label
+// missing; the item is a TODO either way.
+func (s *MythicalService) labelAutoTodo(ctx context.Context, repositoryID int64, issue mythicalIssue) {
+	if s.github == nil || issueCarriesLabel(issue.Labels, todoLabel) {
+		return
+	}
+	item, err := s.queries().GetMythicalItemByIssue(ctx, repositoryID, issue.Number)
+	if err != nil || mythicalChecksOf(item).AutoTodo == "" || !mythicalChecksOf(item).Todo {
+		return
+	}
+	stack, err := s.queries().GetMythicalStack(ctx, repositoryID)
+	if err != nil || !stack.ActorUserID.Valid {
+		return
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err == nil {
+		var gh mythicalGitHubRepo
+		if gh, err = s.github.Resolve(ctx, repository, owner, stack.ActorUserID.Int64); err == nil {
+			err = s.github.AddLabel(ctx, gh, issue.Number, todoLabel)
+		}
+	}
+	if err != nil {
+		s.logger.Warn("mythical.auto_todo_label_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
+	}
 }
 
 // labelsAppliedByMaintainers reads, for a listed issue whose label events
@@ -2107,6 +2185,11 @@ func (s *MythicalService) labelsAppliedByMaintainers(ctx context.Context, gh myt
 // it, so a failure only leaves the label showing: it is logged, and never
 // fails the webhook delivery.
 func (s *MythicalService) revertLabel(ctx context.Context, repositoryID, number int64, label string) {
+	// The factory's own todo on an issue it made a TODO stays.
+	if item, err := s.queries().GetMythicalItemByIssue(ctx, repositoryID, number); err == nil &&
+		strings.EqualFold(label, todoLabel) && mythicalChecksOf(item).AutoTodo != "" {
+		return
+	}
 	stack, err := s.queries().GetMythicalStack(ctx, repositoryID)
 	if err != nil || s.github == nil || !stack.ActorUserID.Valid {
 		return
@@ -2171,7 +2254,9 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	Todo      bool            `json:"todo,omitempty"`
+	Todo bool `json:"todo,omitempty"`
+	// AutoTodo is why the factory made the issue a TODO without the label.
+	AutoTodo  string          `json:"autoTodo,omitempty"`
 	Automerge bool            `json:"automerge,omitempty"`
 	Review    *mythicalReview `json:"review,omitempty"`
 }
@@ -2191,7 +2276,7 @@ func mythicalChecksOf(item db.MythicalItem) mythicalChecks {
 }
 
 func (c mythicalChecks) encode() json.RawMessage {
-	if !c.Todo && !c.Automerge && c.Review == nil {
+	if !c.Todo && c.AutoTodo == "" && !c.Automerge && c.Review == nil {
 		return nil
 	}
 	raw, _ := json.Marshal(c)

@@ -224,7 +224,8 @@ export const GithubPolicy = Schema.TaggedStruct("GithubPolicy", {
   changes: Changes,
   protectedPaths: Schema.Array(Schema.String),
   reviewerAgents: Schema.Array(Schema.String),
-  agentIssueSources: Schema.Array(AgentIssueSource)
+  agentIssueSources: Schema.Array(AgentIssueSource),
+  todoAuthors: Schema.Array(Schema.String)
 })
 
 /**
@@ -247,7 +248,10 @@ export type GithubPolicy = typeof GithubPolicy.Type
  * path with `/` matches from the repository root down. `reviewerAgents` names
  * the agent accounts whose LGTM counts toward `require_agent_lgtm`; no other
  * agent's does. `agentIssueSources` lets issues an agent source files start
- * credentialed work without a maintainer's trigger label.
+ * credentialed work without a maintainer's trigger label; an issue a listed
+ * source filed becomes a TODO without the `todo` label. `todoAuthors` names the
+ * GitHub logins whose own issues become TODOs the same way: the factory
+ * applies `todo` to them. Everyone else's issue waits for a maintainer's label.
  *
  * @category models
  * @since 1.0.0
@@ -259,6 +263,7 @@ export interface GithubPolicyOptions {
   readonly protectedPaths?: ReadonlyArray<string> | undefined
   readonly reviewerAgents?: ReadonlyArray<string> | undefined
   readonly agentIssueSources?: ReadonlyArray<typeof AgentIssueSource.Type> | undefined
+  readonly todoAuthors?: ReadonlyArray<string> | undefined
 }
 
 /**
@@ -282,7 +287,7 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
   const plain = Home.plainOptions(
     "Github.Policy",
     options,
-    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents", "agentIssueSources"])
+    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents", "agentIssueSources", "todoAuthors"])
   )
   const policy = Home.decode("Github.Policy", GithubPolicy, {
     _tag: "GithubPolicy",
@@ -291,11 +296,14 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
     changes: plain["changes"] ?? "send-upstream",
     protectedPaths: plain["protectedPaths"] ?? [],
     reviewerAgents: plain["reviewerAgents"] ?? [],
-    agentIssueSources: plain["agentIssueSources"] ?? []
+    agentIssueSources: plain["agentIssueSources"] ?? [],
+    todoAuthors: plain["todoAuthors"] ?? []
   })
-  for (const login of policy.reviewerAgents) {
-    if (login.trim() !== login || login === "") {
-      throw new TypeError(`Github.Policy: reviewerAgents entry ${JSON.stringify(login)} is not a login`)
+  for (const [field, logins] of [["reviewerAgents", policy.reviewerAgents], ["todoAuthors", policy.todoAuthors]] as const) {
+    for (const login of logins) {
+      if (login.trim() !== login || login === "") {
+        throw new TypeError(`Github.Policy: ${field} entry ${JSON.stringify(login)} is not a login`)
+      }
     }
   }
   for (const entry of policy.protectedPaths) {
@@ -493,7 +501,8 @@ export const GithubProjection = Schema.Struct({
   changes: Changes,
   protectedPaths: Schema.optionalKey(Schema.Array(Schema.String)),
   reviewerAgents: Schema.optionalKey(Schema.Array(Schema.String)),
-  agentIssueSources: Schema.optionalKey(Schema.Array(AgentIssueSource))
+  agentIssueSources: Schema.optionalKey(Schema.Array(AgentIssueSource)),
+  todoAuthors: Schema.optionalKey(Schema.Array(Schema.String))
 })
 
 /**
@@ -547,7 +556,8 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
             : {}),
           ...(declaration.github.agentIssueSources.length > 0 ?
             { agentIssueSources: declaration.github.agentIssueSources }
-            : {})
+            : {}),
+          ...(declaration.github.todoAuthors.length > 0 ? { todoAuthors: declaration.github.todoAuthors } : {})
         }
       }),
       null,

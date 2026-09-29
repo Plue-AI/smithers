@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -310,4 +312,74 @@ func TestMythicalRunOutcomeSeparatesPlanFailuresFromOutages(t *testing.T) {
 	} {
 		assert.Equal(t, tc.want, mythicalRunOutcome("request", tc.update))
 	}
+}
+
+// policyHost serves one committed factory projection on main.
+type policyHost struct{ projection string }
+
+func (h policyHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+	return []repohost.Bookmark{{Name: "main", TargetCommitID: strings.Repeat("a", 40)}}, "", nil
+}
+
+func (h policyHost) GetFileAtChange(_ context.Context, _, _, _, path string) (repohost.FileContent, error) {
+	if path != factoryProjectionPath {
+		return repohost.FileContent{}, errors.New("unexpected path " + path)
+	}
+	return repohost.FileContent{Content: h.projection}, nil
+}
+
+// opened delivers an issues "opened" event through the stack's webhook
+// entry, stamped as the ingress stamps it.
+func (o *mythicalOrchestration) opened(number int64, author string, byMaintainer bool, source string) {
+	o.t.Helper()
+	issue := map[string]any{"number": number, "title": fmt.Sprintf("Issue %d", number), "body": "do it", "state": "open",
+		"html_url": fmt.Sprintf("https://github.com/smithersai/smithers/issues/%d", number), "user": map[string]any{"login": author},
+		"labels": []any{}, issueTextByMaintainerField: byMaintainer}
+	if source != "" {
+		issue["smithers_text_source"] = source
+	}
+	payload, err := json.Marshal(map[string]any{"action": "opened", "issue": issue,
+		"repository": map[string]any{"name": "smithers", "owner": map[string]any{"login": "smithersai"}}})
+	require.NoError(o.t, err)
+	require.NoError(o.t, o.service.ObserveGitHubEvent(context.Background(), "issues", payload))
+}
+
+// An issue becomes a TODO without the label only when the owner's policy
+// names its author or the source that filed it. The factory then applies
+// the label, records why, and never reverts its own label.
+func TestMythicalPolicyMakesTheMaintainersAndTheFactorysIssuesTodos(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE repositories SET mirror_destination = 'https://github.com/smithersai/smithers' WHERE id = $1`, o.repoID)
+	require.NoError(t, err)
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream",` +
+		`"agentIssueSources":["run"],"todoAuthors":["roninjin10"]}}`})
+
+	o.opened(1, "roninjin10", true, "")
+	item := o.item(1)
+	assert.Equal(t, "queued", item.State, item.Reason)
+	assert.Equal(t, "written by roninjin10, a TODO author", mythicalChecksOf(item).AutoTodo)
+	o.opened(2, "other-maintainer", true, "")
+	assert.Equal(t, "skipped", o.item(2).State, "another maintainer's issue waits for the label")
+	o.opened(3, "stranger", false, "")
+	assert.Equal(t, "skipped", o.item(3).State, "an outsider's issue waits for the label")
+	o.opened(4, "roninjin10", false, "")
+	assert.Equal(t, "skipped", o.item(4).State, "the maintainer's issue someone else rewrote waits")
+	o.opened(5, "fucory", false, "run")
+	item = o.item(5)
+	assert.Equal(t, "queued", item.State, "an issue the factory filed is a TODO")
+	assert.Equal(t, "filed by the factory (run)", mythicalChecksOf(item).AutoTodo)
+	assert.Equal(t, []string{"#1 todo", "#5 todo"}, o.github.added, "the factory shows what it made a TODO")
+
+	// The App's own labeled event is not reverted; the item stays a TODO.
+	o.labeled(1, []string{"todo"}, "todo", false)
+	assert.Empty(t, o.github.removed)
+	assert.Equal(t, "queued", o.item(1).State)
+
+	// Without the policy, no issue is a TODO on its own.
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream"}}`})
+	o.opened(6, "roninjin10", true, "")
+	assert.Equal(t, "skipped", o.item(6).State)
+	o.opened(7, "fucory", false, "run")
+	assert.Equal(t, "skipped", o.item(7).State)
 }

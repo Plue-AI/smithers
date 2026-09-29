@@ -25,6 +25,9 @@ type factoryGitHubPolicy struct {
 	// AgentIssueSources are the agent sources ("run", "linear", "trial")
 	// whose filed issues start credentialed work without a label.
 	AgentIssueSources []string `json:"agentIssueSources"`
+	// TodoAuthors are the GitHub logins whose own issues become TODOs
+	// without the todo label: the stack applies it.
+	TodoAuthors []string `json:"todoAuthors"`
 }
 
 // agentIssueSources are the native sources that file issues under a person's

@@ -90,7 +90,15 @@ export const factory = S.Factory({
   // maintainer merges there, Smithers Cloud follows GitHub's main, and issues
   // move both ways. Returns to `mirror: "push", changes: "land"` (RULINGS 23)
   // once landing on Smithers Cloud is proven (flows/coding/finalization.md).
-  github: S.Github.Policy({ mirror: "pull", issues: "two-way", changes: "send-upstream" })
+  // An issue becomes a TODO without the todo label only when the factory
+  // filed it (a run's issue) or the maintainer wrote it.
+  github: S.Github.Policy({
+    mirror: "pull",
+    issues: "two-way",
+    changes: "send-upstream",
+    agentIssueSources: ["run"],
+    todoAuthors: ["roninjin10"]
+  })
 })
 
 // --- homepage --------------------------------------------------------------

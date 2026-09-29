@@ -68,7 +68,8 @@ describe("Smithers.Github.Policy", () => {
       changes: "send-upstream",
       protectedPaths: [],
       reviewerAgents: [],
-      agentIssueSources: []
+      agentIssueSources: [],
+      todoAuthors: []
     })
     const ours = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land" })
     expect(ours).toEqual({
@@ -78,7 +79,8 @@ describe("Smithers.Github.Policy", () => {
       changes: "land",
       protectedPaths: [],
       reviewerAgents: [],
-      agentIssueSources: []
+      agentIssueSources: [],
+      todoAuthors: []
     })
     expect(Object.isFrozen(ours)).toBe(true)
   })
@@ -248,6 +250,21 @@ describe("Smithers.Factory", () => {
       agentIssueSources: ["linear", "trial"]
     })
     expect(() => Factory.Policy({ agentIssueSources: ["email" as never] })).toThrow()
+  })
+
+  it("projects the authors whose own issues are TODOs, and refuses a non-login", () => {
+    const authors = Factory.Policy({ todoAuthors: ["roninjin10"] })
+    const projected = Factory.parseProjection(
+      Factory.renderProjection(Factory.Factory({ summary: "S.", on, github: authors }), [])
+    )
+    expect(typeof projected === "string" ? projected : projected.github).toEqual({
+      mirror: "pull",
+      issues: "read",
+      changes: "send-upstream",
+      todoAuthors: ["roninjin10"]
+    })
+    expect(() => Factory.Policy({ todoAuthors: [""] })).toThrow(/todoAuthors/)
+    expect(() => Factory.Policy({ todoAuthors: ["fucory "] })).toThrow(/todoAuthors/)
   })
 
   it("projects declared protected paths", () => {
