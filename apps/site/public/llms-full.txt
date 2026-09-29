@@ -13077,10 +13077,14 @@ interpreters, including PATH interpreters selected by `/usr/bin/env`, are
 identified too. A target used as `bin` is identified after its executable
 output has been produced.
 
+`Host.bin(name, { env })` first takes the absolute path in host variable
+`env`, for a tool whose callers read that variable; PATH is used only when it
+is unset.
+
 `Shell.Build` command forms key the shell and the leading literal executable.
-Declare tool dependencies for commands computed dynamically or launched later
-in shell text. Executable installations must stay stable while a run is in
-progress; the executor rejects observed changes between planning, cache
+List executables a shell target spawns by itself in `tools`: their bytes join
+the key the same way, and an absent one refuses the target. Executable
+installations must stay stable while a run is in progress; the executor rejects observed changes between planning, cache
 lookup, and result storage. The build CLI cache keys on executable
 content, with Go, Rust, Node module, and within-run guarantees described
 in its caching concept doc.
@@ -15520,8 +15524,10 @@ around.
 class ChildError extends Schema.TaggedError<ChildError>()(
   "@smthrs/agent/ChildFlows/ChildError",
   {
-    code: Schema.Literals(["unsupported", "not_found", "failed"]),
-    message: Schema.String
+    code: Schema.Literals(["unsupported", "not_found", "failed", "still_running"]),
+    message: Schema.String,
+    /** How long a `still_running` await waited, in milliseconds. */
+    limitMillis: Schema.optional(Schema.Number)
   }
 )
 ```
@@ -19787,7 +19793,7 @@ https://smithers.sh/docs/reference/api/cli/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/api.md) · [package docs](https://cli.smithers.sh)
 
-> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
+> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
 
 The root entry point exports each public module as a namespace. Import a module directly with `@smthrs/cli/<Module>`.
 
@@ -20844,16 +20850,27 @@ The schema-backed RPC projection of the service.
 | `layerAuth`           | layer     | `(authenticator: Authenticator) => Layer<ControlAuth>`                                                                                                            |
 | `layerBearerAuth`     | layer     | `(options: BearerAuthOptions) => Layer<ControlAuth>`                                                                                                              |
 | `layerNoopAuth`       | layer     | `(principal?: Principal) => Layer<ControlAuth>`. Authenticates nothing.                                                                                           |
+| `ControlDefect`       | schema    | The defect schema of every procedure. Encodes any non-string defect as `{ name: "Error", message: defectMessage }`; decodes like `Schema.Defect()`.               |
+| `defectMessage`       | constant  | `"Something went wrong on our side. Not your fault."`                                                                                                             |
 
 `List` and `Watch` declare the whole `ControlError` union rather than restating
 its members.
 
+A handler defect, an untyped failure no procedure declares, reaches a client as
+a `Die` whose defect is `{ "name": "Error", "message": "Something went wrong on
+our side. Not your fault." }`. Its raw message and stack never cross the wire;
+the server logs them through `ControlServer.logDefect`. A string defect passes
+unchanged, so a payload that fails to decode still answers with the request
+decoder's own sentence. The encoded shape is the one `Schema.Defect()` decodes,
+so older clients and servers read each other's defects.
+
 ## ControlServer
 
-| Export      | Meaning                                                                                                                                                          |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layer`     | The handlers, delegating to `Control`. Every mutation that records who asked reads `ControlPrincipal` and stamps it rather than forwarding what the client sent. |
-| `layerHttp` | Mounts both protocols on the ambient `HttpRouter`: unary procedures over `POST /rpc`, and `watch` over `WebSocket /rpc/ws`.                                      |
+| Export      | Meaning                                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layer`     | The handlers, delegating to `Control`. Every mutation that records who asked reads `ControlPrincipal` and stamps it rather than forwarding what the client sent.                       |
+| `layerHttp` | Mounts both protocols on the ambient `HttpRouter`: unary procedures over `POST /rpc`, and `watch` over `WebSocket /rpc/ws`.                                                            |
+| `logDefect` | `(cause: Cause<unknown>) => Effect<void>`. Logs a handler's raw defect at error level and ignores typed failures. Tap it around a handler with `Effect.tapCause` or `Stream.tapCause`. |
 
 ## ControlClient
 
@@ -27558,10 +27575,12 @@ each supervisor reading also asks `compaction/marks` about the transcript
 segments not yet marked, the person's excepted, and the next boundary stores
 the answers, by segment digest, on `State.segmentFacts` inside its recorded
 drain (`Steering.DrainRecord.marks`). Marking changes nothing the model is
-sent: the prefix a request is sent stays byte-stable until the budget forces
-a compaction. A frame compacts only when the window crosses its budget
-(`Compaction.shouldCompact` and `selectPrefix` at their defaults); a judged
-run then marks each prefix segment `keep`, `squash` or `remove`. Pins, read
+sent: the prefix a request is sent stays byte-stable until a compaction. A
+frame compacts when the window crosses its budget (`Compaction.shouldCompact`
+and `selectPrefix` at their defaults), or when the boundary before it took a
+supervisor reading that fired `outdated_context` or `irrelevant_context`
+(`Steering.DrainRecord.compact`, carried on `State.compactionDue` for that
+frame alone); a judged run then marks each prefix segment `keep`, `squash` or `remove`. Pins, read
 from `State.segmentFacts` and the still-failing checks, fix what must
 survive: a summary is squashed; steering, the person's segments and the
 newest segment that ran each still-failing check are kept; a segment that
@@ -27572,7 +27591,7 @@ a replay asks nothing and re-keys the same summary. Only squashed segments
 reach the sealed summary step, which is skipped when nothing is squashed;
 kept segments stay verbatim after the summary. `decision-settled` rows
 precede `compaction-settled`, which carries `summary?`, `kept`, `marks`
-(segment digest, mark, `pinned?`) and `removedTokens`. An unjudged run and a
+(segment digest, mark, `pinned?`), `removedTokens` and `causes`. An unjudged run and a
 reading nobody could judge (journaled `decision-unjudged`) squash every
 prefix segment; so does a judged run whose facts do not describe every
 transcript segment, and its `compaction-settled` says `unaligned`.
@@ -27959,7 +27978,8 @@ export interface EngineLike {
   issues a call or evaluates a fresh cell frame, and `trip` with a `TimedOut`
   (`{ source: "tool-call" | "cell", subject, limitMillis?, message }`) when a
   call settles as a `timeout` failure or a frame overruns its wall-clock
-  limit. `trip` succeeds when the run's timeouts are not guarded, and the
+  limit. `limitMillis` is the limit the timeout recorded: the per-call
+  ceiling, or the call's own (a command's, an await's). `trip` succeeds when the run's timeouts are not guarded, and the
   cell reads the timeout as before; a guarded host fails it with a park, and
   the controller records nothing for the operation, so Continue runs it again
   and Stop fails the run at `admit`. `subject` is the replay-stable call or
@@ -28020,8 +28040,8 @@ without mutation. `Steering.Drain` is
 what one boundary promoted; `Steering.DrainRecord` and `drainRecord` project
 it into its journaled record, which also carries what the supervisor delivered
 there: its messages, the memory keys, the monitor delivered, the monitors
-withheld, the monitor ledger after gating, and the compaction marks the run
-stores.
+withheld, the monitor ledger after gating, the compaction marks the run
+stores, and the context triggers that compact its next frame.
 
 ```ts
 export interface Source {
@@ -28259,8 +28279,9 @@ Jev's other readings write these:
 Fields later writers add to existing events are optional, so older journals
 decode unchanged: `DecisionSettled.usage`; `CompactionSettled.kept`, `marks`
 (`CompactionMark` `keep`, `squash` or `remove`, with the `CompactionPin` that
-overrode a removal), `removedTokens` and `unaligned`, with `summary`
-optional; `SupervisorSettled.monitors` (`MonitorKind` `mood`, `skill` or
+overrode a removal, by segment digest), `removedTokens`, `unaligned` and
+`causes` (`CompactionCause` `budget`, `outdated_context` or
+`irrelevant_context`), with `summary` optional; `SupervisorSettled.monitors` (`MonitorKind` `mood`, `skill` or
 `lint`) and `skillsCapped`; `DisciplineArmed.judged`,
 `relevance`, `monitors` and `stance` (`careful` or `paranoid`), with
 `supervisorSteer` optional; `SteeringDrained.monitor`, `suppressed`
@@ -28345,9 +28366,10 @@ interrupt cause unchanged. A failed projection is a
 the durable exit schema. `FlowBinding.make` passes existing `HarnessError`
 values through unchanged; only permission requirements and denials are
 converted to code `suspended`. A handler error the binding's `timedOut`
-classifies becomes a `timeout` call result: `bash` and `test` classify a
-command past its limit, and `agent/await` a child still running. Other handler
-errors become opaque `flow_failed` call results. Either carries only the safe
+classifies becomes a `timeout` call result whose `value` records
+`{ limitMillis }` when the error says its limit: `bash` and `test` classify a
+command past its given or default limit, and `agent/await` a wait that gave
+up. Other handler errors become opaque `flow_failed` call results. Either carries only the safe
 `publicError` text the binding supplies.
 
 ## StructuredOutput
@@ -28847,9 +28869,13 @@ Five are about the run, the `triggers`: `thrashing` (at or
 above `thrashingAt`, 0.5), `off_target` (`on_target` at or below
 `offTargetAt`, 0.5), `suspect` (at or above `suspectAt`, 0.5),
 `outdated_context` and `irrelevant_context` (each at or above `contextAt`,
-0.5). `crosses(reading)` is any trigger firing and `triggered(reading)` names
-the ones that did; the `supervisor` lint monitor and the offline replay both
-call them, and `nudge` names the counts behind them. Five are
+0.5). `triggered(reading)` names the triggers that fired. The two
+`contextTriggers` never nudge: `compacting(reading)` names the ones that
+fired, and a judged run whose boundary takes that reading compacts its
+context at the next frame by the marks it stored, whatever the budget, its
+`compaction-settled` naming them as `causes`. `crosses(reading)` is any other
+trigger firing; the `supervisor` lint monitor and the offline replay both
+call it, and `nudge` names the counts behind it. Five are
 operational states scored on `Level` (`none`, `mild`, `strong`), each naming
 the evidence it reads: `frustrated`, `anxious`, `scared`, `confused`,
 `confident`. `needs_help` is a choice over `Help` (`none`, `clarification`,
@@ -32685,7 +32711,7 @@ import * as McpClient from "@smthrs/mcp/McpClient"
 ```
 
 `@smthrs/mcp/internal/*` and `@smthrs/mcp/*/index` are not public, so the
-JSON-RPC codec and the stdio transport are not importable.
+JSON-RPC codec and the stdio and HTTP transports are not importable.
 `@smthrs/mcp/package.json` is exported.
 
 `McpError` is a namespace under both import forms. The error class is
@@ -32716,23 +32742,30 @@ const program = Effect.scoped(Effect.gen(function*() {
 ## McpClient
 
 A minimal MCP client covering the `initialize` handshake, `tools/list`, and
-`tools/call` over stdio. It is deliberately not a general MCP SDK: resources,
+`tools/call` over stdio or Streamable HTTP. It is deliberately not a general MCP SDK: resources,
 prompts, sampling, and roots are not wired up.
 
 ### McpClient.connect
 
 ```ts
-const connect: (
-  options: ConnectOptions
-) => Effect.Effect<McpClient, McpError, ChildProcessSpawner | Scope.Scope>
+const connect: <O extends ConnectOptions>(
+  options: O
+) => Effect.Effect<McpClient, McpError, Requirements<O> | Scope.Scope>
 ```
 
-Spawns the server, completes the handshake, and fetches its tool catalog once,
-up front, following `nextCursor` across pages.
+Spawns the server (`command`) or opens a Streamable HTTP session (`url`),
+completes the handshake, and fetches its tool catalog once, up front, following
+`nextCursor` across pages.
 
-Requires `ChildProcessSpawner` and a `Scope`. The connection's lifetime is the
-scope's lifetime: closing the scope tears the process down, and every request
-pending at that moment fails with `connection_closed`.
+Requires a `Scope`, plus `ChildProcessSpawner` for `command` or `HttpClient`
+for `url` (`Requirements<O>`). The connection's lifetime is the scope's
+lifetime: closing the scope tears the process down or ends the HTTP session,
+and every stdio request pending at that moment fails with `connection_closed`.
+
+Over HTTP, a destination the `HttpClient`'s egress policy denies and an
+unreachable server fail with `connection_closed`; a non-2xx answer fails with
+`protocol_error`; a `404` for an established session fails with
+`connection_closed` and is not retried.
 
 Fails with `spawn_failed` when the process will not start, `protocol_error` when
 an option is invalid or negotiation fails, and `invalid_response` when the
@@ -32783,6 +32816,8 @@ The result of one `tools/call`.
 
 ### McpClient.ConnectOptions
 
+`StdioConnectOptions | HttpConnectOptions`. The stdio form:
+
 | Field                   | Type                                               | Meaning                                                                                                   |
 | ----------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `server`                | `string`                                           | The name this server is known by, for flow naming and error messages. Required.                           |
@@ -32801,8 +32836,17 @@ The result of one `tools/call`.
 | `maxToolDocumentBytes`  | `number \| undefined`                              | Maximum UTF-8 bytes of one tool's description plus its JSON-encoded `inputSchema`. Default 65536.         |
 | `maxCatalogPages`       | `number \| undefined`                              | Maximum `tools/list` pages walked. Default 32.                                                            |
 
+`HttpConnectOptions` has `server`, the catalog limits, `requestTimeoutMs`,
+`maxFrameBytes`, and `maxOutboundFrameBytes` from the table above, plus:
+
+| Field          | Type                        | Meaning                                                                                        |
+| -------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `url`          | `string`                    | The server's MCP endpoint, an absolute `http:` or `https:` URL without credentials. Required.  |
+| `authProvider` | `AuthProvider \| undefined` | `{ token: Effect<Redacted<string>, McpError> }`, read once per HTTP message as a bearer token. |
+
 Every numeric field must be a positive safe integer. Anything else fails with
-`protocol_error` naming the option, before the process is spawned.
+`protocol_error` naming the option, before the process is spawned or a request
+is sent.
 
 The bootstrap child environment contains only `PATH`, `HOME`, `USER`, `LANG`,
 `LC_*`, `TERM`, `TMPDIR`, and `SHELL`. Other ambient names are withheld;
@@ -32952,12 +32996,12 @@ const privateDiagnostics = Diagnostics.layer((event) => {
 `Diagnostics.Diagnostics` is the optional Context service. Its `report` callback
 takes one `Diagnostics.Event`:
 
-| Field       | Meaning                                                                        |
-| ----------- | ------------------------------------------------------------------------------ |
-| `server`    | The host-configured server alias. Do not put credentials in aliases.           |
-| `source`    | `spawn`, `stderr`, `remote-error`, `invalid-response`, or `invalid-arguments`. |
-| `detail`    | `Redacted.Redacted<string>`, at most 16 KiB of UTF-8. May contain secrets.     |
-| `truncated` | Whether this event's private detail exceeded that 16 KiB bound.                |
+| Field       | Meaning                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `server`    | The host-configured server alias. Do not put credentials in aliases.                        |
+| `source`    | `spawn`, `stderr`, `transport`, `remote-error`, `invalid-response`, or `invalid-arguments`. |
+| `detail`    | `Redacted.Redacted<string>`, at most 16 KiB of UTF-8. May contain secrets.                  |
+| `truncated` | Whether this event's private detail exceeded that 16 KiB bound.                             |
 
 Ordinary JSON serialization and inspection hide `detail`. A trusted local host
 can explicitly unwrap it with `Redacted.value`; it must control access and
@@ -33059,6 +33103,7 @@ from `Capability.Action.literals` and frozen.
   "fs:write:**",
   "net:get:**",
   "net:post:**",
+  "net:private:**",
   "model:call:**",
   "memory:read:**",
   "memory:write:**",
@@ -34006,7 +34051,7 @@ below is `Mapping.rows` rendered, so it cannot fall behind the code.
 | `enforceDelegationV2AuthorFuel`          | none                                                                                         | none                                                                            | unsafe    |
 | `ensureSmithersTables`                   | none                                                                                         | none                                                                            | unsafe    |
 | `errorToJson`                            | `The tagged errors each package declares`                                                    | `@smthrs/kernel`                                                                | guided    |
-| `estimateCostUsd`                        | `@smthrs/scorers, @smthrs/evals`                                                             | `@smthrs/scorers, @smthrs/evals`                                                | guided    |
+| `estimateCostUsd`                        | `Pricing.cost(usage, modelId)`                                                               | `@smthrs/model/Pricing`                                                         | guided    |
 | `estimateSchema`                         | none                                                                                         | none                                                                            | unsafe    |
 | `executeChildWorkflow`                   | `flow.child(payload)`                                                                        | `@smthrs/flow/Flow`                                                             | guided    |
 | `expectFullCoverage`                     | `@smthrs/testing`                                                                            | `@smthrs/testing`                                                               | guided    |
@@ -35280,7 +35325,7 @@ provider answered.
 
 | Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                               |
+| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`, and `costUsd`, the provider's own USD charge (OpenRouter's `usage.cost`). A missing count is not a zero count.                                                                     |
 | `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                                          |
 | `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                                          |
 | `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                                      |
@@ -35879,6 +35924,23 @@ Static facts about known provider models, read from a model id alone.
 `@smthrs/agent` re-exports this as `SeatResolver.contextWindowTokensFor`, and
 the built-in harness calls it for the compaction budget of a seat whose host
 supplies no `contextWindowTokensFor` callback of its own.
+
+## `Pricing`
+
+USD prices per million tokens, generated from the backend rate card
+(`packages/backend/modelprice`) so the two cannot drift. `inputTokens`
+includes cache reads and cache writes; each class is charged at its own rate.
+
+| Export                             | Kind     | Behavior                                                                                                                                                                                                    |
+| ---------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `table`                            | constant | Every priced model, keyed by wire model id. Spread it with your own rows to override a model or seat.                                                                                                       |
+| `lookup(modelId, { table?, at? })` | resolver | The rate card in effect at `at`: an exact row, else the bare model of a seat (`openai:gpt-5.6-sol`) or gateway id (`anthropic/claude-sonnet-5`), else a dated snapshot's family. `undefined` when unpriced. |
+| `weigh(usage, rates)`              | function | The rate-weighted token sum. `NaN` for missing input or output counts, invalid counters, or cache classes larger than the input count.                                                                      |
+| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold; a per-call charge is added once.                                                                                            |
+| `cost(usage, modelId, options?)`   | function | `{ costUsd, costSource }`: `"reported"` when the usage carries a valid provider charge, else `"estimated"` from the rate card; `undefined` when neither exists.                                             |
+
+`@smthrs/agent`'s `Budget` writes `costUsd` and `costSource` on each usage
+record and spend-ledger entry, and takes `prices` rows over `table`.
 
 ## `CanonicalJson`
 
@@ -36513,6 +36575,30 @@ browser-safe by construction.
 ```ts
 const Telemetry = Otlp.layerFetch({ baseUrl: "http://localhost:4318" })
 ```
+
+### Otlp.layerEnvironment
+
+```ts
+const layerEnvironment: (
+  environment: Readonly<Record<string, string | undefined>>,
+  options?: Omit<Options, "baseUrl" | "headers">
+) => Layer.Layer<never, Otlp.LayerError>
+```
+
+`layerFetch` against `OTEL_EXPORTER_OTLP_ENDPOINT` with the headers
+`Otlp.parseHeaders` reads from `OTEL_EXPORTER_OTLP_HEADERS`. An unset or blank
+endpoint returns `layerNoop`, so no exporter is installed. `LayerError` is
+`Resource.InvalidResourceConfiguration | Endpoint.InvalidExporterEndpoint`.
+
+### Otlp.parseHeaders
+
+```ts
+const parseHeaders: (value: string | undefined) => Record<string, string>
+```
+
+Reads the OpenTelemetry `key=value,key=value` header list and percent-decodes
+each value. Pairs without `=` or with an empty key are skipped; a malformed
+escape is kept verbatim.
 
 ### Otlp.layerNoop
 
@@ -44194,10 +44280,10 @@ Manifest.readOnly // ["read", "ls", "glob", "grep", "fetch", "explore", "webfetc
 
 The single typed failure every handler uses.
 
-| Export     | Type                                    | Meaning                                                                                 |
-| ---------- | --------------------------------------- | --------------------------------------------------------------------------------------- |
-| `Code`     | `Schema.Literals` and the matching type | The closed list of failure codes.                                                       |
-| `StdError` | `Schema.TaggedError` class              | `{ code, message, path?, method?, rpcError?, stderr? }`, tagged `@smthrs/std/StdError`. |
+| Export     | Type                                    | Meaning                                                                                               |
+| ---------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Code`     | `Schema.Literals` and the matching type | The closed list of failure codes.                                                                     |
+| `StdError` | `Schema.TaggedError` class              | `{ code, message, path?, method?, rpcError?, stderr?, limitMillis? }`, tagged `@smthrs/std/StdError`. |
 
 ```ts
 import * as StdError from "@smthrs/std/StdError"
