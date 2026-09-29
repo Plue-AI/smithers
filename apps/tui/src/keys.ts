@@ -1,4 +1,5 @@
 import type * as Extension from "./extension.ts"
+import type * as Surfaces from "./surfaces.ts"
 
 /**
  * The TUI key contract. Keep labels short: this registry feeds the footer,
@@ -308,9 +309,17 @@ const ownerName = (owner: string): string => owner.slice(owner.indexOf(":") + 1)
 
 /** The registry plus contributed keys (`contributions.ts` already refused collisions), grouped by owner. */
 export const bindings = (
-  contributed: ReadonlyArray<{ readonly owner: string; readonly key: Extension.Key }>
+  contributed: ReadonlyArray<{ readonly owner: string; readonly key: Extension.Key }>,
+  summary?: Surfaces.SummaryKey
 ): ReadonlyArray<Binding> => [
-  ...registry,
+  ...registry.map((binding) =>
+    binding.id !== "summary" || summary === undefined ? binding : {
+      ...binding,
+      label: summary.kind === "focus" ? "Switch focus" : summary.kind === "show"
+        ? summary.surface === "chat" ? "Chat" : "Back"
+        : "Summary"
+    }
+  ),
   ...contributed.map(({ owner, key }): Binding => ({
     id: key.id,
     keys: [key.key],

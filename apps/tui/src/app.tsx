@@ -560,7 +560,6 @@ export function App(props: AppProps) {
     }]),
     ...extensions.status.map((each) => each.status)
   ].slice(0, Contributions.limits.shownStatus)
-  const merged = Keys.bindings(extensions.keys)
   // A plugin's tab shows only while open: tab keys never stop on it (`/smithers` opens Smithers).
   const pluginPanels = uiPanels.filter((panel) =>
     extensions.panels.some((each) => each.placement === "tab" && each.panel === panel)
@@ -754,6 +753,9 @@ export function App(props: AppProps) {
     views: uiPanels
   })
   const focusMain = basePanel?.placement === "main"
+  const summaryAction = () =>
+    Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
+  const merged = Keys.bindings(extensions.keys, summaryAction())
   /**
    * Approval keys the focused panel acts on: its `a` runs the selected row's action, opens a flow's form,
    * or answers the overview's or a worker tab's question, never an approval's "allow all".
@@ -1892,7 +1894,7 @@ export function App(props: AppProps) {
     }
     if (key.ctrl && key.name === "s") {
       key.preventDefault()
-      const act = Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
+      const act = summaryAction()
       flushSync(() => {
         if (act.kind === "focus") return setPanelFocus(!panelFocus)
         if (act.kind === "show") return showTab(act.surface)
@@ -2130,8 +2132,6 @@ export function App(props: AppProps) {
   useKeyboard(handleKey)
 
   const working = turn !== undefined
-  const model = props.models.find((each) => each.seat === seat)
-  const label = model?.label ?? (seat.startsWith("replay:") ? `replay ${basename(seat)}` : seat)
   const bashMode = draft.startsWith("!")
   const window = props.contextWindow(seat)
   useEffect(() => {
@@ -2554,10 +2554,7 @@ export function App(props: AppProps) {
                       </>
                     )
                     : null}
-                  <span fg={color.text}>{steered === undefined ? label : Tabs.model(steered.seat, props.models)}</span>
-                  {model === undefined || steered !== undefined
-                    ? null
-                    : <span fg={color.faint}>{" "}{model.provider}</span>}
+                  <AppView.ComposerModel seat={seat} models={props.models} worker={driven ?? steered} />
                   {thinking === undefined ? null : <span fg={color.warning}>{"  "}{thinking}</span>}
                 </text>
               </box>

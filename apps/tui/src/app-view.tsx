@@ -3,6 +3,7 @@
  * form, the completion menu, the dialog, and the status line. They draw
  * what they are given; state and keys stay with the app.
  */
+import { basename } from "node:path"
 import type { ReactNode } from "react"
 import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
@@ -10,9 +11,29 @@ import type * as Extension from "./extension.ts"
 import * as Inbox from "./inbox.ts"
 import type { FlowForm } from "./key-dispatch.ts"
 import type * as Keys from "./keys.ts"
+import type * as Models from "./models.ts"
+import * as Tabs from "./tabs.ts"
 import { color } from "./theme.ts"
 import type * as Transcript from "./transcript.ts"
 import * as View from "./view.tsx"
+import type { Tab } from "./workspace.ts"
+
+/** The model that receives the composer's input. */
+export function ComposerModel(props: {
+  readonly seat: string
+  readonly models: ReadonlyArray<Models.Model>
+  readonly worker?: Pick<Tab, "seat" | "activeSeat" | "harness">
+}) {
+  if (props.worker !== undefined) return <span fg={color.text}>{Tabs.seatName(props.worker, props.models)}</span>
+  const model = props.models.find((each) => each.seat === props.seat)
+  const label = model?.label ?? (props.seat.startsWith("replay:") ? `replay ${basename(props.seat)}` : props.seat)
+  return (
+    <>
+      <span fg={color.text}>{label}</span>
+      {model === undefined ? null : <span fg={color.faint}>{" "}{model.provider}</span>}
+    </>
+  )
+}
 
 /** Completion rows shown at once. */
 const menuRows = 8

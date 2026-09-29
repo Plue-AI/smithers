@@ -62,3 +62,27 @@ for (const [cols, rows] of [[160, 50], [100, 40], [80, 30]] as const) {
     }
   }, 60_000)
 }
+
+it("lists Ctrl+S as Switch focus while a main view is open", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "tui-main-hint-"))
+  const tui = await Tui.start({
+    command: `${Bun.which("bun")!} ${join(import.meta.dir, "main-view-fixture.tsx")}`,
+    cwd,
+    rows: 40,
+    cols: 240
+  })
+  try {
+    await tui.until((screen) => screen.includes("Ask Smithers"))
+    await tui.type("review this repo")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Recursive review") && screen.includes("Agent package"), 15_000)
+    await tui.press("?")
+    await tui.until(
+      (screen) => screen.replace(/\s+/g, " ").includes("ctrl+s Switch focus"),
+      5_000,
+      "main view key list"
+    )
+  } finally {
+    await tui.stop()
+  }
+}, 30_000)

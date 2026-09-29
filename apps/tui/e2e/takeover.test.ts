@@ -31,7 +31,9 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
     )
     await tui.press("t")
     await tui.until(
-      (screen) => screen.includes("⇄ you drive") && screen.includes("Release (ctrl+y)") && screen.includes("⇄ driving"),
+      (screen) =>
+        screen.includes("⇄ you drive") && screen.includes("Release (ctrl+y)") &&
+        screen.includes("⇄ driving implement/session  ·  luna"),
       5_000,
       "driving"
     )

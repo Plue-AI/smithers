@@ -57,35 +57,85 @@ const noFiles = (): ReadonlyArray<string> => {
 const noEmpty = (): string => {
   throw new Error("This category must not read the flow listing diagnostic")
 }
-const rows = (picker: Picker.Picker, filter: Timeline.Filter = Timeline.all) =>
-  Picker.rows(picker, models, "replay:small", filter, [], noFiles, [], flows)
+const rows = (picker: Picker.Picker, filter: Timeline.Filter = Timeline.all, tabs: ReadonlyArray<Tab> = []) =>
+  Picker.rows(picker, models, "replay:small", filter, tabs, noFiles, [], flows)
 
-test.each(["model", "worker-model"] as const)(
-  "%s lists seat identities and marks the active seat without reading files",
-  (kind) => {
-    const picker: Picker.Picker = kind === "model"
-      ? { kind, query: "", selected: 1 }
-      : { kind, id: "worker-2", query: "", selected: 1 }
-    expect(rows(picker)).toEqual([
-      {
-        key: "openai:gpt-6-sol",
-        label: "GPT-6 Sol",
-        hint: "OpenAI",
-        detail: "openai:gpt-6-sol",
-        current: false,
-        value: "openai:gpt-6-sol"
-      },
-      {
-        key: "replay:small",
-        label: "Small",
-        hint: "Replay",
-        detail: "replay:small",
-        current: true,
-        value: "replay:small"
-      }
-    ])
+test("an auto-routed worker model picker does not call the chat seat current", () => {
+  const worker: Tab = {
+    id: "worker-2",
+    depth: 0,
+    title: "Worker",
+    prompt: "Investigate",
+    seat: "auto",
+    file: "worker-2.jsonl",
+    status: "failed",
+    startedAt: 1
   }
-)
+  const shown = rows({ kind: "worker-model", id: worker.id, query: "", selected: 0 }, Timeline.all, [worker])
+  expect(shown.map((row) => [row.value, row.current ?? false])).toEqual([
+    ["openai:gpt-6-sol", false],
+    ["replay:small", false]
+  ])
+})
+
+test("chat model picker lists seat identities and marks the chat seat without reading files", () => {
+  expect(rows({ kind: "model", query: "", selected: 1 })).toEqual([
+    {
+      key: "openai:gpt-6-sol",
+      label: "GPT-6 Sol",
+      hint: "OpenAI",
+      detail: "openai:gpt-6-sol",
+      current: false,
+      value: "openai:gpt-6-sol"
+    },
+    {
+      key: "replay:small",
+      label: "Small",
+      hint: "Replay",
+      detail: "replay:small",
+      current: true,
+      value: "replay:small"
+    }
+  ])
+})
+
+test("worker model picker marks its own seat rather than the chat seat", () => {
+  const worker: Tab = {
+    id: "worker-2",
+    depth: 0,
+    title: "Worker",
+    prompt: "Investigate",
+    seat: "openai:gpt-6-sol",
+    file: "worker-2.jsonl",
+    status: "failed",
+    startedAt: 1
+  }
+  const shown = rows({ kind: "worker-model", id: worker.id, query: "", selected: 0 }, Timeline.all, [worker])
+  expect(shown.map((row) => [row.value, row.current ?? false])).toEqual([
+    ["openai:gpt-6-sol", true],
+    ["replay:small", false]
+  ])
+})
+
+test("worker picker follows its active routed seat and never borrows chat when the tab is gone", () => {
+  const worker: Tab = {
+    id: "worker-2",
+    depth: 0,
+    title: "Worker",
+    prompt: "Investigate",
+    seat: "auto",
+    activeSeat: "openai:gpt-6-sol",
+    file: "worker-2.jsonl",
+    status: "failed",
+    startedAt: 1
+  }
+  const picker: Picker.Picker = { kind: "worker-model", id: worker.id, query: "", selected: 0 }
+  expect(rows(picker, Timeline.all, [worker]).map((row) => [row.value, row.current ?? false])).toEqual([
+    ["openai:gpt-6-sol", true],
+    ["replay:small", false]
+  ])
+  expect(rows(picker).every((row) => row.current !== true)).toBe(true)
+})
 
 test.each(["model", "worker-model"] as const)(
   "%s offers an exact custom seat once and does not duplicate listed seats",
@@ -103,7 +153,7 @@ test.each(["model", "worker-model"] as const)(
       label: "Small",
       hint: "Replay",
       detail: "replay:small",
-      current: true,
+      current: kind === "model",
       value: "replay:small"
     }])
     expect(rows(picker("no match"))).toEqual([])

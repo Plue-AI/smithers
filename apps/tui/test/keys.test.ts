@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import * as Keys from "../src/keys.ts"
+import * as Surfaces from "../src/surfaces.ts"
 import * as Tabs from "../src/tabs.ts"
 
 const read = (file: string) => readFileSync(join(import.meta.dir, "../src", file), "utf8")
@@ -189,6 +190,29 @@ describe("key registry", () => {
     expect(Keys.bindingFor({ name: "\\", ctrl: true })?.id).not.toBe("previous-tab")
     expect(Keys.bindingFor({ name: "?" }, "composer")?.id).toBe("keys")
     expect(Keys.bindingFor({ name: "y" }, "approval")?.id).toBe("allow")
+  })
+})
+
+describe("Ctrl+S label", () => {
+  const strip = [{ id: "chat", label: "Chat" }, { id: "summary", label: "Summary" }, {
+    id: "tab:w1",
+    label: "Worker"
+  }]
+  it.each([
+    { surface: "chat", main: false, from: undefined, label: "Summary" },
+    { surface: "tab:w1", main: false, from: undefined, label: "Summary" },
+    { surface: "summary", main: false, from: "tab:w1", label: "Back" },
+    { surface: "summary", main: false, from: undefined, label: "Chat" },
+    { surface: "summary", main: false, from: "tab:gone", label: "Chat" },
+    { surface: "ui:plan", main: true, from: undefined, label: "Switch focus" },
+    { surface: "ui:plan", main: false, from: undefined, label: "Switch focus" },
+    { surface: "chat", main: true, from: undefined, label: "Switch focus" }
+  ])("calls Ctrl+S $label on $surface in footer and key list", ({ surface, main, from, label }) => {
+    const action = Surfaces.summaryKey({ surface, main, from, strip })
+    const merged = Keys.bindings([], action)
+    expect(Keys.hintsFor("composer", merged).find((binding) => binding.id === "summary")?.label).toBe(label)
+    expect(Keys.bindingsFor("composer", merged).find((binding) => binding.id === "summary")?.label).toBe(label)
+    expect(Keys.bindingFor({ name: "s", ctrl: true }, "composer", merged)?.label).toBe(label)
   })
 })
 

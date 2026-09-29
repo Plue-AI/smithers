@@ -5,6 +5,7 @@ import * as AppView from "../src/app-view.tsx"
 import type * as Complete from "../src/complete.ts"
 import type * as Extension from "../src/extension.ts"
 import type { FlowForm } from "../src/key-dispatch.ts"
+import type * as Models from "../src/models.ts"
 import * as Transcript from "../src/transcript.ts"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
@@ -23,6 +24,68 @@ const choices = Array.from(
   { length: 20 },
   (_, index) => ({ key: `choice-${index}`, label: `Choice ${String(index).padStart(2, "0")}` })
 )
+
+const composerModels: ReadonlyArray<Models.Model> = [
+  { seat: "replay:chat", label: "Chat model", provider: "Replay" },
+  { seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }
+]
+
+test("chat composer names its model and provider", async () => {
+  const frame = await draw(
+    <text>
+      <AppView.ComposerModel seat="replay:chat" models={composerModels} />
+    </text>
+  )
+  expect(frame).toContain("Chat model")
+  expect(frame).toContain("Replay")
+})
+
+test("composer names the driven worker's seat instead of the chat seat", async () => {
+  const driven = await draw(
+    <text>
+      <AppView.ComposerModel seat="replay:chat" models={composerModels} worker={{ seat: "openai:gpt-6-sol" }} />
+    </text>
+  )
+  expect(driven).toContain("sol")
+  expect(driven).not.toContain("Chat model")
+  expect(driven).not.toContain("Replay")
+  expect(driven).not.toContain("OpenAI")
+})
+
+test("composer uses the worker's active routed seat when one is answering", async () => {
+  const frame = await draw(
+    <text>
+      <AppView.ComposerModel
+        seat="replay:chat"
+        models={composerModels}
+        worker={{ seat: "auto", activeSeat: "openai:gpt-6-sol" }}
+      />
+    </text>
+  )
+  expect(frame).toContain("sol")
+  expect(frame).not.toContain("Chat model")
+})
+
+test("composer leaves an unjudged worker as auto, without naming the chat model", async () => {
+  const frame = await draw(
+    <text>
+      <AppView.ComposerModel seat="replay:chat" models={composerModels} worker={{ seat: "auto" }} />
+    </text>
+  )
+  expect(frame).toContain("auto")
+  expect(frame).not.toContain("Chat model")
+  expect(frame).not.toContain("Replay")
+})
+
+test("composer names a driven Claude Code seat by its alias", async () => {
+  const frame = await draw(
+    <text>
+      <AppView.ComposerModel seat="replay:chat" models={composerModels} worker={{ seat: "claude-code:opus" }} />
+    </text>
+  )
+  expect(frame).toContain("opus")
+  expect(frame).not.toContain("Chat model")
+})
 
 test.each([
   { height: 12, selected: 0, shown: [0, 1, 2, 3, 4, 5] },
