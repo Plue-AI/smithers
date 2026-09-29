@@ -32,6 +32,27 @@ const tab = {
 } satisfies Workspace.Tab
 
 describe("worker failure card", () => {
+  it("shows a body-load refusal in expanded details without a private stack", async () => {
+    setup = await testRender(
+      <FailureCard
+        tab={{
+          ...tab,
+          code: "unreadable",
+          message: "Body unavailable",
+          detail: undefined,
+          failure: { headline: "Body unavailable", fault: "user", line: "", actions: ["resume", "details"] }
+        }}
+        transcript={Transcript.empty}
+        details
+      />,
+      { width: 100, height: 8 }
+    )
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Body unavailable")
+    expect(setup.captureCharFrame()).toContain("Resume here")
+    expect(setup.captureCharFrame()).not.toContain("private stack")
+  })
+
   it("renders the headline, progress, file impact and keys without raw provider text", async () => {
     setup = await testRender(<FailureCard tab={tab} transcript={Transcript.empty} details={false} />, {
       width: 100,

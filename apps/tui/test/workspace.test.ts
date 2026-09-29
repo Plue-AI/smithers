@@ -226,6 +226,20 @@ describe("custom agents", () => {
     })
     expect(f.workspace.snapshot().tabs[0]?.code).toBe("unreadable")
     expect(f.inputs).toHaveLength(0)
+    expect(f.workspace.snapshot().tabs[0]?.failure).toMatchObject({
+      headline: "body for flow \"review\" is unavailable"
+    })
+    const file = f.workspace.snapshot().tabs[0]!.file
+    expect(JSON.stringify(f.workspace.snapshot().tabs[0])).not.toContain("at stack")
+    expect(JSON.stringify(Session.load(file))).not.toContain("at stack")
+    expect(Session.load(file).filter((record) => record.type === "outcome")).toHaveLength(1)
+    expect(Session.load(file).find((record) => record.type === "outcome")).toMatchObject({
+      outcome: { _tag: "failed", message: "body for flow \"review\" is unavailable" }
+    })
+    const restored = setup({ cwd: f.host.cwd, restored: f.workspace.snapshot() })
+    expect(restored.workspace.snapshot().tabs[0]).toMatchObject({ status: "failed", code: "unreadable" })
+    expect(restored.workspace.transcript("rev").activity?.status).toBe("failed")
+    restored.workspace.dispose()
     f.workspace.retry("rev")
     expect(f.workspace.read("rev").status).toBe("requested")
     await tick()

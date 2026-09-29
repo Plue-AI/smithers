@@ -238,6 +238,34 @@ const chrome = {
 }
 
 describe("WorkerView", () => {
+  it("shows the owning worker's body refusal, back and resume in expanded details", async () => {
+    const { captureCharFrame } = await mount(
+      <WorkerView
+        tab={tab("review", "failed", {
+          code: "unreadable",
+          message: "Body unavailable",
+          failure: { headline: "Body unavailable", fault: "user", line: "", actions: ["resume", "details"] }
+        })}
+        transcript={Transcript.empty}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.danger}
+        width={90}
+        expanded
+        onAction={() => {}}
+        {...chrome}
+      />,
+      90,
+      24
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("Back (ctrl+y)")
+    expect(frame).toContain("r Resume")
+    expect(frame).toContain("Body unavailable")
+    expect(frame).not.toContain("private stack")
+  })
+
   const transcript = [
     (value: Transcript.Transcript) => Transcript.user(value, "Audit the auth middleware.", false, 1_000),
     (value: Transcript.Transcript) => Transcript.apply(value, { _tag: "model-requested" } as never, 1_100),

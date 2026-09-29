@@ -643,7 +643,21 @@ export class Workspace {
         : Agents.unreadable(error)
       const now = current()
       if (now !== undefined) {
-        this.tabs.move({ ...now, endedAt: Date.now(), message: failure.message, code: failure.code }, "fail")
+        const at = Date.now()
+        const presentation: FailureCopy.Description = {
+          headline: failure.message,
+          fault: "user",
+          line: "",
+          actions: ["resume", "details"]
+        }
+        writer.append({
+          type: "outcome",
+          at,
+          prompt: now.prompt,
+          outcome: { _tag: "failed", message: failure.message, headline: presentation.headline, failure: presentation }
+        })
+        this.transcripts.set(now.id, Transcript.failure(this.transcript(now.id), presentation.headline, at))
+        this.tabs.move({ ...now, endedAt: at, message: failure.message, code: failure.code, failure: presentation }, "fail")
       }
       return
     }
