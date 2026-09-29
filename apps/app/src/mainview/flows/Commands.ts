@@ -701,6 +701,12 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (rendered === undefined) return { status: "failed", error: "error" in parsed ? parsed.error : "Required input is missing" }
       return { status: "form", flow: nameOf(target), cardId: rendered.cardId, fields: rendered.missing }
     }
+    // The app may ask this question through the agent-shaped form path, but
+    // only a human may answer it. Check after the form branch so a partial
+    // application invocation still renders the question without running it.
+    if (invoker === "agent" && nameOf(target) === "setup.ask") {
+      return { status: "failed", error: "Only the human can answer the setup question through its form." }
+    }
     /*
      * A `confirm` flow asked for by the MODEL: consequential acts (land a
      * PR, remove a credential, launch a harness) are invocable by the agent

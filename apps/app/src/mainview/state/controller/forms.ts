@@ -590,10 +590,15 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     /*
      * The continuation keeps the asker's actor: an agent-rendered form runs
      * as the agent (a consequential flow posts its confirm card, the human's
-     * click runs it), a slash-rendered form runs as the human. The agent can
-     * never launder an act through a human's form: its own call is the agent's.
+     * click runs it), a slash-rendered form runs as the human. The app-rendered
+     * setup question is the exception: the human's Submit answers as human.
+     * The agent can never launder an act through a human's form: its own call
+     * is always the agent's.
      */
-    const asAgent = via === "agent" || actor === "smithers"
+    // setup.ask is rendered by the application through the agent-shaped form
+    // path, but the answer belongs to the person pressing Submit. An agent
+    // invoking form.submit still keeps its own actor and is refused downstream.
+    const asAgent = actor === "smithers" || (via === "agent" && flow !== "setup.ask")
     const continuation = invocation ?? continuationFor(card)
     /*
      * The submission belongs to the account that pressed Submit. Sign-out

@@ -159,6 +159,32 @@ test("the question is worded once: the card's title carries it, the select is na
   } finally { await t.close() }
 })
 
+
+test("the model command door cannot answer an already visible setup question", async () => {
+  const t = await fixture(pendingHttpAgent)
+  try {
+    const question = await askAndWait(t)
+    const before = structuredClone(t.setup())
+    const given = question.payload.given
+    const answer = JSON.stringify({ ...given, choice: "approved" })
+    const direct = await t.controller.commands.runAsAgent("setup.ask", answer)
+    expect(direct).toMatchObject({ status: "failed", error: expect.stringContaining("human") })
+    const envelope = await t.call({ action: "execute", name: "setup.ask", args: answer })
+    expect(envelope).toContain("human")
+    expect(t.setup().draft).toEqual(before.draft)
+    expect(t.setup().revision).toBe(before.revision)
+    expect(t.setup().guidance).toEqual(before.guidance)
+    expect(t.question()?.status).toBe("active")
+    expect(t.question()?.payload.draft).toEqual(question.payload.draft)
+    expect(t.untouched()).toBe(true)
+    expect(await t.store.verifyState()).toMatchObject({ valid: true })
+    // The same candidate and choice still work through the human's form.
+    expect(await t.controller.commands.run("form.set", `${question.id} choice approved`)).toMatchObject({ status: "executed" })
+    expect(await t.controller.commands.run("form.submit", question.id)).toMatchObject({ status: "executed" })
+    expect(t.setup().revision).toBe(before.revision + 1)
+  } finally { await t.close() }
+})
+
 test("answering through the real form controller edits the draft only", async () => {
   const t = await fixture(pendingHttpAgent)
   try {
