@@ -162,6 +162,8 @@ export type ModelEventLike =
     readonly type: "settle"
     readonly stopReason: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "aborted" | "unknown"
     readonly responseId?: string | undefined
+    /** The vendor session that answered, for a seat that is a wrapped CLI. */
+    readonly sessionId?: string | undefined
     readonly itemIds?: ReadonlyArray<string> | undefined
   }
 
@@ -208,6 +210,7 @@ export interface ModelErrorLike {
     | "authentication"
     | "rate_limited"
     | "quota_exceeded"
+    | "out_of_credit"
     | "content_policy"
     | "provider_internal"
     | "transport"

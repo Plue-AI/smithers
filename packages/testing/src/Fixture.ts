@@ -105,6 +105,7 @@ const eventSchema = Schema.Union([
     type: Schema.Literal("settle"),
     stopReason: Schema.Literals(["stop", "length", "tool-calls", "content-filter", "error", "aborted", "unknown"]),
     responseId: Schema.optional(Schema.String),
+    sessionId: Schema.optional(Schema.String),
     itemIds: Schema.optional(Schema.Array(Schema.String))
   })
 ])
@@ -202,6 +203,7 @@ const failureSchema = Schema.Struct({
     "authentication",
     "rate_limited",
     "quota_exceeded",
+    "out_of_credit",
     "content_policy",
     "provider_internal",
     "transport",
