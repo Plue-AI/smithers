@@ -5,12 +5,14 @@
  * human summary, caller-supplied `details`, and a documentation URL appended
  * to the message. It stores context verbatim and does not redact it.
  * Integration adapters must remove credentials before constructing it.
- * Adapters subclass it to add their own typed fields; callers classify with
- * the code rather than by matching message text.
+ * Adapters subclass it to add their own typed fields and their own Effect
+ * tag; callers classify with the tag or the code rather than by matching
+ * message text.
  *
  * @since 1.0.0
  */
 
+import * as Data from "effect/Data"
 import { ERROR_REFERENCE_URL, isSmithersErrorCode, type SmithersErrorCode } from "./ErrorCode.ts"
 
 /**
@@ -19,7 +21,7 @@ import { ERROR_REFERENCE_URL, isSmithersErrorCode, type SmithersErrorCode } from
  * @category models
  * @since 1.0.0
  */
-export interface SmithersErrorOptions {
+export interface SmithersErrorOptions<Tag extends string = string> {
   /**
    * Stored verbatim and not redacted. A cause of `undefined` is treated as no
    * cause, so the instance has no own `cause` property and a log or
@@ -31,26 +33,19 @@ export interface SmithersErrorOptions {
   /** Set `false` to leave the documentation URL out of the message. */
   readonly includeDocsUrl?: boolean
   /**
-   * The `name` the error reports. Defaults to `"SmithersError"`. The name is
-   * installed as a non-enumerable own property, like `Error.prototype.name`,
-   * and `details` is an own property only when the caller supplies one.
+   * The `name` the error reports and its Effect `_tag`. Defaults to
+   * `"SmithersError"`. Both are installed as non-enumerable own properties,
+   * like `Error.prototype.name`, and `details` is an own property only when
+   * the caller supplies one.
    */
-  readonly name?: string
+  readonly name?: Tag
 }
 
 /**
- * A Smithers integration failure.
- *
- * @category errors
- * @since 1.0.0
+ * The fields a {@link SmithersError} stores as enumerable own properties, in
+ * this order.
  */
-export class SmithersError extends Error {
-  /**
-   * The name the error reports. Installed by the constructor as a
-   * non-enumerable own property; `declare` keeps this type-level so no class
-   * field is emitted.
-   */
-  declare readonly name: string
+interface SmithersErrorFields {
   /** The machine-readable classification. */
   readonly code: SmithersErrorCode
   /** The message without the appended documentation URL. */
@@ -62,7 +57,42 @@ export class SmithersError extends Error {
    * construction, so adding, removing, or replacing a top-level key on the
    * caller's object afterwards cannot change it. Nested values are shared by
    * reference and are not deep-frozen, so a caller must not mutate an attached
-   * nested record. Callers must redact credentials.
+   * nested record. Callers must redact credentials. Absent as an own property
+   * when the caller supplies none.
+   */
+  readonly details?: Readonly<Record<string, unknown>> | undefined
+}
+
+const hidden = (target: object, key: PropertyKey, value: unknown): void => {
+  Object.defineProperty(target, key, { value, enumerable: false, writable: true, configurable: true })
+}
+
+/**
+ * A Smithers integration failure, and an Effect tagged error.
+ *
+ * `_tag` equals the reported `name`, so `Effect.catchTag("SmithersError")`
+ * catches a base instance and `Effect.catchTag("IntegrationError")` catches
+ * the adapter subclass that reports that name. A subclass passes its tag as
+ * the type argument and the same string as `options.name`.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class SmithersError<Tag extends string = string> extends Data.Error<SmithersErrorFields> {
+  /**
+   * The Effect tag, equal to the name given at construction. A non-enumerable
+   * own property, so it stays out of `Object.keys` and JSON.
+   */
+  declare readonly _tag: Tag
+  /**
+   * The name the error reports. Installed by the constructor as a
+   * non-enumerable own property; `declare` keeps this type-level so no class
+   * field is emitted.
+   */
+  declare readonly name: string
+  /**
+   * Narrowed from the optional field so a caller reads `details` without an
+   * `in` check. Absent as an own property when the caller supplies none.
    */
   declare readonly details: Readonly<Record<string, unknown>> | undefined
 
@@ -70,7 +100,7 @@ export class SmithersError extends Error {
     code: SmithersErrorCode,
     summary: string,
     details?: Record<string, unknown>,
-    options: SmithersErrorOptions = {}
+    options: SmithersErrorOptions<Tag> = {}
   ) {
     // The type closes the vocabulary only for checked TypeScript callers. A
     // cast or a JavaScript caller could otherwise mint an instance that passes
@@ -91,22 +121,40 @@ export class SmithersError extends Error {
     const message = options.includeDocsUrl === false || summaryWithoutDocsUrl.trim() === ""
       ? summaryWithoutDocsUrl
       : `${summaryWithoutDocsUrl}${suffix}`
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
+    // `Data.Error` passes `message` to `Error` and copies every field onto the
+    // instance in order. `message` is already an own non-enumerable property,
+    // so the copy keeps it hidden; `cause` is installed below instead, because
+    // `Data.Error` drops a falsy cause from `ErrorOptions`.
+    super({
+      message,
+      code,
+      summary: summaryWithoutDocsUrl,
+      docsUrl,
+      ...(details !== undefined ? { details: Object.freeze({ ...details }) } : {})
+    } as SmithersErrorFields)
     // Subclasses reach here through `super`, so `new.target` is what restores
     // their prototype after `Error` resets it under a transpiled target.
     Object.setPrototypeOf(this, new.target.prototype)
-    Object.defineProperty(this, "name", {
-      value: options.name ?? "SmithersError",
-      enumerable: false,
-      writable: true,
-      configurable: true
-    })
-    this.code = code
-    this.summary = summaryWithoutDocsUrl
-    this.docsUrl = docsUrl
-    if (details !== undefined) this.details = Object.freeze({ ...details })
+    const name = options.name ?? "SmithersError"
+    hidden(this, "name", name)
+    hidden(this, "_tag", name)
+    if (options.cause !== undefined) hidden(this, "cause", options.cause)
+  }
+
+  /** Only the enumerable fields, as `JSON.stringify` shows a plain `Error`. */
+  override toJSON(): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(this))
   }
 }
+
+// `Data.Error` inspects as its JSON. Removing the hook restores Node's `Error`
+// formatting: the stack, the enumerable fields, and a `[cause]` entry.
+Object.defineProperty(SmithersError.prototype, Symbol.for("nodejs.util.inspect.custom"), {
+  value: undefined,
+  enumerable: false,
+  writable: true,
+  configurable: true
+})
 
 /**
  * Whether `value` is a {@link SmithersError}.

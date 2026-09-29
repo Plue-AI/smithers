@@ -357,6 +357,14 @@ describe("grant refusals", () => {
     expect(error.message).toContain("\"summon\"")
   })
 
+  it("routes a refused grant to its catchTag handler with the code", () => {
+    const error = refusal([{ action: "summon" as never, resource: "*" }])
+    const handled = Effect.runSync(
+      Effect.fail(error).pipe(Effect.catchTag("create-app/LayerError", (caught) => Effect.succeed(caught.code)))
+    )
+    expect(handled).toBe("invalid_grant")
+  })
+
   it("names the offending grant's own index, not the first", () => {
     const error = refusal([{ action: "*", resource: "*" }, { action: "summon" as never, resource: "*" }])
     expect(error.message).toContain("grant[1].action")

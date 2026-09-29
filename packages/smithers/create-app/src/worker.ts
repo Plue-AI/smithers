@@ -275,7 +275,7 @@ export type TurnRequest = typeof TurnRequest.Type
 const encoder = new TextEncoder()
 
 /** What the reader sees for a failure that is not a typed error. */
-const failedMessage = "The turn failed."
+const failedMessage = "Something went wrong on our side. Not your fault."
 
 /**
  * The message a turn's reader may see for `cause`.

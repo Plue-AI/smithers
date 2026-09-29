@@ -15,7 +15,13 @@
  */
 import * as Schema from "effect/Schema"
 import { describe, expect, it, vi } from "vitest"
-import { type AppCard, SessionState, type TurnFrame, TurnFrame as TurnFrameSchema } from "../src/api.ts"
+import {
+  type AppCard,
+  SessionState,
+  type TurnFrame,
+  TurnFrame as TurnFrameSchema,
+  UNKNOWN_FAILURE_SENTENCE
+} from "../src/api.ts"
 import { INDEX_SESSION } from "../worker/registry.ts"
 import { durableObjects } from "./support/durableObject.ts"
 import { fixtures, nodeHost, recordedHost, scriptedSeat } from "./support/recordedHost.ts"
@@ -220,6 +226,25 @@ describe("AppSession turns", () => {
     // The refusal released the session: a configured host takes the next turn.
     session.seams = chat
     expect((await frames(await session.turn(request))).at(-1)?.type).toBe("done")
+  })
+
+  it("keeps a host throw's text off the wire and off the flow card", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    const broken = {
+      ...chat,
+      routes: async () => {
+        throw new Error("postgres://admin:SYNTHETIC_SECRET@10.0.0.4/app refused the connection")
+      }
+    }
+    const app = durableObjects({}, broken)
+    const session = app.session("s1")
+    const response = await session.turn(request)
+    const body = await response.json() as { error: string }
+    expect(body.error).toBe(UNKNOWN_FAILURE_SENTENCE)
+    session.runFlow({ sessionId: "s1", flowId: "build", payload: { app: "a", prompt: "p" } })
+    await app.settled()
+    expect(JSON.stringify(session.state("s1"))).not.toContain("SYNTHETIC_SECRET")
+    expect(logged).toHaveBeenCalled()
   })
 
   it("refuses a second turn while one streams, and takes one after cancel", async () => {

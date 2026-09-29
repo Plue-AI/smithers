@@ -31,7 +31,8 @@ import {
   type Message,
   type SessionState,
   type SessionSummary,
-  type TurnRequest
+  type TurnRequest,
+  UNKNOWN_FAILURE_SENTENCE
 } from "../src/api.ts"
 import type { Env } from "./env.ts"
 import type { HostSeams, SessionFlows } from "./host.ts"
@@ -357,10 +358,8 @@ export class AppSession extends DurableObject<Env> {
       })
     } catch (cause) {
       release()
-      return Response.json(
-        { error: cause instanceof Error ? cause.message : String(cause) },
-        { status: 500 }
-      )
+      console.error(cause)
+      return Response.json({ error: UNKNOWN_FAILURE_SENTENCE }, { status: 500 })
     }
     if (!(body instanceof ReadableStream)) {
       release()
@@ -500,7 +499,9 @@ export class AppSession extends DurableObject<Env> {
       })
     } catch (cause) {
       // A run that threw still has to leave a settled card behind: a card left
-      // on `running` is a spinner the shell has no way to end.
+      // on `running` is a spinner the shell has no way to end. Its text stays
+      // in the log: a throw can name the deployment's own configuration.
+      console.error(cause)
       this.appendCard({
         kind: "flow-run",
         id: executionId,
@@ -508,7 +509,7 @@ export class AppSession extends DurableObject<Env> {
         executionId,
         phase: "failed",
         steps: [{ name: request.flowId, status: "failed" }],
-        error: cause instanceof Error ? cause.message : String(cause)
+        error: UNKNOWN_FAILURE_SENTENCE
       })
     } finally {
       this.cancels.delete(controller)

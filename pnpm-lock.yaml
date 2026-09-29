@@ -2257,6 +2257,9 @@ importers:
       dprint:
         specifier: 0.57.1
         version: 0.57.1
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

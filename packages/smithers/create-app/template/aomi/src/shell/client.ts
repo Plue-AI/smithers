@@ -6,6 +6,7 @@
  * `POST /api/agent/turn` answers with NDJSON: one JSON `TurnFrame` per line.
  * `streamTurn` splits the byte stream on newlines and yields decoded frames.
  */
+import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import {
   CancelRequest,
@@ -18,7 +19,8 @@ import {
   type SessionSummary,
   SessionState,
   TurnFrame,
-  TurnRequest
+  TurnRequest,
+  UNKNOWN_FAILURE_SENTENCE
 } from "../api.ts"
 import { authHeaders } from "./token.ts"
 
@@ -31,15 +33,45 @@ const decodeTurnFrame = Schema.decodeUnknownSync(TurnFrame)
 
 export type { SessionSummary }
 
-export class ApiError extends Error {
+/**
+ * A request the Worker refused. `message` is the Worker's own `{ error }`
+ * sentence when the body carries one; any other body (a proxy's HTML, a
+ * stack) stays out of the message, which is then the generic sentence.
+ */
+export class ApiError extends Data.TaggedError("aomi/ApiError")<{
+  readonly status: number
+  readonly route: string
+  readonly message: string
+}> {
   override readonly name = "ApiError"
-  constructor(readonly status: number, readonly route: string, message: string) {
-    super(`${route} failed with ${status}: ${message}`)
+}
+
+const refusal = async (response: Response, route: string): Promise<ApiError> => {
+  const text = await response.text()
+  let message = UNKNOWN_FAILURE_SENTENCE
+  try {
+    const body: unknown = JSON.parse(text)
+    if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string") {
+      message = body.error
+    }
+  } catch {
+    // Not the Worker's JSON: keep the generic sentence.
   }
+  return new ApiError({ status: response.status, route, message })
+}
+
+/**
+ * The sentence a reader may see for `cause`: an {@link ApiError}'s own
+ * message, or the generic sentence for anything else, which is logged.
+ */
+export const publicMessage = (cause: unknown): string => {
+  if (cause instanceof ApiError) return cause.message
+  console.error(cause)
+  return UNKNOWN_FAILURE_SENTENCE
 }
 
 const json = async (response: Response, route: string): Promise<unknown> => {
-  if (!response.ok) throw new ApiError(response.status, route, await response.text())
+  if (!response.ok) throw await refusal(response, route)
   return await response.json()
 }
 
@@ -70,9 +102,9 @@ export const splitNdjson = (buffer: string): NdjsonSplit => {
 
 /** Yields every decoded frame of an NDJSON response body. */
 export async function* readFrames(response: Response, route: string): AsyncGenerator<TurnFrame> {
-  if (!response.ok) throw new ApiError(response.status, route, await response.text())
+  if (!response.ok) throw await refusal(response, route)
   const body = response.body
-  if (body === null) throw new ApiError(response.status, route, "response has no body")
+  if (body === null) throw new ApiError({ status: response.status, route, message: UNKNOWN_FAILURE_SENTENCE })
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""

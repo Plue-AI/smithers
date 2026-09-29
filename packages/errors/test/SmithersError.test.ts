@@ -1,3 +1,4 @@
+import { Effect, Exit } from "effect"
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -273,6 +274,48 @@ describe("SmithersError", () => {
     expect(error).toBeInstanceOf(Subclass)
     expect(isSmithersError(error)).toBe(true)
     expect(isSmithersError(new Error("plain"))).toBe(false)
+  })
+})
+
+describe("tagged failures", () => {
+  class AdapterError extends SmithersError<"AdapterError"> {
+    constructor() {
+      super("INTEGRATION_ERROR", "adapter failed", undefined, { name: "AdapterError" })
+    }
+  }
+
+  const recover = (error: SmithersError<"SmithersError"> | AdapterError) =>
+    Effect.fail(error).pipe(
+      Effect.catchTag("AdapterError", (caught) => Effect.succeed(`adapter:${caught.summary}`)),
+      Effect.catchTag("SmithersError", (caught) => Effect.succeed(`base:${caught.code}`))
+    )
+
+  it("routes a base instance and a subclass to their own catchTag handler", () => {
+    expect(Effect.runSync(recover(new SmithersError<"SmithersError">("INVALID_INPUT", "x")))).toBe("base:INVALID_INPUT")
+    expect(Effect.runSync(recover(new AdapterError()))).toBe("adapter:adapter failed")
+  })
+
+  it("tags with the reported name so a renamed instance routes by that name", () => {
+    const renamed = new SmithersError("INTEGRATION_ERROR", "x", undefined, { name: "AdapterError" })
+    const routed = Effect.runSync(
+      Effect.fail(renamed).pipe(Effect.catchTag("AdapterError", () => Effect.succeed("adapter")))
+    )
+    expect(routed).toBe("adapter")
+  })
+
+  it("fails the surrounding effect with the instance when yielded", () => {
+    const exit = Effect.runSyncExit(Effect.gen(function*() {
+      return yield* new AdapterError()
+    }))
+    expect(Exit.isFailure(exit)).toBe(true)
+    const failure = Exit.isFailure(exit) ? exit.cause.reasons[0] : undefined
+    expect(failure?._tag === "Fail" ? failure.error : undefined).toBeInstanceOf(AdapterError)
+  })
+
+  it("keeps the tag out of enumerable fields and JSON", () => {
+    const error = new AdapterError()
+    expect(Object.keys(error)).not.toContain("_tag")
+    expect(JSON.stringify(error)).not.toContain("_tag")
   })
 })
 

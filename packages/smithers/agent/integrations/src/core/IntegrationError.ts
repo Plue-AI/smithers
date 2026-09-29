@@ -67,7 +67,7 @@ export const isReason = (value: unknown): value is Reason => reasons.includes(va
  * @category errors
  * @since 1.0.0
  */
-export class IntegrationError extends SmithersError {
+export class IntegrationError extends SmithersError<"IntegrationError"> {
   /** The machine-readable classification. */
   readonly reason: Reason
 

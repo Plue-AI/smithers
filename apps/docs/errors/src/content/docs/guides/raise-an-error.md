@@ -79,7 +79,7 @@ treated as no cause, so the instance gets no own `cause` property and
 `util.inspect` prints no `[cause]` line:
 
 ```ts
-class IntegrationError extends SmithersError {
+class IntegrationError extends SmithersError<"IntegrationError"> {
   constructor(reason: Reason, message: string, options?: { readonly cause?: unknown }) {
     super("INTEGRATION_ERROR", message, { reason }, {
       cause: options?.cause,
@@ -106,9 +106,11 @@ Two subclasses in [`@smthrs/integrations`](https://integrations.smithers.sh/refe
 
 Two rules make a subclass behave:
 
-1. Pass `{ name: "YourError" }`. The constructor installs it as a
-   non-enumerable own property, so the stack starts with your name while
-   `Object.keys` and `JSON.stringify` stay clean.
+1. Extend `SmithersError<"YourError">` and pass `{ name: "YourError" }`. The
+   constructor installs the name and the matching Effect `_tag` as
+   non-enumerable own properties, so the stack starts with your name,
+   `Effect.catchTag("YourError")` routes to your handler, and `Object.keys`
+   and `JSON.stringify` stay clean.
 2. Set your own fields after `super(...)`. The constructor restores the
    subclass prototype through `new.target`, so `instanceof` works even under a
    transpiled target.

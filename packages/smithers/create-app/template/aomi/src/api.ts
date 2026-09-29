@@ -5,6 +5,9 @@
 import * as Schema from "effect/Schema"
 import { AppCard, TurnFrame } from "@smthrs/create-app/ui"
 
+/** What a reader sees for a failure that is not a designed refusal. */
+export const UNKNOWN_FAILURE_SENTENCE = "Something went wrong on our side. Not your fault."
+
 export const Routes = {
   turn: "/api/agent/turn",
   turnCancel: "/api/agent/turn/cancel",

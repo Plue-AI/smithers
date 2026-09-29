@@ -28,6 +28,7 @@
  * @since 0.1.0
  */
 
+import * as Data from "effect/Data"
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, posix, relative, resolve, sep } from "node:path"
 import { isRouteSegment, routeSegmentGrammar } from "./app.ts"
@@ -63,20 +64,17 @@ export type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name
  * @category errors
  * @since 0.1.0
  */
-export class RouterError extends Error {
+export class RouterError extends Data.TaggedError("create-app/RouterError")<{
+  readonly code: RouterErrorCode
+  readonly message: string
+}> {
   /**
    * @category models
    * @since 0.1.0
    */
   override readonly name = "RouterError"
-  /**
-   * @category models
-   * @since 0.1.0
-   */
-  readonly code: RouterErrorCode
   constructor(code: RouterErrorCode, message: string) {
-    super(message)
-    this.code = code
+    super({ code, message })
   }
 }
 

@@ -209,7 +209,7 @@ describe("runTurn", () => {
     if (!(stream instanceof ReadableStream)) throw new Error("refused")
     const frames = await read(stream)
     // The observer is host code, so its text stays on the server.
-    expect(frames.at(-1)).toEqual({ type: "error", message: "The turn failed." })
+    expect(frames.at(-1)).toEqual({ type: "error", message: "Something went wrong on our side. Not your fault." })
     expect(frames.filter((frame) => frame.type === "done" || frame.type === "error")).toHaveLength(1)
   })
 
@@ -222,7 +222,11 @@ describe("runTurn", () => {
       }),
       question
     )
-    expect(refused).toEqual({ status: 503, error: "host_unconfigured", message: "The turn failed." })
+    expect(refused).toEqual({
+      status: 503,
+      error: "host_unconfigured",
+      message: "Something went wrong on our side. Not your fault."
+    })
   })
 
   it("keeps a thrown host error's text off the wire and shows a typed error's message", async () => {

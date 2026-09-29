@@ -320,7 +320,7 @@ export const actions = {
       })
     } catch (cause) {
       if (!isCurrent()) return
-      set({ status: "error", error: cause instanceof Error ? cause.message : String(cause) })
+      set({ status: "error", error: client.publicMessage(cause) })
     } finally {
       if (loading === controller) loading = undefined
     }
@@ -352,7 +352,7 @@ export const actions = {
       if (controller.signal.aborted) {
         set({ status: "idle" })
       } else {
-        const detail = cause instanceof Error ? cause.message : String(cause)
+        const detail = client.publicMessage(cause)
         set({
           status: "error",
           error: detail,
@@ -387,7 +387,7 @@ export const actions = {
       if (!isCurrent()) return
     } catch (cause) {
       if (!isCurrent()) return
-      set({ status: "error", error: cause instanceof Error ? cause.message : String(cause) })
+      set({ status: "error", error: client.publicMessage(cause) })
       return
     }
     for (let tick = 0; tick < FLOW_POLL_TICKS; tick += 1) {

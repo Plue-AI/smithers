@@ -25,6 +25,7 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import * as Registry from "@smthrs/registry/Registry"
 import type * as Crypto from "effect/Crypto"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -140,20 +141,17 @@ export type LayerErrorCode = "invalid_grant"
  * @category errors
  * @since 0.1.0
  */
-export class LayerError extends Error {
+export class LayerError extends Data.TaggedError("create-app/LayerError")<{
+  readonly code: LayerErrorCode
+  readonly message: string
+}> {
   /**
    * @category models
    * @since 0.1.0
    */
   override readonly name = "LayerError"
-  /**
-   * @category models
-   * @since 0.1.0
-   */
-  readonly code: LayerErrorCode
   constructor(code: LayerErrorCode, message: string) {
-    super(message)
-    this.code = code
+    super({ code, message })
   }
 }
 

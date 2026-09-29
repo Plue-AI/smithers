@@ -107,12 +107,16 @@
     "test": "vitest",
     "coverage": "vitest --coverage"
   },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.115"
+  },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
     "@eslint/js": "9.39.5",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",
     "dprint": "0.57.1",
+    "effect": "4.0.0-rc.115",
     "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "eslint-import-resolver-typescript": "4.4.5",

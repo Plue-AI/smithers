@@ -286,7 +286,7 @@ placeholder.
 ### LayerError
 
 ```ts
-class LayerError extends Error {
+class LayerError extends Data.TaggedError("create-app/LayerError") {
   readonly name: "LayerError"
   readonly code: LayerErrorCode
 }
@@ -294,6 +294,7 @@ type LayerErrorCode = "invalid_grant"
 ```
 
 Thrown rather than returned, because every caller wants the host build to stop.
+Inside an `Effect`, catch it with `Effect.catchTag("create-app/LayerError")`.
 `invalid_grant` is a `TOOLS.ts` grant whose action is not one the kernel knows,
 or whose resource is longer than 4096 characters. The message names the grant's
 index and the field.
@@ -335,7 +336,7 @@ A refusal or `error` frame carries a typed error's own message (a payload the
 flow's schema rejects, a provider refusal, a seat with no key). Any other
 failure, including a throw from a host callback such as `tools` or `observe`,
 is logged on the server with `Effect.logError` and reaches the reader as
-`The turn failed.`
+`Something went wrong on our side. Not your fault.`
 
 | `TurnHost` field | Type                                                       |
 | ---------------- | ---------------------------------------------------------- |
@@ -453,7 +454,7 @@ type RoutesFileStatus = "written" | "clean" | "stale"
 ### RouterError
 
 ```ts
-class RouterError extends Error {
+class RouterError extends Data.TaggedError("create-app/RouterError") {
   readonly name: "RouterError"
   readonly code: RouterErrorCode
 }
@@ -462,7 +463,8 @@ type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name"
 
 `missing_layer` is a flow with no ancestor layer file of some kind,
 `duplicate_name` is two files claiming one route, and `invalid_name` is a pane,
-page segment, or flow segment that is not lowercase kebab-case.
+page segment, or flow segment that is not lowercase kebab-case. Inside an
+`Effect`, catch it with `Effect.catchTag("create-app/RouterError")`.
 
 ## @smthrs/create-app/vite
 

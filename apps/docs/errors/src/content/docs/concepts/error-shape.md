@@ -85,7 +85,7 @@ A `cause` of `undefined` is treated as no cause, so the instance has no own
 therefore always spell the key and let the caller decide:
 
 ```ts
-class IntegrationError extends SmithersError {
+class IntegrationError extends SmithersError<"IntegrationError"> {
   constructor(options?: { readonly cause?: unknown }) {
     super("INTEGRATION_ERROR", "poll failed", undefined, {
       cause: options?.cause,
@@ -141,6 +141,24 @@ The reported `name` is a separate decision. A subclass that passes
 `{ name: "AdapterError" }` reports that name and its stack starts with it; one
 that passes nothing reports `"SmithersError"`. Either way the name stays
 non-enumerable, so it never shows up in `Object.keys` or `JSON.stringify`.
+
+## The tag is the name
+
+`SmithersError` is an Effect tagged error. Its `_tag` is the reported `name`,
+installed as a non-enumerable own property, so `Effect.catchTag` routes each
+adapter's failures to their own handler:
+
+```ts
+Effect.fail(error).pipe(
+  Effect.catchTag("IntegrationError", (e) => Effect.succeed(e.reason)),
+  Effect.catchTag("SmithersError", (e) => Effect.succeed(e.code))
+)
+```
+
+A subclass passes its tag as the type argument and the same string as
+`name`: `class AdapterError extends SmithersError<"AdapterError">` with
+`{ name: "AdapterError" }`. The type argument defaults to `string`, so
+`SmithersError` alone still means any instance, subclasses included.
 
 [Raise a SmithersError from an adapter](/guides/raise-an-error/) shows the
 two real subclasses and what they add.

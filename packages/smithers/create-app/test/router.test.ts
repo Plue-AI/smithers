@@ -5,6 +5,7 @@
  * repository's layout is not a rule.
  */
 import { afterEach, describe, expect, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
 import { spawnSync } from "node:child_process"
 import { chmodSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, sep } from "node:path"
@@ -210,6 +211,20 @@ describe("layer resolution", () => {
       sandbox: "SANDBOX.ts",
       tools: "flows/build/TOOLS.ts"
     })
+  })
+
+  it("routes a refused tree to its catchTag handler with the code", () => {
+    const root = appTree({
+      "SANDBOX.ts": layers["SANDBOX.ts"],
+      "TOOLS.ts": layers["TOOLS.ts"],
+      "flows/chat/flow.ts": "export const Flow = {}\n"
+    })
+    const handled = Effect.runSync(
+      Effect.try({ try: () => discover({ root, dirs }), catch: (cause) => cause as RouterError }).pipe(
+        Effect.catchTag("create-app/RouterError", (caught) => Effect.succeed(caught.code))
+      )
+    )
+    expect(handled).toBe("missing_layer")
   })
 
   it("refuses a flow with no ancestor layer", () => {

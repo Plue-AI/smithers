@@ -52,7 +52,7 @@ const TYPING_TIMEOUT_MS = 5_000
  * @category errors
  * @since 1.0.0
  */
-export class TelegramApiError extends SmithersError {
+export class TelegramApiError extends SmithersError<"TelegramApiError"> {
   readonly errorCode: number | null
   readonly retryAfterSeconds: number | null
   /**

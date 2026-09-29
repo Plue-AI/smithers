@@ -22,6 +22,7 @@ import { createCodeVerifier, createPkcePair, deriveCodeChallenge } from "../src/
 import * as SignalName from "../src/core/SignalName.ts"
 import * as Environment from "../src/Environment.ts"
 import * as GitHubConfig from "../src/github/Config.ts"
+import { TelegramApiError } from "../src/telegram/TelegramClient.ts"
 
 describe("readJsonPath", () => {
   const payload = { repository: { full_name: "smithersai/smithers" }, issue: { number: 12 }, list: [1, 2] }
@@ -78,6 +79,25 @@ describe("readJsonPath", () => {
 })
 
 describe("IntegrationError", () => {
+  it("routes each adapter failure to its own catchTag handler", () => {
+    const recover = (error: IntegrationError | TelegramApiError | SmithersError<"SmithersError">) =>
+      Effect.fail(error).pipe(
+        Effect.catchTag("IntegrationError", (caught) => Effect.succeed(`integration:${caught.reason}`)),
+        Effect.catchTag("TelegramApiError", (caught) => Effect.succeed(`telegram:${caught.errorCode}`)),
+        Effect.catchTag("SmithersError", (caught) => Effect.succeed(`base:${caught.code}`))
+      )
+    expect(Effect.runSync(recover(new IntegrationError("poll-failed", "getUpdates failed")))).toBe(
+      "integration:poll-failed"
+    )
+    expect(
+      Effect.runSync(recover(new TelegramApiError("sendMessage failed", { method: "sendMessage", errorCode: 400 })))
+    )
+      .toBe("telegram:400")
+    expect(Effect.runSync(recover(new SmithersError<"SmithersError">("UNSUPPORTED", "no Ed25519")))).toBe(
+      "base:UNSUPPORTED"
+    )
+  })
+
   it("carries a reason and provider-safe details", () => {
     const error = new IntegrationError("poll-failed", "getUpdates failed", { sourceId: "telegram" })
     expect(error.reason).toBe("poll-failed")

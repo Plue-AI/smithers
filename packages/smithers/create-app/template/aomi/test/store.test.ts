@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { AppCard, SessionState } from "../src/api.ts"
+import { type AppCard, type SessionState, UNKNOWN_FAILURE_SENTENCE } from "../src/api.ts"
 import { actions, applyFrame, store } from "../src/shell/store.ts"
 
 interface PendingRequest {
@@ -148,11 +148,27 @@ describe("session loads", () => {
     actions.selectSession("selected")
     requestAt(0).reject(new Error("offline"))
     await flush()
-    expect(store.getSnapshot()).toMatchObject({ status: "error", error: "offline" })
+    expect(store.getSnapshot()).toMatchObject({ status: "error", error: UNKNOWN_FAILURE_SENTENCE })
     const retry = actions.loadSession("selected")
     await respond(requestAt(1), session("selected"))
     await retry
     expect(store.getSnapshot()).toMatchObject({ status: "idle", error: undefined })
+  })
+
+  it("shows the Worker's refusal and hides a proxy's raw body", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const refused = actions.submit("hello")
+    requestAt(0).resolve(Response.json({ error: "A turn is already streaming for this session." }, { status: 409 }))
+    await refused
+    expect(store.getSnapshot()).toMatchObject({
+      status: "error",
+      error: "A turn is already streaming for this session."
+    })
+    const proxied = actions.submit("again")
+    requestAt(1).resolve(new Response("<html>upstream stack at db.internal:5432</html>", { status: 502 }))
+    await proxied
+    expect(store.getSnapshot()).toMatchObject({ status: "error", error: UNKNOWN_FAILURE_SENTENCE })
+    expect(JSON.stringify(store.getSnapshot())).not.toContain("db.internal")
   })
 
   it("preserves card keys and the whole snapshot for unchanged loads", async () => {
