@@ -122,7 +122,12 @@ export const issueWord = (item: MythicalItem): string =>
 const isVeryHardContinuation = (item: MythicalItem): boolean =>
   item.todo?.veryHard === true && ACTIVE_ITEM_STATES.has(item.state) && item.state !== "retrying"
 
-/** The current plan and continuation, shown only while a lane works the TODO. */
+/**
+ * The current plan and continuation, shown only while a lane works the TODO.
+ *
+ * @since 1.0.0
+ * @category projections
+ */
 export const issueProgress = (item: MythicalItem): string | undefined => {
   if (item.todo === undefined || !ACTIVE_ITEM_STATES.has(item.state)) return undefined
   const plan = `plan ${Math.min(item.todo.replans + 1, 3)} of 3`
@@ -227,7 +232,12 @@ export const stackMetrics = (stack: MythicalStack): StackMetrics => {
   }
 }
 
-/** Short, ordered labels for the one-line metric header in both hosts. */
+/**
+ * Short, ordered labels for the one-line metric header in both hosts.
+ *
+ * @since 1.0.0
+ * @category projections
+ */
 export const stackMetricLabels = (
   metrics: StackMetrics
 ): ReadonlyArray<{ readonly id: string; readonly text: string }> => [
