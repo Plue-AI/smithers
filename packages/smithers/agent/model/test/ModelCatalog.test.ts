@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest"
 import * as ModelCatalog from "../src/ModelCatalog.ts"
 
+describe("ModelCatalog.knownContextWindowTokens", () => {
+  it("answers a matched row's window and undefined for an id no row matches", () => {
+    expect(ModelCatalog.knownContextWindowTokens("gpt-4o")).toBe(128_000)
+    expect(ModelCatalog.knownContextWindowTokens("claude-opus-5")).toBe(1_000_000)
+    expect(ModelCatalog.knownContextWindowTokens("unknown")).toBeUndefined()
+    expect(ModelCatalog.knownContextWindowTokens("")).toBeUndefined()
+  })
+
+  it("is what contextWindowTokensFor answers wherever it knows the model", () => {
+    for (const model of ["claude-haiku-4-5", "gpt-5", "o3-mini", "claude-opus-4-6", "unknown"]) {
+      expect(ModelCatalog.contextWindowTokensFor(model)).toBe(ModelCatalog.knownContextWindowTokens(model) ?? 128_000)
+    }
+  })
+})
+
 describe("ModelCatalog.contextWindowTokensFor", () => {
   it.each([
     ["claude-haiku-4-5", 200_000],

@@ -685,6 +685,7 @@ Static facts about known provider models, read from a model id alone.
 | Export                            | Kind     | Behavior                                                                                                                                                                                                                                   |
 | --------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `contextWindowTokensFor(modelId)` | resolver | The context window in tokens, matched case-insensitively against the id. A million-token row is anchored to the bare id, so a cloud-prefixed or suffixed id falls through to the conservative row. Unknown ids answer 128,000, never zero. |
+| `knownContextWindowTokens(modelId)` | resolver | The same match, but `undefined` for an id no row names, so a caller that must not show an unmeasured window can omit it. |
 
 `@smthrs/agent` re-exports this as `SeatResolver.contextWindowTokensFor`, and
 the built-in harness calls it for the compaction budget of a seat whose host

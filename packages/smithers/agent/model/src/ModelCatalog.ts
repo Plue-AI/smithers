@@ -28,6 +28,22 @@ const contextWindows: ReadonlyArray<readonly [RegExp, number]> = [
 ]
 
 /**
+ * The context window, in tokens, of a model id this catalog has met, or
+ * `undefined` when no row matches. A display that must not invent a window
+ * (a usage meter) reads this; a budget that needs a number reads
+ * `contextWindowTokensFor`.
+ *
+ * @category resolvers
+ * @since 1.0.0-rc.1
+ */
+export const knownContextWindowTokens = (modelId: string): number | undefined => {
+  for (const [pattern, tokens] of contextWindows) {
+    if (pattern.test(modelId)) return tokens
+  }
+  return undefined
+}
+
+/**
  * The context window, in tokens, of a known model id, with a conservative
  * floor for models the catalog has not met. Never zero: a consumer that reads
  * zero as "compaction disabled" must not have it disabled by a resolver that
@@ -36,12 +52,8 @@ const contextWindows: ReadonlyArray<readonly [RegExp, number]> = [
  * @category resolvers
  * @since 1.0.0-rc.0
  */
-export const contextWindowTokensFor = (modelId: string): number => {
-  for (const [pattern, tokens] of contextWindows) {
-    if (pattern.test(modelId)) return tokens
-  }
-  return unknownModelTokens
-}
+export const contextWindowTokensFor = (modelId: string): number =>
+  knownContextWindowTokens(modelId) ?? unknownModelTokens
 
 // Claude models whose documented output ceiling is 128K tokens.
 // https://platform.claude.com/docs/en/about-claude/models/overview
