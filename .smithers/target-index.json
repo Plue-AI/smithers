@@ -27965,6 +27965,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-pool-default-model.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-planning-wiki-prior.test.ts"
       },
       {
@@ -28985,6 +28989,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-fault.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/run-record.test.ts"
       },
       {
@@ -29029,6 +29037,10 @@
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/failure-codes.json"
       },
       {
         "kind": "file",
@@ -29470,6 +29482,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/review-flow.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/workflows.test.ts"
       },
       {
@@ -29485,6 +29501,10 @@
         "kind": "glob",
         "pattern": "scripts/*.mjs",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/review/flow.mdx"
       },
       {
         "kind": "file",

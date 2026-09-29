@@ -30,10 +30,11 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/content.test.ts"),
     Smithers.file("//flows/test/release-redaction.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
+    Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts")
   ]),
-  srcs: [sources, scripts, Smithers.file("//pnpm-workspace.yaml")],
+  srcs: [sources, scripts, Smithers.file("//flows/review/flow.mdx"), Smithers.file("//pnpm-workspace.yaml")],
   deps: [],
   cwd
 })
@@ -137,6 +138,7 @@ const codingBackend = codingPackages.map((cwd) =>
   })
 )
 const codingScripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
+const codingWiki = Smithers.Filegroup({ cwd: "flows/wiki", srcs: [Smithers.glob("**/*.ts")] })
 const codingFiles = [
   sources,
   Smithers.glob("//flows/**/*.mjs"),
@@ -148,7 +150,7 @@ const codingSources = [
   Smithers.pnpmWorkspace("//pnpm-workspace.yaml"),
   Smithers.file("//pnpm-lock.yaml")
 ]
-const codingDependencies = [...codingBackend, codingScripts]
+const codingDependencies = [...codingBackend, codingScripts, codingWiki]
 const codingHostInputs = Smithers.Filegroup({ srcs: [...codingFiles, ...codingDependencies] })
 // The repository config test reads every wiki page's document and inputs too.
 // Declare them so both runtime targets track changes outside their TS sources.
@@ -184,6 +186,7 @@ const codingPolicy = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-builtin-routes.test.ts"),
     Smithers.file("//flows/test/coding-runtime-bridge.test.ts"),
     Smithers.file("//flows/test/coding-gates.test.ts"),
+    Smithers.file("//flows/test/coding-pool-default-model.test.ts"),
     Smithers.file("//flows/test/coding-planning-wiki-prior.test.ts")
   ]),
   // `coding-host.test.ts` and `coding-builtin-routes.test.ts` load the checked-in project configuration.
@@ -363,6 +366,7 @@ const fixtures = Smithers.NodeTest({
     fixture("wiki-reuse.test.ts"),
     fixture("wiki-jev-citations.test.ts"),
     fixture("content-jev-template.test.ts"),
+    fixture("coding-fault.test.ts"),
     fixture("run-record.test.ts"),
     fixture("canary-coding-setup.test.mjs"),
     fixture("invoke-native-host.test.ts"),
@@ -370,7 +374,11 @@ const fixtures = Smithers.NodeTest({
     fixture("register-repository.test.ts")
   ]),
   // `decide-with-jev-docs` reads the guide.
-  srcs: [...codingSources, Smithers.file("//packages/smithers/agent/model/docs/guides/decide-with-jev.md")],
+  srcs: [
+    ...codingSources,
+    Smithers.file("//docs/api/failure-codes.json"),
+    Smithers.file("//packages/smithers/agent/model/docs/guides/decide-with-jev.md")
+  ],
   deps: codingDependencies,
   cwd,
   timeout: "20m"
