@@ -27,6 +27,7 @@
     "@smthrs/platform-node": "workspace:*",
     "@smthrs/registry": "workspace:*",
     "@smthrs/run-store": "workspace:*",
+    "@smthrs/std": "workspace:*",
     "@smthrs/targets": "workspace:*",
     "effect": "4.0.0-rc.115",
     "microsandbox": "0.6.16",

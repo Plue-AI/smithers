@@ -2171,6 +2171,9 @@ importers:
       '@smthrs/run-store':
         specifier: workspace:*
         version: link:../packages/smithers/flows/run-store
+      '@smthrs/std':
+        specifier: workspace:*
+        version: link:../packages/smithers/agent/std
       '@smthrs/targets':
         specifier: workspace:*
         version: link:../packages/smithers/build/targets

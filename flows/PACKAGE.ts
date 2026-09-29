@@ -227,6 +227,21 @@ const codingRuntime = Smithers.NodeTest({
   cwd,
   cache: true
 })
+// Agent memory: threshold calibration over `@smthrs/agent/Memory`.
+const memory = Smithers.NodeTest({
+  runtime: node,
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/test/memory-calibrate.test.ts")
+  ]),
+  srcs: [
+    ...codingSources,
+    ...codingProjectInputs,
+    Smithers.file("//flows/test/fixtures/memory-calibrate-e2e.jsonl")
+  ],
+  deps: codingDependencies,
+  cwd,
+  cache: true
+})
 const codingConfigBun = Smithers.NodeTest({
   runtime: bun,
   runner: Smithers.testRunner([
@@ -575,6 +590,7 @@ export const Package = Smithers.Package({
     coding,
     codingPolicy,
     codingRuntime,
+    memory,
     codingConfigBun,
     codingNative,
     codingNativeBun,

@@ -1012,6 +1012,25 @@
       }
     },
     {
+      "id": "memory/calibrate",
+      "description": "Refit the repository's memory thresholds from run journals and landed fixes; report recall at 32 KiB and each decision's outcome.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/memory/calibrate/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:.smithers/**",
+        "fs:write:.jj/**",
+        "proc:spawn:jj *",
+        "proc:spawn:git *",
+        "model:call:typesafe-ai/jev"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "flows": []
+    },
+    {
       "id": "register-repository",
       "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
       "summary": null,

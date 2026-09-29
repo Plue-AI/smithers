@@ -114,6 +114,8 @@ worktrees/
 !/.smithers/home.json
 !/.smithers/target-index.json
 !/.smithers/environment.nix
+!/.smithers/memory-thresholds.json
+!/.smithers/memory-thresholds.receipt.json
 **/.smithers/*.db
 **/.smithers/*.db-*
 **/.smithers/runs/
