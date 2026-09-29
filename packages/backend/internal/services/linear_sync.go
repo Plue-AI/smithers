@@ -1374,19 +1374,27 @@ func (s *LinearSyncService) StartInitialSync(integration db.LinearIntegration) b
 type linearSyncRunContextKey struct{}
 
 func (s *LinearSyncService) runTrackedInitialSync(ctx context.Context, integration db.LinearIntegration, runID int64) {
-	if _, err := s.operations.MarkLinearSyncRunRunning(ctx, runID); err != nil {
-		slog.Error("linear initial sync: failed to start run", "run_id", runID, "error", err)
-		_, _ = s.operations.FailLinearSyncRun(ctx, runID)
-		return
+	_, runErr := s.operations.MarkLinearSyncRunRunning(ctx, runID)
+	if runErr != nil {
+		slog.Error("linear initial sync: failed to start run", "run_id", runID, "error", runErr)
+	} else {
+		ctx = context.WithValue(ctx, linearSyncRunContextKey{}, runID)
+		runErr = s.runInitialSync(ctx, integration, runID)
+		if runErr != nil {
+			slog.Error("linear initial sync failed", "integration_id", integration.ID, "run_id", runID, "error", runErr)
+		}
 	}
-	ctx = context.WithValue(ctx, linearSyncRunContextKey{}, runID)
-	if err := s.runInitialSync(ctx, integration, runID); err != nil {
-		slog.Error("linear initial sync failed", "integration_id", integration.ID, "run_id", runID, "error", err)
-		_, _ = s.operations.FailLinearSyncRun(ctx, runID)
-		return
+	// The run's deadline must not prevent its terminal state from being saved.
+	terminalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var err error
+	if runErr != nil {
+		_, err = s.operations.FailLinearSyncRun(terminalCtx, runID)
+	} else {
+		_, err = s.operations.FinishLinearSyncRun(terminalCtx, runID)
 	}
-	if _, err := s.operations.FinishLinearSyncRun(ctx, runID); err != nil {
-		slog.Error("linear initial sync: failed to finish run", "run_id", runID, "error", err)
+	if err != nil {
+		slog.Error("linear initial sync: failed to finalize run", "run_id", runID, "error", err)
 	}
 }
 
@@ -1410,66 +1418,103 @@ func (s *LinearSyncService) runInitialSync(ctx context.Context, integration db.L
 	}
 
 	// Fetch open issues from Linear for this team.
-	query := `query Issues($teamId: String!) { issues(filter: { team: { id: { eq: $teamId } }, state: { type: { nin: ["canceled", "completed"] } } }, first: 100) { nodes { id identifier title description } } }`
+	query := `query Issues($teamId: String!, $after: String) { issues(filter: { team: { id: { eq: $teamId } }, state: { type: { nin: ["canceled", "completed"] } } }, first: 100, after: $after) { nodes { id identifier title description } pageInfo { hasNextPage endCursor } } }`
 	vars := map[string]any{"teamId": integration.LinearTeamID}
 
-	result, err := s.linearGraphQLMutation(ctx, accessToken, query, vars)
-	if err != nil {
-		return fmt.Errorf("fetch Linear issues: %w", err)
-	}
-
-	issues, ok := result["issues"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("unexpected Linear issues response shape")
-	}
-	nodes, ok := issues["nodes"].([]any)
-	if !ok {
-		return fmt.Errorf("Linear issues response has no nodes")
-	}
-	if runID != 0 {
-		if _, err := s.operations.SetLinearSyncRunTotals(ctx, db.SetLinearSyncRunTotalsParams{
-			ID: runID, IssuesTotal: int32(len(nodes)), CommentsTotal: 0,
-		}); err != nil {
-			return fmt.Errorf("set Linear sync run totals: %w", err)
+	issuesChecked := 0
+	seenCursors := make(map[string]struct{})
+	for {
+		result, err := s.linearGraphQLMutation(ctx, accessToken, query, vars)
+		if err != nil {
+			return fmt.Errorf("fetch Linear issues: %w", err)
 		}
-	}
 
-	for _, n := range nodes {
-		node, ok := n.(map[string]any)
+		issues, ok := result["issues"].(map[string]any)
 		if !ok {
-			continue
+			return fmt.Errorf("unexpected Linear issues response shape")
 		}
-		linearIssueID, _ := node["id"].(string)
-		linearIdentifier, _ := node["identifier"].(string)
-		title, _ := node["title"].(string)
-		description, _ := node["description"].(string)
+		nodes, ok := issues["nodes"].([]any)
+		if !ok {
+			return fmt.Errorf("Linear issues response has no nodes")
+		}
+		pageInfo, ok := issues["pageInfo"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("Linear issues response has no page info")
+		}
+		hasNextPage, ok := pageInfo["hasNextPage"].(bool)
+		if !ok {
+			return fmt.Errorf("Linear issues response has no next-page flag")
+		}
+		endCursor, _ := pageInfo["endCursor"].(string)
+		if hasNextPage {
+			if strings.TrimSpace(endCursor) == "" {
+				return fmt.Errorf("Linear issues response has no continuation cursor")
+			}
+			if _, seen := seenCursors[endCursor]; seen {
+				return fmt.Errorf("Linear issues response repeats a continuation cursor")
+			}
+			seenCursors[endCursor] = struct{}{}
+		}
+		issuesChecked += len(nodes)
 
-		// Check if already mapped.
-		_, err := s.queries.GetLinearIssueMapByLinearIssue(ctx, db.GetLinearIssueMapByLinearIssueParams{
-			IntegrationID: integration.ID,
-			LinearIssueID: linearIssueID,
-		})
-		if err == nil {
+		if runID != 0 {
+			if _, err := s.operations.SetLinearSyncRunTotals(ctx, db.SetLinearSyncRunTotalsParams{
+				ID: runID, IssuesTotal: int32(issuesChecked), CommentsTotal: 0,
+			}); err != nil {
+				return fmt.Errorf("set Linear sync run totals: %w", err)
+			}
+		}
+
+		for _, n := range nodes {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			node, ok := n.(map[string]any)
+			if !ok {
+				continue
+			}
+			linearIssueID, _ := node["id"].(string)
+			linearIdentifier, _ := node["identifier"].(string)
+			title, _ := node["title"].(string)
+			description, _ := node["description"].(string)
+
+			// Check if already mapped.
+			_, err := s.queries.GetLinearIssueMapByLinearIssue(ctx, db.GetLinearIssueMapByLinearIssueParams{
+				IntegrationID: integration.ID,
+				LinearIssueID: linearIssueID,
+			})
+			if err == nil {
+				s.recordSyncRunResult(ctx, runID, "issue", false)
+				continue // already mapped
+			}
+
+			if err := s.importLinearIssue(ctx, integration, linearIssueID, linearIdentifier, title, description); err != nil {
+				s.logSyncOpWithPayload(ctx, integration.ID, "linear", "jjhub", "issue", linearIssueID, "initial_sync", "failed", err.Error(), node)
+				s.recordSyncRunResult(ctx, runID, "issue", true)
+				slog.Error("linear initial sync: failed to import issue",
+					"integration_id", integration.ID,
+					"linear_issue_id", linearIssueID,
+					"identifier", linearIdentifier,
+					"error", err,
+				)
+				continue
+			}
 			s.recordSyncRunResult(ctx, runID, "issue", false)
-			continue // already mapped
 		}
 
-		if err := s.importLinearIssue(ctx, integration, linearIssueID, linearIdentifier, title, description); err != nil {
-			s.logSyncOpWithPayload(ctx, integration.ID, "linear", "jjhub", "issue", linearIssueID, "initial_sync", "failed", err.Error(), node)
-			s.recordSyncRunResult(ctx, runID, "issue", true)
-			slog.Error("linear initial sync: failed to import issue",
-				"integration_id", integration.ID,
-				"linear_issue_id", linearIssueID,
-				"identifier", linearIdentifier,
-				"error", err,
-			)
-			continue
+		if !hasNextPage {
+			break
 		}
-		s.recordSyncRunResult(ctx, runID, "issue", false)
+		vars["after"] = endCursor
 	}
 
-	_ = s.queries.UpdateLinearIntegrationLastSync(ctx, integration.ID)
-	slog.Info("linear initial sync completed", "integration_id", integration.ID, "issues_checked", len(nodes))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.queries.UpdateLinearIntegrationLastSync(ctx, integration.ID); err != nil {
+		return fmt.Errorf("update Linear integration sync timestamp: %w", err)
+	}
+	slog.Info("linear initial sync completed", "integration_id", integration.ID, "issues_checked", issuesChecked)
 	return nil
 }
 

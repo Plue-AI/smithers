@@ -272,7 +272,7 @@ func TestLinearSyncService_StartInitialSyncRunTracksLiveCounts(t *testing.T) {
 	}
 	svc := NewLinearSyncService(store, linearSyncOperationsIntegrationService(integration, "linear-sync-cover-secret"))
 	svc.httpClient = linearSyncCovHTTPClient(t, nil, func(string) (int, string, error) {
-		return http.StatusOK, `{"data":{"issues":{"nodes":[{"id":"lin-1","identifier":"PLT-1","title":"One","description":"Body"},{"id":"lin-2","identifier":"PLT-2","title":"Two","description":"Body"}]}}}`, nil
+		return http.StatusOK, `{"data":{"issues":{"nodes":[{"id":"lin-1","identifier":"PLT-1","title":"One","description":"Body"},{"id":"lin-2","identifier":"PLT-2","title":"Two","description":"Body"}],"pageInfo":{"hasNextPage":false}}}}`, nil
 	})
 
 	runID, err := svc.StartInitialSyncRun(context.Background(), integration.UserID, integration.ID)

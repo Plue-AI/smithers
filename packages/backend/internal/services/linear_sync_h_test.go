@@ -417,7 +417,7 @@ func TestLinearSync_H_RunInitialSyncBranches(t *testing.T) {
 	q = &linearSyncCovQuerier{integration: integration, issueMapByLinear: db.LinearIssueMap{ID: 9, LinearIssueID: "already"}}
 	svc = NewLinearSyncService(q, integrationSvc)
 	svc.httpClient = linearSyncCovHTTPClient(t, nil, func(string) (int, string, error) {
-		return http.StatusOK, `{"data":{"issues":{"nodes":[123,{"id":"already","identifier":"PLT-1","title":"Already","description":"Body"}]}}}`, nil
+		return http.StatusOK, `{"data":{"issues":{"nodes":[123,{"id":"already","identifier":"PLT-1","title":"Already","description":"Body"}],"pageInfo":{"hasNextPage":false}}}}`, nil
 	})
 	svc.RunInitialSync(ctx, integration)
 	assert.Equal(t, []int64{integration.ID}, q.lastSyncIDs)
@@ -425,7 +425,7 @@ func TestLinearSync_H_RunInitialSyncBranches(t *testing.T) {
 	q = &linearSyncCovQuerier{integration: integration, createIssueErr: errors.New("create failed")}
 	svc = NewLinearSyncService(q, integrationSvc)
 	svc.httpClient = linearSyncCovHTTPClient(t, nil, func(string) (int, string, error) {
-		return http.StatusOK, `{"data":{"issues":{"nodes":[{"id":"new","identifier":"PLT-2","title":"New","description":"Body"}]}}}`, nil
+		return http.StatusOK, `{"data":{"issues":{"nodes":[{"id":"new","identifier":"PLT-2","title":"New","description":"Body"}],"pageInfo":{"hasNextPage":false}}}}`, nil
 	})
 	svc.RunInitialSync(ctx, integration)
 	require.Len(t, q.logs, 1)

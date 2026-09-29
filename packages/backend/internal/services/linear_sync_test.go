@@ -120,6 +120,7 @@ func TestLinearSyncService_RunInitialSync_ImportsUnmappedLinearIssues(t *testing
 	syncSvc := newLinearSyncTestService(t, queries, integration, sessionSecret, `{
 		"data": {
 			"issues": {
+				"pageInfo": {"hasNextPage": false},
 				"nodes": [
 					{"id":"lin-1","identifier":"PLT-101","title":"Imported issue one","description":"First description"},
 					{"id":"lin-2","identifier":"PLT-102","title":"Imported issue two","description":"Second description"}
@@ -206,6 +207,7 @@ func TestLinearSyncService_RunInitialSync_SkipsAlreadyMappedIssues(t *testing.T)
 	syncSvc := newLinearSyncTestService(t, queries, integration, sessionSecret, `{
 		"data": {
 			"issues": {
+				"pageInfo": {"hasNextPage": false},
 				"nodes": [
 					{"id":"lin-existing","identifier":"PLT-200","title":"Already imported","description":"Existing Smithers issue"}
 				]
