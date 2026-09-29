@@ -518,7 +518,8 @@ export const layerSeatCatalog = (
  * with GPT-6 Luna only when Jev is unreachable, times out, or stays
  * unavailable (5xx or 429) through its retries. A missing key
  * makes Jev unreachable; Luna resolves through the subscription resolver at
- * evaluation time, so newly connected pool accounts work after startup.
+ * evaluation time, so newly connected pool accounts work after startup, and
+ * never judges on a provider API key.
  *
  * Jev speaks over `jevHttp`, by default the environment's egress client on
  * Node and fetch on Bun, not the model executor: the gateway's own statuses, retries and deadline stay
@@ -551,9 +552,19 @@ export const layerSeatEvaluator = (
         ),
         Evaluator.Evaluator
       )
+    // Luna judges on a subscription only, as the judge always has: through the
+    // account pool or a ChatGPT session, never on a provider API key. Read at
+    // each judgment, so a `codex login` after startup counts.
+    const subscribed = () => {
+      const pool = accountPoolOf(environment)
+      const route = poolRouteOf("openai", environment)
+      const signed = credential("openai", hostOf(environment))
+      return (pool !== undefined && route !== undefined && pool.routes.includes(route)) ||
+        signed._tag === "Session" || signed._tag === "Pooled"
+    }
     const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>
-        resolver.resolve("luna").pipe(
+        Effect.suspend(() => subscribed() ? resolver.resolve("luna") : Effect.fail(undefined)).pipe(
           Effect.mapError(() =>
             new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
           ),

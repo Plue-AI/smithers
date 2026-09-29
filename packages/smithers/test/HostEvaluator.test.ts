@@ -174,6 +174,22 @@ it("does not fall back to Luna when Jev answers something invalid", async () => 
   expect(sent).toEqual([jevUrl])
 })
 
+it("never judges on a provider API key when Jev is unreachable", async () => {
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: () => Effect.die("must not call an API-key provider")
+  })
+  await expect(
+    Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
+        Effect.provide(
+          layerSeatEvaluator({ OPENAI_API_KEY: "sk-test", SMITHERS_OPENAI_AUTH: "api-key" })
+            .pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+        )
+      )
+    )
+  ).rejects.toMatchObject({ code: "unreachable" })
+})
+
 it("fails unreachable when Luna cannot resolve either", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
     execute: () => Effect.die("must not call an API-key provider")
