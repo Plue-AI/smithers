@@ -12,6 +12,7 @@ import * as TabCommand from "./tab-command.ts"
  */
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
 import { flushSync, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
+import * as CloudSession from "@smthrs/cli/CloudSession"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
 import { Schema } from "effect"
@@ -36,6 +37,7 @@ import * as Editor from "./editor.ts"
 import * as Estimate from "./estimate.ts"
 import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
+import * as Factory from "./factory.ts"
 import * as Files from "./files.ts"
 import { actions as flowActions, FlowRuns, type Port as FlowPort } from "./flows.ts"
 import * as Home from "./home.ts"
@@ -562,9 +564,49 @@ export function App(props: AppProps) {
   const pluginTabs = pluginPanels.filter((panel) => surface === `ui:${panel.id}`)
   // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the directory's apps and the flow runs.
   const homeApps = useMemo(() => Home.read(props.host.cwd), [props.host.cwd])
-  const smithersPanel = props.flows === undefined && flowRuns.length === 0 && homeApps.length === 0
+  // The factory's issue list, read from Cloud as the signed-in person while the Smithers tab shows.
+  const [factory, setFactory] = useState<Smithers.Factory | undefined>()
+  const factoryRepo = useMemo(() => Factory.repository(props.host.cwd, process.env), [props.host.cwd])
+  const smithersShown = surface === `ui:${Smithers.id}`
+  useEffect(() => {
+    if (!smithersShown) return
+    const controller = new AbortController()
+    // One read at a time; a failed read clears the list rather than leaving it stale. The session is
+    // resolved once (it may ask the keyring) and again only after Cloud refuses it.
+    let reading = false
+    let cloud: CloudSession.Cloud | undefined
+    const read = async () => {
+      if (reading || factoryRepo === undefined) return
+      reading = true
+      try {
+        cloud ??= await CloudSession.signedIn(process.env)
+        if (cloud === undefined) return setFactory(undefined)
+        const stack = await Factory.load(cloud.get, factoryRepo, controller.signal).catch((error: unknown) => {
+          if (/HTTP 40[13]\b/.test(String(error))) cloud = undefined
+          throw error
+        })
+        if (!controller.signal.aborted) {
+          setFactory({ metrics: Factory.metrics(stack), rows: Factory.rows(stack, Date.now()) })
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setFactory(undefined)
+        Log.write("factory.read", error)
+      } finally {
+        reading = false
+      }
+    }
+    void read()
+    const timer = setInterval(() => void read(), 30_000)
+    return () => {
+      controller.abort()
+      clearInterval(timer)
+    }
+  }, [smithersShown, factoryRepo])
+  const smithersPanel = props.flows === undefined && flowRuns.length === 0 && homeApps.length === 0 &&
+      factoryRepo === undefined
     ? undefined
-    : Smithers.panel(runs.listed(), flowRuns, homeApps)
+    : Smithers.panel(runs.listed(), flowRuns, homeApps, factory)
   const smithersKey = smithersPanel === undefined ? "" : JSON.stringify(smithersPanel)
   useEffect(() => {
     contributions.plugin(

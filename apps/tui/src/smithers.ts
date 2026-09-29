@@ -16,10 +16,17 @@ const text = (value: string | undefined): Array<Panels.Block> =>
 /** The panel id; the surface is `ui:smithers`, owned `plugin:smithers`. */
 export const id = "smithers"
 
+/** The factory's issue list, when the repository's stack was read from Cloud. */
+export interface Factory {
+  readonly metrics: string
+  readonly rows: ReadonlyArray<Panels.Row>
+}
+
 export const panel = (
   listed: ReadonlyArray<Listed>,
   runs: ReadonlyArray<Run>,
-  apps: ReadonlyArray<Home.App> = []
+  apps: ReadonlyArray<Home.App> = [],
+  factory?: Factory
 ): Panels.Panel => {
   const newest = [...runs].sort((a, b) => b.startedAt - a.startedAt)
   const active = newest.filter((run) => {
@@ -30,8 +37,12 @@ export const panel = (
   return {
     id,
     title: "Smithers",
-    summary: `${apps.length === 0 ? "" : `${apps.length} apps · `}${listed.length} flows · ${active.length} active`,
+    // The factory's measured numbers lead, when its stack was read.
+    summary: factory !== undefined && factory.metrics !== ""
+      ? factory.metrics
+      : `${apps.length === 0 ? "" : `${apps.length} apps · `}${listed.length} flows · ${active.length} active`,
     rows: [
+      ...factory?.rows ?? [],
       // The apps the homepage declares (home.ts): the same list the app home shows as tiles. A row runs its flow when this directory discovers it.
       ...apps.map((app) => ({
         id: `app:${app.flow}`,

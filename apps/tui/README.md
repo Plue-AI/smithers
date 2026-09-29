@@ -372,6 +372,12 @@ restart to run. A markdown flow is a custom agent (below); choosing one in
 directory at the same time. Restarting marks unfinished runs interrupted; retry
 resumes the durable run.
 `/smithers` opens the Smithers tab: every run, newest first, and the discovered flows.
+Signed in to Smithers Cloud (`smthrs auth login`, or `SMITHERS_TOKEN` with
+`SMITHERS_API_ORIGIN`), it first lists the repository's factory issues (the
+checkout's remote owner and name, or `SMITHERS_REPO`) under Needs you, Working
+and Done, headed by the app's History card numbers: landed of decided, reverts
+and the median issue→landed time. It reads the stack again every 30 s while
+shown.
 
 Every turn runs with `SmithersPlugin` from `@smthrs/agent`: the system prompt
 names the key packages and `smthrs` verbs, and `smithers.guide` returns the
