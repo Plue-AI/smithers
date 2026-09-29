@@ -1038,6 +1038,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
           message: "Path not found: flows/graph-fixture/flow.ts in smithersai/smithers"
         }
       },
+      takeover: { terminalSessionId: "pty-1" },
       codingChangeId: "qupxosqw"
     }
   },
