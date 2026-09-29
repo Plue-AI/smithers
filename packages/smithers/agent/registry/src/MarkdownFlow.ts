@@ -23,6 +23,8 @@ import {
   ModelSelection,
   Placement,
   type Provenance,
+  SandboxProvider,
+  type SandboxSelection,
   SchemaRefMarkdownArgs,
   SchemaRefMarkdownOutput
 } from "./Descriptor.ts"
@@ -130,7 +132,11 @@ export const fromMarkdown = (options: FromMarkdownOptions): FromMarkdownResult =
   if (capabilities === undefined) return { descriptor: Option.none(), warnings }
   const modelInvocable = deriveModelInvocable(fields, options.path, warnings)
   const effects = deriveEffects(fields, capabilities, options.path, warnings)
-  const placement = derivePlacement(fields, options.path, warnings)
+  const declaredPlacement = derivePlacement(fields, options.path, warnings)
+  const sandbox = deriveSandbox(fields, options.path, warnings)
+  if (sandbox === "refused") return { descriptor: Option.none(), warnings }
+  // Selecting a sandbox is placing the flow in one.
+  const placement = sandbox === undefined ? declaredPlacement : Option.some<Placement>("sandbox")
   const budget = deriveBudget(fields, options.path, warnings)
   const selected: unknown = fields.model
   const validModels = Schema.is(ModelSelection)(selected) &&
@@ -165,6 +171,7 @@ export const fromMarkdown = (options: FromMarkdownOptions): FromMarkdownResult =
         capabilities,
         effects,
         placement,
+        ...(sandbox === undefined ? {} : { sandbox }),
         modelInvocable,
         ...(budget === undefined ? {} : { budget }),
         path: options.path,
@@ -452,6 +459,104 @@ const derivePlacement = (
   return Option.none()
 }
 
+/** The host names `@smthrs/sandbox` `Sandbox.validateNetworkPolicy` accepts, checked here so discovery refuses them first. */
+const sandboxHostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+const sandboxHost = new RegExp(`^(?:\\*\\.)?(?:${sandboxHostLabel}\\.)*${sandboxHostLabel}$`, "i")
+
+const sandboxKeys = new Set(["provider", "network", "cpus", "memoryMib", "timeoutSecs"])
+
+/**
+ * Reads the frontmatter sandbox selection.
+ *
+ * ```yaml
+ * sandbox:
+ *   provider: container
+ *   network: none        # or { allow: [api.github.com] }
+ *   cpus: 2
+ *   memoryMib: 2048
+ *   timeoutSecs: 900
+ * ```
+ *
+ * Every malformed part refuses the flow instead of being dropped: a flow that
+ * asked for isolation and is discovered without it would run on the host its
+ * author meant to keep it off. YAML's failsafe schema supplies strings, so the
+ * numeric limits are decoded here; `cpus` may be fractional, the others are
+ * positive safe integers.
+ */
+const deriveSandbox = (
+  fields: Record<string, unknown>,
+  path: string,
+  warnings: Array<DiscoveryWarning>
+): SandboxSelection | "refused" | undefined => {
+  const value = fields.sandbox
+  if (value === undefined) return undefined
+  const refuse = (message: string): "refused" => {
+    warnings.push({ code: "invalid_sandbox", path, message: `${message}; the flow is not discovered` })
+    return "refused"
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return refuse("Frontmatter sandbox must be an object with a provider")
+  }
+  const declared = value as Record<string, unknown>
+  for (const key of Object.keys(declared)) {
+    if (!sandboxKeys.has(key)) return refuse(`Unknown frontmatter sandbox key: ${key}`)
+  }
+  const provider = declared.provider
+  if (!Schema.is(SandboxProvider)(provider)) {
+    return refuse(
+      `Unknown sandbox provider ${JSON.stringify(provider ?? null)}; expected one of ${
+        SandboxProvider.literals.join(", ")
+      }`
+    )
+  }
+  // The raw value, not the derived one: an unreadable placement is dropped by
+  // `derivePlacement`, and a typo there must not read as agreement.
+  const placement = fields.placement
+  if (placement !== undefined && placement !== "sandbox") {
+    return refuse(`Frontmatter sandbox conflicts with placement ${JSON.stringify(placement)}`)
+  }
+
+  let network: SandboxSelection["network"]
+  const declaredNetwork = declared.network
+  if (declaredNetwork === "none") {
+    network = "none"
+  } else if (
+    typeof declaredNetwork === "object" && declaredNetwork !== null && !Array.isArray(declaredNetwork) &&
+    Object.keys(declaredNetwork).every((key) => key === "allow")
+  ) {
+    const allow = (declaredNetwork as Record<string, unknown>).allow
+    if (
+      !Array.isArray(allow) ||
+      !allow.every((host): host is string => typeof host === "string" && host.length <= 253 && sandboxHost.test(host))
+    ) {
+      return refuse("Frontmatter sandbox.network.allow must be a list of host names")
+    }
+    network = { allow: [...allow] }
+  } else if (declaredNetwork !== undefined) {
+    return refuse("Frontmatter sandbox.network must be none or { allow: [hosts] }")
+  }
+
+  const limits: { cpus?: number; memoryMib?: number; timeoutSecs?: number } = {}
+  for (const key of ["cpus", "memoryMib", "timeoutSecs"] as const) {
+    const candidate = declared[key]
+    if (candidate === undefined) continue
+    const parsed = typeof candidate === "string" && candidate.trim() !== "" ? Number(candidate) : Number.NaN
+    const valid = key === "cpus"
+      ? Number.isFinite(parsed) && parsed > 0
+      : Number.isSafeInteger(parsed) && parsed > 0
+    if (!valid) {
+      return refuse(`Frontmatter sandbox.${key} must be a positive ${key === "cpus" ? "number" : "whole number"}`)
+    }
+    limits[key] = parsed
+  }
+
+  return {
+    provider,
+    ...(network === undefined ? {} : { network }),
+    ...limits
+  }
+}
+
 /**
  * Reads the frontmatter budget: the tokens and milliseconds this flow asks a
  * control plane to approve for one of its runs, and what exceeding them does.
@@ -611,6 +716,7 @@ const knownFields = new Set([
   "capabilities",
   "effects",
   "placement",
+  "sandbox",
   "budget",
   "metadata",
   "disable-model-invocation",

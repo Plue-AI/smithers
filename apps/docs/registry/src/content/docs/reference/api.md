@@ -67,6 +67,7 @@ class FlowDescriptor {
   readonly capabilities: ReadonlyArray<string>
   readonly effects: EffectDeclaration
   readonly placement: Option.Option<Placement>
+  readonly sandbox?: SandboxSelection
   readonly modelInvocable: boolean
   readonly budget?: FlowBudget
   readonly path: string
@@ -79,6 +80,15 @@ The discovered metadata for one flow, excluding its unloaded body content.
 `frontmatter` retains every declared key verbatim, including keys discovery
 does not use. `budget` is absent for a flow that declares none; read it through
 `budgetOf` rather than from the field.
+
+`sandbox` is absent for a flow that selects none. Markdown frontmatter selects
+one with `sandbox: { provider, network?, cpus?, memoryMib?, timeoutSecs? }`:
+`provider` is one of `SandboxProvider` (`aws`, `cloudflare`, `command`,
+`container`, `daytona`, `directory`, `just-bash`, `kubernetes`, `microsandbox`,
+`vercel`), `network` is `none` or `{ allow: [hosts] }` of host names, `cpus` is a positive
+number, and the other limits are positive whole numbers. A selection places the
+flow in `sandbox`. An unknown provider or key, a malformed option, or a
+`placement` other than `sandbox` refuses the flow with `invalid_sandbox`.
 
 ### Descriptor.executionDigest
 
@@ -378,15 +388,15 @@ class DiscoveryWarning {
 
 A non-fatal source-discovery diagnostic. Anything a scan can survive is
 reported this way rather than raised, and read back through
-`registry.warnings()`. The 33 codes are grouped by what they say:
+`registry.warnings()`. The 34 codes are grouped by what they say:
 
-| Group                  | Codes                                                                                                                                                                                                                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                       |
-| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
-| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                            |
-| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                 |
-| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                            |
+| Group                  | Codes                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                          |
+| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
+| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                               |
+| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                    |
+| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                               |
 
 Each code, with its cause and its fix, is in
 [Diagnose a flow that did not appear](/guides/diagnose-a-missing-flow/).

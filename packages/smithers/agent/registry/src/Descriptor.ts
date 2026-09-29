@@ -47,6 +47,62 @@ export const Placement = Schema.Literals(["client", "local", "sandbox", "remote"
 export type Placement = typeof Placement.Type
 
 /**
+ * The sandbox providers a flow may name, one per `@smthrs/sandbox` provider
+ * module. A name outside this set refuses the flow at discovery, so a typo can
+ * never quietly run a flow outside the sandbox its author asked for.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export const SandboxProvider = Schema.Literals([
+  "aws",
+  "cloudflare",
+  "command",
+  "container",
+  "daytona",
+  "directory",
+  "just-bash",
+  "kubernetes",
+  "microsandbox",
+  "vercel"
+])
+
+/**
+ * The sandbox providers a flow may name.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type SandboxProvider = typeof SandboxProvider.Type
+
+/**
+ * The sandbox a flow selects: the provider, plus the neutral network policy
+ * and resource limits every `@smthrs/sandbox` provider accepts
+ * (`Sandbox.NetworkPolicy`, `Sandbox.ResourceLimits`).
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export const SandboxSelection = Schema.Struct({
+  provider: SandboxProvider,
+  network: Schema.optionalKey(Schema.Union([
+    Schema.Literal("none"),
+    Schema.Struct({ allow: Schema.Array(Schema.String) })
+  ])),
+  cpus: Schema.optionalKey(Schema.Number),
+  memoryMib: Schema.optionalKey(Schema.Number),
+  timeoutSecs: Schema.optionalKey(Schema.Number)
+})
+
+/**
+ * The sandbox a flow selects.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type SandboxSelection = typeof SandboxSelection.Type
+
+/**
  * The canonical effect declaration shared with `/core`.
  *
  * @category models
@@ -398,6 +454,7 @@ export const DiscoveryWarningCode = Schema.Literals([
   "invalid_model_invocation",
   "invalid_model",
   "invalid_placement",
+  "invalid_sandbox",
   "invalid_compatibility",
   "invalid_license",
   "invalid_metadata",
@@ -615,6 +672,7 @@ export class FlowDescriptor extends Schema.Class<FlowDescriptor>("flows/registry
   capabilities: Schema.Array(Schema.String),
   effects: EffectDeclaration,
   placement: Schema.Option(Placement),
+  sandbox: Schema.optionalKey(SandboxSelection),
   modelInvocable: Schema.Boolean,
   budget: Schema.optional(FlowBudget),
   activity: Schema.optional(FlowActivity),
@@ -703,7 +761,10 @@ export const declarationDigest = (descriptor: FlowDescriptor): string =>
     output: { ...descriptor.output },
     path: descriptor.path,
     placement: Option.getOrNull(descriptor.placement),
-    provenance: { root: descriptor.provenance.root, source: descriptor.provenance.source }
+    provenance: { root: descriptor.provenance.root, source: descriptor.provenance.source },
+    // Spread only when present: hashing an absent selection as `null` would
+    // move the identity of every declaration that selects none.
+    ...(descriptor.sandbox === undefined ? {} : { sandbox: descriptor.sandbox })
   }))
 
 /**
