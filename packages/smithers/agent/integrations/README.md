@@ -116,7 +116,13 @@ Durable actions over the client of the same provider:
 | Action                               | Tag                                        | Does                                                           |
 | ------------------------------------ | ------------------------------------------ | -------------------------------------------------------------- |
 | `GitHub.Actions.CommentOnIssue`      | `integrations/github/comment-on-issue`     | Comments on an issue or pull request.                          |
+| `GitHub.Actions.AddLabels`           | `integrations/github/add-labels`           | Adds the labels an issue lacks.                                |
+| `GitHub.Actions.UpsertComment`       | `integrations/github/upsert-comment`       | Creates or edits one sticky comment per key.                   |
+| `GitHub.Actions.CheckRun`            | `integrations/github/check-run`            | Creates or updates a check run by external id.                 |
+| `GitHub.Actions.LinkPullRequest`     | `integrations/github/link-pr`              | Adds `Closes #N` to a pull request's description.              |
 | `Linear.Actions.CreateIssue`         | `integrations/linear/create-issue`         | Files an issue, resolving team, state, and label names to ids. |
+| `Linear.Actions.UpdateIssue`         | `integrations/linear/update-issue`         | Sets an issue's fields, resolving names to ids.                |
+| `Linear.Actions.CommentOnIssue`      | `integrations/linear/comment-on-issue`     | Comments once per step, under a step-derived id.               |
 | `Telegram.Actions.SendMessage`       | `integrations/telegram/send-message`       | Sends a message, chunked, with a plain-text fallback.          |
 | `Slack.Actions.PostMessage`          | `integrations/slack/post-message`          | Posts to a channel or thread, optionally as a role persona.    |
 | `Slack.Actions.UpdateMessage`        | `integrations/slack/update-message`        | Replaces a message's text and blocks.                          |
@@ -133,6 +139,13 @@ time the call returns. Neither the engine nor the client underneath repeats
 one: a rate limit is retried for every method, since a refused request was not
 performed, but a 5xx or a dropped connection on a write reports
 `outcomeUnknown` instead of acting twice.
+
+The GitHub write-back actions (`AddLabels`, `UpsertComment`, `CheckRun`,
+`LinkPullRequest`) and Linear's `UpdateIssue` and `CommentOnIssue` read before
+they write, so they declare an `idempotencyKey` and a retry policy. The engine
+repeats one after a lost answer or a crash, and the repeat finds the earlier
+attempt's label, comment, check run, reference or comment id instead of
+writing it again.
 
 `SendMessage` is the one that is not atomic: text over 4096 characters becomes
 several `sendMessage` calls inside the step, and a failure partway through

@@ -15,15 +15,21 @@ see [flows, actions, and plans](https://smithers.sh/docs/concepts/flows-actions-
 
 ## Declaration, call, layer
 
-Each provider declares one action with `Action.make`: its tag, its payload
+Each provider declares its actions with `Action.make`: its tag, its payload
 schema, its success schema, and `Core.ActionFailure.IntegrationFailure` as
 its error schema.
 
-| Action                          | Tag                                    |
-| ------------------------------- | -------------------------------------- |
-| `GitHub.Actions.CommentOnIssue` | `integrations/github/comment-on-issue` |
-| `Linear.Actions.CreateIssue`    | `integrations/linear/create-issue`     |
-| `Telegram.Actions.SendMessage`  | `integrations/telegram/send-message`   |
+| Action                           | Tag                                    |
+| -------------------------------- | -------------------------------------- |
+| `GitHub.Actions.CommentOnIssue`  | `integrations/github/comment-on-issue` |
+| `GitHub.Actions.AddLabels`       | `integrations/github/add-labels`       |
+| `GitHub.Actions.UpsertComment`   | `integrations/github/upsert-comment`   |
+| `GitHub.Actions.CheckRun`        | `integrations/github/check-run`        |
+| `GitHub.Actions.LinkPullRequest` | `integrations/github/link-pr`          |
+| `Linear.Actions.CreateIssue`     | `integrations/linear/create-issue`     |
+| `Linear.Actions.UpdateIssue`     | `integrations/linear/update-issue`     |
+| `Linear.Actions.CommentOnIssue`  | `integrations/linear/comment-on-issue` |
+| `Telegram.Actions.SendMessage`   | `integrations/telegram/send-message`   |
 
 A flow body calls `CommentOnIssue.call(payload)`, which records a plan node
 and runs nothing. The node demands a requirement that only the matching
@@ -35,11 +41,11 @@ through its own `layer`.
 
 ## The irreversible tier
 
-All three actions are `tier: "irreversible"`. The remote side has acted by
+Every action is `tier: "irreversible"`. The remote side has acted by
 the time the call returns: the comment is visible, the issue notifies its
 team, the message may already have been read. Deleting the evidence
 afterwards is a different call with a different outcome, so the engine never
-retries one of these steps on its own.
+retries an unkeyed one on its own.
 
 Neither does the client underneath, and the line it draws is worth knowing:
 
@@ -50,6 +56,29 @@ Neither does the client underneath, and the line it draws is worth knowing:
   lost the answer, so the failure reports `outcomeUnknown` rather than
   posting the comment twice. A caller that knows its endpoint is idempotent
   opts in with `retryUnsafeWrites` on `GitHubClient.request`.
+
+## Keyed write-back
+
+The GitHub write-back actions and Linear's `UpdateIssue` and `CommentOnIssue`
+read before they write, which makes a repeat safe. They declare an
+`idempotencyKey` and a retry policy, so the engine repeats one after a lost
+answer or a process that died mid-step:
+
+- `AddLabels` adds only the labels the issue lacks.
+- `UpsertComment` finds its comment by a hidden `<!-- smithers:key=... -->`
+  first line and edits it; a flow passes its run id to keep one progress
+  comment per run.
+- `CheckRun` finds its run by `external_id` and updates it. Writing check
+  runs needs a GitHub App installation token.
+- `LinkPullRequest` adds `Closes #N` to the pull request's description unless
+  it already closes the issue.
+- `UpdateIssue` sets fields, so a repeat leaves the same issue.
+- `CommentOnIssue` posts under a UUID derived from the step's key and looks
+  for that comment first.
+
+GitHub does not enforce the comment marker or `external_id` as unique, so a
+write still in flight when the repeat reads can land after it and leave two.
+The retry backoff narrows that window; it does not close it.
 
 `Telegram.Actions.SendMessage` is the one action that is not atomic. Text
 over Telegram's 4096-character limit becomes several `sendMessage` calls

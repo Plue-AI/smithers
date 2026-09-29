@@ -170,7 +170,15 @@ export interface LinearClient {
   readonly getIssue: (idOrIdentifier: string) => Effect.Effect<IssueResult, IntegrationError>
   readonly createIssue: (input: CreateIssueInput) => Effect.Effect<IssueResult, IntegrationError>
   readonly updateIssue: (idOrIdentifier: string, fields: IssueFields) => Effect.Effect<IssueResult, IntegrationError>
-  readonly commentOnIssue: (idOrIdentifier: string, body: string) => Effect.Effect<CommentResult, IntegrationError>
+  /**
+   * Posts a comment. `options.id` is the comment's UUID, chosen by the caller
+   * so a repeat can look for the comment before posting it again.
+   */
+  readonly commentOnIssue: (
+    idOrIdentifier: string,
+    body: string,
+    options?: { readonly id?: string | undefined }
+  ) => Effect.Effect<CommentResult, IntegrationError>
 }
 
 /**
@@ -815,13 +823,14 @@ export const make = (
       return yield* requireIssue(payload["issue"], "issueUpdate.issue")
     })
 
-  const commentOnIssue: LinearClient["commentOnIssue"] = (idOrIdentifier, body) =>
+  const commentOnIssue: LinearClient["commentOnIssue"] = (idOrIdentifier, body, options) =>
     Effect.gen(function*() {
       // Mutations need the UUID; lookups accept an `ENG-123` identifier.
       const issueId = IDENTIFIER.test(idOrIdentifier)
         ? (yield* getIssue(idOrIdentifier)).id
         : idOrIdentifier
-      const data = yield* query(COMMENT_CREATE, { input: { issueId, body } }, { retryServerErrors: false })
+      const input = options?.id === undefined ? { issueId, body } : { id: options.id, issueId, body }
+      const data = yield* query(COMMENT_CREATE, { input }, { retryServerErrors: false })
       const payload = data?.["commentCreate"]
       if (!isRecord(payload) || payload["success"] !== true || payload["comment"] == null) {
         return yield* Effect.fail(

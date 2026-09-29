@@ -147,12 +147,18 @@ Each provider ships the same four parts:
 - **One durable action.** The step a flow calls, journaled so a restart
   replays the recorded result instead of acting twice.
 
-| Action                          | Tag                                    | Does                                                           |
-| ------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `GitHub.Actions.CommentOnIssue` | `integrations/github/comment-on-issue` | Comments on an issue or pull request.                          |
-| `Linear.Actions.CreateIssue`    | `integrations/linear/create-issue`     | Files an issue, resolving team, state, and label names to ids. |
-| `Telegram.Actions.SendMessage`  | `integrations/telegram/send-message`   | Sends a message, chunked, with a plain-text fallback.          |
-| `Slack.Actions.PostMessage`     | `integrations/slack/post-message`      | Posts to a channel or thread, optionally as a role persona.    |
+| Action                           | Tag                                    | Does                                                           |
+| -------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| `GitHub.Actions.CommentOnIssue`  | `integrations/github/comment-on-issue` | Comments on an issue or pull request.                          |
+| `GitHub.Actions.AddLabels`       | `integrations/github/add-labels`       | Adds the labels an issue lacks.                                |
+| `GitHub.Actions.UpsertComment`   | `integrations/github/upsert-comment`   | Creates or edits one sticky comment per key.                   |
+| `GitHub.Actions.CheckRun`        | `integrations/github/check-run`        | Creates or updates a check run by external id.                 |
+| `GitHub.Actions.LinkPullRequest` | `integrations/github/link-pr`          | Adds `Closes #N` to a pull request's description.              |
+| `Linear.Actions.CreateIssue`     | `integrations/linear/create-issue`     | Files an issue, resolving team, state, and label names to ids. |
+| `Linear.Actions.UpdateIssue`     | `integrations/linear/update-issue`     | Sets an issue's fields, resolving names to ids.                |
+| `Linear.Actions.CommentOnIssue`  | `integrations/linear/comment-on-issue` | Comments once per step, under a step-derived id.               |
+| `Telegram.Actions.SendMessage`   | `integrations/telegram/send-message`   | Sends a message, chunked, with a plain-text fallback.          |
+| `Slack.Actions.PostMessage`      | `integrations/slack/post-message`      | Posts to a channel or thread, optionally as a role persona.    |
 
 Slack also ships `UpdateMessage` and `Reconcile`; Google Calendar and Gmail
 ship their own actions, listed in the [API reference](/reference/api/).
