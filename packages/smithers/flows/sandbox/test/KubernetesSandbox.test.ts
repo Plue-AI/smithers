@@ -834,6 +834,30 @@ describe("KubernetesSandbox", () => {
       expect(noWorkspace.pods.size).toBe(0)
     }))
 
+  it.effect("#2702 CI coverage: rejects a fresh Pod with no uid before sealing or exec", () =>
+    Effect.gen(function*() {
+      for (const uid of ["", " \t\n"]) {
+        const fake = cluster((args) =>
+          args[0] === "get" && args.at(-1) === "jsonpath={.metadata.uid}"
+            ? { stdout: uid }
+            : undefined
+        )
+        const error = yield* Effect.flip(Effect.scoped(
+          KubernetesSandbox.make({ spawner: fake.spawner, image: "img", workdir, reattachKey: "operator-key" })
+            .acquire("missing-uid")
+        ))
+        expect(error).toMatchObject({
+          code: "unavailable",
+          message: expect.stringContaining("reported no uid to seal")
+        })
+        const name = fake.calls[0]!.args[1]!
+        expect(fake.calls.map(({ args }) => args[0])).toEqual(["run", "get", "delete"])
+        expect(fake.calls[1]!.args).toEqual(["get", "pod", name, "-o", "jsonpath={.metadata.uid}"])
+        expect(fake.calls[2]!.args).toEqual(["delete", `pod/${name}`, "--force", "--grace-period=0"])
+        expect(fake.pods.size).toBe(0)
+      }
+    }))
+
   it.effect("uses /bin/sh for every provider-owned helper", () =>
     Effect.gen(function*() {
       const fake = cluster()
