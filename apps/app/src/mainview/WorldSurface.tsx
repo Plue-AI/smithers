@@ -16,7 +16,7 @@ import { SurfaceHeader } from "./SurfaceChrome"
 import { attachmentUrl, indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
 import { useStackSnapshot } from "./cards/StackCard"
-import { wikiTone } from "./cards/StackView"
+import { wikiTone } from "@smthrs/rpc/StackView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
 
 

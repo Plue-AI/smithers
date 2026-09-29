@@ -4,7 +4,7 @@ import { MythicalItemSchema, MythicalItemStateSchema } from "@smthrs/rpc/Mythica
 import { renderToStaticMarkup } from "react-dom/server"
 import { StackBody } from "./StackCard"
 import type { StackBodyProps } from "./StackCard"
-import { issueGroupOf, issueGroups, issueWord, settledItems, spanLabel, stackMetrics, issueToLandedMs } from "./StackIssues"
+import { issueGroupOf, issueGroups, issueWord, settledItems, spanLabel, stackMetrics, issueToLandedMs } from "@smthrs/rpc/StackIssues"
 import { flowArgs } from "../flows/FlowArgs"
 import { payloadFor } from "../flows/SlashPayload"
 

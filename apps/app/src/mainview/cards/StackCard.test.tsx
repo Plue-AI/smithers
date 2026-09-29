@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { StackBody } from "./StackCard"
 import type { StackBodyProps } from "./StackCard"
 import { elapsedLabel } from "../Timestamps"
-import { accountLabel, itemStateLabel, laneRows, stackCounts, stackRows, wikiRow } from "./StackView"
+import { accountLabel, itemStateLabel, laneRows, stackCounts, stackRows, wikiRow } from "@smthrs/rpc/StackView"
 
 /*
  * The Stack card renders exactly what the snapshot states: counts, lanes

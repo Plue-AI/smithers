@@ -22,9 +22,9 @@ import type { Card } from "../state/AppState"
 import type { StackSnapshot } from "../state/seams/StackSeam"
 import { elapsedLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
-import type { IssueGroup } from "./StackIssues"
-import { issueGroups, issueWord, settledItems, spanLabel, stackMetrics, issueToLandedMs } from "./StackIssues"
-import { accountLabel, ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, laneRows, retryable, stackCounts, stackRows, wikiRow } from "./StackView"
+import type { IssueGroup } from "@smthrs/rpc/StackIssues"
+import { issueGroups, issueWord, settledItems, spanLabel, stackMetrics, issueToLandedMs } from "@smthrs/rpc/StackIssues"
+import { accountLabel, ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, laneRows, retryable, stackCounts, stackRows, wikiRow } from "@smthrs/rpc/StackView"
 
 type StackCard = Extract<Card, { kind: "stack" }>
 type Failure = NonNullable<StackCard["payload"]["failure"]>

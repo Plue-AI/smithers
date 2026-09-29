@@ -26,7 +26,7 @@
  */
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
-import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, stackCounts } from "../../cards/StackView"
+import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, stackCounts } from "@smthrs/rpc/StackView"
 import { actorSharedState } from "../ActorBindings"
 import type { Card, Toast } from "../AppState"
 import type { FailureController } from "../controller/failures"

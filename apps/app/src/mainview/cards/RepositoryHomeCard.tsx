@@ -8,7 +8,7 @@ import { repositoryFlowName } from "../flows/entries/flow"
 import type { CardFamily, RunDynamicCommand } from "./CardFamily"
 import { RUN_PHASE_WORDS } from "./RunTraceSummary"
 import { HomeStack, useStackSnapshot } from "./StackCard"
-import { wikiRow, wikiTone } from "./StackView"
+import { wikiRow, wikiTone } from "@smthrs/rpc/StackView"
 import "./RepositoryHomeCard.css"
 
 /*

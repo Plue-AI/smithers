@@ -1,4 +1,4 @@
-/*
+/**
  * The History card as the factory's issue list: every item of one mythical
  * snapshot in one of three groups, and the measured numbers above them. Pure,
  * so the card, the homepage block and their tests read one projection.
@@ -12,13 +12,28 @@
  *   `declined`, `skipped` and `cancelled` (declined keeps its Retry). Given
  *   the card's clock, only the items that moved in the last day ("Done
  *   today"); the metrics view lists every settled item.
+ *
+ * @since 1.0.0
  */
-import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
-import { isSettledItemState } from "@smthrs/rpc/Mythical"
-import { ACTIVE_ITEM_STATES, itemStateLabel } from "./StackView"
 
+import type { MythicalItem, MythicalStack } from "./Mythical.ts"
+import { isSettledItemState } from "./Mythical.ts"
+import { ACTIVE_ITEM_STATES, itemStateLabel } from "./StackView.ts"
+
+/**
+ * Which group an issue is listed under.
+ *
+ * @category models
+ * @since 1.0.0
+ */
 export type IssueGroupId = "needs-you" | "working" | "done"
 
+/**
+ * One group of the issue list: its label, glyph and items.
+ *
+ * @category models
+ * @since 1.0.0
+ */
 export interface IssueGroup {
   readonly id: IssueGroupId
   readonly label: string
@@ -28,10 +43,18 @@ export interface IssueGroup {
 
 const NEEDS_YOU: ReadonlySet<MythicalItem["state"]> = new Set(["blocked", "rejected", "proposed"])
 
+/**
+ * The group an issue is listed under.
+ *
+ * @category projections
+ * @since 1.0.0
+ */
 export const issueGroupOf = (item: MythicalItem): IssueGroupId =>
-  NEEDS_YOU.has(item.state) ? "needs-you" :
-  ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" ? "working" :
-  "done"
+  NEEDS_YOU.has(item.state) ?
+    "needs-you" :
+    ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" ?
+    "working" :
+    "done"
 
 const at = (iso: string | undefined): number => {
   const value = iso === undefined ? Number.NaN : Date.parse(iso)
@@ -40,10 +63,13 @@ const at = (iso: string | undefined): number => {
 
 const DAY_MS = 86_400_000
 
-/*
+/**
  * Needs you oldest first (the longest wait on top); Working lanes first in
  * lane order, then the queue in snapshot order; Done newest first, and with
  * `now` only the Done items whose `updatedAt` is within the last 24 h.
+ *
+ * @category projections
+ * @since 1.0.0
  */
 export const issueGroups = (stack: MythicalStack, now?: number): ReadonlyArray<IssueGroup> => {
   const indexed = stack.items.map((item, index) => ({ item, index }))
@@ -53,24 +79,49 @@ export const issueGroups = (stack: MythicalStack, now?: number): ReadonlyArray<I
     now === undefined || Number.isNaN(Date.parse(row.item.updatedAt)) || now - at(row.item.updatedAt) <= DAY_MS
   const working = (row: { readonly item: MythicalItem }): number => row.item.state === "queued" ? 1 : 0
   return [
-    { id: "needs-you", label: "Needs you", glyph: "◆",
-      items: of("needs-you").sort((a, b) => at(a.item.updatedAt) - at(b.item.updatedAt) || a.index - b.index).map(({ item }) => item) },
-    { id: "working", label: "Working", glyph: "◐",
-      items: of("working").sort((a, b) => working(a) - working(b) || (a.item.lane ?? 99) - (b.item.lane ?? 99) || a.index - b.index)
-        .map(({ item }) => item) },
-    { id: "done", label: "Done", glyph: "●",
-      items: of("done").filter(today).sort((a, b) => at(b.item.updatedAt) - at(a.item.updatedAt) || a.index - b.index).map(({ item }) => item) }
+    {
+      id: "needs-you",
+      label: "Needs you",
+      glyph: "◆",
+      items: of("needs-you").sort((a, b) => at(a.item.updatedAt) - at(b.item.updatedAt) || a.index - b.index).map((
+        { item }
+      ) => item)
+    },
+    {
+      id: "working",
+      label: "Working",
+      glyph: "◐",
+      items: of("working").sort((a, b) =>
+        working(a) - working(b) || (a.item.lane ?? 99) - (b.item.lane ?? 99) || a.index - b.index
+      )
+        .map(({ item }) => item)
+    },
+    {
+      id: "done",
+      label: "Done",
+      glyph: "●",
+      items: of("done").filter(today).sort((a, b) => at(b.item.updatedAt) - at(a.item.updatedAt) || a.index - b.index)
+        .map(({ item }) => item)
+    }
   ]
 }
 
-/** The one word a Needs-you row wears: why it stopped, else its state (`PR open`). */
+/**
+ * The one word a Needs-you row wears: why it stopped, else its state (`PR open`).
+ *
+ * @category projections
+ * @since 1.0.0
+ */
 export const issueWord = (item: MythicalItem): string =>
   item.state === "proposed" || item.reason === undefined || item.reason === "" ? itemStateLabel(item) : item.reason
 
-/*
+/**
  * How long a landed item took from the service first observing its issue
  * (`createdAt`, which can include time skipped waiting for a label) to the
  * poller seeing it on main (`updatedAt`); absent without both stamps.
+ *
+ * @category projections
+ * @since 1.0.0
  */
 export const issueToLandedMs = (item: MythicalItem): number | undefined => {
   if (item.state !== "landed" || item.createdAt === undefined) return undefined
@@ -79,7 +130,12 @@ export const issueToLandedMs = (item: MythicalItem): number | undefined => {
   return Number.isNaN(start) || Number.isNaN(end) || end < start ? undefined : end - start
 }
 
-/** A compact duration: `45m`, `6h`, `3d`. */
+/**
+ * A compact duration: `45m`, `6h`, `3d`.
+ *
+ * @category projections
+ * @since 1.0.0
+ */
 export const spanLabel = (ms: number): string => {
   const minutes = Math.round(ms / 60_000)
   if (minutes < 60) return `${minutes}m`
@@ -87,6 +143,12 @@ export const spanLabel = (ms: number): string => {
   return hours < 48 ? `${hours}h` : `${Math.round(ms / 86_400_000)}d`
 }
 
+/**
+ * The measured numbers above the issue list.
+ *
+ * @category models
+ * @since 1.0.0
+ */
 export interface StackMetrics {
   readonly landed: number
   /** Items a lane worked to an outcome or the planner declined: the landed ratio's denominator. */
@@ -112,6 +174,12 @@ const median = (values: ReadonlyArray<number>): number | undefined => {
  */
 const DECIDED: ReadonlySet<MythicalItem["state"]> = new Set(["landed", "rejected", "blocked", "declined"])
 
+/**
+ * The measured numbers of one snapshot.
+ *
+ * @category projections
+ * @since 1.0.0
+ */
 export const stackMetrics = (stack: MythicalStack): StackMetrics => ({
   landed: stack.items.filter((item) => item.state === "landed").length,
   decided: stack.items.filter((item) => DECIDED.has(item.state)).length,
@@ -122,7 +190,12 @@ export const stackMetrics = (stack: MythicalStack): StackMetrics => ({
   }))
 })
 
-/** The settled items, newest first: the rows of the metrics table. */
+/**
+ * The settled items, newest first: the rows of the metrics table.
+ *
+ * @category projections
+ * @since 1.0.0
+ */
 export const settledItems = (stack: MythicalStack): ReadonlyArray<MythicalItem> =>
   stack.items.map((item, index) => ({ item, index }))
     .filter(({ item }) => isSettledItemState(item.state))
