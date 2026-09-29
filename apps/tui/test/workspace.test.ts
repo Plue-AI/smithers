@@ -305,6 +305,21 @@ describe("custom agents", () => {
     f.workspace.dispose()
   })
 
+  it.each([true, false])("refuses the routed seat auto as an agent, listing known: %p", (known) => {
+    const f = setup({ known })
+    let refused: unknown
+    try {
+      f.workspace.request({ ...request, agent: "auto" })
+    } catch (error) {
+      refused = error
+    }
+    expect(refused).toBeInstanceOf(Agents.AgentError)
+    expect(refused).toMatchObject({ code: "seat_as_agent", message: "auto is the routed seat; omit agent" })
+    expect(f.records.filter((record) => record.type === "tab")).toHaveLength(0)
+    expect(f.loads).toHaveLength(0)
+    f.workspace.dispose()
+  })
+
   it("deduplicates the same request and refuses the id for a different agent", () => {
     const f = setup()
     f.workspace.request(request)
@@ -454,6 +469,27 @@ describe("routed workers", () => {
       { seat: "sol", variant: "investigate" }
     ])
     expect(f.routers).toHaveLength(1)
+  })
+
+  it("a restored tab the current build refuses fails its tab instead of the process", async () => {
+    const first = setup({ routes: true })
+    first.workspace.request(plain)
+    await tick()
+    const saved = first.records.flatMap((record) => record.type === "tab" ? [record.tab] : []).at(-1)!
+    // A session an older build saved while it still admitted `agent: "auto"`.
+    const legacy = { ...saved, status: "requested" as const, agent: { name: "auto", digest: "" } }
+    const second = setup({ routes: true, cwd: first.host.cwd, restored: { tabs: [legacy], panels: [] } })
+    await tick()
+    await tick()
+    expect(second.workspace.snapshot().tabs).toMatchObject([{
+      id: legacy.id,
+      status: "failed",
+      code: "seat_as_agent",
+      failure: { headline: "auto is the routed seat; omit agent" }
+    }])
+    expect(second.workspace.transcript(legacy.id).activity?.status).toBe("failed")
+    expect(second.inputs).toHaveLength(0)
+    second.workspace.dispose()
   })
 
   it("a routed tab restored after restart resumes with its seat and variant", async () => {

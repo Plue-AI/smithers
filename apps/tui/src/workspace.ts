@@ -467,6 +467,8 @@ export class Workspace {
         }`
       )
     }
+    // `auto` is the router's seat, never an agent: refused before any listing, which can take minutes.
+    if (request.agent === Seat.auto) throw new Agents.AgentError("seat_as_agent", "auto is the routed seat; omit agent")
     // Refuses now when the listing is known; otherwise the launch re-lists and fails the tab.
     const listed = request.agent === undefined ? undefined : this.agents().listed()
     if (
@@ -591,14 +593,32 @@ export class Workspace {
   private relaunch(tab: Tab): void {
     if (this.closed) return
     this.tabs.forget(tab.id)
-    this.open(
-      { id: tab.id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
-      tab,
-      tab.parent,
-      tab.depth,
-      tab,
-      tab.parks
-    )
+    try {
+      this.open(
+        { id: tab.id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
+        tab,
+        tab.parent,
+        tab.depth,
+        tab,
+        tab.parks
+      )
+    } catch (error) {
+      // A request this build refuses, such as an older session's `agent: "auto"`, fails its tab, not the process.
+      const failure = Agents.unreadable(error)
+      const at = Date.now()
+      const presentation: FailureCopy.Description = {
+        headline: failure.message,
+        fault: "user",
+        line: "",
+        actions: ["resume", "details"]
+      }
+      this.tabs.put(tab)
+      this.transcripts.set(tab.id, Transcript.failure(this.transcript(tab.id), presentation.headline, at))
+      this.tabs.move(
+        { ...tab, endedAt: at, message: failure.message, code: failure.code, failure: presentation },
+        "fail"
+      )
+    }
   }
   private scheduleResume(tab: Tab): void {
     const resume = () => {

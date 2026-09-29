@@ -327,7 +327,8 @@ it("teaches the coordinator honest receipts and the panel block contract", () =>
       "A requested or queued receipt means only requested or queued",
       "This applies to panel details as well as replies",
       "A running task is never completed",
-      "placement:\"main\" and bind:{tree:rootId}"
+      "placement:\"main\" and bind:{tree:rootId}",
+      "otherwise omit agent. Default worker seat, never an agent or model value: "
     ]
   ) expect(Runtime.coordinatorTeaching).toContain(rule)
   for (const rule of ["kind:\"code\"", "kind:\"table\"", "Never invent actions the user did not request"]) {
