@@ -35,8 +35,12 @@ const apply = (turn: Turn, frame: TurnFrame): Turn => {
     }
     case "card":
       return { ...turn, cards: [...turn.cards, frame.card] }
-    case "card.update":
-      return { ...turn, cards: turn.cards.map((card) => card.id === frame.card.id ? frame.card : card) }
+    case "card.update": {
+      const index = turn.cards.findIndex((card) => card.id === frame.card.id)
+      return { ...turn, cards: index === -1
+        ? [...turn.cards, frame.card]
+        : turn.cards.map((card, at) => at === index ? frame.card : card) }
+    }
     case "error":
       return { ...turn, error: frame.message }
     default:

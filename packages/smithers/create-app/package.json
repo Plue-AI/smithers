@@ -200,7 +200,7 @@
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node scripts/circular.mjs",
     "test": "vitest",
-    "test:browser": "tsx --tsconfig tsconfig.test.json --test test/defaultPage.browser.ts",
+    "test:browser": "tsx --tsconfig tsconfig.test.json --test test/*.browser.ts",
     "coverage": "vitest --coverage"
   },
   "dependencies": {
