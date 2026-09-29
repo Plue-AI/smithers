@@ -25,6 +25,8 @@ import { Schema, SchemaRepresentation } from "effect"
 import type { JsonSchema } from "effect"
 import type { Card } from "../AppState"
 import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
+import { refuseOrPickBox } from "../controller/boxChoice"
+import type { FormsController } from "../controller/forms"
 import { repositoryJobBinding, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { actorSharedState } from "../ActorBindings"
@@ -185,6 +187,8 @@ export interface TriggersRuntime {
   readonly requestRegistration: (repo: string, request: TriggerRegistration) => Promise<string | { value: string }>
   /** Background work on the shared stack, under its 300 ms debounce; a string outcome is the failure line. */
   readonly withToast: FailureController["withToast"]
+  /** The box pick a human's registration renders when several boxes could hold the registrar (controller/boxChoice.ts). */
+  readonly renderFlowForm?: FormsController["renderFlowForm"]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -920,7 +924,12 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const draft: Preparation["draft"] = { flow: request.flow ?? "", slug, schedule, input,
       ...(named ? { tokens: named.tokens, minutes: named.milliseconds / 60_000 } : {}) }
     const job = jobWorkspace(ctx, repo)
-    if ("error" in job) return job.error
+    if ("error" in job) {
+      // The register door's own carried draft, resumed on the picked box.
+      const carried = Object.fromEntries(Object.entries({ repo, flow: request.flow, slug: request.slug, schedule: request.schedule, input: request.input, tokens: request.tokens, minutes: request.minutes })
+        .flatMap(([key, value]) => value === undefined ? [] : [[key, String(value)]]))
+      return refuseOrPickBox({ commandActor: ctx.actor() }, runtime.renderFlowForm, job, { repo, flow: "triggers.register", args: JSON.stringify(carried) })
+    }
     const { workspaceId } = job
     const same = (row: Preparation) => row.owner === login && row.workspaceId === workspaceId && JSON.stringify(row.draft) === JSON.stringify(draft)
     const ack = { value: `Preparation requested for ${slug} on ${repo}.` }

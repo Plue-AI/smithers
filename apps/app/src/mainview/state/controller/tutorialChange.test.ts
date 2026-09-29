@@ -3,6 +3,7 @@ import { CODING_PLAN } from "../../cards/fixtures/CodingPlan"
 import { createAppStore } from "../AppStore"
 import { StorageWriteFailedError } from "../StorageRecoveryContract"
 import { presentAppFailure } from "./AppFailure"
+import { formRenderedText } from "./forms"
 import { scopedControllers } from "../ControllerTestScope"
 import { json, loadBox, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
 
@@ -125,4 +126,43 @@ test("an untagged start failure puts the start sentence on the plan card, and a 
   expect(saved?.kind === "run-trace" && saved.payload.error).toBe("The change could not be started. Not your fault.")
   t.preflight(async () => json(503, { message: "The change service is unavailable." }))
   expect(await t.controller.startTutorialChange(card!.id)).toBe("The change service is unavailable.")
+})
+
+test("with several boxes, Start renders the box pick before the plan is consumed, and Submit starts it once on the pick (#2475)", async () => {
+  const t = await fixture(false)
+  const boxA = "0b0c0d0e-0000-4000-8000-00000000000a", boxB = "0b0c0d0e-0000-4000-8000-00000000000b"
+  await loadBox(t.store, repo, boxA)
+  await loadBox(t.store, repo, boxB)
+  await t.controller.suggestTutorialChange(repo)
+  const [card] = t.plans()
+  expect(await t.controller.commands.run("agent.change.start", card!.id)).toEqual({ status: "executed", value: formRenderedText(["workspaceId"]) })
+  expect(t.store.collections.cards.get("form-box.select")).toMatchObject({ payload: { given: { repo, flow: "agent.change.start", args: card!.id } } })
+  expect(t.store.collections.cards.get(card!.id)?.status).toBe("active")
+  expect(t.posts).not.toContain("/api/tutorial/change/preflight")
+
+  // The agent keeps the refusal on the card; the plan keeps its door.
+  const agent = await t.controller.commands.runForAgent("agent.change.start", card!.id)
+  expect(JSON.stringify(agent)).not.toContain("form-box.select")
+  expect(t.posts).not.toContain("/api/tutorial/change/preflight")
+
+  await t.controller.commands.run("form.set", `form-box.select workspaceId ${boxB}`)
+  t.preflight(() => new Promise<Response>(() => {}))
+  void t.controller.commands.run("form.submit", "form-box.select")
+  await waitFor(() => t.posts.includes("/api/tutorial/change/preflight"))
+  expect(t.store.session().activeRepoKey).toBe(`${repo}#workspace:${boxB}`)
+  expect(t.store.collections.cards.get(card!.id)?.status).toBe("acted")
+  expect((await t.controller.commands.run("form.submit", "form-box.select")).status).toBe("failed")
+  expect(t.posts.filter(path => path.endsWith("/preflight"))).toHaveLength(1)
+})
+
+test("a plan made on another repository is not started by picking a box", async () => {
+  const t = await fixture(false)
+  await t.controller.suggestTutorialChange(repo)
+  const [card] = t.plans()
+  await t.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
+    { id: repo, org: "owner", ownerKind: "user", name: "tutorial", head: null },
+    { id: "owner/other", org: "owner", ownerKind: "user", name: "other", head: null }] }).isPersisted.promise
+  await loadBox(t.store, "owner/other")
+  await t.store.dispatch({ type: "repo.selected", actor: "user", id: "owner/other#workspace:" + [...t.store.collections.cloudWorkspaces.keys()][0] }).isPersisted.promise
+  expect(await t.controller.startTutorialChange(card!.id)).toBe("The repository or account changed; request a new plan.")
 })

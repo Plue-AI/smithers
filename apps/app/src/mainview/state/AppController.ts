@@ -934,7 +934,8 @@ export const createAppController = (
   const triggersSeam = actors.pair(seamCtx, (context, select) => createTriggersSeam(context, {
     requestRun: (repo, slug, operation) => select(workflowController).requestTriggerRun(repo, slug, operation),
     requestRegistration: (repo, request) => select(workflowController).requestTriggerRegistration(repo, request),
-    withToast
+    withToast,
+    renderFlowForm: request => select(renderFlowForm)(request)
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
@@ -1190,7 +1191,7 @@ export const createAppController = (
   const tutorialChange = actors.pair(ctx, (context, select) =>
     createTutorialChangeController(context, select(workflowController), store.nextOrdinal, select(renderFlowForm)))
   const issueFlows = actors.pair(seamCtx, (context, select) =>
-    createIssueFlowsController(context, select(workflowController), select(landingsSeam)))
+    createIssueFlowsController(context, select(workflowController), select(landingsSeam), select(renderFlowForm)))
   ctx.finishTutorialChange = tutorialChange.finishTutorialChange
   /* A change run that settled while the app was closed still owes its receipt check. */
   for (const card of store.collections.cards.values()) {
@@ -1466,7 +1467,8 @@ export const createAppController = (
     createOnboardingController(context, {
       deferCommand,
       promptSignIn,
-      workflows: select(workflowController)
+      workflows: select(workflowController),
+      renderFlowForm: select(renderFlowForm)
     }))
 
   /*

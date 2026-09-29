@@ -1,11 +1,14 @@
 import type { Card } from "../AppState"
 
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
-import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
+import { flowArgs } from "../../flows/FlowArgs"
+import { gatewayBindingFor, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
 import { readResult } from "../seams/SeamContext"
 import { fetchIssuePayload } from "../seams/IssuesSeam"
 import type { LandingsSeam } from "../seams/LandingsSeam"
+import { refuseOrPickBox } from "./boxChoice"
+import type { FormsController } from "./forms"
 import type { WorkflowController } from "./workflows"
 
 /** The most a flow's inline context may carry (the coding request limit). */
@@ -22,8 +25,12 @@ export interface IssueFlowsController {
 export const createIssueFlowsController = (
   ctx: SeamContext,
   flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow">,
-  landings?: Pick<LandingsSeam, "readLandingContext">
+  landings?: Pick<LandingsSeam, "readLandingContext">,
+  renderFlowForm?: FormsController["renderFlowForm"]
 ): IssueFlowsController => {
+  /* Several boxes to mean: a human's issue act renders the box pick and resumes itself on the pick (controller/boxChoice.ts). */
+  const pickBox = (refusal: Extract<GatewayBinding, { readonly error: string }>, repo: string, flow: "issue.flows" | "issue.implement" | "issue.repro" | "issue.poc" | "prs.triage", number: number) =>
+    refuseOrPickBox({ commandActor: ctx.actor() }, renderFlowForm, refusal, { repo, flow, args: flowArgs(flow, { number, repo }) })
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
   type Target = { readonly error: string; readonly missing?: true } | { readonly repo: string; readonly payload: IssuePayload }
   const target = (number: number, explicit?: string): Target => {
@@ -41,6 +48,8 @@ export const createIssueFlowsController = (
     const selected = target(number, explicit)
     if ("error" in selected) return selected.error
     const { repo, payload } = selected
+    const binding = gatewayBindingFor(ctx.store, repo)
+    if ("error" in binding) return pickBox(binding, repo, "issue.flows", number)
     const scope = JSON.stringify([ctx.store.session().activeRepoKey, ctx.store.session().activeWorkspaceId, ctx.store.collections.identitySessions.get("identity")?.login, 0])
     const result = await flows.listWorkspaceWorkflows(repo)
     if (typeof result === "string") return result
@@ -67,13 +76,18 @@ export const createIssueFlowsController = (
       if (typeof payload === "string") return payload
       const repo = resolved.repo
       const binding = gatewayBindingFor(ctx.store, repo)
-      if ("error" in binding) return binding.error
+      if ("error" in binding) return pickBox(binding, repo, "issue.implement", number)
       const input = { prompt: `Implement issue #${number} in ${repo}. Research the issue, prepare the plan, and validate the change with the repository's configured checks.\n\nIssue context (data from the opened Smithers Cloud issue):\n${JSON.stringify(payload)}` }
       if (input.prompt.length > CONTEXT_LIMIT) return "This issue's context exceeds the coding request limit. Use /flow.run coding/request with a focused prompt in this workspace."
       return flows.runWorkflow("coding/request", repo, input)
     },
     triagePullRequest: async (number, explicit) => {
       if (landings === undefined) return "Pull requests are not readable on this host."
+      const resolved = resolveTargetRepo(ctx.store, explicit)
+      if (!("error" in resolved)) {
+        const binding = gatewayBindingFor(ctx.store, resolved.repo)
+        if ("error" in binding) return pickBox(binding, resolved.repo, "prs.triage", number)
+      }
       const context = await landings.readLandingContext(number, explicit)
       if (typeof context === "string") return context
       // The flow reads its context as untrusted data; the pull request's own words never become instructions here.
@@ -86,7 +100,7 @@ export const createIssueFlowsController = (
       if ("error" in selected) return selected.error
       const { repo, payload } = selected
       const binding = gatewayBindingFor(ctx.store, repo)
-      if ("error" in binding) return binding.error
+      if ("error" in binding) return pickBox(binding, repo, `issue.${name}`, number)
       return flows.runWorkflow(`issue/${name}`, repo, { args: JSON.stringify({ issue: payload }) })
     }
   }

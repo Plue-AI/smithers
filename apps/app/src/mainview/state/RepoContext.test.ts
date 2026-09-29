@@ -14,7 +14,7 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { knownRepositories, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
+import { knownRepositories, repositoryJobBinding, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
 
 const freshStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
 
@@ -219,4 +219,46 @@ test("completed imports resolve button arguments before repository inventory ref
    expect(payloadFor("issues.create", "title acme/new", undefined, known)).toEqual({payload:{title:"title",repo:"acme/new"}})
   }
  }
+})
+
+describe("repositoryJobBinding (#2475)", () => {
+  const REPO = "will/flows"
+  const BOX_A = "0b0c0d0e-0000-4000-8000-00000000000a"
+  const BOX_B = "0b0c0d0e-0000-4000-8000-00000000000b"
+  const BOX_SETTLING = "0b0c0d0e-0000-4000-8000-00000000000c"
+  const twoBoxes = async () => {
+    const store = await freshStore()
+    await dispatch(store, { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+    await loadRepositories(store, REPO)
+    await dispatch(store, { type: "workspaces.loaded", actor: "system", workspaces: [[BOX_A, "running"], [BOX_B, "running"], [BOX_SETTLING, "starting"]].map(([id, status]) =>
+      ({ id: id!, repoId: REPO, name: id!, targetBookmark: null, status: status as "running", provisioningStage: null, suspendedAt: null, createdAt: null })) })
+    return store
+  }
+  const select = (store: AppStore, box: string) => dispatch(store, { type: "repo.selected", actor: "user", id: `${REPO}#workspace:${box}` })
+  /* A store whose cards hold this account's setup recorded on `box`. */
+  const recordedOn = (store: AppStore, box: string): AppStore => ({ ...store, collections: { ...store.collections,
+    cards: new Map([["setup", { kind: "repository-setup", payload: { repo: REPO, owner: "will", workspaceId: box } }]]) } }) as unknown as AppStore
+
+  test("several boxes and no selection: the refusal offers them", async () => {
+    const binding = repositoryJobBinding(await twoBoxes(), REPO)
+    expect("error" in binding && binding.choices?.map(box => box.id)).toEqual([BOX_A, BOX_B])
+  })
+
+  test("several boxes: the selected one of them is the pick", async () => {
+    const store = await twoBoxes()
+    await select(store, BOX_B)
+    expect(repositoryJobBinding(store, REPO)).toEqual({ workspaceId: BOX_B })
+  })
+
+  test("a selected box that is not one of the choices is no pick", async () => {
+    const store = await twoBoxes()
+    await select(store, BOX_SETTLING)
+    expect(repositoryJobBinding(store, REPO)).toMatchObject({ error: `Select a box of ${REPO} first.` })
+  })
+
+  test("a recorded job box is never re-picked by the selection", async () => {
+    const store = await twoBoxes()
+    await select(store, BOX_B)
+    expect(repositoryJobBinding(recordedOn(store, BOX_A), REPO)).toEqual({ workspaceId: BOX_A })
+  })
 })

@@ -270,11 +270,17 @@ export const gatewayBindingFor = (store: AppStore, repo: string, runId?: string)
 
 /**
  * The box this repository's reviewed jobs (and the trigger registrar) run on:
- * the one their setups recorded, else the repository's default box.
+ * the one their setups recorded, else the repository's default box. When
+ * several boxes could be that default, the selected one of them is the
+ * human's pick (controller/boxChoice.ts); a recorded box is never re-picked.
  */
 export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBinding => {
   const recorded = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
-  return recorded === undefined ? defaultBoxBinding(store, repo) : { workspaceId: recorded }
+  if (recorded !== undefined) return { workspaceId: recorded }
+  const fallback = defaultBoxBinding(store, repo)
+  if (!("error" in fallback) || fallback.choices === undefined) return fallback
+  const selected = selectedBoxBinding(store, repo)
+  return selected !== undefined && "workspaceId" in selected && fallback.choices.some(box => box.id === selected.workspaceId) ? selected : fallback
 }
 
 /**

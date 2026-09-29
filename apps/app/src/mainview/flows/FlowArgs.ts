@@ -66,7 +66,7 @@ export interface FlowInput {
   readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.fix": { readonly number: number; readonly repo: string }
-  readonly "change.request": { readonly prompt: string; readonly repo: string }
+  readonly "change.request": { readonly prompt: string; readonly repo: string; readonly from?: string }
   readonly "repository.register": { readonly link: string }
   readonly "issues.verify": { readonly number: number; readonly repo: string }
   readonly "issues.comment.react": { readonly number: number; readonly repo?: string; readonly commentId: number; readonly name: string; readonly active: boolean }
@@ -249,7 +249,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.fix": payload => line(token(payload, "number"), token(payload, "repo")),
   // The prompt is free text; the grammar reads the repository off the end.
-  "change.request": payload => line(String(payload.prompt).replace(/\s+/g, " ").trim(), token(payload, "repo")),
+  "change.request": payload => line(String(payload.prompt).replace(/\s+/g, " ").trim(), payload.from === undefined ? undefined : `from:${payload.from}`, token(payload, "repo")),
   "repository.register": payload => String(payload.link).trim(),
   "issues.verify": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.comment.react": payload => JSON.stringify(payload),

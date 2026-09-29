@@ -1,5 +1,7 @@
 import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
+import { refuseOrPickBox } from "./boxChoice"
 import type { ControllerContext } from "./context"
+import type { FormsController } from "./forms"
 import { isFlowNotFound } from "./gateway"
 import type { WorkflowController } from "./workflows"
 
@@ -20,6 +22,8 @@ export interface OnboardingDependencies {
     WorkflowController,
     "workflowIdentityGuard" | "workflowBalanceGuard" | "provisionWorkspace" | "launchWorkflow"
   >
+  /** The box pick a human's request renders when several boxes could be meant (controller/boxChoice.ts). */
+  readonly renderFlowForm?: FormsController["renderFlowForm"]
 }
 
 export const createOnboardingController = (ctx: ControllerContext, deps: OnboardingDependencies): OnboardingController => {
@@ -69,9 +73,9 @@ export const createOnboardingController = (ctx: ControllerContext, deps: Onboard
     const target = resolveTargetRepo(store, explicit)
     if ("error" in target) return target.error
     const { repo } = target
-    // No box, no run: the refusal names the box to open or pick, and the lesson stays where it was.
+    // No box, no run: the refusal names the box to open or renders the pick, and the lesson stays where it was.
     const binding = gatewayBindingFor(store, repo)
-    if ("error" in binding) return binding.error
+    if ("error" in binding) return refuseOrPickBox(ctx, deps.renderFlowForm, binding, { repo, flow: "feature.prototype", args: `${what} ${repo}` })
     const provisioned = await deps.workflows.provisionWorkspace(repo, binding)
     if (provisioned !== true) return provisioned
     const missing = `${repo} has no ${PROTOTYPE_FLOW_ID} flow on its workspace yet, so there is nothing to run the prototype with.`

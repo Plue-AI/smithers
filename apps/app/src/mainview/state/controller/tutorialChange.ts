@@ -2,8 +2,9 @@ import { Data, Schema } from "effect"
 import { Plan } from "../../../../../../flows/coding/schema"
 import { decodeChangeReceipt,receiptMatchesPlan,validateTutorialPlan } from "../../cards/tutorial2-agent_change-contract"
 import { flag,line,text } from "@smthrs/ui/flow-form"
-import type { Card } from "../AppState"
+import { parseRepoSelection, type Card } from "../AppState"
 import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
+import { refuseOrPickBox } from "./boxChoice"
 import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import type { FormsController } from "./forms"
@@ -20,6 +21,16 @@ type RunCard = Extract<Card, { kind: "run-trace" }>
 /** A refusal this app or the change service already worded for a person. */
 class ChangeRefusal extends Data.TaggedError("ChangeRefusal")<{ readonly message: string }> {
   constructor(message: string) { super({ message }) }
+}
+/**
+ * Whether the selection is still the one the plan was made under. Picking a
+ * box of the plan's repository (the box pick of controller/boxChoice.ts) keeps
+ * it; any other repository or account does not.
+ */
+const sameTutorialScope = (planned: string | null | undefined, current: string | null | undefined, repo: string): boolean => {
+  if (planned === current) return true
+  const selection = current == null ? null : parseRepoSelection(current)
+  return (planned == null || planned === repo) && selection?.repoId === repo && selection.copyId?.startsWith("workspace:") === true
 }
 /** What an already-started plan answers: the run it became and where that run stands, never a refusal. */
 const startedPlanState = (card: RunCard): string => {
@@ -71,9 +82,15 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
     if (guard) return guard
     try {
       const plan = validateTutorialPlan(Schema.decodeUnknownSync(Plan)(card.payload.input?.plan))
-      const scope = card.payload.input?.tutorialScope as { repoKey?: string; accountLogin?: string | null } | undefined
+      const scope = card.payload.input?.tutorialScope as { repoKey?: string | null; accountLogin?: string | null } | undefined
       const session = ctx.store.session()
-      if (!scope || scope.repoKey !== session.activeRepoKey || scope.accountLogin !== (ctx.accountOwner() ?? null)) return "The repository or account changed; request a new plan."
+      if (!scope || !sameTutorialScope(scope.repoKey, session.activeRepoKey, card.payload.repo) || scope.accountLogin !== (ctx.accountOwner() ?? null)) return "The repository or account changed; request a new plan."
+      // Several boxes to mean: the human picks one before the plan is consumed, and Submit starts it once.
+      const unbound = gatewayBindingFor(ctx.store, card.payload.repo)
+      if ("error" in unbound && unbound.choices !== undefined) {
+        const picked = refuseOrPickBox(ctx, renderFlowForm, unbound, { repo: card.payload.repo, flow: "agent.change.start", args: cardId })
+        if (typeof picked !== "string") return picked
+      }
       // Consume before awaiting the seam: concurrent activation cannot execute twice.
       const { error: _stale, ...payload } = card.payload
       await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: { ...card, status: "acted", payload } }).isPersisted.promise

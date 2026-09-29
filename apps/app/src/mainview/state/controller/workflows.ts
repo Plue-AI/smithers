@@ -12,7 +12,8 @@ import { reconcileRunApprovals } from "./approval-reconciliation"
 import type { ControllerContext } from "./context"
 import type { GatewayWorkspaceBinding } from "./gateway"
 import { runCardIdFor, runScopeFromCard, sameRunScope } from "../RunReference"
-import { flowAuthoringBinding, gatewayBindingFor, recordedRunBinding, repositoryJobBinding, resolveTargetRepo } from "../RepoContext"
+import { flowAuthoringBinding, gatewayBindingFor, recordedRunBinding, repositoryJobBinding, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
+import { refuseOrPickBox } from "./boxChoice"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import { FLOW_AUTHORING_ENTRY } from "@smthrs/rpc/FlowAuthoring"
 import { dismissReadyWorkspaceFailures, TOAST_SUPERSEDED, ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
@@ -327,7 +328,9 @@ export const createWorkflowController = (
 
   const requestTriggerRun: WorkflowController["requestTriggerRun"] = async (repo, slug, operation = "fire") => {
     const binding = repositoryJobBinding(store, repo)
-    if ("error" in binding) return binding.error
+    if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding, operation === "fire"
+      ? { repo, flow: "triggers.run", args: flowArgs("triggers.run", { slug, repo }) }
+      : { repo, flow: "triggers.resume", args: flowArgs("triggers.resume", { slug, repo }) })
     const outcome = await requests.start({ repo, binding, workflow: "repository/trigger",
       input: { ...(operation === "fire" ? { requestId: crypto.randomUUID() } : {}), operation, repo, slug, input: {} }, triggerDispatch: { slug }, actor: ctx.commandActor })
     return typeof outcome === "string" ? outcome : { value: `Requested ${slug} on ${repo}.` }
@@ -794,13 +797,20 @@ export const createWorkflowController = (
     if ("ask" in target) return askWhichRepo(description, target.ask)
     const repo = target.repo
     const binding = flowAuthoringBinding(store, repo)
-    if ("error" in binding) return refuseCreate(binding.error)
+    if ("error" in binding) {
+      const refused = refuseOrPickBox(ctx, renderFlowForm, binding, { repo, flow: "flow.create", args: `${description} ${repo}` })
+      return typeof refused === "string" ? refuseCreate(refused) : refused
+    }
     return authoring.request(description, repo, binding, ctx.commandActor)
   }
 
-  /** A source card binds both catalog reads and launches to the retained host. */
+  /**
+   * A source card binds both catalog reads and launches to the retained host.
+   * An unbound refusal keeps its box choices, so a human's act can render the
+   * box pick (controller/boxChoice.ts); a recorded binding never offers one.
+   */
   const workflowScope = (repoArg?: string, sourceCard?: string):
-    { readonly repo: string; readonly binding: GatewayWorkspaceBinding } | { readonly error: string } => {
+    { readonly repo: string; readonly binding: GatewayWorkspaceBinding } | Extract<GatewayBinding, { readonly error: string }> => {
     if (sourceCard !== undefined) {
       const card = store.collections.cards.get(sourceCard)
       if (card?.kind !== "run-trace" && card?.kind !== "workflow-list" && card?.kind !== "flow-plan") return { error: "The source run or catalog card is unavailable." }
@@ -812,6 +822,12 @@ export const createWorkflowController = (
     if ("error" in target) return target
     const binding = gatewayBindingFor(store, target.repo)
     return "error" in binding ? binding : { repo: target.repo, binding }
+  }
+
+  /** An unbound refusal as the human's box pick for `flow`, resumed with the args it names on the picked box's repository. */
+  const pickBox = (refusal: Extract<GatewayBinding, { readonly error: string }>, flow: string, argsFor: (repo: string) => string): string | { readonly value: string } => {
+    const repo = refusal.choices?.[0]?.repoId
+    return repo === undefined ? refusal.error : refuseOrPickBox(ctx, renderFlowForm, refusal, { repo, flow, args: argsFor(repo) })
   }
 
   const catalogs = createWorkflowCatalogController(ctx, {
@@ -858,7 +874,7 @@ export const createWorkflowController = (
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
     const target = workflowScope(repoArg, sourceCard)
-    if ("error" in target) return target.error
+    if ("error" in target) return pickBox(target, "flow.run", repo => flowArgs("flow.run", { name, repo, ...(inputArg === undefined ? {} : { input: inputArg }) }))
     const { repo, binding } = target
     // A box executes with its own configured provider. Its gateway enforces
     // box access, capacity and provider setup.
@@ -895,7 +911,7 @@ export const createWorkflowController = (
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
     const target = workflowScope(repoArg)
-    if ("error" in target) return target.error
+    if ("error" in target) return pickBox(target, "change.request", repo => flowArgs("change.request", { prompt: what, repo, ...(from === undefined ? {} : { from }) }))
     const { repo, binding } = target
     return requests.start({ repo, binding, workflow: "coding/request", input: { prompt: what }, actor: ctx.commandActor, then: "coding/vibe",
       source: { name: from ?? "head", explicit: from !== undefined } })
@@ -914,7 +930,7 @@ export const createWorkflowController = (
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
     const target = workflowScope(repoArg, sourceCard)
-    if ("error" in target) return target.error
+    if ("error" in target) return pickBox(target, "flow.plan", repo => flowArgs("flow.plan", { name, repo, ...(inputArg === undefined ? {} : { input: inputArg }), ...(against === undefined ? {} : { against }) }))
     const { repo, binding } = target
     const input = JSON.parse(canonicalStoredJsonValue(inputArg ?? {})) as Record<string, unknown>
     // One card per (repo, workspace, flow, input): asking twice for the same plan moves
