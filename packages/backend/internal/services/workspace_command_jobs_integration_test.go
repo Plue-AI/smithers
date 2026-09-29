@@ -483,3 +483,107 @@ func TestWorkspaceCommandRunReceiptProjectsTerminalStates(t *testing.T) {
 		})
 	}
 }
+
+// Only transport/termination outcomes are injected: admission, fencing,
+// worker settlement, and public receipts use migrated PostgreSQL.
+type deadlineCommandRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	outcome string
+	calls   int
+}
+
+func (r *deadlineCommandRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	if len(command.Args) == 1 && command.Args[0] == "__deadline__" {
+		r.calls++
+		if r.outcome == "unknown error" {
+			return workspaceapi.CommandResult{}, errors.New("transport lost")
+		}
+		<-ctx.Done()
+		if r.outcome == "confirmed timeout" {
+			return workspaceapi.CommandResult{}, errors.Join(ctx.Err(), workspaceapi.ErrCommandCancelled)
+		}
+		if r.outcome == "explicitly unconfirmed timeout" {
+			return workspaceapi.CommandResult{}, errors.Join(ctx.Err(), workspaceapi.ErrCommandTerminationUnconfirmed)
+		}
+		return workspaceapi.CommandResult{}, ctx.Err()
+	}
+	return r.WorkspaceRuntime.ExecuteCommand(ctx, id, command)
+}
+
+func TestWorkspaceCommandJobsTimeoutTerminationProof(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	userID, repositoryID := setupTestUserAndRepo(t, pool)
+	workspaceID := uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,'deadline-proof','container','running')`, workspaceID, repositoryID, userID)
+	require.NoError(t, err)
+	runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: workspaceID})
+	require.NoError(t, err)
+	_, err = runtime.StartWorkspace(ctx, workspaceID)
+	require.NoError(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	server := workspaceCommandGitServer(t, db.New(pool), repositoryID)
+	api := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(runtime), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(server.URL+"/api"))
+	_, err = api.executeWorkspaceCommand(ctx, workspaceID, repositoryID, userID, WorkspaceCommandInput{OperationID: "deadline-fixture", Args: []string{"/usr/bin/true"}})
+	require.NoError(t, err)
+	for _, outcome := range []string{"confirmed timeout", "bare timeout", "explicitly unconfirmed timeout", "unknown error"} {
+		t.Run(outcome, func(t *testing.T) {
+			adapter := &deadlineCommandRuntime{WorkspaceRuntime: runtime, outcome: outcome}
+			worker := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(adapter), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(server.URL+"/api"))
+			receipt, err := api.AdmitWorkspaceCommand(ctx, workspaceID, repositoryID, userID, WorkspaceCommandInput{OperationID: uuid.NewString(), Args: []string{"__deadline__"}})
+			require.NoError(t, err)
+			workerCtx, stop := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() {
+				done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "deadline-proof", Capacity: 1, Lease: 2 * time.Second, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond, Operations: []string{workspaceCommandOperation}}, func(ctx context.Context, lease *jobs.Lease) error {
+					return worker.handleWorkspaceCommandWithTimeout(ctx, lease, 3*time.Second)
+				})
+			}()
+			stopped := false
+			t.Cleanup(func() {
+				if stopped {
+					return
+				}
+				stop()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Error("deadline worker did not stop")
+				}
+			})
+			var run WorkspaceCommandRun
+			require.Eventually(t, func() bool {
+				var err error
+				run, err = api.GetWorkspaceCommandRun(ctx, workspaceID, repositoryID, userID, receipt.OperationID)
+				return err == nil && run.State.Terminal()
+			}, 15*time.Second, 10*time.Millisecond)
+			stop()
+			require.NoError(t, <-done)
+			stopped = true
+			require.Equal(t, 1, adapter.calls)
+			require.Nil(t, run.Result)
+			if outcome == "confirmed timeout" {
+				require.Equal(t, jobs.StateFailed, run.State)
+				require.Equal(t, "command exceeded its 60-minute limit", run.Error)
+				operation, err := store.Get(ctx, repositoryJobFlowScope(repositoryID, userID), receipt.OperationID)
+				require.NoError(t, err)
+				require.JSONEq(t, `{"code":"command_timeout"}`, string(operation.TerminalReceipt))
+			} else {
+				require.Equal(t, jobs.StateUncertain, run.State)
+				require.Equal(t, "command outcome is unknown; it will not be retried", run.Error)
+				if outcome == "unknown error" {
+					operation, err := store.Get(ctx, repositoryJobFlowScope(repositoryID, userID), receipt.OperationID)
+					require.NoError(t, err)
+					require.NotContains(t, string(operation.TerminalReceipt), "transport lost")
+				}
+			}
+			_, err = store.ClaimForOperations(ctx, "no-retry", time.Second, []string{workspaceCommandOperation})
+			require.ErrorIs(t, err, jobs.ErrNoWork)
+		})
+	}
+}

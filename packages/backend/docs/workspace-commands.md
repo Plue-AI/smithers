@@ -28,9 +28,11 @@ repository permission, and workspace grant before calling the runtime.
 Output becomes available at exit. Stored streams use base64 so NUL bytes survive
 PostgreSQL JSONB; the API decodes them back to strings. Each output stream is bounded to 256 KiB in the
 receipt; runtime adapters may impose a smaller bound. A nonzero command exit
-still produces a completed receipt with its exit code. Runtime errors produce
-`failed`; a lost execution lease produces `uncertain`. Neither state claims a
-successful command. Commands have a 60-minute execution guard.
+still produces a completed receipt with its exit code. Commands have a 60-minute
+execution guard. A timeout produces `failed` only after the runtime confirms
+termination. An unconfirmed timeout, unknown runtime error after execution is
+fenced, or lost execution lease produces `uncertain` and is never retried
+automatically. Neither state claims a successful command.
 
 Command arguments, directory, and environment are encrypted with the backend's
 configured secret codec before storage. Keep that key available for execution

@@ -220,6 +220,11 @@ func (s *WorkspaceService) authorizeWorkspaceCommand(ctx context.Context, input 
 }
 
 func (s *WorkspaceService) handleWorkspaceCommand(ctx context.Context, lease *jobs.Lease) error {
+	return s.handleWorkspaceCommandWithTimeout(ctx, lease, time.Hour)
+}
+
+// Keep the production guard fixed while allowing deadline behavior to be tested.
+func (s *WorkspaceService) handleWorkspaceCommandWithTimeout(ctx context.Context, lease *jobs.Lease, timeout time.Duration) error {
 	claim := lease.Claim()
 	var input workspaceCommandPayload
 	fail := func(code string) error {
@@ -248,7 +253,7 @@ func (s *WorkspaceService) handleWorkspaceCommand(ctx context.Context, lease *jo
 	if err := lease.StartExternal(ctx, json.RawMessage(`{"phase":"executing"}`)); err != nil {
 		return err
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, time.Hour)
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	result, err := s.executeWorkspaceCommand(commandCtx, input.WorkspaceID, input.RepositoryID, input.UserID, command)
 	// A successful result is authoritative even if cancellation races its
@@ -273,10 +278,12 @@ func (s *WorkspaceService) handleWorkspaceCommand(ctx context.Context, lease *jo
 			}
 			return errors.New("workspace command termination unconfirmed")
 		}
-		if errors.Is(commandCtx.Err(), context.DeadlineExceeded) {
+		if errors.Is(commandCtx.Err(), context.DeadlineExceeded) && errors.Is(err, workspaceapi.ErrCommandCancelled) {
 			return fail("command_timeout")
 		}
-		return fail("command_execution_failed")
+		// After the external-effect fence, an unknown runtime error cannot
+		// certify termination. Do not persist potentially sensitive adapter errors.
+		return workspaceapi.ErrCommandTerminationUnconfirmed
 	}
 	if len(result.Stdout) > workspaceCommandOutputLimit {
 		result.Stdout = result.Stdout[:workspaceCommandOutputLimit]
