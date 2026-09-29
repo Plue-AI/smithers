@@ -36,6 +36,7 @@ type mockWebhookQuerier struct {
 	listWebhookDeliveriesForRepoFn     func(ctx context.Context, arg db.ListWebhookDeliveriesForRepoParams) ([]db.WebhookDelivery, error)
 	getWebhookDeliveryForRepoFn        func(ctx context.Context, arg db.GetWebhookDeliveryForRepoParams) (db.WebhookDelivery, error)
 	updateWebhookDeliveryResultFn      func(ctx context.Context, arg db.UpdateWebhookDeliveryResultParams) error
+	ensureWebhookAtURLFn               func(ctx context.Context, arg db.CreateWebhookParams) (db.Webhook, bool, error)
 
 	lastCreateWebhookArg  db.CreateWebhookParams
 	lastUpdateWebhookArg  db.UpdateRepoWebhookByOwnerAndRepoParams
@@ -88,6 +89,13 @@ func (m *mockWebhookQuerier) GetCollaboratorPermissionForRepoUser(ctx context.Co
 		return m.getCollaboratorPermissionForRepoFn(ctx, arg)
 	}
 	return "", nil
+}
+
+func (m *mockWebhookQuerier) EnsureWebhookAtURL(ctx context.Context, arg db.CreateWebhookParams) (db.Webhook, bool, error) {
+	if m.ensureWebhookAtURLFn != nil {
+		return m.ensureWebhookAtURLFn(ctx, arg)
+	}
+	return db.Webhook{}, false, nil
 }
 
 func (m *mockWebhookQuerier) ListRepoWebhooksByOwnerAndRepo(ctx context.Context, arg db.ListRepoWebhooksByOwnerAndRepoParams) ([]db.Webhook, error) {

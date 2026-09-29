@@ -139,6 +139,9 @@ type GitHubSyncedRepoService struct {
 	// mirrorFailures counts refused bindings and suspended mirrors.
 	mirrorFailures GitHubMirrorFailureObserver
 	pullMirror     func(ctx context.Context, owner, repo string) (bool, error)
+	// syncWebhook gives a mirrored repository the hook that feeds its
+	// Smithers events to github-sync. Nil when no github-sync is deployed.
+	syncWebhook func(ctx context.Context, owner, repo string) (bool, error)
 }
 
 // GitHubMirrorFailureObserver records a mirror failure by stage and reason
@@ -318,6 +321,73 @@ func (s *GitHubSyncedRepoService) RecordMirrorStatus(ctx context.Context, mirror
 
 // ListSyncedRepos returns the registry feed. refsOnly narrows it to the repos
 // whose git refs are mirrored (what github-sync's mirror mode needs).
+// GitHubSyncWebhookEvents are the Smithers events github-sync consumes: refs
+// (push, create, delete) and issue, landing and commit-status metadata.
+var GitHubSyncWebhookEvents = []string{
+	"push", "create", "delete", "issues", "issue_comment", "status",
+	"landing_request", "landing_request_review", "landing_request_comment",
+}
+
+// SetSyncWebhook wires the hook ensurer that feeds each mirrored repository's
+// Smithers events to github-sync. Without that hook no landing, comment or
+// status on the mirror reaches GitHub.
+func (s *GitHubSyncedRepoService) SetSyncWebhook(ensure func(ctx context.Context, owner, repo string) (bool, error)) {
+	if s == nil {
+		return
+	}
+	s.syncWebhook = ensure
+}
+
+// EnsureSyncWebhooks gives every registry row with a bound mirror its event
+// hook, and returns how many it created. A suspended mirror keeps its hook;
+// github-sync withholds its mapping, so its events write nothing.
+func (s *GitHubSyncedRepoService) EnsureSyncWebhooks(ctx context.Context) (int, error) {
+	if s == nil || s.store == nil || s.syncWebhook == nil {
+		return 0, nil
+	}
+	rows, err := s.store.ListGitHubSyncedRepos(ctx, false)
+	if err != nil {
+		return 0, pkgerrors.Internal("failed to list synced github repositories").WithCause(err)
+	}
+	created := 0
+	for _, row := range rows {
+		if !row.MirrorOwner.Valid || !row.MirrorRepo.Valid || row.MirrorOwner.String == "" || row.MirrorRepo.String == "" {
+			continue
+		}
+		repository := row.MirrorOwner.String + "/" + row.MirrorRepo.String
+		ok, err := s.syncWebhook(ctx, row.MirrorOwner.String, row.MirrorRepo.String)
+		if err != nil {
+			slog.WarnContext(ctx, "github sync webhook not ensured", "repository", repository, "error", err)
+			continue
+		}
+		if ok {
+			created++
+			slog.InfoContext(ctx, "github sync webhook created", "repository", repository)
+		}
+	}
+	return created, nil
+}
+
+// StartSyncWebhookReconciler runs EnsureSyncWebhooks now and every interval
+// until ctx is done, so a newly bound mirror gets its hook without a deploy.
+func (s *GitHubSyncedRepoService) StartSyncWebhookReconciler(ctx context.Context, interval time.Duration) {
+	if s == nil || s.syncWebhook == nil {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if _, err := s.EnsureSyncWebhooks(ctx); err != nil {
+			slog.WarnContext(ctx, "github sync webhook reconcile failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *GitHubSyncedRepoService) ListSyncedRepos(ctx context.Context, refsOnly bool) ([]GitHubSyncedRepoSummary, error) {
 	if s == nil || s.store == nil {
 		return nil, pkgerrors.Internal("github sync registry unavailable")
@@ -528,11 +598,21 @@ func (s *GitHubSyncedRepoService) BindMirror(ctx context.Context, userID int64, 
 		s.observeMirrorRefusal("github.mirror.bind_refused", "bind", row, userID, err)
 		return err
 	}
-	return s.store.SetGitHubSyncedRepoMirror(ctx, db.SetGitHubSyncedRepoMirrorParams{
+	if err := s.store.SetGitHubSyncedRepoMirror(ctx, db.SetGitHubSyncedRepoMirrorParams{
 		MirrorOwner: mirrorOwner,
 		MirrorRepo:  mirrorRepo,
 		ID:          row.ID,
-	})
+	}); err != nil {
+		return err
+	}
+	// Hook the mirror now so its first events reach github-sync; the
+	// reconciler retries a failure.
+	if s.syncWebhook != nil {
+		if _, err := s.syncWebhook(ctx, mirrorOwner, mirrorRepo); err != nil {
+			slog.WarnContext(ctx, "github sync webhook not ensured", "repository", mirrorOwner+"/"+mirrorRepo, "error", err)
+		}
+	}
+	return nil
 }
 
 func (s *GitHubSyncedRepoService) provePush(ctx context.Context, userID int64, owner, repo string) error {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,7 @@ type WebhookQuerier interface {
 	UpdateWebhookDeliveryResult(ctx context.Context, arg db.UpdateWebhookDeliveryResultParams) error
 	ListWebhookDeliveriesForRepo(ctx context.Context, arg db.ListWebhookDeliveriesForRepoParams) ([]db.WebhookDelivery, error)
 	GetWebhookDeliveryForRepo(ctx context.Context, arg db.GetWebhookDeliveryForRepoParams) (db.WebhookDelivery, error)
+	EnsureWebhookAtURL(ctx context.Context, arg db.CreateWebhookParams) (db.Webhook, bool, error)
 }
 
 type WebhookService struct {
@@ -543,6 +545,64 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 		StatusCode: statusCode,
 		Body:       body,
 	}, nil
+}
+
+// EnsureSystemWebhook gives owner/repo an active hook at url for events,
+// signed with secret. The platform's own event consumers (github-sync) are
+// wired by deployment configuration, so no repo admin acts, and the hook at
+// the consumer's URL is the platform's: the delivery queue disables a hook
+// after repeated failures and a secret rotation leaves it signing with the old
+// key, so a drifted one is restored. Reports whether it created one.
+func (s *WebhookService) EnsureSystemWebhook(ctx context.Context, owner, repo, url, secret string, events []string) (bool, error) {
+	if err := webhooks.ValidateSubscribedEvents(events); err != nil {
+		return false, pkgerrors.Internal("invalid system webhook events").WithCause(err)
+	}
+	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return false, err
+	}
+	encryptedSecret, err := s.secretCodec.EncryptString(secret)
+	if err != nil {
+		return false, pkgerrors.Internal("failed to encrypt webhook secret").WithCause(err)
+	}
+	var (
+		hook    db.Webhook
+		created bool
+	)
+	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		var werr error
+		hook, created, werr = s.queries.EnsureWebhookAtURL(ctx, db.CreateWebhookParams{
+			RepositoryID: repository.ID,
+			Url:          url,
+			Secret:       encryptedSecret,
+			Events:       events,
+			IsActive:     true,
+		})
+		return werr
+	}); err != nil {
+		return false, pkgerrors.Internal("failed to ensure system webhook").WithCause(err)
+	}
+	if created {
+		return true, nil
+	}
+	stored, decryptErr := s.secretCodec.DecryptString(hook.Secret)
+	if hook.IsActive && decryptErr == nil && stored == secret && slices.Equal(hook.Events, events) {
+		return false, nil
+	}
+	if _, err := s.queries.UpdateRepoWebhookByOwnerAndRepo(ctx, db.UpdateRepoWebhookByOwnerAndRepoParams{
+		Url:       url,
+		Secret:    encryptedSecret,
+		Events:    events,
+		IsActive:  true,
+		WebhookID: hook.ID,
+		Owner:     owner,
+		Repo:      repo,
+	}); err != nil {
+		return false, pkgerrors.Internal("failed to restore system webhook").WithCause(err)
+	}
+	slog.InfoContext(ctx, "system webhook restored",
+		"repository", owner+"/"+repo, "webhook_id", hook.ID, "was_active", hook.IsActive)
+	return false, nil
 }
 
 // --- permission helpers (same pattern as issue/label services) ---

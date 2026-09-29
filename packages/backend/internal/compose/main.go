@@ -570,6 +570,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminOrgService := services.NewAdminOrgService(queries)
 	adminRepoService := services.NewAdminRepoService(queries)
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
+	syncURL, syncSecret := strings.TrimSpace(cfg.Webhook.GitHubSyncURL), strings.TrimSpace(cfg.Webhook.GitHubSyncSecret)
+	if (syncURL == "") != (syncSecret == "") || (syncURL != "" && !strings.HasPrefix(syncURL, "https://")) {
+		err := fmt.Errorf("webhook.github_sync_url must be an https URL set together with webhook.github_sync_secret")
+		slog.Error("invalid github-sync webhook configuration", "error", err)
+		return err
+	}
+	if syncURL != "" {
+		gitHubSyncedRepoService.SetSyncWebhook(func(ctx context.Context, owner, repo string) (bool, error) {
+			return webhookService.EnsureSystemWebhook(ctx, owner, repo, syncURL, syncSecret, services.GitHubSyncWebhookEvents)
+		})
+	}
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
@@ -1666,6 +1677,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			launchWorker(func() { repositoryStorageReconciler.Start(workerCtx) })
 		}
 		launchWorker(func() { gitHubSyncedRepoService.StartReconciler(workerCtx) })
+		launchWorker(func() { gitHubSyncedRepoService.StartSyncWebhookReconciler(workerCtx, 10*time.Minute) })
 		launchWorker(func() { pairSessionService.StartStaleSweeper(workerCtx) })
 		agentService.StartSessionReaper(workerCtx, time.Duration(cfg.Sandbox.AgentMaxRuntimeSecs)*time.Second)
 		authCleaner.Start(workerCtx)

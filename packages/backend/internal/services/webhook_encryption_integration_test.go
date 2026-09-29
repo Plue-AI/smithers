@@ -86,3 +86,38 @@ func TestWebhookService_Integration_EncryptsAtRestAndRedactsListResponses(t *tes
 	require.Len(t, hooks, 1)
 	assert.Equal(t, redactedWebhookSecret, hooks[0].Secret)
 }
+
+// API replicas reconcile github-sync hooks at the same moment on a rolling
+// deploy; they must create one hook per repository, not one each (plue#706).
+func TestWebhookService_Integration_EnsureSystemWebhookIsOncePerRepository(t *testing.T) {
+	pool := getAgentTestPool(t)
+	owner, repo, _ := createWebhookEncryptionIntegrationRepoAndActor(t, pool)
+	codec, err := webhook.NewSecretCodec("integration-webhook-master-key")
+	require.NoError(t, err)
+	svc := NewWebhookService(db.New(pool), codec)
+
+	const replicas = 8
+	results := make(chan bool, replicas)
+	errs := make(chan error, replicas)
+	for range replicas {
+		go func() {
+			created, err := svc.EnsureSystemWebhook(context.Background(), owner, repo,
+				"https://github-sync.example/webhooks/smithers", "sync-secret", GitHubSyncWebhookEvents)
+			results <- created
+			errs <- err
+		}()
+	}
+	createdCount := 0
+	for range replicas {
+		require.NoError(t, <-errs)
+		if <-results {
+			createdCount++
+		}
+	}
+	assert.Equal(t, 1, createdCount)
+
+	var rows int
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM webhooks w JOIN repositories r ON r.id = w.repository_id WHERE r.lower_name = $1`, repo).Scan(&rows))
+	assert.Equal(t, 1, rows)
+}
