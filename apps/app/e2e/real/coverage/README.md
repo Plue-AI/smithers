@@ -44,7 +44,10 @@ Playwright HTTP/WebSocket/HAR interception, module mocks, skip/fixme, stub
 environment flags, obvious fake API/credential literals, refusal-as-success,
 and assertions that use only arbitrary nonempty text as completion. Ambiguous
 assertions are reported for manual review because a nonempty precondition can
-be legitimate before a stronger state assertion.
+be legitimate before a stronger state assertion. Literal refusal copy in an
+error or permission scenario is reviewed unless the same test later proves the
+boundary held: `expect(sideEffects).toEqual([])`, `toHaveLength(0)`, or a 4xx
+`response.status()`.
 
 Fault-path tests must disturb a real boundary. Killing an owned process or
 making an actual network unavailable is permitted; substituting its API is

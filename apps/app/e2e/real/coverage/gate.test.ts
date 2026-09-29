@@ -291,6 +291,47 @@ export const searchFlows = (actions) => [
     expect(codes).toContain("refusal-is-not-success")
   })
 
+  test.each([
+    ["no boundary proof", "", "review"],
+    ["an empty side-effect list", "expect(writes).toEqual([])", undefined],
+    ["an empty filtered list", "expect(writes.filter((w) => w.method !== \"GET\")).toHaveLength(0)", undefined],
+    ["a 4xx service status", "expect((await api(\"GET\", \"/api/user\")).status()).toBe(401)", undefined],
+    ["a 2xx service status", "expect((await api(\"GET\", \"/api/user\")).status()).toBe(200)", "review"],
+    ["a nonempty side-effect list", "expect(writes).toEqual([\"POST /x\"])", "review"],
+    ["a locator count", "await expect(page.locator(\"card\")).toHaveCount(0)", "review"]
+  ] as const)("reviews an error-path refusal followed by %s accordingly", (_label, after, severity) => {
+    const { real, flows } = fixture()
+    writeFileSync(join(real, "refusal.spec.ts"), valid.replace("repo.open.success", "repo.open.denied").replace("path:success", "path:permission")
+      .replace('expect(await readDisk()).toBe("bytes")', `const writes = []; await expect(page.locator("output")).toContainText(/sign in to open/i); ${after}`))
+    const findings = checkRealE2E({ realDir: real, flowNameFile: flows, deferred }).findings.filter((item) => item.code === "refusal-is-not-success")
+    expect(findings.map((item) => item.severity)).toEqual(severity ? [severity] : [])
+  })
+
+  test("requires the boundary proof after the refusal, inside the same test", () => {
+    const { real, flows } = fixture()
+    const denied = valid.replace("repo.open.success", "repo.open.denied").replace("path:success", "path:error")
+    writeFileSync(join(real, "before.spec.ts"), denied.replace('expect(await readDisk()).toBe("bytes")', 'expect(writes).toEqual([]); await expect(page.locator("output")).toContainText("permission denied")'))
+    writeFileSync(join(real, "other.spec.ts"), denied.replace("repo.open.denied", "repo.open.other").replace('expect(await readDisk()).toBe("bytes")', 'await expect(page.locator("output")).toContainText("permission denied")')
+      + 'test("second", scenario("repo.open.second", { capabilities: [], coverage: ["action:repo.open", "host:local", "path:error", "door:button", "dimension:x"] }), async () => { expect(writes).toEqual([]) })\n')
+    const findings = checkRealE2E({ realDir: real, flowNameFile: flows, deferred }).findings.filter((item) => item.code === "refusal-is-not-success")
+    writeFileSync(join(real, "helper.spec.ts"), denied.replace("repo.open.denied", "repo.open.helper").replace('expect(await readDisk()).toBe("bytes")', 'await expect(page.locator("output")).toContainText("permission denied"); const never = () => expect(writes).toEqual([]); if (false) { expect(writes).toEqual([]) }'))
+    writeFileSync(join(real, "persistence.spec.ts"), valid.replace("repo.open.success", "repo.open.persisted").replace("path:success", "path:persistence").replace('expect(await readDisk()).toBe("bytes")', 'await expect(page.locator("output")).toContainText("permission denied"); expect(writes).toEqual([])'))
+    expect(findings.length).toBe(2)
+    const all = checkRealE2E({ realDir: real, flowNameFile: flows, deferred }).findings.filter((item) => item.code === "refusal-is-not-success")
+    expect(all.map((item) => [item.file.split("/").pop(), item.severity]).sort()).toEqual([
+      ["before.spec.ts", "review"], ["helper.spec.ts", "review"], ["other.spec.ts", "review"], ["persistence.spec.ts", "review"]
+    ])
+  })
+
+  test("reads refusal copy from literal text, not from identifiers that hold a message", () => {
+    const { real, flows } = fixture()
+    const denied = valid.replace("repo.open.success", "repo.open.denied").replace("path:success", "path:error")
+    writeFileSync(join(real, "identifier.spec.ts"), denied.replace('expect(await readDisk()).toBe("bytes")', 'await expect(page.locator("output")).toContainText(String(refused.error.message))'))
+    writeFileSync(join(real, "template.spec.ts"), denied.replace("repo.open.denied", "repo.open.template").replace('expect(await readDisk()).toBe("bytes")', 'await expect(page.locator("output")).toContainText(`${repo} cannot be opened`)'))
+    const findings = checkRealE2E({ realDir: real, flowNameFile: flows, deferred }).findings.filter((item) => item.code === "refusal-is-not-success")
+    expect(findings.map((item) => item.file.split("/").pop())).toEqual(["template.spec.ts"])
+  })
+
   test("requires per-test metadata for imported authenticated test aliases", () => {
     const { real, flows } = fixture()
     writeFileSync(join(real, "auth.spec.ts"), valid + '\nimport { authenticatedTest as signedIn } from "./profile"\nsignedIn("missing identity", async () => {})\n')

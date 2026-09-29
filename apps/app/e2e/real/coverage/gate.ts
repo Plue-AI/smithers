@@ -234,18 +234,62 @@ const forbiddenMemberCalls = new Map<string, string>([
 const forbiddenEnv = new Set(["SMITHERS_CHAT_STUB", "SMITHERS_E2E_CAPTURED_TARGETS", "SMITHERS_OFFLINE"])
 const refusal = /(?:sign in|not authorized|permission denied|unavailable|unsupported|refus(?:e|al)|could not|can't|cannot)/i
 
-const scenarioPathFor = (node: ts.Node): readonly string[] => {
+const enclosingTest = (node: ts.Node): ts.CallExpression | undefined => {
   let current: ts.Node | undefined = node
   while (current) {
-    if (ts.isCallExpression(current) && ["test", "test.only"].includes(canonicalCallPath(current.expression, current.getSourceFile()))) {
-      const details = current.arguments[1]
-      if (details && ts.isCallExpression(details) && callPath(details.expression) === "scenario" && details.arguments[1] && ts.isObjectLiteralExpression(details.arguments[1])) {
-        return (strings(objectProperty(details.arguments[1], "coverage")) ?? []).filter((token) => token.startsWith("path:")).map((token) => token.slice(5))
-      }
-    }
+    if (ts.isCallExpression(current) && ["test", "test.only"].includes(canonicalCallPath(current.expression, current.getSourceFile()))) return current
     current = current.parent
   }
+  return undefined
+}
+
+const scenarioPathFor = (node: ts.Node): readonly string[] => {
+  const details = enclosingTest(node)?.arguments[1]
+  if (details && ts.isCallExpression(details) && callPath(details.expression) === "scenario" && details.arguments[1] && ts.isObjectLiteralExpression(details.arguments[1])) {
+    return (strings(objectProperty(details.arguments[1], "coverage")) ?? []).filter((token) => token.startsWith("path:")).map((token) => token.slice(5))
+  }
   return []
+}
+
+/** Only literal text can be refusal copy; identifiers such as `refused.error.message` are not. */
+const literalText = (node: ts.Node): string => {
+  if (ts.isStringLiteralLike(node) || ts.isRegularExpressionLiteral(node)) return node.text
+  if (ts.isTemplateExpression(node)) return [node.head.text, ...node.templateSpans.map((span) => `${literalText(span.expression)} ${span.literal.text}`)].join(" ")
+  const parts: string[] = []
+  ts.forEachChild(node, (child) => { parts.push(literalText(child)) })
+  return parts.join(" ")
+}
+
+/** expect(subject).matcher(...) as [subject, matcher, argument], or undefined. */
+const expectation = (node: ts.CallExpression): readonly [ts.Expression, string, ts.Expression | undefined] | undefined => {
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined
+  const call = node.expression.expression
+  if (!ts.isCallExpression(call) || callPath(call.expression) !== "expect" || !call.arguments[0]) return undefined
+  return [call.arguments[0], node.expression.name.text, node.arguments[0]]
+}
+
+/**
+ * A refusal only proves an error/permission boundary when a later top-level
+ * statement of the same test shows the boundary held: an observed side-effect
+ * list stayed empty, or the real service answered with a 4xx status. Nested
+ * helpers and branches do not count because they may never run.
+ */
+const boundaryHeldAfter = (node: ts.Node): boolean => {
+  const test = enclosingTest(node)
+  const body = test?.arguments[test.arguments.length - 1]
+  if (!body || !(ts.isArrowFunction(body) || ts.isFunctionExpression(body)) || !ts.isBlock(body.body)) return false
+  return body.body.statements.some((statement) => {
+    if (!ts.isExpressionStatement(statement) || statement.getStart() < node.getEnd()) return false
+    const call = ts.isAwaitExpression(statement.expression) ? statement.expression.expression : statement.expression
+    const expected = ts.isCallExpression(call) ? expectation(call) : undefined
+    if (!expected) return false
+    const [subject, matcher, argument] = expected
+    if (!argument) return false
+    if (matcher === "toEqual") return ts.isArrayLiteralExpression(argument) && argument.elements.length === 0
+    if (matcher === "toHaveLength") return ts.isNumericLiteral(argument) && argument.text === "0"
+    return matcher === "toBe" && ts.isNumericLiteral(argument) && /^4\d\d$/.test(argument.text) &&
+      ts.isCallExpression(subject) && ts.isPropertyAccessExpression(subject.expression) && subject.expression.name.text === "status"
+  })
 }
 
 const scanFile = (file: string): readonly GateFinding[] => {
@@ -295,11 +339,10 @@ const scanFile = (file: string): readonly GateFinding[] => {
         if (/\/\\s\+\/|\/\.\+\/|not\.toHaveText\(["']{2}/.test(`${path}(${text})`)) {
           add("error", "nonempty-is-not-success", node, "A nonempty-text assertion cannot establish required completion")
         }
-        if (refusal.test(text)) {
+        if (refusal.test(node.arguments.map(literalText).join(" "))) {
           const paths = scenarioPathFor(node)
-          add(paths.includes("success") ? "error" : "review", "refusal-is-not-success", node, paths.includes("success")
-            ? "A refusal/failure message cannot satisfy a successful scenario"
-            : "Refusal assertion is valid only when this error/permission scenario also proves the requested boundary behavior")
+          if (paths.includes("success")) add("error", "refusal-is-not-success", node, "A refusal/failure message cannot satisfy a successful scenario")
+          else if (!(paths.includes("error") || paths.includes("permission")) || !boundaryHeldAfter(node)) add("review", "refusal-is-not-success", node, "Refusal assertion is valid only when this error/permission scenario later proves the boundary held: an empty side-effect list or a 4xx service status")
         }
       }
     }
