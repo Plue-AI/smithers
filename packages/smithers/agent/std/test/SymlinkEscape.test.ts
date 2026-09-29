@@ -72,7 +72,7 @@ it.each(["write", "edit", "apply_patch"] as const)(
         Effect.scoped(call.pipe(Effect.provide(guarded(workspace))))
       )
       expect(Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined)
-        .toMatchObject({ code: "permission_denied" })
+        .toMatchObject({ code: "permission_denied", path: join(workspace, "link") })
       expect(readFileSync(secret, "utf8")).toBe("original host bytes\n")
       expect(readdirSync(outside)).toEqual(["authorized_keys"])
     } finally {

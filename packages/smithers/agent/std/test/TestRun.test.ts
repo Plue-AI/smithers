@@ -263,9 +263,9 @@ describe("TestRun", () => {
         host(spawns, [
           ...shadowCheckout,
           ["rev-parse", { stdout: "abc123\n" }],
-          [TestRun.scratchDirectory, { stdout: "FAILED tests/b.py::stale - old\n1 failed, 40 passed\n", exitCode: 1 }],
+          [TestRun.scratchDirectory, { stdout: "FAILED tests/b.py::stale - old\n1 failed, 40 passed in 0.1s\n", exitCode: 1 }],
           ["pytest", {
-            stdout: "FAILED tests/a.py::mine - new\nFAILED tests/b.py::stale - old\n2 failed, 39 passed\n",
+            stdout: "FAILED tests/a.py::mine - new\nFAILED tests/b.py::stale - old\n2 failed, 39 passed in 0.1s\n",
             exitCode: 1
           }]
         ]),

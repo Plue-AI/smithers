@@ -225,11 +225,11 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
             : Effect.fail(parentError))
         )
         : Effect.fail(error)),
-      Effect.mapError(() => new StdError.StdError({
+      Effect.mapError(FsFailure.denied(value, () => new StdError.StdError({
         code: "command_failed",
         message: `Failed to resolve patch path ${value}`,
         path: value
-      }))
+      })))
     )
   }
   const touched = new Set<string>()

@@ -387,6 +387,31 @@ describe("printSummary", () => {
 })
 
 describe("ApplyPatch.run", () => {
+  it.each([
+    { reason: "PermissionDenied", code: "permission_denied" },
+    { reason: "Unknown", code: "command_failed" }
+  ] as const)("maps $reason during path preflight to $code", async ({ reason, code }) => {
+    const path = "/target.txt"
+    const host = FileSystem.makeNoop({
+      realPath: () => Effect.fail(PlatformError.systemError({
+        _tag: reason,
+        module: "FileSystem",
+        method: "realPath",
+        pathOrDescriptor: path
+      }))
+    })
+    const exit = await executeExit(Effect.provide(
+      Effect.provideService(
+        ApplyPatch.run({ input: wrap(`*** Update File: ${path}\n@@\n-old\n+new`) }),
+        FileSystem.FileSystem,
+        host
+      ),
+      layer()
+    ))
+    const failure = Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined
+    expect(failure).toMatchObject({ code, path })
+  })
+
   it("adds, updates, moves, and deletes files", async () => {
     const patch = wrap(
       "*** Add File: /nested/add/added.txt\n+hello\n*** Update File: /update.txt\n@@\n-old\n+new\n*** Update File: /move-src.txt\n*** Move to: /nested/move/move-dst.txt\n@@\n-from\n+to\n*** Delete File: /gone.txt"

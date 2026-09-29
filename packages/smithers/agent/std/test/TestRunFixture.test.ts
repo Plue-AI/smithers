@@ -50,8 +50,9 @@ const repository = (): string => {
       "if grep -q FIXED mod.py; then echo 'tests/test_a.py::test_a PASSED'; passed=$((passed + 1));",
       "else echo 'FAILED tests/test_a.py::test_a - boom'; failed=$((failed + 1)); fi",
       "if grep -q BROKEN mod.py; then echo 'FAILED tests/test_b.py::test_b - boom'; failed=$((failed + 1)); fi",
-      "echo \"$failed failed, $passed passed\"",
       "printf '%s\\n' \"$@\" > selection.txt",
+      "if [ \"$failed\" -eq 0 ]; then echo \"$passed passed in 0.1s\";",
+      "else echo \"$failed failed, $passed passed in 0.1s\"; fi",
       ""
     ].join("\n"),
     { mode: 0o755 }
