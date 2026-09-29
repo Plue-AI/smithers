@@ -94,6 +94,18 @@ describe("unified process entry", () => {
     }
   )
 
+  it.each([
+    new Error("sshpass -p ZqSynthetic7Secret4Value9 ssh host"),
+    new Error("Authorization: Token ZqSynthetic7Secret4Value9")
+  ])("redacts diagnostic credential spellings from thrown failures (%s)", async (failure) => {
+    const { host, signals, result } = fixture()
+    serve.mockRejectedValue(failure)
+    await main(host)
+    expect(result.stderr).toContain("[REDACTED]")
+    expect(result.stderr).not.toContain("ZqSynthetic7Secret4Value9")
+    clean(signals)
+  })
+
   it("refuses invalid presentation configuration without constructing commands", async () => {
     const { host, signals, result } = fixture(["--help"], { SMITHERS_AUDIENCE: "unknown" })
     await main(host)

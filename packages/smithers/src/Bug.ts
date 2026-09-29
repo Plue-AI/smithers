@@ -4,8 +4,8 @@
  *
  * The value of the command is that it collects the context a maintainer always
  * asks for: versions, platform, and optionally the named run and its event
- * digest. The collected value takes the journal's shared redaction rules before
- * it leaves the machine.
+ * digest. A report is a diagnostic that leaves the machine, so the collected
+ * value takes the shared diagnostic redaction rules before it does.
  *
  * @since 1.0.0
  */
@@ -99,16 +99,17 @@ const applyReportOnlyKeys = (value: unknown): unknown => {
 /**
  * Redacts secret-looking material inside free text.
  *
- * Reach for this when report prose must take the exact journal rule set. It is
- * total for strings and returns the shared journal markers for matched text.
+ * Reach for this when report prose must take the diagnostic rule set
+ * (`Redaction.redactDiagnostic`). It is total for strings and returns the
+ * shared journal markers for matched text.
  *
  * @category conversions
  * @since 1.0.0
  */
-export const scrubText = (text: string): string => Redaction.redact(text) as string
+export const scrubText = (text: string): string => Redaction.redactDiagnostic(text) as string
 
 /**
- * Recursively scrubs a JSON-safe value with the journal rules and the retained
+ * Recursively scrubs a JSON-safe value with the diagnostic rules and the retained
  * report-only `dsn` and `connection` key coverage. It refuses accessors,
  * executable `toJSON` hooks, excessive depth, and excessive walk size before
  * redaction so no partial report can be posted.
@@ -118,7 +119,7 @@ export const scrubText = (text: string): string => Redaction.redact(text) as str
  */
 export const scrub = (value: unknown): unknown => {
   assertRenderable(value)
-  return applyReportOnlyKeys(Redaction.redact(value))
+  return applyReportOnlyKeys(Redaction.redactDiagnostic(value))
 }
 
 /**

@@ -12,6 +12,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
+import { inspect } from "node:util"
 import * as Session from "../src/session.ts"
 
 let previousSessionDirectory: string | undefined
@@ -291,6 +292,17 @@ describe("credentials in a saved session", () => {
       })
     })
   }
+
+  it("a session file holds no quoted multi-word or inspect-split credential", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const writer = Session.create(mkdtempSync(join(tmpdir(), "tui-cwd-")), "chat")
+    writer.append({ type: "user", at: 1, text: `connect failed: password: 'correct horse ${secret}'` })
+    writer.append({ type: "user", at: 2, text: inspect({ privateKey: `${secret}\n`.repeat(8) }) })
+    const saved = readFileSync(writer.file, "utf8")
+    expect(saved).toContain("[REDACTED")
+    expect(saved).not.toContain(secret)
+    expect(saved).not.toContain("horse")
+  })
 
   it("a fork of a session saved before redaction copies no credential either", () => {
     const cwd = mkdtempSync(join(tmpdir(), "tui-cwd-"))

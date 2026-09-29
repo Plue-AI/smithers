@@ -29,23 +29,19 @@ import * as Limits from "./Limits.ts"
 import * as Rpc from "./Rpc.ts"
 
 /**
- * The retained stderr diagnostic: redacted complete lines capped to the
- * configured byte tail, and the raw line still arriving.
+ * The retained stderr diagnostic: the line redactor, which owns every line
+ * still open or arriving, and the redacted lines it has released, capped to
+ * the configured byte tail.
  */
 interface StderrTail {
+  readonly redactor: Redaction.LineRedactor
   readonly redacted: string
-  readonly pending: string
 }
 
-const emptyStderrTail: StderrTail = { redacted: "", pending: "" }
-
-/**
- * The longest unterminated stderr line held for redaction. A longer line is
- * withheld whole, because redacting it in pieces could split a credential.
- */
-const maxPendingStderrBytes = 65_536
-
-const withheldStderrLine = "[stderr line withheld]\n"
+const emptyStderrTail = (): StderrTail => ({
+  redactor: Redaction.lineRedactor(Redaction.diagnosticRules),
+  redacted: ""
+})
 
 const utf8 = new TextEncoder()
 
@@ -59,40 +55,31 @@ const tailBytes = (text: string, limit: number): string => {
   return new TextDecoder().decode(bytes.subarray(start))
 }
 
-/** True while `text` holds a private key block whose end has not arrived. */
-const openKeyBlock = (text: string): boolean => text.lastIndexOf("-----BEGIN") > text.lastIndexOf("-----END")
-
 /**
- * Adds decoded stderr text. Complete lines are redacted before they join the
- * capped tail. A private key block spans lines, so lines stay pending until
- * its end arrives.
+ * Adds decoded stderr text. The redactor takes each complete line and the
+ * part of a line still arriving, holds a value that spans lines (a private
+ * key block, a string `util.inspect` split with `+`) until it closes, bounds
+ * an overlong line itself, and returns only what is safe to show.
  */
 const appendStderr = (current: StderrTail, text: string, limit: number): StderrTail => {
-  let pending = current.pending + text
+  const segments = text.split("\n")
+  const last = segments.pop()!
   let redacted = current.redacted
-  const lineEnd = pending.lastIndexOf("\n")
-  if (lineEnd >= 0 && !openKeyBlock(pending.slice(0, lineEnd + 1))) {
-    redacted += String(Redaction.redact(pending.slice(0, lineEnd + 1)))
-    pending = pending.slice(lineEnd + 1)
+  for (const segment of segments) {
+    for (const clean of current.redactor.line(segment)) redacted += `${clean}\n`
   }
-  if (utf8.encode(pending).byteLength > Math.max(limit, maxPendingStderrBytes)) {
-    redacted += withheldStderrLine
-    pending = ""
-  }
-  return { redacted: tailBytes(redacted, limit), pending }
+  if (last !== "") current.redactor.part(last)
+  return { redactor: current.redactor, redacted: tailBytes(redacted, limit) }
 }
 
 /**
- * The diagnostic an observer receives: the redacted tail and the redacted
- * pending line, whitespace flattened, capped to the last `limit` bytes. The
- * cap runs after redaction, so it can only cut a placeholder, never a
- * credential.
+ * The diagnostic an observer receives: the released tail and what the
+ * redactor would release now, whitespace flattened, capped to the last
+ * `limit` bytes. The cap runs after redaction, so it can only cut a
+ * placeholder, never a credential.
  */
 const renderStderr = (current: StderrTail, limit: number): string =>
-  tailBytes(
-    (current.redacted + String(Redaction.redact(current.pending))).replace(/\s+/g, " ").trim(),
-    limit
-  )
+  tailBytes(`${current.redacted}${current.redactor.peek().join("\n")}`.replace(/\s+/g, " ").trim(), limit)
 
 /**
  * One live connection to a spawned MCP server.
@@ -341,7 +328,7 @@ export const connect = (
     // Stderr is redacted a whole line at a time as it arrives, and only the
     // redacted text is capped. Capping raw bytes first could cut a
     // credential's recognizable prefix and leave its remainder unredacted.
-    const stderrState = yield* Ref.make<StderrTail>(emptyStderrTail)
+    const stderrState = yield* Ref.make<StderrTail>(emptyStderrTail())
     const stderrDecoder = new TextDecoder()
     const stderrDrainer = yield* handle.stderr.pipe(
       Stream.runForEach((chunk) =>

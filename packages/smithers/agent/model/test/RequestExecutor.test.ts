@@ -19,6 +19,7 @@ import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as Request from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { inspect } from "node:util"
 import { describe, expect, it } from "vitest"
 import { ModelError } from "../src/ModelError.js"
 import * as RequestExecutor from "../src/RequestExecutor.js"
@@ -882,7 +883,7 @@ describe("RequestExecutor", () => {
     )
 
     expect(error.message).toContain(`${credential} is an unrelated diagnostic marker`)
-    expect(error.message).toContain("\"api_key\":\"<redacted>\"")
+    expect(error.message).toContain("\"api_key\":\"[REDACTED]\"")
     expect(error.message).not.toContain(`"api_key":"${credential}"`)
   })
 
@@ -899,7 +900,7 @@ describe("RequestExecutor", () => {
         body: JSON.stringify({ error: { message: "bad request" }, api_key: value })
       })
       expect(error.message).not.toContain(leaked)
-      expect(error.message).toContain("\"api_key\":\"<redacted>\"")
+      expect(error.message).toContain("\"api_key\":\"[REDACTED]\"")
     }
   })
 
@@ -912,7 +913,7 @@ describe("RequestExecutor", () => {
 
     expect(error.message).not.toContain("SECRET-BEFORE")
     expect(error.message).not.toContain("SECRET-AFTER")
-    expect(error.message).toContain("\"api_key\":\"<redacted>\"")
+    expect(error.message).toContain("\"api_key\":\"[REDACTED]\"")
   })
 
   it("uses the predicate-driven text pass when a provider body is malformed JSON", async () => {
@@ -924,7 +925,7 @@ describe("RequestExecutor", () => {
 
     expect(error.message).not.toContain(credential)
     expect(error.message).toContain("\"public\":\"VISIBLE\"")
-    expect(error.message).toContain("\"api_key\":\"<redacted>\"")
+    expect(error.message).toContain("\"api_key\":\"[REDACTED]\"")
   })
 
   it("redacts a complete sensitive string field inside a non-JSON body", async () => {
@@ -934,7 +935,7 @@ describe("RequestExecutor", () => {
     })
 
     expect(error.message).toContain("oops:")
-    expect(error.message).toContain("\"api_key\":\"<redacted>\"")
+    expect(error.message).toContain("\"api_key\":\"[REDACTED]\"")
     expect(error.message).not.toContain("SECRETVALUE")
   })
 
@@ -972,7 +973,7 @@ describe("RequestExecutor", () => {
     for (let depth = 0; depth < 12; depth += 1) nested = { nested }
 
     const error = await errorFor({ status: 400, body: JSON.stringify(nested) })
-    expect(error.message).toContain("<redacted>")
+    expect(error.message).toContain("[REDACTED]")
     expect(error.message).not.toContain("DEPTH-LIMIT-SECRET")
   })
 
@@ -1215,6 +1216,25 @@ describe("RequestExecutor", () => {
     expectWholeCodePoints(error.body ?? "")
     expect(error.bodyTruncated).toBe(true)
     expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("redacts a credential cut by the raw cap, quoted multi-word values, and inspect concatenations", async () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const bodies = [
+      // The value runs past the 64 KiB read, so the kept text has no closing quote.
+      `{"error":{"message":"bad"},"password":"${`${secret} `.repeat(3_000)}"}`,
+      `connect failed: password: 'correct horse ${secret}'`,
+      `connect failed: ${inspect({ privateKey: `${secret}\n`.repeat(8) })}`
+    ]
+    expect(utf8Length(bodies[0]!)).toBeGreaterThan(65_536)
+
+    for (const body of bodies) {
+      const { error } = await failedDiagnostics(body)
+      expect(error.body).toContain("[REDACTED")
+      expect(error.body).not.toContain(secret)
+      expect(error.body).not.toContain("horse")
+      expect(JSON.stringify(error)).not.toContain(secret)
+    }
   })
 
   it("does not inspect reset metadata beyond the response-body depth budget", async () => {

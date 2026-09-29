@@ -142,7 +142,7 @@ export const guestCrypto: Crypto.Crypto = Crypto.make({
 })
 
 /** Diagnostic copies use the same key and value rules as engine logs. */
-const redact = Redaction.make({ onTooDeep: "name" })
+const redact = Redaction.redactDiagnostic
 
 /** The most characters of a failure's fields a description quotes. */
 const quotedFieldCharacters = 1024

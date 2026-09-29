@@ -1,3 +1,4 @@
+import * as Redaction from "@smthrs/journal/Redaction"
 import type { OperationalFailure } from "./OperationalFailures"
 import type { Toast, ToolCallRecord, TransitionRecord } from "./AppState"
 import type { NetEntry } from "./controller/context"
@@ -65,13 +66,14 @@ const payloadOf = (record: TransitionRecord): Record<string, unknown> => {
 const errorDetail = (payload: Record<string, unknown>): string =>
   string(payload.message) || string(payload.error) || string(payload.detail)
 
-/** Strip URL credentials, query and fragment even when a URL occurs inside an error message. */
-const publicText = (value: string): string => value
+/**
+ * Strip URL credentials, query and fragment even when a URL occurs inside an error message,
+ * then apply the shared diagnostic redactor to the whole text before any clip.
+ */
+const publicText = (value: string): string => String(Redaction.redactDiagnostic(value
   .replace(/https?:\/\/[^\s<>"']+/gi, (url) => {
     try { const parsed = new URL(url); return `${parsed.origin}${parsed.pathname}` } catch { return "[URL]" }
-  })
-  .replace(/\bBearer\s+[^\s,;"']+/gi, "Bearer [redacted]")
-  .replace(/\b(token|api[_-]?key|password|secret|authorization)\s*[:=]\s*[^\s,;"']+/gi, "$1=[redacted]")
+  })))
 
 const clipped = (value: string): string => {
   const safe = publicText(value)

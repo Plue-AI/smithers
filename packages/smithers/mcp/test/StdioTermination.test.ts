@@ -1,8 +1,10 @@
+import * as Redaction from "@smthrs/journal/Redaction"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Clock, Deferred, Effect, Exit, Fiber, Redacted, Schema, Scope, Sink, Stream } from "effect"
 import * as PlatformError from "effect/PlatformError"
 import { TestClock } from "effect/testing"
 import { ExitCode, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
+import { inspect } from "node:util"
 import { describe, expect, it } from "vitest"
 import * as Diagnostics from "../src/Diagnostics.ts"
 import * as StdioTransport from "../src/internal/StdioTransport.ts"
@@ -115,6 +117,13 @@ describe("terminal stderr drainage", () => {
         "a private key block spanning lines",
         ["-----BEGIN RSA PRIVATE KEY-----\n", `MII${secret}\n`, "-----END RSA PRIVATE KEY-----\n"],
         "[REDACTED]"
+      ],
+      [
+        "a private key and an inspected string split over lines and chunks",
+        `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----\n${
+          inspect({ privateKey: `${secret}\n`.repeat(8) })
+        }\n`.match(/[^]{1,7}/g)!,
+        "DACTED] { privateKey: '[REDACTED]' }"
       ]
     ] as const
   )("redacts %s before the cap cuts its prefix", async (_name, chunks, expected) => {
@@ -164,8 +173,55 @@ describe("terminal stderr drainage", () => {
     )
     assertPrivate(error, events)
     const detail = events.map((event) => Redacted.value(event.detail)).join("")
-    expect(detail).toBe("[stderr line withheld]")
+    // An unfinished key block still held renders as its redacted header.
+    expect(detail).toMatch(/^(\[REDACTED\] )?\[overlong line omitted\]$/)
     expect(detail).not.toContain("x")
+  })
+
+  it("keeps a value opened by a withheld overlong line held until it closes", async () => {
+    const events: Array<Diagnostics.Event> = []
+    const chunks = [`password: "${"a".repeat(70_000)}`, `\n${secret}\n`, "\"\nafter\n"]
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const consumed = yield* Deferred.make<void>()
+        const transport = yield* connect({
+          stderr: Stream.fromIterable(chunks.map((chunk) => new TextEncoder().encode(chunk))).pipe(
+            Stream.ensuring(Deferred.succeed(consumed, undefined))
+          ),
+          exitCode: Deferred.await(consumed).pipe(Effect.as(ExitCode(1)))
+        })
+        return yield* Effect.flip(transport.request("call"))
+      })).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Diagnostics.layer((event) => events.push(event)))
+      )
+    )
+    assertPrivate(error, events)
+    const detail = events.map((event) => Redacted.value(event.detail)).join("")
+    expect(detail).not.toContain("PUBLISH")
+    expect(detail).toBe(`${Redaction.omittedLine} after`)
+  })
+
+  it("never re-renders the raw lines of a value held past the redactor's line bound", async () => {
+    const events: Array<Diagnostics.Event> = []
+    const chunks = ["credentials: {\n", "  x: 1,\n".repeat(300), `  pass: "${secret}"\n}\n`]
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const consumed = yield* Deferred.make<void>()
+        const transport = yield* connect({
+          stderr: Stream.fromIterable(chunks.map((chunk) => new TextEncoder().encode(chunk))).pipe(
+            Stream.ensuring(Deferred.succeed(consumed, undefined))
+          ),
+          exitCode: Deferred.await(consumed).pipe(Effect.as(ExitCode(1)))
+        })
+        return yield* Effect.flip(transport.request("call"))
+      })).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Diagnostics.layer((event) => events.push(event)))
+      )
+    )
+    assertPrivate(error, events)
+    expect(events.map((event) => Redacted.value(event.detail)).join("")).not.toContain("PUBLISH")
   })
 
   it("cuts the capped tail on a whole character, never inside a multi-byte one", async () => {

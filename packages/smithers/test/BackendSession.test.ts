@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { inspect } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
 import { NotFound, run } from "../src/internal/backend/Process.ts"
@@ -162,6 +163,48 @@ describe("authenticated transport boundaries", () => {
     expect(output).toContain("🙂")
     expect(output).toContain("tail")
     expect(output).not.toContain("private-session-secret")
+  })
+  it("redacts a private key and an inspected string split over live lines and chunks", async () => {
+    const { environment } = await fixture()
+    const secret = "ZqSynthetic7Secret4Value9"
+    let output = ""
+    const sink = { write: (text: string) => void (output += text), isTTY: false, columns: 80 }
+    const c = new Client({ environment, stdout: sink, stderr: sink }, true)
+    const pem = `-----BEGIN PRIVATE KEY-----\n${secret}${secret}\n${secret}\n-----END PRIVATE KEY-----\n`
+    const bytes = Buffer.from(`${pem}${inspect({ privateKey: `${secret}\n`.repeat(8) })}\ndone`)
+    for (let i = 0; i < bytes.length; i += 7) c.output(Buffer.alloc(0), bytes.subarray(i, i + 7))
+    c.flushOutput()
+    expect(output).not.toContain(secret)
+    expect(output).toContain("[REDACTED]")
+    expect(output.endsWith("done")).toBe(true)
+  })
+  it("redacts diagnostic credential spellings on stderr, errors and live output", async () => {
+    const { environment } = await fixture()
+    const secret = "ZqSynthetic7Secret4Value9"
+    let output = ""
+    const sink = { write: (text: string) => void (output += text), isTTY: false, columns: 80 }
+    const c = new Client({ environment, stdout: sink, stderr: sink }, true)
+    c.protect("session-only-value")
+    c.write(`sshpass -p ${secret} ssh host session-only-value\n`)
+    expect(c.redact(`Authorization: Token ${secret}`)).toBe("Authorization: [REDACTED]")
+    c.output(Buffer.from(`Authorization: Token ${secret}\n`), Buffer.from(`mysql -p${secret} db\n`))
+    c.flushOutput()
+    expect(output).not.toContain(secret)
+    expect(output).not.toContain("session-only-value")
+    expect(output).toContain("sshpass -p [REDACTED] ssh host")
+  })
+  it("redacts every line of a multi-line session secret in live output", async () => {
+    const { environment } = await fixture()
+    const secret = "ZqSynthetic7Secret4Value9\nQxSynthetic3Second8Line"
+    let output = ""
+    const sink = { write: (text: string) => void (output += text), isTTY: false, columns: 80 }
+    const c = new Client({ environment, stdout: sink, stderr: sink }, true)
+    c.protect(secret)
+    c.output(Buffer.from(`begin\n${secret}\nend\n`), Buffer.alloc(0))
+    c.flushOutput()
+    expect(output).not.toContain("ZqSynthetic7Secret4Value9")
+    expect(output).not.toContain("QxSynthetic3Second8Line")
+    expect(output).toContain("end")
   })
   it("bounds JSON payload reads and preserves empty responses", async () => {
     const { environment } = await fixture()

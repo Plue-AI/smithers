@@ -63,6 +63,8 @@ const start = async (): Promise<void> => {
 }
 
 void start().catch((cause: unknown) => {
-  process.stderr.write(`${String(Redaction.redact(cause instanceof Error ? cause.message : String(cause)))}\n`)
+  process.stderr.write(
+    `${String(Redaction.redactDiagnostic(cause instanceof Error ? cause.message : String(cause)))}\n`
+  )
   process.exitCode = 1
 })

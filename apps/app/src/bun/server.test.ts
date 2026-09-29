@@ -164,6 +164,21 @@ describe("the local origin", () => {
     expect(line).toContain("Bearer [REDACTED_TOKEN]")
   })
 
+  test("POST /api/telemetry/errors redacts diagnostic credential spellings", async () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const report = JSON.stringify({
+      name: "DiagnosticSpellingError",
+      message: `mysql -u root -p ${secret} db; password: correct horse ${secret}`,
+      argv: ["sshpass", "-p", secret]
+    })
+    const response = await apiFetch("/api/telemetry/errors", { method: "POST", headers: { "content-type": "application/json" }, body: report })
+    expect(response.status).toBe(202)
+    const line = logs.find((entry) => entry.startsWith("client-error: ") && entry.includes("DiagnosticSpellingError"))
+    expect(line).toBeDefined()
+    expect(line).not.toContain(secret)
+    expect(line).toContain("[REDACTED]")
+  })
+
   test("the OAuth legs are navigations: no session header, yet never 401", async () => {
     // A top-level navigation (window.location, the system browser from the
     // native handoff) cannot carry the local-session header; gating these

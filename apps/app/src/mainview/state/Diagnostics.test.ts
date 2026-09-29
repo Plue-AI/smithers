@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { inspect } from "node:util"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
@@ -120,6 +121,23 @@ describe("app diagnostics without a repository", () => {
     expect(JSON.stringify(result)).not.toContain("alice")
     expect(JSON.stringify(result)).not.toContain("Alice")
     expect(result.items).toEqual([])
+  })
+
+  test("redacts quoted, multi-word and inspect-split credentials before the clip", () => {
+    const query = parseDiagnosticQuery("")
+    if (typeof query === "string") throw new Error(query)
+    const secret = "ZqSynthetic7Secret4Value9"
+    const details = [
+      `connect failed: password: 'correct horse ${secret}'`,
+      `connect failed: ${inspect({ privateKey: `${secret}\n`.repeat(8) })}`
+    ]
+    const result = readDiagnostics({ transitions: [], network: [], toolCalls: [], toasts: details.map((detail, index) => ({
+      id: String(index), key: String(index), title: "failure", status: "failed" as const, detail, createdAt: index, updatedAt: index
+    })) }, query)
+    expect(result.items).toHaveLength(2)
+    for (const item of result.items) expect(item.detail).toContain("[REDACTED")
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(JSON.stringify(result)).not.toContain("horse")
   })
 
   test("long results stay bounded and report omitted matches", () => {

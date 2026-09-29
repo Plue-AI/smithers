@@ -16,6 +16,7 @@
 import { isRecord } from "@smthrs/canonical/Record"
 import { decodePermissionError } from "@smthrs/capability"
 import type * as Permission from "@smthrs/capability/Permission"
+import * as Redaction from "@smthrs/journal/Redaction"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -452,9 +453,14 @@ const redactFields = (body: string): string => {
   return parsed === undefined ? redactTextBody(body) : JSON.stringify(redactStructuredValue(parsed))
 }
 
-// Structural and literal passes run before diagnostic truncation.
+// Structural, literal, and shared diagnostic passes run before diagnostic
+// truncation. The shared pass covers what the field passes cannot: a quoted
+// value the 64 KiB read cut before its closing quote, single-quoted and
+// multi-word values, and `util.inspect` concatenations.
 const redactSecrets = (body: string, secrets: ReadonlyArray<string>): string =>
-  secrets.reduce((text, secret) => text.split(secret).join(REDACTED), redactFields(body))
+  String(
+    Redaction.redactDiagnostic(secrets.reduce((text, secret) => text.split(secret).join(REDACTED), redactFields(body)))
+  )
 
 const redactBody = (
   body: string,

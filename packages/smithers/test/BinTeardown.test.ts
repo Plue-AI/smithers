@@ -199,6 +199,22 @@ describe("smithers entrypoint", () => {
     ])
   })
 
+  it("redacts diagnostic credential spellings from a failure sentence", () => {
+    const written: Array<string> = []
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      status(entrypoint, failure(new Error("sshpass -p ZqSynthetic7Secret4Value9 ssh host")))
+      status(entrypoint, failure("Authorization: Token ZqSynthetic7Secret4Value9"))
+    } finally {
+      stderr.mockRestore()
+    }
+    expect(written.join("")).not.toContain("ZqSynthetic7Secret4Value9")
+    expect(written).toEqual(["Error: sshpass -p [REDACTED] ssh host\n", "Authorization: [REDACTED]\n"])
+  })
+
   it.each([
     { args: ["--json", "plan"], code: 2, error: ["flow-id", "--wizard"], document: "" },
     { args: ["--json", "steer", "run-1"], code: 2, error: ["--message", "--wizard"], document: "" },

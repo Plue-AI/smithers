@@ -97,8 +97,17 @@ export class Client {
   readonly runtime: Runtime
   readonly live: boolean
   private readonly secrets = new Set<string>()
-  private readonly outputBuffers = { stdout: "", stderr: "" }
+  // Whether a line is still arriving on each channel; the redactor holds it.
+  private readonly outputPartial = { stdout: false, stderr: false }
   private readonly outputDecoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") }
+  // The diagnostic rules plus this session's secrets; protect() appends to
+  // them. Live output is redacted a line at a time, holding a value that spans
+  // lines until it closes, and a line redactor reads these rules on every line.
+  private readonly outputRules: Array<Redaction.Rule> = [...Redaction.diagnosticRules]
+  private readonly outputRedactors = {
+    stdout: Redaction.lineRedactor(this.outputRules),
+    stderr: Redaction.lineRedactor(this.outputRules)
+  }
   constructor(runtime: Runtime = {}, live = false) {
     this.runtime = runtime
     this.live = live
@@ -109,18 +118,19 @@ export class Client {
     return this.env.HOME || homedir()
   }
   protect(value: string) {
-    if (value) this.secrets.add(value)
+    if (!value || this.secrets.has(value)) return
+    this.secrets.add(value)
+    // Each line of a multi-line secret is protected on its own as well: live
+    // output reaches the rules one line, or one held block, at a time.
+    const lines = value.split(/\r?\n/).filter((line) => line !== value && line.length >= 8)
+    for (const literal of [value, ...lines]) {
+      this.outputRules.push({ id: "session", pattern: new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g") })
+    }
   }
   redact(value: unknown) {
-    return Redaction.redact(value, {
-      rules: [
-        ...Redaction.defaultRules,
-        ...[...this.secrets].map((secret) => ({
-          id: "session",
-          pattern: new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
-        }))
-      ]
-    })
+    // Everything this redacts reaches a terminal or an error message, never a
+    // durable row, so it takes the diagnostic rules plus this session's secrets.
+    return Redaction.redact(value, { rules: this.outputRules })
   }
   write(text: string) {
     ;(this.runtime.stderr ?? process.stderr).write(str(this.redact(text)))
@@ -132,10 +142,20 @@ export class Client {
   }
   private outputChunk(channel: "stdout" | "stderr", chunk?: Buffer) {
     const decoder = this.outputDecoders[channel]
-    const value = this.outputBuffers[channel] + (chunk === undefined ? decoder.end() : decoder.write(chunk))
-    const end = chunk === undefined ? value.length : value.lastIndexOf("\n") + 1
-    this.outputBuffers[channel] = value.slice(end)
-    if (end) (this.runtime[channel] ?? process[channel]).write(str(this.redact(value.slice(0, end))))
+    const redactor = this.outputRedactors[channel]
+    const segments = (chunk === undefined ? decoder.end() : decoder.write(chunk)).split("\n")
+    const last = segments.pop()!
+    const lines = segments.flatMap(redactor.line)
+    if (last !== "") redactor.part(last)
+    this.outputPartial[channel] = last !== "" || (segments.length === 0 && this.outputPartial[channel])
+    // A stream that ends inside a line ends without a newline, as it arrived.
+    let complete = true
+    if (chunk === undefined) {
+      complete = !this.outputPartial[channel]
+      this.outputPartial[channel] = false
+      lines.push(...redactor.flush())
+    }
+    if (lines.length) (this.runtime[channel] ?? process[channel]).write(`${lines.join("\n")}${complete ? "\n" : ""}`)
   }
   flushOutput() {
     if (!this.live) return
@@ -224,19 +244,19 @@ export class Client {
     if (!path.startsWith("/") || path.startsWith("//")) throw new Error("API path must start with /")
     const origin = options.origin ?? this.session.target().api_url
     const token = options.anonymous ? undefined : options.token ?? (await this.session.require(origin)).token
-    if (token) this.secrets.add(token)
+    if (token) this.protect(token)
     const remember = (value: unknown) => {
       for (const [key, item] of Object.entries(object(value))) {
         if (
           typeof item === "string" && item &&
           (/token|password|secret/i.test(key) || key === "value" && path.includes("/secrets"))
-        ) this.secrets.add(item)
+        ) this.protect(item)
         else if (item && typeof item === "object") remember(item)
       }
     }
     remember(body)
     for (const [key, value] of Object.entries(options.headers ?? {})) {
-      if (/authorization|token|secret/i.test(key)) this.secrets.add(value.replace(/^(?:Bearer|token)\s+/i, ""))
+      if (/authorization|token|secret/i.test(key)) this.protect(value.replace(/^(?:Bearer|token)\s+/i, ""))
     }
     const headers = {
       "user-agent": `smithers-cli/${packageVersion}`,

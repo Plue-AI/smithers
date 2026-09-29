@@ -86,7 +86,7 @@ export const main = async (host: Host): Promise<void> => {
       const text = verbose && stated === Failure.unknownSentence
         ? `${stated}\n${Failure.operatorDetail(cause)}`
         : stated
-      host.stderr.write(`${String(Redaction.redact(text))}\n`)
+      host.stderr.write(`${String(Redaction.redactDiagnostic(text))}\n`)
       exit(1)
     }
   } finally {

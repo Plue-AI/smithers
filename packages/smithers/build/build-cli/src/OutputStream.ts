@@ -20,14 +20,33 @@ export interface Observer {
 }
 
 /**
- * Shared progress-only redaction, including known values from credential-named variables.
+ * Shared progress-only redaction with the diagnostic rules, including known
+ * values from credential-named variables.
  * @category constructors
  * @since 1.0.0
  */
 export const redactor = (
+  environment?: Readonly<Record<string, string | undefined>>,
+  sensitiveNames?: ReadonlyArray<string>
+): (text: string) => string => {
+  const known = knownSecrets(environment, sensitiveNames)
+  return (text) => {
+    let clean = strip(text)
+    if (known !== undefined) clean = clean.replace(known, "[REDACTED]")
+    return String(Redaction.redactDiagnostic(clean))
+  }
+}
+
+/** Strips terminal controls other than tab and newline. */
+const strip = (text: string): string =>
+  stripVTControlCharacters(text).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+
+// The values of credential-named variables, as one pattern that matches the
+// longest first.
+const knownSecrets = (
   environment: Readonly<Record<string, string | undefined>> = Environment.ambientEnvironment(),
   sensitiveNames: ReadonlyArray<string> = []
-): (text: string) => string => {
+): RegExp | undefined => {
   const sensitive = new Set(sensitiveNames)
   // These are documented process/mode switches, despite their credential-like
   // suffixes. An explicit sensitiveNames entry still overrides this list.
@@ -45,19 +64,16 @@ export const redactor = (
     .sort((left, right) => right.length - left.length)
   // Replace once so a short real secret cannot rewrite another secret's
   // replacement marker. Short credentials remain protected, even in tokens.
-  const known = values.length === 0
+  return values.length === 0
     ? undefined
     : new RegExp(values.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g")
-  return (text) => {
-    let clean = stripVTControlCharacters(text).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
-    if (known !== undefined) clean = clean.replace(known, "[REDACTED]")
-    return String(Redaction.redact(clean))
-  }
 }
 
 /**
- * Complete lines are redacted before truncation or display, including split secrets.
- * Overlong unterminated lines are discarded, never partially revealed.
+ * Complete lines are redacted before truncation or display, including split secrets
+ * and values spanning lines (a PEM block, a `util.inspect` concatenation).
+ * The shared line redactor bounds an overlong line and shows only
+ * `Redaction.omittedLine` for it.
  * @category constructors
  * @since 1.0.0
  */
@@ -67,45 +83,42 @@ export const make = (options: {
   readonly sensitiveNames?: ReadonlyArray<string> | undefined
   readonly maximumLines?: number | undefined
 }): Observer => {
-  const redact = redactor(options.environment, options.sensitiveNames)
+  const known = knownSecrets(options.environment, options.sensitiveNames)
+  // Known values are a rule of the line redactor, so a value split across
+  // chunks is still matched on its whole line.
+  const rules = known === undefined
+    ? Redaction.diagnosticRules
+    : [{ id: "known-secret", pattern: known }, ...Redaction.diagnosticRules]
   const maximumLines = options.maximumLines ?? 200
   let printed = 0
   let closed = false
-  const emit = (stream: "stdout" | "stderr", line: string): void => {
+  const emit = (stream: "stdout" | "stderr", redacted: () => ReadonlyArray<string>): void => {
     if (printed > maximumLines) return
     try {
-      if (printed === maximumLines) {
+      for (const clean of redacted()) {
+        if (printed > maximumLines) return
+        if (printed === maximumLines) {
+          printed += 1
+          options.write(stream, "… live output limit reached; captured task output is unchanged\n")
+          return
+        }
         printed += 1
-        options.write(stream, "… live output limit reached; captured task output is unchanged\n")
-        return
+        options.write(stream, `${clean.slice(0, 1600)}${clean.length > 1600 ? " …" : ""}\n`)
       }
-      const clean = redact(line)
-      printed += 1
-      options.write(stream, `${clean.slice(0, 1600)}${clean.length > 1600 ? " …" : ""}\n`)
     } catch {
       // Progress observers cannot alter process success or captured output.
     }
   }
   const pipe = (stream: "stdout" | "stderr") => {
     const decoder = new StringDecoder("utf8")
-    let pending = ""
-    let discarding = false
+    // The redactor owns the line still arriving: it holds a value that spans
+    // lines until it closes and bounds an overlong line itself.
+    const redactor = Redaction.lineRedactor(rules)
     const consume = (text: string): void => {
-      for (const segment of text.split(/(?<=\n)/)) {
-        const complete = segment.endsWith("\n")
-        if (!discarding) {
-          pending += segment
-          if (pending.length > 32 * 1024) {
-            pending = ""
-            discarding = true
-          }
-        }
-        if (complete) {
-          emit(stream, discarding ? "[overlong output line omitted]" : pending.replace(/\r?\n$/, ""))
-          pending = ""
-          discarding = false
-        }
-      }
+      const segments = strip(text).split("\n")
+      const last = segments.pop()!
+      for (const segment of segments) emit(stream, () => redactor.line(segment))
+      if (last !== "") redactor.part(last)
     }
     return {
       write: (chunk: Uint8Array) => {
@@ -113,7 +126,7 @@ export const make = (options: {
       },
       close: () => {
         consume(decoder.end())
-        if (discarding || pending !== "") emit(stream, discarding ? "[overlong output line omitted]" : pending)
+        emit(stream, redactor.flush)
       }
     }
   }

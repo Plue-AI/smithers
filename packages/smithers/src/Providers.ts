@@ -286,7 +286,7 @@ const keyed = (
       : blank.length === 0
       ? `${named} is not set`
       : `${blank.map((variable) => `$${variable}`).join(" and ")} exported but empty`,
-    // Not spelled as an assignment. `Redaction.redact` rewrites anything of
+    // Not spelled as an assignment. `Redaction.redactDiagnostic` rewrites anything of
     // the form `<NAME>KEY=<value>`, and this sentence reaches an operator
     // through `cli/LegacyBin.ts` or `cli/Entry.ts`, both of which redact
     // every failure line: the literal
@@ -442,7 +442,9 @@ export const claudeCodeLogin = (environment: Environment.Source): Promise<Claude
                 loggedIn: false,
                 authMethod: "none",
                 error: String(
-                  Redaction.redact(stderr.trim() || error?.message || "claude auth status returned no valid JSON")
+                  Redaction.redactDiagnostic(
+                    stderr.trim() || error?.message || "claude auth status returned no valid JSON"
+                  )
                 )
               }
               : {

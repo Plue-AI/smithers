@@ -43,6 +43,21 @@ const flowNext = [
   { command: "flow plan --help", description: "See how to preview a flow before starting it" }
 ]
 
+describe("diagnostic redaction", () => {
+  it("redacts diagnostic credential spellings in terminal fields and failure sentences", () => {
+    expect(Presentation.clean("sshpass -p ZqSynthetic7Secret4Value9 ssh host")).toBe("sshpass -p [REDACTED] ssh host")
+    let message = ""
+    const context = {
+      error: (error: { message: string }): never => {
+        message = error.message
+        throw new Error("failed")
+      }
+    } as unknown as Presentation.Failing
+    expect(() => Presentation.fail(context, new Error("Authorization: Token ZqSynthetic7Secret4Value9"))).toThrow()
+    expect(message).toBe("Authorization: [REDACTED]")
+  })
+})
+
 describe("shared command presentation", () => {
   it("keeps agent PTY output structured with bounded contextual Incur CTAs", async () => {
     const host = fixture("agent")

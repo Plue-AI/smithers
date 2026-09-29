@@ -163,11 +163,7 @@ const privateFolder = (folder: string): void => {
 }
 const append = (file: string, text: string): void => appendFileSync(file, text, { mode: 0o600 })
 
-const text = (value: string): string =>
-  Redaction.defaultRules.reduce(
-    (redacted, rule) => redacted.replace(rule.pattern, rule.replace ?? Redaction.placeholder),
-    value
-  )
+const text = (value: string): string => String(Redaction.redact(value))
 
 /** `value` as JSON with every string redacted. */
 const strings = (value: unknown): string =>

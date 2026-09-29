@@ -11,9 +11,10 @@ import * as Bug from "../src/Bug.ts"
 describe("scrubbing free text", () => {
   it("strips the password out of a connection string, whatever the key is called", () => {
     expect(Bug.scrubText("postgres://user:hunter2@db.internal/app"))
-      .toBe("postgres://user:[REDACTED]@db.internal/app")
-    expect(Bug.scrubText("https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz@github.com"))
-      .toContain("[REDACTED]@github.com")
+      .toBe("postgres://[REDACTED]@db.internal/app")
+    const token = Bug.scrubText("https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz@github.com")
+    expect(token).toContain("[REDACTED]")
+    expect(token).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz")
   })
 
   it("strips bearer tokens and provider key formats that carry no key name", () => {
@@ -29,7 +30,7 @@ describe("scrubbing free text", () => {
   it("strips KEY=value pairs and quoted JSON secrets", () => {
     expect(Bug.scrubText("ANTHROPIC_API_KEY=abc123")).toBe("ANTHROPIC_API_KEY=[REDACTED]")
     expect(Bug.scrubText("api_key=abc123")).toBe("api_key=[REDACTED]")
-    expect(Bug.scrubText("MY_SECRET=\"quoted value\"")).toBe("MY_SECRET=[REDACTED]")
+    expect(Bug.scrubText("MY_SECRET=\"quoted value\"")).toBe("MY_SECRET=\"[REDACTED]\"")
     expect(Bug.scrubText("{\"apiToken\": \"abc123\"}")).toBe("{\"apiToken\": \"[REDACTED]\"}")
   })
 
@@ -55,13 +56,22 @@ describe("scrubbing a value", () => {
       .toEqual({ runs: [{ id: 1, env: "OPENAI_API_KEY=[REDACTED]" }] })
   })
 
+  it("redacts diagnostic credential spellings", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    for (const text of [`mysql -u root -p ${secret} db`, `password: correct horse ${secret}`]) {
+      expect(Bug.scrubText(text)).not.toContain(secret)
+      expect(Bug.scrubText(text)).toContain(Redaction.placeholder)
+    }
+    expect(Bug.scrub({ argv: ["sshpass", "-p", secret] })).toEqual({ argv: ["sshpass", "-p", Redaction.placeholder] })
+  })
+
   it("passes non-string leaves through", () => {
     expect(Bug.scrub([1, true, null, undefined])).toEqual([1, true, null, undefined])
   })
 })
 
 describe("the report", () => {
-  it("uses the journal rules as the oracle for every posted string", () => {
+  it("uses the diagnostic rules as the oracle for every posted string", () => {
     const credential = FastCheck.constantFrom(
       "Bearer abcdefghijk",
       "sk-abcdefghijk",
@@ -76,7 +86,7 @@ describe("the report", () => {
     FastCheck.assert(
       FastCheck.property(credential, FastCheck.integer(), (secret, nonce) => {
         const text = `probe-${nonce}:${secret}:end`
-        const oracle = Redaction.redact(text)
+        const oracle = Redaction.redactDiagnostic(text)
         expect(oracle).not.toBe(text)
 
         const posted = Bug.report({

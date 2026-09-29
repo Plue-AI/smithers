@@ -83,6 +83,27 @@ describe("MCP diagnostic privacy", () => {
     expect(JSON.stringify(events)).not.toContain(secret)
   })
 
+  it.each(["spawn", "remote-error", "invalid-response", "invalid-arguments"] as const)(
+    "redacts diagnostic credential spellings in a %s detail",
+    async (source) => {
+      const pin = "ZqSynthetic7Secret4Value9"
+      const events: Array<Diagnostics.Event> = []
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const report = yield* Reporter.make("host")
+          report(source, `mysql -u root -p ${pin} db`)
+          report(source, `password: correct horse ${pin}`)
+          report(source, { argv: ["sshpass", "-p", pin] })
+        }).pipe(Effect.provide(Diagnostics.layer((event) => events.push(event))))
+      )
+      expect(events).toHaveLength(3)
+      for (const event of events) {
+        expect(Redacted.value(event.detail)).not.toContain(pin)
+        expect(Redacted.value(event.detail)).toContain("[REDACTED]")
+      }
+    }
+  )
+
   // StdioTransport redacts stderr before its cap; RealServer.integration covers it.
   it.each(["spawn", "remote-error", "invalid-response", "invalid-arguments"] as const)(
     "redacts credentials in a %s detail before a trusted observer unwraps it",

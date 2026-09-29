@@ -284,8 +284,8 @@ const controlDirectory = ".smithers-sandbox"
 /** The most bytes of guest stdout or stderr a failure message quotes. */
 const quotedOutputBytes = 4096
 
-/** Diagnostic copies use the same key and value rules as engine logs. */
-const redact = Redaction.make({ onTooDeep: "name" })
+/** Diagnostic copies take the diagnostic rules, as engine logs do. */
+const redact = Redaction.redactDiagnostic
 
 /** Redact before taking a tail: the credential prefix may lie outside the bound. */
 const tail = (text: string): string => {
@@ -293,19 +293,21 @@ const tail = (text: string): string => {
   return redacted.length > quotedOutputBytes ? `…${redacted.slice(redacted.length - quotedOutputBytes)}` : redacted
 }
 
-/** Drain continuously, retaining a byte ring and at most two small redaction segments. */
+/**
+ * Drain continuously, retaining a byte ring of redacted text. The line
+ * redactor owns the line still arriving: it holds a value that spans lines (a
+ * private key block, a string `util.inspect` split with `+`) until it closes,
+ * bounds an overlong line itself, and returns only what is safe to keep.
+ */
 const drainTail = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   Effect.gen(function*() {
     const ring = new Uint8Array(quotedOutputBytes)
     const decoder = new TextDecoder()
     const encoder = new TextEncoder()
+    const lines = Redaction.lineRedactor(Redaction.diagnosticRules)
     let cursor = 0
     let retained = 0
     let truncated = false
-    let pending = ""
-    let omitLine = false
-    let omitKey = false
-    let omitStream = false
     const append = (text: string) => {
       for (const byte of encoder.encode(text)) {
         ring[cursor] = byte
@@ -315,62 +317,10 @@ const drainTail = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<strin
       }
     }
     const accept = (text: string) => {
-      if (omitStream) return
-      // A redacted credential can continue across transport chunks. Once
-      // matched, omit that line's remainder instead of retaining its suffix.
-      for (const [index, line] of text.split("\n").entries()) {
-        if (index > 0) {
-          if (omitKey) pending = ""
-          else if (omitLine) {
-            append("\n")
-            pending = ""
-          } else pending += "\n"
-          omitLine = false
-        }
-        if (omitLine) continue
-        pending += line
-        const begin = !omitKey ? /-----BEGIN[^-]*PRIVATE KEY-----/.exec(pending) : null
-        if (begin !== null) {
-          append(String(redact(pending.slice(0, begin.index))) + "[REDACTED]")
-          pending = pending.slice(begin.index + begin[0].length)
-          omitKey = true
-        }
-        if (omitKey) {
-          const end = /-----END[^-]*-----/.exec(pending)
-          if (end === null) {
-            pending = pending.slice(-quotedOutputBytes)
-            continue
-          }
-          pending = pending.slice(end.index + end[0].length)
-          omitKey = false
-        }
-        const safe = String(redact(pending))
-        if (safe !== pending) {
-          append(safe)
-          pending = ""
-          omitLine = true
-        } else if (pending.length > quotedOutputBytes) {
-          // A quoted credential may not match until its closing quote arrives.
-          // Refuse to discard its prefix and expose the unrecognized suffix.
-          for (const quote of ["\"", "'"]) {
-            if (!pending.includes(quote)) continue
-            const completed = pending + quote
-            const protectedText = String(redact(completed))
-            if (protectedText !== completed) {
-              append(protectedText)
-              pending = ""
-              omitStream = true
-              return
-            }
-          }
-          let cut = pending.length - quotedOutputBytes
-          // Keep a surrogate pair together before UTF-8 encoding.
-          const unit = pending.charCodeAt(cut)
-          if (unit >= 0xDC00 && unit <= 0xDFFF) cut--
-          append(pending.slice(0, cut))
-          pending = pending.slice(cut)
-        }
-      }
+      const segments = text.split("\n")
+      const last = segments.pop()!
+      for (const segment of segments) for (const clean of lines.line(segment)) append(`${clean}\n`)
+      if (last !== "") lines.part(last)
     }
     yield* Stream.runForEach(stream, (chunk) =>
       Effect.sync(() => {
@@ -380,7 +330,7 @@ const drainTail = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<strin
         }
       }))
     accept(decoder.decode())
-    if (!omitKey) append(String(redact(pending)))
+    append(lines.flush().join("\n"))
     const bytes = new Uint8Array(retained)
     const start = retained === ring.length ? cursor : 0
     for (let index = 0; index < retained; index++) bytes[index] = ring[(start + index) % ring.length]!

@@ -1,3 +1,4 @@
+import { inspect } from "node:util"
 import { describe, expect, it } from "vitest"
 import * as OutputStream from "../src/OutputStream.ts"
 
@@ -62,13 +63,77 @@ describe("bounded live subprocess output", () => {
     expect(lines).toEqual(["[REDACTED]\n", "[REDACTED]\n"])
   })
 
+  it("redacts a private key and an inspected string split over lines and chunks", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const pem = `-----BEGIN PRIVATE KEY-----\n${secret}${secret}\n${secret}\n-----END PRIVATE KEY-----\n`
+    const text = `${pem}${inspect({ privateKey: `${secret}\n`.repeat(8) })}\ndone\n`
+    const lines: Array<string> = []
+    const observer = OutputStream.make({ write: (_stream, line) => lines.push(line) })
+    for (let offset = 0; offset < text.length; offset += 7) {
+      observer.onStdout(Buffer.from(text.slice(offset, offset + 7)))
+    }
+    observer.close()
+    expect(lines.join("")).not.toContain(secret)
+    expect(lines.join("")).toContain("[REDACTED]")
+    expect(lines.at(-1)).toBe("done\n")
+  })
+
+  it("keeps a value opened by an overlong line held until it closes", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const lines: Array<string> = []
+    const observer = OutputStream.make({ write: (_stream, line) => lines.push(line) })
+    observer.onStdout(Buffer.from(`password: "${"a".repeat(33_000)}\n`))
+    observer.onStdout(Buffer.from(`${secret}\n"\nafter\n`))
+    observer.close()
+    expect(lines.join("")).not.toContain(secret)
+    expect(lines[0]).toBe("[overlong line omitted]\n")
+    expect(lines.at(-1)).toBe("after\n")
+  })
+
+  it("withholds what an opener in the dropped middle of an overlong line swallows", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const lines: Array<string> = []
+    const observer = OutputStream.make({ environment: {}, write: (_stream, line) => lines.push(line) })
+    const text = `${"x".repeat(20_000)} password: { value: "${"a".repeat(20_000)}\n${secret}\n" }\n`
+    for (let offset = 0; offset < text.length; offset += 4096) {
+      observer.onStdout(Buffer.from(text.slice(offset, offset + 4096)))
+    }
+    observer.close()
+    expect(lines.join("")).not.toContain(secret)
+  })
+
+  it("redacts a known value split across chunks", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const lines: Array<string> = []
+    const observer = OutputStream.make({
+      environment: { API_TOKEN: secret },
+      write: (_stream, line) => lines.push(line)
+    })
+    observer.onStdout(Buffer.from(`value ${secret.slice(0, 10)}`))
+    observer.onStdout(Buffer.from(`${secret.slice(10)} end\n`))
+    observer.close()
+    expect(lines).toEqual(["value [REDACTED] end\n"])
+  })
+
+  it("redacts diagnostic credential spellings in reporter text and live lines", () => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const redact = OutputStream.redactor({})
+    expect(redact(`sshpass -p ${secret} ssh host`)).toBe("sshpass -p [REDACTED] ssh host")
+    expect(redact(`Authorization: Token ${secret}`)).toBe("Authorization: [REDACTED]")
+    const lines: Array<string> = []
+    const observer = OutputStream.make({ environment: {}, write: (_stream, line) => lines.push(line) })
+    observer.onStderr(Buffer.from(`sshpass -p ${secret} ssh host\nAuthorization: Token ${secret}\n`))
+    observer.close()
+    expect(lines).toEqual(["sshpass -p [REDACTED] ssh host\n", "Authorization: [REDACTED]\n"])
+  })
+
   it("discards overlong unterminated lines and isolates observer errors", () => {
     const lines: Array<string> = []
     const observer = OutputStream.make({ write: (_stream, text) => lines.push(text) })
     observer.onStdout(Buffer.from("s".repeat(40 * 1024)))
     observer.onStdout(Buffer.from("secret\nnext\n"))
     observer.close()
-    expect(lines).toEqual(["[overlong output line omitted]\n", "next\n"])
+    expect(lines).toEqual(["[overlong line omitted]\n", "next\n"])
     const broken = OutputStream.make({
       write: () => {
         throw new Error("terminal closed")

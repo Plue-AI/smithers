@@ -111,7 +111,7 @@ const record = (value: unknown): Record<string, unknown> =>
  */
 export const text = (value: unknown, maximum = 180): string => {
   if (typeof value !== "string") return ""
-  const safe = String(Redaction.redact(stripVTControlCharacters(value)))
+  const safe = String(Redaction.redactDiagnostic(stripVTControlCharacters(value)))
     .replace(/[\p{Cc}\p{Cf}]/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -122,7 +122,7 @@ const logLines = (value: unknown): ReadonlyArray<Line> => {
   if (typeof value !== "string") return []
   // Redact before splitting: a token assignment must not be split into an
   // innocuous key and an unlabelled secret on the following line.
-  const safe = String(Redaction.redact(stripVTControlCharacters(value)))
+  const safe = String(Redaction.redactDiagnostic(stripVTControlCharacters(value)))
   let count = 0
   const shown: Array<Line> = []
   for (const line of safe.matchAll(/[^\r\n]+/g)) {

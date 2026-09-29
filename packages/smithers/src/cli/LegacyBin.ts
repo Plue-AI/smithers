@@ -78,7 +78,7 @@ const report = (error: unknown): void => {
   // A failure sentence is written here rather than logged, so it misses the
   // redacting logger below. It is still a line an operator reads and a
   // collector keeps, so it takes the same rules (the release policy).
-  process.stderr.write(`${String(Redaction.redact(message))}\n`)
+  process.stderr.write(`${String(Redaction.redactDiagnostic(message))}\n`)
 }
 
 const teardown: Runtime.Teardown = (exit, onExit) => {

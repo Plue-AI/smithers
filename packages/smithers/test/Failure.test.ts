@@ -26,6 +26,12 @@ describe("Failure.causeLine", () => {
       .not.toContain("privatevalue123456")
     expect(Failure.causeLine("Error: denied\u0007")).toBe("Error: denied")
   })
+
+  it("redacts diagnostic credential spellings", () => {
+    expect(Failure.causeLine("Error: wrapper\n [cause]: Error: sshpass -p ZqSynthetic7Secret4Value9 ssh host"))
+      .toBe("Error: sshpass -p [REDACTED] ssh host")
+    expect(Failure.causeLine("Authorization: Token ZqSynthetic7Secret4Value9")).toBe("Authorization: [REDACTED]")
+  })
 })
 
 describe("Failure.sentence", () => {

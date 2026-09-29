@@ -13,6 +13,7 @@
  */
 import { NodeCrypto, NodeFileSystem } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
+import * as Redaction from "@smthrs/journal/Redaction"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as Node from "@smthrs/plan/Node"
 import * as NodeHost from "@smthrs/platform-node/NodeHost"
@@ -34,6 +35,7 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { inspect } from "node:util"
 import { vi } from "vitest"
 import { Action, Engine, Flow, FlowRuntime, Interpreter, RetryPolicy } from "../src/index.ts"
 import * as Guest from "../src/internal/SandboxedFlowGuest.ts"
@@ -854,6 +856,86 @@ describe("sandbox limit boundaries", () => {
       expect(failure.message).toContain("readable tail")
     }), 60_000)
 
+  it.live("redacts a private key and an inspected string split over lines and chunks", () =>
+    Effect.gen(function*() {
+      const secret = "ZqSynthetic7Secret4Value9"
+      const bytes = new TextEncoder().encode(
+        `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----\n${
+          inspect({ privateKey: `${secret}\n`.repeat(8) })
+        }\nreadable tail`
+      )
+      const noise = Stream.fromIterable(
+        Array.from({ length: Math.ceil(bytes.length / 7) }, (_, i) => bytes.subarray(i * 7, (i + 1) * 7))
+      )
+      const guest = yield* limitedGuest({ noise, failure: "refused" })
+      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
+        provider: guest.provider,
+        session: "inspect-diagnostics",
+        entry: pure
+      }))
+      expect(failure.message).not.toContain(secret)
+      expect(failure.message).toContain("[REDACTED]")
+      expect(failure.message).toContain("readable tail")
+    }), 60_000)
+
+  it.live("keeps a value opened by an overlong line held until it closes", () =>
+    Effect.gen(function*() {
+      const secret = "ZqSynthetic7Secret4Value9"
+      // No quote, so nothing withholds the rest of the stream: only the line
+      // redactor, seeing the opener at the end of the overlong line, holds the key.
+      const bytes = new TextEncoder().encode(
+        `${"a".repeat(33_000)} -----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----\nreadable tail`
+      )
+      const noise = Stream.fromIterable(
+        Array.from({ length: Math.ceil(bytes.length / 31) }, (_, i) => bytes.subarray(i * 31, (i + 1) * 31))
+      )
+      const guest = yield* limitedGuest({ noise, failure: "refused" })
+      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
+        provider: guest.provider,
+        session: "overlong-opener-diagnostics",
+        entry: pure
+      }))
+      expect(failure.message).not.toContain(secret)
+      expect(failure.message).toContain("readable tail")
+    }), 60_000)
+
+  it.live("withholds what an opener in the dropped middle of an overlong line swallows", () =>
+    Effect.gen(function*() {
+      const secret = "ZqSynthetic7Secret4Value9"
+      const bytes = new TextEncoder().encode(
+        `${"x".repeat(20_000)} password: { value: "${"a".repeat(20_000)}\n${secret}\n" }\nreadable tail`
+      )
+      const noise = Stream.fromIterable(
+        Array.from({ length: Math.ceil(bytes.length / 4096) }, (_, i) => bytes.subarray(i * 4096, (i + 1) * 4096))
+      )
+      const guest = yield* limitedGuest({ noise, failure: "refused" })
+      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
+        provider: guest.provider,
+        session: "overlong-middle-diagnostics",
+        entry: pure
+      }))
+      expect(failure.message).not.toContain(secret)
+    }), 60_000)
+
+  it.live("redacts diagnostic credential spellings in guest output", () =>
+    Effect.gen(function*() {
+      const secret = "ZqSynthetic7Secret4Value9"
+      const noise = Stream.succeed(
+        new TextEncoder().encode(`Authorization: Token ${secret}\nreadable tail`)
+      )
+      // The guest's own failure sentence reaches the message without the line redactor.
+      const guest = yield* limitedGuest({ noise, failure: `sshpass -p ${secret} ssh host` })
+      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
+        provider: guest.provider,
+        session: "diagnostic-spellings",
+        entry: pure
+      }))
+      expect(failure.message).not.toContain(secret)
+      expect(failure.message).toContain("sshpass -p [REDACTED] ssh host")
+      expect(failure.message).toContain("Authorization: [REDACTED]")
+      expect(failure.message).toContain("readable tail")
+    }), 60_000)
+
   it.live("does not expose the suffix of an overlong quoted credential", () =>
     Effect.gen(function*() {
       const bytes = new TextEncoder().encode(`{\n"password":\n"${"synthetic-quoted-credential".repeat(400)}"\n}`)
@@ -940,7 +1022,10 @@ describe("sandbox limit boundaries", () => {
           entry: pure
         }))
         expect(failure.code).toBe("flow_failed")
-        expect(failure.message).toContain(`stdout: …${"x".repeat(4096)}; stderr: …${"x".repeat(4096)}`)
+        // The shared line redactor never shows a line past its bound, only its marker.
+        expect(failure.message).toContain(
+          `stdout: ${Redaction.omittedLine}; stderr: ${Redaction.omittedLine}`
+        )
         expect(failure.message.length).toBeLessThan(8400)
         expect(drained).toBe(512)
         expect(collector).not.toHaveBeenCalled()

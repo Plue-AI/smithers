@@ -8,12 +8,14 @@
  * @since 0.1.0
  */
 
+import * as Redaction from "@smthrs/journal/Redaction"
 import type * as LocalRepository from "@smthrs/targets/LocalRepository"
 import * as RepoTarget from "@smthrs/targets/RepoTarget"
 import * as Target from "@smthrs/targets/Target"
 import * as Data from "effect/Data"
 import { spawn } from "node:child_process"
 import * as NodePath from "node:path"
+import { StringDecoder } from "node:string_decoder"
 import type * as PackageIndex from "./PackageIndex.ts"
 import * as Workspace from "./Workspace.ts"
 
@@ -417,14 +419,42 @@ export const execute = (
     const output = options.output ??
       ((stream: "stdout" | "stderr", chunk: string) =>
         void (stream === "stdout" ? process.stdout : process.stderr).write(chunk))
-    child.stdout.on("data", (chunk: Buffer) => output("stdout", chunk.toString("utf8")))
-    child.stderr.on("data", (chunk: Buffer) => {
-      output("stderr", chunk.toString("utf8"))
-      stderrTail = tail(stderrTail + chunk.toString("utf8"))
-    })
+    // Child output is redacted a complete line at a time with the diagnostic
+    // rules, holding a value that spans lines until it closes; the failure's
+    // stderr tail is cut from the redacted text, never from the raw bytes.
+    const redacted = (stream: "stdout" | "stderr") => {
+      const decoder = new StringDecoder("utf8")
+      // The redactor owns the line still arriving and bounds an overlong one.
+      const redactor = Redaction.lineRedactor(Redaction.diagnosticRules)
+      const emit = (lines: ReadonlyArray<string>): void => {
+        if (lines.length === 0) return
+        const text = `${lines.join("\n")}\n`
+        output(stream, text)
+        if (stream === "stderr") stderrTail = tail(stderrTail + text)
+      }
+      const consume = (text: string): void => {
+        const segments = text.split("\n")
+        const last = segments.pop()!
+        emit(segments.flatMap((segment) => redactor.line(segment)))
+        if (last !== "") redactor.part(last)
+      }
+      return {
+        write: (chunk: Buffer): void => consume(decoder.write(chunk)),
+        end: (): void => {
+          consume(decoder.end())
+          emit(redactor.flush())
+        }
+      }
+    }
+    const stdout = redacted("stdout")
+    const stderr = redacted("stderr")
+    child.stdout.on("data", stdout.write)
+    child.stderr.on("data", stderr.write)
     child.on("error", (cause) => finish(() => reject(cause)))
     child.on("close", (code) =>
       finish(() => {
+        stdout.end()
+        stderr.end()
         const exitCode = code ?? -1
         if (exitCode === 0) resolve()
         else reject(new ExecutionError(resolution, exitCode, stderrTail.trim()))

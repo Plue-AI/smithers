@@ -47,7 +47,7 @@ export const terminalSafeLines = (text: string): string =>
  * @since 1.0.0
  */
 export const causeLine = (cause: string): string => {
-  const safe = String(Redaction.redact(stripVTControlCharacters(cause)))
+  const safe = String(Redaction.redactDiagnostic(stripVTControlCharacters(cause)))
   let line = safe.split(/\r?\n/, 1)[0] ?? ""
   // New lifecycle records lead with the typed code. Older records only carry
   // an Error stack, whose innermost cause still explains the failed run.

@@ -98,9 +98,8 @@ export const CLIENT_ERRORS_PATH = "/api/telemetry/errors"
 const sameSecret = (supplied: string, expected: string): boolean =>
   timingSafeEqual(createHash("sha256").update(supplied).digest(), createHash("sha256").update(expected).digest())
 
-/** Renderer error text can carry tokens from the failing call; the journal's redactor strips them before the log. */
-const redactClientErrorText = Redaction.make()
-const redactClientError = (text: string): string => String(redactClientErrorText(text))
+/** Renderer error text can carry tokens from the failing call; the diagnostic rules strip them before the log. */
+const redactClientError = (text: string): string => String(Redaction.redactDiagnostic(text))
 /** Bytes on the wire, the unit the client bounds its report in. */
 export const CLIENT_ERROR_MAX_BODY = 16 * 1024
 

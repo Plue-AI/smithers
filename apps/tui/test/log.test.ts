@@ -2,6 +2,7 @@ import { expect, it } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { inspect } from "node:util"
 import * as Log from "../src/log.ts"
 
 it("appends private redacted diagnostics without losing earlier failures", () => {
@@ -71,6 +72,27 @@ it("records renderer errors while retaining the renderer console sink", () => {
     console.error = previousError
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("redacts quoted multi-word, inspect-split and any-scheme header credentials in the diagnostic log", () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-log-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const secret = "ZqSynthetic7Secret4Value9"
+    Log.write("connect", `connect failed: password: 'correct horse ${secret}'`)
+    Log.write("inspect", inspect({ privateKey: `${secret}\n`.repeat(8) }))
+    Log.write("header", `request failed: Authorization: Token ${secret}`)
+    const saved = readFileSync(Log.path(), "utf8")
+    const records = saved.trim().split("\n").map((line) => JSON.parse(line))
+    for (const record of records) expect(record.detail).toContain("[REDACTED")
+    expect(saved.includes(secret)).toBe(false)
+    expect(saved.includes("horse")).toBe(false)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
     rmSync(root, { recursive: true, force: true })
   }
 })

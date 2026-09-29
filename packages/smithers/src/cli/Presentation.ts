@@ -195,7 +195,7 @@ export const nextActions = (value: unknown, context: Context = {}, next: FollowU
  * @since 1.0.0
  */
 export const clean = (value: unknown): string =>
-  stripVTControlCharacters(String(Redaction.redact(value))).replace(/[\p{Cc}\p{Cf}]+/gu, " ").slice(
+  stripVTControlCharacters(String(Redaction.redactDiagnostic(value))).replace(/[\p{Cc}\p{Cf}]+/gu, " ").slice(
     0,
     500
   )
@@ -249,7 +249,7 @@ export const finish = <A>(context: Context, value: A, rendering: Rendering = {})
     return actions.length === 0 || Array.isArray(value) ? value : context.ok(value, { cta: { commands: actions } })
   }
   const summary = rendering.human === undefined
-    ? linesOf(Redaction.redact(value)).slice(0, 80).join("\n") || "Done"
+    ? linesOf(Redaction.redactDiagnostic(value)).slice(0, 80).join("\n") || "Done"
     : rendering.human.trimEnd()
   if (session.policy.progress === "live") clack.note(summary, session.command, { output: session.stdout })
   else session.stdout.write(`${session.command}\n${summary}\n`)
@@ -296,7 +296,7 @@ export const fail = (context: Failing, cause: unknown, refusal: Refusal = {}): n
       refusal.code ?? (cause instanceof CliError.Refused ? cause.code : error?._tag?.split("/").pop()) ??
         "command_failed",
     message: String(
-      Redaction.redact(Failure.operatorSentence(cause))
+      Redaction.redactDiagnostic(Failure.operatorSentence(cause))
     ),
     exitCode: error?._tag === "/cli/UsageError" ? 2 : refusal.exitCode ?? 1
   })

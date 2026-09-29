@@ -373,7 +373,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
           renderer?.close("failed")
           return c.error({
             code: "logs_failed",
-            message: String(Redaction.redact(cause instanceof Error ? cause.message : String(cause)))
+            message: String(Redaction.redactDiagnostic(cause instanceof Error ? cause.message : String(cause)))
           })
         } finally {
           renderer?.close("ended")

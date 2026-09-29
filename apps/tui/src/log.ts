@@ -42,10 +42,7 @@ const describe = (error: unknown, seen = new Set<unknown>()): string => {
 /** Record the full cause, redacting credential-shaped text before writing. */
 export const write = (tag: string, error: unknown): void => {
   const detail = describe(error)
-  const redacted = Redaction.defaultRules.reduce(
-    (value, rule) => value.replace(rule.pattern, rule.replace ?? Redaction.placeholder),
-    detail
-  )
+  const redacted = String(Redaction.redactDiagnostic(detail))
   try {
     const file = path()
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
