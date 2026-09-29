@@ -29,6 +29,7 @@ const suite = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/content.test.ts"),
     Smithers.file("//flows/test/release-redaction.test.ts"),
+    Smithers.file("//flows/test/release-io.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),

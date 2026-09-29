@@ -3,6 +3,7 @@ import { createHmac, randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { StringDecoder } from "node:string_decoder"
 import { ReleaseError } from "./schema.ts"
 
 export interface CommandOptions {
@@ -38,15 +39,20 @@ export const commandRunner = (root: string): RunCommand => async (command, args,
     options.signal?.addEventListener("abort", stop, { once: true })
     let stdout = ""
     let stderr = ""
+    // Pipe chunks can split a multi-byte UTF-8 character; decode incrementally.
+    const stdoutDecoder = new StringDecoder("utf8")
+    const stderrDecoder = new StringDecoder("utf8")
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString()
+      stdout += stdoutDecoder.write(chunk)
       if (stdout.length > 16_000_000) stop()
     })
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString()).slice(-32_000)
+      stderr = (stderr + stderrDecoder.write(chunk)).slice(-32_000)
     })
     child.once("error", reject)
     child.once("close", (code) => {
+      stdout += stdoutDecoder.end()
+      stderr = (stderr + stderrDecoder.end()).slice(-32_000)
       options.signal?.removeEventListener("abort", stop)
       if (!options.signal?.aborted && killTimer) clearTimeout(killTimer)
       if (code === 0 && stdout.length <= 16_000_000) accept(stdout)
