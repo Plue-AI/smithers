@@ -21,6 +21,7 @@
 import * as CargoModule from "./Cargo.ts"
 import * as ChangesetsTargetModule from "./ChangesetsTarget.ts"
 import * as CiToolchainModule from "./CiToolchain.ts"
+import * as DependencyDocs from "./DependencyDocs.ts"
 import * as DocsCheckModule from "./DocsCheck.ts"
 import * as DocsPageModule from "./DocsPage.ts"
 import * as FactoryModule from "./Factory.ts"
@@ -531,15 +532,21 @@ export const Api = Object.freeze({ Compat: NodeArtifactModule.Compat })
 export const Size = Object.freeze({ Budgets: NodeArtifactModule.Budgets })
 
 /**
- * Generated-documentation rules: `Docs.Page` writes one page with an agent
- * under the `docs` verb, and `Docs.Check` fails, deterministically and with
- * no agent, when a committed page is older than the inputs it was stamped
- * against.
+ * Documentation: `Docs.Page` writes one page with an agent under the `docs`
+ * verb, and `Docs.Check` fails, deterministically and with no agent, when a
+ * committed page is older than the inputs it was stamped against.
+ * `Docs.Package` and `Docs.Url` declare pinned dependency documentation under
+ * a workspace's `docs`, which a wiki refresh imports for agent memory.
  *
  * @category targets
  * @since 0.1.0
  */
-export const Docs = Object.freeze({ Page: DocsPageModule.Page, Check: DocsCheckModule.Check })
+export const Docs = Object.freeze({
+  Page: DocsPageModule.Page,
+  Check: DocsCheckModule.Check,
+  Package: DependencyDocs.Package,
+  Url: DependencyDocs.Url
+})
 
 /**
  * The declared homepage blocks: `Prompt`, `Flows`, `Markdown`, `Text`, `Links`, `Stack`, and `App`.

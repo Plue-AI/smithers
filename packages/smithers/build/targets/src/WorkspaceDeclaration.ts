@@ -14,6 +14,7 @@
 import * as Schema from "effect/Schema"
 import { type AgentsDeclaration, isAgentsDeclaration } from "./AgentTarget.ts"
 import * as Config from "./Config.ts"
+import * as DependencyDocs from "./DependencyDocs.ts"
 import * as Input from "./Input.ts"
 import * as LocalRepository from "./LocalRepository.ts"
 import { isSmithersCloudDeclaration, type SmithersCloudDeclaration } from "./MemoryTarget.ts"
@@ -473,6 +474,8 @@ export interface WorkspaceDeclaration {
   readonly owners: Owners.Declaration | undefined
   /** The team roster `team:<name>` references resolve against. */
   readonly teams: Owners.TeamsDeclaration | undefined
+  /** Dependency documentation a wiki refresh imports for agent memory; see `S.Docs`. */
+  readonly docs: Readonly<Record<string, DependencyDocs.Declaration>> | undefined
 }
 
 /**
@@ -536,6 +539,7 @@ export interface WorkspaceOptions {
   readonly discovery?: { readonly prune?: ReadonlyArray<string> | undefined } | undefined
   readonly owners?: Owners.Options | Owners.Declaration | undefined
   readonly teams?: Owners.TeamsDeclaration | Readonly<Record<string, ReadonlyArray<string>>> | undefined
+  readonly docs?: Readonly<Record<string, DependencyDocs.Declaration>> | undefined
 }
 
 const knownOptions: ReadonlySet<string> = new Set([
@@ -555,7 +559,8 @@ const knownOptions: ReadonlySet<string> = new Set([
   "repos",
   "discovery",
   "owners",
-  "teams"
+  "teams",
+  "docs"
 ])
 
 const workspaceName = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -762,6 +767,18 @@ export const Workspace = (name: string, options: WorkspaceOptions): WorkspaceDec
     }
     gitHooks = Object.freeze(hooks)
   }
+  if (
+    options.docs !== undefined &&
+    (typeof options.docs !== "object" || options.docs === null ||
+      Object.entries(options.docs).some(([docsName, source]) =>
+        !workspaceName.test(docsName) || !DependencyDocs.isDeclaration(source)
+      ) ||
+      // Each name is a directory; a case-insensitive filesystem would merge two that differ only in case.
+      new Set(Object.keys(options.docs).map((docsName) => docsName.toLowerCase())).size !==
+        Object.keys(options.docs).length)
+  ) {
+    throw new TypeError("Workspace docs must be a portable-name-to-S.Docs record")
+  }
   const owners = options.owners === undefined ? undefined : Owners.declare(options.owners)
   const teams = options.teams === undefined ? undefined : Owners.Teams(options.teams)
   const value = Object.create(null) as Record<string, unknown>
@@ -789,6 +806,7 @@ export const Workspace = (name: string, options: WorkspaceOptions): WorkspaceDec
   value["discovery"] = discovery
   value["owners"] = owners
   value["teams"] = teams
+  value["docs"] = options.docs === undefined ? undefined : Object.freeze({ ...options.docs })
   return Object.freeze(value) as unknown as WorkspaceDeclaration
 }
 

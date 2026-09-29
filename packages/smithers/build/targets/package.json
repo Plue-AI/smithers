@@ -52,6 +52,7 @@
     "./Compose": "./src/Compose.ts",
     "./Config": "./src/Config.ts",
     "./CronTarget": "./src/CronTarget.ts",
+    "./DependencyDocs": "./src/DependencyDocs.ts",
     "./DepsLint": "./src/DepsLint.ts",
     "./Dev": "./src/Dev.ts",
     "./Docker": "./src/Docker.ts",
@@ -291,6 +292,16 @@
         "require": {
           "types": "./dist/cjs/CronTarget.d.ts",
           "default": "./dist/cjs/CronTarget.js"
+        }
+      },
+      "./DependencyDocs": {
+        "import": {
+          "types": "./dist/esm/DependencyDocs.d.ts",
+          "default": "./dist/esm/DependencyDocs.js"
+        },
+        "require": {
+          "types": "./dist/cjs/DependencyDocs.d.ts",
+          "default": "./dist/cjs/DependencyDocs.js"
         }
       },
       "./DepsLint": {
