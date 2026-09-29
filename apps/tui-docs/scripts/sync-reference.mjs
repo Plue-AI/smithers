@@ -30,6 +30,8 @@ const guides = {
   flows: "/docs/learn/run-a-flow/",
   flow: "/docs/learn/run-a-flow/",
   agent: "/docs/how-it-works/agents/",
+  claude: "/docs/learn/background-work/",
+  codex: "/docs/learn/background-work/",
   retry: "/docs/learn/background-work/",
   stop: "/docs/learn/background-work/",
   hotkeys: "/docs/tui/keys/",
