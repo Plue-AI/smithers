@@ -8,6 +8,7 @@ import * as AgentTarget from "@smthrs/targets/AgentTarget"
 import type * as BundlerTarget from "@smthrs/targets/BundlerTarget"
 import type * as Compose from "@smthrs/targets/Compose"
 import * as CronTarget from "@smthrs/targets/CronTarget"
+import type * as Docker from "@smthrs/targets/Docker"
 import * as Exec from "@smthrs/targets/Exec"
 import * as ExecSandbox from "@smthrs/targets/ExecSandbox"
 import * as GeneratedFile from "@smthrs/targets/GeneratedFile"
@@ -432,6 +433,16 @@ export const executeEffect = (
           entry.includes(workspaceRootToken) ? entry.split(workspaceRootToken).join(root) : entry
         )
         let argv = yield* joined(() => StampExec.resolveArgv(root, rooted))
+        if (node.rule === "Docker.Push") {
+          const attrs = Target.metadata(node.declaration).attrs as (typeof Docker.PushAttrs)["Type"]
+          const prefix = `${attrs.registry}/${attrs.name}:`
+          const reference = argv.at(-1)
+          if (reference === undefined || !reference.startsWith(prefix)) {
+            return { error: "Docker.Push image must match its declared registry and name" }
+          }
+          const refusal = DockerExec.pushTagRefusal(reference.slice(prefix.length))
+          if (refusal !== undefined) return { error: refusal }
+        }
         for (const name of node.absoluteEnv) {
           const value = node.env[name]
           if (value !== undefined) spawnEnv[name] = NodePath.join(root, ...value.split("/"))

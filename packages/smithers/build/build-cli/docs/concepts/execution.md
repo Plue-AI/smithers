@@ -11,6 +11,24 @@ allowed to touch, and puts the tree back when it oversteps.
 The [rule contract architecture](./rule-contracts.md) maps the shared services
 and the family planners and executors that use them.
 
+## Docker pushes
+
+`Docker.Push` requires at least one tag. Literal tags are checked when planning;
+stamps are checked after resolution, before their push starts. Tags follow the
+[Docker tag grammar](https://github.com/distribution/reference/blob/main/regexp.go):
+1 to 128 ASCII letters, digits, underscores, dots or hyphens, starting with a
+letter, digit or underscore.
+
+The plan contains one `docker push <reference>` command per tag, in declaration
+order. The executor stops after the first failed command and reports success
+only after every command succeeds.
+
+The CLI currently refuses `approval: "required"` because its build executor
+has no durable approval store. `Docker.Push` requires that declaration, so
+`--plan` shows the commands and the refusal, and execution fails before any
+push. [#2577](https://github.com/smithersai/smithers/issues/2577) tracks the
+approval dependency and the remaining public CLI execution evidence.
+
 ## Generated outputs
 
 `S.Generate({ emit: ... })` checks output parents before writing or checking.

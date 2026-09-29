@@ -14,6 +14,8 @@
 
 import type * as Docker from "@smthrs/targets/Docker"
 import * as Input from "@smthrs/targets/Input"
+import * as Stamp from "@smthrs/targets/Stamp"
+import * as Schema from "effect/Schema"
 import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
@@ -106,6 +108,20 @@ const scalar = (value: unknown): string | undefined => {
 }
 
 /**
+ * Refuses an empty or malformed resolved Docker tag before a push can spawn.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const pushTagRefusal = (tag: string): string | undefined =>
+  tag === ""
+    ? "Docker.Push requires a non-empty value for every tag"
+    // https://github.com/distribution/reference/blob/main/regexp.go
+    : /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(tag)
+    ? undefined
+    : "Docker.Push tags must contain 1 to 128 ASCII letters, digits, underscores, dots or hyphens and start with a letter, digit or underscore"
+
+/**
  * Reduced plan fields for a Docker build/bake/push.
  *
  * @category models
@@ -149,6 +165,12 @@ export const plan = async (options: {
         toolchain: tool.identity,
         refusal: "Docker.Push tags must resolve to strings before execution"
       }
+    }
+    for (const [index, tag] of tags.entries()) {
+      // Real stamps are late-bound; their resolved tag is checked at spawn.
+      if (Schema.is(Stamp.Value)(attrs.tags[index])) continue
+      const refusal = pushTagRefusal(tag!)
+      if (refusal !== undefined) return { outDirs: [], toolchain: tool.identity, refusal }
     }
     const commands = tags.map((tag) => [tool.path, "push", `${attrs.registry}/${attrs.name}:${tag}`])
     return {
