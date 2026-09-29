@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 type mockLFSQuerier struct {
@@ -218,6 +219,29 @@ func TestLFSService_BatchUpload_RequiresAuth(t *testing.T) {
 	svc := NewLFSService(&mockLFSQuerier{}, &mockBlobStore{}, time.Minute)
 	_, err := svc.Batch(context.Background(), nil, "alice", "demo", LFSBatchInput{Operation: "upload", Objects: []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}}})
 	assert.Equal(t, 401, apiStatus(t, err))
+}
+
+func TestLFSBatchUpload_RefusesObjectOverMaxSize(t *testing.T) {
+	svc := NewLFSService(&mockLFSQuerier{getRepoByOwnerAndLowerNameFn: func(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+		return lfsRepo(), nil
+	}}, &mockBlobStore{}, time.Minute, WithLFSVerifyBaseURL("https://plue.test"))
+
+	_, err := svc.Batch(context.Background(), lfsUser(), "alice", "demo", LFSBatchInput{
+		Operation: "upload",
+		Objects:   []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 5*1024*1024*1024 + 1}},
+	})
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, pkgerrors.CodeRequestEntityTooLarge, apiErr.Code)
+	assert.Equal(t, 413, apiErr.Status)
+
+	resp, err := svc.Batch(context.Background(), lfsUser(), "alice", "demo", LFSBatchInput{
+		Operation: "upload",
+		Objects:   []LFSObjectInput{{Oid: strings.Repeat("b", 64), Size: maxLFSObjectSize}},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Objects, 1)
+	assert.Equal(t, maxLFSObjectSize, resp.Objects[0].Size)
 }
 
 func TestLFSService_Batch_RejectsOversizedObjectList(t *testing.T) {

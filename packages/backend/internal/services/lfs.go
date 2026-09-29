@@ -32,6 +32,9 @@ import (
 // batch size.
 const maxLFSBatchObjects = 100
 
+// maxLFSObjectSize bounds a single Git LFS object to 5 GiB.
+const maxLFSObjectSize int64 = 5 * 1024 * 1024 * 1024
+
 const (
 	lfsVerifyContinuationGrace = 15 * time.Minute
 	lfsReservationCleanupGrace = 5 * time.Minute
@@ -1281,6 +1284,9 @@ func validateLFSObjectInput(input LFSObjectInput) (string, int64, error) {
 	}
 	if input.Size < 0 {
 		return "", 0, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LFSObject", Field: "size", Code: "invalid"})
+	}
+	if input.Size > maxLFSObjectSize {
+		return "", 0, pkgerrors.RequestEntityTooLarge(fmt.Sprintf("lfs object exceeds the %d byte size limit", maxLFSObjectSize))
 	}
 	return oid, input.Size, nil
 }

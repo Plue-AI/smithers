@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -920,7 +919,7 @@ func TestLFSService_BatchUpload_RejectsDuplicateOIDWithConflictingSizes(t *testi
 		Operation: "upload",
 		Objects: []LFSObjectInput{
 			{Oid: oid, Size: 1},
-			{Oid: oid, Size: math.MaxInt64},
+			{Oid: oid, Size: maxLFSObjectSize},
 		},
 	})
 
