@@ -72,6 +72,54 @@ describe("the inert fs boundary", () => {
     expect(copied.first[0]?.value).toBe(1)
   })
 
+  it("admits only undecorated, valid native dates in decoded values", () => {
+    const original = new Date("2026-01-01T00:00:00.000Z")
+    const admitted = Boundary.admitDecoded({ dates: [original] })
+    expect(admitted).toMatchObject({ ok: true })
+    if (!admitted.ok) return
+    const copy = admitted.value as { readonly dates: ReadonlyArray<Date> }
+    expect(copy.dates[0]).toBeInstanceOf(Date)
+    expect(Object.getPrototypeOf(copy.dates[0])).toBe(Date.prototype)
+    expect(copy.dates[0]).not.toBe(original)
+    expect(copy.dates[0]?.getTime()).toBe(original.getTime())
+    expect(Object.isFrozen(copy)).toBe(true)
+    expect(Object.isFrozen(copy.dates)).toBe(true)
+    // Date setters can mutate their internal slot; isolation comes from detaching the leaf.
+    original.setUTCFullYear(2030)
+    expect(copy.dates[0]?.toISOString()).toBe("2026-01-01T00:00:00.000Z")
+
+    class DerivedDate extends Date {}
+    const enumerable = Object.assign(new Date("2026-01-01"), { extra: 1 })
+    const hidden = new Date("2026-01-01")
+    Object.defineProperty(hidden, "extra", { value: 1, enumerable: false })
+    const symbol = new Date("2026-01-01")
+    Object.defineProperty(symbol, Symbol("extra"), { value: 1 })
+    for (
+      const [caseName, value] of [
+        ["invalid", new Date(Number.NaN)],
+        ["enumerable", enumerable],
+        ["hidden", hidden],
+        ["symbol", symbol],
+        ["subclass", new DerivedDate("2026-01-01")],
+        ["other native", new Map()]
+      ] as const
+    ) {
+      expect({ caseName, ...Boundary.admitDecoded({ dates: [value] }) }).toEqual({
+        caseName,
+        ok: false,
+        path: "$.dates[0]",
+        complaint: "must be an ordinary record"
+      })
+    }
+    for (const value of [Object.create(Date.prototype), new Proxy(new Date("2026-01-01"), {})]) {
+      expect(Boundary.admitDecoded({ dates: [value] })).toEqual({
+        ok: false,
+        path: "$.dates[0]",
+        complaint: "could not be inspected without executing user code"
+      })
+    }
+  })
+
   it("rejects malformed arrays without invoking accessors", () => {
     const sparse = new Array(1)
     const decorated = Object.assign([1], { extra: true })
