@@ -44,6 +44,14 @@ const SOURCE = /\.[cm]?[jt]sx?$/
 const RESERVED_DYNAMIC_ACTION = "repository-flow:*"
 const COVERAGE_TOKEN = /^(?:action|host|path|door|dimension|surface|evidence):\S+$/
 
+const validTimestamp = (value: unknown): value is string => {
+  if (typeof value !== "string") return false
+  const match = /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value)
+  if (!match || !Number.isFinite(Date.parse(value))) return false
+  const date = new Date(`${match[1]}T00:00:00Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === match[1]
+}
+
 const sourceFile = (file: string): ts.SourceFile => ts.createSourceFile(
   file,
   readFileSync(file, "utf8"),
@@ -458,7 +466,7 @@ export const checkRealE2E = ({ realDir, flowNameFile, resultsFile, now, requireC
           runs = evidence.runs
           if (evidence.suiteStatus !== "passed") findings.push({ severity: "error", code: "suite-did-not-pass", file: resultsFile, line: 1, message: `Playwright suite status was ${evidence.suiteStatus}` })
           for (const message of evidence.reporterErrors) findings.push({ severity: "error", code: "reporter-evidence-error", file: resultsFile, line: 1, message })
-          for (const run of runs) if (!run.scenarioId || !run.host || !run.status || !/^[0-9a-f]{40,64}$/.test(run.revision) || !run.startedAt || !run.finishedAt) {
+          for (const run of runs) if (!run.scenarioId || !run.host || !run.status || !/^[0-9a-f]{40,64}$/.test(run.revision) || !validTimestamp(run.startedAt) || !validTimestamp(run.finishedAt) || Date.parse(run.finishedAt) < Date.parse(run.startedAt)) {
             findings.push({ severity: "error", code: "malformed-run", file: resultsFile, line: 1, message: "Every run requires scenario, verified host, explicit status, exact revision, and timestamps" })
           }
           for (const run of runs) {

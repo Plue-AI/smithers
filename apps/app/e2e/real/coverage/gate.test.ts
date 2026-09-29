@@ -106,6 +106,26 @@ export const searchFlows = (actions) => [
     expect(report.ok).toBe(false)
   })
 
+  test.each([
+    ["malformed start", { startedAt: "not-a-date" }],
+    ["malformed finish", { finishedAt: "still-not-a-date" }],
+    ["non-string start", { startedAt: 123 }],
+    ["non-string finish", { finishedAt: {} }],
+    ["impossible date", { startedAt: "2026-02-30T12:00:00Z" }],
+    ["inverted window", { startedAt: "2026-09-27T12:00:00Z", finishedAt: "2026-09-26T12:00:00Z" }]
+  ])("rejects %s in executed receipt timestamps", (_name, timestamps) => {
+    const { root, real, flows } = fixture()
+    writeFileSync(join(real, "repo.spec.ts"), valid)
+    const results = join(root, "results.json")
+    const run = { scenarioId: "repo.open.success", host: "local", status: "passed", revision: "a".repeat(40),
+      startedAt: "2026-09-27T12:00:00Z", finishedAt: "2026-09-27T12:00:01Z", ...timestamps }
+    writeFileSync(results, JSON.stringify({ suiteStatus: "passed", reporterErrors: [], runs: [run] }))
+    const report = checkRealE2E({ realDir: real, flowNameFile: flows, resultsFile: results,
+      deferred, requireComplete: true, expectedRevision: run.revision, expectedHost: "local" })
+    expect(report.ok).toBe(false)
+    expect(report.findings.map((finding) => finding.code)).toContain("malformed-run")
+  })
+
   test.each(["failed", "timedOut", "interrupted", "skipped"])("a passed retry cannot erase an earlier %s attempt", (status) => {
     const { root, real, flows } = fixture()
     writeFileSync(join(real, "repo.spec.ts"), valid)
