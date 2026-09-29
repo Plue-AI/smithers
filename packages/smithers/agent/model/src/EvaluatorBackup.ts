@@ -1,4 +1,8 @@
-/** Model-backed judgments and transport-only fallback for an Evaluator. */
+/**
+ * Model-backed judgments and transport-only fallback for an Evaluator.
+ *
+ * @since 1.0.0-rc.1
+ */
 
 import { Effect, Stream } from "effect"
 import * as Evaluator from "./Evaluator.ts"
