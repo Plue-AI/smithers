@@ -18,6 +18,7 @@
 #   jj         .smithers/WORKSPACE.ts jjVersion
 #   Rust       rust-toolchain.toml (channel, components, targets)
 #   Go         PACKAGE.ts `CiToolchain.Go`
+#   PostgreSQL PACKAGE.ts `CiToolchain.Postgres` (major release)
 #   Foundry    PACKAGE.ts `CiToolchain.Foundry` / cloud.sh ensure_foundry
 #   ripgrep    PACKAGE.ts `CiToolchain.Ripgrep` (the base pin already matches)
 #
@@ -283,6 +284,8 @@ in
       pnpm
       rust
       go
+      # Storage matrix tests run initdb and pg_ctl in a task-local cluster.
+      pkgs.postgresql_18
       foundry
       # `faults` and every confined target run under bubblewrap, which ci.yml
       # apt-installs and cloud.sh cannot install at all on an unprivileged

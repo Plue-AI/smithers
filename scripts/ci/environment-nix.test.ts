@@ -125,6 +125,13 @@ describe("the Cloud machine pins what the repository declares", () => {
     expect(pinned("go")).toBe(only(rootPackage, /CiToolchain\.Go\(\{ release: "([^"]+)" \}\)/, "Go in PACKAGE.ts"))
   })
 
+  test("PostgreSQL is the release PACKAGE.ts names for the storage matrix", () => {
+    const release = only(rootPackage, /CiToolchain\.Postgres\(\{ release: "([^"]+)" \}\)/, "Postgres in PACKAGE.ts")
+    expect(environment).toContain(`pkgs.postgresql_${release}`)
+    expect(cloud).toContain("packages) echo 'js jj foundry postgres'")
+    expect(cloud).toContain("postgres) ensure_postgres")
+  })
+
   test("Foundry is the release cloud.sh and PACKAGE.ts name", () => {
     const foundry = pinned("foundry")
     expect(`v${foundry}`).toBe(

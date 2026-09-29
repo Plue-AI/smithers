@@ -303,6 +303,22 @@ ensure_jj() {
   fi
 }
 
+ensure_postgres() {
+  # The NixOS image provides this in environment.systemPackages. The Debian
+  # pool is unprivileged, so apt_install would silently skip it there; fail
+  # before running the storage matrix rather than hiding a missing initdb.
+  if ! command -v initdb >/dev/null 2>&1 || ! command -v pg_ctl >/dev/null 2>&1; then
+    echo 'PostgreSQL 18 (initdb and pg_ctl) must be on PATH for the packages gate' >&2
+    return 1
+  fi
+  local major
+  major="$(pg_ctl --version | sed -n 's/^pg_ctl (PostgreSQL) \([0-9][0-9]*\).*/\1/p')"
+  if [ -z "$major" ] || [ "$major" -lt 17 ]; then
+    echo 'The packages gate needs PostgreSQL 17 or later (pg_c_utf8)' >&2
+    return 1
+  fi
+}
+
 ensure_foundry() {
   local arch sha
   case "$(uname -m)" in
@@ -357,8 +373,8 @@ native_jj_export() {
 # before any tool is installed.
 gate_tools() {
   case "$1" in
-    workspace) echo 'js jj foundry' ;;
-    packages) echo 'js jj foundry' ;;
+    workspace) echo 'js jj foundry postgres' ;;
+    packages) echo 'js jj foundry postgres' ;;
     examples) echo 'js jj' ;;
     scripts) echo 'js jj rust' ;;
     flows) echo 'js' ;;
@@ -421,7 +437,7 @@ bootstrap_for() {
       esac
     done
   done
-  for tool in js jj foundry rust; do
+  for tool in js jj foundry rust postgres; do
     case "$wanted" in
       *" $tool "*) ;;
       *) continue ;;
@@ -431,6 +447,7 @@ bootstrap_for() {
       jj) ensure_jj ;;
       foundry) ensure_foundry ;;
       rust) ensure_rust ;;
+      postgres) ensure_postgres ;;
     esac
   done
 }
