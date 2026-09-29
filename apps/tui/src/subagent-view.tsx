@@ -6,8 +6,9 @@
  */
 import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
-import { type ReactNode, type RefObject, useEffect, useRef } from "react"
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef } from "react"
 import stringWidth from "string-width"
+import * as Graph from "./graph.ts"
 import * as Inbox from "./inbox.ts"
 import type { Model } from "./models.ts"
 import * as Subagents from "./subagents.ts"
@@ -285,6 +286,111 @@ export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string;
     ? Tabs.style(row.status, now)
     : Tabs.styleOf(row.worker, now)
 
+/** A flow run's node call as a graph node's glyph. */
+const callGlyph = { done: "●", failed: "●", running: "◐" } as const
+
+/**
+ * The run forest around `row` as a graph: its root worker and every agent under it, or a flow run
+ * and its node calls. Rows supply each box's name, seat and clock.
+ */
+export const forest = (
+  row: Inbox.Row,
+  rows: ReadonlyArray<Inbox.Row>,
+  tabs: ReadonlyArray<Tab>,
+  nodes: (
+    runId: string
+  ) => ReadonlyArray<{ readonly id: string; readonly label: string; readonly status: keyof typeof callGlyph }>,
+  now: number
+): Graph.Node => {
+  const box = (each: Inbox.Row, children: ReadonlyArray<Graph.Node>): Graph.Node => {
+    const glyph = rowGlyph(each, now)
+    return {
+      key: each.key,
+      glyph: glyph.glyph,
+      tone: glyph.tone,
+      name: each.name,
+      sub: [each.seat, each.clock, Inbox.meter(each)].filter((part) => part !== "").join(" · "),
+      children
+    }
+  }
+  if (row.run !== undefined) {
+    return box(
+      row,
+      nodes(row.run.id).map((call) => ({
+        key: `${row.key}:${call.id}`,
+        glyph: callGlyph[call.status],
+        tone: call.status === "done" ? color.success : call.status === "failed" ? color.danger : color.info,
+        name: call.label,
+        sub: "fn",
+        children: []
+      }))
+    )
+  }
+  const byKey = new Map(rows.map((each) => [each.key, each]))
+  // Restored tabs are data: a parent cycle ends the walk instead of hanging it.
+  let root = row.worker!
+  const climbed = new Set([root.id])
+  for (let parent = root.parent; parent !== undefined && !climbed.has(parent);) {
+    const above = tabs.find((tab) => tab.id === parent)
+    if (above === undefined) break
+    climbed.add(above.id)
+    root = above
+    parent = above.parent
+  }
+  const grown = new Set<string>()
+  const grow = (tab: Tab): Graph.Node | undefined => {
+    const shown = byKey.get(tab.id)
+    if (shown === undefined || grown.has(tab.id)) return undefined
+    grown.add(tab.id)
+    return box(
+      shown,
+      tabs.filter((child) => child.parent === tab.id).flatMap((child) => grow(child) ?? [])
+    )
+  }
+  return grow(root) ?? box(row, [])
+}
+
+/** The graph pane: the forest drawn, the selected box scrolled into view; PageUp/PageDown scroll it. */
+export function GraphView(props: {
+  readonly root: Graph.Node
+  readonly selected: string
+  readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
+}) {
+  const box = useRef<ScrollBoxRenderable>(null)
+  // The clock redraws the app ten times a second; the forest is drawn again only when it changes.
+  const shape = JSON.stringify(props.root)
+  const drawn = useMemo(
+    () =>
+      Graph.draw(props.root, props.selected, {
+        line: color.faint,
+        accent: color.brand,
+        text: color.text,
+        faint: color.faint
+      }),
+    [shape, props.selected]
+  )
+  if (props.scrollRef !== undefined) {
+    props.scrollRef.current = (direction) => box.current?.scrollBy(direction * 0.5, "viewport")
+  }
+  // Only a new selection, or its box moving, scrolls the view; a redraw leaves PageUp/PageDown where they were.
+  const at = drawn.boxes.get(props.selected)
+  // After layout: before it the view has no size and clamps the scroll to 0. A new forest's size counts too.
+  useEffect(() => {
+    if (at === undefined) return
+    const timer = setTimeout(() => box.current?.scrollTo({ x: Math.max(0, at.x - 2), y: Math.max(0, at.y - 1) }), 0)
+    return () => clearTimeout(timer)
+  }, [props.selected, at?.x, at?.y, drawn.rows.length])
+  return (
+    <scrollbox ref={box} scrollX scrollY style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
+      {drawn.rows.map((spans, index) => (
+        <text key={index} wrapMode="none">
+          {spans.map((span, at) => <span key={at} fg={span.fg}>{span.text}</span>)}
+        </text>
+      ))}
+    </scrollbox>
+  )
+}
+
 /** Fixed columns right of the name: seat, clock, window and cache. */
 const columns = { seat: 7, clock: 7, meter: 10 } as const
 
@@ -323,6 +429,8 @@ export function Overview(props: {
   readonly review: ReactNode
   /** The selected row's question or last step while peeking. */
   readonly peek?: ReadonlyArray<string>
+  /** `g`: the selected row's run forest, drawn instead of the list and cards. */
+  readonly graph?: Graph.Node
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
 }) {
   const { tree: treeWidth, cards: rightWidth, grid: gridWidth } = overviewWidths(props.width)
@@ -332,7 +440,9 @@ export function Overview(props: {
   if (props.scrollRef !== undefined && props.selected !== chat) {
     props.scrollRef.current = (direction) => grid.current?.scrollBy(direction * 0.5, "viewport")
   }
-  useEffect(() => tree.current?.scrollChildIntoView(`overview:${props.selected}`), [props.selected])
+  // Also when the list comes back from the graph: it mounts at the top.
+  const listed = props.graph === undefined
+  useEffect(() => tree.current?.scrollChildIntoView(`overview:${props.selected}`), [props.selected, listed])
   useEffect(() => {
     if (props.cards.focused !== undefined) grid.current?.scrollChildIntoView(props.cards.focused)
   }, [props.cards.focused])
@@ -379,6 +489,22 @@ export function Overview(props: {
         <span fg={chosen ? color.text : color.muted}>{title}</span>
         <span fg={color.faint}>{" ".repeat(gap)}{SubagentCard.clip(aside(each), right)}</span>
       </text>
+    )
+  }
+  if (props.graph !== undefined) {
+    return (
+      <box
+        title="graph"
+        style={{ border: true, flexGrow: 1, flexShrink: 1, minHeight: 0 }}
+        borderColor={color.brand}
+        titleColor={color.faint}
+      >
+        <GraphView
+          root={props.graph}
+          selected={props.selected}
+          {...(props.scrollRef === undefined ? {} : { scrollRef: props.scrollRef })}
+        />
+      </box>
     )
   }
   return (

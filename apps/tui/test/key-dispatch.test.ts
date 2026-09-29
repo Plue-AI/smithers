@@ -743,7 +743,9 @@ test.each(
     ["tree", "space", ["peek"]],
     ["cards", "space", []],
     ["tree", "a", ["answer"]],
-    ["cards", "a", []]
+    ["cards", "a", []],
+    ["tree", "g", ["graph"]],
+    ["cards", "g", []]
   ] as const
 )("overview %s %s routes only its active pane", (pane, name, expected) => {
   const calls: unknown[] = []
@@ -755,6 +757,7 @@ test.each(
     tree: (step) => calls.push(["tree", step]),
     peek: () => calls.push("peek"),
     answer: () => calls.push("answer"),
+    graph: () => calls.push("graph"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
     files: () => calls.push("files"),

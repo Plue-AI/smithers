@@ -160,6 +160,8 @@ one row per flow call (`→ read`, `$ ran`, `← edited`); an edit draws its dif
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.
 
+In the Summary overview **g** draws the selected row's run forest as a graph, left to right: a worker and every agent under it, or a flow run and its node calls; j and k move the selection and **g** returns to the list.
+
 The footer meter reads `↑input ↓output Rcached window%/size cache hit%`; the hit rate is cached over input tokens and shows only when the provider reports cached tokens.
 
 The bottom timeline shows recorded phases, edits, stalls, and verification

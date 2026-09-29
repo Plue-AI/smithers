@@ -206,6 +206,8 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly peek: () => void
   /** `a`: the selected row's form, when it waits on the person. */
   readonly answer: () => void
+  /** `g`: the graph of the selected row's run forest, or back to the tree. */
+  readonly graph: () => void
   readonly card: (direction: Subagents.Direction) => void
   readonly open: () => void
   readonly files: () => void
@@ -219,6 +221,7 @@ export const overviewKey = (key: KeyEvent, state: {
   if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
   if (key.name === "space" && state.pane === "tree") return act.peek()
   if (key.name === "a" && state.pane === "tree") return act.answer()
+  if (key.name === "g" && state.pane === "tree") return act.graph()
   const moved = direction(key, true)
   if (moved !== undefined && state.pane === "tree") {
     if (moved === "right") return act.pane()

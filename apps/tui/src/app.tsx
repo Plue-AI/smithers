@@ -338,7 +338,13 @@ export function App(props: AppProps) {
     })
   /** The Summary overview: the tree's selection (`chat` or a worker), the pane with the keys, and the focused card. */
   const [overview, setOverview] = useState<
-    { readonly selected?: string; readonly pane: "tree" | "cards"; readonly card?: string; readonly peek?: boolean }
+    {
+      readonly selected?: string
+      readonly pane: "tree" | "cards"
+      readonly card?: string
+      readonly peek?: boolean
+      readonly graph?: boolean
+    }
   >({ pane: "tree" })
   useEffect(() => workspace.subscribe(() => setRevision((value) => value + 1)), [workspace])
   useEffect(() => () => workspace.dispose(), [workspace])
@@ -768,8 +774,14 @@ export function App(props: AppProps) {
   const overviewTab = overviewRow?.worker
   const overviewBranch = overviewTab === undefined ? [] : Tree.branch(snapshot.tabs, overviewTab.id)
   const overviewCard = overviewBranch.find((tab) => tab.id === overview.card) ?? overviewBranch[0]
-  /** A flow row has no cards: however it was selected, the keys stay on the list. */
-  const overviewPane = overviewRow?.run === undefined ? overview.pane : "tree"
+  /** A flow row has no cards, nor does the graph: however it was selected, the keys stay on the list. */
+  /** The graph shows for a worker or flow row, never the chat. */
+  const overviewGraph = overview.graph === true && overviewRow !== undefined
+  const overviewPane = overviewRow?.run === undefined && !overviewGraph ? overview.pane : "tree"
+  // The graph of a flow run draws its node calls, read from the run's events.
+  useEffect(() => {
+    if (overviewGraph && overviewRow?.run !== undefined) void runs.hydrate(overviewRow.run.id)
+  }, [overviewGraph, overviewRow?.run?.id, runs])
   /** The overview takes the keys, except while the conversation review has them. */
   const overviewKeys = overviewShown && panelFocus &&
     !(overviewSelected === SubagentView.chat && overviewPane === "cards")
@@ -1842,7 +1854,7 @@ export function App(props: AppProps) {
       // The overview's tab switches between its tree and the selected branch, the review included.
       // A flow row has no cards to act on; the cards pane always shows cards, never a peek.
       key.preventDefault()
-      if (overviewRow?.run !== undefined) return
+      if (overviewRow?.run !== undefined || overviewGraph) return
       return setOverview((current) => ({
         ...current,
         selected: overviewSelected,
@@ -1909,7 +1921,7 @@ export function App(props: AppProps) {
           flushSync(() => {
             setSurface("chat")
             setPanelFocus(false)
-            setOverview((current) => ({ ...current, peek: false }))
+            setOverview((current) => ({ ...current, peek: false, graph: false }))
           }),
         release: () => flushSync(() => setPanelFocus(false)),
         pane: () => {
@@ -1922,6 +1934,13 @@ export function App(props: AppProps) {
           setOverview((current) => ({ ...current, selected: ids[at]!, card: undefined }))
         },
         peek: () => setOverview((current) => ({ ...current, selected: overviewSelected, peek: current.peek !== true })),
+        graph: () =>
+          setOverview((current) => ({
+            ...current,
+            selected: overviewSelected,
+            pane: "tree",
+            graph: current.graph !== true
+          })),
         answer: () =>
           flushSync(() => {
             if (overviewRow?.worker !== undefined) answerWorker(overviewRow.worker.id)
@@ -1939,7 +1958,7 @@ export function App(props: AppProps) {
           setOverview((current) => ({ ...current, card: overviewBranch[branchKeys.indexOf(next)]?.id }))
         },
         open: () => {
-          setOverview((current) => ({ ...current, peek: false }))
+          setOverview((current) => ({ ...current, peek: false, graph: false }))
           if (overviewPane === "tree" && overviewRow?.run !== undefined) return clickTab(`flow:${overviewRow.run.id}`)
           if (overviewPane === "tree" && overviewTab === undefined) {
             return setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" }))
@@ -2243,6 +2262,9 @@ export function App(props: AppProps) {
               <SubagentView.Overview
                 sections={inbox}
                 tabs={snapshot.tabs}
+                {...(overviewGraph
+                  ? { graph: SubagentView.forest(overviewRow, inboxRows, snapshot.tabs, runs.nodes, now) }
+                  : {})}
                 {...(overview.peek === true && overviewRow !== undefined
                   ? { peek: Inbox.peek(overviewRow, workspace.transcript) }
                   : {})}

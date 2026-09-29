@@ -563,6 +563,15 @@ export class FlowRuns {
     queueMicrotask(() => void this.prepare(id, attempt))
     return { id, status: "requested" }
   }
+  /** A run's node calls as far as its events show, in order: the graph's children of a flow run. */
+  nodes = (
+    id: string
+  ): ReadonlyArray<{ readonly id: string; readonly label: string; readonly status: "done" | "failed" | "running" }> =>
+    NodeOutput.project(this.events.get(id) ?? []).map((node) => ({
+      id: node.nodeId,
+      label: node.flowName,
+      status: node.outcome === "success" ? "done" : node.outcome === "failure" ? "failed" : "running"
+    }))
   /** Read restored events outside render. A failed read is retryable on the next activation. */
   hydrate = async (id: string): Promise<void> => {
     const run = this.runs.get(id)
