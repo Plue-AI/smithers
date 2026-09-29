@@ -20,6 +20,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+// RoutePrefix is reserved for callers authenticated with the relay token.
 const RoutePrefix = "/__preview/"
 
 // RelayTokenHeader carries the shared relay credential. Platform domains
@@ -80,9 +81,10 @@ type Handler struct {
 	// grantsMu guards grants: session tickets the API confirmed, until when.
 	// A preview page loads many assets; one API check covers a burst of them
 	// and still bounds how long a revoked grant keeps working.
-	grantsMu sync.Mutex
-	grants   map[string]time.Time
-	now      func() time.Time
+	grantsMu     sync.Mutex
+	grants       map[string]time.Time
+	publicGrants map[string]publicPreviewGrantCache
+	now          func() time.Time
 }
 
 // grantRecheckInterval bounds how long a confirmed grant is trusted before
@@ -120,11 +122,12 @@ func NewHandler(dialer PortDialer, allowedSuffixes []string, logger *slog.Logger
 		}
 	}
 	return &Handler{dialer: dialer, allowedSuffixes: clean, logger: logger,
-		grants: map[string]time.Time{}, now: time.Now}
+		grants: map[string]time.Time{}, publicGrants: map[string]publicPreviewGrantCache{}, now: time.Now}
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	domain, upstreamPath, ok := h.route(request.URL.Path)
+	pathRouted := ok
 	if !ok {
 		// The *.preview.jjhub.tech load balancer terminates TLS and forwards
 		// the bare request, no /__preview/ prefix, so an approved Host is the
@@ -148,7 +151,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		pkgerrors.WriteError(writer, pkgerrors.NotFound("no preview is served at this path"))
 		return
 	}
-	if isPlatformDomain(domain) && !h.relayAuthorized(request) {
+	if (pathRouted || isPlatformDomain(domain)) && !h.relayAuthorized(request) {
 		outcome = outcomeUnauthorized
 		// The domain, never the presented or expected token.
 		h.logger.Warn("preview relay credential refused", "domain", domain,
@@ -187,7 +190,11 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		ForceAttemptHTTP2: false,
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return h.dialer.Dial(ctx, domain)
+			connection, err := h.dialer.Dial(ctx, domain)
+			if err != nil || isPlatformDomain(domain) || h.relayAuthorized(request) {
+				return connection, err
+			}
+			return h.watchPreviewConnection(request, domain, connection), nil
 		},
 	}
 	defer transport.CloseIdleConnections()
@@ -233,6 +240,44 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	proxy.ServeHTTP(writer, request)
 }
 
+// watchPreviewConnection also revokes upgraded sockets and streaming HTTP
+// responses: those do not return to ServeHTTP for another request check.
+func (h *Handler) watchPreviewConnection(request *http.Request, domain string, connection net.Conn) net.Conn {
+	watched := &previewConnection{Conn: connection, done: make(chan struct{})}
+	go func() {
+		ticker := time.NewTicker(grantRecheckInterval)
+		defer ticker.Stop()
+		defer watched.Close()
+		for {
+			select {
+			case <-watched.done:
+				return
+			case <-request.Context().Done():
+				return
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(request.Context(), grantRecheckInterval)
+				status := h.authorizeSessionFresh(request.WithContext(ctx), domain, false)
+				cancel()
+				if status != http.StatusOK {
+					return
+				}
+			}
+		}
+	}()
+	return watched
+}
+
+type previewConnection struct {
+	net.Conn
+	done chan struct{}
+	once sync.Once
+}
+
+func (c *previewConnection) Close() error {
+	c.once.Do(func() { close(c.done) })
+	return c.Conn.Close()
+}
+
 // exchangeTicket turns the API's short-lived URL ticket into the host-only
 // session cookie and redirects to the same URL without the ticket, so it
 // never reaches guest code, a Referer, or the page's history entry.
@@ -263,6 +308,58 @@ func (h *Handler) exchangeTicket(writer http.ResponseWriter, request *http.Reque
 // domain whose grant the API still confirms, 503 when the API cannot answer,
 // and 401 otherwise.
 func (h *Handler) authorizeSession(request *http.Request, domain string) int {
+	return h.authorizeSessionFresh(request, domain, true)
+}
+
+func (h *Handler) authorizeSessionFresh(request *http.Request, domain string, allowCached bool) int {
+	status := h.authorizePrivateSession(request, domain, allowCached)
+	if status == http.StatusUnauthorized {
+		return h.authorizePublicPreview(request.Context(), domain, allowCached)
+	}
+	return status
+}
+
+type publicPreviewGrantCache struct {
+	until  time.Time
+	status int
+}
+
+func (h *Handler) authorizePublicPreview(ctx context.Context, domain string, allowCached bool) int {
+	public, ok := h.authorizer.(PublicPreviewAuthorizer)
+	if !ok || h.tickets == nil {
+		return http.StatusUnauthorized
+	}
+	now := h.now()
+	h.grantsMu.Lock()
+	cached, found := h.publicGrants[domain]
+	h.grantsMu.Unlock()
+	if allowCached && found && now.Before(cached.until) {
+		return cached.status
+	}
+	status := http.StatusOK
+	if err := public.AuthorizePublicPreview(ctx, domain); err != nil {
+		if !errors.Is(err, ErrGrantRevoked) {
+			return http.StatusServiceUnavailable
+		}
+		status = http.StatusUnauthorized
+	}
+	h.grantsMu.Lock()
+	if len(h.publicGrants) >= maxCachedGrants {
+		for key, value := range h.publicGrants {
+			if !now.Before(value.until) {
+				delete(h.publicGrants, key)
+			}
+		}
+		if len(h.publicGrants) >= maxCachedGrants {
+			h.publicGrants = map[string]publicPreviewGrantCache{}
+		}
+	}
+	h.publicGrants[domain] = publicPreviewGrantCache{until: now.Add(grantRecheckInterval), status: status}
+	h.grantsMu.Unlock()
+	return status
+}
+
+func (h *Handler) authorizePrivateSession(request *http.Request, domain string, allowCached bool) int {
 	cookie, err := request.Cookie(SessionCookieName)
 	if err != nil {
 		return http.StatusUnauthorized
@@ -279,7 +376,7 @@ func (h *Handler) authorizeSession(request *http.Request, domain string) int {
 	h.grantsMu.Lock()
 	until, cached := h.grants[cookie.Value]
 	h.grantsMu.Unlock()
-	if cached && now.Before(until) {
+	if allowCached && cached && now.Before(until) {
 		return http.StatusOK
 	}
 	if err := h.authorizer.AuthorizeGrant(request.Context(), cookie.Value); err != nil {

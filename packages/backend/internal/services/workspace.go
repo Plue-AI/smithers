@@ -844,7 +844,8 @@ type workspacePreviewAuthorizationQuerier interface {
 // AuthorizeWorkspacePreview answers the preview gateway's recheck of a
 // viewer's grant: the account can still sign in, the repository is still
 // readable to it, and the workspace is still its own or shared with it. A
-// removed share or a suspended user fails here on the gateway's next check.
+// removed share, suspended user, or owner losing repository access fails here
+// on the gateway's next check.
 func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
 	if s == nil || s.q == nil {
 		return pkgerrors.Internal("workspace store unavailable")
@@ -877,8 +878,30 @@ func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, worksp
 	if !permission.Satisfies(middleware.PermissionRead) {
 		return pkgerrors.Forbidden("access denied")
 	}
-	_, err = s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead)
-	return err
+	workspace, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead)
+	if err != nil {
+		return err
+	}
+	if workspace.UserID != userID {
+		owner, err := store.GetUserByID(ctx, workspace.UserID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return pkgerrors.Forbidden("access denied")
+			}
+			return pkgerrors.Internal("load preview owner")
+		}
+		if !owner.IsActive || owner.ProhibitLogin || owner.DeletedAt.Valid {
+			return pkgerrors.Forbidden("access denied")
+		}
+		ownerPermission, permissionErr := middleware.ResolveRepoPermission(ctx, store, repository, &owner)
+		if permissionErr != nil {
+			return permissionErr
+		}
+		if !ownerPermission.Satisfies(middleware.PermissionRead) {
+			return pkgerrors.Forbidden("access denied")
+		}
+	}
+	return nil
 }
 
 // loadWorkspaceWithAccess loads a workspace by ID + repo, then enforces that

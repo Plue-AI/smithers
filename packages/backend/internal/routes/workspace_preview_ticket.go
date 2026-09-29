@@ -38,6 +38,26 @@ func (h *WorkspacePreviewTicketHandler) Authorize(w http.ResponseWriter, r *http
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
+	if body.Ticket == "" {
+		public, ok := h.Service.(interface {
+			AuthorizePublicPreview(context.Context, string) error
+		})
+		if !ok || body.Domain == "" {
+			pkgerrors.WriteError(w, pkgerrors.Forbidden("preview is private"))
+			return
+		}
+		if err := public.AuthorizePublicPreview(r.Context(), body.Domain); err != nil {
+			var e *pkgerrors.APIError
+			if errors.As(err, &e) && e.Status >= 500 {
+				pkgerrors.WriteError(w, e)
+				return
+			}
+			pkgerrors.WriteError(w, pkgerrors.Forbidden("preview is private"))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	grant, err := h.Tickets.VerifySession(body.Ticket)
 	if err != nil || !previewDomainNamesWorkspace(grant.Domain, grant.WorkspaceID) {
 		pkgerrors.WriteError(w, pkgerrors.Forbidden("preview grant invalid"))

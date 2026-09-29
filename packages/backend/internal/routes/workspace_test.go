@@ -468,7 +468,7 @@ func TestWorkspaceHandler_WorkspaceServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	assert.JSONEq(t, `[
 		{"name":"database","state":"stopped"},
-		{"name":"web","state":"running","port":3000,"url":"https://3000-ws-1.preview.jjhub.tech"}
+		{"name":"web","state":"running","port":3000,"url":"https://example.com/api/repos/alice/demo/workspaces/ws-1/preview/3000"}
 	]`, listRec.Body.String())
 
 	actionReq := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/workspaces/ws-1/services/web/restart", nil)

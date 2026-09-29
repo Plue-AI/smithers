@@ -19,7 +19,7 @@ import (
 // ticket after it has checked the viewer's repository and workspace access,
 // the gateway exchanges it for a host-only cookie, and every request then
 // asks the API whether that grant still holds, so a removed share or a
-// suspended user loses the preview at once, not when the ticket expires.
+// suspended user loses the preview within the recheck interval.
 const (
 	// TicketQueryParameter carries the exchange ticket on the redirect from
 	// the API's preview route. The gateway consumes it and redirects to the
@@ -160,7 +160,13 @@ var ErrGrantRevoked = errors.New("preview grant revoked")
 
 // AuthorizeRequest is the body of the API's grant check.
 type AuthorizeRequest struct {
-	Ticket string `json:"ticket"`
+	Ticket string `json:"ticket,omitempty"`
+	Domain string `json:"domain,omitempty"`
+}
+
+// PublicPreviewAuthorizer checks explicit, durable public access to one port.
+type PublicPreviewAuthorizer interface {
+	AuthorizePublicPreview(context.Context, string) error
 }
 
 // APIAuthorizer asks the API (POST /internal/workspace-previews/authorize,
@@ -173,7 +179,13 @@ type APIAuthorizer struct {
 }
 
 func (a *APIAuthorizer) AuthorizeGrant(ctx context.Context, ticket string) error {
-	body, err := json.Marshal(AuthorizeRequest{Ticket: ticket})
+	return a.authorize(ctx, AuthorizeRequest{Ticket: ticket})
+}
+func (a *APIAuthorizer) AuthorizePublicPreview(ctx context.Context, domain string) error {
+	return a.authorize(ctx, AuthorizeRequest{Domain: domain})
+}
+func (a *APIAuthorizer) authorize(ctx context.Context, grant AuthorizeRequest) error {
+	body, err := json.Marshal(grant)
 	if err != nil {
 		return err
 	}

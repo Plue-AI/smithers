@@ -225,9 +225,9 @@ func (a *fakePreviewAPI) ServeHTTP(writer http.ResponseWriter, request *http.Req
 		writer.WriteHeader(http.StatusBadGateway)
 	case request.Header.Get("Authorization") != "Bearer relay-secret":
 		writer.WriteHeader(http.StatusUnauthorized)
-	case json.NewDecoder(request.Body).Decode(&body) != nil || body.Ticket == "":
+	case json.NewDecoder(request.Body).Decode(&body) != nil:
 		writer.WriteHeader(http.StatusBadRequest)
-	case a.revoked:
+	case a.revoked || body.Ticket == "":
 		writer.WriteHeader(http.StatusForbidden)
 	default:
 		writer.WriteHeader(http.StatusNoContent)
@@ -330,7 +330,7 @@ func TestUserPreviewHostRequiresTicket(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, serve(request).Code)
 	assert.Empty(t, dialer.domain)
 
-	// An expired session is refused without asking the API.
+	// An expired private session falls back only to explicit public consent.
 	api.down = false
 	now = now.Add(SessionTicketTTL + time.Hour)
 	handler.tickets.now = handler.now
@@ -338,7 +338,7 @@ func TestUserPreviewHostRequiresTicket(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "https://"+domain+"/", nil)
 	request.AddCookie(session)
 	assert.Equal(t, http.StatusUnauthorized, serve(request).Code)
-	assert.Equal(t, checks, api.checks)
+	assert.Equal(t, checks+1, api.checks)
 }
 
 func TestUserPreviewWithoutGrantAuthorizerFailsClosed(t *testing.T) {
@@ -381,4 +381,23 @@ func (setCookieDialer) Dial(context.Context, string) (net.Conn, error) {
 		_, _ = io.WriteString(server, "HTTP/1.1 200 OK\r\nSet-Cookie: "+SessionCookieName+"=x; Path=/\r\nSet-Cookie: app=1\r\nContent-Length: 2\r\n\r\nok")
 	}()
 	return client, nil
+}
+
+func TestPublicPreviewCannotServeAnotherPreviewOrigin(t *testing.T) {
+	const victim = "3000-victim.preview.jjhub.tech"
+	const attacker = "3000-attacker.preview.jjhub.tech"
+	for _, host := range []string{victim, "gateway.internal"} {
+		dialer := &testDialer{}
+		handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
+		handler.SetRelayToken("secret")
+		handler.SetGrantAuthorizer(&publicPreviewGrant{public: true})
+		ticket, err := handler.tickets.Issue(Grant{Domain: victim, WorkspaceID: "victim", RepositoryID: 1, UserID: 1}, PurposeSession, SessionTicketTTL)
+		require.NoError(t, err)
+		request := httptest.NewRequest(http.MethodGet, "https://"+host+RoutePrefix+attacker+"/", nil)
+		request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: ticket})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		require.Equal(t, http.StatusUnauthorized, response.Code, "public content must not be embedded under %s", host)
+		require.Empty(t, dialer.domain, "refuse cross-origin routing before workspace wake")
+	}
 }

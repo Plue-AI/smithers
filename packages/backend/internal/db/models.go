@@ -2826,6 +2826,12 @@ type WorkspaceProviderUseRow struct {
 	LastUsedAt   time.Time `json:"last_used_at"`
 }
 
+type WorkspaceServicePreview struct {
+	WorkspaceID string `json:"workspace_id"`
+	Port        int32  `json:"port"`
+	Public      bool   `json:"public"`
+}
+
 type WorkspaceSession struct {
 	ID                string          `json:"id"`
 	WorkspaceID       string          `json:"workspace_id"`

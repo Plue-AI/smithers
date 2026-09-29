@@ -816,12 +816,26 @@ func (s *WorkspaceService) listRuntimeWorkspaceServices(ctx context.Context, row
 }
 
 func (s *WorkspaceService) ResolveWorkspacePreview(ctx context.Context, workspaceID string, repositoryID, userID int64, port uint16, hostname string) (WorkspacePreviewAccess, error) {
-	if !s.hasWorkspaceRuntime() || port == 0 {
+	if port == 0 {
 		return WorkspacePreviewAccess{}, pkgerrors.BadRequest("preview port is required")
+	}
+	if s == nil || s.q == nil {
+		return WorkspacePreviewAccess{}, pkgerrors.Internal("workspace store unavailable")
 	}
 	row, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead)
 	if err != nil {
 		return WorkspacePreviewAccess{}, err
+	}
+	if !s.hasWorkspaceRuntime() {
+		row, err = s.ensureExistingWorkspaceRunning(ctx, row)
+		if err != nil {
+			return WorkspacePreviewAccess{}, err
+		}
+		previews := []WorkspaceManagedService{{Port: int(port)}}
+		if err := s.publishWorkspaceServicePreviews(ctx, row, previews); err != nil {
+			return WorkspacePreviewAccess{}, err
+		}
+		return WorkspacePreviewAccess{URL: previews[0].URL}, nil
 	}
 	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
 	if err != nil {

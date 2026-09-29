@@ -94,6 +94,8 @@ func RegisterWorkspaceRuntimeRoutes(r chi.Router, handler *WorkspaceHandler, rea
 		return
 	}
 	r.With(writeWorkspace...).Post("/workspaces/{id}/commands", handler.ExecuteWorkspaceCommand)
+	r.With(writeWorkspace...).Put("/workspaces/{id}/services/{port}/visibility", handler.WorkspaceServiceVisibility)
+	r.With(readWorkspace...).Get("/workspaces/{id}/services/{port}/visibility", handler.WorkspaceServiceVisibility)
 	r.With(writeWorkspace...).Post("/workspaces/{id}/services", handler.LaunchWorkspaceService)
 	r.With(readWorkspace...).Get("/workspaces/{id}/preview/{port}", handler.ProxyWorkspacePreview)
 	r.With(readWorkspace...).Get("/workspaces/{id}/preview/{port}/*", handler.ProxyWorkspacePreview)
@@ -522,6 +524,10 @@ func (h *WorkspaceHandler) ListWorkspaceServices(w http.ResponseWriter, r *http.
 		writeRouteError(w, r, svcErr)
 		return
 	}
+	for index := range managedServices {
+		setWorkspaceServicePreviewURL(&managedServices[index], repoCtx.Owner, repoCtx.Repository.Name, workspaceID, requestOrigin(r))
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, managedServices)
 }
 
@@ -547,6 +553,8 @@ func (h *WorkspaceHandler) ManageWorkspaceService(w http.ResponseWriter, r *http
 		writeRouteError(w, r, svcErr)
 		return
 	}
+	setWorkspaceServicePreviewURL(&managedService, repoCtx.Owner, repoCtx.Repository.Name, workspaceID, requestOrigin(r))
+	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, managedService)
 }
 
