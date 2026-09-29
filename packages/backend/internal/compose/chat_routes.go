@@ -20,6 +20,8 @@ func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queri
 	if runtime == nil {
 		return
 	}
+	// Use the same bus as AuthLoader for the entire live delivery lifetime.
+	runtime.Handler.Revocations, _ = revocationChecker.(chat.RevocationSource)
 	router.Group(func(r chi.Router) {
 		r.Use(cors.Handler(apiCORSOptions(cfg)))
 		r.Use(middleware.JSONAllowContentType("application/json"))

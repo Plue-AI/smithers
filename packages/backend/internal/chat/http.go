@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 )
 
 const (
@@ -35,11 +37,18 @@ const maxTurnRequestBytes = middleware.MaxRequestBodySize
 // directly; the poll covers a missed cross-replica notification.
 const streamPoll = time.Second
 
+// RevocationSource binds live deliveries to current credential and account state.
+type RevocationSource interface {
+	revocation.Watcher
+	revocation.Checker
+}
+
 type Handler struct {
-	Store      *Store
-	Dispatcher *Dispatcher
-	logger     *slog.Logger
-	metrics    *metrics
+	Revocations RevocationSource
+	Store       *Store
+	Dispatcher  *Dispatcher
+	logger      *slog.Logger
+	metrics     *metrics
 }
 
 // streamAborted records why a renderer stream stopped before its turn ended.
@@ -244,6 +253,34 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "storage_failed")
 		return
 	}
+	// Subscribe before checking cached state so revocations between authentication
+	// and attachment cannot be missed. This lifetime owns delivery only: the
+	// durable producer remains available to a later authorized connection.
+	watchCtx, stopRevocations := context.WithCancel(r.Context())
+	defer stopRevocations()
+	principal := revocation.Principal{UserID: scope.UserID, RepositoryID: scope.RepositoryID}
+	if auth := middleware.AuthInfoFromContext(r.Context()); auth != nil && auth.IsTokenAuth {
+		principal.TokenHash = auth.TokenHash
+	}
+	if repo := middleware.RepoFromContext(r.Context()); repo != nil && repo.OrgID.Valid {
+		principal.OrganizationID = repo.OrgID.Int64
+	}
+	var revoked <-chan revocation.Event
+	if h.Revocations != nil {
+		revoked = h.Revocations.Watch(watchCtx, principal)
+	}
+	isRevoked := func() bool {
+		select {
+		case <-revoked:
+			return true
+		default:
+		}
+		return h.Revocations != nil && (h.Revocations.IsTokenRevoked(principal.TokenHash) || h.Revocations.IsUserDisabled(principal.UserID))
+	}
+	if isRevoked() {
+		publicError(w, ErrForbidden)
+		return
+	}
 	runID, journal, request, ok := readTurnRequest(w, r)
 	if !ok {
 		return
@@ -251,6 +288,10 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	accepted, err := h.Store.Admit(r.Context(), AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
 	if err != nil {
 		publicError(w, err)
+		return
+	}
+	if isRevoked() {
+		publicError(w, ErrForbidden)
 		return
 	}
 	w.Header().Set(journalHeader, "1")
@@ -278,6 +319,9 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	h.Dispatcher.Enqueue(Candidate{Scope: scope, TurnID: accepted.TurnID})
 	after := accepted.Cursor
 	for {
+		if isRevoked() {
+			return
+		}
 		page, replayErr := h.Store.Replay(r.Context(), ReplayInput{Scope: scope, RunID: runID, Journal: journal, After: &after, Limit: 8})
 		if replayErr != nil {
 			if r.Context().Err() == nil {
@@ -286,6 +330,9 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for index := range page.Batches {
+			if isRevoked() {
+				return
+			}
 			batch := page.Batches[index]
 			cursor := cursorAfter(batch)
 			if err = encoder.Encode(Delivery{Type: "batch", Batch: &batch, Cursor: cursor}); err != nil {
@@ -300,6 +347,9 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if page.Terminal && sameCursor(after, page.Head) {
+			if isRevoked() {
+				return
+			}
 			terminal := true
 			_ = encoder.Encode(Delivery{Type: "caught-up", Cursor: after, Terminal: &terminal})
 			flusher.Flush()
@@ -308,6 +358,9 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 		timer := time.NewTimer(streamPoll)
 		select {
 		case <-r.Context().Done():
+			timer.Stop()
+			return
+		case <-revoked:
 			timer.Stop()
 			return
 		case <-changed:
