@@ -345,8 +345,16 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "The same skip over the optional base URL and path, which sit in front of the required credential, so a four-word line fills the required slots rather than the decorative ones."
   },
   {
-    flow: "issue.add-flow", kind: "card", rows: 1,
-    because: "The same skip over the optional repository that leads the add-flow input, so the second token reaches the description the form is there to collect."
+    flow: "files.open-diff", kind: "sentence", rows: 1,
+    because: "A quoted scalar is not a diff payload; the form now explains that the user must select a diff and file instead of throwing (#2554)."
+  },
+  {
+    flow: "issue.add-flow", kind: "card", rows: 5,
+    because: "Four scalar JSON lines now open a form instead of throwing (#2554), beside the existing row that skips the optional repository before the description."
+  },
+  {
+    flow: "files.open-diff", kind: "card", rows: 4,
+    because: "Four scalar JSON lines now open a form to collect the diff and file instead of throwing during dispatch (#2554)."
   },
   {
     flow: "issues.create", kind: "card", rows: 36,
@@ -461,18 +469,9 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
     /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1449 })
-    /*
-     * Two doors throw when the one token they are given is a number: the
-     * render dispatches a card whose payload the event schema rejects. It is
-     * `main@origin`'s, identical at both ends and swept here so the next pass
-     * inherits the list rather than the surprise — and so a NINTH throwing
-     * row fails this file.
-     */
-    expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
-      "/issue.add-flow 7", "/issue.add-flow 0", `/issue.add-flow "hello world"`, "/issue.add-flow 500000",
-      "/files.open-diff 7", "/files.open-diff 0", `/files.open-diff "hello world"`, "/files.open-diff 500000"
-    ])
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1450 })
+    /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
+    expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
   }, 1_800_000)
 
   test("every declared move states why it is one", () => {

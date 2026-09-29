@@ -135,6 +135,29 @@ describe("THE FORM LAW — the agent door", () => {
 })
 
 describe("THE FORM LAW — the slash door and the button door", () => {
+  test("partial JSON slash inputs open usable forms instead of failing the command", async () => {
+    const { store, controller } = await boot()
+    try {
+      for (const flow of ["issue.add-flow", "files.open-diff"] as const) {
+        for (const args of ["7", "0", '"hello world"', "500000", "null", "[]", "{invalid", "{}"]) {
+          const outcome = await controller.commands.run(flow, args)
+          expect(outcome.status).toBe("form")
+          expect(formOf(store, flow)?.payload.fields.length).toBeGreaterThan(0)
+        }
+      }
+      const issue = await controller.commands.run("issue.add-flow", '{"number":7}')
+      expect(issue.status).toBe("form")
+      expect(formOf(store, "issue.add-flow")?.payload.draft).toMatchObject({ number: 7 })
+      expect(payloadFor("issue.add-flow", '{"number":7,"description":"add a flow"}')).toEqual({ payload: { number: 7, description: "add a flow" } })
+      expect(payloadFor("files.open-diff", '{"cardId":"card-1","path":"src/main.ts"}')).toEqual({ payload: { cardId: "card-1", path: "src/main.ts" } })
+      const diff = await controller.commands.run("files.open-diff", '{"cardId":"card-1"}')
+      expect(diff.status).toBe("form")
+      expect(formOf(store, "files.open-diff")?.payload.draft).toMatchObject({ cardId: "card-1" })
+    } finally {
+      await controller.dispose()
+    }
+  })
+
   /*
    * Walk W1 (W1-d-doors.json `pauseFormFields`): the person typed
    * `/triggers.pause canary-w1-not-registered` and read back

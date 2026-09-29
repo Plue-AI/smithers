@@ -810,7 +810,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issue.implement": (args, known) => numbered(args, "An issue number is required", known),
   "prs.triage": (args, known) => numbered(args, "A pull request number is required", known),
   "wiki.ask": (args) => required("question", args, "wiki.ask needs the question"),
-  "issue.add-flow": (args) => { try { return ok(JSON.parse(trimmed(args))) } catch { return no("Describe the flow to add") } },
+  "issue.add-flow": (args) => {
+    try {
+      const value: unknown = JSON.parse(trimmed(args))
+      return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? ok(value as Record<string, unknown>) : no("Describe the flow to add")
+    } catch { return no("Describe the flow to add") }
+  },
   "issues.view": args => {
     const parts = issueViewParts(args)
     if (parts.number === undefined) return no("issues.view needs an issue number")
@@ -1229,7 +1235,11 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "files.implementation-diff": (args) => optional("changeId", args),
   "files.open-diff": (args) => {
-    try { return ok(JSON.parse(args ?? "")) } catch {
+    try {
+      const value: unknown = JSON.parse(args ?? "")
+      return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? ok(value as Record<string, unknown>) : no("Select a diff and file")
+    } catch {
       const [cardId, ...path] = (args ?? "").trim().split(/\s+/)
       return cardId && path.length ? ok({ cardId, path: path.join(" ") }) : no("Select a diff and file")
     }
