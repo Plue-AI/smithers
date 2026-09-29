@@ -40770,9 +40770,11 @@ declaration values a discovered body carries, see the
 
 ```ts
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { Executable, Registry } from "@smthrs/registry"
+import { Registry } from "@smthrs/registry"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 
-const registry = Executable.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
+const registry = Registry.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
 const flows = Registry.Registry.use((catalog) => catalog.list())
 
 console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
@@ -41247,10 +41249,15 @@ the prompt body. `Discovery` calls it with a metadata prefix and the digest of
 the whole file; a caller passing complete text may omit `contentDigest`, and
 the digest of `text` is used.
 
-`descriptor` is `None` when the flow has no non-empty `description`, which is
-the one field discovery requires. Everything else that is missing or malformed
-produces a warning and a conservative value. `warnings` is non-empty in far
-more cases than that, so a caller reports it either way.
+`descriptor` is `Option.none()` when `description` is missing or empty, when
+`capabilities` is neither a string array nor a space-separated string (such as
+a mapping or an array containing mappings), or when `model` is an invalid list
+(such as `model: []`). These refusals report `missing_description`,
+`invalid_capabilities`, or `invalid_model`, respectively. An omitted
+`capabilities` key projects wildcard authority; a space-separated string is
+accepted with an `invalid_capabilities` warning. Other malformed fields may
+produce a descriptor with a conservative value. Report `warnings` whether or
+not a descriptor was produced.
 
 ### MarkdownFlow.loadBody
 

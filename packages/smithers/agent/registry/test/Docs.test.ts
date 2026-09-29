@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
 import * as Discovery from "../src/Discovery.ts"
@@ -28,6 +29,42 @@ const documents: ReadonlyArray<ReadonlyArray<string>> = [
   ["docs", "concepts", "descriptors.md"],
   ["src", "index.ts"]
 ]
+
+describe("the API quick start", () => {
+  it("imports its public modules and lists an empty project", async () => {
+    const api = readFileSync(join(packageRoot, "docs", "api.md"), "utf8")
+    const example = api.match(/## Example\s+```ts\n([\s\S]*?)\n```/)?.[1]
+    expect(example).toBeDefined()
+
+    const bindings: Record<string, unknown> = {}
+    const importLine = /^import (?:\* as (\w+)|\{ ([^}]+) \}) from "([^"]+)"$/gm
+    const imports = Array.from(example!.matchAll(importLine))
+    expect(imports.length).toBeGreaterThan(0)
+    for (const [, namespace, named, specifier] of imports) {
+      const module = await import(specifier!)
+      if (namespace !== undefined) {
+        bindings[namespace] = module
+      } else {
+        for (const name of named!.split(",").map((part) => part.trim())) {
+          expect(module).toHaveProperty(name)
+          bindings[name] = module[name]
+        }
+      }
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "smithers-registry-quick-start-"))
+    const output: Array<unknown> = []
+    try {
+      await runInNewContext(
+        `(async () => { ${example!.replace(importLine, "")} })()`,
+        { ...bindings, process: { cwd: () => root }, console: { log: (value: unknown) => output.push(value) } }
+      )
+      expect(output).toEqual([[]])
+    } finally {
+      rmSync(root, { force: true, recursive: true })
+    }
+  })
+})
 
 describe("the documented scan cost model", () => {
   it.each(documents)("describes a whole-file read and hash in %s", (...parts) => {

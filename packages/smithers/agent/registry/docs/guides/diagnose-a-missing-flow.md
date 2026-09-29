@@ -69,16 +69,15 @@ for the grammar. Use the descriptor's `name` for lookup. For example, `name: Rev
 `review/SKILL.md` is retained as `Review--PR` with `invalid_name` and
 `directory_name_mismatch`; it does not register a fallback alias `review`.
 
-## The flow appeared with authority it did not declare
+## The flow has unexpected authority or is refused
 
-These are the codes that explain a flow showing up as `tier: "irreversible"`
-with wildcard reads and writes. [Declared authority](../concepts/authority.md)
-explains why each fallback is the conservative one.
+These codes explain unexpected authority and refused capability declarations.
+[Declared authority](../concepts/authority.md) explains the fallbacks.
 
 | Code                          | What happened                                                                                                                                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `unprojectable_authority`     | A markdown flow declared no `capabilities`, so the wildcard was used. Declared `capabilities` narrow the grant of collaborator `flows`.                                                       |
-| `invalid_capabilities`        | A markdown `capabilities` value is not a string array. A space-separated string is accepted with this warning; anything else falls back to the wildcard.                                      |
+| `invalid_capabilities`        | A space-separated `capabilities` string is accepted with this warning. A mapping or an array containing non-strings is refused; the markdown flow is not discovered.                          |
 | `invalid_effect_declaration`  | `effects` is not an object, or `effects.reads`, `effects.writes`, `effects.mode`, or `effects.onConflict` is not a value the schema allows. The conservative reading was used.                |
 | `invalid_effect_tier`         | A declared `effects.tier` under-classifies the authority the capabilities imply, or is not one of the three tiers. The conservative tier was used.                                            |
 | `unsupported_module_metadata` | A module declaration could not be read statically: a non-literal `capabilities` or `effects`, an object spread, a computed property, or an unreadable default export. The message says which. |
@@ -91,7 +90,7 @@ explains why each fallback is the conservative one.
 | `invalid_allowed_tools`    | `flows` or `allowed-tools` is neither a string array nor a space-separated string. It was ignored, so the flow now delegates to the agent.                                                    |
 | `invalid_model_invocation` | `disable-model-invocation` is not a boolean or the strings `"true"` or `"false"`. It was ignored, so the flow stays model-invocable.                                                          |
 | `invalid_placement`        | `placement` is not `client`, `local`, `sandbox`, or `remote`. It was ignored, so the flow is discovered unplaced and the host chooses where it runs.                                          |
-| `invalid_model`            | `model` is an empty list or contains an empty or non-string seat. The flow is refused; provide one seat or a non-empty ordered list.                                                          |
+| `invalid_model`            | `model` is an empty list (for example, `model: []`) or contains an empty or non-string seat. The markdown flow is not discovered; provide one seat or a non-empty ordered list.               |
 | `invalid_budget`           | `budget` is not an object, a ceiling is not a positive safe integer, or the object holds a key that is not `tokens` or `milliseconds`. The unreadable part was dropped rather than tightened. |
 | `invalid_license`          | `license` is not a string.                                                                                                                                                                    |
 | `invalid_compatibility`    | `compatibility` is not a string of at most 500 characters.                                                                                                                                    |

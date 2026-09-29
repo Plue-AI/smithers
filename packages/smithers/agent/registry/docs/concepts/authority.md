@@ -1,6 +1,6 @@
 ---
 title: "Declared authority"
-description: "How capabilities become an effect declaration and a reversibility tier, why an unreadable declaration projects the conservative wildcard, and what the tier decides downstream."
+description: "How capabilities become an effect declaration and a reversibility tier, when a declaration projects the conservative wildcard, and what the tier decides downstream."
 sidebar:
   order: 3
 ---
@@ -38,18 +38,17 @@ becomes `irreversible` with the same warning.
 
 ## The conservative wildcard
 
-When discovery cannot read a flow's authority, it reports the one value that
-cannot understate it: wildcard capabilities `["*"]`, wildcard `reads` and
-`writes` `["**"]`, `mode: "expected"`, `onConflict: "serialize"`, and
-`tier: "irreversible"`. A declared `sealed` tier on such a flow is reported as
-under-classifying rather than accepted.
+When a markdown flow omits `capabilities`, or a module flow's capabilities
+cannot be read statically, discovery projects wildcard capabilities `["*"]`,
+wildcard `reads` and `writes` `["**"]`, `mode: "expected"`,
+`onConflict: "serialize"`, and `tier: "irreversible"`. A declared `sealed` tier
+on such a flow is reported as under-classifying rather than accepted.
 
-Wildcard capabilities carry that whole projection, whichever way they arose. A
-flow that declares `capabilities: ["*"]` and a flow whose capabilities
-discovery could not read both project the wildcard effect set, because a
-narrower `reads` or `writes` beside an unbounded capability list is a claim
-discovery cannot check. Both body kinds decide this in one place, so equivalent
-markdown and module declarations project the same effects.
+Wildcard capabilities carry that whole projection, including when a flow
+declares `capabilities: ["*"]`. A narrower `reads` or `writes` beside an
+unbounded capability list is a claim discovery cannot check. A malformed
+markdown `capabilities` value is refused with `invalid_capabilities`; it does
+not produce a descriptor.
 
 A member the declaration leaves out is read the other way. An `effects` object
 discovery can read, with no `reads` key, declares an empty read set rather than
@@ -67,12 +66,12 @@ an `unprojectable_authority` warning.
 
 The rest differ, because the two bodies say different things by staying silent:
 
-| Situation                                        | Markdown flow                                                                                                                                                                                                               | Module flow                                                                                                                                          |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No `capabilities` key                            | The wildcard, with an `unprojectable_authority` warning. A skill that says nothing about its authority is not a skill with none.                                                                                            | An empty list, with no warning. A `Flow.make` value that omits the field declared no authority, which the module's own effects then describe.        |
-| A `capabilities` value discovery cannot read     | The wildcard, with `invalid_capabilities`. A space-separated string is accepted as the Agent Skills spelling, also with a warning, because that form is common in foreign skills and reading it is better than dropping it. | The wildcard, with `unsupported_module_metadata`. Anything but a string-literal array is unreadable without evaluating the module.                   |
-| A spread or computed property in the declaration | Not expressible in YAML.                                                                                                                                                                                                    | The wildcard, with `unsupported_module_metadata`, because the object's real members are not visible in the source text.                              |
-| A default export discovery cannot read at all    | Not applicable.                                                                                                                                                                                                             | No descriptor. The `unsupported_module_metadata` warning says the declaration could not be read, and the missing description then refuses the entry. |
+| Situation                                        | Markdown flow                                                                                                                                                           | Module flow                                                                                                                                          |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `capabilities` key                            | The wildcard, with an `unprojectable_authority` warning. A skill that says nothing about its authority is not a skill with none.                                        | An empty list, with no warning. A `Flow.make` value that omits the field declared no authority, which the module's own effects then describe.        |
+| A `capabilities` value discovery cannot read     | A mapping or an array containing non-strings is refused with `invalid_capabilities`; no descriptor is produced. A space-separated string is accepted with this warning. | The wildcard, with `unsupported_module_metadata`. Anything but a string-literal array is unreadable without evaluating the module.                   |
+| A spread or computed property in the declaration | Not expressible in YAML.                                                                                                                                                | The wildcard, with `unsupported_module_metadata`, because the object's real members are not visible in the source text.                              |
+| A default export discovery cannot read at all    | Not applicable.                                                                                                                                                         | No descriptor. The `unsupported_module_metadata` warning says the declaration could not be read, and the missing description then refuses the entry. |
 
 Every module-side diagnostic in that table arrives under the single code
 `unsupported_module_metadata`, carrying the specific message in its `message`
@@ -116,9 +115,8 @@ envelope without reinterpreting either number, and
 [`@smthrs/agent`](/api/agent)'s `Budget.layerFromEnvelope` turns that envelope
 into enforcement at the model boundary.
 
-A malformed budget is dropped rather than tightened, which is the opposite of
-every other field here. The other fields have a conservative reading to fall
-back on; a budget has none. Its conservative number is zero, and a zero ceiling
+A malformed budget is dropped rather than tightened. Effect fields have a
+conservative wildcard reading; a budget has none. Its conservative number is zero, and a zero ceiling
 refuses the run's first call, so a typo would be reported as a spending
 decision. Each of the two ceilings is read on its own, so an unreadable
 `tokens` does not discard a valid `milliseconds`, and a key the budget does not

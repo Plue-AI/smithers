@@ -37,9 +37,11 @@ declaration values a discovered body carries, see the
 
 ```ts
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { Executable, Registry } from "@smthrs/registry"
+import { Registry } from "@smthrs/registry"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 
-const registry = Executable.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
+const registry = Registry.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
 const flows = Registry.Registry.use((catalog) => catalog.list())
 
 console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
@@ -89,6 +91,13 @@ metadata, including model, parameters, body location, and authority. Hosts
 include this identity in the approved plan. It returns `undefined` when the
 descriptor has no `body.contentDigest`: the descriptor may be displayed, but
 `AgentSession` refuses to execute a prompt without a measured, approved identity.
+
+The repository host also binds its own policy identity to reserved job
+descriptors. In source mode it measures every TypeScript file in
+`flows/repository`, including the semantic judge and its helpers, together with
+the other host sources and prompt bodies. A change to those bytes changes the
+job's execution digest; `Registry.loadBody` refuses a previously approved digest
+with `execution_changed`. A compiled host uses its bundled artifact digest.
 
 ### Descriptor.declarationDigest
 
@@ -507,10 +516,15 @@ the prompt body. `Discovery` calls it with a metadata prefix and the digest of
 the whole file; a caller passing complete text may omit `contentDigest`, and
 the digest of `text` is used.
 
-`descriptor` is `None` when the flow has no non-empty `description`, which is
-the one field discovery requires. Everything else that is missing or malformed
-produces a warning and a conservative value. `warnings` is non-empty in far
-more cases than that, so a caller reports it either way.
+`descriptor` is `Option.none()` when `description` is missing or empty, when
+`capabilities` is neither a string array nor a space-separated string (such as
+a mapping or an array containing mappings), or when `model` is an invalid list
+(such as `model: []`). These refusals report `missing_description`,
+`invalid_capabilities`, or `invalid_model`, respectively. An omitted
+`capabilities` key projects wildcard authority; a space-separated string is
+accepted with an `invalid_capabilities` warning. Other malformed fields may
+produce a descriptor with a conservative value. Report `warnings` whether or
+not a descriptor was produced.
 
 ### MarkdownFlow.loadBody
 
