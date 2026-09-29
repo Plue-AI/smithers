@@ -36,15 +36,22 @@ rules to behavior that applies throughout their directory trees.
 
 Every agent, session, machine, and Cloud worker claims an issue before starting
 it, so work is never duplicated. Use `node scripts/issue-claim.mjs
-check|claim|release <repo>#<n> --by <agent/session>`.
+check|claim|release|comment <repo>#<n> --by <agent/session>`.
 
 - Claim: the `in-progress` label plus the comment `Claimed by <agent/session>
   on <host> at <UTC>; expires <UTC+6h>`. If another agent holds an unexpired
   claim, do not start; pick another issue (exit 2).
-- Claim again before expiry to refresh. A claim over 6 h old without a
-  refreshing comment may be taken over; the tool records the takeover.
-- Release when done, failed, or abandoned: remove the label and comment the
-  landed commit or the reason (`release --note`).
+- Claim again before expiry to refresh. A claim under 1 h old is kept without
+  a new comment. A claim over 6 h old without a refreshing comment may be
+  taken over; the tool records the takeover.
+- Release when done, failed, or abandoned: remove the label and record the
+  landed commit or the reason. If you post a receipt or failure comment, fold
+  the release into it with `comment --body-file <f> --release --note <commit |
+  reason> [--close]`, one comment. Otherwise use `release --note`.
+- All agents share one GitHub account. Post issue comments, closes, and label
+  changes through this tool: it throttles writes machine-wide and backs off
+  on rate limits. Exit 75 means rate limited: nothing was lost; retry after
+  `retry_at` and do not count it as a failed attempt.
 
 ## Zero tech debt; one backend (Will, 2026-09-25)
 

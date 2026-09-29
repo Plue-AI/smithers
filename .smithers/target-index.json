@@ -53362,7 +53362,7 @@
     "kinds": [
       "test"
     ],
-    "summary": "Agents claim an issue before work and release it after; a live claim blocks others and a stale one can be taken over.",
+    "summary": "Agents claim an issue before work and release it after, through one machine-wide GitHub write throttle; a live claim blocks others and a stale one can be taken over.",
     "cacheable": false,
     "inputs": [
       {
