@@ -551,9 +551,11 @@ export interface Service {
     ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError>
   ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError>
   /**
-   * Joins or claims a suspended run.
+   * Joins an owned run or claims a suspended run or expired dead-owner run.
    *
-   * `scope: "launched"` restricts claims to runs this plane launched.
+   * `scope: "launched"` restricts claims to runs this plane launched, including
+   * dead-owner takeovers. An unindexed run is refused with `ClaimLost`; a run
+   * already owned by this process is joined without changing its state.
    * Both `Control.resume` and `Control.run` with a Resume input, plus steer
    * wakes, pass it to preserve an engine-created run's continuation and fence.
    * `scope: "any"` (also the default) is a trusted low-level runtime

@@ -378,6 +378,8 @@ or `ControlExecutor.resumeRun`. A caller or journal subscriber must drive the
 execution; polling `pendingResumes` does not take up explicit resumes.
 A suspended engine-created run stays unclaimed and receives an `Accepted`
 receipt for the journal intent. A live peer's owned run fails with `ClaimLost`.
+A running engine-created run outside the launch index also fails with
+`ClaimLost` when its owner is dead; its persisted execution state is preserved.
 Node-approval decisions use the durable resume delegation instead.
 
 `registerApproval` is idempotent and returns the token with its current
@@ -456,6 +458,9 @@ The durable `ControlRuntime` over a SQL database and the fenced run store from
 | `make`           | function  | `(options?: Options) => Effect<Service, PersistenceError, Crypto \| DurableWriter \| SqlClient \| RunStore>`                                                                                                                                                                                                                                                          |
 | `layer`          | layer     | `(options?: Options) => Layer<ControlRuntime, PersistenceError, Crypto \| DurableWriter \| SqlClient \| RunStore>`                                                                                                                                                                                                                                                    |
 | `layerWithStore` | layer     | The same, with `RunStore.layer` provided.                                                                                                                                                                                                                                                                                                                             |
+
+Dead-owner takeovers with `scope: "launched"` require a launch-index entry;
+unindexed engine continuations remain unchanged.
 
 `loadFlows` replaces the static `flows` or default system catalog. It runs afresh
 for each `plan` and `listFlows` operation, and one plan uses one complete catalog

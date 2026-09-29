@@ -1259,16 +1259,8 @@ const makeRuntime = (
         const row = yield* requireRow(runId)
         const summary = yield* summaryOf(row)
         if (terminal(summary.status)) return summary
-        // Start-or-join: owning the run already means resume is a no-op, and a
-        // run owned by a live peer is theirs to drive. A run whose owner is
-        // gone is taken over, with the evidence the run store checks.
-        if (row.status === "running") {
-          if (ownedByUs(row)) return summary
-          const evidence = yield* deadOwner(row)
-          return evidence === undefined
-            ? yield* new ClaimLost({ runId })
-            : yield* claim(runId, row, evidence, adopt === undefined ? undefined : yield* adopt(row))
-        }
+        // Start-or-join: owning the run already means resume is a no-op.
+        if (ownedByUs(row)) return summary
         // Every public Control resume and steer wake uses launched scope.
         // Engine-created runs keep their continuation and driver. Unrestricted
         // claims are a trusted low-level capability for hosts that can drive
@@ -1278,6 +1270,14 @@ const makeRuntime = (
             Effect.mapError(persistence("read the launch index"))
           )
           if (indexed.length === 0) return yield* new ClaimLost({ runId })
+        }
+        // A run owned by a live peer is theirs to drive. A run whose owner is
+        // gone is taken over, with the evidence the run store checks.
+        if (row.status === "running") {
+          const evidence = yield* deadOwner(row)
+          return evidence === undefined
+            ? yield* new ClaimLost({ runId })
+            : yield* claim(runId, row, evidence, adopt === undefined ? undefined : yield* adopt(row))
         }
         return yield* claim(runId, row, undefined, adopt === undefined ? undefined : yield* adopt(row))
       })
