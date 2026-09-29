@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 const actionDir = fileURLToPath(new URL("../src/Action/", import.meta.url))
 
 const errors = [
+  "AttemptTimedOut",
   "ConcurrentKeylessDispatch",
   "DuplicateImplementation",
   "ImplementationVersionMismatch",

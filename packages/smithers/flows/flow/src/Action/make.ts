@@ -8,9 +8,13 @@
 
 import type * as Effects from "@smthrs/plan/Effects"
 import * as Node from "@smthrs/plan/Node"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Effectable from "effect/Effectable"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -24,7 +28,8 @@ import { lowerDeclarations } from "../internal/Declarations.ts"
 import * as DeclarationSite from "../internal/DeclarationSite.ts"
 import type * as RetryPolicy from "../RetryPolicy.ts"
 import type { Action, Declared, IdempotencyKey, Requirement, Tier } from "./Action.ts"
-import { CurrentAttempt } from "./Context.ts"
+import { AttemptTimedOut } from "./AttemptTimedOut.ts"
+import { CurrentAttempt, CurrentHeartbeat } from "./Context.ts"
 import { FileBoundary } from "./FileBoundary.ts"
 import { type Implementation, Implementations } from "./Implementations.ts"
 import { ImplementationVersionMismatch } from "./ImplementationVersionMismatch.ts"
@@ -117,6 +122,19 @@ interface DeclaredOptions<
     | undefined
   readonly nondeterministic?: true | undefined
   readonly retryPolicy?: RetryPolicy.RetryPolicy | undefined
+  /**
+   * Milliseconds one attempt may run. A longer attempt is interrupted and
+   * fails with {@link module:AttemptTimedOut.AttemptTimedOut}, which
+   * `retryPolicy` retries like any other attempt failure.
+   */
+  readonly attemptTimeoutMs?: number | undefined
+  /**
+   * Milliseconds one attempt may go without calling
+   * {@link module:Context.heartbeat}, measured from the attempt's start and
+   * then from each heartbeat. A missed heartbeat fails the attempt like
+   * `attemptTimeoutMs`.
+   */
+  readonly heartbeatTimeoutMs?: number | undefined
   readonly interruptRetryPolicy?: Schedule.Schedule<any, unknown> | undefined
   readonly fileBoundary?:
     | FileBoundary
@@ -149,6 +167,8 @@ const makeInline = <
   readonly fileBoundary?: FileBoundary | undefined
   readonly interruptRetryPolicy?: Schedule.Schedule<any, unknown> | undefined
   readonly retryPolicy?: RetryPolicy.RetryPolicy | undefined
+  readonly attemptTimeoutMs?: number | undefined
+  readonly heartbeatTimeoutMs?: number | undefined
   readonly annotations?: Context.Context<never> | undefined
 }): Action<Success, Error, Exclude<R, FlowInstance | FlowRuntime | Scope>> => {
   const implementationVersion = options.implementationVersion === undefined
@@ -160,10 +180,14 @@ const makeInline = <
   const errorSchemaJson = Schema.toCodecJson(errorSchema)
   const exitSchemas = exitSchemasFor(successSchema, errorSchema, successSchemaJson, errorSchemaJson)
   let execute!: Effect.Effect<Success["Type"], Error["Type"], any>
-  const executeWithInfraRetry = retryInfraInterrupt(
-    options.name,
-    options.interruptRetryPolicy
-  )(options.execute)
+  const attemptTimeoutMs = timeoutMs(options.name, "attemptTimeoutMs", options.attemptTimeoutMs)
+  const heartbeatTimeoutMs = timeoutMs(options.name, "heartbeatTimeoutMs", options.heartbeatTimeoutMs)
+  const executeWithInfraRetry = boundAttempt(options.name, attemptTimeoutMs, heartbeatTimeoutMs)(
+    retryInfraInterrupt(
+      options.name,
+      options.interruptRetryPolicy
+    )(options.execute)
+  )
   const self: Action<Success, Error, Exclude<R, FlowInstance | FlowRuntime>> = {
     ...Effectable.Prototype<Action<Success, Error, R>>({
       label: "Action",
@@ -185,6 +209,8 @@ const makeInline = <
     metadata: options.fileBoundary === undefined ? options.metadata : FileBoundary.make(options.fileBoundary),
     fileBoundary: options.fileBoundary === undefined ? undefined : FileBoundary.make(options.fileBoundary),
     retryPolicy: options.retryPolicy,
+    attemptTimeoutMs,
+    heartbeatTimeoutMs,
     annotate(tag: Context.Key<any, any>, value: any) {
       return makeInline({
         ...options,
@@ -227,6 +253,8 @@ const makeDeclared = <
     : Schema.decodeUnknownSync(Schema.NonEmptyString)(options.implementationVersion)
   const successSchema = options.success ?? (Schema.Void as unknown as Success)
   const errorSchema = options.error ?? (Schema.Never as unknown as Error)
+  const attemptTimeoutMs = timeoutMs(tag, "attemptTimeoutMs", options.attemptTimeoutMs)
+  const heartbeatTimeoutMs = timeoutMs(tag, "heartbeatTimeoutMs", options.heartbeatTimeoutMs)
   const annotations = lowerDeclarations(options)
   // The literals are already in the bag above, so an annotated copy rebuilds
   // from options WITHOUT them: re-lowering would overwrite a `Capabilities` or
@@ -253,6 +281,8 @@ const makeDeclared = <
     idempotencyKey: options.idempotencyKey,
     nondeterministic: options.nondeterministic,
     retryPolicy: options.retryPolicy,
+    attemptTimeoutMs,
+    heartbeatTimeoutMs,
     fileBoundary: options.fileBoundary,
     annotations,
     requirement,
@@ -310,6 +340,8 @@ const makeDeclared = <
             : self.idempotencyKey,
           nondeterministic: self.nondeterministic,
           retryPolicy: options.retryPolicy,
+          attemptTimeoutMs,
+          heartbeatTimeoutMs,
           interruptRetryPolicy: options.interruptRetryPolicy,
           fileBoundary: typeof options.fileBoundary === "function"
             ? options.fileBoundary(payload)
@@ -400,6 +432,8 @@ export const make: {
     readonly fileBoundary?: FileBoundary | undefined
     readonly interruptRetryPolicy?: Schedule.Schedule<any, unknown> | undefined
     readonly retryPolicy?: RetryPolicy.RetryPolicy | undefined
+    readonly attemptTimeoutMs?: number | undefined
+    readonly heartbeatTimeoutMs?: number | undefined
     readonly annotations?: Context.Context<never> | undefined
   }): Action<Success, Error, Exclude<R, FlowInstance | FlowRuntime | Scope>>
 } = ((first: string | Parameters<typeof makeInline>[0], second?: object) => {
@@ -457,6 +491,91 @@ export const makeSystem = <
     Error,
     never
   >
+
+/**
+ * Validates one declared attempt bound. An invalid bound is a programmer
+ * error thrown at declaration, like `Flow.make`'s `maxRounds`.
+ */
+const timeoutMs = (name: string, field: string, value: number | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(`Action.make: "${name}" ${field} must be a positive safe integer`)
+  }
+  return value
+}
+
+/**
+ * Bounds one attempt by its declared timeouts. An expired bound interrupts the
+ * body and dies with {@link AttemptTimedOut}, which the engine's retry
+ * decision point counts as a retryable attempt failure. A defect the body
+ * raises while it is being interrupted is kept beside the timeout, so the
+ * attempt is not mistaken for a clean timeout and retried past it.
+ *
+ * Every attempt gets its own heartbeat, a no-op without `heartbeatTimeoutMs`,
+ * so a nested action never feeds the watchdog of the action that called it.
+ */
+const boundAttempt = (
+  name: string,
+  attemptTimeoutMs: number | undefined,
+  heartbeatTimeoutMs: number | undefined
+) =>
+<A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  heartbeatTimeoutMs === undefined && attemptTimeoutMs === undefined
+    ? Effect.provideService(effect, CurrentHeartbeat, Effect.void)
+    : Effect.gen(function*() {
+      const attempt = yield* CurrentAttempt
+      // Each heartbeat completes the signal the watchdog is waiting on and
+      // installs a fresh one. Waiting on sleeps rather than reading the clock
+      // keeps the gap immune to wall-clock adjustments.
+      let signal = Deferred.makeUnsafe<void>()
+      const beat = Effect.sync(() => {
+        const done = signal
+        signal = Deferred.makeUnsafe<void>()
+        Deferred.doneUnsafe(done, Exit.void)
+      })
+      const expiries: Array<Effect.Effect<AttemptTimedOut["bound"]>> = []
+      if (attemptTimeoutMs !== undefined) {
+        expiries.push(Effect.as(Effect.sleep(attemptTimeoutMs), "attempt" as const))
+      }
+      if (heartbeatTimeoutMs !== undefined) {
+        expiries.push(Effect.gen(function*() {
+          while (true) {
+            const beaten = yield* Effect.raceFirst(
+              Effect.as(Deferred.await(signal), true),
+              Effect.as(Effect.sleep(heartbeatTimeoutMs), false)
+            )
+            if (!beaten) return "heartbeat" as const
+          }
+        }))
+      }
+      const body = yield* Effect.forkChild(
+        Effect.provideService(effect, CurrentHeartbeat, heartbeatTimeoutMs === undefined ? Effect.void : beat),
+        { startImmediately: true }
+      )
+      const outcome = yield* Effect.raceFirst(
+        Fiber.await(body),
+        Effect.raceAll(expiries)
+      )
+      if (typeof outcome !== "string") return yield* outcome
+      yield* Fiber.interrupt(body)
+      // The interruption was requested, so the body cannot settle with an
+      // answer: an uninterruptible region it was in ends in the interrupt.
+      // What remains beside the interrupt is a defect its cleanup raised.
+      const cleanup = yield* Fiber.join(body).pipe(
+        Effect.as([]),
+        Effect.catchCause((cause) => Effect.succeed(cause.reasons.filter((reason) => !Cause.isInterruptReason(reason))))
+      )
+      const timeoutMs = outcome === "attempt" ? attemptTimeoutMs! : heartbeatTimeoutMs!
+      const timedOut = new AttemptTimedOut({
+        actionName: name,
+        attempt,
+        bound: outcome,
+        timeoutMs,
+        message: `Action "${name}" attempt ${attempt} ` +
+          (outcome === "attempt" ? `ran past ${timeoutMs}ms` : `sent no heartbeat for ${timeoutMs}ms`)
+      })
+      return yield* Effect.failCause(Cause.fromReasons([Cause.makeDieReason(timedOut), ...cleanup]))
+    })
 
 const isInfraInterrupt = (value: unknown): value is InfraInterrupt =>
   Predicate.isTagged("@smthrs/flow/InfraInterrupt")(value)

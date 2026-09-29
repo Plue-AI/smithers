@@ -128,6 +128,40 @@ Your own tags go in `nonRetryable`. `RetryPolicy.errorTag` is how a tag is read
 off an error: an own string `_tag` when present, otherwise the first own `name`
 descriptor found while walking a bounded prototype chain.
 
+## Bound a hung attempt
+
+A retry policy only sees attempts that end. Declare `attemptTimeoutMs` to end
+one that hangs, or `heartbeatTimeoutMs` to end one that stops reporting
+progress through `Action.heartbeat`. Both forms of `Action.make` take them, as
+positive integers:
+
+```ts
+const Fetch = Action.make("sandbox/Fetch", {
+  payload: { url: Schema.String },
+  success: Schema.String,
+  retryPolicy: policy,
+  attemptTimeoutMs: 30_000,
+  heartbeatTimeoutMs: 5_000
+})
+
+const layer = Fetch.toLayer(({ url }) =>
+  Effect.gen(function*() {
+    const stream = yield* openStream(url)
+    // Each heartbeat restarts the 5 second gap.
+    return yield* readChunks(stream, { onChunk: () => Action.heartbeat })
+  })
+)
+```
+
+An expired bound interrupts the body and dies with `Action.AttemptTimedOut`,
+naming the action, the attempt, the `bound` that expired (`"attempt"` or
+`"heartbeat"`), and its `timeoutMs`. The engine counts that defect as a failed
+attempt: `retryPolicy` decides on it like a typed failure, a durable engine
+records it as a failed attempt row, and listing `"@smthrs/flow/AttemptTimedOut"`
+in `nonRetryable` stops the retries. Without a retry policy, or once the policy
+gives up, the defect is the action's outcome. Every other defect stays
+unretried.
+
 ## Infrastructure interrupts
 
 An action implementation or transport adapter may fail with

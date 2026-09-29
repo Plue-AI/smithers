@@ -12,7 +12,9 @@ import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { renderDiagnostic } from "../internal/Diagnostic.ts"
@@ -30,6 +32,30 @@ const CurrentActionParent = Context.Reference<
     readonly key: string
   } | undefined
 >("@smthrs/engine/CurrentActionParent", { defaultValue: () => undefined })
+
+/**
+ * Whether a failed attempt died of nothing but an expired attempt bound, the
+ * one defect the retry decision treats as an attempt failure. The tag is read
+ * off the defect so a replayed row, whose defect is the error's encoded
+ * fields, is recognized like the live error.
+ */
+const timedOutOnly = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.length > 0 &&
+  cause.reasons.every((reason) =>
+    Cause.isDieReason(reason) && Predicate.isTagged(reason.defect, "@smthrs/flow/AttemptTimedOut")
+  )
+
+/**
+ * Keeps an expired attempt a settlement even when the flow does not capture
+ * defects, so the retry decision below still sees it.
+ */
+const settleTimedOut = <E, R>(
+  effect: Effect.Effect<Flow.Result<unknown, unknown>, E, R>
+): Effect.Effect<Flow.Result<unknown, unknown>, E, R> =>
+  Effect.catchCause(effect, (cause) =>
+    timedOutOnly(cause)
+      ? Effect.succeed(new Flow.Complete({ exit: Exit.failCause(cause) }))
+      : Effect.failCause(cause))
 
 /**
  * Builds the typed `actionExecute` an engine answers with: it allocates the
@@ -230,6 +256,7 @@ export const makeActionExecute = (options: Encoded) => {
             Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations))
           )
         result = yield* dispatch.pipe(
+          settleTimedOut,
           Effect.ensuring(Effect.suspend(() =>
             Option.isSome(captured)
               ? Effect.asVoid(boundary.diff(captured.value, boundaryOptions))
@@ -241,7 +268,8 @@ export const makeActionExecute = (options: Encoded) => {
         )
       } else {
         result = yield* options.actionExecute(input).pipe(
-          Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations))
+          Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations)),
+          settleTimedOut
         ).pipe(
           Effect.provideService(Action.CurrentAttempt, currentAttempt),
           Effect.provideService(CurrentActionParent, { executionId: instance.executionId, key }),
@@ -287,39 +315,44 @@ export const makeActionExecute = (options: Encoded) => {
       // the attempt count — persisted by durable engines and passed back in
       // on resume — so a backoff sequence survives process death.
       // nonRetryable classification is evaluated here and nowhere else.
-      if (
-        policy !== undefined && exit._tag === "Failure" &&
-        !Cause.hasDies(exit.cause) && !Cause.hasInterrupts(exit.cause)
-      ) {
-        const failure = exit.cause.reasons.find(Cause.isFailReason)
-        if (failure !== undefined) {
-          const decision = yield* RetryPolicy.decideEffect(policy, {
-            attempt: currentAttempt,
-            error: failure.error,
-            elapsedMs: (yield* Clock.currentTimeMillis) - retryStartMs
-          })
-          if (decision._tag === "RetryAfter") {
-            if (action.tier === "irreversible" && action.idempotencyKey === undefined) {
-              return yield* Effect.die(
-                new Action.IrreversibleRetryRequiresIdempotencyKey({
-                  actionName: action.name,
-                  attempt: currentAttempt + 1
-                })
-              )
-            }
-            yield* Effect.sleep(decision.delayMs)
-            currentAttempt = currentAttempt + 1
-            continue
+      // Defects and interruptions are not retried, with one exception: an
+      // attempt that outlived its declared `attemptTimeoutMs` or
+      // `heartbeatTimeoutMs` dies with `AttemptTimedOut`, and that is an
+      // attempt failure the policy decides on like a typed one.
+      const retryable = policy === undefined || exit._tag !== "Failure" || Cause.hasInterrupts(exit.cause)
+        ? undefined
+        : !Cause.hasDies(exit.cause)
+        ? exit.cause.reasons.find(Cause.isFailReason)
+        : timedOutOnly(exit.cause)
+        ? exit.cause.reasons.find(Cause.isDieReason)
+        : undefined
+      if (policy !== undefined && retryable !== undefined) {
+        const decision = yield* RetryPolicy.decideEffect(policy, {
+          attempt: currentAttempt,
+          error: Cause.isFailReason(retryable) ? retryable.error : retryable.defect,
+          elapsedMs: (yield* Clock.currentTimeMillis) - retryStartMs
+        })
+        if (decision._tag === "RetryAfter") {
+          if (action.tier === "irreversible" && action.idempotencyKey === undefined) {
+            return yield* Effect.die(
+              new Action.IrreversibleRetryRequiresIdempotencyKey({
+                actionName: action.name,
+                attempt: currentAttempt + 1
+              })
+            )
           }
-          // Exhaustion is a retry decision, not a change to the action's
-          // declared error channel. Preserve the final business failure so
-          // ordinary typed recovery (including a graph Catch) still runs.
-          yield* Effect.annotateCurrentSpan({
-            "retry.stopReason": decision.reason,
-            "retry.attempt": currentAttempt
-          })
-          // nonRetryable: fall through and propagate the original failure.
+          yield* Effect.sleep(decision.delayMs)
+          currentAttempt = currentAttempt + 1
+          continue
         }
+        // Exhaustion is a retry decision, not a change to the action's
+        // declared error channel. Preserve the final business failure so
+        // ordinary typed recovery (including a graph Catch) still runs.
+        yield* Effect.annotateCurrentSpan({
+          "retry.stopReason": decision.reason,
+          "retry.attempt": currentAttempt
+        })
+        // nonRetryable: fall through and propagate the original failure.
       }
       return new Flow.Complete({ exit })
     }

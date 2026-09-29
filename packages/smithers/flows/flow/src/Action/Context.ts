@@ -7,6 +7,7 @@
  */
 
 import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { CacheEnvironment } from "./CacheEnvironment.ts"
 
@@ -125,3 +126,31 @@ export const CurrentInvocationKey = Context.Reference<string | undefined>(
   "@smthrs/flow/Action/CurrentInvocationKey",
   { defaultValue: () => undefined }
 )
+
+/**
+ * Context reference carrying the heartbeat of the attempt currently running,
+ * which the runtime installs for an action declared with
+ * `heartbeatTimeoutMs`. Outside such an attempt it does nothing.
+ *
+ * @category attempts
+ * @since 1.0.0
+ */
+export const CurrentHeartbeat = Context.Reference<Effect.Effect<void>>(
+  "@smthrs/flow/Action/CurrentHeartbeat",
+  { defaultValue: () => Effect.void }
+)
+
+/**
+ * Reports that the running action attempt is still making progress.
+ *
+ * An action declared with `heartbeatTimeoutMs` fails its attempt with
+ * `AttemptTimedOut` when that long passes without a heartbeat; each call
+ * restarts the gap. In any other action it is a no-op.
+ *
+ * @category attempts
+ * @since 1.0.0
+ */
+export const heartbeat: Effect.Effect<void> = Effect.gen(function*() {
+  const beat = yield* CurrentHeartbeat
+  yield* beat
+})

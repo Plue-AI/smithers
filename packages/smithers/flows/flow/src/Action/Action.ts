@@ -138,6 +138,10 @@ export interface Declared<
   readonly nondeterministic: true | undefined
   /** Durable retry policy applied to every implementation invocation. */
   readonly retryPolicy: RetryPolicy.RetryPolicy | undefined
+  /** Milliseconds one attempt may run before it fails with `AttemptTimedOut`. */
+  readonly attemptTimeoutMs: number | undefined
+  /** Milliseconds one attempt may go without `Action.heartbeat` before it fails. */
+  readonly heartbeatTimeoutMs: number | undefined
   /** Filesystem declaration, optionally derived from the decoded payload. */
   readonly fileBoundary: FileBoundary | ((payload: Payload["Type"]) => FileBoundary) | undefined
   readonly annotations: Context.Context<never>
@@ -244,6 +248,10 @@ export interface Action<
   /** Typed filesystem boundary used by the durable engine. */
   readonly fileBoundary: FileBoundary | undefined
   readonly retryPolicy: RetryPolicy.RetryPolicy | undefined
+  /** Milliseconds one attempt may run before it fails with `AttemptTimedOut`. */
+  readonly attemptTimeoutMs: number | undefined
+  /** Milliseconds one attempt may go without `Action.heartbeat` before it fails. */
+  readonly heartbeatTimeoutMs: number | undefined
   annotate<I, S>(
     key: Context.Key<I, S>,
     value: S

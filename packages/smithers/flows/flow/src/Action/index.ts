@@ -7,6 +7,7 @@
  */
 
 export * from "./Action.ts"
+export * from "./AttemptTimedOut.ts"
 export * from "./BoundaryMode.ts"
 export * from "./CacheEnvironment.ts"
 export * from "./ConcurrentKeylessDispatch.ts"
