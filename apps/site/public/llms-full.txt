@@ -694,7 +694,7 @@ import { Smithers as S } from "@smthrs/targets"
 export const factory = S.Factory({
   summary: "How this repository develops itself.",
   on: {
-    "issue.labeled:smithers": { flow: "implement", description: "Implement an issue labeled smithers" },
+    "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
     "change.opened": { flow: "review", description: "Review every change" },
     "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" }
   }
@@ -703,7 +703,7 @@ export const factory = S.Factory({
 
 The app's **Dispatcher** lists each rule as declared.
 
-**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands.
+**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: implementing every TODO (an issue one of the policy's `maintainers` labels `todo`, or writes after `todoSince`, which Smithers then labels itself), reviewing each pull request that work opens, merging it when the review approves, CI passes on that head, and a maintainer labeled the issue `automerge`, and refreshing history and the wiki when code lands. Smithers removes a `todo` label anyone else adds.
 
 **Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 
@@ -9433,11 +9433,11 @@ The `exports` map declares these subpaths:
 | `@smthrs/flow/StepIdentity`     | `src/Action/StepIdentity.ts`     | any      |
 | `@smthrs/flow/<Module>`         | `src/<Module>.ts`                | any      |
 
-`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
+`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
 
 ## Namespaces
 
-The package index re-exports fourteen namespaces:
+The package index re-exports sixteen namespaces:
 
 | Namespace         | Summary                                                              |
 | ----------------- | -------------------------------------------------------------------- |
@@ -9445,6 +9445,7 @@ The package index re-exports fourteen namespaces:
 | `DurableClock`    | Durable clock and timer services.                                    |
 | `DurableDeferred` | Durable deferred values.                                             |
 | `DurableQueue`    | Durable queues.                                                      |
+| `Fault`           | One typed fault class per failure, and the response ladder.          |
 | `Flow`            | Durable flow definitions.                                            |
 | `FlowRuntime`     | The execution contract flow authoring APIs are written against.      |
 | `Graph`           | Plan-time graph building from flow declarations.                     |
@@ -9453,6 +9454,7 @@ The package index re-exports fourteen namespaces:
 | `Poll`            | The durable poller: attempts as rounds, waits as durable timers.     |
 | `RetryPolicy`     | Retry policy models and constructors.                                |
 | `Sleep`           | The system timer action and its implementation layer.                |
+| `Stall`           | The stall breaker round loops share.                                 |
 | `StepIdentity`    | Stable step identity construction.                                   |
 | `WaitFor`         | The system wait-point action and its implementation layer.           |
 
@@ -9930,6 +9932,52 @@ Creates the worker effect that processes items from the queue. It throws a `Rang
 - **Since:** `0.1.0`
 
 The layer form of `DurableQueue.makeWorker`, forking the worker into the layer's scope.
+
+## Fault
+
+One typed fault for every failure. The owner of an error union registers each code with a class, so a failure crosses every seam as `{ class, tag }` instead of prose.
+
+### `Fault.Class`
+
+- **Type:** `Schema.Literals<["user", "wait", "infra", "dependency", "bug", "factory", "policy"]>`
+- **Since:** `1.0.0`
+
+`user`, `wait`, `infra`, `dependency`, and `bug` are the wire registry. `factory` means the factory's own work did not converge, so a replan may fix it. `policy` means a cap stopped the work.
+
+### `Fault.Fault`
+
+- **Type:** `Schema.Struct<{ class: Class; tag: Schema.String }>`
+- **Since:** `1.0.0`
+
+`tag` is `<_tag>/<code>`, or `<_tag>` for an error without a code.
+
+### `Fault.register`
+
+- **Signature:** `register<Code extends string>(tag: string, table: Class | Rows<Code>, field?: string): void`
+- **Since:** `1.0.0`
+
+Registers one class for the whole tag, or one per value of `field` (default `code`). Owners write `satisfies Fault.Rows<Code>`, so a new code without a class does not compile. A value the table does not name is `bug`. The registry is one per process, shared by the ESM and CommonJS builds. Registering a tag again with the same rows is a no-op; registering it with different rows throws.
+
+### `Fault.of`
+
+- **Signature:** `of(error: unknown): Fault`
+- **Since:** `1.0.0`
+
+Reads the error and up to 15 `cause` links beneath it and answers the innermost registered tag, because a wrapper names where a failure surfaced and its cause names why. Anything unregistered is `{ class: "bug", tag: "unregistered" }`.
+
+### `Fault.respond`
+
+- **Signature:** `respond(fault: Fault, state: State): Response`
+- **Since:** `1.0.0`
+
+The one response ladder, exhaustive over the classes. `wait` backs up, then parks while `parksLeft` allows, then stops. `dependency` backs up, then retries until the third attempt, then stops. `infra` retries until the third attempt, then parks. `factory` replans twice, continues once as `very_hard`, then asks for `help`. A declined request (`coding/Error/declined`) closes, any other `user` fault asks for `help`, and `policy` and `bug` stop.
+
+### `Fault.registered`
+
+- **Signature:** `registered(): ReadonlySet<string>`
+- **Since:** `1.0.0`
+
+Every registered tag. The sweep tests read it.
 
 ## Flow
 
@@ -10880,6 +10928,30 @@ The declared `system/sleep` step: a relative `millis` from now, or an absolute `
 - **Since:** `0.1.0`
 
 The sleep implementation: arm the durable clock, park under `timer`, wake. Provide it beside the other action implementation layers, over `Action.layerImplementations`.
+
+## Stall
+
+`Stall` is the stall breaker round loops share. `@smthrs/patterns` loops and the coding correction flow use it.
+
+### `Stall.policy`
+
+- **Signature:** `policy(options: Options): Policy`
+- **Since:** `1.0.0`
+
+Resolves `rounds` (at least two) and `on`: `stop` (the default), `park`, or `escalate`. The loop decides what `on` means.
+
+### `Stall.observe`
+
+- **Since:** `1.0.0`
+
+`Stall.observe(policy, state, observation)` folds one round into the carried `State`. It returns the next state, with a `Stalled` verdict once one signal held for `rounds` rounds in a row. An observation reports any of `tree` (a tree fingerprint), `checks` (failing check ids, order ignored, empty not compared), and `output` (compared by the SHA-256 of its canonical JSON; a value with no canonical form is not compared).
+
+### `Stall.initial`
+
+- **Type:** `State`
+- **Since:** `1.0.0`
+
+The state before the first round. `State`, `Policy`, and `Stalled` are schemas, so a trampoline carries the state in its payload and replay reads the same verdict.
 
 ## StepIdentity
 
@@ -12828,7 +12900,7 @@ Creates a declared glob without reading the filesystem. In the array form an ent
 - **Signature:** `Workspace(name: string, options: WorkspaceOptions): WorkspaceDeclaration`
 - **Since:** `0.1.0`
 
-Declares the workspace: its name plus the typed host and toolchain services every target resolves against. The name comes first and must be a portable identifier. `options` requires `repository` and `cache`; `runtime`, `packageManager`, `nodeModules`, `environment`, `toolchains`, `flags`, `host`, `memory`, `sandboxes`, `agents`, `gitHooks`, `repos`, `discovery`, `owners`, and `teams` are optional. `discovery: { prune }` lists workspace-relative directories the package walk never enters; a prune path that is absolute or leaves the workspace raises `TypeError`. An unknown option raises `TypeError`, and the options object passed where the name belongs raises `TypeError` naming the argument order. The call validates and performs no I/O.
+Declares the workspace: its name plus the typed host and toolchain services every target resolves against. The name comes first and must be a portable identifier. `options` requires `repository` and `cache`; `runtime`, `packageManager`, `nodeModules`, `environment`, `toolchains`, `flags`, `host`, `memory`, `sandboxes`, `agents`, `gitHooks`, `repos`, `discovery`, `owners`, `teams`, and `docs` are optional. `discovery: { prune }` lists workspace-relative directories the package walk never enters; a prune path that is absolute or leaves the workspace raises `TypeError`. `docs` maps portable names to `Smithers.Docs.Package(name, { files })` or `Smithers.Docs.Url(url, { sha256 })`: pinned dependency documentation a wiki refresh imports into `.flows/wiki/deps/<name>/` for agent memory. The refresh publishes each imported file as a wiki page, and every stack lane writes the pages back into its own checkout; together they may take 16 KiB and count toward the wiki's 30 pages, and a declaration over either fails the refresh. A package name may be scoped and may carry legacy uppercase letters; each file must be a package-relative Markdown path with no control character and no `..` segment. Any other value, including an object that only copies a declaration's fields, raises `TypeError`, as do two names equal when lowercased. An unknown option raises `TypeError`, and the options object passed where the name belongs raises `TypeError` naming the argument order. The call validates and performs no I/O.
 
 ### `Smithers.Cache`
 
@@ -12984,7 +13056,7 @@ An agent producing a bounded, gate-checked candidate diff inside the declared wr
 - **Signature:** `Agent.Pr(attrs: AgentTarget.PrAttrs): Target`
 - **Since:** `0.1.0`
 
-An agent whose accepted candidate becomes a pull request. The attrs match `Agent.Diff` except that `maxRounds` is optional and defaults to `AgentTarget.defaultPrRounds`, 3. The rule is outward, so it runs only when named explicitly, and a converged loop with no bound settle action fails with `AgentPrSettleRefused` rather than reporting a pull request that was never opened.
+**Experimental; not usable for PR publication from the build CLI yet.** The attrs match `Agent.Diff` except that `maxRounds` is optional and defaults to `AgentTarget.defaultPrRounds`, 3. The rule is outward and runs only when named explicitly. The build CLI does not bind a `PrOpener`: after convergence, settle fails with `AgentPrSettleRefused` and preserves the candidate diff and gate report. It does not commit, push, or open a PR. Integrations may inject a `PrOpener`, but should publish the exact accepted candidate before returning a PR URL.
 
 ### `Smithers.Git`
 
@@ -13083,6 +13155,7 @@ Every other export of `Smithers.ts`, in source order:
 | `Smithers.EsLint`                 | rule               | Plans ESLint over declared source sets.                                                                                                                                           |
 | `Smithers.DepsLint`               | rule               | Plans missing, unused, and undeclared dependency checks.                                                                                                                          |
 | `Smithers.PackageLint`            | rule               | Plans publint and optional packed-tarball type checks.                                                                                                                            |
+| `Smithers.Docs`                   | namespace          | `Docs.Page` and `Docs.Check` generated-page rules; `Docs.Package` and `Docs.Url` pinned dependency documentation for a workspace's `docs`.                                        |
 | `Smithers.DocsParity`             | rule               | Checks that a package documents itself in prose beside its code.                                                                                                                  |
 | `Smithers.CheckDocs`              | action             | Checks one package README for presence, a title, and real prose.                                                                                                                  |
 | `Smithers.CheckDocsLive`          | layer              | Implements `CheckDocs` with confined, descriptor-stable, bounded reads.                                                                                                           |
@@ -13554,7 +13627,7 @@ https://smithers.sh/docs/reference/api/agent/
 
 > **Related APIs:** [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/plugin`](/docs/reference/api/plugin/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/std`](/docs/reference/api/std/)
 
-`@smthrs/agent` exports twenty-three modules from its root entry point, and each is
+`@smthrs/agent` exports twenty-seven modules from its root entry point, and each is
 also importable from `@smthrs/agent/<Module>`:
 
 ```ts
@@ -13624,41 +13697,41 @@ descriptor to another implementation.
 Everything one assembled cell run declares. The required half is the run
 itself; every default on the optional half is the conservative one.
 
-| Field                | Type                                                                                                                      | What it decides                                                                                                                                                                                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session`            | `string`                                                                                                                  | The durable session or lineage every call identity is scoped to. Required.                                                                                                                                                                                                                                                                    |
-| `seat`               | `Seat.Seat`                                                                                                               | The resolved seat this run streams from: model, route, and context window together. Required.                                                                                                                                                                                                                                                 |
-| `fallbackSeats`      | `ReadonlyArray<Seat.Seat>`                                                                                                | Resolved seats tried in order after capacity refusal, context overflow, or HTTP 5xx failure. Capacity refusals cool seats sharing a route; overflow and 5xx do not park.                                                                                                                                                                      |
-| `capacity`           | `{ park: boolean; maxParkMillis?: number; maxParks?: number }`                                                            | Capacity handling. Parking defaults to true, with no wait ceiling; unknown resets are re-probed after 15 minutes. `maxParks` (default `QuotaPolicy.defaultMaxParks`, 8) bounds the parks per run; the next refusal fails the run with the provider's typed `ModelError`.                                                                      |
-| `prompt`             | `string`                                                                                                                  | The task the run was admitted with. Required.                                                                                                                                                                                                                                                                                                 |
-| `registry`           | `Registry.Registry`                                                                                                       | The catalog shown to the model and the registry its calls resolve against. Required.                                                                                                                                                                                                                                                          |
-| `system`             | `ReadonlyArray<string>`                                                                                                   | Stable system teaching placed ahead of the cell contract.                                                                                                                                                                                                                                                                                     |
-| `flows`              | `ReadonlyArray<FlowBinding.Source>`                                                                                       | Ordered executable-flow sources composed into the run's catalog.                                                                                                                                                                                                                                                                              |
-| `implementations`    | `ReadonlyMap<string, CellCalls.Implementation>`                                                                           | Host implementations for module-backed flows, keyed by flow name.                                                                                                                                                                                                                                                                             |
-| `promptRunner`       | `CellCalls.PromptRunner`                                                                                                  | Runs a rendered markdown flow. A host with none refuses them catchably.                                                                                                                                                                                                                                                                       |
-| `authorize`          | `(call: Cell.Call) => Effect<void, HarnessError>`                                                                         | Decides whether a call may proceed, before its durable boundary opens.                                                                                                                                                                                                                                                                        |
-| `plugins`            | `PluginInput<FlowsHooks>`                                                                                                 | Shared-kernel plugins resolved for the harness target.                                                                                                                                                                                                                                                                                        |
-| `config`             | `FlowsConfig`                                                                                                             | Raw config threaded through the plugin kernel's config waterfall.                                                                                                                                                                                                                                                                             |
-| `memory`             | `MemorySource.Declared`                                                                                                   | One explicitly selected memory snapshot, `{ rows, digest }` from `Source.declared`. The opening renders every row with `Source.render`; a judged run's relevance reading judges each row and renders only the kept ones. Omitting it injects no memory.                                                                                       |
-| `modelParams`        | `ModelRequest.GenerationParams`                                                                                           | Generation parameters for the run's model calls.                                                                                                                                                                                                                                                                                              |
-| `modelRetryPolicy`   | `Schedule<unknown, Model.ModelFailure>`                                                                                   | Overrides the bounded transport retry schedule at the model boundary.                                                                                                                                                                                                                                                                         |
-| `layers`             | `ReadonlyArray<string>`                                                                                                   | The resolved composition identity folded into every durable key.                                                                                                                                                                                                                                                                              |
-| `capabilityEnvelope` | `ReadonlyArray<Capability.CapabilityPattern>`                                                                             | The run's complete authority. The default is nothing granted.                                                                                                                                                                                                                                                                                 |
-| `placement`          | `Option<Descriptor.Placement>`                                                                                            | The run's placement identity.                                                                                                                                                                                                                                                                                                                 |
-| `maxFrames`          | `number`                                                                                                                  | Bounds one loop's frames.                                                                                                                                                                                                                                                                                                                     |
-| `readOnlyCap`        | `number`                                                                                                                  | Caps consecutive read-only frames. Armed for task runs only; see `CellTurn.make` in [`@smthrs/harness`](/docs/reference/api/harness/).                                                                                                                                                                                                                        |
-| `modelCallMs`        | `number`                                                                                                                  | Caps the wall clock one model call may spend. Armed by default at `CellTurn.modelCallMsFor(effort)` (300,000 ms up to `medium`, 1,800,000 ms at `max`); zero disarms it.                                                                                                                                                                      |
-| `repeatCap`          | `number`                                                                                                                  | Caps consecutive repeat-observation frames. Armed by default at `CellTurn.defaultRepeatFrames`; zero disarms it.                                                                                                                                                                                                                              |
-| `narrowingCap`       | `number`                                                                                                                  | Caps completions bounced for narrowed evidence. Armed by default at `CellTurn.defaultNarrowingDemands`.                                                                                                                                                                                                                                       |
-| `unmovedCap`         | `number`                                                                                                                  | Caps completions bounced for an unmoved tree. Armed by default at `CellTurn.defaultUnmovedDemands`.                                                                                                                                                                                                                                           |
-| `unresolvedCap`      | `number`                                                                                                                  | Caps completions bounced for a failing check the run replaced rather than answered. Armed by default at `CellTurn.defaultUnresolvedDemands`.                                                                                                                                                                                                  |
-| `claimCap`           | `number`                                                                                                                  | Caps completions bounced for a claim the run's record does not support; the one brake that asks the `Evaluator`. Armed by default at `CellTurn.defaultClaimDemands`; zero disarms it.                                                                                                                                                         |
-| `approvalChannel`    | `boolean`                                                                                                                 | Whether a human can answer this run. Defaults to false; a run that claims it wrongly buys a run that waits forever.                                                                                                                                                                                                                           |
-| `limits`             | `Sandbox.Limits`                                                                                                          | The sandbox budget every cell runs under.                                                                                                                                                                                                                                                                                                     |
-| `supervisor`         | `{ remember?: boolean; namespace?: string; monitors?: ReadonlyArray<Monitor.Monitor>; stance?: "careful" \| "paranoid" }` | What the supervisor may do with its readings. `monitors` are added after `Monitor.defaults()` and before the `cellMonitors` hook; a duplicate or malformed monitor fails the run with `assembly_failed` before its first frame. `stance` is the static stance a judged run is taught, `careful` when omitted; an unjudged run is taught none. |
-| `judged`             | `boolean`                                                                                                                 | Whether the host's `Evaluator` is a real judge. True arms Jev's features, among them the supervisor's nudges and memory inserts and the run-start relevance reading. Defaults to false.                                                                                                                                                       |
-| `instructions`       | `ReadonlyArray<{ path: string; text: string }>`                                                                           | Human-provided instruction files, such as `AGENTS.md`, shown after `system`. A judged run drops the chunks Jev is confident the task does not need; see `CellTurn.Input.instructions`.                                                                                                                                                        |
-| `pinnedSources`      | `ReadonlyArray<string>`                                                                                                   | Names of `flows` sources whose flows a judged run never withholds, beside `StandardFlows.coreSources`.                                                                                                                                                                                                                                        |
+| Field                | Type                                                                                                                                 | What it decides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`            | `string`                                                                                                                             | The durable session or lineage every call identity is scoped to. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `seat`               | `Seat.Seat`                                                                                                                          | The resolved seat this run streams from: model, route, and context window together. Required.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `fallbackSeats`      | `ReadonlyArray<Seat.Seat>`                                                                                                           | Resolved seats tried in order after capacity refusal, context overflow, or HTTP 5xx failure. Capacity refusals cool seats sharing a route; overflow and 5xx do not park.                                                                                                                                                                                                                                                                                                                                        |
+| `capacity`           | `{ park: boolean; maxParkMillis?: number; maxParks?: number }`                                                                       | Capacity handling. Parking defaults to true, with no wait ceiling; unknown resets are re-probed after 15 minutes. `maxParks` (default `QuotaPolicy.defaultMaxParks`, 8) bounds the parks per run; the next refusal fails the run with the provider's typed `ModelError`.                                                                                                                                                                                                                                        |
+| `prompt`             | `string`                                                                                                                             | The task the run was admitted with. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `registry`           | `Registry.Registry`                                                                                                                  | The catalog shown to the model and the registry its calls resolve against. Required.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `system`             | `ReadonlyArray<string>`                                                                                                              | Stable system teaching placed ahead of the cell contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `flows`              | `ReadonlyArray<FlowBinding.Source>`                                                                                                  | Ordered executable-flow sources composed into the run's catalog.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `implementations`    | `ReadonlyMap<string, CellCalls.Implementation>`                                                                                      | Host implementations for module-backed flows, keyed by flow name.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `promptRunner`       | `CellCalls.PromptRunner`                                                                                                             | Runs a rendered markdown flow. A host with none refuses them catchably.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `authorize`          | `(call: Cell.Call) => Effect<void, HarnessError>`                                                                                    | Decides whether a call may proceed, before its durable boundary opens.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `plugins`            | `PluginInput<FlowsHooks>`                                                                                                            | Shared-kernel plugins resolved for the harness target.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `config`             | `FlowsConfig`                                                                                                                        | Raw config threaded through the plugin kernel's config waterfall.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `memory`             | `MemorySource.Declared`                                                                                                              | One explicitly selected memory snapshot, `{ rows, digest }` from `Source.declared`. The opening renders every row with `Source.render`; a judged run's relevance reading judges each row and renders only the kept ones. Omitting it injects no memory.                                                                                                                                                                                                                                                         |
+| `modelParams`        | `ModelRequest.GenerationParams`                                                                                                      | Generation parameters for the run's model calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `modelRetryPolicy`   | `Schedule<unknown, Model.ModelFailure>`                                                                                              | Overrides the bounded transport retry schedule at the model boundary.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `layers`             | `ReadonlyArray<string>`                                                                                                              | The resolved composition identity folded into every durable key.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `capabilityEnvelope` | `ReadonlyArray<Capability.CapabilityPattern>`                                                                                        | The run's complete authority. The default is nothing granted.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `placement`          | `Option<Descriptor.Placement>`                                                                                                       | The run's placement identity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `maxFrames`          | `number`                                                                                                                             | Bounds one loop's frames.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `readOnlyCap`        | `number`                                                                                                                             | Caps consecutive read-only frames. Armed for task runs only; see `CellTurn.make` in [`@smthrs/harness`](/docs/reference/api/harness/).                                                                                                                                                                                                                                                                                                                                                                                          |
+| `modelCallMs`        | `number`                                                                                                                             | Caps the wall clock one model call may spend. Armed by default at `CellTurn.modelCallMsFor(effort)` (300,000 ms up to `medium`, 1,800,000 ms at `max`); zero disarms it.                                                                                                                                                                                                                                                                                                                                        |
+| `repeatCap`          | `number`                                                                                                                             | Caps consecutive repeat-observation frames. Armed by default at `CellTurn.defaultRepeatFrames`; zero disarms it.                                                                                                                                                                                                                                                                                                                                                                                                |
+| `narrowingCap`       | `number`                                                                                                                             | Caps completions bounced for narrowed evidence. Armed by default at `CellTurn.defaultNarrowingDemands`.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `unmovedCap`         | `number`                                                                                                                             | Caps completions bounced for an unmoved tree. Armed by default at `CellTurn.defaultUnmovedDemands`.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `unresolvedCap`      | `number`                                                                                                                             | Caps completions bounced for a failing check the run replaced rather than answered. Armed by default at `CellTurn.defaultUnresolvedDemands`.                                                                                                                                                                                                                                                                                                                                                                    |
+| `claimCap`           | `number`                                                                                                                             | Caps completions bounced for a claim the run's record does not support; the one brake that asks the `Evaluator`. Armed by default at `CellTurn.defaultClaimDemands`; zero disarms it.                                                                                                                                                                                                                                                                                                                           |
+| `approvalChannel`    | `boolean`                                                                                                                            | Whether a human can answer this run. Defaults to false; a run that claims it wrongly buys a run that waits forever.                                                                                                                                                                                                                                                                                                                                                                                             |
+| `limits`             | `Sandbox.Limits`                                                                                                                     | The sandbox budget every cell runs under.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `supervisor`         | `{ remember?: boolean; banks?: ReadonlyArray<string>; monitors?: ReadonlyArray<Monitor.Monitor>; stance?: "careful" \| "paranoid" }` | What the supervisor may do with its readings. `banks` are the memory banks recalled from and written to. `remember` mines the run's transcript once, at run end, through `MemoryMine`, when a bank is writable. `monitors` are added after `Monitor.defaults()` and before the `cellMonitors` hook; a duplicate or malformed monitor fails the run with `assembly_failed` before its first frame. `stance` is the static stance a judged run is taught, `careful` when omitted; an unjudged run is taught none. |
+| `judged`             | `boolean`                                                                                                                            | Whether the host's `Evaluator` is a real judge. True arms Jev's features, among them the supervisor's nudges and memory inserts and the run-start relevance reading. Defaults to false.                                                                                                                                                                                                                                                                                                                         |
+| `instructions`       | `ReadonlyArray<{ path: string; text: string }>`                                                                                      | Human-provided instruction files, such as `AGENTS.md`, shown after `system`. A judged run drops the chunks Jev is confident the task does not need; see `CellTurn.Input.instructions`.                                                                                                                                                                                                                                                                                                                          |
+| `pinnedSources`      | `ReadonlyArray<string>`                                                                                                              | Names of `flows` sources whose flows a judged run never withholds, beside `StandardFlows.coreSources`.                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ### Agent.Agent
 
@@ -16096,6 +16169,127 @@ Creates the engine-store conformance sandbox over an in-memory host.
 `InitialFiles`, `HostFile`, and `InMemoryWorkspaceSandbox` are type aliases for
 the engine-store models.
 
+## Memory
+
+The context a task needs, as one ordinary sealed flow named `memory`. A cell
+calls it like every other capability; there is no `ctx.memory`:
+
+```js
+const m = await ctx.call("memory", { task: "Fix the retry in the wiki citation check" })
+console.log(m.context)
+```
+
+Selection shortlists candidates deterministically, asks Jev one boolean per
+candidate, and packs the winners into one byte-stable fenced block. The block
+enters a run as a call result in the append-only tail, or at frame 0 as
+`Agent.Options.memory`, so the prompt-cache prefix and `cacheKey` never change.
+See [Memory](https://agent.smithers.sh/guides/memory/) for the sources and thresholds.
+
+### Memory.Input, Memory.Output, Memory.Item
+
+| Field      | Type                                            | Meaning                                                           |
+| ---------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| `task`     | `string`                                        | The task, in the run's own words.                                 |
+| `query`    | `string?`                                       | A narrower question within the task.                              |
+| `paths`    | `string[]?`                                     | Repository files or directories included without judging (seeds). |
+| `sources`  | `("wiki" \| "repo" \| "commits" \| "facts")[]?` | Which sources to read; all when absent.                           |
+| `maxBytes` | `number?`                                       | The block's size, 1024 to 65536 UTF-8 bytes; 32768 when absent.   |
+
+`Output` is `{ context, digest, kept, omitted, cost, unjudged? }`. `kept` and
+`omitted` list `Item`s (`kind`, `id`, `digest`, `bytes`, `p`, `decided`), never
+text; `omitted` holds at most `maxOmitted` (64) ids, highest `p` first. A file
+past `maxFilesPerDir` (64) or `maxFiles` (256) is omitted unread as `budget`
+with `bytes` 0. `cost` is `{ jevRequests, jevMs, candidates }`. Named paths are
+seeds only when `sources` holds `repo`, named commits only when it holds
+`commits`.
+
+### Memory.select
+
+```ts
+const select: (
+  input: Memory.Input,
+  options: Memory.Options
+) => Effect.Effect<Memory.Selection, Memory.MemoryFailed, FileSystem | Path | ChildProcessSpawner>
+```
+
+Selects over `options.root`. `options.pages` replaces the wiki catalog,
+`options.facts` reads remembered rows from named banks, and
+`options.thresholds` replaces the repository's own (`Memory.thresholds(root)`:
+`.smithers/memory-thresholds.json`, `MemoryCalibration.initial` when absent,
+`thresholds_invalid` when it does not decode). The `Selection`
+carries the output, the kept items with the text the block holds for each,
+`needed` (every item that cleared its threshold before the byte budget), and
+every Jev request. A Jev that is unreachable, times out or refuses with a 429
+or a 5xx, or a host with no judge (reason `unconfigured`), leaves the seeds and
+the recalled facts (`decided: "unjudged"`) with `unjudged` set, and
+`Selection.unjudged` (`Memory.Unjudged`) adds the failed reading's
+`classifier` and `items`; any other Jev failure fails
+with `MemoryFailed` code `judge_failed`. A facts store failure is
+`facts_failed`; a denied seed is `read_failed`, and a denied file or walked
+directory is skipped. `MemoryFailed` is registered with `Fault`: `judge_failed`
+is `dependency`, `facts_failed` and `read_failed` are `infra`, and
+`thresholds_invalid` is `user`.
+
+### Memory.flow, Memory.binding, Memory.source, Memory.plugin
+
+`flow` is the `memory` declaration (`sealed`, requires `Memory.reads`,
+`fs:read:/**`; a host opens with the workspace only under the same grant).
+`binding(services, options)` binds it with the step key carrying
+`Memory.version`, the root and the digest of `options.thresholds`
+(`MemoryCalibration.initial` when absent), and journals a `decision-settled` row
+per Jev request. `source(services, options)` is the flows source a host passes:
+it binds with the repository's thresholds each time a run resolves its flows.
+`plugin(services, options)` contributes the binding through
+`CellPlugin.fromBindings`; pass it in `Agent.Options.plugins`.
+
+### Memory.opening, Memory.declared
+
+`opening(task, options)` runs the same selection packed to `openingMaxBytes`
+(16 KiB) and returns `{ memory, selection, unjudged }`, where `memory` is the
+`Agent.Options.memory` value: one row per kept item keyed `<kind>/<id>`, so the
+run-start relevance reading can still withhold any row.
+
+### Memory.needed, Memory.descend
+
+The two `Judgement.perItem` readings, `memory/needed` and `memory/descend`,
+each packed into requests of at most `Memory.maxStateBytes` (64 KiB).
+
+### Memory.extractPaths, Memory.normalizePath
+
+Repository-relative paths named in prose, the one implementation planning
+also uses.
+
+## MemoryCalibration
+
+The threshold math behind every `memory` decision. `tau(costs)` is the
+cost-optimal threshold `extra / (miss + extra)`; `calibrated` maps a raw Jev
+probability through a ten-bucket reliability table; `include` compares it with
+the decision's `tau`. `fit` is a monotone (pool adjacent violators) reliability
+fit, `bestTau` the least-cost threshold, and `refit` one weekly fit that refuses
+under `minLabels` (200) labels or a move over `maxMove` (0.05). `initial` holds
+the declared starting thresholds: 0.35 for pages, skills and files, 0.30 to
+descend, 0.50 for commits and dependency pages, 0.70 to accept a mined fact.
+`digest` joins every `memory` step key.
+
+## MemoryMine
+
+A run's transcript, mined once at run end. `Agent.run` calls `settle` when
+`supervisor.remember` is on and a bank is writable; the `memory/mine` file flow
+calls `extract`, `judge` and `write` over a finished run's journal.
+
+| Export                                | Does                                                                                                                                                                                    |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sentences(prose)`                    | Redacts the whole reply, removes every fenced block, then up to `paragraphLimit` (4) paragraphs, each clipped to `candidateChars` (400).                                                |
+| `transcript()`, `add(into, row)`      | Folds one `Row` into candidates (settled replies) and decisions (drained user messages, each clipped to `decisionChars` (500)), distinct and redacted.                                  |
+| `extract(rows)`                       | `add` over a whole journal in `seq` order; at most `candidateLimit` (64) candidates and `decisionLimit` (64) decisions.                                                                 |
+| `reading`, `judge(task, candidates)`  | One `memory/mine` reading: `durable` and `issue` per candidate, each accepted when `accepts(p)` (τ 0.70).                                                                               |
+| `write(store, { bank, runId, text })` | The one fact writer: redacted, keyed by `noteId(bank, text)`, `source:transcript`; a stored fact is kept as it is.                                                                      |
+| `settle(input)`                       | The run-end reading as the `memory-mine` boundary; returns its `decision-settled` or `decision-unjudged` rows and a `supervisor-memory-failed` row per refused write or engine failure. |
+| `decisionsDirectory`                  | `factory/wiki/decisions`: where `memory/mine` appends `<item>.md` and where the `memory` wiki source reads decisions pages.                                                             |
+
+A Jev or engine failure writes nothing and never fails the run. A replayed run
+is served the recorded reading.
+
 ## MemorySnapshotRecorder
 
 The durable implementation of `@smthrs/memory`'s `SnapshotRecorder` port: it
@@ -16132,7 +16326,8 @@ language judge or a production default. A whole host must dispatch its other
 classifiers too; see [the whole-host fixture](https://github.com/smithersai/smithers/blob/main/flows/test/fixtures/scripted-judge.ts).
 
 `layerAll` answers every classifier the agent asks: completion, relevance,
-compaction marks, seat routing and the supervisor. Each answer is computed from
+compaction marks, seat routing, the supervisor and `memory/mine`, which accepts
+nothing. Each answer is computed from
 the state by the matching `answer.*` answerer, and `answererFor(ids)` picks one
 by question ids. A question-id set no classifier asks fails `unreachable`.
 
@@ -25377,10 +25572,11 @@ out of both a committed row and a log line.
 
 ### Flat exports
 
-[`@smthrs/flow`](/docs/reference/api/flow/) is re-exported flat, so all fifteen authoring names
+[`@smthrs/flow`](/docs/reference/api/flow/) is re-exported flat, so all sixteen authoring names
 sit at the top level: `Action`, `DurableClock`, `DurableDeferred`,
-`DurableQueue`, `Flow`, `FlowRuntime`, `Graph`, `HumanTask`, `Interpreter`,
-`Poll`, `RetryPolicy`, `Sleep`, `Stall`, `StepIdentity`, and `WaitFor`.
+`DurableQueue`, `Fault`, `Flow`, `FlowRuntime`, `Graph`, `HumanTask`,
+`Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, `StepIdentity`, and
+`WaitFor`.
 
 `TimeTravel` from [`@smthrs/time-travel`](/docs/reference/api/time-travel/) is the second flat
 export, and it is a service key rather than a namespace:
@@ -27046,7 +27242,7 @@ behavior and signatures.
 | `NarrowedCheck`              | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The narrowing ledger: which checks this run has run, and over which tree.                                |
 | `CellValidation`             | `Validation`, `normalize`, `validate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Cell validation at the boundary.                                                                         |
 | `CompletionClaim`            | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `unjudged`, `unproven`, `read`, `demand`, `quote`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The completion nothing in the record contradicts.                                                        |
-| `Supervisor`                 | `frameBytes`, `recentFrames`, `candidateLimit`, `recalledLimit`, `thrashingAt`, `offTargetAt`, `suspectAt`, `acceptAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Options`, `defaultOptions`, `Memory`, `memoryNone`, `Verdict`, `nudge`, `recalledInsert`, `judge`, `head`, `tail`, `candidates`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The reading Jev takes of a run while it is still running.                                                |
+| `Supervisor`                 | `frameBytes`, `recentFrames`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `contextAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Memory`, `memoryNone`, `nudge`, `recalledInsert`, `head`, `tail`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | The reading Jev takes of a run while it is still running.                                                |
 | `Monitor`                    | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What one supervisor reading can put in front of the run, and when.                                       |
 | `Judgement`                  | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The one way this package asks Jev a question.                                                            |
 | `Relevance`                  | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | What a run is shown of the human-provided items it could be shown.                                       |
@@ -28487,8 +28683,7 @@ a `Snapshot` the controller assembles from what it already holds: the task
 `frameBytes`, the transition, whether the frame moved the tree), the counts the
 deterministic controls keep as `Signals` (read-only and repeat streaks,
 mutations, checks run and failing, unanswered failures, failed calls, demands
-spent), and up to `candidateLimit` (4) sentences the run wrote that might be
-worth remembering. It also carries `skills`: up to `skillLimit` (12)
+spent). It also carries `skills`: up to `skillLimit` (12)
 Markdown skills from the frame's relevance-filtered catalog the model may
 call and has not, sorted by name and offered only when `read` is in that
 catalog, each a `Skill` of name, Markdown body path and the description's
@@ -28502,7 +28697,7 @@ One Jev call per snapshot answers every question at once; eleven are fixed.
 Five are about the run, the `triggers`: `thrashing` (at or
 above `thrashingAt`, 0.5), `off_target` (`on_target` at or below
 `offTargetAt`, 0.5), `suspect` (at or above `suspectAt`, 0.5),
-`outdated_context` and `irrelevant_context` (each at or above `acceptAt`,
+`outdated_context` and `irrelevant_context` (each at or above `contextAt`,
 0.5). `crosses(reading)` is any trigger firing and `triggered(reading)` names
 the ones that did; the `supervisor` lint monitor and the offline replay both
 call them, and `nudge` names the counts behind them. Five are
@@ -28510,14 +28705,12 @@ operational states scored on `Level` (`none`, `mild`, `strong`), each naming
 the evidence it reads: `frustrated`, `anxious`, `scared`, `confused`,
 `confident`. `needs_help` is a choice over `Help` (`none`, `clarification`,
 `permission`, `stuck`, `risky_action`): the one word a person is shown, and it
-never steers the run. One boolean per candidate (`remember_<i>`) decides what
-is written to `Memory`, and each monitor question the run's `Monitor`s add is
-one more boolean, keyed `monitor_<id>` (`monitorPrefix`; `MonitorQuestions`).
+never steers the run. Each monitor question the run's `Monitor`s add is one
+more boolean, keyed `monitor_<id>` (`monitorPrefix`; `MonitorQuestions`).
 `read(snapshot, extra)` asks them all and puts each monitor's probability on
-`Reading.monitors` by monitor id. `classifierFor(candidates, extra)` is the
-classifier for that shape, declared once per count and set of monitor ids,
-and `classifier` the bare one; with no monitor questions the digest is the
-one the eleven fixed questions always had.
+`Reading.monitors` by monitor id. `classifierFor(extra)` is the classifier for
+that set of monitor ids, declared once per set, and `classifier` the bare one
+over the eleven fixed questions. `prose` strips fenced cells from a reply.
 
 Recalled memory goes through `Relevance`, not `supervisor/turn`. Beside each
 reading the fiber recalls past every row whose key the run has already been
@@ -28542,8 +28735,7 @@ every answer), the memory reading's `DecisionSettled` rows, its
 `AgentEvent.SupervisorSettled`, whose `monitors` holds each monitor's value
 and whether it crossed, and whose `skillsCapped` is true when more than
 `skillLimit` skills could have been offered. Each reading scores the run's monitors, then
-`Monitor.skills` of its snapshot, then `Monitor.useJev()`. `judge` turns a
-`Reading` into a `Verdict` under `Options`: the candidates to remember. What
+`Monitor.skills` of its snapshot, then `Monitor.useJev()`. What
 the run is told is the monitors' to decide: the reading records each
 monitor's raw value and every crossed monitor's message, and the next
 boundary that executes gates them with `Monitor.gate` against
@@ -28554,17 +28746,18 @@ person's steering inserts; a reading is dropped as stale after that boundary.
 A reading that fails on one side still delivers the other. The model reads
 them above the frame's ask; the task the completion brake and later snapshots
 read never includes them. Each `SupervisorSettled` states the delivery it ran
-under as `steer`. `Options` is `{ remember }`: `remember` (default off) writes accepted
-candidates to the bound `Memory`, a port with `memoryNone` behind it unless the host adapts
-a store. A `Memory` read or write that fails is journaled as
-`AgentEvent.SupervisorMemoryFailed` and the reading goes on.
-`defaultOptions` writes nothing.
+under as `steer`. `Memory` is a port with `memoryNone` behind it unless the
+host adapts a store. The supervisor only recalls through it; a recall that
+fails is journaled as `AgentEvent.SupervisorMemoryFailed` and the reading goes
+on. The supervisor writes no memory: when `supervisor.remember` is on,
+`@smthrs/agent`'s `MemoryMine` mines the run's transcript once, at run end,
+and writes through `Memory.remember`.
 
 It never falls back. A snapshot nobody could judge is journaled as
 `AgentEvent.SupervisorUnjudged` with `UnjudgedReason` (`unconfigured`,
 `interrupted`, or the transport's own code; an `unreachable` detail is
 `Evaluator.unreachableMessage`, never the transport's text), gates no
-monitor, leaves the ledger alone, remembers nothing and reports no level. A replayed frame is never
+monitor, leaves the ledger alone and reports no level. A replayed frame is never
 offered, so a resumed run re-asks nothing and re-delivers exactly what its
 recorded drains hold. A reading in flight when the run ends gets
 `closeGraceMs` (1,500) to settle; one still unanswered is interrupted and
@@ -49309,7 +49502,7 @@ A Smithers workspace holds target declarations and flow sources. Runtime state l
 
 `.smithers/WORKSPACE.ts` declares workspace-wide runtime, package-manager, and cache settings. A root `WORKSPACE.ts` is also supported. A `PACKAGE.ts` declares targets for its directory; exported target keys become labels such as `//apps/site:build`.
 
-`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label); `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
+`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day); `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
 
 These are source files to commit. Their presence does not make `.flows/` state part of the source tree. The [CLI reference](/docs/reference/cli/) distinguishes target execution from durable flow commands.
 
@@ -56430,7 +56623,7 @@ Commands:
   disconnect   Disconnect this repository from Smithers
   edit         Edit repository settings
   fork         Fork a repository
-  home         List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps
+  home         List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows
   list         List your repositories
   mirror-sync  Start a GitHub mirror sync run
   push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
@@ -56694,7 +56887,7 @@ Global Options:
 ## repo home
 
 ```text
-smthrs repo home — List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps
+smthrs repo home — List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows
 
 Usage: smthrs repo home [repo] [options]
 
