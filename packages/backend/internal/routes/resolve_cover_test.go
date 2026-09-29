@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -36,18 +37,21 @@ func (d *resolveCovDBTX) Query(context.Context, string, ...interface{}) (pgx.Row
 func (d *resolveCovDBTX) QueryRow(ctx context.Context, query string, args ...interface{}) pgx.Row {
 	switch {
 	case strings.Contains(query, "FROM users") && d.user != nil:
-		u := *d.user
-		return &resolveCovRow{values: []any{
-			u.ID, u.Username, u.LowerUsername, u.Email, u.LowerEmail, u.DisplayName, u.Bio, u.SearchVector,
-			u.AvatarUrl, u.WalletAddress, u.UserType, u.IsActive, u.IsAdmin, u.ProhibitLogin,
-			u.EmailNotificationsEnabled, u.LastLoginAt, u.DeletedAt, u.CreatedAt, u.UpdatedAt, u.IsSynthetic,
-		}}
+		return resolveCovRowFor(*d.user)
 	case strings.Contains(query, "FROM organizations") && d.org != nil:
-		o := *d.org
-		return &resolveCovRow{values: []any{o.ID, o.Name, o.LowerName, o.Description, o.Visibility, o.Website, o.Location, o.CreatedAt, o.UpdatedAt}}
+		return resolveCovRowFor(*d.org)
 	default:
 		return &resolveCovRow{err: sql.ErrNoRows}
 	}
+}
+
+func resolveCovRowFor(model any) *resolveCovRow {
+	fields := reflect.ValueOf(model)
+	values := make([]any, fields.NumField())
+	for i := range values {
+		values[i] = fields.Field(i).Interface()
+	}
+	return &resolveCovRow{values: values}
 }
 
 type resolveCovRow struct {
@@ -59,10 +63,28 @@ func (r *resolveCovRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
+	if len(dest) != len(r.values) {
+		return fmt.Errorf("resolve fixture: scan destinations %d, values %d", len(dest), len(r.values))
+	}
 	for i := range dest {
 		reflect.ValueOf(dest[i]).Elem().Set(reflect.ValueOf(r.values[i]))
 	}
 	return nil
+}
+
+func TestResolveCovDBTXOrgScan(t *testing.T) {
+	t.Parallel()
+
+	org := db.Organization{
+		ID: 3, Name: "Acme", LowerName: "acme", Description: "description", Visibility: "public",
+		Website: "https://example.com", Location: "Earth",
+		CreatedAt:      time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC),
+		FactoryOwnerID: pgtype.Int8{Int64: 42, Valid: true},
+	}
+	got, err := db.New(&resolveCovDBTX{org: &org}).GetOrgByLowerName(context.Background(), org.LowerName)
+	require.NoError(t, err)
+	assert.Equal(t, org, got)
 }
 
 func TestResolve_Cov_GetResolveUserOrgAndNotFound(t *testing.T) {
