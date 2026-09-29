@@ -116,8 +116,8 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 	if err := json.Unmarshal(body, &document); err != nil {
 		return parsedCall{}, refuse("request body must be a JSON object")
 	}
-	images := 0
-	if err := checkContent(provider, document, &images); err != nil {
+	content := contentScan{provider: provider}
+	if err := content.check(document); err != nil {
 		return parsedCall{}, err
 	}
 	if err := checkTools(fields["tools"]); err != nil {
@@ -169,11 +169,15 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 			return parsedCall{}, refuse("request body could not be encoded")
 		}
 	}
-	input := int64(len(call.body)) + inputAllowance + int64(images)*imageAllowance
+	input := int64(len(call.body)) + inputAllowance + int64(content.images)*imageAllowance
 	outputTotal := output * choices
 	call.maximum = func(price modelprice.Price) modelprice.Usage {
 		// The rate card follows the prompt bound, so a prompt that can
 		// cross a long-context threshold is reserved at the long rates.
+		// Only a request that asks for the 1-hour cache can be billed for it.
+		if !content.oneHour {
+			price.CacheWrite1hPerMTok, price.LongContext.CacheWrite1hPerMTok = 0, 0
+		}
 		return price.Maximum(input, outputTotal)
 	}
 	return call, nil
@@ -269,11 +273,17 @@ func checkTools(raw json.RawMessage) error {
 
 var dataFields = []string{"input_schema", "parameters", "schema", "json_schema", "metadata", "format", "arguments"}
 
-// checkContent refuses content whose tokens the request size does not bound
+// contentScan refuses content whose tokens the request size does not bound
 // (anything fetched by reference, PDFs, audio) or whose cache lifetime the
 // provider's usage report does not price, and counts inline images, which are
 // bounded per image. Only Anthropic reports 1-hour cache writes separately.
-func checkContent(provider string, value any, images *int) error {
+type contentScan struct {
+	provider string
+	images   int
+	oneHour  bool
+}
+
+func (c *contentScan) check(value any) error {
 	switch v := value.(type) {
 	case map[string]any:
 		for _, name := range []string{"file_id", "file_url", "file_data"} {
@@ -292,12 +302,14 @@ func checkContent(provider string, value any, images *int) error {
 				}
 			}
 		case "image", "image_url", "input_image":
-			*images++
+			c.images++
 		}
 		if control, ok := v["cache_control"].(map[string]any); ok {
-			if ttl, _ := control["ttl"].(string); ttl != "" && ttl != "5m" && (ttl != "1h" || provider != ProviderAnthropic) {
+			ttl, _ := control["ttl"].(string)
+			if ttl != "" && ttl != "5m" && (ttl != "1h" || c.provider != ProviderAnthropic) {
 				return refuse("cache lifetime " + ttl + " is not offered on platform keys")
 			}
+			c.oneHour = c.oneHour || ttl == "1h"
 		}
 		if _, ok := v["video_url"]; ok {
 			return refuse("video is not offered on platform keys")
@@ -317,13 +329,13 @@ func checkContent(provider string, value any, images *int) error {
 			if slices.Contains(dataFields, name) || (name == "input" && strings.HasSuffix(kind, "tool_use")) {
 				continue
 			}
-			if err := checkContent(provider, child, images); err != nil {
+			if err := c.check(child); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if err := checkContent(provider, child, images); err != nil {
+			if err := c.check(child); err != nil {
 				return err
 			}
 		}

@@ -130,6 +130,7 @@ func (f *proxyFixture) call(path, body string, header ...string) *httptest.Respo
 type usageRow struct {
 	outcome                                 string
 	input, output, cacheRead, cacheWrite    int64
+	cacheWrite1h                            int64
 	cost                                    *int64
 	reserved, charged                       int64
 	status                                  string
@@ -138,7 +139,7 @@ type usageRow struct {
 
 func (f *proxyFixture) rows() []usageRow {
 	f.t.Helper()
-	rows, err := f.pool.Query(context.Background(), `SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens,
+	rows, err := f.pool.Query(context.Background(), `SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens, u.cache_write_1h_tokens,
 			u.cost_nanos, r.reserved_nanos, COALESCE(r.charged_nanos, -1), r.status, u.provider, u.model, u.source, COALESCE(u.workspace_id, ''), u.reference
 		FROM model_usage u JOIN credit_reservations r ON r.id = u.reservation_id ORDER BY u.id`)
 	require.NoError(f.t, err)
@@ -146,7 +147,7 @@ func (f *proxyFixture) rows() []usageRow {
 	var out []usageRow
 	for rows.Next() {
 		var row usageRow
-		require.NoError(f.t, rows.Scan(&row.outcome, &row.input, &row.output, &row.cacheRead, &row.cacheWrite, &row.cost,
+		require.NoError(f.t, rows.Scan(&row.outcome, &row.input, &row.output, &row.cacheRead, &row.cacheWrite, &row.cacheWrite1h, &row.cost,
 			&row.reserved, &row.charged, &row.status, &row.provider, &row.model, &row.source, &row.workspace, &row.ref))
 		out = append(out, row)
 	}
@@ -270,6 +271,43 @@ func TestProxy_StreamSettlesFromTheFinalUsageFrame(t *testing.T) {
 	require.Equal(t, actual, *rows[0].cost)
 	require.Equal(t, actual, rows[0].charged)
 	require.Equal(t, []string{"anthropic", "claude-haiku-4-5", "workspace", "ws-1"}, []string{rows[0].provider, rows[0].model, rows[0].source, rows[0].workspace})
+}
+
+// A 1-hour cache request is admitted, reserved at the 1-hour write rate, and
+// settled with its 5-minute and 1-hour writes priced apart, streamed or not.
+func TestProxy_AnthropicOneHourCacheWritesSettleAtTheirOwnRate(t *testing.T) {
+	split := `"cache_creation_input_tokens":200,"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":100}`
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint("stream=", stream), func(t *testing.T) {
+			f := newProxyFixture(t)
+			f.grant(1_000_000_000)
+			f.upstream = func(w http.ResponseWriter, _ *http.Request, _ []byte) {
+				if !stream {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"type":"message","usage":{"input_tokens":10,"output_tokens":5,`+split+`}}`)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, `data: {"type":"message_start","message":{"usage":{"input_tokens":10,`+split+`}}}`+"\n\n")
+				_, _ = io.WriteString(w, `data: {"type":"message_delta","usage":{"output_tokens":5,"cache_creation_input_tokens":200}}`+"\n\n")
+				_, _ = io.WriteString(w, `data: {"type":"message_stop"}`+"\n\n")
+			}
+			body := fmt.Sprintf(`{"model":"claude-haiku-4-5","max_tokens":10,"stream":%t,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":"hi"}]}`, stream)
+			bound := boundFor(t, ProviderAnthropic, "v1/messages", body)
+			before := f.balance()
+			recorder := f.call("/model-proxy/anthropic/v1/messages", body)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			actual := costOf(t, "claude-haiku-4-5", modelprice.Usage{InputTokens: 10, OutputTokens: 5, CacheWriteTokens: 200, CacheWrite1hTokens: 100})
+			require.Equal(t, int64(10*1000+5*5000+325_000), actual, "100 writes at $1.25 and 100 at $2 per million")
+			require.Equal(t, before-actual, f.balance())
+			rows := f.rows()
+			require.Len(t, rows, 1)
+			require.Equal(t, "succeeded", rows[0].outcome)
+			require.Equal(t, []int64{10, 5, 0, 200, 100}, []int64{rows[0].input, rows[0].output, rows[0].cacheRead, rows[0].cacheWrite, rows[0].cacheWrite1h})
+			require.Equal(t, actual, *rows[0].cost)
+			require.Equal(t, bound, rows[0].reserved)
+		})
+	}
 }
 
 // Chat Completions streams are asked for their usage chunk, and OpenAI's

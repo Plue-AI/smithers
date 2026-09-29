@@ -86,14 +86,34 @@ func TestRequestUnitNormalizesAbsentAndNullChoiceCount(t *testing.T) {
 func TestAnthropicOneHourCacheAccepted(t *testing.T) {
 	_, price, ok := Price(ProviderAnthropic, "claude-haiku-4-5")
 	require.True(t, ok)
-	for _, ttl := range []string{"", `,"ttl":"5m"`, `,"ttl":"1h"`} {
-		body := `{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral"` + ttl + `}}],"messages":[]}`
+	for _, item := range []struct {
+		ttl     string
+		oneHour bool
+	}{{"", false}, {`,"ttl":"5m"`, false}, {`,"ttl":"1h"`, true}} {
+		body := `{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral"` + item.ttl + `}}],"messages":[]}`
 		parsed, err := parseRequest(ProviderAnthropic, "v1/messages", http.Header{}, []byte(body))
-		require.NoError(t, err, ttl)
+		require.NoError(t, err, item.ttl)
 		maximum := parsed.maximum(price)
-		require.Equal(t, maximum.PromptTokens(), maximum.CacheWrite1hTokens, "the bound reserves every prompt token at the 1-hour write rate")
+		require.Equal(t, maximum.PromptTokens(), maximum.CacheWriteTokens, item.ttl)
+		oneHour := int64(0)
+		if item.oneHour {
+			oneHour = maximum.PromptTokens()
+		}
+		require.Equal(t, oneHour, maximum.CacheWrite1hTokens, "only a 1-hour request reserves at the 1-hour write rate: %s", item.ttl)
+		bound, err := Bound(price, maximum)
+		require.NoError(t, err)
+		rate := price.CacheWritePerMTok
+		if item.oneHour {
+			rate = price.CacheWrite1hPerMTok
+		}
+		require.Equal(t, (maximum.PromptTokens()*rate+10*price.OutputPerMTok+999)/1000, bound)
 	}
-	_, err := parseRequest(ProviderAnthropic, "v1/messages", http.Header{}, []byte(`{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"2h"}}],"messages":[]}`))
+	_, routed, ok := Price(ProviderOpenRouter, "anthropic/claude-haiku-4-5")
+	require.True(t, ok)
+	parsed, err := parseRequest(ProviderOpenRouter, "v1/chat/completions", http.Header{}, []byte(`{"model":"anthropic/claude-haiku-4-5","max_tokens":10,"messages":[]}`))
+	require.NoError(t, err)
+	require.Zero(t, parsed.maximum(routed).CacheWrite1hTokens, "OpenRouter cannot write the 1-hour cache")
+	_, err = parseRequest(ProviderAnthropic, "v1/messages", http.Header{}, []byte(`{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"2h"}}],"messages":[]}`))
 	require.EqualError(t, err, "cache lifetime 2h is not offered on platform keys")
 	// OpenRouter reports cache writes without the lifetime split.
 	_, err = parseRequest(ProviderOpenRouter, "v1/chat/completions", http.Header{}, []byte(`{"model":"anthropic/claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`))

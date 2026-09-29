@@ -156,3 +156,18 @@ func TestAnthropicUsageSplitsCacheLifetimes(t *testing.T) {
 		})
 	}
 }
+
+// A negative or overflowing split is never priced: CostNanos refuses it, and
+// the meter then charges the reserved bound.
+func TestAnthropicUsageRefusesInvalidCacheSplit(t *testing.T) {
+	haiku, _ := modelprice.Lookup("claude-haiku-4-5")
+	for _, split := range []string{
+		`"cache_creation":{"ephemeral_1h_input_tokens":-1}`,
+		`"cache_creation_input_tokens":1,"cache_creation":{"ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":2}`,
+	} {
+		usage, ok := usageFromJSON([]byte(`{"usage":{"input_tokens":1,` + split + `}}`))
+		require.True(t, ok)
+		_, err := modelprice.CostNanos(haiku, usage)
+		require.Error(t, err, split)
+	}
+}

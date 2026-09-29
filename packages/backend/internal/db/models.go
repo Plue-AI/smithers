@@ -644,6 +644,12 @@ type EmailAddress struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EmailRecipientRateLimit struct {
+	Recipient string    `json:"recipient"`
+	Count     int64     `json:"count"`
+	ResetAt   time.Time `json:"reset_at"`
+}
+
 type EmailVerificationToken struct {
 	ID        int64              `json:"id"`
 	UserID    int64              `json:"user_id"`
@@ -1387,30 +1393,31 @@ type Milestone struct {
 }
 
 type ModelUsage struct {
-	ID               int64              `json:"id"`
-	RequestKey       string             `json:"request_key"`
-	CreditAccountID  int64              `json:"credit_account_id"`
-	ReservationID    int64              `json:"reservation_id"`
-	OwnerType        string             `json:"owner_type"`
-	OwnerID          int64              `json:"owner_id"`
-	Source           string             `json:"source"`
-	UserID           pgtype.Int8        `json:"user_id"`
-	RepositoryID     pgtype.Int8        `json:"repository_id"`
-	WorkspaceID      pgtype.Text        `json:"workspace_id"`
-	WorkflowRunID    pgtype.Int8        `json:"workflow_run_id"`
-	Reference        string             `json:"reference"`
-	Provider         string             `json:"provider"`
-	Model            string             `json:"model"`
-	Stream           bool               `json:"stream"`
-	Outcome          string             `json:"outcome"`
-	InputTokens      int64              `json:"input_tokens"`
-	OutputTokens     int64              `json:"output_tokens"`
-	CacheReadTokens  int64              `json:"cache_read_tokens"`
-	CacheWriteTokens int64              `json:"cache_write_tokens"`
-	CostNanos        pgtype.Int8        `json:"cost_nanos"`
-	UpstreamStatus   pgtype.Int4        `json:"upstream_status"`
-	CreatedAt        time.Time          `json:"created_at"`
-	SettledAt        pgtype.Timestamptz `json:"settled_at"`
+	ID                 int64              `json:"id"`
+	RequestKey         string             `json:"request_key"`
+	CreditAccountID    int64              `json:"credit_account_id"`
+	ReservationID      int64              `json:"reservation_id"`
+	OwnerType          string             `json:"owner_type"`
+	OwnerID            int64              `json:"owner_id"`
+	Source             string             `json:"source"`
+	UserID             pgtype.Int8        `json:"user_id"`
+	RepositoryID       pgtype.Int8        `json:"repository_id"`
+	WorkspaceID        pgtype.Text        `json:"workspace_id"`
+	WorkflowRunID      pgtype.Int8        `json:"workflow_run_id"`
+	Reference          string             `json:"reference"`
+	Provider           string             `json:"provider"`
+	Model              string             `json:"model"`
+	Stream             bool               `json:"stream"`
+	Outcome            string             `json:"outcome"`
+	InputTokens        int64              `json:"input_tokens"`
+	OutputTokens       int64              `json:"output_tokens"`
+	CacheReadTokens    int64              `json:"cache_read_tokens"`
+	CacheWriteTokens   int64              `json:"cache_write_tokens"`
+	CostNanos          pgtype.Int8        `json:"cost_nanos"`
+	UpstreamStatus     pgtype.Int4        `json:"upstream_status"`
+	CreatedAt          time.Time          `json:"created_at"`
+	SettledAt          pgtype.Timestamptz `json:"settled_at"`
+	CacheWrite1hTokens int64              `json:"cache_write_1h_tokens"`
 }
 
 type MythicalChange struct {

@@ -201,10 +201,11 @@ func finishUsage(ctx context.Context, db *pgxpool.Pool, key string, outcome cred
 		usage = modelprice.Usage{}
 	}
 	_, err := db.Exec(ctx, `UPDATE model_usage SET outcome = $2, input_tokens = $3, output_tokens = $4,
-			cache_read_tokens = $5, cache_write_tokens = $6, cost_nanos = $7, upstream_status = $8, settled_at = now()
+			cache_read_tokens = $5, cache_write_tokens = $6, cost_nanos = $7, upstream_status = $8, settled_at = now(),
+			cache_write_1h_tokens = $9
 		WHERE request_key = $1 AND outcome = 'pending'`,
 		key, string(outcome), usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens,
-		cost, positive(int64(result.Status)))
+		cost, positive(int64(result.Status)), usage.CacheWrite1hTokens)
 	return err
 }
 
