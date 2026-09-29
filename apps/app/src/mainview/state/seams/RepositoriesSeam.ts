@@ -25,6 +25,7 @@
  * whose head could not be read carries `head: null`, and a failed bookmarks
  * call is an absent answer, not a fact.
  */
+import { Data } from "effect"
 import { createCloudClient } from "./CloudClient"
 import { captureCloudOwner } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
@@ -367,7 +368,9 @@ export interface RepositoryRanking {
 }
 
 /** A ranking read this module refused in its own words; any other throw is not copy. */
-class RankingRefused extends Error {}
+class RankingRefused extends Data.TaggedError("RankingRefused")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
 
 /** Pages stay on the supplied same-origin route; untrusted Link URLs never receive credentials. */
 async function githubPages(http: (url: string) => Promise<Response>, path: string): Promise<unknown[]> {

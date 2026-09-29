@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { LocalIdentityStatus } from "@smthrs/rpc/ApplicationAuth"
 import { ApplicationClientError, type LocalIdentityClient } from "../runtime/ApplicationClient"
 import { presentAppFailure } from "./controller/AppFailure"
@@ -24,7 +25,9 @@ export interface LocalAuthController {
 }
 
 /** Thrown when the owner submits setup without a bootstrap token; its message is authored copy. */
-class BootstrapTokenMissing extends Error {}
+class BootstrapTokenMissing extends Data.TaggedError("BootstrapTokenMissing")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
 
 /*
  * A refusal the local server answered keeps its own words (a wrong password
