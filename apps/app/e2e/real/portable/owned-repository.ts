@@ -105,10 +105,10 @@ const gitToken = async (page: Page, request: APIRequestContext): Promise<string>
   return body.token
 }
 
-/** Commit `files` on `branch` (created from main unless it is main) and push it. */
+/** Commit `files` on `branch` (created from main unless it is main) and push it; `changeId` stamps jj's change-id header and force-pushes a new revision of that change. */
 const pushFiles = async (
   page: Page, request: APIRequestContext, repo: OwnedRepository, branch: string, message: string,
-  files: Readonly<Record<string, string>>
+  files: Readonly<Record<string, string>>, changeId?: string
 ): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "smithers-matrix-git-"))
   const work = join(root, "checkout")
@@ -124,8 +124,19 @@ const pushFiles = async (
       await runGit(work, ["add", path])
     }
     await runGit(work, ["-c", "user.name=Matrix", "-c", "user.email=matrix@example.test", "commit", "-m", message])
-    const commit = await runGit(work, ["rev-parse", "HEAD"])
-    await runGit(work, ["push", "origin", branch], token)
+    if (changeId === undefined) {
+      const commit = await runGit(work, ["rev-parse", "HEAD"])
+      await runGit(work, ["push", "origin", branch], token)
+      return commit
+    }
+    // jj reads a commit's change id from its `change-id` header, so a later commit with the same header is the change's next revision.
+    const raw = await runGit(work, ["cat-file", "commit", "HEAD"])
+    const stamped = raw.replace(/^(committer .*)$/mu, `$1\nchange-id ${changeId}`)
+    const objectPath = join(root, "commit")
+    await writeFile(objectPath, `${stamped}\n`)
+    const commit = await runGit(work, ["hash-object", "-t", "commit", "-w", objectPath])
+    await runGit(work, ["update-ref", `refs/heads/${branch}`, commit])
+    await runGit(work, ["push", "--force", "origin", branch], token)
     return commit
   } finally { await rm(root, { recursive: true, force: true }) }
 }
@@ -135,6 +146,15 @@ export const pushLocalFixture = async (page: Page, request: APIRequestContext, r
   const commit = await pushFiles(page, request, repo, "fixture", "Add local fixture", { "fixture.txt": `${marker}\n` })
   return { commit, marker }
 }
+
+/** A fresh jj change id: 32 reverse-hex letters (`z` for 0 … `k` for f). */
+export const newChangeId = (): string =>
+  randomUUID().replaceAll("-", "").replace(/[0-9a-f]/gu, (digit) => "zyxwvutsrqponmlk"[Number.parseInt(digit, 16)]!)
+
+/** Commit `files` on a fixture bookmark forked from main as the next revision of `changeId`; each call replaces the previous revision. */
+export const pushChangeRevision = (
+  page: Page, request: APIRequestContext, repo: OwnedRepository, changeId: string, files: Readonly<Record<string, string>>
+): Promise<string> => pushFiles(page, request, repo, "fixture", "Change fixture", files, changeId)
 
 /** Declare project files on main, before a box checks it out. */
 export const pushMainFiles = (page: Page, request: APIRequestContext, repo: OwnedRepository, files: Readonly<Record<string, string>>): Promise<string> =>

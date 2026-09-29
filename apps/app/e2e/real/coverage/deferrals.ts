@@ -26,7 +26,6 @@ import { plugins } from "./deferrals/plugins"
 import { prs } from "./deferrals/prs"
 import { repo } from "./deferrals/repo"
 import { repos } from "./deferrals/repos"
-import { review } from "./deferrals/review"
 import { runs } from "./deferrals/runs"
 import { search } from "./deferrals/search"
 import { secrets } from "./deferrals/secrets"
@@ -82,7 +81,6 @@ export const OWED_ACTIONS_BY_FAMILY = {
   prs,
   repo,
   repos,
-  review,
   runs,
   search,
   secrets,
