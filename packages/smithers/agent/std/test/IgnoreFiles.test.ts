@@ -160,23 +160,33 @@ for (const [name, layer] of [["portable", PortableSearch.layer], ["native", Nati
       expect(result.notice).toContain("of 269 matches")
       expect((await glob({ root, pattern: "*.txt", limit: 1 })).total).toBe(270)
     })
-    it("scopes nested rules and lets nested negation override parent rules", async () => {
-      const root = fixture({
-        ".gitignore": "*.tmp\n",
-        "one/.gitignore": "!keep.tmp\n/anchored.txt\ncache/\n",
+    it.each([
+      { name: "omitted", options: {}, noIgnore: false },
+      { name: "false", options: { noIgnore: false }, noIgnore: false },
+      { name: "true", options: { noIgnore: true }, noIgnore: true }
+    ])("scopes root and nested rules with noIgnore $name", async ({ options, noIgnore }) => {
+      const files = {
         "one/keep.tmp": "needle",
         "two/keep.tmp": "needle",
         "one/anchored.txt": "needle",
         "one/sub/anchored.txt": "needle",
         "one/cache/a.txt": "needle",
         "two/cache/a.txt": "needle"
+      }
+      const root = fixture({
+        ".gitignore": "*.tmp\n",
+        "one/.gitignore": "!keep.tmp\n/anchored.txt\ncache/\n",
+        ...files
       })
-      expect(
-        (await glob({ root, pattern: "**/*", noIgnore: false })).paths.map((file) =>
-          relative(root, file).split(sep).join("/")
-        )
-      )
-        .toEqual(["one/keep.tmp", "one/sub/anchored.txt", "two/cache/a.txt"])
+      const expected = (noIgnore
+        ? Object.keys(files)
+        : ["one/keep.tmp", "one/sub/anchored.txt", "two/cache/a.txt"]).sort()
+      const foundPaths = await glob({ root, pattern: "**/*", ...options })
+      expect(foundPaths.paths.map((file) => relative(root, file).split(sep).join("/"))).toEqual(expected)
+      expect(foundPaths.total).toBe(expected.length)
+      const foundMatches = await grep({ root, pattern: "needle", symbols: false, ...options })
+      expect(foundMatches.matches.map((match) => relative(root, match.file).split(sep).join("/"))).toEqual(expected)
+      expect(foundMatches.filesSearched).toBe(expected.length)
     })
     it("ignores only root-scoped .gitignore", async () => {
       const parent = fixture({

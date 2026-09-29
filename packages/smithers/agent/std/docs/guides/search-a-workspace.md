@@ -38,6 +38,12 @@ Three rules follow from root-relative matching:
 `glob` returns at most 1,000 paths per call, and `limit` lowers that. Pass
 `hidden: true` to include dot files.
 
+Both flows apply `.gitignore` rules from the search root and nested directories,
+even outside Git repositories. `noIgnore` is an optional boolean defaulting to
+`false`; set `noIgnore: true` to include ignored paths. Rules above the root and
+global ignore files do not apply. Hidden-file and fixed directory skips still
+apply when `noIgnore` is true.
+
 ## Search contents
 
 ```ts
@@ -62,6 +68,7 @@ const found = Grep.run({
 | `maxCount`                                 | At most this many matches per file. At least 1.                           |
 | `filesWithMatches`                         | Report file names only.                                                   |
 | `hidden`                                   | Include dot files.                                                        |
+| `noIgnore`                                 | Include paths excluded by `.gitignore` when true. Defaults to false.      |
 | `symbols`                                  | Report the definition enclosing each hit. True by default.                |
 | `limit`                                    | Global match budget, capped at 200.                                       |
 
@@ -122,9 +129,7 @@ implementations must not each pick their own reading:
 - `context` together with `beforeContext` or `afterContext`.
 - `maxCount` below 1.
 
-`noIgnore` and file-type registries never reach that check: `noIgnore` accepts
-only `true`, and there is no `types` field, so the schema refuses both before a
-search runs.
+File-type registries are unsupported; there is no `types` input field.
 
 An unsupported pattern is `invalid_pattern`, with a message naming the
 construct. A `root` that does not exist is `not_found`.

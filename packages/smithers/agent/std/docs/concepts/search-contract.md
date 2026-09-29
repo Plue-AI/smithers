@@ -31,18 +31,21 @@ whichever one the host provided. Neither module knows which peer is in play.
 | `maxCount`                                 | `--max-count`, per file                   |
 | `filesWithMatches`                         | `--files-with-matches`                    |
 | `hidden`                                   | `--hidden`                                |
+| `noIgnore`                                 | `--no-ignore`                             |
 | `limit`                                    | the global result budget, capped at 200   |
 
 `glob` corresponds to `rg --files -g <pattern>`.
 
-Two ripgrep features are outside v1, and the input schema says so rather than
-leaving it to a runtime refusal. Ignore files are never consulted, so `noIgnore`
-accepts only `true`; any other value fails to decode, and fails with
-`invalid_input` when it reaches `run` undecoded. File-type registries are not
-supported, so there is no `types` field to pass. `-i` and `-S` together, and
-`-C` combined with `-A` or `-B`, are `invalid_input`, because ripgrep's own
-precedence for those combinations is not a thing two peers should each guess
-at.
+`noIgnore` is an optional boolean defaulting to `false`. Both flows apply
+`.gitignore` rules from the search root and nested directories, even outside
+Git repositories. Set `noIgnore: true` to include ignored paths. Parent and
+global ignore rules, `.ignore`, `.rgignore`, and `.git/info/exclude` do not
+participate. Hidden-file and fixed directory skips still apply.
+
+File-type registries are not supported, so there is no `types` field to pass.
+`-i` and `-S` together, and `-C` combined with `-A` or `-B`, are `invalid_input`,
+because ripgrep's own precedence for those combinations is not a thing two peers
+should each guess at.
 
 ## The pattern grammar
 

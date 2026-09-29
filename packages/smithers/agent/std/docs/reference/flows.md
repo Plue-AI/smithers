@@ -139,61 +139,64 @@ listing, so one dangling symlink does not cost the whole directory. Fails with
 ## glob
 
 Finds files through the Smithers Ripgrep Subset v1 contract, corresponding to
-`rg --files -g`.
+`rg --files -g`. By default, `.gitignore` rules from the search root and nested
+directories apply, even outside Git repositories. Parent and global rules,
+`.ignore`, `.rgignore`, and `.git/info/exclude` do not apply. `noIgnore: true`
+opts out; hidden-file and fixed directory skips still apply.
 
-| Input      | Type                          | Meaning                                                   |
-| ---------- | ----------------------------- | --------------------------------------------------------- |
-| `pattern`  | non-empty string              | Ripgrep `-g` pattern, matched relative to `root`.         |
-| `root`     | string, optional              | Search root. Defaults to `/`. Pass the project directory. |
-| `hidden`   | boolean, optional             | Include dot files. Defaults to false.                     |
-| `noIgnore` | `true`, optional              | Only true is accepted; ignore files are never consulted.  |
-| `limit`    | integer, at least 0, optional | Maximum paths, capped at 1,000.                           |
+| Input      | Type                          | Meaning                                                    |
+| ---------- | ----------------------------- | ---------------------------------------------------------- |
+| `pattern`  | non-empty string              | Ripgrep `-g` pattern, matched relative to `root`.          |
+| `root`     | string, optional              | Search root. Defaults to `.` (the host workspace).         |
+| `hidden`   | boolean, optional             | Include dot files. Defaults to false.                      |
+| `noIgnore` | boolean, optional             | Include paths excluded by `.gitignore`. Defaults to false. |
+| `limit`    | integer, at least 0, optional | Maximum paths, capped at 1,000.                            |
 
-| Output      | Type             | Meaning                                         |
-| ----------- | ---------------- | ----------------------------------------------- |
-| `paths`     | array of string  | Matching paths, path sorted.                    |
-| `total`     | number           | Matches before the limit.                       |
-| `truncated` | boolean          | Whether the limit bit.                          |
-| `notice`    | string, optional | Truncation, or why a pattern was unsatisfiable. |
+| Output      | Type             | Meaning                                                     |
+| ----------- | ---------------- | ----------------------------------------------------------- |
+| `paths`     | array of string  | Matching paths, path sorted.                                |
+| `total`     | number           | Matches before the limit.                                   |
+| `truncated` | boolean          | Whether the limit bit.                                      |
+| `notice`    | string, optional | Truncation, an unsatisfiable pattern, or ignore exclusions. |
 
-Fails with `invalid_input` for `noIgnore: false`, `invalid_pattern` for an
-unsupported glob, `not_found` for a missing root, `command_failed` when the
-root exists but the host cannot inspect it (the message carries the host's
-own reason), or a peer failure (`command_failed`, `provider_unavailable`,
-`request_failed`).
+Fails with `invalid_pattern` for an unsupported glob, `not_found` for a missing
+root, `command_failed` when the root exists but the host cannot inspect it
+(the message carries the host's own reason), or a peer failure
+(`command_failed`, `provider_unavailable`, `request_failed`).
 
 ## grep
 
 Searches file contents through the same contract. Results are match-centric:
 `limit` counts matches, and each match carries the context that belongs to it.
+The `.gitignore` policy and `noIgnore` opt-out are the same as for `glob`.
 
-| Input              | Type                          | Meaning                                                 |
-| ------------------ | ----------------------------- | ------------------------------------------------------- |
-| `pattern`          | string                        | A Smithers Ripgrep ASCII v1 expression.                 |
-| `root`             | string, optional              | Search root the globs are relative to. Defaults to `/`. |
-| `fixedStrings`     | boolean, optional             | Ripgrep `-F`. Search a literal.                         |
-| `ignoreCase`       | boolean, optional             | Ripgrep `-i`.                                           |
-| `smartCase`        | boolean, optional             | Ripgrep `-S`.                                           |
-| `globs`            | array of string, optional     | Ordered `-g` patterns; `!` marks an exclusion.          |
-| `beforeContext`    | integer, at least 0, optional | Ripgrep `-B`.                                           |
-| `afterContext`     | integer, at least 0, optional | Ripgrep `-A`.                                           |
-| `context`          | integer, at least 0, optional | Ripgrep `-C`. Not combinable with `-A` or `-B`.         |
-| `maxCount`         | integer, at least 1, optional | Ripgrep `--max-count`, per file.                        |
-| `filesWithMatches` | boolean, optional             | Ripgrep `--files-with-matches`.                         |
-| `hidden`           | boolean, optional             | Ripgrep `--hidden`.                                     |
-| `symbols`          | boolean, optional             | Report the enclosing definition. Defaults to true.      |
-| `noIgnore`         | `true`, optional              | Only true is accepted.                                  |
-| `limit`            | integer, at least 0, optional | Global match budget, capped at 200.                     |
+| Input              | Type                          | Meaning                                                    |
+| ------------------ | ----------------------------- | ---------------------------------------------------------- |
+| `pattern`          | string                        | A Smithers Ripgrep ASCII v1 expression.                    |
+| `root`             | string, optional              | Search root. Defaults to `.` (the host workspace).         |
+| `fixedStrings`     | boolean, optional             | Ripgrep `-F`. Search a literal.                            |
+| `ignoreCase`       | boolean, optional             | Ripgrep `-i`.                                              |
+| `smartCase`        | boolean, optional             | Ripgrep `-S`.                                              |
+| `globs`            | array of string, optional     | Ordered `-g` patterns; `!` marks an exclusion.             |
+| `beforeContext`    | integer, at least 0, optional | Ripgrep `-B`.                                              |
+| `afterContext`     | integer, at least 0, optional | Ripgrep `-A`.                                              |
+| `context`          | integer, at least 0, optional | Ripgrep `-C`. Not combinable with `-A` or `-B`.            |
+| `maxCount`         | integer, at least 1, optional | Ripgrep `--max-count`, per file.                           |
+| `filesWithMatches` | boolean, optional             | Ripgrep `--files-with-matches`.                            |
+| `hidden`           | boolean, optional             | Ripgrep `--hidden`.                                        |
+| `symbols`          | boolean, optional             | Report the enclosing definition. Defaults to true.         |
+| `noIgnore`         | boolean, optional             | Include paths excluded by `.gitignore`. Defaults to false. |
+| `limit`            | integer, at least 0, optional | Global match budget, capped at 200.                        |
 
-| Output             | Type              | Meaning                                               |
-| ------------------ | ----------------- | ----------------------------------------------------- |
-| `matches`          | array of `Match`  | Each hit with its own context and optional symbol.    |
-| `files`            | array of string   | File names, which is what `filesWithMatches` fills.   |
-| `filesSearched`    | number            | Files the globs admitted, including binaries.         |
-| `skippedBinary`    | number            | Files skipped for holding a NUL byte.                 |
-| `truncated`        | boolean           | Whether the budget bit.                               |
-| `retriedAsLiteral` | boolean, optional | Present when these results came from a literal retry. |
-| `notice`           | string, optional  | Truncation, the retry, or an unsatisfiable glob.      |
+| Output             | Type              | Meaning                                                    |
+| ------------------ | ----------------- | ---------------------------------------------------------- |
+| `matches`          | array of `Match`  | Each hit with its own context and optional symbol.         |
+| `files`            | array of string   | File names, which is what `filesWithMatches` fills.        |
+| `filesSearched`    | number            | Files admitted after ignore filtering, including binaries. |
+| `skippedBinary`    | number            | Files skipped for holding a NUL byte.                      |
+| `truncated`        | boolean           | Whether the budget bit.                                    |
+| `retriedAsLiteral` | boolean, optional | Present when these results came from a literal retry.      |
+| `notice`           | string, optional  | Truncation, retry, unsatisfiable glob, ignore exclusions.  |
 
 Three schemas are exported alongside `Output`:
 

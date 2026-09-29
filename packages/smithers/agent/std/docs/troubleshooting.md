@@ -30,6 +30,15 @@ never descended into (`.git`, `node_modules`, the checkpoint and test-baseline
 scratch checkouts, and other caches or worktrees), and a hidden path
 with `hidden` left false.
 
+## A search found nothing because ignore files excluded paths
+
+**What happened.** Both flows apply `.gitignore` rules from the search root and
+nested directories, even outside Git repositories. `noIgnore` is an optional
+boolean defaulting to `false`; explicit `false` is accepted and keeps those rules.
+
+**What to change.** Pass `noIgnore: true` to include ignored paths. Hidden-file
+and fixed directory skips still apply; use `hidden: true` for dot files.
+
 ## A search found nothing, and the result says retriedAsLiteral
 
 **What happened.** The pattern contained regex metacharacters, matched nothing as
@@ -45,12 +54,11 @@ you think they are.
 
 **What happened.** One of the option combinations v1 refuses rather than guesses
 at: `ignoreCase` with `smartCase`, `context` with `beforeContext` or
-`afterContext`, or `maxCount` below 1. A `noIgnore` that is not `true` is
-refused the same way when it reaches `run` without being decoded first.
+`afterContext`, or `maxCount` below 1.
 
-**What to change.** The message names the constraint. Ignore files and file-type
-registries are outside the contract entirely: `noIgnore` accepts only `true`,
-there is no `types` field, and no option enables either.
+**What to change.** The message names the constraint. Remove the conflicting
+option or raise `maxCount` to at least 1. File-type registries are unsupported;
+there is no `types` field.
 
 ## invalid_pattern: Unsupported ripgrep pattern
 
