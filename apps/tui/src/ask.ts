@@ -8,6 +8,7 @@ import * as Approvals from "./approvals.ts"
 import * as Budget from "./budget.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
+import * as Spend from "./spend.ts"
 
 const prompt = process.argv[2]
 if (prompt === undefined) {
@@ -32,7 +33,7 @@ const host = Host.make({
   cwd: process.cwd(),
   environment: available.environment,
   approvals,
-  ...(budget === undefined ? {} : { budget })
+  ...(budget === undefined ? {} : { budget, ledger: Spend.ledger() })
 })
 const turn = host.run({
   prompt,

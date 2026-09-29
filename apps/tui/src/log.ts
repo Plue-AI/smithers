@@ -14,6 +14,11 @@ export const subscribe = (listener: (message: string) => void): () => void => {
     listeners.delete(listener)
   }
 }
+/** Record a failure the operator must see, and put it on the mounted terminal's status. */
+export const alert = (tag: string, message: string): void => {
+  write(tag, message)
+  for (const listener of listeners) listener(message)
+}
 /** Error.stack omits Error.cause; retain its chain without looping on cycles. */
 const describe = (error: unknown, seen = new Set<unknown>()): string => {
   if (seen.has(error)) return "[circular cause]"

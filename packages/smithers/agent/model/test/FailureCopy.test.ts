@@ -26,7 +26,7 @@ describe("FailureCopy.describe", () => {
     const wrapped = { _tag: "/harness/HarnessError", code: "model_failed", cause: exceeded }
     const expected = {
       headline: "Token budget reached",
-      fault: "user",
+      fault: "infra",
       line: "600 of 1000 tokens used.",
       actions: ["resume", "details"]
     }
@@ -35,6 +35,12 @@ describe("FailureCopy.describe", () => {
     expect(FailureCopy.describe({ ...exceeded, scope: "latency", used: 12.4, max: 10 })).toMatchObject({
       headline: "Time budget reached",
       line: "12 of 10 ms used."
+    })
+    expect(FailureCopy.describe({ ...exceeded, scope: "daily", used: 2100, max: 2000 })).toEqual({
+      headline: "Daily token cap reached",
+      fault: "infra",
+      line: "2100 of 2000 tokens used today.",
+      actions: ["resume", "details"]
     })
     expect(FailureCopy.describe({ _tag: "flows/agent/BudgetExceeded" }).line).toBe("The run spent its budget.")
   })

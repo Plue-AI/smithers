@@ -201,6 +201,8 @@ export const make = (options: {
   readonly judge?: Layer.Layer<Evaluator.Evaluator>
   /** Each turn's and worker's spend ceiling; see `budget.ts`. Unbounded when absent. */
   readonly budget?: Budget.Policy
+  /** Durable spend for `budget.daily` and for recovering a run's spend; see `spend.ts`. */
+  readonly ledger?: Budget.Ledger
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
@@ -214,7 +216,7 @@ export const make = (options: {
     // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
     ? Budget.layerUnbounded()
     // `budget.ts` validated the policy; a refusal here is a defect.
-    : Layer.orDie(Budget.layer(options.budget))
+    : Layer.orDie(Budget.layer(options.budget, options.ledger === undefined ? {} : { ledger: options.ledger }))
   const layer = Layer.mergeAll(
     Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), budget))),
     Agent.layerDefaults,
@@ -243,6 +245,7 @@ export const make = (options: {
   )
   const runtime = ManagedRuntime.make(layer)
   let turns = 0
+  const hostId = crypto.randomUUID().slice(0, 8)
 
   const compaction: Host["compaction"] = async (used, window) => {
     if (used <= 0 || window <= 0) return undefined
@@ -311,6 +314,8 @@ export const make = (options: {
 
   const run = (input: TurnInput): Turn => {
     const index = ++turns
+    // Unique per host: the ledger outlives the process, so `tui-1` of two launches must not share spend.
+    const executionId = `tui-${hostId}-${index}`
     const callMs = options.callMs ?? Sandbox.defaultLimits.callMs
     const session = `tui-${process.pid}-${index}`
     const program = Effect.gen(function*() {
@@ -448,7 +453,7 @@ export const make = (options: {
           Exit.isSuccess(exit)
             ? Deferred.succeed(settled, answer)
             : Deferred.failCause(settled, exit.cause))).pipe(Scope.provide(scope))
-      yield* engine.execute(flow, { executionId: `tui-${index}`, payload: {}, discard: true })
+      yield* engine.execute(flow, { executionId, payload: {}, discard: true })
       return yield* Deferred.await(settled)
     }).pipe(Effect.scoped)
 
@@ -459,6 +464,8 @@ export const make = (options: {
         if (Cause.hasInterruptsOnly(exit.cause)) return resolve({ _tag: "cancelled" })
         const detail = Cause.pretty(exit.cause)
         Log.write("host.turn", detail)
+        const notice = capNotice(Cause.squash(exit.cause), `${input.role ?? "coordinator"} ${executionId}`)
+        if (notice !== undefined) Log.alert("host.cap", notice)
         resolve({ _tag: "failed", message: describe(exit.cause), detail, error: Cause.squash(exit.cause) })
       })
     })
@@ -606,6 +613,26 @@ const unobserved = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E
 
 const text = (content: ReadonlyArray<{ readonly type: string; readonly text?: string }>): string =>
   content.flatMap((part) => (part.type === "text" && part.text !== undefined ? [part.text] : [])).join("")
+
+/** The loud line for a tripped cap: which cap, which run, and the spend. */
+export const capNotice = (error: unknown, run: string): string | undefined => {
+  let current: unknown = error
+  for (let depth = 0; depth < 16 && typeof current === "object" && current !== null; depth++) {
+    const record = current as { readonly _tag?: unknown; readonly cause?: unknown; readonly budget?: unknown }
+    const hit = record._tag === "flows/agent/Skipped" ? record.budget : current
+    if ((hit as { readonly _tag?: unknown } | undefined)?._tag === "flows/agent/BudgetExceeded") {
+      const { scope, used, max } = hit as Budget.BudgetExceeded
+      const spent = `${Math.round(used).toLocaleString("en-US")} of ${max.toLocaleString("en-US")}`
+      return scope === "daily"
+        ? `Daily token cap reached: ${spent} tokens used today, stopped at ${run}. Something may be looping. Raise --budget-daily-tokens to resume.`
+        : scope === "tokens"
+        ? `Run token cap reached: ${spent} tokens used by ${run}. Something may be looping. Raise --budget-tokens to resume.`
+        : undefined
+    }
+    current = record.cause
+  }
+  return undefined
+}
 
 /** Budget refusals use shared UI copy; other failures keep the innermost message. */
 const describe = (cause: Cause.Cause<unknown>): string => {

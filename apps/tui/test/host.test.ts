@@ -20,6 +20,7 @@ import * as Host from "../src/host.ts"
 import * as Log from "../src/log.ts"
 import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
+import * as Spend from "../src/spend.ts"
 
 const roots: Array<string> = []
 afterEach(() => {
@@ -1183,7 +1184,7 @@ for (const role of ["coordinator", "worker"] as const) {
       const failure = FailureCopy.describe(outcome.error)
       expect(failure).toEqual({
         headline: "Token budget reached",
-        fault: "user",
+        fault: "infra",
         line: "600 of 1000 tokens used.",
         actions: ["resume", "details"]
       })
@@ -1192,3 +1193,115 @@ for (const role of ["coordinator", "worker"] as const) {
     }
   })
 }
+
+describe("default caps through the host", () => {
+  const today = () => new Date().toISOString().slice(0, 10)
+
+  test("a run under both caps is unaffected and is written to the ledger", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-caps-"))
+    roots.push(cwd)
+    const ledger = Spend.ledger(join(cwd, "spend"))
+    const host = Host.make({
+      cwd,
+      environment: {},
+      budget: { tokens: { max: 1000 }, daily: { max: 5000 } },
+      ledger,
+      judge: ScriptedJudge.layer
+    })
+    const alerts: Array<string> = []
+    const stop = Log.subscribe((message) => alerts.push(message))
+    try {
+      const replay = join(cwd, "spend.jsonl")
+      const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
+      writeFileSync(
+        replay,
+        [
+          JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+          delta({ type: "text-start", id: "cell" }),
+          delta({ type: "text-delta", id: "cell", text: "```cell\nctx.done(\"ok\")\n```" }),
+          delta({ type: "text-end", id: "cell" }),
+          delta({ type: "usage", inputTokens: 200, outputTokens: 100, totalTokens: 300 }),
+          JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+        ].join("\n")
+      )
+      const outcome = await host.run({
+        prompt: "hello",
+        seat: `replay:${replay}`,
+        history: [],
+        onEvent: () => {}
+      }).done
+      expect(outcome).toEqual({ _tag: "done", answer: "ok" })
+      expect(alerts).toEqual([])
+      expect(await Effect.runPromise(ledger.total(today()))).toBeGreaterThanOrEqual(300)
+    } finally {
+      stop()
+      await host.dispose()
+    }
+  })
+
+  for (const role of ["coordinator", "worker"] as const) {
+    test(`a crossed daily cap stops a ${role} and raises a loud notice naming cap, run and spend`, async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-daily-"))
+      roots.push(cwd)
+      const ledger = Spend.ledger(join(cwd, "spend"))
+      // Another run already spent the whole day.
+      await Effect.runPromise(ledger.record({ day: today(), runId: "earlier", stepKey: "s", spent: 5000 }))
+      const host = Host.make({
+        cwd,
+        environment: {},
+        budget: { daily: { max: 5000 } },
+        ledger,
+        judge: ScriptedJudge.layer
+      })
+      const alerts: Array<string> = []
+      const stop = Log.subscribe((message) => alerts.push(message))
+      try {
+        const outcome = await host.run({
+          prompt: "hello",
+          role,
+          seat: `replay:${doneReplay(cwd)}`,
+          history: [],
+          onEvent: () => {}
+        }).done
+        expect(outcome._tag).toBe("failed")
+        if (outcome._tag !== "failed") throw new Error("expected a failure")
+        expect(outcome.message).toBe("Daily token cap reached")
+        expect(FailureCopy.describe(outcome.error)).toEqual({
+          headline: "Daily token cap reached",
+          fault: "infra",
+          line: "5000 of 5000 tokens used today.",
+          actions: ["resume", "details"]
+        })
+        expect(alerts).toHaveLength(1)
+        expect(alerts[0]).toMatch(
+          new RegExp(
+            `^Daily token cap reached: 5,000 of 5,000 tokens used today, stopped at ${role} tui-[0-9a-f]{8}-1\\.`
+          )
+        )
+        expect(alerts[0]).toContain("--budget-daily-tokens")
+      } finally {
+        stop()
+        await host.dispose()
+      }
+    })
+  }
+
+  test("a per-run cap raises its own notice, and other failures raise none", () => {
+    const exceeded = (scope: string) => ({
+      _tag: "flows/agent/BudgetExceeded",
+      scope,
+      onExceeded: "fail",
+      used: 1234567,
+      max: 1000000,
+      next: 1,
+      message: "m"
+    })
+    expect(Host.capNotice({ cause: exceeded("tokens") }, "worker tui-x-2")).toBe(
+      "Run token cap reached: 1,234,567 of 1,000,000 tokens used by worker tui-x-2. Something may be looping. Raise --budget-tokens to resume."
+    )
+    expect(Host.capNotice({ _tag: "flows/agent/Skipped", budget: exceeded("tokens") }, "r")).toContain("Run token cap")
+    expect(Host.capNotice(exceeded("latency"), "r")).toBeUndefined()
+    expect(Host.capNotice(new Error("boom"), "r")).toBeUndefined()
+    expect(Host.capNotice(undefined, "r")).toBeUndefined()
+  })
+})

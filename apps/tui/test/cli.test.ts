@@ -76,11 +76,33 @@ it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
 
 it("refuses an invalid budget before starting a model", () => {
   const app = resolve(import.meta.dir, "../src/main.tsx")
-  const result = spawnSync("bun", [app, "--budget-tokens", "0", "--print", "ping"], {
+  const result = spawnSync("bun", [app, "--budget-tokens", "ten", "--print", "ping"], {
     encoding: "utf8",
     env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") },
     timeout: 10_000
   })
   expect(result.status).toBe(1)
-  expect(result.stderr).toBe("--budget-tokens must be a positive whole number\n")
+  expect(result.stderr).toBe("--budget-tokens must be a positive whole number, 0, or none\n")
+})
+
+it("refuses an invalid daily cap before starting a model", () => {
+  const app = resolve(import.meta.dir, "../src/main.tsx")
+  const result = spawnSync("bun", [app, "--budget-daily-tokens", "ten", "--print", "ping"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") },
+    timeout: 10_000
+  })
+  expect(result.status).toBe(1)
+  expect(result.stderr).toBe("--budget-daily-tokens must be a positive whole number, 0, or none\n")
+})
+
+it("disables both caps with 0 or none and still answers", () => {
+  const app = resolve(import.meta.dir, "../src/main.tsx")
+  const result = spawnSync("bun", [app, "--budget-tokens", "none", "--budget-daily-tokens", "0", "--print", "ping"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") },
+    timeout: 10_000
+  })
+  expect(result.status, result.stderr).toBe(0)
+  expect(result.stdout.trim()).toBe("pong")
 })

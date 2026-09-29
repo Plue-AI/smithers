@@ -72,7 +72,8 @@ export const incident = (tripped: Budget.BudgetExceeded | Timeout, raised?: numb
     }
     : {
       classification: "Runaway",
-      source: tripped.scope,
+      // A daily cap never parks; if one is folded in, it reads as tokens.
+      source: tripped.scope === "daily" ? "tokens" : tripped.scope,
       message: tripped.message,
       used: tripped.used,
       ...(tripped.reserved === undefined ? {} : { reserved: tripped.reserved }),

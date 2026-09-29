@@ -2300,3 +2300,97 @@ describe("a skipped step", () => {
       .toEqual([Budget.skippedTag])
   })
 })
+
+describe("a per-day cap across runs", () => {
+  const inRun = <A, E, R>(runId: string, effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.provideService(FlowRuntime.FlowInstance, instanceFor(runId)))
+
+  it("stops new calls once every run's spend for the UTC day reaches the cap", async () => {
+    const ledger = Budget.memoryLedger()
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ daily: { max: 1_000 } }, { ledger })
+        yield* inRun("run-a", budget.record("a1", { totalTokens: 600 }))
+        const underCap = yield* inRun("run-b", budget.check("b1"))
+        yield* inRun("run-b", budget.record("b1", { totalTokens: 500 }))
+        const overCap = yield* inRun("run-b", budget.check("b2"))
+        const otherRun = yield* inRun("run-c", budget.check("c1"))
+        return { underCap, overCap, otherRun }
+      })
+    )
+    expect(verdicts.underCap._tag).toBe("proceed")
+    for (const verdict of [verdicts.overCap, verdicts.otherRun]) {
+      expect(verdict).toMatchObject({
+        _tag: "refuse",
+        exceeded: { scope: "daily", onExceeded: "fail", used: 1_100, max: 1_000 }
+      })
+    }
+  })
+
+  it("does not carry spend into the next UTC day", async () => {
+    const ledger = Budget.memoryLedger()
+    await Effect.runPromise(ledger.record({ day: "2020-01-01", runId: "old", stepKey: "s", spent: 5_000 }))
+    const verdict = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ daily: { max: 1_000 } }, { ledger })
+        return yield* budget.check(undefined)
+      })
+    )
+    expect(verdict._tag).toBe("proceed")
+  })
+
+  it("keeps both accumulators across a restart", async () => {
+    const ledger = Budget.memoryLedger()
+    const policy = { tokens: { max: 1_000 }, daily: { max: 1_500 } } as const
+    const restarted = await Effect.runPromise(
+      Effect.gen(function*() {
+        const first = yield* Budget.make(policy, { ledger })
+        yield* inRun("run-a", first.record("a1", { totalTokens: 600 }))
+        yield* inRun("run-b", first.record("b1", { totalTokens: 300 }))
+        const second = yield* Budget.make(policy, { ledger })
+        return {
+          runA: yield* inRun("run-a", second.usage),
+          // run-a's own ceiling (600 + next 600 > 1000) and the day's (900 + 600 > 1500) both refuse.
+          refusedRun: yield* inRun("run-a", second.check("a2")),
+          refusedDay: yield* inRun("run-c", second.check("c1"))
+        }
+      })
+    )
+    expect(restarted.runA.tokens).toBe(600)
+    expect(restarted.refusedRun).toMatchObject({ _tag: "refuse", exceeded: { scope: "tokens", used: 600 } })
+    expect(restarted.refusedDay._tag).toBe("proceed")
+    const day = await Effect.runPromise(ledger.total(new Date().toISOString().slice(0, 10)))
+    expect(day).toBe(900)
+  })
+
+  it("resumes once the cap is raised, replaying counted steps for free", async () => {
+    const ledger = Budget.memoryLedger()
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const first = yield* Budget.make({ daily: { max: 1_000 } }, { ledger })
+        yield* inRun("run-a", first.record("a1", { totalTokens: 1_000 }))
+        const refused = yield* inRun("run-a", first.check("a2"))
+        const replay = yield* inRun("run-a", first.check("a1"))
+        const raised = yield* Budget.make({ daily: { max: 5_000 } }, { ledger })
+        const resumed = yield* inRun("run-a", raised.check("a2"))
+        return { refused, replay, resumed }
+      })
+    )
+    expect(verdicts.refused._tag).toBe("refuse")
+    expect(verdicts.replay._tag).toBe("proceed")
+    expect(verdicts.resumed._tag).toBe("proceed")
+  })
+
+  it("fails closed when the ledger cannot be written, and needs a ledger to be built", async () => {
+    const broken: Budget.Ledger = { ...Budget.memoryLedger(), record: () => Effect.fail(new Error("disk full")) }
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ daily: { max: 1_000 } }, { ledger: broken })
+        yield* inRun("run-a", budget.record("a1", { totalTokens: 10 }))
+      })
+    )
+    expect(failureOf(exit)).toMatchObject({ _tag: "flows/agent/BudgetAccountingUnavailable", phase: "record" })
+    const missing = await Effect.runPromiseExit(Budget.make({ daily: { max: 1_000 } }))
+    expect(failureOf(missing)).toMatchObject({ _tag: "flows/agent/BudgetConfigurationError" })
+  })
+})

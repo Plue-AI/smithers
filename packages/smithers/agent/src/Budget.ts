@@ -165,7 +165,84 @@ export interface Policy {
   readonly weights?: Weights | undefined
   readonly tokens?: TokenBudget | undefined
   readonly latency?: LatencyBudget | undefined
+  /**
+   * Tokens per UTC day across every run recorded in the {@link Options.ledger}.
+   * A crossed cap always fails; it is a tripwire, never a park or a skip.
+   */
+  readonly daily?: DailyBudget | undefined
 }
+
+/**
+ * The per-UTC-day token ceiling across runs.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface DailyBudget {
+  /** Positive safe integer. */
+  readonly max: number
+}
+
+/**
+ * One charged model step as a {@link Ledger} keeps it.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface LedgerEntry {
+  /** The UTC day, `YYYY-MM-DD`, the step was charged on. */
+  readonly day: string
+  readonly runId: string
+  readonly stepKey: string
+  readonly spent: number
+}
+
+/**
+ * Durable spend that outlives one run and one process: what a per-day cap sums,
+ * and what a run without a journal recovers its own spend from.
+ *
+ * `record` is idempotent in `(runId, stepKey)`; the first entry wins.
+ *
+ * @category services
+ * @since 1.0.0-rc.1
+ */
+export interface Ledger {
+  readonly total: (day: string) => Effect.Effect<number, unknown>
+  readonly record: (entry: LedgerEntry) => Effect.Effect<void, unknown>
+  readonly run: (runId: string) => Effect.Effect<ReadonlyMap<string, number>, unknown>
+}
+
+/**
+ * An in-process {@link Ledger}, for tests and hosts with no durable store.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const memoryLedger = (): Ledger => {
+  const entries = new Map<string, LedgerEntry>()
+  const id = (runId: string, stepKey: string) => JSON.stringify([runId, stepKey])
+  return {
+    total: (day) =>
+      Effect.sync(() => {
+        let sum = 0
+        for (const entry of entries.values()) if (entry.day === day) sum += entry.spent
+        return sum
+      }),
+    record: (entry) =>
+      Effect.sync(() => {
+        const key = id(entry.runId, entry.stepKey)
+        if (!entries.has(key)) entries.set(key, entry)
+      }),
+    run: (runId) =>
+      Effect.sync(() =>
+        new Map(
+          [...entries.values()].filter((entry) => entry.runId === runId).map((entry) => [entry.stepKey, entry.spent])
+        )
+      )
+  }
+}
+
+const utcDay = (millis: number): string => new Date(millis).toISOString().slice(0, 10)
 
 /**
  * Invalid spending policy or accounting bounds, rejected when the budget is
@@ -194,7 +271,7 @@ export class ConfigurationError extends Schema.TaggedError<ConfigurationError>()
 export class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()(
   "flows/agent/BudgetExceeded",
   {
-    scope: Schema.Literals(["tokens", "latency"]),
+    scope: Schema.Literals(["tokens", "latency", "daily"]),
     onExceeded: OnExceeded,
     used: Schema.Number,
     /** Forecast held by other in-flight calls; absent on older encoded errors. */
@@ -670,7 +747,7 @@ interface State {
 }
 
 const exceeded = (
-  scope: "tokens" | "latency",
+  scope: "tokens" | "latency" | "daily",
   onExceeded: OnExceeded,
   used: number,
   max: number,
@@ -684,7 +761,9 @@ const exceeded = (
     reserved,
     max,
     next,
-    message: scope === "tokens"
+    message: scope === "daily"
+      ? `This machine has spent ${used} of its ${max} tokens for the UTC day across all runs, and the next call is projected at ${next}`
+      : scope === "tokens"
       ? `The run has spent ${used} of its ${max} approved tokens, has ${reserved} reserved, and the next call is projected at ${next}`
       : `The run has been running for ${used} ms of its ${max} ms budget`
   })
@@ -1045,6 +1124,8 @@ export interface Options {
    * Positive safe integer; defaults to {@link defaultRecoveryEntries}.
    */
   readonly recoveryEntries?: number | undefined
+  /** Required by `policy.daily`; also where a run without a journal recovers its spend. */
+  readonly ledger?: Ledger | undefined
 }
 
 const NonNegativeInteger = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -1059,11 +1140,13 @@ const Configuration = Schema.Struct({
     latency: Schema.optional(Schema.Struct({
       maxMillis: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
       onExceeded: Schema.optional(OnExceeded)
-    }))
+    })),
+    daily: Schema.optional(Schema.Struct({ max: PositiveInteger }))
   }),
   options: Schema.Struct({
     maxRuns: Schema.optional(PositiveInteger),
-    recoveryEntries: Schema.optional(PositiveInteger)
+    recoveryEntries: Schema.optional(PositiveInteger),
+    ledger: Schema.optional(Schema.Any)
   })
 })
 
@@ -1089,6 +1172,12 @@ export const make = (
     }).pipe(
       Effect.mapError((cause) => new ConfigurationError({ message: `Invalid budget configuration: ${cause.message}` }))
     )
+    const spendLedger = declaredOptions.ledger
+    if (policy.daily !== undefined && spendLedger === undefined) {
+      return yield* Effect.fail(
+        new ConfigurationError({ message: "Invalid budget configuration: a daily cap needs a ledger" })
+      )
+    }
     const maxRuns = options.maxRuns ?? defaultMaxRuns
     const recoveryEntries = options.recoveryEntries ?? defaultRecoveryEntries
     const accounts = new Map<string, RunAccount>()
@@ -1236,8 +1325,16 @@ export const make = (
                   ([stepKey, spent]) => account(run, runId, stepKey, spent),
                   { discard: true }
                 )
+                if (spendLedger !== undefined) {
+                  const held = yield* spendLedger.run(runId).pipe(
+                    Effect.mapError((cause) => unavailable("recover", runId, String(cause), cause))
+                  )
+                  yield* Effect.forEach(held, ([stepKey, spent]) => account(run, runId, stepKey, spent), {
+                    discard: true
+                  })
+                }
                 yield* Ref.update(run.state, (current) => ({ ...current, latched: ledger.latched }))
-                run.evictable = Option.isSome(yield* Effect.serviceOption(Journal.Journal))
+                run.evictable = spendLedger !== undefined || Option.isSome(yield* Effect.serviceOption(Journal.Journal))
               })
             ),
             Effect.andThen(Effect.sync(() => {
@@ -1404,6 +1501,16 @@ export const make = (
           )
         }
         const tokens = policy.tokens
+        const daily = policy.daily
+        if (daily !== undefined && spendLedger !== undefined) {
+          const used = yield* spendLedger.total(utcDay(now)).pipe(
+            Effect.mapError((cause) => unavailable("recover", runId, String(cause), cause))
+          )
+          const projected = current.largestCall
+          if (used + projected > daily.max || used >= daily.max) {
+            return yield* settle(run, runId, exceeded("daily", "fail", used, daily.max, projected))
+          }
+        }
         // Before any positive cost is known, hold the whole token allowance
         // for one call. A zero-cost forecast must not admit unbounded fanout.
         const forecast = current.largestCall || tokens?.max || 0
@@ -1491,6 +1598,12 @@ export const make = (
                   unavailable("record", runId, "a paid model step has uncommitted usage")
                 const counted = yield* account(run, runId, stepKey, spent, pending)
                 if (!counted && !run.pending.has(stepKey)) return
+                if (spendLedger !== undefined) {
+                  const now = yield* Clock.currentTimeMillis
+                  yield* restore(spendLedger.record({ day: utcDay(now), runId, stepKey, spent })).pipe(
+                    Effect.mapError((cause) => unavailable("record", runId, String(cause), cause))
+                  )
+                }
                 yield* restore(journalUsage(
                   runId,
                   payload,

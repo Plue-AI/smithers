@@ -3,7 +3,8 @@ import * as Log from "./log.ts"
  * smithers-tui [directory] [--model provider:id] [-c | -r] [-p "prompt"] [--approve ask|all|deny] [--budget-tokens n]
  *
  *   --approve        ask: y/n per consequential call; deny: refuse them; all (default): run them
- *   --budget-tokens  stop a turn or worker at this many tokens; unbounded by default
+ *   --budget-tokens  stop a turn or worker at this many tokens (default 200M; 0 or none disables)
+ *   --budget-daily-tokens  stop new model calls at this many tokens per UTC day (default 2B)
  *   -c, --continue   continue the latest session in this directory
  *   -r, --resume     pick a session to continue
  *   -p, --print      run one prompt and print the answer
@@ -22,6 +23,7 @@ import * as FlowControl from "./flow-control.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
 import * as Session from "./session.ts"
+import * as Spend from "./spend.ts"
 
 const parsed = Cli.parse(process.argv.slice(2), process.cwd())
 if ("help" in parsed) {
@@ -38,7 +40,7 @@ if (typeof approvals === "object") {
   console.error(approvals.error)
   process.exit(1)
 }
-const budget = Budget.policy(process.env, values["budget-tokens"])
+const budget = Budget.policy(process.env, { tokens: values["budget-tokens"], daily: values["budget-daily-tokens"] })
 if (budget !== undefined && "error" in budget) {
   console.error(budget.error)
   process.exit(1)
@@ -62,13 +64,19 @@ if (seat === undefined) {
   console.error("No model is available. Run `codex login` for the ChatGPT subscription, or set a provider API key.")
   process.exit(1)
 }
+// A replay is an offline fixture that spends no tokens, so it stays out of the machine's daily ledger.
+const spending = budget === undefined
+  ? {}
+  : seat.startsWith("replay:")
+  ? { budget: { ...(budget.tokens === undefined ? {} : { tokens: budget.tokens }) } }
+  : { budget, ledger: Spend.ledger() }
 const host = Host.make({
   cwd,
   environment: available.environment,
   approvals,
   // Replay is an explicit offline fixture; its claims still receive evidence checks.
   ...(seat.startsWith("replay:") ? { judge: ScriptedJudge.layerAll } : {}),
-  ...(budget === undefined ? {} : { budget })
+  ...spending
 })
 
 if (values.print !== undefined) {

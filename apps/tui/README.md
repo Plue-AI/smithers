@@ -68,11 +68,21 @@ Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n**; `deny` refuses
 them. The flag wins over the variable, and `-p` cannot `ask`.
 
-Spending is unbounded by default. `--budget-tokens <n>` (or
-`SMITHERS_TUI_BUDGET_TOKENS=<n>`) stops each chat turn and each worker before a
-model call's estimated total would pass `n` tokens; the tab shows **Token budget
-reached**. Estimates use reported usage; an admitted call can consume more than
-its estimate. The flag wins over the variable.
+Spend caps are tripwires for runaway loops, not cost control. Each chat turn
+and each worker stops before a model call's estimated total would pass **200M
+tokens** (`--budget-tokens <n>` or `SMITHERS_TUI_BUDGET_TOKENS`). All runs on
+this machine together stop new model calls at **2B tokens per UTC day**
+(`--budget-daily-tokens <n>` or `SMITHERS_TUI_BUDGET_DAILY_TOKENS`). The flag
+wins over the variable; `0` or `none` disables a cap. A healthy long Opus or
+Fable worker is about 60M tokens by estimate, so a hit likely means a loop.
+
+A hit is loud: the status row and the tab's failure card name the cap (**Token
+budget reached** or **Daily token cap reached**), the run, and the spend, and
+the failure is blamed on the factory, not on you. Raise the cap and restart,
+then resume the tab; a daily cap also clears at 00:00 UTC. Estimates use reported
+usage; an admitted call can consume more than its estimate. The daily total is
+the append-only `spend/<UTC day>.jsonl` under `~/.smithers/tui`
+(`SMITHERS_TUI_SESSION_DIR` moves it).
 
 ## Keys
 

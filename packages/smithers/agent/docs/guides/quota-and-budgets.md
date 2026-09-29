@@ -216,6 +216,22 @@ import { RetryPolicy } from "@smthrs/flow"
 const policy = Budget.neverRetrySkipped(RetryPolicy.defaultRetryPolicy)
 ```
 
+## Cap a day across runs
+
+A per-run budget cannot see a loop that spawns runs. `Budget.make({ daily: { max } }, { ledger })`
+adds a per-UTC-day token cap summed over every run recorded in a `Budget.Ledger`. It
+is checked at the same model boundary as the run cap, always fails
+(`BudgetExceeded { scope: "daily" }`, never parks or skips), and needs a
+ledger: building it without one is a `ConfigurationError`. Steps the run already
+counted still replay after the cap is crossed.
+
+A `Ledger` is `total(day)`, `record(entry)` (idempotent in `runId` and `stepKey`),
+and `run(runId)`. `Budget.memoryLedger()` is the in-process adapter; the TUI
+keeps a JSONL file per day. A run without a journal also recovers its own spend
+from `ledger.run(runId)`, so raising a cap and building a new budget over the
+same ledger resumes with the spend intact. A ledger write that fails leaves the
+usage pending and refuses new calls until it commits.
+
 ## Inspect the spend
 
 `Budget.usageOf(runId)` reads one run's `{ tokens, calls, largestCall }`,

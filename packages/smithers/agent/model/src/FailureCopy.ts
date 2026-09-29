@@ -154,12 +154,17 @@ export const describe = (error: unknown, seat?: string): Description => {
     current = value.cause
   }
   if (budget !== undefined) {
+    const daily = budget.scope === "daily"
     const tokens = budget.scope !== "latency"
+    const measured = typeof budget.used === "number" && typeof budget.max === "number"
+    // A cap is a tripwire on the factory, not a user error: something may be looping.
     return {
-      headline: tokens ? "Token budget reached" : "Time budget reached",
-      fault: "user",
-      line: typeof budget.used === "number" && typeof budget.max === "number"
-        ? `${Math.round(budget.used)} of ${budget.max} ${tokens ? "tokens" : "ms"} used.`
+      headline: daily ? "Daily token cap reached" : tokens ? "Token budget reached" : "Time budget reached",
+      fault: "infra",
+      line: measured
+        ? `${Math.round(budget.used as number)} of ${budget.max} ${tokens ? "tokens" : "ms"} used${
+          daily ? " today" : ""
+        }.`
         : "The run spent its budget.",
       actions: ["resume", "details"]
     }

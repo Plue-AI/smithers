@@ -10,7 +10,8 @@ export const usage = `Usage: smithers-tui [directory] [options]
   -r, --resume               Choose a session
   -p, --print <prompt>       Print one answer and exit
       --approve <mode>       all (default), ask, or deny
-      --budget-tokens <n>    Token ceiling per turn and worker; unbounded by default
+      --budget-tokens <n>    Token cap per turn and worker (default 200M; 0 or none disables)
+      --budget-daily-tokens <n>  Token cap per UTC day on this machine (default 2B; 0 or none disables)
   -h, --help                 Show help`
 
 export const parse = (args: ReadonlyArray<string>, cwd: string) => {
@@ -24,6 +25,7 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
         print: { type: "string", short: "p" },
         approve: { type: "string" },
         "budget-tokens": { type: "string" },
+        "budget-daily-tokens": { type: "string" },
         help: { type: "boolean", short: "h" }
       },
       allowPositionals: true
