@@ -14,6 +14,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Agent from "@smthrs/agent/Agent"
 import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as Budget from "@smthrs/agent/Budget"
+import * as Memory from "@smthrs/agent/Memory"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
@@ -29,6 +30,7 @@ import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Rooted from "@smthrs/kernel/Rooted"
@@ -139,7 +141,13 @@ export interface Host {
    */
   readonly memory?: (
     task: string
-  ) => Promise<{ readonly text: string; readonly kept: number; readonly withheld: number }>
+  ) => Promise<{
+    readonly text: string
+    readonly kept: number
+    readonly withheld: number
+    /** Set when Jev did not judge the block: it holds the seeds and facts alone. */
+    readonly unjudged?: Memory.Output["unjudged"]
+  }>
   readonly compaction: (used: number, window: number) => Promise<number | undefined>
   /** A one-line tab description, asked of `seat`: the seat the task already goes to. */
   readonly describe?: (input: { title: string; prompt: string; seat: string }) => Promise<string>
@@ -325,6 +333,17 @@ export const make = (options: {
       return undefined
     }
   }
+
+  // What a wrapped harness is told: the same selection a worker opens with.
+  const memory: NonNullable<Host["memory"]> = (task) =>
+    runtime.runPromise(
+      Effect.map(Memory.select({ task }, { root: options.cwd }), ({ output }) => ({
+        text: output.context,
+        kept: output.kept.length,
+        withheld: output.omitted.length,
+        ...(output.unjudged === undefined ? {} : { unjudged: output.unjudged })
+      }))
+    )
 
   const complete: NonNullable<Host["complete"]> = ({ system, prompt, seat: id }) =>
     runtime.runPromise(
@@ -565,6 +584,9 @@ export const make = (options: {
         ? yield* Effect.context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>()
         // The host id keeps two TUIs with the same pid, as in two containers, apart on one box.
         : yield* Layer.build(Box.layer(box, `${hostId}-${session}`))
+      // The host judge is Jev with its Luna backup (`layerSeatEvaluator`).
+      const memoryServices = ServiceContext.add(services, Evaluator.Evaluator, yield* Evaluator.Evaluator)
+      const memoryOptions = { root: options.cwd }
       const grants = yield* GrantStore.GrantStore
       const flow = turnFlow(index)
       const settled = Deferred.makeUnsafe<string, unknown>()
@@ -583,14 +605,27 @@ export const make = (options: {
         box?.workdir ?? options.cwd,
         input.role === "coordinator"
           ? []
-          : workerSources(
-            services,
-            yield* Effect.context<Evaluator.Evaluator>(),
-            options.cwd,
-            input.onPatch ?? (() => {}),
-            box !== undefined
-          )
+          : [
+            ...workerSources(
+              services,
+              yield* Effect.context<Evaluator.Evaluator>(),
+              options.cwd,
+              input.onPatch ?? (() => {}),
+              box !== undefined
+            ),
+            // A flows source named `memory` is pinned (`StandardFlows.coreSources`),
+            // so the run-start relevance reading never withholds it. A placed
+            // worker's tree is the box's, which memory does not read.
+            ...(box === undefined ? [Memory.source(memoryServices, memoryOptions)] : [])
+          ]
       )
+      // A worker whose agent may call `memory` starts with what `memory({ task })`
+      // selects. The coordinator never does: Jev would sit in front of the
+      // chat's acknowledgment.
+      const opened = turn.memory && box === undefined
+        ? yield* Memory.opening(input.prompt, memoryOptions).pipe(Effect.provideContext(memoryServices))
+        : undefined
+      if (opened?.unjudged !== undefined) Log.write("host.memory", opened.unjudged)
       const body = agent.run({
         session,
         seat,
@@ -610,6 +645,7 @@ export const make = (options: {
           ? {}
           : { modelParams: ModelRequest.GenerationParams.make({ reasoningEffort: turn.reasoningEffort }) }),
         registry,
+        ...(opened === undefined ? {} : { memory: opened.memory }),
         plugins: Runtime.plugins(input.runtime, callMs),
         flows: turn.flows.map((source) => boundedCalls(source, callMs)),
         capabilityEnvelope: turn.capabilityEnvelope,
@@ -712,6 +748,7 @@ export const make = (options: {
     judged: true,
     routes: catalog !== undefined,
     compaction,
+    memory,
     run,
     approvals,
     describe: describeTab,
@@ -765,8 +802,10 @@ const boundedCalls = (source: FlowBinding.Source, callMs: number): FlowBinding.S
  * reasoning effort. `standard` is the worker's filesystem and shell catalog;
  * an agent's declared `flows` narrow it, and its declared capabilities narrow
  * the envelope. The runtime's delegation, panel and monitor flows are the
- * product's own, so they are pinned; filesystem, shell and jev are pinned as
- * `StandardFlows.coreSources`.
+ * product's own, so they are pinned; filesystem, shell, jev and memory are pinned as
+ * `StandardFlows.coreSources`. `memory` says whether a worker opens with
+ * memory: only when its agent keeps the `memory` flow and its envelope holds
+ * the grant the flow requires (`Memory.reads`).
  */
 export const turnOptions = (
   input: TurnInput,
@@ -777,6 +816,7 @@ export const turnOptions = (
   readonly flows: ReadonlyArray<FlowBinding.Source>
   readonly pinnedSources: ReadonlyArray<string>
   readonly capabilityEnvelope: ReadonlyArray<Capability.CapabilityPattern>
+  readonly memory: boolean
   readonly reasoningEffort?: ModelRequest.ReasoningEffort
 } => {
   const agent = input.role === "coordinator" ? undefined : input.agent
@@ -799,6 +839,9 @@ export const turnOptions = (
       })
     ])
   ]
+  const capabilityEnvelope = agent === undefined || agent.envelope.length === 0
+    ? [new Capability.CapabilityPattern({ action: "*", resource: "*" })]
+    : AgentSession.patterns(agent.envelope)
   return {
     system: [
       ...Context.system(cwd, input.history),
@@ -818,9 +861,9 @@ export const turnOptions = (
       ...runtime
     ],
     pinnedSources: runtime.map((source) => source.name),
-    capabilityEnvelope: agent === undefined || agent.envelope.length === 0
-      ? [new Capability.CapabilityPattern({ action: "*", resource: "*" })]
-      : AgentSession.patterns(agent.envelope),
+    capabilityEnvelope,
+    memory: input.role !== "coordinator" && (allowed === undefined || allowed.has(Memory.name)) &&
+      CapabilitySet.allows(CapabilitySet.fromPatterns(capabilityEnvelope), Memory.reads),
     ...(reasoningEffort === undefined ? {} : { reasoningEffort })
   }
 }

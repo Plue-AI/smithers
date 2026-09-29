@@ -1,9 +1,10 @@
 /** Planning reads the files a request names, so the planner never has to ask a
- * human to paste a file that the workspace already holds. Selection is textual
- * and bounded: paths are extracted from the request and from the notes chosen
- * for it, read through the same sandboxed primitive the wiki uses, and capped
- * per file and in total so a large repository cannot flood a planning prompt.
+ * human to paste a file that the workspace already holds. The paths are the
+ * request's own and those `memory` chose for it, read through the same
+ * sandboxed primitive the wiki uses, and capped per file and in total so a
+ * large repository cannot flood a planning prompt.
  */
+import { normalizePath } from "@smthrs/agent/Memory"
 import * as Digest from "@smthrs/core/Digest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 
@@ -24,93 +25,8 @@ export const Source = Schema.Struct({
 })
 export type Source = typeof Source.Type
 
-// Extensions keep prose out of the path list: "e.g." and "etc." have no
-// extension a repository file would carry, and a bare sentence word has none.
-const extensions = new Set([
-  "c",
-  "cc",
-  "cfg",
-  "cjs",
-  "conf",
-  "cpp",
-  "cs",
-  "css",
-  "go",
-  "gradle",
-  "h",
-  "hpp",
-  "html",
-  "ini",
-  "java",
-  "js",
-  "json",
-  "jsonc",
-  "jsx",
-  "kt",
-  "lock",
-  "lua",
-  "md",
-  "mdx",
-  "mjs",
-  "mts",
-  "nix",
-  "php",
-  "proto",
-  "py",
-  "rb",
-  "rs",
-  "scss",
-  "sh",
-  "sql",
-  "svelte",
-  "swift",
-  "tf",
-  "toml",
-  "ts",
-  "tsx",
-  "txt",
-  "vue",
-  "xml",
-  "yaml",
-  "yml",
-  "zig"
-])
-// Library names read exactly like a filename and never name a repository file.
-const prose = new Set(["node.js", "next.js", "nuxt.js", "react.js", "three.js", "vue.js", "express.js"])
-// A leading "/", "." or ".." is consumed rather than skipped, so an absolute
-// or escaping mention is rejected as a path instead of matching its tail.
-const candidate = /(?:\.{1,2}\/|[/.])?[A-Za-z0-9_][A-Za-z0-9_.@+-]*(?:\/[A-Za-z0-9_.@+-]+)*/g
-
-/** Repository-relative, normalized, and outside private or runtime trees. */
-export const normalizePath = (value: string): string | null => {
-  if (value.length === 0 || value.length > 4096 || /[\\\0]/.test(value) || value.startsWith("/")) return null
-  if (!value.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !/^\.(git|jj)$/i.test(part))) {
-    return null
-  }
-  if (/^(?:\.flows|node_modules|Smithers-Ops)(?:\/|$)/i.test(value) || /(?:^|\/)\.env(?:\.|$)/.test(value)) return null
-  return value
-}
-
-/** Path-like tokens named by prose, oldest mention first and deduplicated. */
-export const extractPaths = (...texts: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const found: Array<string> = []
-  const seen = new Set<string>()
-  for (const text of texts) {
-    // A URL names a network resource, not a file in this workspace.
-    const prosaic = text.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ").replace(/\bwww\.\S+/gi, " ")
-    for (const [token] of prosaic.matchAll(candidate)) {
-      const trimmed = token.replace(/[.\-_@+]+$/, "")
-      const extension = trimmed.slice(trimmed.lastIndexOf(".") + 1).toLowerCase()
-      if (!trimmed.includes(".") || !extensions.has(extension)) continue
-      if (prose.has(trimmed.toLowerCase())) continue
-      const name = normalizePath(trimmed)
-      if (name === null || seen.has(name)) continue
-      seen.add(name)
-      found.push(name)
-    }
-  }
-  return found
-}
+/** Path extraction is `memory`'s, so planning and memory read one request the same way. */
+export { extractPaths, normalizePath } from "@smthrs/agent/Memory"
 
 const encoder = new TextEncoder()
 const clamp = (text: string, limit: number) => {

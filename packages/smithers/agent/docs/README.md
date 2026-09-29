@@ -138,7 +138,8 @@ Every export of every namespace, with signatures and errors, is on the
   [structured output](./guides/structured-output.md),
   [quota waits and budgets](./guides/quota-and-budgets.md),
   [control-plane runs](./guides/control-plane-runs.md),
-  [capabilities](./guides/capabilities.md), [subagents](./guides/subagents.md),
+  [capabilities](./guides/capabilities.md), [memory](./guides/memory.md),
+  [subagents](./guides/subagents.md),
   [seat resolvers](./guides/seat-resolvers.md),
   [workspace isolation](./guides/workspace.md),
   [promoting flows](./guides/promote-flows.md), and

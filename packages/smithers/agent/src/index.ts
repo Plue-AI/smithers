@@ -154,3 +154,15 @@ export * as RunawayGuard from "./RunawayGuard.ts"
  * @since 1.0.0-rc.0
  */
 export * as ScriptedJudge from "./ScriptedJudge.ts"
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export * as Memory from "./Memory.ts"
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export * as MemoryCalibration from "./MemoryCalibration.ts"

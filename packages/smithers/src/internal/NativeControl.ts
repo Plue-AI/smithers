@@ -7,6 +7,7 @@ import * as Agent from "@smthrs/agent/Agent"
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as Budget from "@smthrs/agent/Budget"
+import * as Memory from "@smthrs/agent/Memory"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import type * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
@@ -1060,6 +1061,12 @@ export const make = (
         >()
         const memoryServices = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>()
         const nativeSearch = NativeSearch.make(Context.merge(filesystemServices, shellServices))
+        // What `memory` reads through: the workspace, jj and git, the judge,
+        // and the facts store.
+        const contextServices = Context.merge(
+          Context.merge(Context.merge(filesystemServices, shellServices), memoryServices),
+          yield* Effect.context<Evaluator.Evaluator>()
+        )
         // `test` is offered exactly when this host can say how the repository
         // runs its tests. The declaration carries the container too, so the
         // runner reaches the same transport `bash` does, and the judge that
@@ -1083,6 +1090,12 @@ export const make = (
           // cell directly. Subscription availability is checked at dispatch;
           // an unavailable judge is the call's own typed failure.
           StandardFlows.jev(judge),
+          // `memory({ task })`, the same selection a run opens with. It reads
+          // the host workspace, so a sealed host offers it no more than the
+          // filesystem flows.
+          ...(sealedTo === undefined
+            ? [Memory.source(contextServices, { root: workspaceRoot })]
+            : []),
           ...testFlows(Context.merge(shellServices, judge), container, runner),
           ...mcp
         ]
@@ -1294,7 +1307,9 @@ export const make = (
           quotaPolicy,
           capacity: options.capacity,
           budget: (envelope) => Budget.layerFromEnvelope(envelope, { weights: native.agentLimits?.weights }),
-          memory: (launch) => SupervisorMemory.opening(launch).pipe(Effect.provideContext(memoryServices)),
+          memory: (launch) =>
+            SupervisorMemory.opening(launch, { root: workspaceRoot, sealed: sealedTo !== undefined })
+              .pipe(Effect.provideContext(contextServices)),
           instructions: (launch) =>
             RoleProfile.forRun(workspaceRoot, launch.descriptor, launch.text, launch.capabilities)
               .pipe(Effect.provideContext(filesystemServices)),

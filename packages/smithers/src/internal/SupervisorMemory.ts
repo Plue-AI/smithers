@@ -11,6 +11,7 @@
  * @private
  */
 
+import * as Memory from "@smthrs/agent/Memory"
 import * as Capability from "@smthrs/capability/Capability"
 import type * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
@@ -18,7 +19,6 @@ import * as Maintenance from "@smthrs/memory/Maintenance"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import type * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
-import * as Source from "@smthrs/memory/Source"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
@@ -130,8 +130,16 @@ export const layer = (input: {
 }
 
 /**
- * Read only explicitly named, granted banks; wildcard resources never enumerate
- * a host's private banks. AgentSession seals the returned snapshot for replay.
+ * A run's opening memory: `memory({ task })` over the workspace, with the
+ * facts of the explicitly named, granted banks. Wildcard resources never
+ * enumerate a host's private banks. AgentSession seals the returned snapshot
+ * for replay, so a resumed run opens with the same bytes.
+ *
+ * The workspace is read only when the launch holds the grant the `memory`
+ * flow requires (`Memory.reads`) and the host is not `sealed`. Otherwise the
+ * opening is the granted facts alone: `memory` reads no seed path unless the
+ * repository is a source. A reading Jev did not answer is logged; the
+ * granted facts still open the run, judged by the run-start reading.
  * @since 0.1.0
  * @private
  */
@@ -140,7 +148,7 @@ export const opening = (launch: {
   readonly prompt: string
   readonly history: ReadonlyArray<string>
   readonly capabilities: ReadonlyArray<string>
-}) =>
+}, host: { readonly root: string; readonly sealed: boolean }) =>
   Effect.gen(function*() {
     const patterns = launch.capabilities.flatMap((value) => Option.toArray(Capability.parsePattern(value)))
     const ceiling = CapabilitySet.intersect(yield* CapabilitySet.current, CapabilitySet.fromPatterns(patterns))
@@ -152,14 +160,23 @@ export const opening = (launch: {
         ).map((pattern) => pattern.resource)
       )
     ]
-    if (banks.length === 0) return { rows: [], digest: createHash("sha256").update("").digest("hex") }
-    return yield* Source.declared(Source.make(), {
-      lineageId: launch.runId,
-      iteration: 0,
-      banks,
-      primerBanks: [],
-      query: [launch.prompt, ...launch.history.slice(-6)].join("\n").slice(-16_384),
-      maxTokens: 16 * 1024,
-      maxBytes: 16 * 1024
+    const readsWorkspace = !host.sealed && CapabilitySet.allows(ceiling, Memory.reads)
+    const facts = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>()
+    const selected = yield* Memory.select({
+      task: [launch.prompt, ...launch.history.slice(-6)].join("\n"),
+      maxBytes: Memory.openingMaxBytes,
+      ...(readsWorkspace ? {} : { sources: ["facts" as const] })
+    }, {
+      root: host.root,
+      ...(banks.length === 0 ? {} : { facts: { services: facts, banks } })
     })
-  })
+    if (selected.unjudged !== undefined) {
+      const { detail, reason } = selected.unjudged
+      yield* Effect.logWarning("memory opening unjudged", { runId: launch.runId, reason, detail })
+    }
+    return Memory.declared(selected)
+  }).pipe(
+    // The session seals this step with a JSON error channel; an Error
+    // instance would surface as a schema defect instead of this failure.
+    Effect.mapError((failure) => ({ _tag: failure._tag, code: failure.code, message: failure.message }))
+  )

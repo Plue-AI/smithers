@@ -49,6 +49,8 @@
     "./FlowEngineLike": "./src/FlowEngineLike.ts",
     "./FlowStore": "./src/FlowStore.ts",
     "./InMemoryWorkspaceSandbox": "./src/InMemoryWorkspaceSandbox.ts",
+    "./Memory": "./src/Memory.ts",
+    "./MemoryCalibration": "./src/MemoryCalibration.ts",
     "./MemorySnapshotRecorder": "./src/MemorySnapshotRecorder.ts",
     "./PromoteFlows": "./src/PromoteFlows.ts",
     "./QuotaPolicy": "./src/QuotaPolicy.ts",
@@ -210,6 +212,26 @@
         "require": {
           "types": "./dist/cjs/InMemoryWorkspaceSandbox.d.ts",
           "default": "./dist/cjs/InMemoryWorkspaceSandbox.js"
+        }
+      },
+      "./Memory": {
+        "import": {
+          "types": "./dist/esm/Memory.d.ts",
+          "default": "./dist/esm/Memory.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Memory.d.ts",
+          "default": "./dist/cjs/Memory.js"
+        }
+      },
+      "./MemoryCalibration": {
+        "import": {
+          "types": "./dist/esm/MemoryCalibration.d.ts",
+          "default": "./dist/esm/MemoryCalibration.js"
+        },
+        "require": {
+          "types": "./dist/cjs/MemoryCalibration.d.ts",
+          "default": "./dist/cjs/MemoryCalibration.js"
         }
       },
       "./MemorySnapshotRecorder": {

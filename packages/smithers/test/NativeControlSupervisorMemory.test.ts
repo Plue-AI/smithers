@@ -136,6 +136,10 @@ describe("the shipped Node executor's supervisor memory", () => {
         recalled[phase].push(...items.filter((item) => item.kind === "memory"))
         return Object.fromEntries(items.map((_, index) => [`unnecessary_${index}`, { probability: 0.01 }]))
       }
+      // The opening `memory({ task })` call: nothing in the fixture is needed.
+      if (Object.keys(request.questions).every((id) => /^(?:needed|descend)_\d+$/.test(id))) {
+        return Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+      }
       if (!Object.hasOwn(request.questions, "thrashing")) {
         return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
       }
@@ -210,5 +214,115 @@ describe("the shipped Node executor's supervisor memory", () => {
     expect(requests["run-2"]).toHaveLength(3)
     expect(requests["run-2"][2]).toContain("From memory of this repository")
     expect(requests["run-2"][1]).not.toContain("From memory of this repository")
+  }, 60_000)
+
+  it("offers memory and opens with workspace files only on an unsealed host", async () => {
+    // One run per host: the flow's task names a workspace file, and its first
+    // frame asks `memory` for that file by path.
+    const probe = async (environment: Record<string, string>) => {
+      const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-native-memory-sealed-")))
+      roots.add(root)
+      await mkdir(join(root, "flows", "probe"), { recursive: true })
+      await mkdir(join(root, "notes"))
+      await writeFile(join(root, "notes", "secret.txt"), "host-only-secret\n")
+      await writeFile(
+        join(root, "flows", "probe", "flow.mdx"),
+        [
+          "---",
+          "name: probe",
+          "description: Reads notes/secret.txt.",
+          "model: openai:gpt-4o-mini",
+          "---",
+          "",
+          "Summarize notes/secret.txt.",
+          ""
+        ].join("\n")
+      )
+      const requests: Array<string> = []
+      const agent = new MockAgent()
+      agents.add(agent)
+      agent.disableNetConnect()
+      agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
+        200,
+        (request) => {
+          requests.push(new TextDecoder().decode(request.body as Uint8Array))
+          return sse(
+            requests.length === 1
+              ? cell([
+                "try {",
+                "  const m = await ctx.call(\"memory\", { task: \"read it\", paths: [\"notes/secret.txt\"] })",
+                "  console.log(\"MEMORY-OK \" + m.context)",
+                "} catch (error) {",
+                "  console.log(\"MEMORY-REFUSED \" + String(error))",
+                "}"
+              ].join("\n"))
+              : cell("ctx.done('done')")
+          )
+        },
+        { headers: { "content-type": "text/event-stream" } }
+      ).persist()
+      const client = await Effect.runPromise(
+        NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, agent))
+      )
+      const executor = await Effect.runPromise(
+        RequestExecutor.make.pipe(Effect.provideService(HttpClient.HttpClient, client))
+      )
+      // Keeps every flow and every candidate; finishes every completion.
+      const judge = Evaluator.layerScripted((request) =>
+        Object.fromEntries(
+          Object.keys(request.questions).map((id) => [
+            id,
+            id === "needs_help"
+              ? { choice: "none" }
+              : ["frustrated", "anxious", "scared", "confused", "confident"].includes(id)
+              ? { score: 0 }
+              : { probability: /^(?:unnecessary|needed|descend|overclaims|invented)_?\d*$/.test(id) ? 0.01 : 0.99 }
+          ])
+        )
+      )
+      const registry = NodeControl.layerRegistry(root)
+      const engine = NodeControl.engineDurable(root, registry)
+      const runs = NodeControl.layerExecutor(registry, engine, root, {
+        evaluator: judge,
+        environment: { OPENAI_API_KEY: "test-key", ...environment },
+        grants: GrantStore.layerNoop,
+        requestExecutor: Layer.succeed(RequestExecutor.RequestExecutor, executor)
+      })
+      const layer = Application.layer({ root }, registry, engine, runs) as Layer.Layer<Control.Control>
+      const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const control = yield* Control.Control
+          const card = yield* control.plan({ flowId: "probe", input: {} })
+          yield* control.approve(card.approval)
+          const receipt = yield* control.run({
+            _tag: "Plan",
+            planId: card.planId,
+            digest: card.digest,
+            envelope: card.envelope,
+            idempotencyKey: "native-memory-sealed"
+          })
+          if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+            return yield* Effect.die("expected an accepted run")
+          }
+          yield* control.watch({ runId: receipt.runId, follow: true }).pipe(
+            Stream.takeUntil((event) => terminal.has(event.kind)),
+            Stream.runCollect
+          )
+        }).pipe(Effect.provide(layer), Effect.scoped, Effect.orDie)
+      )
+      return requests
+    }
+
+    const open = await probe({})
+    // The opening seeds the file the task names, and the agent's call reads it.
+    expect(open[0]).toContain("host-only-secret")
+    expect(open[1]).toContain("MEMORY-OK")
+    expect(open[1]).toContain("host-only-secret")
+
+    const sealed = await probe({ SMITHERS_BASH_CONTAINER: "benchmark-cell" })
+    expect(sealed.length).toBeGreaterThan(1)
+    expect(sealed.join("\n")).not.toContain("host-only-secret")
+    expect(sealed[1]).toContain("MEMORY-REFUSED")
   }, 60_000)
 })

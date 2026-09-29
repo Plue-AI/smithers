@@ -1,10 +1,17 @@
 import { NodeServices } from "@effect/platform-node"
-import { Effect, Schema } from "effect"
+import { Action, Flow } from "@smthrs/flow"
+import * as Evaluator from "@smthrs/model/Evaluator"
+import * as Discovery from "@smthrs/registry/Discovery"
+import * as Executable from "@smthrs/registry/Executable"
+import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
+import { NativeCoding } from "../coding/native.ts"
+import { gather } from "../coding/planning-memory.ts"
 import {
   collectSources,
   extractPaths,
@@ -16,6 +23,9 @@ import {
   staleSources
 } from "../coding/planning-sources.ts"
 import { PlanningContext, planningPrompt, ReviewRequest } from "../coding/planning.ts"
+import { CodingError } from "../coding/schema.ts"
+import { operations as wikiOperations } from "../wiki/operations.ts"
+import type { PageSpec } from "../wiki/schema.ts"
 
 const run = <A>(effect: Effect.Effect<A, never, import("effect/FileSystem").FileSystem | import("effect/Path").Path>) =>
   Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
@@ -143,4 +153,147 @@ test("the review payload carries the README text the planner used to ask for", a
   assert.ok(prompt.includes(JSON.stringify(body).slice(1, -1)))
   assert.ok(prompt.includes("README.md"))
   t.diagnostic("The planner is handed the current README instead of parking the run on a clarification.")
+})
+
+// `gather` over a real repository and catalog, with the native adapter and jj
+// scripted: `memory` is what chooses the wiki pages and files planning reads.
+const DelegateStep = Action.make("planning-test/delegate-step", {
+  payload: Executable.Invocation,
+  success: Schema.Json
+})
+const Delegate = Flow.make("planning-test/delegate", {
+  payload: Executable.Invocation,
+  success: Schema.Json,
+  body: (input) => DelegateStep.call(input)
+})
+const gathering = async (root: string) => {
+  const write = (path: string, text: string) => writeFile(join(root, path), text)
+  await write("RUNTIME.md", "# Runtime\n\nThe runtime starts once.\n")
+  await write("runtime.ts", "export const start = () => 1\n")
+  await write("DEPLOY.md", "# Deploy\n\nDeploys ship on Fridays.\n")
+  await write("deploy.ts", "export const ship = () => 2\n")
+  await write("needed.ts", "export const needed = 3\n")
+  await write("other.ts", "export const other = 4\n")
+  for (const name of ["implement/atoms", "checks/fast", "checks/slow"]) {
+    await mkdir(join(root, "flows", name), { recursive: true })
+    await write(
+      join("flows", name, "flow.mdx"),
+      "---\ndescription: Planning fixture.\nflows: [planning-test/delegate]\ncapabilities: []\n---\nRun.\n"
+    )
+  }
+  const spec = (id: string, title: string): PageSpec => ({
+    id,
+    title,
+    purpose: title,
+    kind: "current",
+    document: `${id.toUpperCase()}.md`,
+    inputs: [`${id}.ts`],
+    related: []
+  })
+  const specs = [spec("runtime", "Runtime"), spec("deploy", "Deploy")]
+  const ops = wikiOperations({ root, output: join(root, "..", "unused") })
+  const pages = await Effect.runPromise(
+    Effect.forEach(specs, (page) =>
+      Effect.map(Effect.orDie(ops.collect(page)), (collected) => ({
+        id: page.id,
+        title: page.title,
+        kind: "current" as const,
+        body: `${page.title} notes.`,
+        inputDigest: collected.inputDigest
+      }))).pipe(Effect.provide(NodeServices.layer))
+  )
+  const executables = await Effect.runPromise(
+    Effect.gen(function*() {
+      const discovery = yield* Discovery.Discovery
+      const found = yield* discovery.scan({ source: "project", root: join(root, "flows"), naming: "path" })
+      return yield* Effect.forEach(
+        found.entries,
+        (descriptor) => Executable.fromDescriptor(descriptor, { delegates: [Delegate] })
+      )
+    }).pipe(Effect.provide(Discovery.layer.pipe(Layer.provideMerge(NodeServices.layer))))
+  )
+  const revision = {
+    kind: "resolved" as const,
+    changeId: "k".repeat(32),
+    commitId: "a".repeat(40),
+    treeId: "b".repeat(40),
+    operationId: "0".repeat(128),
+    parentCommitIds: []
+  }
+  const services = Layer.mergeAll(
+    Layer.succeed(NativeCoding, {
+      sourcePublication: "cloud",
+      read: () =>
+        Effect.succeed({
+          status: "read" as const,
+          operationId: revision.operationId,
+          head: revision,
+          revisions: [],
+          history: [revision]
+        }),
+      apply: () => Effect.die("planning memory never edits"),
+      publishOriginalSource: () => Effect.die("planning memory never publishes")
+    }),
+    Jj.layerNoop({ snapshot: () => Effect.succeed({ commitId: revision.commitId, changeId: revision.changeId }) }),
+    Layer.succeed(Executable.Catalog, { executables, refused: [] }),
+    NodeServices.layer
+  )
+  const options = {
+    repositoryPath: root,
+    pages: specs,
+    implementation: "implement/atoms",
+    checks: ["fast", "slow"].map((tier) => ({
+      id: tier,
+      target: `//:${tier}`,
+      flow: `checks/${tier}`,
+      tier: tier as "fast" | "slow",
+      required: true
+    }))
+  }
+  const input = { prompt: "Make start idempotent", feedback: "", wiki: { sourceRevision: "main@abc", pages } }
+  return (judge: Layer.Layer<never>) =>
+    Effect.runPromise(Effect.result(gather(options, input).pipe(Effect.provide(Layer.merge(services, judge)))))
+}
+
+test("gather plans with the wiki pages and files Jev keeps, and nothing it omits", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "planning-gather-"))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const gathered = await (await gathering(root))(
+    // Jev keeps the runtime page and the two files the task needs; it
+    // declines every directory and every other candidate.
+    Evaluator.layerScripted((request) => {
+      const items = (request.state as { readonly items?: ReadonlyArray<{ readonly id?: string }> }).items ?? []
+      return Object.fromEntries(
+        Object.keys(request.questions).map((id) => {
+          const item = items[Number(id.split("_")[1])]
+          const kept = id.startsWith("needed_") && ["runtime", "runtime.ts", "needed.ts"].includes(item?.id ?? "")
+          return [id, { probability: kept ? 0.9 : 0.05 }]
+        })
+      )
+    }) as Layer.Layer<never>
+  )
+  assert.equal(gathered._tag, "Success")
+  const context = gathered._tag === "Success" ? gathered.success : undefined
+  assert.deepEqual(context?.memory.map((note) => [note.id, note.sourceRevision, note.markdown]), [
+    ["runtime", "main@abc", "Runtime notes."]
+  ])
+  assert.deepEqual(context?.sources?.map((source) => source.path).sort(), ["needed.ts", "runtime.ts"])
+  assert.deepEqual(context?.checks.map((check) => check.flow), ["checks/fast", "checks/slow"])
+})
+
+test("gather fails unavailable when Jev cannot judge, never planning with the wiki and files dropped", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "planning-gather-unjudged-"))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const attempt = await gathering(root)
+  const down = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+    evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "gateway down" }))
+  })) as Layer.Layer<never>
+  for (const [judge, reason] of [[down, "(unreachable: "], [Layer.empty, "(unconfigured: "]] as const) {
+    const gathered = await attempt(judge)
+    assert.equal(gathered._tag, "Failure")
+    const error = gathered._tag === "Failure" ? gathered.failure : undefined
+    assert.ok(error instanceof CodingError)
+    assert.equal(error.code, "unavailable")
+    assert.ok(error.message.includes(reason), error.message)
+  }
 })

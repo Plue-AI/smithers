@@ -18091,6 +18091,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/src/Memory.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/MemoryCalibration.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/src/MemorySnapshotRecorder.ts"
       },
       {
@@ -18176,6 +18184,22 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/src/internal/WaitingAnnotation.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/internal/memory/commits.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/internal/memory/pack.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/internal/memory/repo.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/internal/memory/wiki.ts"
       },
       {
         "kind": "file",

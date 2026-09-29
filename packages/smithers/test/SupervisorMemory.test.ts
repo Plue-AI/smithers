@@ -9,6 +9,7 @@
  * production is a no-op here too.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Agent from "@smthrs/agent/Agent"
 import * as Budget from "@smthrs/agent/Budget"
 import * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
@@ -27,9 +28,9 @@ import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
 import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
-import { Deferred, Effect, Layer, Metric, Option, Schema, Scope, Stream } from "effect"
+import { Deferred, Effect, Layer, Logger, Metric, Option, Schema, Scope, Stream } from "effect"
 import { spawn } from "node:child_process"
-import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -177,15 +178,17 @@ const agentRun = (input: {
   )
 
 describe("SupervisorMemory", () => {
-  it("opening memory reads only exact granted banks and stays within 16 KiB", async () => {
+  it("opening memory selects over the workspace, reads only exact granted banks, and stays within 16 KiB", async () => {
+    const root = scratch()
     const requests: Array<Recall.Input> = []
+    let judged = 0
     const read = (capabilities: ReadonlyArray<string>) =>
       SupervisorMemory.opening({
         runId: "opening",
         prompt: "release plan",
         history: ["last thread message"],
         capabilities
-      }).pipe(
+      }, { root, sealed: false }).pipe(
         Effect.provideService(MemoryStore.MemoryStore, MemoryStore.makeNoop()),
         Effect.provideService(Recall.Recall, {
           recall: (input) =>
@@ -194,16 +197,124 @@ describe("SupervisorMemory", () => {
               return input.banks.map((bank) => ({ bank, key: bank, score: 1, text: "release plan ".repeat(2000) }))
             })
         }),
+        // Every recalled row is needed: nothing is withheld.
+        Effect.provide(Evaluator.layerScripted((request) => {
+          judged += 1
+          return Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+        })),
+        Effect.provide(NodeServices.layer),
         Effect.runPromise
       )
     const team = await read(["memory:read:global-team", "memory:write:user-will"])
     expect(requests[0]?.banks).toEqual(["global-team"])
     expect(requests[0]?.query).toContain("last thread message")
+    expect(team.rows.map((row) => row.key)).toEqual(["fact/global-team/global-team"])
     expect(new TextEncoder().encode(Source.render(team.rows)).length).toBeLessThanOrEqual(16 * 1024)
+    expect(judged).toBe(1)
     await read(["memory:*:user-will", "memory:read:global-team"])
     expect(requests[1]?.banks).toEqual(["user-will", "global-team"])
+    // A wildcard names no bank, so no facts are read; an empty workspace has no other memory.
     expect((await read(["fs:read:**", "memory:read:*"])).rows).toEqual([])
     expect(requests).toHaveLength(2)
+  })
+
+  it("reads the workspace only for a launch that may read it on an unsealed host; otherwise facts alone", async () => {
+    const root = scratch()
+    mkdirSync(join(root, "src"))
+    writeFileSync(join(root, "src", "secret.ts"), "export const token = 'workspace secret'\n")
+    const read = (capabilities: ReadonlyArray<string>, sealed: boolean) =>
+      SupervisorMemory.opening({
+        runId: "opening",
+        prompt: "fix src/secret.ts",
+        history: [],
+        capabilities
+      }, { root, sealed }).pipe(
+        Effect.provideService(MemoryStore.MemoryStore, MemoryStore.makeNoop()),
+        Effect.provideService(Recall.Recall, {
+          recall: (input) => Effect.succeed(input.banks.map((bank) => ({ bank, key: bank, score: 1, text: "a fact" })))
+        }),
+        Effect.provide(Evaluator.layerScripted((request) =>
+          Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+        )),
+        Effect.provide(NodeServices.layer),
+        Effect.runPromise
+      )
+    const keys = (declared: Source.Declared) => declared.rows.map((row) => row.key)
+    // The prompt names the file, so a launch that may read the workspace opens with it.
+    expect(keys(await read(["fs:read:**", "memory:read:global-team"], false))).toEqual([
+      "file/src/secret.ts",
+      "fact/global-team/global-team"
+    ])
+    // No fs:read: the granted facts, and not a byte of the named file.
+    const unread = await read(["memory:read:global-team"], false)
+    expect(keys(unread)).toEqual(["fact/global-team/global-team"])
+    expect(Source.render(unread.rows)).not.toContain("workspace secret")
+    // fs:read of another tree does not cover this workspace, and neither does
+    // one of the workspace alone: the opening holds the grant `memory` itself
+    // requires, so it never reads what a later call would be refused.
+    for (const tree of ["/elsewhere/**", `${root}/**`]) {
+      expect(keys(await read([`fs:read:${tree}`, "memory:read:global-team"], false))).toEqual([
+        "fact/global-team/global-team"
+      ])
+    }
+    // A sealed host never opens with its own files, whatever the launch holds.
+    expect(keys(await read(["fs:read:**", "memory:read:global-team"], true))).toEqual([
+      "fact/global-team/global-team"
+    ])
+  })
+
+  it("opens with the granted facts and logs the unjudged reading while Jev is unreachable", async () => {
+    const root = scratch()
+    writeFileSync(join(root, "plan.ts"), "export const plan = 1\n")
+    const logs: Array<unknown> = []
+    const declared = await SupervisorMemory.opening({
+      runId: "opening",
+      prompt: "fix plan.ts",
+      history: [],
+      capabilities: ["fs:read:**", "memory:read:global-team"]
+    }, { root, sealed: false }).pipe(
+      Effect.provideService(MemoryStore.MemoryStore, MemoryStore.makeNoop()),
+      Effect.provideService(Recall.Recall, {
+        recall: (input) => Effect.succeed(input.banks.map((bank) => ({ bank, key: bank, score: 1, text: "a fact" })))
+      }),
+      Effect.provide(
+        Evaluator.layerScripted(() =>
+          Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "down" }))
+        )
+      ),
+      Effect.provide(NodeServices.layer),
+      Effect.provide(
+        Logger.layer([Logger.make((entry) => void logs.push(entry.message))], { mergeWithExisting: false })
+      ),
+      Effect.runPromise
+    )
+    expect(declared.rows.map((row) => row.key)).toEqual(["file/plan.ts", "fact/global-team/global-team"])
+    expect(logs).toEqual([[
+      "memory opening unjudged",
+      { runId: "opening", reason: "unreachable", detail: Evaluator.unreachableMessage }
+    ]])
+  })
+
+  it("fails a malformed Jev answer as plain JSON the session can seal, never a schema defect", async () => {
+    const root = scratch()
+    const failure = await SupervisorMemory.opening({
+      runId: "opening",
+      prompt: "release plan",
+      history: [],
+      capabilities: ["memory:read:global-team"]
+    }, { root, sealed: false }).pipe(
+      Effect.flip,
+      Effect.provideService(MemoryStore.MemoryStore, MemoryStore.makeNoop()),
+      Effect.provideService(Recall.Recall, {
+        recall: (input) => Effect.succeed(input.banks.map((bank) => ({ bank, key: bank, score: 1, text: "plan" })))
+      }),
+      Effect.provide(Evaluator.layerScripted(() => ({ complete: { probability: 0.99 } }))),
+      Effect.provide(NodeServices.layer),
+      Effect.runPromise
+    )
+    expect(failure).toMatchObject({ _tag: "@smthrs/agent/Memory/MemoryFailed", code: "judge_failed" })
+    expect(failure).not.toBeInstanceOf(Error)
+    expect(JSON.parse(JSON.stringify(failure))).toEqual(failure)
   })
 
   it("recalls a note run 1 remembered into run 2's snapshot, through the host's memory composition", async () => {

@@ -870,6 +870,25 @@ describe("turnOptions", () => {
     )
   })
 
+  test("a worker opens with memory only when its agent keeps the flow and may read what memory reads", () => {
+    const opens = (agent?: Partial<Agents.Profile>, role: "worker" | "coordinator" = "worker") =>
+      Host.turnOptions(
+        { ...base, role, ...(agent === undefined ? {} : { agent: { ...profile, ...agent } }) },
+        "/repo",
+        []
+      )
+        .memory
+    expect(opens()).toBe(true)
+    expect(opens(undefined, "coordinator")).toBe(false)
+    expect(opens({ flows: ["read", "memory"] })).toBe(true)
+    expect(opens({ flows: [], envelope: [] })).toBe(true)
+    // The review profile's flows drop memory.
+    expect(opens({})).toBe(false)
+    expect(opens({ flows: ["memory"], envelope: ["proc:spawn:*"] })).toBe(false)
+    // The workspace alone is not what the memory flow requires.
+    expect(opens({ flows: ["memory"], envelope: ["fs:read:/repo/**"] })).toBe(false)
+  })
+
   test("an agent with no declared flows or capabilities keeps the host defaults", async () => {
     const options = Host.turnOptions({ ...base, agent: { ...profile, flows: [], envelope: [] } }, "/repo", standard)
     expect(await names(options.flows)).toEqual(["read", "write", "grep", "bash"])
@@ -975,6 +994,10 @@ describe("Host.run instructions", () => {
   /** Jev withholds the deploy bullet, keeps every other item, and lets the answer stand. */
   const jev = (asked: Array<string>) =>
     Evaluator.layerScripted((request) => {
+      // The worker's opening `memory` call: nothing in this directory is needed.
+      if (Object.keys(request.questions).every((id) => /^(needed|descend)_/.test(id))) {
+        return Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+      }
       if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
         return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
       }
@@ -1575,5 +1598,145 @@ describe("Host.run with a box", () => {
     })
     expect(outcome).toMatchObject({ _tag: "failed" })
     expect((outcome as { message: string }).message).toContain("gone-box could not be reached: 403 forbidden")
+  })
+})
+
+describe("Host.run memory", () => {
+  /**
+   * Jev keeps `needed.ts` and nothing else. Every other reading passes, except
+   * that with `withhold` the run-start relevance reading calls every item
+   * unnecessary.
+   */
+  const judge = (asked: Array<string>, withhold: boolean) =>
+    Evaluator.layerScripted((request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.every((id) => /^(needed|descend)_/.test(id))) {
+        const items =
+          (request.state as { readonly items: ReadonlyArray<{ readonly id?: string; readonly path?: string }> })
+            .items
+        asked.push(...items.map((item) => item.id ?? item.path ?? ""))
+        return Object.fromEntries(
+          ids.map((id) => [id, { probability: items[Number(id.split("_")[1])]?.id === "needed.ts" ? 0.9 : 0.05 }])
+        )
+      }
+      return Object.fromEntries(
+        ids.map((id) => [id, {
+          probability: id.startsWith("complete") || (withhold && id.startsWith("unnecessary_")) ? 0.99 : 0.01
+        }])
+      )
+    })
+  const run = async (role: "coordinator" | "worker", cell: string, withhold = false, agent?: Agents.Profile) => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-memory-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "needed.ts"), "export const needed = 1\n")
+    writeFileSync(join(cwd, "other.ts"), "export const other = 2\n")
+    const asked: Array<string> = []
+    const host = Host.make({ cwd, environment: {}, judge: judge(asked, withhold) })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "Change the needed constant",
+        role,
+        ...(role === "coordinator"
+          ? { runtime: { publish: () => {}, delegate: () => ({}), wait: () => Promise.resolve([]) } }
+          : {}),
+        seat: `replay:${doneReplay(cwd, cell)}`,
+        history: [],
+        ...(agent === undefined ? {} : { agent }),
+        onEvent: (event) => events.push(event)
+      }).done
+      const requests = events.flatMap((event) => event._tag === "model-requested" ? [event.request] : [])
+      return { asked, events, outcome, requests }
+    } finally {
+      await host.dispose()
+    }
+  }
+
+  test("a worker opens with the files Jev chose and calls memory from a cell", async () => {
+    const { asked, events, outcome, requests } = await run(
+      "worker",
+      `const m = await ctx.call("memory", { task: "Change the needed constant" })\nctx.done(m.kept.map((item) => item.id).join(","))`
+    )
+    expect(outcome).toEqual({ _tag: "done", answer: "needed.ts" })
+    expect(asked).toContain("needed.ts")
+    const system = requests[0]!.system.map((part) => part.text).join("\n")
+    expect(system).toContain("<flows_memory_context>")
+    expect(system).toContain("export const needed = 1")
+    expect(system).not.toContain("export const other = 2")
+    const settled = events.find((event) => event._tag === "cell-call-settled" && event.flowName === "memory")
+    expect(settled?._tag === "cell-call-settled" && settled.result.outcome).toBe("success")
+  })
+
+  test("memory stays callable when the run-start reading withholds everything it can", async () => {
+    const { events, outcome, requests } = await run(
+      "worker",
+      `const m = await ctx.call("memory", { task: "Change the needed constant" })\nctx.done(m.kept.map((item) => item.id).join(","))`,
+      true
+    )
+    // The reading withheld the opening memory rows it was asked about...
+    expect(requests[0]!.system.map((part) => part.text).join("\n")).not.toContain("export const needed = 1")
+    const withheld = events.flatMap((event) => event._tag === "relevance-settled" ? event.withheld : [])
+    expect(withheld.length).toBeGreaterThan(0)
+    expect(withheld.map((item) => item.id)).not.toContain("memory")
+    // ...but never the memory flow, so the later call still selects.
+    expect(outcome).toEqual({ _tag: "done", answer: "needed.ts" })
+    const settled = events.find((event) => event._tag === "cell-call-settled" && event.flowName === "memory")
+    expect(settled?._tag === "cell-call-settled" && settled.result.outcome).toBe("success")
+  })
+
+  test("tells a wrapped harness the block Jev chose, with what it kept and left out", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-memory-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "needed.ts"), "export const needed = 1\n")
+    writeFileSync(join(cwd, "other.ts"), "export const other = 2\n")
+    const host = Host.make({ cwd, environment: {}, judge: judge([], false) })
+    try {
+      const recalled = await host.memory!("Change the needed constant")
+      expect(recalled.text).toContain("export const needed = 1")
+      expect(recalled.text).not.toContain("export const other = 2")
+      expect(recalled.kept).toBe(1)
+      expect(recalled.withheld).toBeGreaterThanOrEqual(1)
+      expect(recalled.unjudged).toBeUndefined()
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("tells a wrapped harness when Jev did not judge its block", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-memory-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "needed.ts"), "export const needed = 1\n")
+    writeFileSync(join(cwd, "other.ts"), "export const other = 2\n")
+    const down = Evaluator.layerScripted(() =>
+      Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "down" }))
+    )
+    const host = Host.make({ cwd, environment: {}, judge: down })
+    try {
+      const recalled = await host.memory!("Change needed.ts")
+      expect(recalled.text).toContain("export const needed = 1")
+      expect(recalled.unjudged?.reason).toBe("unreachable")
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("a worker whose agent drops the memory flow opens with no memory", async () => {
+    const { asked, outcome, requests } = await run("worker", `ctx.done("ok")`, false, {
+      name: "reader",
+      digest: "d",
+      system: "You read.",
+      flows: ["read"],
+      envelope: ["fs:read:**"]
+    })
+    expect(outcome).toEqual({ _tag: "done", answer: "ok" })
+    expect(asked).toEqual([])
+    expect(requests[0]!.system.map((part) => part.text).join("\n")).not.toContain("<flows_memory_context>")
+  })
+
+  test("a coordinator neither opens with memory nor offers it", async () => {
+    const { asked, outcome, requests } = await run("coordinator", `ctx.done(String("memory" in ctx.flows))`)
+    expect(outcome).toEqual({ _tag: "done", answer: "false" })
+    expect(asked).toEqual([])
+    expect(requests[0]!.system.map((part) => part.text).join("\n")).not.toContain("<flows_memory_context>")
   })
 })

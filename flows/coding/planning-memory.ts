@@ -1,24 +1,20 @@
-/** Default gathering uses source files and native JJ history. Generated Wiki
- * memory participates when a stack request carries the published pages or the
- * operator's own verified snapshot exists, and only while it is fresh.
- * Projects can replace GatherContext's action layer with their own workflow.
+/** Default gathering uses native JJ history and what `memory` selects for the
+ * request: fresh wiki pages and the files a README-guided walk finds, each
+ * routed by Jev. Generated Wiki memory participates when a stack request
+ * carries the published pages or the operator's own verified snapshot exists,
+ * and only while it is fresh. Projects can replace GatherContext's action
+ * layer with their own workflow.
  */
+import * as Memory from "@smthrs/agent/Memory"
 import * as Digest from "@smthrs/core/Digest"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
-import * as RecallKeyword from "../../packages/smithers/agent/memory/src/RecallKeyword.ts"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
 import { NativeCoding } from "./native.ts"
-import {
-  collectSources,
-  extractPaths,
-  reader as sourceReader,
-  repositoryContextPaths,
-  staleSources
-} from "./planning-sources.ts"
+import { collectSources, extractPaths, reader as sourceReader, staleSources } from "./planning-sources.ts"
 import {
   changedPaths,
   driftOf,
@@ -157,7 +153,11 @@ export const staleWikiNotes = (
     return notes.filter((note) => !fresh.has(note.id)).map((note) => note.id)
   })
 
-/** No model or database participates in selecting and identifying source facts. */
+/** Jev, through `memory`, selects the wiki pages and files planning reads, so
+ * the gather is nondeterministic: `GatherContext` is a nondeterministic action
+ * whose context the journal records and replays. A selection Jev did not judge
+ * (unreachable, timed out, or no judge bound) fails `unavailable` rather than
+ * planning with the seeds alone. */
 export const gather = (
   options: MemoryOptions,
   input: typeof PlanningInput.Type,
@@ -184,35 +184,40 @@ export const gather = (
         "Planning requires bounded resolved native history; inspect conflicts or update the installed adapter"
       )
     }
-    const memory: Array<typeof PlanningContext.Type["memory"][number]> = []
     const wiki = yield* wikiMemory(options, input, hostFilesystem)
     const wikiDigest = wiki?.digest ?? null
-    if (wiki !== undefined) {
-      const terms = RecallKeyword.normalizeQueryTerms(`${input.prompt}\n${input.feedback}`)
-      const ranked = wiki.pages.map((page) => ({
-        page,
-        score: RecallKeyword.scoreRow(terms, {
-          key: `${page.id} ${page.title}`,
-          text: page.body,
-          tags: [],
-          updatedAtMs: 0
-        })
-      })).sort((left, right) =>
-        right.score - left.score || (left.page.id < right.page.id ? -1 : left.page.id > right.page.id ? 1 : 0)
-      )
-      for (const { page } of ranked) {
-        const note = {
-          id: page.id,
-          title: page.title || page.id,
-          kind: page.kind,
-          markdown: page.body,
-          sourceRevision: wiki.sourceRevision,
-          inputDigest: page.inputDigest
-        }
-        // Keep complete pages. A truncated quotation or omitted caveat is not an
-        // equivalent explanation; a project can supply a finer-grained gather flow.
-        if (bytes([...memory, note]) <= maximum) memory.push(note)
+    // `memory` routes the fresh wiki pages and the README walk's files through
+    // Jev; planning keeps what it chose, whole, under its own byte caps.
+    const selection = yield* Memory.select(
+      { task: `${input.prompt}\n${input.feedback}`, sources: ["wiki", "repo"], maxBytes: Memory.maxMaxBytes },
+      {
+        root: options.repositoryPath,
+        pages: (wiki?.pages ?? []).map((page) => ({ kind: "page", id: page.id, title: page.title, text: page.body }))
       }
+    ).pipe(Effect.mapError((error) => failure(`Planning memory could not be selected: ${error.message}`)))
+    // Unjudged, `memory` keeps only the request's own paths and drops every
+    // wiki page and walked file. Planning on that would be a silent exclusion
+    // neither the planner nor the reviewer can see.
+    if (selection.unjudged !== undefined) {
+      return yield* new CodingError({
+        code: "unavailable",
+        message: `Jev could not select planning memory (${selection.unjudged.reason}: ${selection.unjudged.detail})`
+      })
+    }
+    const memory: Array<typeof PlanningContext.Type["memory"][number]> = []
+    for (const chosen of selection.needed.filter((item) => item.kind === "page")) {
+      const page = wiki!.pages.find((page) => page.id === chosen.id)!
+      const note = {
+        id: page.id,
+        title: page.title || page.id,
+        kind: page.kind,
+        markdown: page.body,
+        sourceRevision: wiki!.sourceRevision,
+        inputDigest: page.inputDigest
+      }
+      // Keep complete pages. A truncated quotation or omitted caveat is not an
+      // equivalent explanation; a project can supply a finer-grained gather flow.
+      if (bytes([...memory, note]) <= maximum) memory.push(note)
     }
     const catalog = yield* Executable.Catalog
     const identity = (name: string) => {
@@ -260,18 +265,12 @@ export const gather = (
       }
     })
     // The planner asked humans to paste files it could have read. Attach the
-    // request's own paths, the paths its chosen notes cite, and the repository
-    // README, in that priority order, under the per-file and total caps.
+    // request's own paths, then the files `memory` chose, in that priority
+    // order, under the per-file and total caps.
     const reader = yield* sourceReader(options.repositoryPath, hostFilesystem)
-    const named = extractPaths(input.prompt, input.feedback)
-    const cited = extractPaths(...memory.map((note) => note.markdown))
-    const initial = yield* collectSources(reader, [...named, ...cited, ...(yield* repositoryContextPaths(reader))])
-    // Follow one bounded layer of paths cited by existing project documents.
-    // This gives a new repository useful code evidence without generating a Wiki.
     const collected = yield* collectSources(reader, [
-      ...initial.sources.map((source) => source.path),
-      ...initial.missing,
-      ...extractPaths(...initial.sources.map((source) => source.text))
+      ...extractPaths(input.prompt, input.feedback),
+      ...selection.needed.filter((item) => item.kind === "file").map((item) => item.id)
     ])
     const context = {
       head: before.head,

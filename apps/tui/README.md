@@ -461,8 +461,7 @@ answers ETA questions, queued tabs included. The eval log is
 `/claude <prompt>` and `/codex <prompt>` (or `agent.delegate` with
 `harness: "claude" | "codex"`) run Claude Code or Codex as a worker with its
 own tools. The worker first asks the host's `memory` flow about the task
-(`→ memory 7 in · 4 withheld`); the terminal host has no memory flow yet, so
-the row reads `→ memory unavailable`. It then passes the Smithers brief plus that memory once per session:
+(`→ memory 7 in · 4 withheld`). It then passes the Smithers brief plus that memory once per session:
 `claude -p --output-format stream-json --append-system-prompt <brief>
 --session-id <id>`, or `codex exec --json -c developer_instructions=<brief>`.
 Its tab draws the vendor's stream in its own glyphs (`⏺ Read(x)`, `⎿`,

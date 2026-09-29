@@ -3,7 +3,7 @@ title: "API reference"
 description: "Every public export of @smthrs/agent: the Agent service, the AgentSession and AgentAction adapters, seats, the quota and budget policies, the capability catalog, and the durable engine port."
 ---
 
-`@smthrs/agent` exports twenty-three modules from its root entry point, and each is
+`@smthrs/agent` exports twenty-six modules from its root entry point, and each is
 also importable from `@smthrs/agent/<Module>`:
 
 ```ts
@@ -2544,6 +2544,108 @@ const make = WorkspaceSandbox.makeMemory
 Creates the engine-store conformance sandbox over an in-memory host.
 `InitialFiles`, `HostFile`, and `InMemoryWorkspaceSandbox` are type aliases for
 the engine-store models.
+
+## Memory
+
+The context a task needs, as one ordinary sealed flow named `memory`. A cell
+calls it like every other capability; there is no `ctx.memory`:
+
+```js
+const m = await ctx.call("memory", { task: "Fix the retry in the wiki citation check" })
+console.log(m.context)
+```
+
+Selection shortlists candidates deterministically, asks Jev one boolean per
+candidate, and packs the winners into one byte-stable fenced block. The block
+enters a run as a call result in the append-only tail, or at frame 0 as
+`Agent.Options.memory`, so the prompt-cache prefix and `cacheKey` never change.
+See [Memory](./guides/memory.md) for the sources and thresholds.
+
+### Memory.Input, Memory.Output, Memory.Item
+
+| Field      | Type                                            | Meaning                                                           |
+| ---------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| `task`     | `string`                                        | The task, in the run's own words.                                 |
+| `query`    | `string?`                                       | A narrower question within the task.                              |
+| `paths`    | `string[]?`                                     | Repository files or directories included without judging (seeds). |
+| `sources`  | `("wiki" \| "repo" \| "commits" \| "facts")[]?` | Which sources to read; all when absent.                           |
+| `maxBytes` | `number?`                                       | The block's size, 1024 to 65536 UTF-8 bytes; 32768 when absent.   |
+
+`Output` is `{ context, digest, kept, omitted, cost, unjudged? }`. `kept` and
+`omitted` list `Item`s (`kind`, `id`, `digest`, `bytes`, `p`, `decided`), never
+text; `omitted` holds at most `maxOmitted` (64) ids, highest `p` first. A file
+past `maxFilesPerDir` (64) or `maxFiles` (256) is omitted unread as `budget`
+with `bytes` 0. `cost` is `{ jevRequests, jevMs, candidates }`. Named paths are
+seeds only when `sources` holds `repo`, named commits only when it holds
+`commits`.
+
+### Memory.select
+
+```ts
+const select: (
+  input: Memory.Input,
+  options: Memory.Options
+) => Effect.Effect<Memory.Selection, Memory.MemoryFailed, FileSystem | Path | ChildProcessSpawner>
+```
+
+Selects over `options.root`. `options.pages` replaces the wiki catalog,
+`options.facts` reads remembered rows from named banks, and
+`options.thresholds` replaces the repository's own (`Memory.thresholds(root)`:
+`.smithers/memory-thresholds.json`, `MemoryCalibration.initial` when absent,
+`thresholds_invalid` when it does not decode). The `Selection`
+carries the output, the kept items with the text the block holds for each,
+`needed` (every item that cleared its threshold before the byte budget), and
+every Jev request. A Jev that is unreachable, times out or refuses with a 429
+or a 5xx, or a host with no judge (reason `unconfigured`), leaves the seeds and
+the recalled facts (`decided: "unjudged"`) with `unjudged` set, and
+`Selection.unjudged` (`Memory.Unjudged`) adds the failed reading's
+`classifier` and `items`; any other Jev failure fails
+with `MemoryFailed` code `judge_failed`. A facts store failure is
+`facts_failed`; a denied seed is `read_failed`, and a denied file or walked
+directory is skipped. `MemoryFailed` is registered with `Fault`: `judge_failed`
+is `dependency`, `facts_failed` and `read_failed` are `infra`, and
+`thresholds_invalid` is `user`.
+
+### Memory.flow, Memory.binding, Memory.source, Memory.plugin
+
+`flow` is the `memory` declaration (`sealed`, requires `Memory.reads`,
+`fs:read:/**`; a host opens with the workspace only under the same grant).
+`binding(services, options)` binds it with the step key carrying
+`Memory.version`, the root and the digest of `options.thresholds`
+(`MemoryCalibration.initial` when absent), and journals a `decision-settled` row
+per Jev request. `source(services, options)` is the flows source a host passes:
+it binds with the repository's thresholds each time a run resolves its flows.
+`plugin(services, options)` contributes the binding through
+`CellPlugin.fromBindings`; pass it in `Agent.Options.plugins`.
+
+### Memory.opening, Memory.declared
+
+`opening(task, options)` runs the same selection packed to `openingMaxBytes`
+(16 KiB) and returns `{ memory, selection, unjudged }`, where `memory` is the
+`Agent.Options.memory` value: one row per kept item keyed `<kind>/<id>`, so the
+run-start relevance reading can still withhold any row.
+
+### Memory.needed, Memory.descend
+
+The two `Judgement.perItem` readings, `memory/needed` and `memory/descend`,
+each packed into requests of at most `Memory.maxStateBytes` (64 KiB).
+
+### Memory.extractPaths, Memory.normalizePath
+
+Repository-relative paths named in prose, the one implementation planning
+also uses.
+
+## MemoryCalibration
+
+The threshold math behind every `memory` decision. `tau(costs)` is the
+cost-optimal threshold `extra / (miss + extra)`; `calibrated` maps a raw Jev
+probability through a ten-bucket reliability table; `include` compares it with
+the decision's `tau`. `fit` is a monotone (pool adjacent violators) reliability
+fit, `bestTau` the least-cost threshold, and `refit` one weekly fit that refuses
+under `minLabels` (200) labels or a move over `maxMove` (0.05). `initial` holds
+the declared starting thresholds: 0.35 for pages, skills and files, 0.30 to
+descend, 0.50 for commits and dependency pages, 0.70 to accept a mined fact.
+`digest` joins every `memory` step key.
 
 ## MemorySnapshotRecorder
 
