@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { StorageApi } from "@tanstack/db"
 import type { DurableRowDelta } from "./DurableCollection"
 import {
@@ -71,22 +72,34 @@ export interface SqliteRowStorageOptions {
   readonly budgetBytes?: number
 }
 
-export class OversizedSqliteCollectionError extends Error {
-  constructor(readonly collectionId: string, readonly budgetBytes: number) {
-    super(`The ${collectionId} store exceeds the ${budgetBytes}-byte load budget. Its complete history is required; opening was refused and its source was preserved.`)
-    this.name = "OversizedSqliteCollectionError"
+export class OversizedSqliteCollectionError extends Data.TaggedError("OversizedSqliteCollectionError")<{
+  readonly collectionId: string
+  readonly budgetBytes: number
+  readonly message: string
+}> {
+  constructor(collectionId: string, budgetBytes: number) {
+    super({ collectionId, budgetBytes, message: `The ${collectionId} store exceeds the ${budgetBytes}-byte load budget. Its complete history is required; opening was refused and its source was preserved.` })
   }
 }
 
-export class FutureSqliteSchemaError extends Error {
-  constructor(readonly found: number, readonly supported: number) {
-    super(`SQLite state schema ${found} is newer than this build's schema ${supported}.`)
+export class FutureSqliteSchemaError extends Data.TaggedError("FutureSqliteSchemaError")<{
+  readonly found: number
+  readonly supported: number
+  readonly message: string
+}> {
+  constructor(found: number, supported: number) {
+    super({ found, supported, message: `SQLite state schema ${found} is newer than this build's schema ${supported}.` })
   }
 }
 
-export class UnreadableSqliteStateError extends Error {
-  constructor(readonly boundary: "metadata" | "normalized row" | "legacy key-value" | "legacy registry" | "legacy row") {
-    super(`SQLite ${boundary} metadata is unreadable. Opening was refused; recover the original state before continuing.`)
+export type UnreadableSqliteBoundary = "metadata" | "normalized row" | "legacy key-value" | "legacy registry" | "legacy row"
+
+export class UnreadableSqliteStateError extends Data.TaggedError("UnreadableSqliteStateError")<{
+  readonly boundary: UnreadableSqliteBoundary
+  readonly message: string
+}> {
+  constructor(boundary: UnreadableSqliteBoundary) {
+    super({ boundary, message: `SQLite ${boundary} metadata is unreadable. Opening was refused; recover the original state before continuing.` })
   }
 }
 

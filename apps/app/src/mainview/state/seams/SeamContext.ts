@@ -9,6 +9,7 @@
  * never the card. See [FilesSeam](./FilesSeam.ts) for a read example.
  * Cards carry the human presentation; raw backend payloads are not results.
  */
+import { Data } from "effect"
 import { isRecord } from "@smthrs/canonical/Record"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import type { Refusal } from "@smthrs/rpc/Refusal"
@@ -57,7 +58,9 @@ export interface SeamContext {
  * PreparedView reads it through {@link signInRequired} so a refusal that is
  * already answered never leaves a FAILED card beside the answer.
  */
-export class RepositorySignInRequired extends Error {}
+export class RepositorySignInRequired extends Data.TaggedError("RepositorySignInRequired")<{ readonly message: string }> {
+  constructor(message = "Sign in to reach this repository.") { super({ message }) }
+}
 
 /** Whether a thrown value is the sign-in refusal the caller has already answered. */
 export const signInRequired = (error: unknown): error is RepositorySignInRequired =>

@@ -1,12 +1,17 @@
+import { Data } from "effect"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
-export class StorageDecoderError extends Error {
-  constructor(readonly reason: "non-json" | "unstable") {
-    super(
-      reason === "non-json"
+export class StorageDecoderError extends Data.TaggedError("StorageDecoderError")<{
+  readonly reason: "non-json" | "unstable"
+  readonly message: string
+}> {
+  constructor(reason: "non-json" | "unstable") {
+    super({
+      reason,
+      message: reason === "non-json"
         ? "The storage decoder returned a non-JSON value. Opening was refused; original state was preserved."
         : "The storage decoder does not produce a stable stored value. Opening was refused; use an explicit versioned migration."
-    )
+    })
   }
 }
 

@@ -1,5 +1,5 @@
 import type { AgentChatMessage, FetchLike } from "@smthrs/rpc/NativeAgent"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import { z } from "zod"
 
 // Below the relay's 1 MiB request limit. Never silently omit transcript rows.
@@ -7,9 +7,9 @@ export const MAX_SWEEP_REQUEST_BYTES = 768 * 1024
 export const MAX_SWEEP_RESPONSE_BYTES = 256 * 1024
 export const SWEEP_TIMEOUT_MS = 30_000
 
-export class SweepRequestTooLargeError extends Error {
+export class SweepRequestTooLargeError extends Data.TaggedError("SweepRequestTooLargeError")<{ readonly message: string }> {
   constructor() {
-    super("Conversation exceeds the summary request limit")
+    super({ message: "Conversation exceeds the summary request limit" })
   }
 }
 

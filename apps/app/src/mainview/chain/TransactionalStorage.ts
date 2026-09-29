@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { WriterHeldByAnotherTabError, WriterMovedToAnotherTabError } from "../state/StorageRecoveryContract"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { StorageApi } from "@tanstack/db"
@@ -105,9 +106,13 @@ export const acquireLocalStorageWriter = async (
   return acquired.promise
 }
 
-export class UnsupportedStorageEnvelopeError extends Error {
-  constructor(readonly found: number, readonly supported: number) {
-    super(`Storage envelope ${found} is newer than this build's envelope ${supported}.`)
+export class UnsupportedStorageEnvelopeError extends Data.TaggedError("UnsupportedStorageEnvelopeError")<{
+  readonly found: number
+  readonly supported: number
+  readonly message: string
+}> {
+  constructor(found: number, supported: number) {
+    super({ found, supported, message: `Storage envelope ${found} is newer than this build's envelope ${supported}.` })
   }
 }
 
@@ -122,9 +127,12 @@ export interface LegacyCollectionSpec {
   readonly validateKey?: (key: string, data: unknown) => boolean
 }
 
-export class AuthoritativeStorageError extends Error {
-  constructor(readonly collectionId: string) {
-    super(`The authoritative ${collectionId} store contains unreadable evidence. Opening it without that evidence could repeat work. Its source was preserved; recover it before continuing.`)
+export class AuthoritativeStorageError extends Data.TaggedError("AuthoritativeStorageError")<{
+  readonly collectionId: string
+  readonly message: string
+}> {
+  constructor(collectionId: string) {
+    super({ collectionId, message: `The authoritative ${collectionId} store contains unreadable evidence. Opening it without that evidence could repeat work. Its source was preserved; recover it before continuing.` })
   }
 }
 

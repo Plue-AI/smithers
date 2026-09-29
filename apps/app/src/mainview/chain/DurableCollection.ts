@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { localOnlyCollectionOptions } from "@tanstack/db"
 import type { InferSchemaOutput, StorageApi } from "@tanstack/db"
@@ -69,17 +70,19 @@ const comparableJson = (value: unknown): string | undefined => JSON.stringify(va
     : nested
 )
 
-export class StaleDurableMutationError extends Error {
+export class StaleDurableMutationError extends Data.TaggedError("StaleDurableMutationError")<{ readonly message: string }> {
   constructor(collectionId: string, key: string | number) {
-    super(`The ${collectionId}/${key} mutation was based on state that did not persist. Retry after rollback.`)
+    super({ message: `The ${collectionId}/${key} mutation was based on state that did not persist. Retry after rollback.` })
   }
 }
 
 /** A different writer committed after this adapter loaded its base. */
-export class DurableStorageConflictError extends Error {
-  constructor(readonly boundary: string) {
-    super(`Stored state changed at ${boundary}. This stale writer was refused; reload the current state before retrying.`)
-    this.name = "DurableStorageConflictError"
+export class DurableStorageConflictError extends Data.TaggedError("DurableStorageConflictError")<{
+  readonly boundary: string
+  readonly message: string
+}> {
+  constructor(boundary: string) {
+    super({ boundary, message: `Stored state changed at ${boundary}. This stale writer was refused; reload the current state before retrying.` })
   }
 }
 

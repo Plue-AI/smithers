@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { z } from "zod"
 import { digest } from "@smthrs/core/Digest"
 import { AgentTurnBatchSchema, AgentTurnCursorSchema, AgentTurnJournalRequestSchema, agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
@@ -11,7 +12,9 @@ import { boundToolResult } from "./AgentTurnPolicy"
 import { renderedAskTurnText, renderedRunTurnText, RUN_LAUNCH_COMMANDS } from "./RunClaims"
 
 export const HTTP_MAX_TOOL_LEGS = 8
-export class HttpTurnIntegrityError extends Error {}
+export class HttpTurnIntegrityError extends Data.TaggedError("HttpTurnIntegrityError")<{ readonly message: string }> {
+  constructor(message = "The turn failed verification.") { super({ message }) }
+}
 export const HttpAskClassSchema = z.enum(["email", "local-files", "messaging", "push", "pr"])
 const Identity = z.string().min(1).max(160)
 export const HttpPendingCallSchema = z.object({ callId: Identity, name: z.string(), args: z.string() }).strict()

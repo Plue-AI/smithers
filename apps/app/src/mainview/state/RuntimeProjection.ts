@@ -1,6 +1,6 @@
 import { questionOf, approvalQuestionKey } from "../cards/ApprovalQuestion"
 import { z } from "zod"
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import { ApprovalRow, RunSummaryRow, TranscriptRow } from "@smthrs/gateway/GatewayProjection"
 import { ProjectionCursor } from "@smthrs/gateway/GatewaySchema"
 import { ControlEvent } from "@smthrs/control/ControlSchema"
@@ -68,7 +68,9 @@ export const RuntimeApprovalSubmissionSchema = z.object({
   error: z.string().optional(), decidedAt: z.number().optional()
 }).strict()
 export type RuntimeApprovalSubmission = z.infer<typeof RuntimeApprovalSubmissionSchema>
-export class RuntimeProjectionIntegrityError extends Error {}
+export class RuntimeProjectionIntegrityError extends Data.TaggedError("RuntimeProjectionIntegrityError")<{ readonly message: string }> {
+  constructor(message = "The runtime projection failed verification.") { super({ message }) }
+}
 const equal = (a: unknown, b: unknown): boolean => canonicalEventValue(a) === canonicalEventValue(b)
 const cursorPosition = (cursor: ProjectionCursor | undefined) => cursor === undefined ? undefined : [cursor.value, cursor.offset]
 const compareCursors = (left: ProjectionCursor, right: ProjectionCursor): number => left.value - right.value || left.offset - right.offset

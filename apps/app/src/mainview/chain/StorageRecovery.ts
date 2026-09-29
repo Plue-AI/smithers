@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { PERSISTED_KEY_PREFIX, SCHEMA_QUARANTINE_PREFIX } from "./SchemaVersion"
 import type { SqliteRowDatabase } from "./SqliteRowStorage"
 import { PRIVACY_RETIREMENT_KEY, RESET_ERASURE_OUTBOX_KEY } from "./PrivacyRetirement"
@@ -37,15 +38,19 @@ export interface EnumerableRecoveryStorage {
   readonly getItem: (key: string) => string | null
 }
 
-export class StorageRecoveryError extends Error {
-  constructor(readonly code: "limit" | "unreadable" | "changed") {
-    super(
-      code === "limit"
+export class StorageRecoveryError extends Data.TaggedError("StorageRecoveryError")<{
+  readonly code: "limit" | "unreadable" | "changed"
+  readonly message: string
+}> {
+  constructor(code: "limit" | "unreadable" | "changed") {
+    super({
+      code,
+      message: code === "limit"
         ? "The local recovery snapshot exceeds its safety limit. No partial download was produced and saved data was not reset."
         : code === "changed"
         ? "Local storage changed while preparing recovery. Retry when other Smithers tabs are idle. Saved data was not reset."
         : "The local recovery snapshot could not be read completely. No partial download was produced and saved data was not reset."
-    )
+    })
   }
 }
 

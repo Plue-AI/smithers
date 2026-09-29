@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { Actor, Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import { canonicalStoredJsonValue } from "../EventValue"
@@ -34,7 +35,9 @@ const sourceFree = (request: Pick<WorkflowLaunch, "input" | "source">): Record<s
   const { base: _base, ...rest } = request.input
   return rest
 }
-class RequestPersistenceError extends Error {}
+class RequestPersistenceError extends Data.TaggedError("RequestPersistenceError")<{ readonly message: string }> {
+  constructor(message = "The launch request could not be saved.") { super({ message }) }
+}
 
 /** One durable request owns preparation, launch and observation through remote settlement. */
 export const createWorkflowLaunchController = (

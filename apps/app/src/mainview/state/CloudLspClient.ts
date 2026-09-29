@@ -20,6 +20,7 @@
  * Terminal and idle closes reach listeners with the reason verbatim; an
  * idle closed connection is redialed by the next act.
  */
+import { Data } from "effect"
 import {
   CLOUD_LSP_REASSEMBLY_CAP_BYTES,
   CLOUD_LSP_ROOT_URI,
@@ -199,10 +200,9 @@ export const documentLanguageId = (language: LspLanguageId, path: string): strin
 }
 
 /** A refusal thrown through the client's own promises; every act catches it into `{ refusal }`. */
-class Refused extends Error {
-  constructor(readonly refusal: LspRefusal) {
-    super(refusal.message)
-    this.name = "CloudLspRefused"
+class Refused extends Data.TaggedError("CloudLspRefused")<{ readonly refusal: LspRefusal; readonly message: string }> {
+  constructor(refusal: LspRefusal) {
+    super({ refusal, message: refusal.message })
   }
 }
 

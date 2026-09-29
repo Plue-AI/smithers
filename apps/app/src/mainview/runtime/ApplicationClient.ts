@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { ApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import {
   APPLICATION_TOKEN_SCOPES,
@@ -37,21 +38,29 @@ export type ApplicationClientErrorCode =
   | "invalid-target"
   | "invalid-response"
 
-export class ApplicationClientError extends Error {
-  readonly name = "ApplicationClientError"
+export class ApplicationClientError extends Data.TaggedError("ApplicationClientError")<{
+  readonly code: ApplicationClientErrorCode
+  readonly message: string
+  readonly status: number | null
+  readonly apiCode: string | null
+  readonly retryAfterSeconds: number | null
   readonly refusal: Refusal
-
+  readonly cause?: unknown
+}> {
   constructor(
-    readonly code: ApplicationClientErrorCode,
+    code: ApplicationClientErrorCode,
     message: string,
-    readonly status: number | null = null,
-    readonly apiCode: string | null = null,
-    readonly retryAfterSeconds: number | null = null,
+    status: number | null = null,
+    apiCode: string | null = null,
+    retryAfterSeconds: number | null = null,
     options?: ErrorOptions,
     refusal?: Refusal
   ) {
-    super(message, options)
-    this.refusal = refusal ?? clientRefusal(options?.cause, message)
+    super({
+      code, message, status, apiCode, retryAfterSeconds,
+      refusal: refusal ?? clientRefusal(options?.cause, message),
+      ...(options !== undefined && "cause" in options ? { cause: options.cause } : {})
+    })
   }
 }
 

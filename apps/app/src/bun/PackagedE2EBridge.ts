@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { timingSafeEqual } from "node:crypto"
 import { deflateSync } from "node:zlib"
 
@@ -66,13 +67,13 @@ const readEvalScript = async (request: Request): Promise<string> => {
   return script
 }
 
-class BridgeRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string
-  ) {
-    super(message)
+class BridgeRequestError extends Data.TaggedError("BridgeRequestError")<{
+  readonly status: number
+  readonly code: string
+  readonly message: string
+}> {
+  constructor(status: number, code: string, message: string) {
+    super({ status, code, message })
   }
 }
 

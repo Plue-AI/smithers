@@ -3,6 +3,7 @@ import { claimWorkToast } from "./backgroundWork"
 import type { CommandOutcome } from "../../flows/Commands"
 import { ToastSchema, type Toast } from "../AppState"
 import { spokenLostAct } from "../BrowserWriteFailure"
+import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal } from "./spokenLines"
 
@@ -169,6 +170,15 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
   const unexpectedFailure = (title: string): string =>
     `${title.replace(/…$/, "")} didn't finish — the app hit an unexpected error.`
   /*
+   * A thrown tagged failure has its own sentence in the app registry; anything
+   * else is the unexpected line above. Either way the raw error is reported,
+   * never shown.
+   */
+  const thrownFailure = (key: string, title: string, error: unknown): string => {
+    ctx.failures.report("toast.work", error, key)
+    return presentAppFailure(error, () => {}, { fault: "bug", sentence: unexpectedFailure(title), actions: ["retry"] }).sentence
+  }
+  /*
    * Work the user never asked for has no result they can see, so it says
    * nothing until it fails: no running notice, no done title, and no claim on
    * the key's run slot, which leaves the work a user DID ask for owning its
@@ -187,8 +197,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     try {
       outcome = await work()
     } catch (error) {
-      ctx.failures.report("toast.work", error, key)
-      outcome = unexpectedFailure(title)
+      outcome = thrownFailure(key, title, error)
     }
     if (ctx.disposed || current?.() === false) return outcome
     const id = `toast-${key}`
@@ -250,8 +259,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     try {
       outcome = await work()
     } catch (error) {
-      ctx.failures.report("toast.work", error, key)
-      outcome = unexpectedFailure(title)
+      outcome = thrownFailure(key, title, error)
     } finally {
       clearTimeout(debounce)
       timers.delete(debounce)

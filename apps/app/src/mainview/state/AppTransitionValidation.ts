@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { AgentTurnBatchSchema,AgentTurnCursorSchema,AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
 import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingPlans"
 import { ConfiguredModelSchema,ModelRecordIdSchema,ModelTestRecordSchema,SeatIdSchema } from "@smthrs/rpc/ConfiguredModel"
@@ -193,8 +194,8 @@ export const APP_TRANSITION_SCHEMAS = {
   "recommendations.deferred": z.object({ "type": z.literal("recommendations.deferred"), "actor": z.literal("system"), "retryAt": z.number().finite(), "origin": z.string().min(1).max(512) }).strict(),
 } as const satisfies { [K in AppTransition["type"]]: z.ZodType<Extract<AppTransition, { type: K }>> }
 
-export class InvalidAppTransitionError extends Error {
-  constructor() { super("The app transition does not match its event contract.") }
+export class InvalidAppTransitionError extends Data.TaggedError("InvalidAppTransitionError")<{ readonly message: string }> {
+  constructor() { super({ message: "The app transition does not match its event contract." }) }
 }
 
 /** Input must already be detached by the lossless codec; this function never reads a host. */

@@ -16,6 +16,7 @@
  * summary does not record, so runs.list says that instead of silently
  * dropping the filter.
  */
+import { Data } from "effect"
 import { questionOf } from "../../cards/ApprovalQuestion"
 import { codingPlanOf } from "../../cards/CodingPlan"
 import { drawableExecution } from "../../cards/RunForest"
@@ -359,7 +360,9 @@ export const createRunsController = (
     ctx.unref(timer)
   }
 
-  class OpenReadRefusal extends Error {}
+  class OpenReadRefusal extends Data.TaggedError("OpenReadRefusal")<{ readonly message: string }> {
+    constructor(message: string) { super({ message }) }
+  }
   const openReads = actorSharedState(ctx, "run-open-reads", () => ({
     inFlight: new Map<string, { request: RunOpenRequest; epoch: number; work: Promise<unknown> }>(),
     persisting: new Map<string, Promise<unknown>>()

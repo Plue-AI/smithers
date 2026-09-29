@@ -1,9 +1,12 @@
+import { Data } from "effect"
 import type { AgentTurnFrame, StartAgentTurnRequest, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnCursor, AgentTurnJournalDelivery, AgentTurnJournalReply, AgentTurnJournalRequest } from "@smthrs/rpc/AgentTurnJournal"
 
 export interface AgentJournalAccess { readonly runId: string; readonly journal: AgentTurnJournalRequest; readonly after?: AgentTurnCursor | null }
 /** A readable response that cannot establish a trustworthy replay boundary. */
-export class AgentJournalIntegrityError extends Error {}
+export class AgentJournalIntegrityError extends Data.TaggedError("AgentJournalIntegrityError")<{ readonly message: string }> {
+  constructor(message = "The agent journal could not establish a replay boundary.") { super({ message }) }
+}
 export interface AgentJournalPort {
   /** Each delivery is acknowledged only after the subscriber's local commit. */
   readonly subscribe: (listener: (delivery: AgentTurnJournalDelivery) => Promise<void>) => () => void

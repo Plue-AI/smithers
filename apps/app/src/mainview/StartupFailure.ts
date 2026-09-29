@@ -2,6 +2,7 @@ import { Data } from "effect"
 import { presentUserFailure, type UserFailure, type UserFailureCopy, type UserFailureRegistry } from "@smthrs/rpc/UserFailure"
 import { PRIVACY_RETIREMENT_COPY } from "./chain/PrivacyRetirementCopy"
 import type { PrivacyRetirementError } from "./chain/PrivacyRetirement"
+import { STATE_FAILURE_COPY, type StateTaggedFailure } from "./state/StateFailureCopy"
 
 /** The app never signalled that it mounted within the watchdog's budget. */
 export class StartupTimedOut extends Data.TaggedError("StartupTimedOut")<{ readonly message: string }> {
@@ -9,9 +10,10 @@ export class StartupTimedOut extends Data.TaggedError("StartupTimedOut")<{ reado
 }
 
 /** Every tagged failure the startup panels can receive. Later lanes add theirs here. */
-export type StartupTaggedFailure = PrivacyRetirementError | StartupTimedOut
+export type StartupTaggedFailure = PrivacyRetirementError | StartupTimedOut | StateTaggedFailure
 
 export const STARTUP_FAILURE_COPY: UserFailureRegistry<StartupTaggedFailure> = {
+  ...STATE_FAILURE_COPY,
   ...PRIVACY_RETIREMENT_COPY,
   StartupTimedOut: {
     fault: "infra",

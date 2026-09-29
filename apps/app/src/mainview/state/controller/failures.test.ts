@@ -1,6 +1,7 @@
 import { createOperationalFailureReporter } from "../OperationalFailures"
 import type { StorageApi } from "@tanstack/db"
 import { afterEach,describe,expect,spyOn,test } from "bun:test"
+import { OversizedSqliteCollectionError } from "../../chain/SqliteRowStorage"
 import { createAppStore } from "../AppStore"
 import { browserWriteRefusal } from "../BrowserWriteFailure"
 import type { ControllerContext } from "./context"
@@ -177,6 +178,19 @@ test("a thrown announcing run reports an error and settles its toast as failed",
   expect(await pending).toBe("Working didn't finish — the app hit an unexpected error.")
   expect(store.collections.toasts.get("toast-crash")).toMatchObject({ status: "failed", detail: "Working didn't finish — the app hit an unexpected error." })
   expect(ctx.failures.recent()).toEqual([expect.objectContaining({ seam: "toast.work", subject: "crash", message: expect.stringContaining("worker crashed") })])
+})
+
+test("a thrown tagged failure settles its toast with that failure's sentence, never its message", async () => {
+  const { ctx, store } = await fakeContext({ toastAutoDismissMs: 10_000 })
+  const failures = createFailureController(ctx)
+  const thrown = new OversizedSqliteCollectionError("runs", 1024)
+  const outcome = await failures.withToast("big", "Opening…", "Opened", async () => { throw thrown })
+  expect(outcome).toBe("This browser's saved data is too large for Smithers to open. Not your fault. It was kept as it was.")
+  expect(store.collections.toasts.get("toast-big")?.detail).not.toContain("1024")
+  const quiet = await failures.withToast("big-quiet", "Opening…", "Opened", async () => { throw thrown }, true)
+  expect(quiet).toBe(outcome)
+  expect(ctx.failures.recent()).toEqual([expect.objectContaining({ seam: "toast.work", subject: "big", message: expect.stringContaining("1024") }),
+    expect.objectContaining({ seam: "toast.work", subject: "big-quiet" })])
 })
 
 test("an older auto-dismiss cannot remove a newer same-key result settled in the same millisecond", async () => {

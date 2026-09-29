@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { digest } from "@smthrs/core/Digest"
 import { makeDigestPartsSync } from "@smthrs/crypto"
 import { z } from "zod"
@@ -88,10 +89,12 @@ export const StoredAppEventRecordSchema = AppEventRecordSchema.extend({ projecto
   // Retired events must parse before the projector-upgrade checkpoint replaces them.
   journalBudgetBytes: PositionSchema.positive().optional() })
 
-export class AppProjectorVersionError extends Error {
-  constructor(readonly savedVersion: number) {
-    super(`Saved app projector version ${savedVersion} is newer than this build (${APP_PROJECTOR_VERSION}). Update Smithers to open it. Saved history was preserved.`)
-    this.name = "AppProjectorVersionError"
+export class AppProjectorVersionError extends Data.TaggedError("AppProjectorVersionError")<{
+  readonly savedVersion: number
+  readonly message: string
+}> {
+  constructor(savedVersion: number) {
+    super({ savedVersion, message: `Saved app projector version ${savedVersion} is newer than this build (${APP_PROJECTOR_VERSION}). Update Smithers to open it. Saved history was preserved.` })
   }
 }
 
@@ -112,9 +115,14 @@ export const needsAppProjectorUpgrade = (headInput: unknown, checkpointInput: un
 
 export const AppEventRetirementSchema = z.object({ id: HashSchema }).strict()
 
-export class AppEventIntegrityError extends Error {
-  constructor(readonly reason: "format" | "scope" | "checkpoint" | "gap" | "conflict" | "event" | "projection" | "head") {
-    super(`App event verification failed (${reason}). Saved history was preserved.`)
+export type AppEventIntegrityReason = "format" | "scope" | "checkpoint" | "gap" | "conflict" | "event" | "projection" | "head"
+
+export class AppEventIntegrityError extends Data.TaggedError("AppEventIntegrityError")<{
+  readonly reason: AppEventIntegrityReason
+  readonly message: string
+}> {
+  constructor(reason: AppEventIntegrityReason) {
+    super({ reason, message: `App event verification failed (${reason}). Saved history was preserved.` })
   }
 }
 const fail = (reason: AppEventIntegrityError["reason"]): never => { throw new AppEventIntegrityError(reason) }

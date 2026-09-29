@@ -1,3 +1,4 @@
+import { Data } from "effect"
 /** JSON plus explicit field clears. JSON.stringify alone loses patch semantics. */
 export type EventJson = null | boolean | number | string | ReadonlyArray<EventJson> | { readonly [key: string]: EventJson }
 export type EventValuePath = ReadonlyArray<string | number>
@@ -6,10 +7,13 @@ export interface EncodedEventValue {
   readonly undefinedPaths: ReadonlyArray<EventValuePath>
 }
 
-export class InvalidEventValueError extends Error {
-  constructor(readonly reason: "unsupported-value" | "invalid-clear-path") {
+export class InvalidEventValueError extends Data.TaggedError("InvalidEventValueError")<{
+  readonly reason: "unsupported-value" | "invalid-clear-path"
+  readonly message: string
+}> {
+  constructor(reason: "unsupported-value" | "invalid-clear-path") {
     // Values can contain private documents. Errors identify the contract, never its payload.
-    super(`The app event contains ${reason === "unsupported-value" ? "an unsupported value" : "an invalid field-clear path"}.`)
+    super({ reason, message: `The app event contains ${reason === "unsupported-value" ? "an unsupported value" : "an invalid field-clear path"}.` })
   }
 }
 

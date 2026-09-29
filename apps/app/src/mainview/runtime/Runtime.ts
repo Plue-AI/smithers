@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema, hasCapability } from "@smthrs/rpc/AppBootstrap"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { FetchLike, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
@@ -36,13 +37,20 @@ export const unavailableAgent = (): AgentPort => ({
 
 export type BootstrapFailureKind = "unreachable" | "missing" | "server" | "invalid"
 
-export class BootstrapFailure extends Error {
-  readonly name = "BootstrapFailure"
-  constructor(readonly kind: BootstrapFailureKind, readonly status?: number) {
-    super(kind === "unreachable" ? "Backend is unreachable."
-      : kind === "missing" ? "Backend does not provide Smithers bootstrap."
-      : kind === "server" ? "Backend could not start Smithers."
-      : "Backend returned an invalid Smithers bootstrap.")
+export class BootstrapFailure extends Data.TaggedError("BootstrapFailure")<{
+  readonly kind: BootstrapFailureKind
+  readonly status?: number
+  readonly message: string
+}> {
+  constructor(kind: BootstrapFailureKind, status?: number) {
+    super({
+      kind,
+      ...(status === undefined ? {} : { status }),
+      message: kind === "unreachable" ? "Backend is unreachable."
+        : kind === "missing" ? "Backend does not provide Smithers bootstrap."
+        : kind === "server" ? "Backend could not start Smithers."
+        : "Backend returned an invalid Smithers bootstrap."
+    })
   }
 }
 

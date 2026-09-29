@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { releaseInterruptedApproval } from "./ApprovalRecovery"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { openBrowserWASQLiteOPFSDatabase } from "@tanstack/browser-db-sqlite-persistence"
@@ -303,9 +304,9 @@ const hasLegacyLocalState = (storage: StorageApi): boolean => {
   return false
 }
 
-export class AmbiguousPersistenceBackendError extends Error {
+export class AmbiguousPersistenceBackendError extends Data.TaggedError("AmbiguousPersistenceBackendError")<{ readonly message: string }> {
   constructor() {
-    super("Saved local browser data has no recorded backend and another database may exist. Opening either could select a stale history. Recover or explicitly select the existing backend before continuing; neither store was reset.")
+    super({ message: "Saved local browser data has no recorded backend and another database may exist. Opening either could select a stale history. Recover or explicitly select the existing backend before continuing; neither store was reset." })
   }
 }
 

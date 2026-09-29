@@ -1,4 +1,5 @@
 import type { PlueFault } from "@smthrs/rpc/Refusal"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { DurableStorageConflictError } from "../chain/DurableCollection"
 import { WriterHeldByAnotherTabError, WriterMovedToAnotherTabError } from "./StorageRecoveryContract"
 
@@ -48,11 +49,11 @@ export type BrowserWriteFault =
  */
 export type LostActFault = BrowserWriteFault | "app-bug" | "cancelled"
 
-interface BrowserWriteCopy {
-  /** Whose problem this is, in the same vocabulary every other refusal in the app uses. */
-  readonly fault: PlueFault
-  /** What the person reads: what did not happen, whose fault it was, and the next act. */
-  readonly sentence: string
+/**
+ * One row: the seam's copy (fault, sentence, actions) plus whether the
+ * sentence is also spoken into the transcript.
+ */
+export interface LostActCopy extends UserFailureCopy {
   /**
    * Whether this sentence goes where the person is still looking a minute
    * later, and not only on a toast that leaves after four seconds.
@@ -66,28 +67,33 @@ interface BrowserWriteCopy {
  * apology. The two faults that nothing they can do would have avoided say so
  * in their own words, per the app's rule that infra never blames the reader.
  */
-const BROWSER_WRITE_COPY = {
+export const LOST_ACT_COPY = {
   "writer-moved": {
+    actions: ["use-here"],
     fault: "user",
     spoken: true,
     sentence: "Smithers moved to another tab of this browser, so that change was not saved. Make it again in that tab, or reload this page to take Smithers back here."
   },
   "writer-held": {
+    actions: ["use-here"],
     fault: "user",
     spoken: true,
     sentence: "Smithers is already open in another tab of this browser, so that change was not saved. Use Smithers in that tab, or close it and reload this page, then make the change again."
   },
   "storage-conflict": {
+    actions: ["retry"],
     fault: "infra",
     spoken: true,
     sentence: "Another Smithers tab saved over this browser's data first, so that change was not saved. Not your fault. Reload the page to pick up the current state, then make the change again."
   },
   "storage-full": {
+    actions: [],
     fault: "user",
     spoken: true,
     sentence: "This browser has no room left for Smithers' saved data, so that change was not saved. Free space for this site in your browser settings, then make the change again."
   },
   "storage-unavailable": {
+    actions: ["retry"],
     fault: "infra",
     spoken: true,
     sentence: "This browser did not save that change. Not your fault, and nothing about the change would have avoided it. Make it again; if it fails twice, reload the page."
@@ -99,6 +105,7 @@ const BROWSER_WRITE_COPY = {
    * easily run after the bytes landed.
    */
   "app-bug": {
+    actions: ["retry"],
     fault: "infra",
     spoken: true,
     sentence: "Smithers hit a bug of its own, so that didn't finish. Not your fault, and nothing about what you did would have avoided it. Reload the page to see where it got to, then make the change again."
@@ -109,11 +116,12 @@ const BROWSER_WRITE_COPY = {
    * deliberately thrown away is the silent-lie shape in reverse.
    */
   "cancelled": {
+    actions: [],
     fault: "user",
     spoken: false,
     sentence: "That was stopped before it finished, so it may not have run. Make it again if you still want it."
   }
-} satisfies Record<LostActFault, BrowserWriteCopy>
+} as const satisfies Record<LostActFault, LostActCopy>
 
 /*
  * The quota rejection is the one failure here that arrives as somebody else's
@@ -181,7 +189,7 @@ export const lostActFault = (error: unknown): LostActFault =>
  * @since 1.0.0
  * @category constants
  */
-export const lostActRefusal = (error: unknown): string => BROWSER_WRITE_COPY[lostActFault(error)].sentence
+export const lostActRefusal = (error: unknown): string => LOST_ACT_COPY[lostActFault(error)].sentence
 
 /**
  * Whether this app wrote this sentence about an act that reached nothing, and
@@ -195,7 +203,7 @@ export const lostActRefusal = (error: unknown): string => BROWSER_WRITE_COPY[los
  * @category constants
  */
 export const spokenLostAct = (sentence: string): boolean =>
-  Object.values(BROWSER_WRITE_COPY).some((copy) => copy.spoken && copy.sentence === sentence)
+  Object.values(LOST_ACT_COPY).some((copy) => copy.spoken && copy.sentence === sentence)
 
 /**
  * The sentence a person reads when a change they made did not reach this
@@ -206,7 +214,7 @@ export const spokenLostAct = (sentence: string): boolean =>
  * @since 1.0.0
  * @category constants
  */
-export const browserWriteRefusal = (error: unknown): string => BROWSER_WRITE_COPY[browserWriteFault(error)].sentence
+export const browserWriteRefusal = (error: unknown): string => LOST_ACT_COPY[browserWriteFault(error)].sentence
 
 /**
  * Whose problem a lost write was, for a surface that reports fault classes.
@@ -214,7 +222,7 @@ export const browserWriteRefusal = (error: unknown): string => BROWSER_WRITE_COP
  * @since 1.0.0
  * @category constants
  */
-export const browserWriteFaultClass = (error: unknown): PlueFault => BROWSER_WRITE_COPY[browserWriteFault(error)].fault
+export const browserWriteFaultClass = (error: unknown): PlueFault => LOST_ACT_COPY[browserWriteFault(error)].fault
 
 /** Fault class for any lost act, using the same table as its refusal. */
-export const lostActFaultClass = (error: unknown): PlueFault => BROWSER_WRITE_COPY[lostActFault(error)].fault
+export const lostActFaultClass = (error: unknown): PlueFault => LOST_ACT_COPY[lostActFault(error)].fault

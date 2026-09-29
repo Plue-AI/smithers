@@ -1,9 +1,14 @@
+import { Data } from "effect"
 /** Invalid metadata is not an unversioned store and must never be guessed. */
-export class InvalidSchemaStampError extends Error {
-  constructor(readonly source: string) {
-    super(
-      `${source} has an invalid schema version. Its stored state was not upgraded; use a compatible build or recover the original data.`
-    )
+export class InvalidSchemaStampError extends Data.TaggedError("InvalidSchemaStampError")<{
+  readonly source: string
+  readonly message: string
+}> {
+  constructor(source: string) {
+    super({
+      source,
+      message: `${source} has an invalid schema version. Its stored state was not upgraded; use a compatible build or recover the original data.`
+    })
   }
 }
 

@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { StorageApi } from "@tanstack/db"
 import { ENVELOPE_STORAGE_KEY, STAGED_ENVELOPE_STORAGE_KEY } from "./TransactionalStorage"
 import { retainRecoveryCopy } from "./RecoveryCopy"
@@ -54,9 +55,9 @@ export const SCHEMA_QUARANTINE_PREFIX = "smithers-mvp-quarantine."
 /** The two stores AppStore can persist into. */
 export type PersistenceBackendKind = "opfs" | "localStorage"
 
-export class UnknownPersistenceBackendError extends Error {
+export class UnknownPersistenceBackendError extends Data.TaggedError("UnknownPersistenceBackendError")<{ readonly message: string }> {
   constructor() {
-    super("The recorded persistence backend is unknown to this build. No other store was selected; recover the backend record before continuing.")
+    super({ message: "The recorded persistence backend is unknown to this build. No other store was selected; recover the backend record before continuing." })
   }
 }
 
@@ -184,9 +185,13 @@ export interface SchemaVersionOptions {
   readonly onMismatch?: "validate" | "reset"
 }
 
-export class UnsupportedLocalStorageSchemaError extends Error {
-  constructor(readonly found: string, readonly supported: number) {
-    super(`Local storage state schema ${found} cannot be opened by this build's schema ${supported}.`)
+export class UnsupportedLocalStorageSchemaError extends Data.TaggedError("UnsupportedLocalStorageSchemaError")<{
+  readonly found: string
+  readonly supported: number
+  readonly message: string
+}> {
+  constructor(found: string, supported: number) {
+    super({ found, supported, message: `Local storage state schema ${found} cannot be opened by this build's schema ${supported}.` })
   }
 }
 
