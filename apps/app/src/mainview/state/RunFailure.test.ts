@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { RECEIPT_CODES, runFailure, runFailureOf, SETUP_REFUSAL_COPY, SETUP_REFUSALS, setupFailureSentence, setupVerdict } from "./RunFailure"
-import { ANSWERED_CODES, runCause } from "./RunCause"
+import type { PlueFault } from "@smthrs/rpc/Refusal"
+import { RECEIPT_CODES, type RunFault, runFailure, runFailureOf, SETUP_REFUSAL_COPY, SETUP_REFUSALS, setupFailureSentence, setupVerdict } from "./RunFailure"
+import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
+import * as Fault from "@smthrs/flow/Fault"
+import { CodingError } from "../../../../../flows/coding/schema.ts"
+import { runCause } from "./RunCause"
 
 const INFRA = "Something on Smithers' side failed. Not your fault, and nothing your request could have changed."
 // Formatting may wrap the call, but the emitted argument must remain exact.
@@ -10,8 +14,9 @@ const invalidCall = (argument: string): RegExp =>
   new RegExp(`\\binvalid\\(\\s*${argument.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)`)
 /* One of the sentences flows/repository/triggers.ts refuses a registration with. */
 const REFUSAL = 'Add a model to "nightly-lint" to schedule it.'
-const VERDICT = `failed — invalid_receipt: ${REFUSAL.slice(0, 20)}`
-const journal = (cause: string) => [{ sequence: 1, kind: "control.run.failed", runId: "run-1", occurredAt: 1, payload: { runId: "run-1", status: "failed", cause } }]
+const VERDICT = `failed — invalid_receipt: ${REFUSAL}`
+const journal = (cause: string, fault?: { class: string; tag: string }) =>
+  [{ sequence: 1, kind: "control.run.failed", runId: "run-1", occurredAt: 1, payload: { runId: "run-1", status: "failed", cause, ...(fault === undefined ? {} : { fault }) } }]
 
 test("uncoded execution errors use infra copy and retain the complete raw detail", () => {
   const raw = "failed — Error: Error: git exited 1"
@@ -50,8 +55,11 @@ test("a registrar failure the registrar did not refuse keeps the verdict and the
     expect(runFailureOf({ workflow: "repository/trigger", error: VERDICT, events: journal(cause) }))
       .toEqual({ fault: "infra", message: INFRA, detail: VERDICT })
   }
-  expect(runFailureOf({ workflow: "repository/trigger", error: VERDICT, events: [] })).toEqual({ fault: "infra", message: INFRA, detail: VERDICT })
-  expect(runFailureOf({ workflow: "repository/trigger", error: VERDICT })).toEqual({ fault: "infra", message: INFRA, detail: VERDICT })
+  // The journal gone, the registrar's verdict still carries its refusal: the person's.
+  expect(runFailureOf({ workflow: "repository/trigger", error: VERDICT, events: [] })).toEqual({ fault: "user", message: REFUSAL, detail: VERDICT })
+  expect(runFailureOf({ workflow: "repository/trigger", error: VERDICT })).toEqual({ fault: "user", message: REFUSAL, detail: VERDICT })
+  expect(runFailureOf({ workflow: "repository/trigger", error: "failed — unavailable: The exact schedule could not be registered" }))
+    .toMatchObject({ fault: "infra", message: INFRA })
   expect(runFailureOf({ workflow: "repository/trigger" })).toEqual({ fault: "infra", message: INFRA, detail: "" })
 })
 
@@ -126,76 +134,63 @@ const LATE_FLOW = "agent/run"
 const EXHAUSTED = 'model_failed: The agent session "run-7f3a" ended without a completed answer after 6 frames'
 const UNPROVEN = "claim_unproven: A completion reporting work this run never recorded: invented 0.91 (complete 0.35, overclaims 0.89, neither of which decides this). The claim was handed back for a frame and came back still unrecorded."
 
-test("a run that died late names what happened, and never in the harness's own words", () => {
-  for (const cause of [EXHAUSTED, UNPROVEN]) {
-    const failure = runFailureOf({ workflow: LATE_FLOW, error: `failed — ${cause.slice(0, 100)}`, events: journal(cause) })
-    expect(failure.message).not.toBe(INFRA)
+const stamp = (tag: string, kind: PlueFault): RunFault => ({ class: kind, tag })
+const HARNESS = (code: string) => `/harness/HarnessError/${code}`
+
+test("a run that died late names what happened from its stamped fault, never in the harness's own words", () => {
+  for (const [cause, code] of [[EXHAUSTED, "model_failed"], [UNPROVEN, "claim_unproven"]] as const) {
+    const fault = stamp(HARNESS(code), code === "model_failed" ? "dependency" : "factory")
+    const failure = runFailureOf({ workflow: LATE_FLOW, error: `failed — ${cause.slice(0, 100)}`, events: journal(cause, fault) })
+    expect(failure).toMatchObject({ fault: fault.class, message: runCause(fault.tag), detail: cause })
     expect(failure.message).not.toContain("run-7f3a")
-    expect(failure.message).not.toContain("frames")
     expect(failure.message).not.toContain("invented")
-    expect(failure.detail).toBe(cause)
   }
   /* The brake's two halves mean different things since 46fcc61722f5, so they read differently. */
-  const unproven = runFailureOf({ workflow: LATE_FLOW, error: "", events: journal(UNPROVEN) })
-  const unjudged = runFailureOf({ workflow: LATE_FLOW, error: "", events: journal("completion_unjudged: A completion no evaluator could judge (transport): 503") })
+  const unproven = runFailureOf({ workflow: LATE_FLOW, events: journal(UNPROVEN, stamp(HARNESS("claim_unproven"), "factory")) })
+  const unjudged = runFailureOf({ workflow: LATE_FLOW, events: journal("completion_unjudged: 503", stamp(HARNESS("completion_unjudged"), "dependency")) })
   expect(unproven.message).not.toBe(unjudged.message)
-  for (const failure of [unproven, unjudged]) expect(failure.message).toContain("Not your fault")
 })
 
 /*
- * Four real failures, verbatim from the packages that raise them, none of
- * which is a model call. `failureSummary` walks to the innermost record that
- * has a `message` and prefixes THAT record's code, so a `JjError`, a sandbox
+ * A code string does not name its author: a `JjError`, a sandbox
  * `ProviderError`, a `SyncError`, a `CodingError` and a std `StdError` all
- * reach this file as a first line that looks exactly like the model's.
+ * journal a first line that looks exactly like the model's. The stamped tag
+ * does name it, so each reads as its own class's lead, never a model sentence.
  */
-const FOREIGN = [
-  /* flows/jj/src/node/NodeJj.ts:226 — @smthrs/jj/JjError */
-  "unknown: jj describe: cannot run in /gone: not a directory",
-  /* flows/sandbox/src/internal/execSession.ts:189 — @smthrs/sandbox/RemoteChildProcessSpawner/ProviderError */
-  "unknown: unrecognized process",
-  /* flows/sync/src/internal/ShareSigner.ts:97 — @smthrs/sync/SyncError */
-  "unknown: Web Crypto could not import the HMAC signing key",
-  /* flows/coding/native.ts:56 — coding/Error */
-  "invalid_request: Native coding request exceeds its bounded payload size",
-  /* agent/std/src/ExaWebSearch.ts:102 — @smthrs/std/StdError */
-  "rate_limited: Exa search was throttled; retry after 30 seconds"
-]
-
-test("a code another vocabulary also spells is never told a model call failed", () => {
-  for (const cause of FOREIGN) {
-    const error = `failed — ${cause.slice(0, 100)}`
-    for (const failure of [runFailureOf({ workflow: LATE_FLOW, error, events: journal(cause) }), runFailureOf({ workflow: LATE_FLOW, error })]) {
-      expect(failure.message).toBe(INFRA)
-      expect(failure.message).not.toContain("model")
-      expect(failure.fault).toBe("infra")
-    }
-  }
-})
-
-test("every code the harness and the model can journal reaches a person as its own sentence", () => {
-  for (const code of ANSWERED_CODES) {
-    const answered = runCause(code)!
-    expect(runFailureOf({ workflow: LATE_FLOW, error: `failed — ${code}: whatever the host wrote`, events: journal(`${code}: whatever the host wrote`) }))
-      .toEqual({ fault: answered.fault, message: answered.message, detail: `${code}: whatever the host wrote` })
+test("another vocabulary's code reads as its class's lead, never as a model call that failed", () => {
+  for (
+    const [tag, kind] of [
+      ["@smthrs/jj/JjError/unknown", "bug"],
+      ["coding/Error/invalid_request", "user"],
+      ["@smthrs/std/StdError/rate_limited", "bug"]
+    ] as const
+  ) {
+    const failure = runFailureOf({ workflow: LATE_FLOW, events: journal(`${tag.split("/").at(-1)}: x`, stamp(tag, kind)) })
+    expect(failure).toMatchObject({ fault: kind, message: REFUSAL_COPY[kind].lead })
+    expect(failure.message).not.toContain("model")
   }
 })
 
 /*
- * The run this lane was opened for could not be read at all: teardown deleted
- * the workspace, and the journal is a live read against it
- * (workflow-pump.ts `readJournalPages` -> `gateway.runEvents`). The verdict is
- * not — it is `<phase> — <first journal line clipped to 100>`, persisted on the
- * card, and it carries the same code.
+ * A torn-down workspace takes the journal with it (workflow-pump.ts
+ * `readJournalPages`), but the card keeps the stamp it copied off the run row.
  */
 test("the sentence survives the workspace the journal died with", () => {
-  for (const code of ANSWERED_CODES) {
-    const answered = runCause(code)!
-    const verdict = `failed — ${code}: whatever the host wrote`
-    expect(runFailureOf({ workflow: LATE_FLOW, error: verdict }))
-      .toEqual({ fault: answered.fault, message: answered.message, detail: verdict })
-    expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, events: [] }))
-      .toEqual({ fault: answered.fault, message: answered.message, detail: verdict })
+  const failure = stamp("flows/model/ModelError/transport", "dependency")
+  const verdict = "failed — transport: the socket closed"
+  expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, failure }))
+    .toEqual({ fault: "dependency", message: runCause(failure.tag)!, detail: verdict })
+  expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, events: [], failure }).message).toBe(runCause(failure.tag)!)
+  /* A policy stop with no worded tag reads as its lead. */
+  expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, failure: stamp("flows/agent/BudgetExceeded", "policy") }))
+    .toEqual({ fault: "policy", message: REFUSAL_COPY.policy.lead, detail: verdict })
+})
+
+test("an unstamped late failure is Smithers', whatever code its prose carries", () => {
+  for (const cause of [EXHAUSTED, "unknown: jj describe: cannot run in /gone", "transport: closed"]) {
+    const error = `failed — ${cause.slice(0, 100)}`
+    expect(runFailureOf({ workflow: LATE_FLOW, error, events: journal(cause) })).toMatchObject({ fault: "infra", message: INFRA })
+    expect(runFailureOf({ workflow: LATE_FLOW, error })).toEqual({ fault: "infra", message: INFRA, detail: error })
   }
 })
 
@@ -266,5 +261,42 @@ test("the sentences the app words itself are ones the setup flows still emit", (
   for (const sentence of SETUP_REFUSAL_COPY.keys()) {
     expect(SETUP_REFUSALS.has(sentence)).toBe(true)
     expect(setup).toMatch(invalidCall(JSON.stringify(sentence)))
+  }
+})
+
+test("the setup bridge reads its receipt codes by its own table, and differs from the factory ladder only where pinned", () => {
+  const verdict = (code: string) => `failed — ${code}: Something the engine wrote`
+  const differs = RECEIPT_CODES.filter((code) =>
+    setupVerdict(verdict(code))!.fault !== Fault.of(new CodingError({ code, message: "m" })).class
+  )
+  // A setup refusal is the person's to answer on the card; the factory would replan these.
+  expect([...differs].sort()).toEqual(["fast_gate", "invalid_plan", "stale_revision", "stalled"])
+  // And a stamped setup run still reads by the bridge's table, not the stamp.
+  const stamped = runFailureOf({
+    workflow: "repository/setup",
+    events: journal(`stalled: ${TRIAL}`, { class: "factory", tag: "coding/Error/stalled" })
+  })
+  expect(stamped.fault).toBe("user")
+})
+
+test("a setup run whose journal is gone still reads by the bridge's table, not the stamp", () => {
+  const verdict = `failed — invalid_receipt: ${TRIAL}`
+  expect(runFailureOf({ workflow: "repository/setup", error: verdict, failure: { class: "infra", tag: "coding/Error/invalid_receipt" } }))
+    .toEqual({ fault: "user", message: TRIAL, detail: verdict })
+})
+
+test("a long setup refusal the gateway clipped in its verdict still reads as the person's sentence", () => {
+  const refusal = "Automatic replies are currently available for native issue handling only; choose draft replies"
+  const line = `invalid_receipt: ${refusal}`
+  const verdict = `failed — ${[...line].slice(0, 99).join("")}…`
+  expect(setupVerdict(verdict)).toEqual({ fault: "user", message: refusal })
+  expect(runFailureOf({ workflow: "repository/setup", error: verdict })).toMatchObject({ fault: "user", message: refusal })
+})
+
+test("every setup refusal long enough for the gateway to clip is told apart by what survives the clip", () => {
+  const long = [...SETUP_REFUSALS].filter((refusal) => [...`invalid_receipt: ${refusal}`].length > 99)
+  for (const refusal of long) {
+    const kept = [...`invalid_receipt: ${refusal}`].slice(0, 99).join("").slice("invalid_receipt: ".length)
+    expect([...SETUP_REFUSALS].filter((other) => other.startsWith(kept))).toEqual([refusal])
   }
 })

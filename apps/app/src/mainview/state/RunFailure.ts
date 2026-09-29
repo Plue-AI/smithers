@@ -1,5 +1,7 @@
+import { PLUE_FAULTS } from "@smthrs/rpc/PlueFailureCodes"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { PlueFault } from "@smthrs/rpc/Refusal"
+import { z } from "zod"
 import { REFUSAL_COPY, refusalLead } from "@smthrs/rpc/RefusalCopy"
 import { runCause } from "./RunCause"
 
@@ -121,6 +123,18 @@ const receiptFault = (code: ReceiptCode, sentence: string): PlueFault => {
   }
 }
 
+/**
+ * The gateway clips a verdict's first line to 100 characters with a trailing
+ * `…` (Diagnosis.verdict), so a long setup refusal arrives cut; the one known
+ * refusal it is the start of is the sentence it was.
+ */
+const unclipped = (sentence: string): string => {
+  if (!sentence.endsWith("…")) return sentence
+  const start = sentence.slice(0, -1)
+  const known = [...SETUP_REFUSALS].filter((refusal) => refusal.startsWith(start))
+  return known.length === 1 ? known[0]! : sentence
+}
+
 /** `<code>: <sentence>`, the pair agent/internal/FailureSummary.ts writes on a journalled failure's first line. */
 const JOURNALLED = /^([a-z][a-z0-9_]*): (\S.*)$/
 
@@ -150,6 +164,13 @@ const journalledCause = (events: ReadonlyArray<Record<string, unknown>> = []): s
  * `stale_revision` used to be the person's on the card and Smithers' on the
  * run card of the same failure; one code now reads one way.
  */
+/*
+ * For the setup bridge and the registrar this table, not the run's stamped
+ * fault, is the authority: their codes are refusals a person answers on the
+ * setup card, and four of them (invalid_plan, fast_gate, stale_revision,
+ * stalled) read differently from the factory ladder's class on purpose.
+ * RunFailure.test.ts pins those exceptions.
+ */
 const journalledFault = (workflow: string, code: string, sentence: string): PlueFault | undefined =>
   workflow === SETUP_FLOW ? isReceiptCode(code) ? receiptFault(code, sentence) : undefined
     : code !== "invalid_receipt" ? undefined
@@ -169,7 +190,7 @@ const journalledFault = (workflow: string, code: string, sentence: string): Plue
 export const setupVerdict = (error: string | undefined): { readonly fault: PlueFault; readonly message: string } | undefined => {
   const settled = SETTLED.exec(error?.split(/[\r\n]/, 1)[0] ?? "")
   if (settled === null) return undefined
-  const code = settled[1] ?? "", sentence = settled[2] ?? ""
+  const code = settled[1] ?? "", sentence = unclipped(settled[2] ?? "")
   /* A code this build has never heard of is still a code, and still never printed at a person. */
   if (!isReceiptCode(code)) return { fault: "infra", message: REFUSAL_COPY.infra.lead }
   const fault = receiptFault(code, sentence)
@@ -181,16 +202,33 @@ export const setupVerdict = (error: string | undefined): { readonly fault: PlueF
 /** {@link setupVerdict}'s sentence: what the setup card and its toast render in place of a verdict line. */
 export const setupFailureSentence = (error: string | undefined): string | undefined => setupVerdict(error)?.message
 
+/** The fault the run stamped on its own `control.run.failed`, when the journal is at hand. */
+const journalledStamp = (events: ReadonlyArray<Record<string, unknown>> = []): RunFault | undefined => {
+  const failed = events.filter(event => event.kind === "control.run.failed").at(-1)
+  const fault = (failed?.payload as { fault?: unknown } | undefined)?.fault
+  const parsed = RunFaultSchema.safeParse(fault)
+  return parsed.success ? parsed.data : undefined
+}
+
+/** A failed run's typed fault: `class` is whose problem it is, `tag` the error it came from. */
+export interface RunFault { readonly class: PlueFault; readonly tag: string }
+
+/** The stamp a run row carries when it failed, in the shape a card persists. */
+export const stampOf = (row: { readonly failureFault?: PlueFault | undefined; readonly failureTag?: string | undefined }): RunFault | undefined =>
+  row.failureFault === undefined || row.failureTag === undefined ? undefined : { class: row.failureFault, tag: row.failureTag }
+const RunFaultSchema = z.object({ class: z.enum(PLUE_FAULTS), tag: z.string() })
+
 /**
  * A failed run's copy, framed at render time from what the card already
- * carries: the flow it ran and the code its journal recorded, never the prose.
- * Nothing projected or persisted changes — `payload.error` stays the gateway's
- * verdict, so a maximized frame hashed by an older build still replays.
+ * carries: the flow it ran and the fault the run stamped when it failed,
+ * never the prose. The card persists the stamp from the run row, so the
+ * sentence survives a workspace whose journal died with it.
  */
 export const runFailureOf = (payload: {
   readonly workflow: string
   readonly error?: string | undefined
   readonly events?: ReadonlyArray<Record<string, unknown>> | undefined
+  readonly failure?: RunFault | undefined
 }) => {
   const failure = runFailure(payload.error)
   const line = journalledCause(payload.events)
@@ -211,26 +249,20 @@ export const runFailureOf = (payload: {
       }
     }
   }
-  /*
-   * The run's own typed cause, for any flow: the harness and the model each
-   * declare a closed vocabulary, and a code only one of them spells says what
-   * happened without anything being read off the sentence beside it. A code a
-   * second vocabulary also spells gets no sentence and the fault's lead
-   * stands (`RunCause.SHARED_CODES`). The two flow vocabularies above are
-   * answered first, so a code they both spell keeps the reading its own flow
-   * gives it.
-   *
-   * The journal is preferred and the verdict stands in for it, because the two
-   * carry the same first line and only one of them survives the run: the
-   * journal is a live read against the run's workspace
-   * (`controller/workflow-pump.ts` `readJournalPages`), so a run whose
-   * workspace has been torn down has no journal at all, while the verdict is
-   * persisted on the card. Before this, such a run could only ever say the
-   * infra lead, however typed the cause it died of.
-   */
-  const settled = SETTLED.exec(payload.error?.split(/[\r\n]/, 1)[0] ?? "")
-  const code = journalled?.[1] ?? settled?.[1]
-  const cause = code === undefined ? undefined : runCause(code)
-  if (cause === undefined) return failure
-  return { fault: cause.fault, message: cause.message, detail: line ?? failure.detail }
+  // A setup run's receipt table decides it even when its journal is gone: the verdict carries the same pair.
+  if (payload.workflow === SETUP_FLOW) {
+    const verdict = setupVerdict(payload.error)
+    if (verdict !== undefined) return { ...verdict, detail: failure.detail }
+  }
+  // So does the registrar's: its invalid_receipt is the person's refusal, and the verdict carries it.
+  if (payload.workflow === REGISTRAR_FLOW && line === undefined) {
+    const settled = SETTLED.exec(payload.error?.split(/[\r\n]/, 1)[0] ?? "")
+    if (settled?.[1] === "invalid_receipt" && settled[2] !== undefined) {
+      return { fault: "user" as const, message: settled[2], detail: failure.detail }
+    }
+  }
+  // The row is never staler than the app's copy of the journal.
+  const stamp = payload.failure ?? journalledStamp(payload.events)
+  if (stamp === undefined) return failure
+  return { fault: stamp.class, message: runCause(stamp.tag) ?? REFUSAL_COPY[stamp.class].lead, detail: line ?? failure.detail }
 }

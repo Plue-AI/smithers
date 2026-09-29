@@ -8,6 +8,7 @@ import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { workflowLaunchOf } from "../WorkflowLaunch"
 import { waitFor } from "../TestFixtures"
+import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { Schema } from "effect"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readFile } from "node:fs/promises"
@@ -1539,7 +1540,7 @@ describe("triggers seam: watching the registration run", () => {
     expect(registrationToast(store)?.detail).toBe(DECLARED_INPUT)
   })
 
-  test("the registrar's other code reaches the person as its sentence too, not as its code", async () => {
+  test("the registrar's other code is Smithers', never its prose or its code", async () => {
     const calls: Array<RelayCall> = []
     const run: HostRun = { status: "running", verdict: "" }
     const { store, controller } = await readyToRegister(ROUTES(calls, run))
@@ -1548,7 +1549,8 @@ describe("triggers seam: watching the registration run", () => {
     run.cause = journalCause(CRASH, "execution")
     run.status = "failed"
     await waitFor(() => registrationToast(store)?.status === "failed")
-    expect(registrationToast(store)?.detail).toBe(CRASH)
+    // An execution that died under the registrar is not a refusal the person answers.
+    expect(registrationToast(store)?.detail).toBe(REFUSAL_COPY.infra.lead)
   })
 
   test("a run that settles completed shows the registration the schedule now holds", async () => {

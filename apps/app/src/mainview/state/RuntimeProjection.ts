@@ -7,6 +7,7 @@ import { ControlEvent } from "@smthrs/control/ControlSchema"
 import type { Card } from "./AppState"
 import { canonicalEventValue, canonicalStoredJsonValue } from "./EventValue"
 import { expireStatus } from "./HealthStatus"
+import { stampOf } from "./RunFailure"
 
 export const RuntimeScopeSchema = z.object({ repo: z.string().min(1), workspaceId: z.string().optional(), runId: z.string().min(1) }).strict()
 export type RuntimeScope = z.infer<typeof RuntimeScopeSchema>
@@ -259,6 +260,7 @@ export const projectRuntimeCard = (card: Card, runs: ReadonlyArray<RuntimeRun>, 
       payload: { ...card.payload, phase: terminal || observation === undefined || observation === "connected" ? phase : observation,
         ...(row === undefined ? {} : { workflow: row.flowId, lastSeq: row.updatedAt, waiting: waitingOf(row), steeringPending: (row.steeringPending ?? 0) > 0,
           result: row.status === "completed" ? row.finalOutput ?? row.verdict : null, error: row.status === "failed" ? row.verdict : undefined,
+          failure: stampOf(row),
           statusRollup: row.statusRollup?.subjectId === `run:${row.runId}` && row.statusRollup.state === row.status ? expireStatus(row.statusRollup, run.observedAt) : undefined }),
         steps: phase === "cancelled" ? [...(run.steps.length === 0 ? card.payload.steps : run.steps).filter(step => step !== "Cancelled this run."), "Cancelled this run."].slice(-8) : run.steps.length === 0 ? card.payload.steps : run.steps,
         ...(run.cursor === undefined ? {} : { events: run.events }),

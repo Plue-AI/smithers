@@ -3,7 +3,7 @@ import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import * as Digest from "@smthrs/core/Digest"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
-import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, Fault, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
@@ -18,6 +18,11 @@ import { RepositoryRemote } from "./remote.ts"
 import { triggerCandidate, TriggerRegistration, TriggerRequest, TriggerResult } from "./schema.ts"
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
+/** The registration service failed under the request: never the person's input to change. */
+const unavailable = (message: string) => new CodingError({ code: "unavailable", message })
+/** A lookup that failed: the person's to answer only when the thing asked for is not there. */
+const refusedOr = (message: string) => (error: unknown) =>
+  Fault.of(error).class === "user" ? invalid(message) : unavailable(message)
 const json = (value: unknown): Schema.Json => JSON.parse(JSON.stringify(value))
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -300,7 +305,7 @@ export const triggerLayers = Layer.mergeAll(
       // its own idempotency key; reproducing one here would couple both halves
       // to a shared string and mint a second, unapproved plan when they differ.
       const stored = yield* control.getPlan(approvedPlanId).pipe(
-        Effect.mapError(() => invalid(`The approved plan for "${request.flow}" is not stored on this workspace.`))
+        Effect.mapError(refusedOr(`The approved plan for "${request.flow}" is not stored on this workspace.`))
       )
       const card = stored.card
       if (card.flowId !== request.flow) {
@@ -341,7 +346,7 @@ export const triggerLayers = Layer.mergeAll(
       // instead of replaying the card the key already stored. A discovery
       // snapshot that moved under the approval stops here.
       const fresh = yield* control.plan({ flowId: request.flow, input: request.input }).pipe(
-        Effect.mapError(() => invalid(`"${request.flow}" could not be planned on this workspace`))
+        Effect.mapError(refusedOr(`"${request.flow}" could not be planned on this workspace`))
       )
       if (fresh.card.digest !== approvedPlanDigest || fresh.card.executionDigest !== card.executionDigest) {
         return yield* invalid(
@@ -351,7 +356,7 @@ export const triggerLayers = Layer.mergeAll(
       const testRunId = request.testRunId
       if (testRunId !== undefined) {
         const run = yield* control.getRun(testRunId).pipe(
-          Effect.mapError(() => invalid("The named test run is not a run of this workspace"))
+          Effect.mapError(refusedOr("The named test run is not a run of this workspace"))
         )
         if (run.planId !== card.planId || run.planDigest !== card.digest || run.status !== "completed") {
           return yield* invalid("The named test run is not a completed run of the plan you approved")
@@ -372,7 +377,9 @@ export const triggerLayers = Layer.mergeAll(
         ...(testRunId === undefined ? {} : { testRunId })
       }
     }).pipe(
-      Effect.mapError((error) => error instanceof CodingError ? error : invalid("The schedule could not be prepared"))
+      Effect.mapError((error) =>
+        error instanceof CodingError ? error : unavailable("The schedule could not be prepared")
+      )
     )
   ),
   Activate.toLayer(({ request, plan, deadlineAt }) =>
@@ -398,7 +405,7 @@ export const triggerLayers = Layer.mergeAll(
       const registration = yield* remote.register(`flow:${request.slug}`, json(body)).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(TriggerRegistration)),
         Effect.mapError((error) =>
-          error instanceof CodingError ? error : invalid("The schedule registration returned an invalid receipt")
+          error instanceof CodingError ? error : unavailable("The schedule registration returned an invalid receipt")
         )
       )
       if (
@@ -406,7 +413,7 @@ export const triggerLayers = Layer.mergeAll(
         registration.source_revision !== plan.sourceRevision ||
         registration.schedule !== request.schedule || !registration.enabled
       ) {
-        return yield* invalid("Registration did not retain the exact candidate and source")
+        return yield* unavailable("Registration did not retain the exact candidate and source")
       }
       return {
         requestId: request.requestId ?? plan.candidate,
@@ -421,7 +428,7 @@ export const triggerLayers = Layer.mergeAll(
         registration
       }
     }).pipe(Effect.mapError((error) =>
-      error instanceof CodingError ? error : invalid("The exact schedule could not be registered")
+      error instanceof CodingError ? error : unavailable("The exact schedule could not be registered")
     ))
   ),
   Fire.toLayer(({ request, dispatchKey, deadlineAt }) =>
@@ -461,7 +468,7 @@ export const triggerLayers = Layer.mergeAll(
         typeof row.registration_id !== "string" || !String(row.dispatch_id) || row.revision !== current.revision ||
         row.digest !== current.digest
       ) {
-        return yield* invalid("The manual dispatch did not retain the exact registered schedule")
+        return yield* unavailable("The manual dispatch did not retain the exact registered schedule")
       }
       return {
         requestId,
@@ -475,14 +482,14 @@ export const triggerLayers = Layer.mergeAll(
         ...(typeof row.run_id === "string" && row.run_id ? { runId: row.run_id } : {})
       }
     }).pipe(
-      Effect.mapError((error) => error instanceof CodingError ? error : invalid("The schedule could not be fired"))
+      Effect.mapError((error) => error instanceof CodingError ? error : unavailable("The schedule could not be fired"))
     )
   ),
   ExecuteTrigger.toLayer(({ request, deadlineAt }) =>
     Effect.gen(function*() {
       const owning = yield* Effect.serviceOption(ModuleOwner)
       if (Option.isNone(owning) || owning.value.flowId !== "repository/trigger") {
-        return yield* invalid("A schedule registration needs its approved Control entry")
+        return yield* unavailable("A schedule registration needs its approved Control entry")
       }
       const runtime = yield* FlowRuntime.FlowRuntime, instance = yield* FlowRuntime.FlowInstance
       const key = (part: string) =>

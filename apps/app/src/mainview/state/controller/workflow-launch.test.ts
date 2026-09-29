@@ -7,6 +7,8 @@ import { createWorkflowLaunchController } from "./workflow-launch"
 import { workflowLaunchOf } from "../WorkflowLaunch"
 import type { ControllerContext } from "./context"
 import type { AppStore } from "../AppStore"
+import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
+import { runCause } from "../RunCause"
 
 /*
  * Equivalent requests are admitted one at a time: a second press waits for
@@ -107,11 +109,12 @@ const launchFixture = async (config: {
   return { store, ctx, controller, cards, toasts, launched, launchedInputs, close: async () => { await ctx.dispose(); await store.dispose?.() } }
 }
 
-const observe = (store: AppStore, status: "completed" | "failed" | "cancelled", verdict: string = status, runId = "remote-run") =>
+const observe = (store: AppStore, status: "completed" | "failed" | "cancelled", verdict: string = status, runId = "remote-run",
+  stamp?: { readonly failureFault: "dependency" | "factory"; readonly failureTag: string }) =>
   store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
     scope: { repo, workspaceId, runId }, summary: { runId, flowId: "review", status,
       createdAt: 1, updatedAt: 2, turns: 0, calls: 0, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0,
-      inputTokens: 0, outputTokens: 0, verdict, diagnosis: verdict }
+      inputTokens: 0, outputTokens: 0, verdict, diagnosis: verdict, ...stamp }
   } }).isPersisted.promise
 
 test("an unresolved preparation acknowledges one durable request and settles only after its remote job", async () => {
@@ -248,17 +251,22 @@ test("preparation that stays unavailable expires, then retry uses the same durab
 })
 
 test.each([
-  { status: "failed" as const, verdict: "The review found a problem.", toast: "failed" },
-  { status: "cancelled" as const, verdict: "Cancelled by owner", toast: "cancelled" }
-])("a $status remote job settles its durable request without another launch", async ({ status, verdict, toast }) => {
+  /* Verdict prose never reaches the toast: an unstamped failure says Smithers', a stamped one says its fault in words. */
+  { status: "failed" as const, verdict: "failed — The review found a problem.", toast: "failed", detail: REFUSAL_COPY.infra.lead },
+  { status: "failed" as const, verdict: "failed — stalled: no progress", toast: "failed", detail: REFUSAL_COPY.factory.lead,
+    stamp: { failureFault: "factory" as const, failureTag: "coding/Error/stalled" } },
+  { status: "failed" as const, verdict: "failed — transport: closed", toast: "failed", detail: runCause("flows/model/ModelError/transport")!,
+    stamp: { failureFault: "dependency" as const, failureTag: "flows/model/ModelError/transport" } },
+  { status: "cancelled" as const, verdict: "Cancelled by owner", toast: "cancelled", detail: "Cancelled" }
+])("a $status remote job settles its durable request without another launch ($detail)", async ({ status, verdict, toast, detail, stamp }) => {
   const t = await launchFixture()
   try {
     await t.controller.start(request)
     await waitFor(() => t.cards()[0]?.payload.runId === "remote-run" && t.toasts()[0]?.status === "running")
-    await observe(t.store, status, verdict)
+    await observe(t.store, status, verdict, "remote-run", stamp)
     await waitFor(() => t.cards()[0]?.payload.phase === status)
     await waitFor(() => t.toasts()[0]?.status === toast)
-    expect(t.toasts()[0]?.detail).toBe(status === "failed" ? verdict : "Cancelled")
+    expect(t.toasts()[0]?.detail).toBe(detail)
     expect(t.launched).toHaveLength(1)
     expect(t.cards()[0]?.payload.runId).toBe("remote-run")
   } finally { await t.close() }
@@ -360,17 +368,23 @@ test("a missing flow names the available alternatives and keeps its request retr
 })
 
 test.each([
-  { cause: "registration_refused: Schedule is invalid\ninternal detail", detail: "Schedule is invalid" },
-  { cause: undefined, detail: "Generic failure" }
+  /* The registrar's own refusal (flows/repository/triggers.ts), the person's to answer. */
+  { cause: 'invalid_receipt: Add a model to "review" to schedule it.\ninternal detail', detail: 'Add a model to "review" to schedule it.' },
+  /* The registration service failing under it is typed unavailable (triggers.ts), not the person's. */
+  { cause: "unavailable: The exact schedule could not be registered", detail: REFUSAL_COPY.infra.lead },
+  /* Anything else a registration dies of is Smithers', never its prose. */
+  { cause: "Error: connect ECONNREFUSED 127.0.0.1:8788", detail: REFUSAL_COPY.infra.lead },
+  /* No typed cause: the verdict's prose is not shown; the failure is Smithers'. */
+  { cause: undefined, detail: REFUSAL_COPY.infra.lead }
 ])("registration failure reports $detail from its available evidence", async ({ cause, detail }) => {
   const t = await launchFixture()
   try {
-    await t.controller.start({ ...request, triggerRegistration: { requestId: "registration-1", flow: "review", slug: "daily",
+    await t.controller.start({ ...request, workflow: "repository/trigger", triggerRegistration: { requestId: "registration-1", flow: "review", slug: "daily",
       schedule: "0 9 * * *", input: "{}", planId: "plan-1", planDigest: "digest" } })
     const notices = () => [...t.store.collections.toasts.values()].filter(toast => toast.key.startsWith("trigger.register."))
     await waitFor(() => t.cards()[0]?.payload.runId === "remote-run" && notices()[0]?.status === "running")
     await t.store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
-      scope: { repo, workspaceId, runId: "remote-run" }, summary: { runId: "remote-run", flowId: "review", status: "failed",
+      scope: { repo, workspaceId, runId: "remote-run" }, summary: { runId: "remote-run", flowId: "repository/trigger", status: "failed",
         createdAt: 1, updatedAt: 2, turns: 0, calls: 0, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0,
         inputTokens: 0, outputTokens: 0, verdict: "Generic failure", diagnosis: "failed" },
       journal: { mode: "full", events: [{ kind: "control.run.failed", sequence: 1, occurredAt: 2,

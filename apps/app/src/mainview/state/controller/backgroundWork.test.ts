@@ -8,6 +8,8 @@ import { createFailureController } from "./failures"
 import { observeBackgroundWork } from "./backgroundWork"
 import { createFlowAuthoringController } from "./flowAuthoring"
 import { createWorkflowLaunchController } from "./workflow-launch"
+import { runCause } from "../RunCause"
+import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
@@ -33,24 +35,29 @@ for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} fa
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
   observeBackgroundWork(ctx)
   await waitFor(() => store.collections.toasts.size === 1)
+  // A run-trace toast says the run's stamped fault in words; its verdict prose never reaches it.
+  const initial = kind === "run-trace" ? runCause("flows/model/ModelError/transport")! : "Initial failure"
+  const permission = kind === "run-trace" ? runCause("flows/model/ModelError/authentication")! : "Permission denied"
   const failure: Card = card.kind === "run-trace"
-    ? { ...card, payload: { ...card.payload, phase: "failed", error: "Initial failure" } }
+    ? { ...card, payload: { ...card.payload, phase: "failed", error: "failed — transport: raw verdict", failure: { class: "dependency", tag: "flows/model/ModelError/transport" } } }
     : { ...card, payload: { ...card.payload, state: "failed", error: "Initial failure" } }
   await store.dispatch({ type: "card.upsert", actor: "system", card: failure }).isPersisted.promise
   const toast = () => store.collections.toasts.get(`toast-worker.${card.id}`)
   await waitFor(() => toast()?.status === "failed")
-  expect(toast()?.detail).toBe("Initial failure")
+  expect(toast()?.detail).toBe(initial)
   const renamed = { ...failure, title: "Reviewed changes" }
   await store.dispatch({ type: "card.upsert", actor: "system", card: renamed }).isPersisted.promise
   await settle()
   expect(toast()?.title).toBe("Reviewed changes")
-  expect(toast()?.detail).toBe("Initial failure")
+  expect(toast()?.detail).toBe(initial)
   expect(resolutions).toHaveLength(2)
-  const corrected = { ...renamed, payload: { ...renamed.payload, error: "Permission denied" } } as Card
+  const corrected = (renamed.kind === "run-trace"
+    ? { ...renamed, payload: { ...renamed.payload, failure: { class: "user", tag: "flows/model/ModelError/authentication" } } }
+    : { ...renamed, payload: { ...renamed.payload, error: "Permission denied" } }) as Card
   await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
   await settle()
   expect(toast()?.title).toBe("Reviewed changes")
-  expect(toast()?.detail).toBe("Permission denied")
+  expect(toast()?.detail).toBe(permission)
   expect(resolutions).toHaveLength(3)
   for (let index = 0; index < 5; index++) {
     await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
@@ -114,7 +121,8 @@ test("recovered workers get controls, failures stay visible, and quick work stay
   await store.dispatch({ type: "card.upsert", actor: "system", card: { ...fast, payload: { ...fast.payload, phase: "completed" } } }).isPersisted.promise
   await new Promise(resolve => setTimeout(resolve, 320))
   expect([...store.collections.toasts.values()].map(t => t.sourceCard)).toEqual([card.id])
-  expect(store.collections.toasts.get(toast.id)?.detail).toBe("offline")
+  // An untyped failure is Smithers'; its prose ("offline") is never the toast.
+  expect(store.collections.toasts.get(toast.id)?.detail).toBe(REFUSAL_COPY.infra.lead)
 })
 
 for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} cancellation settles neutrally`, async () => {

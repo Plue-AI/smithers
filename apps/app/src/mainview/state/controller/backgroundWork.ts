@@ -1,5 +1,6 @@
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
+import { runFailureOf } from "../RunFailure"
 
 // Explicit launch owners also cover the debounce before their toast exists.
 const owners = new WeakMap<ControllerContext["store"], Map<string, string>>()
@@ -67,7 +68,8 @@ export const observeBackgroundWork = (ctx: ControllerContext): void => {
         const timer = pending.get(card.id)
         if (timer) { clearTimeout(timer); pending.delete(card.id) }
         seen.set(card.id, phase)
-        const detail = phase === "ok" ? "" : phase === "cancelled" ? "Cancelled" : card.kind === "run-trace" ? card.payload.error ?? card.payload.phase
+        const detail = phase === "ok" ? "" : phase === "cancelled" ? "Cancelled" : card.kind === "run-trace"
+          ? runFailureOf(card.payload).message
           : card.kind === "agent" && "cloud" in card.payload ? card.payload.error ?? card.payload.state : "Stopped"
         if (toast && (toast.status !== phase || toast.title !== card.title || toast.detail !== detail)) {
           ctx.resolveToast(key, { status: phase, title: card.title, detail })

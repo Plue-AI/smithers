@@ -1069,6 +1069,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       steps: z.array(z.string()),
       result: z.string().nullable(),
       error: z.string().optional(),
+      /** The failed run's stamped fault, from its run row: whose problem, and the error it came from. */
+      failure: z.object({ class: z.enum(PLUE_FAULTS), tag: z.string() }).optional(),
       /** Failure to observe evidence; never replaces the run’s recorded diagnosis. */
       observationError: z.string().optional(),
       /**

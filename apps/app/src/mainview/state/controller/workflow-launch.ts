@@ -8,7 +8,7 @@ import { TOAST_CANCELLED, TOAST_SUPERSEDED } from "./failures"
 import { isFlowNotFound, type GatewayWorkspaceBinding } from "./gateway"
 import { gatewayBindingFor } from "../RepoContext"
 import { planCardSnapshot } from "../../cards/PlanNodes"
-import { runFailureOf } from "../RunFailure"
+import { runFailureOf, stampOf } from "../RunFailure"
 import { digest } from "@smthrs/core/Digest"
 import { codingVibeRequestOf } from "../../cards/CodingVibe"
 import { codingEvidenceOf } from "../../cards/CodingPlan"
@@ -241,16 +241,8 @@ export const createWorkflowLaunchController = (
               return request.then === undefined ? true : await continueChange()
             }
             if (summary.status === "cancelled") return TOAST_CANCELLED
-            if (request.triggerRegistration) {
-              const payload = run?.events.filter(event => event.kind === "control.run.failed").at(-1)?.payload
-              if (payload && typeof payload === "object" && "cause" in payload && typeof payload.cause === "string") {
-                return (payload.cause.split(/[\r\n]/, 1)[0] ?? "").replace(/^[a-z][a-z0-9_]*: /, "")
-              }
-            }
-            return summary.verdict === "failed — no cause recorded in the journal"
-              ? runFailureOf({ workflow: request.workflow, error: summary.verdict,
-                events: store.committedRuntimeRun(runtimeRunKey(card.payload))?.events }).message
-              : summary.verdict ?? "The run failed."
+            return runFailureOf({ workflow: request.workflow, error: summary.verdict,
+              events: store.committedRuntimeRun(runtimeRunKey(card.payload))?.events, failure: stampOf(summary) }).message
           }
           await pause(ctx.workflowPollMs, controller.signal)
         }

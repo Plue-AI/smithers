@@ -12,6 +12,7 @@ import { AppEventIntegrityError } from "../AppEventStream"
 import type { StatusRollup } from "@smthrs/rpc/Health"
 import { readFileSync } from "node:fs"
 import { runGraphOfCard } from "../../cards/FlowRunGraph"
+import { runCause } from "../RunCause"
 
 const event = (sequence: number) => ({ kind: "control.signal.delivered", sequence, occurredAt: sequence, payload: {} })
 const failed = (sequence: number, cause: string) => ({ kind: "control.run.failed", sequence, occurredAt: sequence, payload: { cause } })
@@ -23,7 +24,7 @@ const summary = {
 const cursor = (projection: string, value: number, offset = 0) => ({
   selector: { _tag: projection, runId: "run-1" }, projection, runId: "run-1", value, offset
 })
-type Cycle = { events: ReturnType<typeof event>[]; revision?: number; journalFailure?: boolean; summaryFailure?: boolean; status?: string; verdict?: string; statusRollup?: StatusRollup; approvals?: unknown[] }
+type Cycle = { events: ReturnType<typeof event>[]; revision?: number; journalFailure?: boolean; summaryFailure?: boolean; status?: string; verdict?: string; statusRollup?: StatusRollup; approvals?: unknown[]; stamp?: { failureFault: string; failureTag: string } }
 const poll = async (cycles: Cycle[], options: {
   initialEvents?: ReturnType<typeof event>[]
   inspectAt?: number
@@ -76,7 +77,7 @@ const poll = async (cycles: Cycle[], options: {
         return Response.json({ ok: false, error: { message: "offline" } })
       }
       if (projection === "approvals") return Response.json({ ok: true, payload: { rows: cycle.approvals ?? [] } })
-      let rows: unknown[] = [{ ...summary, flowId, updatedAt: cycle.status === undefined ? summary.updatedAt : summary.updatedAt + iteration + 1, status: cycle.status ?? "running", verdict: cycle.verdict ?? summary.verdict, statusRollup: cycle.statusRollup }]
+      let rows: unknown[] = [{ ...summary, flowId, updatedAt: cycle.status === undefined ? summary.updatedAt : summary.updatedAt + iteration + 1, status: cycle.status ?? "running", verdict: cycle.verdict ?? summary.verdict, statusRollup: cycle.statusRollup, ...cycle.stamp }]
       if (projection === "run-events") {
         journalRequests.push(payload.after)
         let offset = 0
@@ -205,6 +206,13 @@ test("a failed run keeps raw evidence on its card and announces only typed human
   expect(result.card.payload.error).toBe(raw)
   expect(result.messages.join(" ")).toContain("Not your fault")
   expect(result.messages.join(" ")).not.toContain(raw)
+})
+
+test("a stamped failure reaches the card through the run row and is transcribed in its own words", async () => {
+  const stamp = { failureFault: "dependency", failureTag: "flows/model/ModelError/transport" }
+  const result = await poll([{ events: [], status: "failed", verdict: "failed — transport: socket closed", stamp }])
+  expect(result.card.payload.failure).toEqual({ class: "dependency", tag: "flows/model/ModelError/transport" })
+  expect(result.messages).toEqual([`The run failed: ${runCause("flows/model/ModelError/transport")}`])
 })
 
 test("a settled registrar refusal is transcribed as the sentence the card leads with", async () => {

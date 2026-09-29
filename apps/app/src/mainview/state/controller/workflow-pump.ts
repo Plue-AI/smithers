@@ -6,7 +6,7 @@ import type { ApprovalRow, RunStatus, RunSummaryRow } from "./gateway"
 import { questionOf } from "../../cards/ApprovalQuestion"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 import { reconcileRunApprovals } from "./approval-reconciliation"
-import { runFailureOf } from "../RunFailure"
+import { runFailureOf, stampOf } from "../RunFailure"
 import { AppEventIntegrityError } from "../AppEventStream"
 import { changedRuntimeRunObservation, RuntimeProjectionIntegrityError, runtimeRunKey, runtimeScopeOf } from "../RuntimeProjection"
 import type { RuntimeRun, RuntimeRunObservation } from "../RuntimeProjection"
@@ -499,7 +499,8 @@ export const createWorkflowPumpController = (
           // failure from the same flow id and journalled code the card renders
           // from, read back from the evidence this cycle just persisted.
           if (!alreadyTerminal && !(phase === "completed" && row.flowId === "repository/setup")) store.dispatch({ type: "message.appended", actor: "system", text: phase === "completed" ? row.verdict : phase === "cancelled"
-            ? "The run was cancelled." : `The run failed: ${runFailureOf({ workflow: row.flowId, error: row.verdict, events: store.committedRuntimeRun(runtimeRunKey(card.payload))?.events }).message}` })
+            ? "The run was cancelled." : `The run failed: ${runFailureOf({ workflow: row.flowId, error: row.verdict, events: store.committedRuntimeRun(runtimeRunKey(card.payload))?.events,
+              failure: stampOf(row) }).message}` })
           // A refused evidence read is a terminal observation failure for this
           // watcher. Keep the real run phase and the error on the card, then
           // stop; retry is the explicit act that asks the gateway again. The
