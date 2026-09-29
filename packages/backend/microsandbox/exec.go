@@ -117,6 +117,7 @@ type guestCommand struct {
 	stdout     *limitedBuffer
 	stderr     *limitedBuffer
 	cancelOnce sync.Once
+	cancelErr  error
 	terminal   *os.File
 }
 
@@ -131,7 +132,7 @@ func (c *guestCommand) finished() bool {
 
 // cancel kills the client, which ends the guest exec session, then kills the
 // command's cgroup so descendants that left the session die too.
-func (c *guestCommand) cancel() {
+func (c *guestCommand) cancel() error {
 	c.cancelOnce.Do(func() {
 		killGroup(c.cmd)
 		select {
@@ -140,8 +141,11 @@ func (c *guestCommand) cancel() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _ = c.runtime.guest(ctx, c.machine, nil, "kill", c.id)
+		if _, err := c.runtime.guest(ctx, c.machine, nil, "kill", c.id); err != nil {
+			c.cancelErr = fmt.Errorf("%w: %v", workspaceapi.ErrCommandTerminationUnconfirmed, err)
+		}
 	})
+	return c.cancelErr
 }
 
 // result is the command's evidence after it finished.
@@ -260,7 +264,7 @@ var ErrCommandRunaway = errors.New("command exceeded the runaway time guard")
 
 func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
 	if err := r.acquire(ctx); err != nil {
-		return workspaceapi.CommandResult{}, err
+		return workspaceapi.CommandResult{}, errors.Join(err, workspaceapi.ErrCommandCancelled)
 	}
 	defer func() { <-r.semaphore }()
 	ws, err := r.runningWorkspace(workspaceID)
@@ -277,14 +281,33 @@ func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, comman
 	}
 	guard := time.NewTimer(r.config.CommandTimeout)
 	defer guard.Stop()
+	completed := func() (workspaceapi.CommandResult, error) {
+		result, resultErr := started.result()
+		if resultErr != nil {
+			if cleanupErr := started.cancel(); cleanupErr != nil {
+				return result, errors.Join(resultErr, cleanupErr)
+			}
+		}
+		return result, resultErr
+	}
 	select {
 	case <-started.done:
-		return started.result()
+		return completed()
 	case <-ctx.Done():
-		started.cancel()
-		return workspaceapi.CommandResult{}, ctx.Err()
+		if started.finished() {
+			return completed()
+		}
+		if err := started.cancel(); err != nil {
+			return workspaceapi.CommandResult{}, err
+		}
+		return workspaceapi.CommandResult{}, errors.Join(ctx.Err(), workspaceapi.ErrCommandCancelled)
 	case <-guard.C:
-		started.cancel()
+		if started.finished() {
+			return completed()
+		}
+		if err := started.cancel(); err != nil {
+			return workspaceapi.CommandResult{}, err
+		}
 		return workspaceapi.CommandResult{}, fmt.Errorf("%w (%s)", ErrCommandRunaway, r.config.CommandTimeout)
 	}
 }

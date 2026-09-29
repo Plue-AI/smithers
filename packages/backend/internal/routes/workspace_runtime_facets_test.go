@@ -13,6 +13,7 @@ import (
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 type runtimeFacetService struct {
@@ -25,9 +26,17 @@ type runtimeFacetService struct {
 	err         error
 }
 
-func (s *runtimeFacetService) ExecuteWorkspaceCommand(_ context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceCommandInput) (services.WorkspaceCommandResult, error) {
+func (s *runtimeFacetService) AdmitWorkspaceCommand(_ context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceCommandInput) (jobs.RequestReceipt, error) {
 	s.workspaceID, s.repoID, s.userID, s.command = workspaceID, repositoryID, userID, input
-	return services.WorkspaceCommandResult{ExitCode: 0, Stdout: "ok\n"}, s.err
+	return jobs.RequestReceipt{OperationID: input.OperationID, State: jobs.StateAccepted}, s.err
+}
+
+func (s *runtimeFacetService) GetWorkspaceCommandRun(context.Context, string, int64, int64, string) (services.WorkspaceCommandRun, error) {
+	return services.WorkspaceCommandRun{}, s.err
+}
+
+func (s *runtimeFacetService) CancelWorkspaceCommandRun(context.Context, string, int64, int64, string) (services.WorkspaceCommandRun, error) {
+	return services.WorkspaceCommandRun{}, s.err
 }
 
 func (s *runtimeFacetService) LaunchWorkspaceService(_ context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceServiceLaunchInput) (services.WorkspaceManagedService, error) {
@@ -45,40 +54,40 @@ func runtimeFacetRequest(t *testing.T, path, body string, authed bool) *http.Req
 	return withRouteParams(req, map[string]string{"id": "ws1"})
 }
 
-func TestExecuteWorkspaceCommand(t *testing.T) {
+func TestAdmitWorkspaceCommand(t *testing.T) {
 	t.Parallel()
 
 	t.Run("passes the scoped identity and decoded input", func(t *testing.T) {
 		svc := &runtimeFacetService{}
 		rec := httptest.NewRecorder()
-		(&WorkspaceHandler{Service: svc}).ExecuteWorkspaceCommand(rec, runtimeFacetRequest(t, "/commands", `{"operation_id":"op1","args":["ls","-la"]}`, true))
-		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		(&WorkspaceHandler{Service: svc}).AdmitWorkspaceCommand(rec, runtimeFacetRequest(t, "/command-runs", `{"operation_id":"op1","args":["ls","-la"]}`, true))
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 		assert.Equal(t, "ws1", svc.workspaceID)
 		assert.EqualValues(t, 200, svc.repoID)
 		assert.EqualValues(t, 7, svc.userID)
 		assert.Equal(t, []string{"ls", "-la"}, svc.command.Args)
-		var result services.WorkspaceCommandResult
+		var result jobs.RequestReceipt
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-		assert.Equal(t, "ok\n", result.Stdout)
+		assert.Equal(t, "op1", result.OperationID)
 	})
 	t.Run("unknown fields are refused", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		(&WorkspaceHandler{Service: &runtimeFacetService{}}).ExecuteWorkspaceCommand(rec, runtimeFacetRequest(t, "/commands", `{"args":["ls"],"shell":true}`, true))
+		(&WorkspaceHandler{Service: &runtimeFacetService{}}).AdmitWorkspaceCommand(rec, runtimeFacetRequest(t, "/command-runs", `{"args":["ls"],"shell":true}`, true))
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 	t.Run("requires auth", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		(&WorkspaceHandler{Service: &runtimeFacetService{}}).ExecuteWorkspaceCommand(rec, runtimeFacetRequest(t, "/commands", `{}`, false))
+		(&WorkspaceHandler{Service: &runtimeFacetService{}}).AdmitWorkspaceCommand(rec, runtimeFacetRequest(t, "/command-runs", `{}`, false))
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 	t.Run("service without execution is 500", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		(&WorkspaceHandler{Service: &mockWorkspaceRouteService{}}).ExecuteWorkspaceCommand(rec, runtimeFacetRequest(t, "/commands", `{}`, true))
+		(&WorkspaceHandler{Service: &mockWorkspaceRouteService{}}).AdmitWorkspaceCommand(rec, runtimeFacetRequest(t, "/command-runs", `{}`, true))
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	})
 	t.Run("service errors keep their status", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		(&WorkspaceHandler{Service: &runtimeFacetService{err: pkgerrors.Forbidden("no")}}).ExecuteWorkspaceCommand(rec, runtimeFacetRequest(t, "/commands", `{"args":["ls"]}`, true))
+		(&WorkspaceHandler{Service: &runtimeFacetService{err: pkgerrors.Forbidden("no")}}).AdmitWorkspaceCommand(rec, runtimeFacetRequest(t, "/command-runs", `{"args":["ls"]}`, true))
 		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
 }

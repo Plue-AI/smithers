@@ -218,6 +218,7 @@ export class Client {
       token?: string
       headers?: Record<string, string>
       stream?: boolean
+      signal?: AbortSignal
     } = {}
   ): Promise<Response> {
     if (!path.startsWith("/") || path.startsWith("//")) throw new Error("API path must start with /")
@@ -244,9 +245,10 @@ export class Client {
       ...(token ? { authorization: `token ${token}` } : {}),
       ...options.headers
     }
+    const requestSignal = options.signal ?? this.runtime.signal
     const signal = options.stream
-      ? this.runtime.signal
-      : AbortSignal.any([AbortSignal.timeout(120_000), ...(this.runtime.signal ? [this.runtime.signal] : [])])
+      ? requestSignal
+      : AbortSignal.any([AbortSignal.timeout(120_000), ...(requestSignal ? [requestSignal] : [])])
     const response = await fetch(`${origin}${path}`, {
       method,
       headers,

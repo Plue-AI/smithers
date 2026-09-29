@@ -34,6 +34,15 @@ var ErrWorkspaceNotFound = errors.New("workspace not found")
 // ErrWorkspaceStopped is returned when an operation needs a running workspace.
 var ErrWorkspaceStopped = errors.New("workspace is stopped")
 
+// ErrCommandCancelled certifies that an interrupted command has stopped.
+// Runtime adapters join it with the context error only after termination is
+// confirmed. A cancelled transport alone must never return this marker.
+var ErrCommandCancelled = errors.New("command cancellation confirmed")
+
+// ErrCommandTerminationUnconfirmed means cancellation could not prove that
+// the guest command stopped. A caller must not acknowledge cancellation.
+var ErrCommandTerminationUnconfirmed = errors.New("command termination could not be confirmed")
+
 // ErrManagedHostNotRunning means no live managed process owns the requested
 // host binding. Callers may start that binding after their common product lock
 // and owner-generation fence are held.

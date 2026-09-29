@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -548,6 +550,8 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
+	commandJobs          *jobs.Store
+	commandCodec         flowhost.SecretCodec
 	provisionTasks       *workspaceProvisionTasks
 	launchSessionCleanup func(string, func())
 	// sessionProvisionGrace is how long CreateSession waits before answering

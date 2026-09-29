@@ -1,5 +1,5 @@
 /**
- * Validated SSH transport and durable guest command receipts.
+ * Validated SSH transport.
  * @since 0.1.0
  */
 
@@ -8,7 +8,6 @@ import { mkdir, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 import { finished } from "node:stream/promises"
-import { setTimeout as delay } from "node:timers/promises"
 import type { Client } from "./Client.ts"
 import { spawn } from "./Process.ts"
 /**
@@ -198,101 +197,5 @@ export const remote = async (
     return { code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }
   } finally {
     clearTimeout(timer)
-  }
-}
-
-const workspaceExecLoginHome =
-  "if [ -n \"$HOME\" ] && [ ! -w \"$HOME\" ] && [ -n \"$smithers_login_home\" ] && [ \"$smithers_login_home\" != \"$HOME\" ] && [ -w \"$smithers_login_home\" ]; then " +
-  "old_home=$HOME; for k in $(env | sed -n 's/^\\([A-Za-z_][A-Za-z0-9_]*\\)=.*/\\1/p'); do eval \"v=\\${$k}\"; " +
-  "case \"$v\" in \"$old_home\"|\"$old_home\"/*) export \"$k=$smithers_login_home${v#\"$old_home\"}\";; esac; done; " +
-  "new_path=; set -f; saved_ifs=$IFS; IFS=:; for p in $PATH; do case \"$p\" in \"$old_home\"|\"$old_home\"/*) p=\"$smithers_login_home${p#\"$old_home\"}\";; esac; new_path=\"${new_path:+$new_path:}$p\"; done; IFS=$saved_ifs; set +f; " +
-  "export PATH=\"$new_path\"; unset old_home k v p new_path saved_ifs; fi; "
-/** @private
- * @since 0.1.0
- */
-export const durable = async (
-  c: Client,
-  id: string,
-  script: string,
-  transport: (request: string) => Promise<string>,
-  timeout: number,
-  interval = 1000
-) => {
-  id ||= randomUUID()
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("Invalid exec id")
-  const digest = createHash("sha256").update(script).digest("hex")
-  const profile = quote("/etc/profile.d/00-smithers-runtime.sh")
-  const stateDir =
-    "smithers_login_home=$(getent passwd \"$(id -u)\" 2>/dev/null | cut -d: -f6); [ -n \"$smithers_login_home\" ] || smithers_login_home=$HOME; base=\"$smithers_login_home/.local/state/smithers/exec\"; "
-  const runner = stateDir + "mkdir -p \"$base\" || exit; d=\"$base/\"" + quote(id) +
-    "; mkdir -p \"$d\" || exit; printf %s " + quote(digest) +
-    " >\"$d/digest.tmp\"; mv \"$d/digest.tmp\" \"$d/digest\"; " +
-    "if [ -r " + profile + " ]; then . " + profile + " >/dev/null 2>&1; fi; " + workspaceExecLoginHome +
-    "bash -c " + quote(script) +
-    " </dev/null >\"$d/out\" 2>\"$d/err\"; rc=$?; printf '%s\\n' \"$rc\" >\"$d/exit.tmp\"; mv \"$d/exit.tmp\" \"$d/exit\""
-  let outOffset = 0, errOffset = 0, attached = false
-  const stdout: Array<Buffer> = [], stderr: Array<Buffer> = [], deadline = timeout > 0 ? Date.now() + timeout : Infinity
-  for (;;) {
-    if (Date.now() >= deadline || c.runtime.signal?.aborted) {
-      throw new Error(`Workspace exec interrupted; guest continues. Reattach with --exec-id ${id}`)
-    }
-    const attachedTest = attached ? "true" : "false"
-    const request = stateDir +
-      "if [ -z \"$smithers_login_home\" ] || ! mkdir -p \"$base\" 2>/dev/null; then printf 'ERROR: guest exec state directory is not writable\\n'; exit 0; fi; d=\"$base/\"" +
-      quote(id) + "; " +
-      "current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || hostname 2>/dev/null); if [ -z \"$current_boot\" ]; then printf 'ERROR: guest boot identity is unavailable\\n'; exit 0; fi; created=0; lost_reason=; " +
-      "if [ -d \"$d\" ]; then if [ ! -f \"$d/digest\" ] || [ \"$(cat \"$d/digest\")\" != " + quote(digest) +
-      " ]; then printf 'CONFLICT\\n'; exit 0; fi; " +
-      "elif " + attachedTest + "; then lost_reason=state_gone; " +
-      "else if ! mkdir \"$d\" 2>/dev/null; then printf 'CONFLICT\\n'; exit 0; fi; created=1; printf %s " +
-      quote(digest) +
-      " >\"$d/digest.tmp\" && mv \"$d/digest.tmp\" \"$d/digest\"; printf '%s\\n' \"$current_boot\" >\"$d/boot_id.tmp\" && mv \"$d/boot_id.tmp\" \"$d/boot_id\"; fi; " +
-      "if [ \"$created\" = 0 ] && [ -z \"$lost_reason\" ] && [ ! -f \"$d/exit\" ]; then if [ -f \"$d/boot_id\" ] && [ \"$(cat \"$d/boot_id\")\" != \"$current_boot\" ]; then lost_reason=guest_restarted; elif [ ! -f \"$d/pid\" ] || ! kill -0 \"$(cat \"$d/pid\")\" 2>/dev/null; then [ -f \"$d/exit\" ] || lost_reason=runner_gone; fi; fi; " +
-      "if [ \"$created\" = 1 ]; then if mkdir \"$d/.launch\" 2>/dev/null; then detach=; command -v setsid >/dev/null 2>&1 && detach=setsid; nohup $detach bash -c " +
-      quote(runner) +
-      " </dev/null >/dev/null 2>&1 & pid=$!; printf '%s\\n' \"$pid\" >\"$d/pid.tmp\"; mv \"$d/pid.tmp\" \"$d/pid\"; rmdir \"$d/.launch\" 2>/dev/null || true; fi; fi; " +
-      "if [ -f \"$d/digest\" ] && [ \"$(cat \"$d/digest\")\" != " + quote(digest) +
-      " ]; then printf 'CONFLICT\\n'; exit 0; fi; " +
-      "printf 'SMITHERS_EXEC_V1\\n'; if [ -n \"$lost_reason\" ]; then printf 'lost:%s\\n' \"$lost_reason\"; elif [ -f \"$d/exit\" ]; then cat \"$d/exit\"; else printf 'running\\n'; fi; " +
-      "if [ -f \"$d/out\" ]; then tail -c +%d \"$d/out\" | head -c 65536 | base64 | tr -d '\\n'; fi; printf '\\n'; "
-        .replace("%d", String(outOffset + 1)) +
-      "if [ -f \"$d/err\" ]; then tail -c +%d \"$d/err\" | head -c 65536 | base64 | tr -d '\\n'; fi; printf '\\nEND\\n'"
-        .replace("%d", String(errOffset + 1))
-    let response: string
-    try {
-      response = await transport(request)
-    } catch {
-      await delay(interval, undefined, { signal: c.runtime.signal })
-      continue
-    }
-    if (response.startsWith("ERROR:")) throw new Error(response.trim())
-    if (response.trim() === "CONFLICT") throw new Error(`Exec id ${id} belongs to another command`)
-    const fields = response.split("\n")
-    if (fields.length !== 6 || fields[0] !== "SMITHERS_EXEC_V1" || fields[4] !== "END" || fields[5] !== "") {
-      throw new Error(`Invalid exec receipt for ${id}`)
-    }
-    attached = true
-    const decode = (value: string) => {
-      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-        throw new Error("Invalid exec output")
-      }
-      return Buffer.from(value, "base64")
-    }
-    const out = decode(fields[2]!), err = decode(fields[3]!)
-    stdout.push(out)
-    stderr.push(err)
-    c.output(out, err)
-    outOffset += out.length
-    errOffset += err.length
-    if (fields[1]!.startsWith("lost:")) {
-      c.runtime.exit?.(125)
-      throw new Error(`exec_outcome_lost: ${fields[1]!.slice(5)} for ${id}; command may have partially run`)
-    }
-    if (fields[1] !== "running" && out.length < 65536 && err.length < 65536) {
-      const code = Number(fields[1])
-      if (!/^\d+$/.test(fields[1]!) || code > 255) throw new Error("Invalid guest exit status")
-      return { code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }
-    }
-    if (out.length < 65536 && err.length < 65536) await delay(interval, undefined, { signal: c.runtime.signal })
   }
 }

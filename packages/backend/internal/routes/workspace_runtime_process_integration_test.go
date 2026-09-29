@@ -31,6 +31,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
@@ -72,9 +74,14 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 	runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir(), MaxConcurrent: 4})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	commandJobs, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	commandCodec, err := webhook.NewSecretCodec("routes-process-command-secret")
+	require.NoError(t, err)
 	service := services.NewWorkspaceService(queries,
 		services.WithWorkspaceRuntime(runtime),
 		services.WithWorkspaceGitBaseURL(gitServer.URL+"/api"),
+		services.WithWorkspaceCommandJobs(commandJobs, commandCodec),
 	)
 	t.Cleanup(func() {
 		drainDeadline := time.Now().Add(15 * time.Second)
@@ -87,6 +94,23 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 			t.Errorf("workspace provisioning did not finish before runtime cleanup: %v", err)
 		}
 	})
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := make(chan error, 1)
+	go func() {
+		workerDone <- service.RunWorkspaceCommandWorker(workerCtx, jobs.WorkerConfig{
+			WorkerID: "routes-process-commands", Capacity: 2, Lease: 6 * time.Second,
+			PollInterval: 50 * time.Millisecond, RetryDelay: 100 * time.Millisecond,
+		})
+	}()
+	t.Cleanup(func() {
+		stopWorker()
+		select {
+		case err := <-workerDone:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Error("workspace command worker did not stop")
+		}
+	})
 	workspaceHandler := &WorkspaceHandler{Service: service}
 	terminalHandler := &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.test"}}
 	t.Cleanup(func() {
@@ -97,6 +121,7 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 
 	router := chi.NewRouter()
 	router.Use(chiMiddleware.RequestID)
+	router.Use(middleware.JSONTimeout(30 * time.Second))
 	router.Use(middleware.AuthLoader(queries, config.AuthConfig{}))
 	router.Route("/api/repos/{owner}/{repo}", func(router chi.Router) {
 		router.Use(middleware.LoadRepoContext(queries))
@@ -126,7 +151,7 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 
 	// The same middleware stack rejects the execution path before the runtime
 	// can observe an unauthenticated request.
-	unauthorized := processWorkspaceDoRequest(t, server.Client(), server.URL, http.MethodPost, basePath+"/workspaces/missing/commands", []byte(`{"operation_id":"unauthorized","args":["/bin/true"]}`))
+	unauthorized := processWorkspaceDoRequest(t, server.Client(), server.URL, http.MethodPost, basePath+"/workspaces/missing/command-runs", []byte(`{"operation_id":"unauthorized","args":["/bin/true"]}`))
 	require.Equal(t, http.StatusNotFound, unauthorized.StatusCode)
 	_ = processWorkspaceReadBody(t, unauthorized)
 
@@ -161,12 +186,29 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sourceRevision, 40)
 
-	commandResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, basePath+"/workspaces/"+created.ID+"/commands", []byte(`{"operation_id":"command-1","args":["/bin/sh","-c","printf command-ok"]}`))
-	require.Equal(t, http.StatusOK, commandResponse.StatusCode)
-	var command services.WorkspaceCommandResult
-	processWorkspaceDecodeJSON(t, commandResponse, &command)
-	require.Equal(t, 0, command.ExitCode)
-	require.Equal(t, "command-ok", command.Stdout)
+	commandPath := basePath + "/workspaces/" + created.ID + "/command-runs"
+	commandResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, commandPath, []byte(`{"operation_id":"command-1","args":["/bin/sh","-c","printf command-ok"]}`))
+	require.Equal(t, http.StatusAccepted, commandResponse.StatusCode)
+	var commandReceipt jobs.RequestReceipt
+	processWorkspaceDecodeJSON(t, commandResponse, &commandReceipt)
+	require.NotEmpty(t, commandReceipt.OperationID)
+	command := processWorkspaceWaitCommandRun(t, client, server.URL, commandPath+"/"+commandReceipt.OperationID, 30*time.Second)
+	require.Equal(t, jobs.StateCompleted, command.State, command.Error)
+	require.NotNil(t, command.Result)
+	require.Equal(t, 0, command.Result.ExitCode)
+	require.Equal(t, "command-ok", command.Result.Stdout)
+
+	cancelResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, commandPath, []byte(`{"operation_id":"command-cancel","args":["/bin/sh","-c","sleep 600"]}`))
+	require.Equal(t, http.StatusAccepted, cancelResponse.StatusCode)
+	var cancelReceipt jobs.RequestReceipt
+	processWorkspaceDecodeJSON(t, cancelResponse, &cancelReceipt)
+	cancelPath := commandPath + "/" + cancelReceipt.OperationID
+	processWorkspaceWaitCommandState(t, client, server.URL, cancelPath, jobs.StateRunning, 30*time.Second)
+	cancelRequest := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, cancelPath+"/cancel", nil)
+	require.True(t, cancelRequest.StatusCode == http.StatusAccepted || cancelRequest.StatusCode == http.StatusOK, "cancel status %d", cancelRequest.StatusCode)
+	_ = processWorkspaceReadBody(t, cancelRequest)
+	cancelled := processWorkspaceWaitCommandRun(t, client, server.URL, cancelPath, 30*time.Second)
+	require.Equal(t, jobs.StateCancelled, cancelled.State)
 
 	writeResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPut, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", []byte(`{"content":"persisted-local-file"}`))
 	require.Equal(t, http.StatusOK, writeResponse.StatusCode)
@@ -243,6 +285,61 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 		require.NoError(t, readErr)
 		terminalOutput.Write(frame)
 	}
+	if os.Getenv("SMITHERS_WORKSPACE_COMMAND_TEN_MINUTES") == "1" {
+		admittedAt := time.Now()
+		longResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, commandPath, []byte(`{"operation_id":"command-ten-minutes","args":["/bin/sh","-c","sleep 600; printf long-command-ok; exit 7"]}`))
+		require.Equal(t, http.StatusAccepted, longResponse.StatusCode)
+		require.Less(t, time.Since(admittedAt), 2*time.Second, "admission must return immediately")
+		var longReceipt jobs.RequestReceipt
+		processWorkspaceDecodeJSON(t, longResponse, &longReceipt)
+		longPath := commandPath + "/" + longReceipt.OperationID
+		long := processWorkspaceWaitCommandRun(t, client, server.URL, longPath, 12*time.Minute)
+		require.Equal(t, jobs.StateCompleted, long.State)
+		require.NotNil(t, long.Result)
+		require.Equal(t, 7, long.Result.ExitCode)
+		require.Equal(t, "long-command-ok", long.Result.Stdout)
+		require.False(t, long.Result.OutputTruncated)
+	}
+}
+
+func processWorkspaceWaitCommandState(t *testing.T, client *http.Client, baseURL, path string, want jobs.State, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		response := processWorkspaceDoRequest(t, client, baseURL, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, response.StatusCode, string(routesIntegrationReadBodyOnFailure(t, response)))
+		var run services.WorkspaceCommandRun
+		processWorkspaceDecodeJSON(t, response, &run)
+		if run.State == want {
+			return
+		}
+		if run.State.Terminal() {
+			t.Fatalf("command reached %s before %s: %+v", run.State, want, run)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("command did not reach %s within %s", want, timeout)
+}
+
+func processWorkspaceWaitCommandRun(t *testing.T, client *http.Client, baseURL, path string, timeout time.Duration) services.WorkspaceCommandRun {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	interval := 50 * time.Millisecond
+	if timeout > time.Minute {
+		interval = time.Second
+	}
+	for time.Now().Before(deadline) {
+		response := processWorkspaceDoRequest(t, client, baseURL, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, response.StatusCode, string(routesIntegrationReadBodyOnFailure(t, response)))
+		var run services.WorkspaceCommandRun
+		processWorkspaceDecodeJSON(t, response, &run)
+		if run.State.Terminal() {
+			return run
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("command did not finish within %s", timeout)
+	return services.WorkspaceCommandRun{}
 }
 
 func processWorkspaceGitServer(t *testing.T, repo processWorkspaceRepo) *httptest.Server {

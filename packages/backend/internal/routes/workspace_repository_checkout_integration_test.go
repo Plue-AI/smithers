@@ -20,6 +20,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/repository"
 )
@@ -93,8 +95,30 @@ func TestWorkspaceHTTPMaterializesPublicRepository(t *testing.T) {
 	})
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	workspaceHandler.Service = services.NewWorkspaceService(queries,
-		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL))
+	commandJobs, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
+	require.NoError(t, err)
+	workspaceService := services.NewWorkspaceService(queries,
+		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
+	workspaceHandler.Service = workspaceService
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := make(chan error, 1)
+	go func() {
+		workerDone <- workspaceService.RunWorkspaceCommandWorker(workerCtx, jobs.WorkerConfig{
+			WorkerID: "checkout-command", Capacity: 1, Lease: 6 * time.Second,
+			PollInterval: 50 * time.Millisecond, RetryDelay: 100 * time.Millisecond,
+		})
+	}()
+	t.Cleanup(func() {
+		stopWorker()
+		select {
+		case err := <-workerDone:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Error("workspace command worker did not stop")
+		}
+	})
 	publicRemote := server.URL + "/" + repo.Owner + "/" + repo.Name + ".git"
 	require.Contains(t, checkoutGit(t, "", "", "ls-remote", publicRemote, "refs/heads/main"), seedCommit)
 
@@ -128,12 +152,16 @@ func TestWorkspaceHTTPMaterializesPublicRepository(t *testing.T) {
 	processWorkspaceDecodeJSON(t, fileResponse, &file)
 	require.Equal(t, "checked out through Smithers\n", file.Content)
 
-	commandResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, basePath+"/workspaces/"+created.ID+"/commands", []byte(`{"operation_id":"verify-checkout","args":["/bin/sh","-c","test -d .git && test -d .jj && git rev-parse HEAD"]}`))
-	require.Equal(t, http.StatusOK, commandResponse.StatusCode, string(routesIntegrationReadBodyOnFailure(t, commandResponse)))
-	var command services.WorkspaceCommandResult
-	processWorkspaceDecodeJSON(t, commandResponse, &command)
-	require.Equal(t, 0, command.ExitCode, command.Stderr)
-	require.Equal(t, seedCommit, strings.TrimSpace(command.Stdout))
+	commandPath := basePath + "/workspaces/" + created.ID + "/command-runs"
+	commandResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, commandPath, []byte(`{"operation_id":"verify-checkout","args":["/bin/sh","-c","test -d .git && test -d .jj && git rev-parse HEAD"]}`))
+	require.Equal(t, http.StatusAccepted, commandResponse.StatusCode, string(routesIntegrationReadBodyOnFailure(t, commandResponse)))
+	var commandReceipt jobs.RequestReceipt
+	processWorkspaceDecodeJSON(t, commandResponse, &commandReceipt)
+	command := processWorkspaceWaitCommandRun(t, client, server.URL, commandPath+"/"+commandReceipt.OperationID, 30*time.Second)
+	require.Equal(t, jobs.StateCompleted, command.State, command.Error)
+	require.NotNil(t, command.Result)
+	require.Equal(t, 0, command.Result.ExitCode, command.Result.Stderr)
+	require.Equal(t, seedCommit, strings.TrimSpace(command.Result.Stdout))
 	resolved, err := runtime.ResolveWorkspaceSourceRevision(context.Background(), created.ID)
 	require.NoError(t, err)
 	require.Len(t, resolved, 40)

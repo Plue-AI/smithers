@@ -737,7 +737,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if binder, ok := options.Workspace.(workspace.SourceFilesBinder); ok {
 		binder.BindSourceFiles(repositorySourceFiles{client: repoHostClient})
 	}
+	commandJobs, err := jobs.NewStore(pool)
+	if err != nil {
+		return fmt.Errorf("workspace commands: %w", err)
+	}
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
+		services.WithWorkspaceCommandJobs(commandJobs, webhookSecretCodec),
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
@@ -1164,6 +1169,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if err != nil {
 		return err
 	}
+	var workspaceCommandWorker *criticalWorker
+	if options.topology.workers() && options.Workspace != nil && options.Workspace.Capabilities().Execution {
+		workspaceCommandWorker = newCriticalWorker()
+	}
 	var flowWorker *criticalWorker
 	if flow != nil {
 		agentService.SetFlowDispatcher(flow.dispatcher)
@@ -1538,6 +1547,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		connectorWorker = newCriticalWorker()
 	}
 	r = withCriticalWorkerReadiness(r, connectorWorker)
+	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
 	r = withCriticalWorkerReadiness(r, flowWorker)
 	r = withCriticalWorkerReadiness(r, chatWorker)
 	r = withCriticalWorkerReadiness(r, chatCallbackWorker)
@@ -1588,6 +1598,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			})
 		})
 		connectorFailure = connectorWorker.Failed()
+	}
+	var workspaceCommandFailure <-chan error
+	if workspaceCommandWorker != nil {
+		workspaceCommandWorker.Start(workerCtx, "workspace commands", func(ctx context.Context) error {
+			return workspaceService.RunWorkspaceCommandWorker(ctx, jobs.WorkerConfig{
+				WorkerID: "workspace-command-" + uuid.NewString(), Capacity: 32, Lease: 2 * time.Minute, HeartbeatInterval: time.Second,
+				PollInterval: 250 * time.Millisecond, RetryDelay: time.Second,
+				OnError: func(err error) { slog.Error("workspace command failed", "error", err) },
+			})
+		})
+		workspaceCommandFailure = workspaceCommandWorker.Failed()
 	}
 	var flowWorkerFailure <-chan error
 	if flowWorker != nil {
@@ -1745,6 +1766,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		case <-ctx.Done():
 		case <-abortShutdown:
 		case fatalWorkerErr = <-connectorFailure:
+		case fatalWorkerErr = <-workspaceCommandFailure:
 		case fatalWorkerErr = <-flowWorkerFailure:
 		case fatalWorkerErr = <-chatWorkerFailure:
 		case fatalWorkerErr = <-chatCallbackFailure:
@@ -1787,7 +1809,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			stopFlow()
 		}
-		for name, worker := range map[string]*criticalWorker{"chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
+		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
 			if worker == nil {
 				continue
 			}

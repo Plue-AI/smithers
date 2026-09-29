@@ -1392,12 +1392,12 @@ export const definitions = {
     })
   },
   "workspace exec": {
-    description: "Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through",
+    description: "Run a workspace command with a durable receipt and bounded output",
     args: z.object({ "id": z.string().describe("Workspace ID (auto-detected if omitted)").optional() }),
     options: z.object({
       "command": z.string().describe("Remote command to run (multi-line allowed; runs under bash)"),
       "cwd": z.string().describe(
-        "Remote working directory (default: /home/developer/workspace, or the home directory when missing)"
+        "Working directory (default: workspace root)"
       ).optional(),
       "env": z.array(z.string()).describe("KEY=VALUE exported to the command (repeatable)").default([]),
       "exec-id": z.string().describe("Durable command ID; reuse with the same command to reattach after a disconnect")
@@ -1406,9 +1406,8 @@ export const definitions = {
       "seedAgentAuth": z.string().describe(
         "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
       ).optional(),
-      "stdin": z.boolean().describe("Forward the terminal's stdin (a pipe or file is always forwarded)").default(false),
-      "timeout": z.coerce.number().describe("Client timeout in seconds (default: 120; 0 = no limit)").optional(),
-      "user": z.string().describe("Guest user to run as (developer or root)").default("developer")
+      "timeout": z.coerce.number().describe("Cancel after this many seconds (default: 0; server guard: 60 minutes)")
+        .optional()
     })
   },
   "workspace fork": {

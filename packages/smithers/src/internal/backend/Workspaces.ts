@@ -4,7 +4,7 @@
  */
 
 import { NodeWS } from "@effect/platform-node/NodeSocket"
-import { fstatSync } from "node:fs"
+import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Readable } from "node:stream"
@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { APIError, type Client, esc, list, object, pick, positive, query, str, type Values } from "./Client.ts"
 import { lines } from "./Local.ts"
 import type { Handler } from "./Resources.ts"
-import { durable, type Endpoint, hostKeys, quote, remote } from "./SSH.ts"
+import { type Endpoint, hostKeys, quote, remote } from "./SSH.ts"
 
 const base = (c: Client, o: Values) => c.repoPath(o.repo) + "/workspaces"
 /**
@@ -195,42 +195,115 @@ const seed = async (c: Client, ssh: Endpoint, agents: Array<string>) => {
   }
 }
 workspaces["workspace exec"] = async (c, a, o) => {
-  if (!str(o.command).trim() || Number(o.timeout) < 0) {
+  const timeout = o.timeout === undefined ? 0 : Number(o.timeout)
+  if (!str(o.command).trim() || !Number.isFinite(timeout) || timeout < 0) {
     throw new Error("A command and non-negative timeout are required")
   }
-  const id = await resolveID(c, a, o), path = base(c, o) + `/${esc(id)}`
-  let ssh = await sshInfo(c, path, o.user)
-  if (o.seedAgentAuth) await seed(c, ssh, str(o.seedAgentAuth).split(",").map((part) => part.trim()).filter(Boolean))
-  const environment = list(o.env).map(str)
-  if (environment.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value))) throw new Error("--env expects KEY=VALUE")
-  const script = `cd ${quote(str(o.cwd) || "/home/developer/workspace")} 2>/dev/null || cd ~; exec${
-    environment.length ? ` env ${environment.map(quote).join(" ")}` : ""
-  } /bin/bash -c ${quote(str(o.command))}`
-  const timeout = o.timeout === undefined ? 120_000 : Math.max(0, Number(o.timeout)) * 1000
-  let forward = o.stdin === true
+  if (o.stdin || (o.user && o.user !== "developer")) {
+    throw new Error("Use workspace ssh or workspace shell for interactive input or another guest user")
+  }
+  const entries = list(o.env).map(str)
+  if (entries.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value))) throw new Error("--env expects KEY=VALUE")
+  const environment = Object.fromEntries(
+    entries.map((value) => [value.slice(0, value.indexOf("=")), value.slice(value.indexOf("=") + 1)])
+  )
+  const requestID = str(o["exec-id"]) || randomUUID()
+  if (requestID.length > 128 || !requestID.trim()) throw new Error("Invalid exec id")
+  const id = await resolveID(c, a, o), path = base(c, o) + `/${esc(id)}/command-runs`
+  if (o.seedAgentAuth) {
+    const ssh = await sshInfo(c, base(c, o) + `/${esc(id)}`, "developer")
+    await seed(c, ssh, str(o.seedAgentAuth).split(",").map((part) => part.trim()).filter(Boolean))
+  }
+  let receipt: Values
   try {
-    forward ||= !fstatSync(process.stdin.fd).isCharacterDevice()
-  } catch { /* no stdin */ }
-  let refreshed = Date.now()
-  const result = forward ?
-    await remote(c, ssh, script, timeout, process.stdin, false, true) :
-    await durable(c, str(o["exec-id"]), script, async (request) => {
-      if (Date.now() - refreshed > 60_000) {
-        ssh = await sshInfo(c, path, o.user)
-        refreshed = Date.now()
+    receipt = object(
+      await c.request("POST", path, {
+        operation_id: requestID,
+        args: ["/bin/bash", "-lc", str(o.command)],
+        ...(o.cwd ? { directory: str(o.cwd) } : {}),
+        environment
+      })
+    )
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; reattach with --exec-id ${requestID}`)
+  }
+  if (typeof receipt.operationId !== "string" || !receipt.operationId) {
+    throw new Error(`Command response omitted operationId; reattach with --exec-id ${requestID}`)
+  }
+  const runPath = `${path}/${esc(receipt.operationId)}`
+  const deadline = timeout > 0 ? Date.now() + timeout * 1000 : Infinity
+  const interval = Number(c.env.SMITHERS_WORKSPACE_COMMAND_POLL_INTERVAL_MS) || 1000
+  let cancellationAttempted = false
+  const cancel = async () => {
+    cancellationAttempted = true
+    const signal = AbortSignal.timeout(30_000)
+    let run = object(await c.request("POST", runPath + "/cancel", undefined, { signal }))
+    while (["accepted", "dispatching", "running", "waiting"].includes(str(run.state))) {
+      if (run.operationId !== receipt.operationId) throw new Error("Mismatched command receipt")
+      await delay(interval, undefined, { signal })
+      run = object(await c.request("GET", runPath, undefined, { signal }))
+    }
+    if (run.operationId !== receipt.operationId || !["cancelled", "completed", "failed"].includes(str(run.state))) {
+      throw new Error("Command cancellation could not be confirmed")
+    }
+  }
+  try {
+    for (;;) {
+      if (c.runtime.signal?.aborted || Date.now() >= deadline) {
+        await cancel()
+        throw new Error("Command interrupted; execution ended")
       }
-      const response = await remote(c, ssh, request, 20_000)
-      if (response.code) {
-        refreshed = 0
-        throw new Error("SSH control connection failed")
+      const signal = timeout > 0
+        ? AbortSignal.any([
+          AbortSignal.timeout(Math.max(1, Math.ceil(deadline - Date.now()))),
+          ...(c.runtime.signal ? [c.runtime.signal] : [])
+        ])
+        : c.runtime.signal
+      const run = object(await c.request("GET", runPath, undefined, signal ? { signal } : undefined))
+      if (run.operationId !== receipt.operationId) throw new Error("Mismatched command receipt")
+      if (run.state === "completed") {
+        const result = object(run.result)
+        if (
+          !Number.isInteger(result.exit_code) || typeof result.stdout !== "string" ||
+          typeof result.stderr !== "string" || typeof result.output_truncated !== "boolean"
+        ) {
+          throw new Error("Invalid command result")
+        }
+        c.output(Buffer.from(result.stdout), Buffer.from(result.stderr))
+        c.flushOutput()
+        c.runtime.exit?.(Number(result.exit_code))
+        return {
+          workspace_id: id,
+          operation_id: receipt.operationId,
+          ...result,
+          ...(c.live ? { stdout: undefined, stderr: undefined } : {})
+        }
       }
-      return response.stdout.toString()
-    }, timeout)
-  c.runtime.exit?.(result.code)
-  return {
-    workspace_id: id,
-    exit_code: result.code,
-    ...(c.live ? {} : { stdout: result.stdout.toString(), stderr: result.stderr.toString() })
+      if (["failed", "uncertain", "cancelled"].includes(str(run.state))) {
+        throw new Error(str(run.error) || `Command ${str(run.state)}`)
+      }
+      if (!["accepted", "dispatching", "running", "waiting"].includes(str(run.state))) {
+        throw new Error("Invalid command state")
+      }
+      // Check abort in the loop so cancellation uses its own live request signal.
+      await delay(Math.min(interval, Math.max(1, deadline - Date.now())))
+    }
+  } catch (error) {
+    if (
+      !cancellationAttempted && (c.runtime.signal?.aborted || Date.now() >= deadline)
+    ) {
+      try {
+        await cancel()
+      } catch (cancelError) {
+        throw new Error(
+          `${
+            cancelError instanceof Error ? cancelError.message : String(cancelError)
+          }; reattach with --exec-id ${requestID}`
+        )
+      }
+      throw new Error("Command interrupted; execution ended")
+    }
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; reattach with --exec-id ${requestID}`)
   }
 }
 workspaces["workspace shell"] = async (c, a, o) => {

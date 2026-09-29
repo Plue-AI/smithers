@@ -52,10 +52,6 @@ type asyncWorkspaceCreator interface {
 	CreateWorkspaceAsync(ctx context.Context, input services.CreateWorkspaceInput) (services.WorkspaceResponse, error)
 }
 
-type workspaceCommandRouteService interface {
-	ExecuteWorkspaceCommand(ctx context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceCommandInput) (services.WorkspaceCommandResult, error)
-}
-
 type workspaceServiceLaunchRouteService interface {
 	LaunchWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceServiceLaunchInput) (services.WorkspaceManagedService, error)
 }
@@ -93,7 +89,9 @@ func RegisterWorkspaceRuntimeRoutes(r chi.Router, handler *WorkspaceHandler, rea
 	if r == nil || handler == nil {
 		return
 	}
-	r.With(writeWorkspace...).Post("/workspaces/{id}/commands", handler.ExecuteWorkspaceCommand)
+	r.With(writeWorkspace...).Post("/workspaces/{id}/command-runs", handler.AdmitWorkspaceCommand)
+	r.With(readWorkspace...).Get("/workspaces/{id}/command-runs/{operationID}", handler.GetWorkspaceCommandRun)
+	r.With(writeWorkspace...).Post("/workspaces/{id}/command-runs/{operationID}/cancel", handler.CancelWorkspaceCommandRun)
 	r.With(writeWorkspace...).Put("/workspaces/{id}/services/{port}/visibility", handler.WorkspaceServiceVisibility)
 	r.With(readWorkspace...).Get("/workspaces/{id}/services/{port}/visibility", handler.WorkspaceServiceVisibility)
 	r.With(writeWorkspace...).Post("/workspaces/{id}/services", handler.LaunchWorkspaceService)
@@ -157,36 +155,6 @@ type createWorkspaceSnapshotRequest struct {
 
 type writeWorkspaceFileRequest struct {
 	Content string `json:"content"`
-}
-
-// ExecuteWorkspaceCommand handles POST
-// /api/repos/{owner}/{repo}/workspaces/{id}/commands. Product middleware owns
-// authentication, repository permission, admission, and request limits before
-// this method invokes the shared runtime service.
-func (h *WorkspaceHandler) ExecuteWorkspaceCommand(w http.ResponseWriter, r *http.Request) {
-	user, repoCtx, workspaceID, routeErr := workspaceFacetRouteContext(r)
-	if routeErr != nil {
-		pkgerrors.WriteError(w, routeErr)
-		return
-	}
-	service, ok := h.Service.(workspaceCommandRouteService)
-	if !ok {
-		pkgerrors.WriteError(w, pkgerrors.Internal("workspace execution unavailable"))
-		return
-	}
-	var input services.WorkspaceCommandInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
-		return
-	}
-	result, err := service.ExecuteWorkspaceCommand(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, input)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
 // LaunchWorkspaceService starts a runtime-managed process. Its declared port

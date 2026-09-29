@@ -110,7 +110,7 @@ func (r *Runtime) acquire(ctx context.Context) error {
 
 func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
 	if err := r.acquire(ctx); err != nil {
-		return workspaceapi.CommandResult{}, err
+		return workspaceapi.CommandResult{}, errors.Join(err, workspaceapi.ErrCommandCancelled)
 	}
 	defer func() { <-r.semaphore }()
 	stdout := &limitedBuffer{limit: r.outputLimit}
@@ -118,7 +118,7 @@ func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, comman
 	r.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		r.mu.Unlock()
-		return workspaceapi.CommandResult{}, err
+		return workspaceapi.CommandResult{}, errors.Join(err, workspaceapi.ErrCommandCancelled)
 	}
 	ws, err := r.runningWorkspaceLocked(workspaceID)
 	if err != nil {
@@ -143,8 +143,13 @@ func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, comman
 	select {
 	case <-process.done:
 	case <-ctx.Done():
-		process.stop(r.grace)
-		return workspaceapi.CommandResult{}, ctx.Err()
+		select {
+		case <-process.done:
+			// Preserve a completion that raced cancellation.
+		default:
+			process.stop(r.grace)
+			return workspaceapi.CommandResult{}, errors.Join(ctx.Err(), workspaceapi.ErrCommandCancelled)
+		}
 	}
 	out, outTruncated := stdout.result()
 	errout, errTruncated := stderr.result()

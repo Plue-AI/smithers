@@ -5,15 +5,16 @@ import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
 import * as tar from "tar"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
 import { archiveFilter, copyEndpoint, copyScript } from "../src/internal/backend/Copy.ts"
-import { durable, hostKeys, quote, sshArgs } from "../src/internal/backend/SSH.ts"
+import { hostKeys, quote, sshArgs } from "../src/internal/backend/SSH.ts"
 const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 import { workspaceBody } from "../src/internal/backend/Workspaces.ts"
 const run = promisify(execFile)
 const dirs: string[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 const fixture = async () => {
@@ -27,6 +28,25 @@ const fixture = async () => {
     })
   }
 }
+
+describe("backend request signal", () => {
+  it("uses an explicit cancellation signal after the command signal has aborted", async () => {
+    const { home } = await fixture()
+    const command = new AbortController(), cancellation = new AbortController()
+    command.abort()
+    const client = new Client({ environment: { HOME: home }, signal: command.signal })
+    const fetchRequest = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(false)
+      return new Response("{}", { status: 200 })
+    })
+    await expect(client.request("POST", "/api/command-runs/id/cancel", undefined, {
+      anonymous: true,
+      origin: "https://api.example.test",
+      signal: cancellation.signal
+    })).resolves.toEqual({})
+    expect(fetchRequest).toHaveBeenCalledOnce()
+  })
+})
 
 describe("workspace SSH boundary", () => {
   it.each([
@@ -77,55 +97,6 @@ describe("workspace SSH boundary", () => {
   it("quotes metacharacters as data", async () => {
     const input = "a'$(echo nope); b\nhello"
     expect((await run("bash", ["-c", `printf %s ${quote(input)}`])).stdout).toBe(input)
-  })
-  it("reattaches after a dropped launch response without executing the guest command twice", async () => {
-    const { home, client } = await fixture(),
-      file = join(home, "count"),
-      script = `printf x >> ${quote(file)}; printf hello; printf error >&2; exit 7`
-    let calls = 0
-    const transport = async (request: string) => {
-      // Test state is confined to this fixture even on hosts with getent.
-      const command = request.replace(
-        /smithers_login_home=\$\(getent passwd[^;]+;/g,
-        `smithers_login_home=${quote(home)};`
-      )
-      const result = await run("bash", ["-c", command], { env: { ...process.env, HOME: home } })
-      if (++calls === 1) throw new Error("connection dropped after launch")
-      return result.stdout
-    }
-    const result = await durable(client, "test-reattach", script, transport, 5000, 10)
-    expect(result.code).toBe(7)
-    expect(result.stdout.toString()).toBe("hello")
-    expect(result.stderr.toString()).toBe("error")
-    expect(await readFile(file, "utf8")).toBe("x")
-    const attached = await durable(client, "test-reattach", script, transport, 5000, 10)
-    expect(attached.code).toBe(7)
-    expect(await readFile(file, "utf8")).toBe("x")
-    await expect(durable(client, "test-reattach", "another command", transport, 5000, 10)).rejects.toThrow(
-      "another command"
-    )
-  })
-  it("reports lost guest receipts without rerunning a possibly completed command", async () => {
-    const { client } = await fixture()
-    await expect(
-      durable(client, "lost", "true", async () => "SMITHERS_EXEC_V1\nlost:guest_restarted\n\n\nEND\n", 1000, 1)
-    ).rejects.toThrow("exec_outcome_lost")
-  })
-  it("drains output after the exit receipt and rejects malformed receipts", async () => {
-    const { client } = await fixture(), chunk = Buffer.alloc(65536, 120)
-    let count = 0
-    const result = await durable(
-      client,
-      "drain",
-      "true",
-      async () => `SMITHERS_EXEC_V1\n0\n${++count === 1 ? chunk.toString("base64") : ""}\n\nEND\n`,
-      1000,
-      1
-    )
-    expect(result.stdout).toEqual(chunk)
-    expect(count).toBe(2)
-    await expect(durable(client, "malformed", "true", async () => "SMITHERS_EXEC_V1\n0\n$bad\n\nEND\n", 1000, 1))
-      .rejects.toThrow("Invalid exec output")
   })
 })
 

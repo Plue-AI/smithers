@@ -18,6 +18,8 @@ type WorkerConfig struct {
 	Capacity     int
 	Lease        time.Duration
 	PollInterval time.Duration
+	// HeartbeatInterval also bounds cancellation observation independently of lease length.
+	HeartbeatInterval time.Duration
 	// RetryDelay is the first retry delay after a handler returns without a
 	// terminal receipt. Each later attempt doubles it, up to MaxRetryDelay.
 	RetryDelay    time.Duration
@@ -160,7 +162,13 @@ func (store *Store) RunWorker(ctx context.Context, config WorkerConfig, handler 
 	if config.RecoveryLimit <= 0 {
 		config.RecoveryLimit = config.Capacity * 4
 	}
-	heartbeatInterval := config.Lease / 3
+	heartbeatInterval := config.HeartbeatInterval
+	if heartbeatInterval < 0 || heartbeatInterval >= config.Lease {
+		return errors.New("jobs: heartbeat interval must be nonnegative and shorter than lease")
+	}
+	if heartbeatInterval == 0 {
+		heartbeatInterval = config.Lease / 3
+	}
 	if heartbeatInterval <= 0 {
 		heartbeatInterval = time.Millisecond
 	}
@@ -188,6 +196,7 @@ func (store *Store) RunWorker(ctx context.Context, config WorkerConfig, handler 
 		if ctx.Err() != nil {
 			break
 		}
+		claimStarted := time.Now()
 		claim, err := store.ClaimForOperations(ctx, config.WorkerID, config.Lease, config.Operations)
 		if errors.Is(err, ErrNoWork) {
 			<-capacity
@@ -218,7 +227,7 @@ func (store *Store) RunWorker(ctx context.Context, config WorkerConfig, handler 
 			defer workers.Done()
 			defer func() { <-capacity }()
 			retryDelay := RetryBackoff(config.RetryDelay, config.MaxRetryDelay, claim.Attempt)
-			if err := store.runClaim(ctx, claim, config.Lease, heartbeatInterval, retryDelay, config.SettlementTimeout, handler); err != nil {
+			if err := store.runClaim(ctx, claim, claimStarted.Add(config.Lease), config.Lease, heartbeatInterval, retryDelay, config.SettlementTimeout, handler); err != nil {
 				report(&ClaimError{OperationID: claim.OperationID, Operation: claim.Operation, Attempt: claim.Attempt, RetryDelay: retryDelay, Err: err})
 			}
 		}()
@@ -227,7 +236,12 @@ func (store *Store) RunWorker(ctx context.Context, config WorkerConfig, handler 
 	return nil
 }
 
-func (store *Store) runClaim(parent context.Context, claim Claim, leaseDuration, heartbeatInterval, retryDelay, settlementTimeout time.Duration, handler Handler) error {
+func (store *Store) runClaim(parent context.Context, claim Claim, leaseDeadline time.Time, leaseDuration, heartbeatInterval, retryDelay, settlementTimeout time.Duration, handler Handler) error {
+	// Use elapsed local time from before the claim query, not the database
+	// wall clock. Query latency only shortens the trusted initial lease.
+	if !time.Now().Before(leaseDeadline) {
+		return ErrClaimLost
+	}
 	handlerContext, cancel := context.WithCancel(parent)
 	defer cancel()
 	result := make(chan error, 1)
@@ -253,7 +267,10 @@ func (store *Store) runClaim(parent context.Context, claim Claim, leaseDuration,
 			if lease.released.Load() {
 				continue
 			}
-			requested, err := store.Heartbeat(parent, claim, leaseDuration)
+			heartbeatStarted := time.Now()
+			heartbeatCtx, stopHeartbeat := context.WithDeadline(parent, leaseDeadline)
+			requested, err := store.Heartbeat(heartbeatCtx, claim, leaseDuration)
+			stopHeartbeat()
 			if errors.Is(err, ErrClaimLost) {
 				if lease.released.Load() {
 					continue
@@ -263,13 +280,21 @@ func (store *Store) runClaim(parent context.Context, claim Claim, leaseDuration,
 				continue
 			}
 			if err != nil {
+				if parent.Err() == nil && time.Now().Before(leaseDeadline) {
+					// A query failure is not proof of a lost lease. Retry
+					// within the last confirmed lease, never beyond it.
+					continue
+				}
 				cancel()
 				handlerErr = <-result
-				if parent.Err() != nil && errors.Is(err, parent.Err()) {
+				if parent.Err() != nil {
 					goto settled
 				}
 				return err
 			}
+			// Use the request start, earlier than the server renewal, so a
+			// slow response cannot extend our locally trusted lease.
+			leaseDeadline = heartbeatStarted.Add(leaseDuration)
 			if requested {
 				cancellationRequested = true
 				cancel()

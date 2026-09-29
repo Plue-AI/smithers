@@ -55,25 +55,38 @@ def base_environment():
 
 def cgroup_kill(path):
     """Kill every process in a command cgroup, wait until it is empty, remove it."""
-    if not os.path.isdir(path):
+    try:
+        mode = os.stat(path).st_mode
+    except FileNotFoundError:
         return
+    if not stat.S_ISDIR(mode):
+        raise RuntimeError("command cgroup is not a directory")
     try:
         with open(os.path.join(path, "cgroup.kill"), "w") as handle:
             handle.write("1")
     except OSError:
         pass
     deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
+    while True:
         try:
             with open(os.path.join(path, "cgroup.events"), "r") as handle:
                 if "populated 0" in handle.read():
                     break
-        except OSError:
-            break
+        except FileNotFoundError:
+            try:
+                os.stat(path)
+            except FileNotFoundError:
+                return
+            raise RuntimeError("command cgroup termination could not be confirmed")
+        except OSError as error:
+            raise RuntimeError("command cgroup termination could not be confirmed") from error
+        if time.monotonic() >= deadline:
+            raise RuntimeError("command cgroup remains populated after cancellation")
         time.sleep(0.02)
     try:
         os.rmdir(path)
     except OSError:
+        # An empty cgroup proves termination even if directory cleanup fails.
         pass
 
 

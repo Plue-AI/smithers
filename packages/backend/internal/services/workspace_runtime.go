@@ -672,7 +672,7 @@ func (s *WorkspaceService) deleteRuntimeWorkspaceSnapshot(ctx context.Context, s
 	return nil
 }
 
-func (s *WorkspaceService) ExecuteWorkspaceCommand(ctx context.Context, workspaceID string, repositoryID, userID int64, input WorkspaceCommandInput) (WorkspaceCommandResult, error) {
+func (s *WorkspaceService) executeWorkspaceCommand(ctx context.Context, workspaceID string, repositoryID, userID int64, input WorkspaceCommandInput) (WorkspaceCommandResult, error) {
 	if !s.hasWorkspaceRuntime() || !s.runtime.Capabilities().Execution {
 		return WorkspaceCommandResult{}, pkgerrors.Internal("workspace execution unavailable")
 	}
@@ -698,7 +698,7 @@ func (s *WorkspaceService) ExecuteWorkspaceCommand(ctx context.Context, workspac
 		Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
 	})
 	if err != nil {
-		return WorkspaceCommandResult{}, runtimeOperationError("execute workspace command", err)
+		return WorkspaceCommandResult{}, err
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	s.touchWorkspaceEntryRecency(ctx, row.ID, "command")

@@ -8,7 +8,7 @@ import { auth } from "../src/internal/backend/Auth.ts"
 import { APIError, Client, object } from "../src/internal/backend/Client.ts"
 import { handlers } from "../src/internal/backend/Commands.ts"
 import { repositories } from "../src/internal/backend/Repositories.ts"
-import { durable, sshArgs } from "../src/internal/backend/SSH.ts"
+import { sshArgs } from "../src/internal/backend/SSH.ts"
 const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 import { workspaces } from "../src/internal/backend/Workspaces.ts"
 const dirs: string[] = [], cwd = process.cwd()
@@ -226,7 +226,7 @@ describe("offline docs and ancillary commands", () => {
     }])
   })
 })
-describe("SSH validation and durable receipt errors", () => {
+describe("SSH validation", () => {
   it.each([
     "",
     "ssh",
@@ -250,33 +250,5 @@ describe("SSH validation and durable receipt errors", () => {
     }, true)
     expect(args).toContain("/tmp/key file")
     expect(args[0]).toBe("-tt")
-  })
-  it.each([
-    "ERROR: state unavailable",
-    "not a receipt",
-    "SMITHERS_EXEC_V1\n256\n\n\nEND\n",
-    "SMITHERS_EXEC_V1\ninvalid\n\n\nEND\n"
-  ])("refuses invalid durable receipt %j", async (receipt) => {
-    const { c } = await fixture()
-    await expect(durable(c, "id", "true", async () => receipt, 0)).rejects.toThrow()
-  })
-  it("rejects invalid exec ids before contacting a box", async () => {
-    const { c } = await fixture(), send = vi.fn()
-    await expect(durable(c, "../id", "true", send, 1000)).rejects.toThrow("Invalid exec id")
-    expect(send).not.toHaveBeenCalled()
-  })
-  it("leaves a timed-out remote command attachable", async () => {
-    const { c } = await fixture()
-    await expect(durable(
-      c,
-      "id",
-      "true",
-      async () => {
-        await new Promise((resolve) => setTimeout(resolve, 3))
-        return "SMITHERS_EXEC_V1\nrunning\n\n\nEND\n"
-      },
-      1,
-      1
-    )).rejects.toThrow("Reattach with --exec-id id")
   })
 })
