@@ -293,7 +293,7 @@ describe("Smithers Cloud CI", () => {
       expect(result.stdout).not.toContain("linux-x64")
     })
 
-    test("installs nothing when node already satisfies the pinned version", () => {
+    test("installs nothing when the pinned Node meets the supported floor", () => {
       const result = run({ node: `v${pinned}` })
       for (const absent of ["DOWNLOAD", "TAR ", "APT", "SHA256SUM"]) {
         expect(result.stdout).not.toContain(absent)
@@ -302,10 +302,10 @@ describe("Smithers Cloud CI", () => {
       expect(result.stdout).not.toContain(`${tools}/node/bin`)
     })
 
-    test("keeps only complete Node releases at or above the supported floor", () => {
+    test("keeps complete supported Node releases and replaces the rest", () => {
       const [major, minor, patch] = floor.split(".").map(Number)
       const below = [`${major! - 1}.0.0`, ...(minor! > 0 ? [`${major}.${minor! - 1}.99`] : []),
-        ...(patch! > 0 ? [`${major}.${minor}.${patch! - 1}`] : [])]
+        ...(patch! > 0 ? [`${major}.${minor}.${patch! - 1}`] : []), `${major}`, `${major! + 1}.0.0-nightly`]
       for (const measured of below) {
         const result = run({ node: `v${measured}` })
         expect(result.stdout).toContain(`node-v${pinned}-linux-x64.tar.gz`)
