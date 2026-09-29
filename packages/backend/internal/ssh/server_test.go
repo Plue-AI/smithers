@@ -41,6 +41,14 @@ type mockSSHPrincipalQuerier struct {
 	listAllProtectedBookmarksByRepoFn func(ctx context.Context, repositoryID int64) ([]db.ProtectedBookmark, error)
 }
 
+func pushRepoQuerier() *mockSSHPrincipalQuerier {
+	return &mockSSHPrincipalQuerier{
+		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+			return db.Repository{ID: 109}, nil
+		},
+	}
+}
+
 func (m *mockSSHPrincipalQuerier) GetUserBySSHFingerprint(ctx context.Context, fingerprint string) (db.GetUserBySSHFingerprintRow, error) {
 	if m.getUserBySSHFingerprintFn != nil {
 		return m.getUserBySSHFingerprintFn(ctx, fingerprint)
@@ -569,6 +577,7 @@ func TestSessionHandler_AuthorizedReceivePack_ProxiesStream(t *testing.T) {
 	refAdvertisement := []byte("003f1234567890abcdef1234567890abcdef12345678 refs/heads/main\n0000")
 
 	server := &Server{
+		Queries: pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				assert.Equal(t, int64(1), userID)
@@ -621,6 +630,7 @@ func TestSessionHandler_AuthorizedReceivePack_Success(t *testing.T) {
 	t.Parallel()
 
 	server := &Server{
+		Queries: pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -652,6 +662,7 @@ func TestSessionHandler_ReceivePack_ProxyFailure(t *testing.T) {
 	t.Parallel()
 
 	server := &Server{
+		Queries: pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -683,6 +694,7 @@ func TestSessionHandler_AuthorizedReceivePack_CompletesSuccessfully(t *testing.T
 	t.Parallel()
 
 	server := &Server{
+		Queries: pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -715,6 +727,13 @@ func TestSessionHandler_AuthorizedReceivePack_ForwardsPusherMetadata(t *testing.
 
 	var capturedMeta repohost.ReceivePackMetadata
 	server := &Server{
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(_ context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				assert.Equal(t, "alice", arg.Owner)
+				assert.Equal(t, "demo", arg.LowerName)
+				return db.Repository{ID: 109}, nil
+			},
+		},
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -745,7 +764,34 @@ func TestSessionHandler_AuthorizedReceivePack_ForwardsPusherMetadata(t *testing.
 	assert.Equal(t, 0, sess.exitCode)
 	// Verify pusher identity was forwarded to repo-host
 	assert.Equal(t, int64(42), capturedMeta.PusherID)
+	assert.Equal(t, int64(109), capturedMeta.RepositoryID)
 	assert.Equal(t, "alice", capturedMeta.PusherLogin)
+}
+
+func TestSessionHandler_ReceivePack_RepositoryLookupFailureStopsPush(t *testing.T) {
+	proxyCalls := 0
+	server := &Server{
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(_ context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				assert.Equal(t, "alice", arg.Owner)
+				assert.Equal(t, "demo", arg.LowerName)
+				return db.Repository{}, pgx.ErrNoRows
+			},
+		},
+		Authorizer: &mockSSHAuthorizer{},
+		RepoHostClient: &mockRepoHostGitProxy{
+			infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
+			proxyReceivePackFn: func(context.Context, string, string, io.Reader, io.Writer, ...repohost.ReceivePackMetadata) error {
+				proxyCalls++
+				return nil
+			},
+		},
+	}
+	sess := newTestSession("git-receive-pack 'alice/demo.git'", "0000receive-pack-request")
+	sess.ctx.SetValue(principalKey, sshPrincipal{UserID: 42, Username: "alice"})
+	server.sessionHandler(sess)
+	assert.NotZero(t, sess.exitCode)
+	assert.Zero(t, proxyCalls)
 }
 
 func TestSessionHandler_ReceivePackRequestExceedsLimit_ReturnsFatal(t *testing.T) {
@@ -753,6 +799,7 @@ func TestSessionHandler_ReceivePackRequestExceedsLimit_ReturnsFatal(t *testing.T
 
 	server := &Server{
 		MaxReceivePackSize: 10,
+		Queries:            pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -787,6 +834,7 @@ func TestSessionHandler_ReceivePackRequestAtLimit_ProxiesStream(t *testing.T) {
 	receiveCalls := 0
 	server := &Server{
 		MaxReceivePackSize: 10,
+		Queries:            pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -833,6 +881,11 @@ func TestProxyReceivePack_StreamsBeforeClientEOF(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	server := &Server{
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				return db.Repository{ID: 109}, nil
+			},
+		},
 		RepoHostClient: &mockRepoHostGitProxy{
 			infoRefsReceivePackFn: func(ctx context.Context, owner, repo string) ([]byte, error) {
 				return refAdvertisement, nil
@@ -899,6 +952,11 @@ func TestProxyReceivePack_UsesConfiguredTimeoutContext(t *testing.T) {
 		var outcome string
 		server := &Server{
 			ReceivePackTimeout: 200 * time.Millisecond,
+			Queries: &mockSSHPrincipalQuerier{
+				getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+					return db.Repository{ID: 109}, nil
+				},
+			},
 			RepoHostClient: &mockRepoHostGitProxy{
 				infoRefsReceivePackFn: func(ctx context.Context, owner, repo string) ([]byte, error) {
 					return []byte("0000"), nil
@@ -958,6 +1016,11 @@ func TestSessionHandler_AuthorizedReceivePack_StreamsLargePayloadBeforeEOF(t *te
 	var received int
 
 	server := &Server{
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				return db.Repository{ID: 109}, nil
+			},
+		},
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil
@@ -1842,6 +1905,7 @@ func assertHeldPushRefused(t *testing.T, atDiscovery bool) {
 		Message: "repository maintenance is finishing; retry in 5s", RetryAfter: 5}
 
 	server := &Server{
+		Queries: pushRepoQuerier(),
 		Authorizer: &mockSSHAuthorizer{
 			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
 				return nil

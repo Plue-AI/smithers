@@ -598,6 +598,11 @@ func TestGitHTTPProxyService_ReceivePack_Success_DispatchesPushWebhook(t *testin
 	t.Parallel()
 
 	q := &mockGitHTTPProxyQuerier{
+		getRepoByOwnerAndLowerNameFn: func(_ context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+			assert.Equal(t, "alice", arg.Owner)
+			assert.Equal(t, "demo", arg.LowerName)
+			return db.Repository{ID: 109}, nil
+		},
 		getAuthInfoByTokenHashFn: func(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error) {
 			return db.GetAuthInfoByTokenHashRow{
 				ID:            7,
@@ -631,6 +636,27 @@ func TestGitHTTPProxyService_ReceivePack_Success_DispatchesPushWebhook(t *testin
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, repoHost.receivePackCall)
+	assert.Equal(t, int64(109), repoHost.lastReceiveMeta.RepositoryID)
+}
+
+func TestGitHTTPProxyService_ReceivePack_RepositoryLookupFailureStopsPush(t *testing.T) {
+	q := &mockGitHTTPProxyQuerier{
+		getAuthInfoByTokenHashFn: func(context.Context, string) (db.GetAuthInfoByTokenHashRow, error) {
+			return db.GetAuthInfoByTokenHashRow{ID: 7, Username: "alice", TokenID: 88, TokenScopes: "write:repository", IsActive: true}, nil
+		},
+		getRepoByOwnerAndLowerNameFn: func(_ context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+			assert.Equal(t, "alice", arg.Owner)
+			assert.Equal(t, "demo", arg.LowerName)
+			return db.Repository{}, pgx.ErrNoRows
+		},
+	}
+	repoHost := &mockGitHTTPRepoHostClient{}
+	svc := NewGitHTTPProxyService(q, &mockGitHTTPAuthorizer{}, repoHost)
+	err := svc.ProxyReceivePack(context.Background(), "alice", "demo", "smithers_deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", bytes.NewBufferString("0000"), io.Discard)
+	require.Error(t, err)
+	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 1, q.getRepoByOwnerAndLowerNameCalls)
+	assert.Zero(t, repoHost.receivePackCall)
 }
 
 func TestGitHTTPProxyService_ReceivePack_ProxyFailure_DoesNotDispatchPushWebhook(t *testing.T) {

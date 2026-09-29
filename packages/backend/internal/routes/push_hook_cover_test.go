@@ -44,6 +44,17 @@ func (r *pushHookCovRepoResolver) GetRepoByID(context.Context, int64) (db.Reposi
 	return r.repo, nil
 }
 
+func (r *pushHookCovRepoResolver) GetRepoOwnerSlugAndNameByID(context.Context, int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+	if r.repoErr != nil {
+		return db.GetRepoOwnerSlugAndNameByIDRow{}, r.repoErr
+	}
+	name := r.repo.Name
+	if name == "" {
+		name = r.row.Name
+	}
+	return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "alice", RepoName: name}, nil
+}
+
 func (r *pushHookCovRepoResolver) IsOrgOwnerForRepoUser(context.Context, db.IsOrgOwnerForRepoUserParams) (bool, error) {
 	return r.orgOwner, nil
 }
@@ -141,10 +152,10 @@ func TestPushHook_Cov_PostPushEventBranches(t *testing.T) {
 		t.Parallel()
 
 		h := &InternalPushHookHandler{
-			RepoResolver: &pushHookCovRepoResolver{ownerErr: pgx.ErrNoRows},
+			RepoResolver: &pushHookCovRepoResolver{repoErr: pgx.ErrNoRows},
 			Dispatcher:   &pushHookCovDispatcher{},
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo"}`))
 		rec := httptest.NewRecorder()
 
 		postAndProcess(t, h, rec, req)
@@ -159,7 +170,7 @@ func TestPushHook_Cov_PostPushEventBranches(t *testing.T) {
 			RepoResolver: &pushHookCovRepoResolver{row: db.GetRepoByOwnerAndNameRow{ID: 101, Name: "demo"}},
 			Dispatcher:   &pushHookCovDispatcher{err: errors.New("queue down")},
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo","ref_name":"refs/heads/main","pusher_id":7,"pusher_login":"alice"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo","ref_name":"refs/heads/main","pusher_id":7,"pusher_login":"alice"}`))
 		rec := httptest.NewRecorder()
 
 		postAndProcess(t, h, rec, req)
@@ -171,10 +182,10 @@ func TestPushHook_Cov_PostPushEventBranches(t *testing.T) {
 		t.Parallel()
 
 		h := &InternalPushHookHandler{
-			RepoResolver: &pushHookCovRepoResolver{ownerErr: fmt.Errorf("lookup: %w", pgx.ErrNoRows)},
+			RepoResolver: &pushHookCovRepoResolver{repoErr: fmt.Errorf("lookup: %w", pgx.ErrNoRows)},
 			Dispatcher:   &pushHookCovDispatcher{},
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo"}`))
 		rec := httptest.NewRecorder()
 
 		postAndProcess(t, h, rec, req)
@@ -186,10 +197,10 @@ func TestPushHook_Cov_PostPushEventBranches(t *testing.T) {
 		t.Parallel()
 
 		h := &InternalPushHookHandler{
-			RepoResolver: &pushHookCovRepoResolver{ownerErr: errors.New("pool exhausted")},
+			RepoResolver: &pushHookCovRepoResolver{repoErr: errors.New("pool exhausted")},
 			Dispatcher:   &pushHookCovDispatcher{},
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo"}`))
 		rec := httptest.NewRecorder()
 
 		postAndProcess(t, h, rec, req)
@@ -206,7 +217,7 @@ func TestPushHook_Cov_PostPushEventBranches(t *testing.T) {
 			RepoResolver: &pushHookCovRepoResolver{row: db.GetRepoByOwnerAndNameRow{ID: 101, Name: "demo"}},
 			Dispatcher:   dispatcher,
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo","ref_name":"refs/heads/main","pusher_id":7,"pusher_login":"alice"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo","ref_name":"refs/heads/main","pusher_id":7,"pusher_login":"alice"}`))
 		rec := httptest.NewRecorder()
 
 		postAndProcess(t, h, rec, req)

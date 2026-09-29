@@ -1222,6 +1222,11 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 		return fmt.Errorf("reserved ref rejected direct push: %s", msg)
 	}
 
+	repository, err := s.resolveRepositoryByName(ctx, owner, repo)
+	if err != nil {
+		return err
+	}
+
 	pipeReader, pipeWriter := io.Pipe()
 	copyErrCh := make(chan error, 1)
 	maxPackSize := s.maxReceivePackSize()
@@ -1272,6 +1277,7 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 	// SSH authenticates a person's key or a deploy key an administrator
 	// added; the platform issues neither to a run.
 	meta := repohost.ReceivePackMetadata{
+		RepositoryID:     repository.ID,
 		PusherID:         userID,
 		PusherLogin:      pusher.Username,
 		PusherCredential: middleware.CredentialPerson,

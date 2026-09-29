@@ -411,6 +411,7 @@ func TestGitHubMainPullFastForwardsOnlyMainToGitHubsCurrentTip(t *testing.T) {
 	assert.Equal(t, pullNew, h.host.bookmarks["main"])
 	assert.Equal(t, pullOld, h.host.bookmarks["smithers/landing-7"], "landing bookmarks are untouched")
 	require.Len(t, h.host.meta, 1)
+	assert.Equal(t, int64(19), h.host.meta[0].RepositoryID)
 	assert.Equal(t, "github", h.host.meta[0].PusherLogin)
 	assert.Equal(t, middleware.CredentialPlatform, h.host.meta[0].PusherCredential, "the main pull is the platform's own verified write")
 	assert.Equal(t, "refs/heads/main", h.host.meta[0].RefName)
@@ -589,7 +590,7 @@ func TestGitHubMainPullPollRechecksPullRepositories(t *testing.T) {
 
 func TestGitHubMainPullBridgeAcceptsOnlyTheObservedFastForward(t *testing.T) {
 	host := &fakeMainPullHost{bookmarks: map[string]string{"main": pullOld}}
-	bridge, err := startGitHubMainPullBridge(context.Background(), host, "smithers-canary", "smithers", gitHubMainPullUpdate{ref: "refs/heads/main", old: pullOld, new: pullNew}, nil)
+	bridge, err := startGitHubMainPullBridge(context.Background(), host, "smithers-canary", "smithers", gitHubMainPullUpdate{repositoryID: 19, ref: "refs/heads/main", old: pullOld, new: pullNew}, nil)
 	require.NoError(t, err)
 	defer bridge.Close()
 	ctx := context.Background()
@@ -617,6 +618,8 @@ func TestGitHubMainPullBridgeAcceptsOnlyTheObservedFastForward(t *testing.T) {
 
 	require.NoError(t, pushThroughBridge(ctx, bridge.URL(), "refs/heads/main", pullOld, pullNew))
 	assert.Equal(t, pullNew, host.bookmarks["main"])
+	require.Len(t, host.meta, 1)
+	assert.Equal(t, int64(19), host.meta[0].RepositoryID)
 }
 
 func TestReadGitHubMirrorPolicy(t *testing.T) {

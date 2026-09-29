@@ -155,6 +155,11 @@ func TestProxyReceivePack_StalledClientAfterProxyReturns_DoesNotHang(t *testing.
 	proxyErr := assert.AnError
 	srv := &Server{
 		drainTimeout: 20 * time.Millisecond,
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				return db.Repository{ID: 109}, nil
+			},
+		},
 		RepoHostClient: &mockRepoHostGitProxy{
 			// Consume everything the client sent so far, then fail: the
 			// client-copy goroutine has flushed its buffered bytes into the

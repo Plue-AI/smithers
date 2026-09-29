@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -20,6 +21,11 @@ func runPush(t *testing.T, push func(ctx context.Context, meta repohost.ReceiveP
 	t.Helper()
 	connCtx, closeConnection := context.WithCancel(context.Background())
 	server := &Server{
+		Queries: &mockSSHPrincipalQuerier{
+			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+				return db.Repository{ID: 109}, nil
+			},
+		},
 		Authorizer: &mockSSHAuthorizer{authorizeFn: func(context.Context, int64, string, string, services.AccessMode) error { return nil }},
 		RepoHostClient: &mockRepoHostGitProxy{
 			infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
@@ -49,7 +55,11 @@ func TestSSHReceivePackWaitEndsWithTheConnection(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	})
-	<-waiting
+	select {
+	case <-waiting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the push did not reach repo-host")
+	}
 	closeConn()
 	select {
 	case <-done:
@@ -73,7 +83,11 @@ func TestSSHReceivePackStartedPushOutlivesTheConnection(t *testing.T) {
 		}
 		return pushErr
 	})
-	<-started
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the push did not start")
+	}
 	closeConn()
 	select {
 	case <-done:

@@ -815,7 +815,7 @@ func (s *MythicalService) push(ctx context.Context, r *mythicalRun, op mythicalO
 	r.bridge.permit([]mythicalRefUpdate{
 		{Ref: repohost.MythicalBookmarkRef, Old: orZero(op.OldTip), New: op.NewTip},
 		{Ref: repohost.MythicalNotesRef, Old: orZero(op.OldNotes), New: op.NewNotes},
-	}, repohost.ReceivePackMetadata{ControlPlane: true, PusherLogin: "smithers"})
+	}, repohost.ReceivePackMetadata{RepositoryID: r.row.RepositoryID, ControlPlane: true, PusherLogin: "smithers"})
 	remote := r.bridge.URL()
 	if _, err := r.g.git(ctx, "push", "--atomic", "--porcelain", "--no-verify", remote,
 		"+"+op.NewTip+":"+repohost.MythicalBookmarkRef, "+"+op.NewNotes+":"+repohost.MythicalNotesRef); err != nil {

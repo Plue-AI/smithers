@@ -61,7 +61,7 @@ func TestSystemCredentialPushNeverSavesWorkflowCachesPostgres(t *testing.T) {
 		{"", "unattributed", "system_push", false},
 	} {
 		body, err := json.Marshal(map[string]any{
-			"delivery_id": fmt.Sprintf("delivery-%d", i), "owner": "push-owner", "repo": "app",
+			"delivery_id": fmt.Sprintf("delivery-%d", i), "repository_id": repoID, "owner": "push-owner", "repo": "app",
 			"ref_name": "refs/heads/main", "before_sha": "", "commit_sha": fmt.Sprintf("%040d", i+1),
 			"pusher_id": owner.ID, "pusher_login": push.login, "pusher_credential": push.credential,
 		})

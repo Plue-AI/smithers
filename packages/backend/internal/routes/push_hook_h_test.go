@@ -19,10 +19,10 @@ import (
 func TestPushHook_H_RemainingPostAndWorkflowBranches(t *testing.T) {
 	t.Run("repo resolver error and async branch", func(t *testing.T) {
 		handler := &InternalPushHookHandler{
-			RepoResolver: &pushHookCovRepoResolver{ownerErr: errors.New("db down")},
+			RepoResolver: &pushHookCovRepoResolver{repoErr: errors.New("db down")},
 			Dispatcher:   &pushHookCovDispatcher{},
 		}
-		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo"}`))
+		req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo"}`))
 		rec := httptest.NewRecorder()
 		postAndProcess(t, handler, rec, req)
 		require.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -32,7 +32,7 @@ func TestPushHook_H_RemainingPostAndWorkflowBranches(t *testing.T) {
 			Dispatcher:   &pushHookCovDispatcher{},
 			WorkflowRun:  &pushHookCovWorkflowRun{},
 		}
-		req = httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"owner":"alice","repo":"demo","commit_sha":"abc","pusher_id":7}`))
+		req = httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader(`{"repository_id":101,"owner":"alice","repo":"demo","commit_sha":"abc","pusher_id":7}`))
 		rec = httptest.NewRecorder()
 		postAndProcess(t, handler, rec, req)
 		require.Equal(t, http.StatusNoContent, rec.Code)
@@ -91,6 +91,10 @@ func (r *pushHookHRepoResolver) GetRepoByOwnerAndName(context.Context, db.GetRep
 
 func (r *pushHookHRepoResolver) GetRepoByID(context.Context, int64) (db.Repository, error) {
 	return r.repo, r.repoErr
+}
+
+func (r *pushHookHRepoResolver) GetRepoOwnerSlugAndNameByID(context.Context, int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+	return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "alice", RepoName: r.repo.Name}, r.repoErr
 }
 
 func (r *pushHookHRepoResolver) IsOrgOwnerForRepoUser(context.Context, db.IsOrgOwnerForRepoUserParams) (bool, error) {

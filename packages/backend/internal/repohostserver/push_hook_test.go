@@ -8,16 +8,25 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 func TestPushHookSenderFromHeaders(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("X-Smithers-Pusher-Id", "42")
 	headers.Set("X-Smithers-Pusher-Login", "alice")
+	headers.Set(repohost.RepositoryIDHeader, "109")
 
 	sender := pushHookSenderFromHeaders(headers)
-	if sender.PusherID != 42 || sender.PusherLogin != "alice" {
+	if sender.RepositoryID != 109 || sender.PusherID != 42 || sender.PusherLogin != "alice" {
 		t.Fatalf("unexpected sender: %#v", sender)
+	}
+	for _, value := range []string{"", "bad", "999999999999999999999999999"} {
+		headers.Set(repohost.RepositoryIDHeader, value)
+		if got := pushHookSenderFromHeaders(headers).RepositoryID; got != 0 {
+			t.Fatalf("invalid repository header %q yielded ID %d", value, got)
+		}
 	}
 }
 
@@ -36,38 +45,42 @@ func TestPushHookPayloadsFromRefDiff(t *testing.T) {
 		"refs/notes/mythical": "2222222222222222222222222222222222222222",
 	}
 
-	payloads := pushHookPayloadsFromRefDiff(beforeRefs, afterRefs, "alice", "demo", PushHookSender{
-		PusherID:    42,
-		PusherLogin: "alice",
-	})
+	headers := http.Header{}
+	headers.Set(repohost.RepositoryIDHeader, "109")
+	headers.Set("X-Smithers-Pusher-Id", "42")
+	headers.Set("X-Smithers-Pusher-Login", "alice")
+	payloads := pushHookPayloadsFromRefDiff(beforeRefs, afterRefs, "alice", "demo", pushHookSenderFromHeaders(headers))
 
 	want := []PushHookPayload{
 		{
-			Owner:       "alice",
-			Repo:        "demo",
-			RefName:     "refs/heads/dev",
-			BeforeSHA:   "",
-			CommitSHA:   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			PusherID:    42,
-			PusherLogin: "alice",
+			RepositoryID: 109,
+			Owner:        "alice",
+			Repo:         "demo",
+			RefName:      "refs/heads/dev",
+			BeforeSHA:    "",
+			CommitSHA:    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			PusherID:     42,
+			PusherLogin:  "alice",
 		},
 		{
-			Owner:       "alice",
-			Repo:        "demo",
-			RefName:     "refs/heads/main",
-			BeforeSHA:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			CommitSHA:   "cccccccccccccccccccccccccccccccccccccccc",
-			PusherID:    42,
-			PusherLogin: "alice",
+			RepositoryID: 109,
+			Owner:        "alice",
+			Repo:         "demo",
+			RefName:      "refs/heads/main",
+			BeforeSHA:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			CommitSHA:    "cccccccccccccccccccccccccccccccccccccccc",
+			PusherID:     42,
+			PusherLogin:  "alice",
 		},
 		{
-			Owner:       "alice",
-			Repo:        "demo",
-			RefName:     "refs/tags/v1.0",
-			BeforeSHA:   "dddddddddddddddddddddddddddddddddddddddd",
-			CommitSHA:   "",
-			PusherID:    42,
-			PusherLogin: "alice",
+			RepositoryID: 109,
+			Owner:        "alice",
+			Repo:         "demo",
+			RefName:      "refs/tags/v1.0",
+			BeforeSHA:    "dddddddddddddddddddddddddddddddddddddddd",
+			CommitSHA:    "",
+			PusherID:     42,
+			PusherLogin:  "alice",
 		},
 	}
 	if !reflect.DeepEqual(payloads, want) {
@@ -92,7 +105,7 @@ func TestSendPushHookPostsJSONAndBearerToken(t *testing.T) {
 		PushHookCallbackURL:   srv.URL,
 		PushHookCallbackToken: "secret",
 	}
-	want := PushHookPayload{Owner: "alice", Repo: "demo", RefName: "refs/heads/main", CommitSHA: "deadbeef", PusherID: 42, PusherLogin: "alice"}
+	want := PushHookPayload{RepositoryID: 109, Owner: "alice", Repo: "demo", RefName: "refs/heads/main", CommitSHA: "deadbeef", PusherID: 42, PusherLogin: "alice"}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

@@ -45,7 +45,7 @@ const pushWorkflowSyncTimeout = 5 * time.Minute
 const pushSearchIndexTimeout = 5 * time.Minute
 
 type PushHookRepoResolver interface {
-	GetRepoByOwnerAndName(ctx context.Context, arg db.GetRepoByOwnerAndNameParams) (db.GetRepoByOwnerAndNameRow, error)
+	GetRepoOwnerSlugAndNameByID(ctx context.Context, repositoryID int64) (db.GetRepoOwnerSlugAndNameByIDRow, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	// RepoPermQuerier lets the handler resolve the pusher's effective
 	// permission so config-sync only applies admin-only settings for admins.
@@ -97,14 +97,15 @@ type InternalPushHookHandler struct {
 }
 
 type PushHookEventRequest struct {
-	DeliveryID  string `json:"delivery_id"`
-	Owner       string `json:"owner"`
-	Repo        string `json:"repo"`
-	Ref         string `json:"ref_name"`
-	BeforeSHA   string `json:"before_sha"`
-	CommitSHA   string `json:"commit_sha"`
-	PusherID    int64  `json:"pusher_id"`
-	PusherLogin string `json:"pusher_login"`
+	RepositoryID int64  `json:"repository_id"`
+	DeliveryID   string `json:"delivery_id"`
+	Owner        string `json:"owner"`
+	Repo         string `json:"repo"`
+	Ref          string `json:"ref_name"`
+	BeforeSHA    string `json:"before_sha"`
+	CommitSHA    string `json:"commit_sha"`
+	PusherID     int64  `json:"pusher_id"`
+	PusherLogin  string `json:"pusher_login"`
 	// PusherCredential is the kind of credential behind the push
 	// (middleware.CredentialKind); empty when unattributed.
 	PusherCredential string `json:"pusher_credential,omitempty"`
@@ -132,10 +133,21 @@ func (h *InternalPushHookHandler) PostPushEvent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	repo, err := h.RepoResolver.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{
-		Owner: req.Owner,
-		Name:  req.Repo,
-	})
+	if req.RepositoryID < 0 {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("Invalid repository identity"))
+		return
+	}
+	if req.RepositoryID == 0 {
+		// An old durable payload cannot distinguish a moved repository from
+		// a replacement at the same name. Keep it pending for reconciliation.
+		middleware.LoggerFromContext(ctx).Warn("push event missing repository identity; reconciliation required",
+			"delivery_id", req.DeliveryID, "owner", req.Owner, "repo", req.Repo)
+		pkgerrors.WriteError(w, pkgerrors.Conflict("Push event requires repository identity reconciliation"))
+		return
+	}
+	// Names can move or be reused while a durable callback waits. Resolve
+	// only the original ID, and record its current coordinates on transfer.
+	current, err := h.RepoResolver.GetRepoOwnerSlugAndNameByID(ctx, req.RepositoryID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
 			pkgerrors.WriteError(w, pkgerrors.NotFound("Repository not found"))
@@ -151,13 +163,13 @@ func (h *InternalPushHookHandler) PostPushEvent(w http.ResponseWriter, r *http.R
 		// without redelivery deduplication rather than drop it.
 		deliveryID = "legacy-" + uuid.NewString()
 		middleware.LoggerFromContext(ctx).Warn("push event without delivery_id; redeliveries will not deduplicate",
-			"repo_id", repo.ID, "ref", req.Ref)
+			"repo_id", req.RepositoryID, "ref", req.Ref)
 	}
 	inserted, err := h.Events.InsertRepoPushEvent(ctx, db.InsertRepoPushEventParams{
 		DeliveryID:   deliveryID,
-		RepositoryID: repo.ID,
-		Owner:        req.Owner,
-		Repo:         repo.Name,
+		RepositoryID: req.RepositoryID,
+		Owner:        current.OwnerSlug,
+		Repo:         current.RepoName,
 		RefName:      req.Ref,
 		BeforeSha:    req.BeforeSHA,
 		CommitSha:    req.CommitSHA,
@@ -174,7 +186,7 @@ func (h *InternalPushHookHandler) PostPushEvent(w http.ResponseWriter, r *http.R
 	}
 	if inserted == 0 {
 		middleware.LoggerFromContext(ctx).Info("duplicate push event ignored",
-			"delivery_id", deliveryID, "repo_id", repo.ID, "ref", req.Ref)
+			"delivery_id", deliveryID, "repo_id", req.RepositoryID, "ref", req.Ref)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,20 +25,22 @@ const pushHookDeliveryTimeout = 10 * time.Second
 // PushHookPayload is one ref update sent to the API. DeliveryID is stable
 // across retries of the same event so the API can drop redeliveries.
 type PushHookPayload struct {
-	DeliveryID  string `json:"delivery_id"`
-	Owner       string `json:"owner"`
-	Repo        string `json:"repo"`
-	RefName     string `json:"ref_name"`
-	BeforeSHA   string `json:"before_sha"`
-	CommitSHA   string `json:"commit_sha"`
-	PusherID    int64  `json:"pusher_id"`
-	PusherLogin string `json:"pusher_login"`
+	RepositoryID int64  `json:"repository_id,omitempty"`
+	DeliveryID   string `json:"delivery_id"`
+	Owner        string `json:"owner"`
+	Repo         string `json:"repo"`
+	RefName      string `json:"ref_name"`
+	BeforeSHA    string `json:"before_sha"`
+	CommitSHA    string `json:"commit_sha"`
+	PusherID     int64  `json:"pusher_id"`
+	PusherLogin  string `json:"pusher_login"`
 	// PusherCredential is the kind of credential the API authenticated for
 	// the push; empty when unattributed.
 	PusherCredential middleware.CredentialKind `json:"pusher_credential,omitempty"`
 }
 
 type PushHookSender struct {
+	RepositoryID     int64
 	PusherID         int64
 	PusherLogin      string
 	PusherCredential middleware.CredentialKind
@@ -115,7 +118,12 @@ func pushHookSenderFromHeaders(headers http.Header) PushHookSender {
 	if value := headers.Get("X-Smithers-Pusher-Id"); value != "" {
 		_, _ = fmt.Sscan(value, &pusherID)
 	}
+	repositoryID, err := strconv.ParseInt(headers.Get(repohost.RepositoryIDHeader), 10, 64)
+	if err != nil {
+		repositoryID = 0
+	}
 	return PushHookSender{
+		RepositoryID:     repositoryID,
 		PusherID:         pusherID,
 		PusherLogin:      headers.Get("X-Smithers-Pusher-Login"),
 		PusherCredential: middleware.ParseCredentialKind(headers.Get(repohost.PusherCredentialHeader)),
@@ -157,6 +165,7 @@ func pushHookPayloadsFromRefDiff(beforeRefs, afterRefs map[string]string, owner,
 			continue
 		}
 		payloads = append(payloads, PushHookPayload{
+			RepositoryID:     sender.RepositoryID,
 			Owner:            owner,
 			Repo:             repo,
 			RefName:          refName,

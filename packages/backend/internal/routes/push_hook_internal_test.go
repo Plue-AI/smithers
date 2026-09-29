@@ -22,12 +22,20 @@ import (
 )
 
 type mockPushHookRepoResolver struct {
-	getRepoFn     func(ctx context.Context, arg db.GetRepoByOwnerAndNameParams) (db.GetRepoByOwnerAndNameRow, error)
-	getRepoByIDFn func(ctx context.Context, id int64) (db.Repository, error)
+	getRepoFn                     func(ctx context.Context, arg db.GetRepoByOwnerAndNameParams) (db.GetRepoByOwnerAndNameRow, error)
+	getRepoByIDFn                 func(ctx context.Context, id int64) (db.Repository, error)
+	getRepoOwnerSlugAndNameByIDFn func(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error)
 	// collabPermission overrides the pusher's effective collaborator
 	// permission used by the config-sync admin gate. Empty defaults to "admin"
 	// so the common path (an admin pusher) keeps config-sync enabled.
 	collabPermission string
+}
+
+func (m *mockPushHookRepoResolver) GetRepoOwnerSlugAndNameByID(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+	if m.getRepoOwnerSlugAndNameByIDFn != nil {
+		return m.getRepoOwnerSlugAndNameByIDFn(ctx, id)
+	}
+	return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "alice", RepoName: "demo"}, nil
 }
 
 func (m *mockPushHookRepoResolver) GetRepoByOwnerAndName(ctx context.Context, arg db.GetRepoByOwnerAndNameParams) (db.GetRepoByOwnerAndNameRow, error) {
@@ -117,11 +125,12 @@ func TestInternalPushHookHandler_PostPushEvent_DispatchesPushEvent(t *testing.T)
 	}
 
 	payload := PushHookEventRequest{
-		Owner:       "alice",
-		Repo:        "demo",
-		Ref:         "refs/heads/main",
-		PusherID:    42,
-		PusherLogin: "bob",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		PusherID:     42,
+		PusherLogin:  "bob",
 
 		PusherCredential: "person",
 	}
@@ -156,7 +165,7 @@ func TestInternalPushHookHandler_PostPushEvent_RecordsChangeRevisions(t *testing
 		Dispatcher:     &mockPushHookDispatcher{},
 		ChangeRecorder: recorder,
 	}
-	body, err := json.Marshal(PushHookEventRequest{Owner: "alice", Repo: "demo"})
+	body, err := json.Marshal(PushHookEventRequest{RepositoryID: 101, Owner: "alice", Repo: "demo"})
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/internal/repo-host/push-events", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -183,7 +192,7 @@ func TestInternalPushHookHandler_PostPushEvent_RevisionFailureDoesNotStopDispatc
 		Dispatcher:     dispatcher,
 		ChangeRecorder: &mockPushHookChangeRecorder{err: pkgerrors.Internal("record failed")},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/internal/repo-host/push-events", bytes.NewBufferString(`{"owner":"alice","repo":"demo"}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/repo-host/push-events", bytes.NewBufferString(`{"repository_id":101,"owner":"alice","repo":"demo"}`))
 	rec := httptest.NewRecorder()
 
 	postAndProcess(t, handler, rec, req)
@@ -244,8 +253,8 @@ func TestInternalPushHookHandler_PostPushEvent_RepoNotFound_Returns404(t *testin
 	t.Parallel()
 
 	resolver := &mockPushHookRepoResolver{
-		getRepoFn: func(ctx context.Context, arg db.GetRepoByOwnerAndNameParams) (db.GetRepoByOwnerAndNameRow, error) {
-			return db.GetRepoByOwnerAndNameRow{}, pgx.ErrNoRows
+		getRepoOwnerSlugAndNameByIDFn: func(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+			return db.GetRepoOwnerSlugAndNameByIDRow{}, pgx.ErrNoRows
 		},
 	}
 	dispatcher := &mockPushHookDispatcher{}
@@ -255,9 +264,10 @@ func TestInternalPushHookHandler_PostPushEvent_RepoNotFound_Returns404(t *testin
 	}
 
 	payload := PushHookEventRequest{
-		Owner: "alice",
-		Repo:  "missing",
-		Ref:   "refs/heads/main",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "missing",
+		Ref:          "refs/heads/main",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -286,9 +296,10 @@ func TestInternalPushHookHandler_PostPushEvent_WebhookEnqueueFailureStillRunsPus
 	}
 
 	payload := PushHookEventRequest{
-		Owner: "alice",
-		Repo:  "demo",
-		Ref:   "refs/heads/main",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -435,10 +446,11 @@ func TestInternalPushHookHandler_PostPushEvent_StartsCodeSearchIndexing(t *testi
 		SearchIndex:  indexer,
 	}
 	payload := PushHookEventRequest{
-		Owner:     "alice",
-		Repo:      "demo",
-		Ref:       "refs/heads/main",
-		CommitSHA: "abc123",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "abc123",
 	}
 	body, err := json.Marshal(payload)
 	require.NoError(t, err)
@@ -489,12 +501,13 @@ func TestInternalPushHookHandler_PostPushEvent_LoadsPersistsAndDispatchesDefault
 	}
 
 	payload := PushHookEventRequest{
-		Owner:       "alice",
-		Repo:        "demo",
-		Ref:         "refs/heads/main",
-		CommitSHA:   "abc123",
-		PusherID:    42,
-		PusherLogin: "bob",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "abc123",
+		PusherID:     42,
+		PusherLogin:  "bob",
 
 		PusherCredential: "person",
 	}
@@ -587,12 +600,13 @@ func TestInternalPushHookHandler_PostPushEvent_NonAdminPusherSkipsConfigSync(t *
 	}
 
 	payload := PushHookEventRequest{
-		Owner:       "alice",
-		Repo:        "demo",
-		Ref:         "refs/heads/main",
-		CommitSHA:   "abc123",
-		PusherID:    42,
-		PusherLogin: "bob",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "abc123",
+		PusherID:     42,
+		PusherLogin:  "bob",
 
 		PusherCredential: "person",
 	}
@@ -662,12 +676,13 @@ func TestInternalPushHookHandler_PostPushEvent_NonDefaultBookmarkSkipsPersistenc
 	}
 
 	payload := PushHookEventRequest{
-		Owner:       "alice",
-		Repo:        "demo",
-		Ref:         "refs/heads/feature/test",
-		CommitSHA:   "branch123",
-		PusherID:    42,
-		PusherLogin: "bob",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/feature/test",
+		CommitSHA:    "branch123",
+		PusherID:     42,
+		PusherLogin:  "bob",
 
 		PusherCredential: "person",
 	}
@@ -733,11 +748,12 @@ func TestInternalPushHookHandler_PostPushEvent_LoadFailureFallsBackToPersistedDe
 	}
 
 	payload := PushHookEventRequest{
-		Owner:     "alice",
-		Repo:      "demo",
-		Ref:       "refs/heads/main",
-		CommitSHA: "def456",
-		PusherID:  42,
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "def456",
+		PusherID:     42,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -778,11 +794,12 @@ func TestInternalPushHookHandler_PostPushEvent_NilWorkflowServices_NoError(t *te
 	}
 
 	payload := PushHookEventRequest{
-		Owner:     "alice",
-		Repo:      "demo",
-		Ref:       "refs/heads/main",
-		CommitSHA: "abc123",
-		PusherID:  42,
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "abc123",
+		PusherID:     42,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -819,12 +836,13 @@ func TestInternalPushHookHandler_PostPushEvent_WorkflowSyncContextHasDeadline(t 
 	}
 
 	payload := PushHookEventRequest{
-		Owner:       "alice",
-		Repo:        "demo",
-		Ref:         "refs/heads/main",
-		CommitSHA:   "abc123",
-		PusherID:    42,
-		PusherLogin: "bob",
+		RepositoryID: 101,
+		Owner:        "alice",
+		Repo:         "demo",
+		Ref:          "refs/heads/main",
+		CommitSHA:    "abc123",
+		PusherID:     42,
+		PusherLogin:  "bob",
 
 		PusherCredential: "person",
 	}

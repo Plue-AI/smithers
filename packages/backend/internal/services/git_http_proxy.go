@@ -168,7 +168,14 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 		return errors.Forbidden(msg)
 	}
 
+	repository, err := s.queries.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{
+		Owner: strings.ToLower(owner), LowerName: strings.ToLower(repo),
+	})
+	if err != nil {
+		return errors.Internal("failed to resolve push repository").WithCause(err)
+	}
 	meta := repohost.ReceivePackMetadata{
+		RepositoryID:     repository.ID,
 		PusherID:         user.ID,
 		PusherLogin:      user.Username,
 		PusherCredential: credential.kind,

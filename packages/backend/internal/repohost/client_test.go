@@ -557,6 +557,7 @@ func TestClient_ProxyReceivePack_SendsPushMetadataHeaders(t *testing.T) {
 
 	client := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token")
 	meta := ReceivePackMetadata{
+		RepositoryID: 109,
 		RefName:      "refs/heads/main",
 		CommitSHA:    "abc123def456",
 		PusherID:     42,
@@ -568,6 +569,7 @@ func TestClient_ProxyReceivePack_SendsPushMetadataHeaders(t *testing.T) {
 
 	err := client.ProxyReceivePack(context.Background(), "alice", "demo", bytes.NewReader(nil), io.Discard, meta)
 	require.NoError(t, err)
+	assert.Equal(t, "109", capturedHeaders.Get(RepositoryIDHeader))
 	assert.Equal(t, "run", capturedHeaders.Get(PusherCredentialHeader))
 
 	assert.Equal(t, "refs/heads/main", capturedHeaders.Get("X-Smithers-Push-Ref"))
@@ -605,6 +607,7 @@ func TestClient_ProxyReceivePack_PeeksPktLineWhenNoMetadataGiven(t *testing.T) {
 	// No pusher metadata provided, so these should be empty or absent
 	assert.Equal(t, "", capturedHeaders.Get("X-Smithers-Pusher-Id"))
 	assert.Equal(t, "", capturedHeaders.Get("X-Smithers-Pusher-Login"))
+	assert.Empty(t, capturedHeaders.Get(RepositoryIDHeader))
 }
 
 func TestClient_ProxyReceivePack_ShallowPreservesBodyAndMetadata(t *testing.T) {

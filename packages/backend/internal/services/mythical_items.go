@@ -2314,7 +2314,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 func (s *MythicalService) pin(ctx context.Context, r *mythicalRun, commit string) error {
 	ref := repohost.MythicalReservedRefNS + "keep/" + commit
 	r.bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: strings.Repeat("0", 40), New: commit}},
-		repohost.ReceivePackMetadata{ControlPlane: true, PusherLogin: "smithers"})
+		repohost.ReceivePackMetadata{RepositoryID: r.row.RepositoryID, ControlPlane: true, PusherLogin: "smithers"})
 	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", r.bridge.URL(), commit+":"+ref); err != nil {
 		refs, lsErr := r.g.lsRemote(ctx, r.bridge.URL())
 		if lsErr == nil && refs[ref] == commit {
@@ -2335,7 +2335,7 @@ func (s *MythicalService) retainFor(ctx context.Context, r *mythicalRun, workspa
 		}
 	}
 	r.bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: strings.Repeat("0", 40), New: commit}},
-		repohost.ReceivePackMetadata{WorkspaceID: workspaceID, PusherLogin: "smithers"})
+		repohost.ReceivePackMetadata{RepositoryID: r.row.RepositoryID, WorkspaceID: workspaceID, PusherLogin: "smithers"})
 	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", r.bridge.URL(), commit+":"+ref); err != nil {
 		refs, lsErr := r.g.lsRemote(ctx, r.bridge.URL())
 		if lsErr == nil && refs[ref] == commit {

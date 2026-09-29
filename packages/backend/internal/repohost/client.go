@@ -1773,10 +1773,11 @@ func (c *Client) ImportRefs(ctx context.Context, owner, repo string) error {
 // ReceivePackMetadata carries push context forwarded from the Go proxy layer
 // to the repo-host so it can be included in the push-hook callback.
 type ReceivePackMetadata struct {
-	RefName     string
-	CommitSHA   string
-	PusherID    int64
-	PusherLogin string
+	RepositoryID int64
+	RefName      string
+	CommitSHA    string
+	PusherID     int64
+	PusherLogin  string
 	// PusherCredential is the kind of credential the API authenticated for
 	// this push. Repo-host refuses an agent run's write of the default
 	// bookmark, and the push event carries it so a system credential's push
@@ -1791,6 +1792,9 @@ type ReceivePackMetadata struct {
 	// is set only in-process, never from a client request.
 	ControlPlane bool
 }
+
+// RepositoryIDHeader binds a push callback to the original repository, even after a rename.
+const RepositoryIDHeader = "X-Smithers-Repository-Id"
 
 // StartedHeader asks repo-host to answer 102 Processing once it holds the
 // repository's write lock for a receive-pack.
@@ -2027,6 +2031,9 @@ func (c *Client) proxyGitRPCWithMeta(
 		setRefViewer(ctx, req)
 	}
 
+	if meta.RepositoryID != 0 {
+		req.Header.Set(RepositoryIDHeader, strconv.FormatInt(meta.RepositoryID, 10))
+	}
 	if meta.RefName != "" {
 		req.Header.Set("X-Smithers-Push-Ref", meta.RefName)
 	}

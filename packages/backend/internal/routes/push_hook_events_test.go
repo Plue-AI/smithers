@@ -97,7 +97,7 @@ func TestPostPushEvent_RecordsEventWithoutRunningSideEffects(t *testing.T) {
 	runner := &mockPushHookWorkflowRunner{calls: make(chan dispatchCallRecord, 1)}
 	h := &InternalPushHookHandler{RepoResolver: &mockPushHookRepoResolver{}, Dispatcher: dispatcher, WorkflowRun: runner, Events: store}
 	body, err := json.Marshal(PushHookEventRequest{
-		DeliveryID: "d-1", Owner: "alice", Repo: "demo", Ref: "refs/heads/main",
+		DeliveryID: "d-1", RepositoryID: 101, Owner: "alice", Repo: "demo", Ref: "refs/heads/main",
 		BeforeSHA: "aaa", CommitSHA: "bbb", PusherID: 42, PusherLogin: "bob",
 	})
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestPostPushEvent_DuplicateDeliveryIsAcknowledgedOnce(t *testing.T) {
 
 	store := &memPushEvents{}
 	h := &InternalPushHookHandler{RepoResolver: &mockPushHookRepoResolver{}, Events: store}
-	body := `{"delivery_id":"d-1","owner":"alice","repo":"demo","ref_name":"refs/heads/main","commit_sha":"abc"}`
+	body := `{"delivery_id":"d-1","repository_id":101,"owner":"alice","repo":"demo","ref_name":"refs/heads/main","commit_sha":"abc"}`
 
 	require.Equal(t, http.StatusNoContent, postPushEvent(h, body).Code)
 	require.Equal(t, http.StatusNoContent, postPushEvent(h, body).Code)
@@ -133,7 +133,7 @@ func TestPostPushEvent_StoreFailureIsNotAcknowledged(t *testing.T) {
 	t.Parallel()
 
 	h := &InternalPushHookHandler{RepoResolver: &mockPushHookRepoResolver{}, Events: &memPushEvents{err: errors.New("db down")}}
-	rec := postPushEvent(h, `{"delivery_id":"d-1","owner":"alice","repo":"demo"}`)
+	rec := postPushEvent(h, `{"delivery_id":"d-1","repository_id":101,"owner":"alice","repo":"demo"}`)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "db down")
 }
@@ -143,7 +143,7 @@ func TestPostPushEvent_MissingDeliveryIDStillRecordsEvent(t *testing.T) {
 
 	store := &memPushEvents{}
 	h := &InternalPushHookHandler{RepoResolver: &mockPushHookRepoResolver{}, Events: store}
-	body := `{"owner":"alice","repo":"demo","ref_name":"refs/heads/main"}`
+	body := `{"repository_id":101,"owner":"alice","repo":"demo","ref_name":"refs/heads/main"}`
 	require.Equal(t, http.StatusNoContent, postPushEvent(h, body).Code)
 	require.Equal(t, http.StatusNoContent, postPushEvent(h, body).Code)
 	rows := store.snapshot()
@@ -214,6 +214,6 @@ func TestPushHookEventRequestDecodesRepoHostPayload(t *testing.T) {
 	t.Parallel()
 
 	var req PushHookEventRequest
-	require.NoError(t, json.NewDecoder(bytes.NewBufferString(`{"delivery_id":"d","owner":"o","repo":"r","ref_name":"refs/heads/x","before_sha":"a","commit_sha":"b","pusher_id":3,"pusher_login":"l"}`)).Decode(&req))
-	assert.Equal(t, PushHookEventRequest{DeliveryID: "d", Owner: "o", Repo: "r", Ref: "refs/heads/x", BeforeSHA: "a", CommitSHA: "b", PusherID: 3, PusherLogin: "l"}, req)
+	require.NoError(t, json.NewDecoder(bytes.NewBufferString(`{"delivery_id":"d","repository_id":101,"owner":"o","repo":"r","ref_name":"refs/heads/x","before_sha":"a","commit_sha":"b","pusher_id":3,"pusher_login":"l"}`)).Decode(&req))
+	assert.Equal(t, PushHookEventRequest{DeliveryID: "d", RepositoryID: 101, Owner: "o", Repo: "r", Ref: "refs/heads/x", BeforeSHA: "a", CommitSHA: "b", PusherID: 3, PusherLogin: "l"}, req)
 }

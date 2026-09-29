@@ -564,7 +564,7 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		}
 		return nil
 	}
-	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{ref: ref, old: smithersHead}, identity)
+	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead}, identity)
 	if err != nil {
 		return fail(err.Error())
 	}
