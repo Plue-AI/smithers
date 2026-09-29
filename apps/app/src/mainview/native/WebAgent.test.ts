@@ -94,6 +94,21 @@ describe("createWebAgent", () => {
     })
   })
 
+  test("a stream that errors mid-turn ends with a product sentence, never the thrown text", async () => {
+    const agent = createWebAgent({
+      fetchImpl: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(new Error("ECONNRESET secret-socket-detail")) }
+      }))
+    })
+    const { frames, push } = collect()
+    agent.subscribe(push)
+
+    expect(await agent.startTurn(request)).toEqual({ status: "started" })
+    await flush()
+    expect(frames[frames.length - 1]).toEqual({ runId: "run-1", type: "done", error: "The Smithers web agent stream failed." })
+    expect(JSON.stringify(frames)).not.toContain("secret-socket-detail")
+  })
+
   test("returns an honest error when the boundary responds with an HTTP failure", async () => {
     const agent = createWebAgent({
       fetchImpl: async () => new Response("upstream exploded", { status: 502 })
@@ -109,13 +124,14 @@ describe("createWebAgent", () => {
   test("returns an error when the boundary is unreachable", async () => {
     const agent = createWebAgent({
       fetchImpl: async () => {
-        throw new Error("connection refused")
+        throw new Error("connection refused secret-socket-detail")
       }
     })
     const result = await agent.startTurn(request)
+    /* The thrown text never becomes the transcript's sentence. */
     expect(result).toEqual({
       status: "error",
-      message: "Could not reach the Smithers web agent: connection refused"
+      message: "Could not reach the Smithers web agent."
     })
   })
 

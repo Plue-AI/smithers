@@ -232,6 +232,19 @@ describe("createGitHubSeam", () => {
     expect(resolved).toEqual([])
   })
 
+  test("an install check that throws shows a product sentence, never the thrown text", async () => {
+    const { seam, store } = await harness({
+      "api/user/github-app/installations/5511": () => { throw new Error("ECONNRESET secret-socket-detail") }
+    })
+
+    expect(seam.handleInstallReturn("?installation_id=5511&setup_action=install")).toBe(true)
+    await waitUntil(() => store.collections.toasts.get("toast-github.install")?.status === "failed", "the failed install toast")
+
+    const title = store.collections.toasts.get("toast-github.install")?.title
+    expect(title).toBe("Nothing came back from GitHub that I could confirm. Try again?")
+    expect(title).not.toContain("secret-socket-detail")
+  })
+
   test("github.app files the status row and renders the connected card", async () => {
     const { store, seam } = await harness({ [STATUS_PATH]: json(200, INSTALLED) })
 
@@ -946,7 +959,12 @@ describe("GitHub setup account ownership", () => {
         if (result === "success") {
           expect(store.collections.githubAppStatuses.get(action === "status" ? "will/smithers" : "will/private")?.installationId).toBe(5511)
           if (action === "installation") expect(store.session().activeRepoKey).toBe("will/private")
-        } else expect(textOf(answer)).toContain(result === "refusal" ? "Private setup refusal" : "Private setup error")
+        } else if (result === "refusal") expect(textOf(answer)).toContain("Private setup refusal")
+        else {
+          /* A dropped request's thrown text is never copy. */
+          expect(textOf(answer)).not.toContain("Private setup error")
+          expect(textOf(answer)).toMatch(action === "status" ? /^Could not reach Smithers Cloud\. / : /^Nothing came back from GitHub that I could confirm\. Try again\?$/)
+        }
       } else {
         expect(answer).toBe(SIGN_OUT_REFUSAL)
         expect((await store.eventHistory()).head).toEqual(head)

@@ -23,7 +23,7 @@ export const createDiffFilesSeam = (ctx: SeamContext) => {
           if (typeof body.content !== "string") return "The pinned file response contained no readable content."
           content = body.encoding === "base64" ? new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(body.content.replace(/\s+/g, "")), char => char.charCodeAt(0))) : body.content
           if (content.includes("\u0000")) return "This file is binary."
-        } catch (error) { return `Could not read the pinned file: ${error instanceof Error ? error.message : String(error)}` }
+        } catch { return "Could not read the pinned file." }
       }
       if (ctx.store.collections.cards.get(cardId) !== card) return "The frame changed while the file was loading. Select the file again."
       await ctx.dispatch({ type: "card.navigated", actor: ctx.actor(), card: {

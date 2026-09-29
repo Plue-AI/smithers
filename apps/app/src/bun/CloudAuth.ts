@@ -360,7 +360,8 @@ export const createCloudAuth = async (options: CloudAuthOptions): Promise<CloudA
           }
         })
       } catch (error) {
-        return { error: `Could not listen for the sign-in callback: ${error instanceof Error ? error.message : String(error)}` }
+        log(`cloud-auth: the sign-in callback listener failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+        return { error: "Could not start sign-in on this computer. Try again." }
       }
       const url = `${api}/api/auth/github/cli?${new URLSearchParams({ callback_port: String(server.port), callback_state: callbackState, scopes: CLOUD_AUTH_SCOPES.join(",") })}`
       const timeout = setTimeout(() => {

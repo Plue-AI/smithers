@@ -366,19 +366,22 @@ export interface RepositoryRanking {
   readonly error: string | null
 }
 
+/** A ranking read this module refused in its own words; any other throw is not copy. */
+class RankingRefused extends Error {}
+
 /** Pages stay on the supplied same-origin route; untrusted Link URLs never receive credentials. */
 async function githubPages(http: (url: string) => Promise<Response>, path: string): Promise<unknown[]> {
   const rows: unknown[] = []
   for (let page = 1; page <= 100; page++) {
     const response = await http(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`)
-    if (!response.ok) throw new Error(`GitHub read unavailable (${response.status}).`)
-    if (response.headers.get("x-repos-sync-error") || response.headers.get("x-metadata-stale") === "true") throw new Error("GitHub inventory is stale; retry to rank contributions.")
+    if (!response.ok) throw new RankingRefused(`GitHub read unavailable (${response.status}).`)
+    if (response.headers.get("x-repos-sync-error") || response.headers.get("x-metadata-stale") === "true") throw new RankingRefused("GitHub inventory is stale; retry to rank contributions.")
     const body: unknown = await response.json()
-    if (!Array.isArray(body)) throw new Error("GitHub returned an unreadable list.")
+    if (!Array.isArray(body)) throw new RankingRefused("GitHub returned an unreadable list.")
     rows.push(...body)
     if (!response.headers.get("link")?.includes('rel="next"') && body.length < 100) return rows
   }
-  throw new Error("GitHub pagination limit reached; contribution counts are unknown.")
+  throw new RankingRefused("GitHub pagination limit reached; contribution counts are unknown.")
 }
 
 /**
@@ -392,7 +395,10 @@ export async function rankTutorialRepositories(
   const cutoff = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString()
   let inventory: unknown[]
   try { inventory = await githubPages(http, `${baseUrl}/api/user/github-repos?sort=pushed&direction=desc`) }
-  catch (error) { return { cutoff, repositories: [], partial: true, error: String(error) } }
+  catch (error) {
+    // A dropped request or an unreadable body is recorded by the fetch tap; only authored refusals are copy.
+    return { cutoff, repositories: [], partial: true, error: error instanceof RankingRefused ? error.message : "Could not read your GitHub repositories." }
+  }
   const seen = new Set<string>()
   const repositories: RankedRepository[] = []
   for (const row of inventory) {

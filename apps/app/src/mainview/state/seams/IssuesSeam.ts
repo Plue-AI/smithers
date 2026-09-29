@@ -9,7 +9,7 @@ import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
-import { captureCloudOwner,errorMessage,errorText,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
+import { captureCloudOwner,errorMessage,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 
 import type { PersonaRef } from "@smthrs/rpc/Threads"
@@ -327,8 +327,9 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     let response: Response
     try {
       response = await ctx.http(githubSourceIssuesPath(repo, filter))
-    } catch (error) {
-      return { issues: [], meta: { source: "unreachable", syncedAt: null, stale: false, syncError: null, refusal: errorText(error) } }
+    } catch {
+      // The tapped fetch recorded the thrown request; its text is not copy.
+      return { issues: [], meta: { source: "unreachable", syncedAt: null, stale: false, syncError: null, refusal: "Could not reach GitHub." } }
     }
     const meta = {
       source: response.headers.get("x-metadata-source") ?? (response.ok ? "github" : "refused"),
@@ -633,8 +634,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     try {
       const outcome = await showIssue(repo, number)
       if (typeof outcome === "string") failure = outcome
-    } catch (error) {
-      failure = errorText(error)
+    } catch {
+      failure = "The issue could not be reloaded."
     }
     if (failure === undefined) return
     const detail = `Refresh failed: ${failure}`
@@ -655,7 +656,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     let response: Response
     try {
       response = await ctx.http(`${issuesPath(repo)}/comments/${commentId}`, { method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) })
-    } catch (error) { return `Message status unknown: ${errorText(error)}` }
+    } catch { return "Message status unknown: nothing answered. Refresh to check." }
     if (!response.ok) return readErrorMessage(response, `Changing the message failed (${response.status})`)
     await response.body?.cancel().catch(() => {})
     return refreshDetail(method === "DELETE" ? "Message deleted" : "Message saved", repo, number)
@@ -701,7 +702,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
             let created: Response
             try {
               created = await ctx.http(issuesPath(current.payload.repo), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: current.payload.title, kind: "chat", visibility: "private", idempotency_key: current.payload.conversation.creationKey }) })
-            } catch (error) { return fail("unknown", `Chat status unknown: ${errorText(error)}`) }
+            } catch { return fail("unknown", "Chat status unknown: nothing answered. Retry to check.") }
             if (!currentOwner()) return
             if (!created.ok) return fail("failed", await readErrorMessage(created, `Creating chat failed (${created.status})`))
             const body: unknown = await created.json().catch(() => null)
@@ -718,7 +719,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
               method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" },
               body: JSON.stringify(editing ? { body: request.text } : { body: request.text, idempotency_key: request.id, ...(request.persona ? { persona: request.persona } : {}) })
             })
-          } catch (error) { return fail("unknown", `Message status unknown: ${errorText(error)}`) }
+          } catch { return fail("unknown", "Message status unknown: nothing answered. Retry to check.") }
           if (!sameThread()) return
           if (!response.ok) return fail("failed", await readErrorMessage(response, `Posting the message failed (${response.status})`))
           const receipt: unknown = await response.json().catch(() => null)
@@ -745,11 +746,11 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         else await work()
       }
     }
-    void send().catch(async error => {
+    void send().catch(async () => {
       if (!currentOwner()) return
       const current = ctx.store.collections.cards.get(cardId)
       const request = current?.kind === "issue" ? current.payload.pendingComments?.find(row => row.status === "requested") : undefined
-      if (request) await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === request.id ? { ...row, status: "unknown", error: errorText(error) } : row) }), "system")
+      if (request) await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === request.id ? { ...row, status: "unknown", error: "Message status unknown. Retry to check." } : row) }), "system")
     }).finally(() => { active!.delete(cardId); if (currentOwner()) drainComments(cardId) })
   }
 
@@ -791,7 +792,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         })
         if (!response.ok) failure = await readErrorMessage(response, `Resolution failed (${response.status})`)
         else await response.body?.cancel().catch(() => {})
-      } catch (error) { failure = `Resolution unconfirmed: ${errorText(error)}` }
+      } catch { failure = "Resolution unconfirmed: nothing answered." }
       if (!current()) return TOAST_SUPERSEDED
       await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: failure ? { ...request, status: "failed", error: failure } : undefined } }), "system")
       const before = ctx.store.collections.cards.get(cardId)
@@ -951,7 +952,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       let response: Response
       try {
         response = await ctx.http(`${issuesPath(target.repo)}/${number}/comments/${commentId}/reactions`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, active }) })
-      } catch (error) { return `Reaction status unknown: ${errorText(error)}` }
+      } catch { return "Reaction status unknown: nothing answered. Refresh to check." }
       if (!response.ok) return readErrorMessage(response, `Saving the reaction failed (${response.status})`)
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Reaction saved", target.repo, number)
@@ -1009,7 +1010,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ provider, connection_id: connectionId, scope_id: scopeId, conversation_id: conversationId, ...(threadId ? { thread_id: threadId } : {}), ...(externalUserId ? { external_user_id: externalUserId } : {}) })
         })
-      } catch (error) { return `Sync mapping status unknown: ${errorText(error)}` }
+      } catch { return "Sync mapping status unknown: nothing answered. Refresh to check." }
       if (!response.ok) return readErrorMessage(response, `Mapping sync failed (${response.status})`)
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Sync mapped", repo, number)
@@ -1117,8 +1118,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ body: text, ...(persona ? { persona } : {}) })
         })
-      } catch (error) {
-        const detail = `No response from issue #${number} in ${repo}: ${errorText(error)}`
+      } catch {
+        const detail = `No response from issue #${number} in ${repo}.`
         showCommentNotice(`issue.comment.unknown:${repo}:${number}`, "Comment status unknown", detail)
         return { value: `Comment status unknown. ${detail}` }
       }

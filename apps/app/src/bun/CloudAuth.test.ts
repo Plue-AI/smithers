@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import type { Server } from "bun"
 import { CLOUD_AUTH_BODY_LIMIT, CLOUD_KEYCHAIN_SERVICE, createCloudAuth, parseCloudCredentials } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
@@ -135,6 +135,18 @@ describe("parseCloudCredentials", () => {
 })
 
 describe("cloud sign-in", () => {
+  test("a callback listener that cannot open answers a product sentence and logs the thrown text", async () => {
+    const lines: Array<string> = []
+    auth = await createCloudAuth({ now, api: "https://cloud-auth.test", keychain: memoryKeychain(), fetchImpl: async () => new Response("[]"), log: line => lines.push(line) })
+    const serve = spyOn(Bun, "serve").mockImplementation(() => { throw new Error("EADDRINUSE secret-listener-detail") })
+    try {
+      expect(await auth.start()).toEqual({ error: "Could not start sign-in on this computer. Try again." })
+    } finally {
+      serve.mockRestore()
+    }
+    expect(lines.some(line => line.includes("secret-listener-detail"))).toBe(true)
+  })
+
   test("a fresh attempt rejects missing and previous callback state before probing", async () => {
     let probes = 0
     auth = await createCloudAuth({ now, api: "https://cloud-auth.test", keychain: memoryKeychain(), fetchImpl: async () => { probes++; return new Response("[]") } })

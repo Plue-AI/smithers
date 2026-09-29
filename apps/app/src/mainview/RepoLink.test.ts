@@ -277,6 +277,13 @@ describe("openRequestedRepo", () => {
     expect(resolveTargetRepo(store, undefined)).toEqual({ repo: "smithersai/smithers" })
   })
 
+  test("a thrown catalog read answers a product sentence, never the thrown text", async () => {
+    const { store, controller } = await fixture()
+    const refusal = await openRequestedRepo(controller, async () => { throw new TypeError("ECONNRESET secret-socket-detail") }, "smithersai/smithers")
+    expect(refusal).toBe("The public repository catalog could not be read.")
+    expect(JSON.stringify(store.session().repositoryEntry)).not.toContain("secret-socket-detail")
+  })
+
   test("a late catalog response cannot select an earlier URL or overwrite the newer refusal", async () => {
     const { store, controller, ran } = await fixture()
     let answer!: (response: Response) => void
@@ -383,7 +390,7 @@ describe("openRequestedRepo", () => {
   test("an unreachable catalog is a refusal, not a selection", async () => {
     const { store, controller } = await fixture()
     expect(await openRequestedRepo(controller, async () => jsonResponse({}, 503), "smithersai/smithers")).toMatch(/HTTP 503/)
-    expect(await openRequestedRepo(controller, async () => { throw new Error("offline") }, "smithersai/smithers")).toMatch(/offline/)
+    expect(await openRequestedRepo(controller, async () => { throw new Error("offline") }, "smithersai/smithers")).toBe("The public repository catalog could not be read.")
     expect(store.session().activeRepoKey ?? null).toBeNull()
   })
 

@@ -92,11 +92,13 @@ describe("cloud transport", () => {
     const client = createCloudClient({
       baseUrl: "",
       http: async () => {
-        throw new Error("offline")
+        throw new Error("offline secret-socket-detail")
       }
     })
+    /* The thrown text never becomes the sentence a person reads. */
+    expect(JSON.stringify(await client.get("/repos"))).not.toContain("secret-socket-detail")
     expect(await client.get("/repos")).toEqual({
-      error: "Could not reach Smithers Cloud: offline",
+      error: "Could not reach Smithers Cloud.",
       status: null,
       code: null,
       retryAfterSeconds: null,
@@ -109,7 +111,7 @@ describe("cloud transport", () => {
         code: null,
         rawCode: null,
         fault: "infra",
-        message: "Could not reach Smithers Cloud: offline",
+        message: "Could not reach Smithers Cloud.",
         retryAfter: null,
         status: null,
         origin: "client"

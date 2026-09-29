@@ -8,6 +8,7 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { fileOptions } from "./FilesSeam"
 const PAGE_COMMIT = "a".repeat(40)
 
 /*
@@ -580,9 +581,22 @@ describe("files seam — honest failures", () => {
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
-        `Could not reach the backend to read net.txt in will/flows: socket hang up. ${NOTHING_ANSWERED}`
+        `Could not reach the backend to read net.txt in will/flows. ${NOTHING_ANSWERED}`
       )
+      /* The thrown text stays in the fetch tap, never in the answer. */
+      expect(outcome.error).not.toContain("socket hang up")
     }
+  })
+
+  test("the file chooser's inventory answers a product sentence when a read throws, never the thrown text", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    await ready(store)
+    const answer = await fileOptions({
+      store,
+      baseUrl: "",
+      http: async () => { throw new TypeError("ECONNRESET secret-socket-detail") }
+    }, "will/flows")
+    expect(answer).toEqual({ options: [], error: "Could not list files in will/flows." })
   })
 
   test("an inventory-less signed-in session answers the repo-resolution error before any request", async () => {

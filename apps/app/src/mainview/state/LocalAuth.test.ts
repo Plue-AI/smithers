@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { LocalIdentityClient } from "../runtime/ApplicationClient"
+import { ApplicationClientError, type LocalIdentityClient } from "../runtime/ApplicationClient"
 import { createLocalAuthController } from "./LocalAuth"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -52,7 +52,7 @@ describe("local owner authentication", () => {
     const client: LocalIdentityClient = {
       status: async () => {
         reads += 1
-        if (reads === 1) throw new Error("offline")
+        if (reads === 1) throw new Error("offline secret-socket-detail")
         return { enabled: true, initialized: true }
       },
       bootstrap: async () => { throw new Error("unused") },
@@ -61,7 +61,9 @@ describe("local owner authentication", () => {
     const auth = createLocalAuthController(client, async () => {})
     auth.open()
     await tick()
-    expect(auth.snapshot()).toMatchObject({ open: true, pending: false, status: null, error: "offline" })
+    /* An untagged throw's text is never the sentence. */
+    expect(auth.snapshot()).toMatchObject({ open: true, pending: false, status: null, error: "Local sign-in could not finish. Try again." })
+    expect(JSON.stringify(auth.snapshot())).not.toContain("secret-socket-detail")
 
     auth.open()
     await tick()
@@ -96,6 +98,28 @@ describe("local owner authentication", () => {
       bootstrapToken: "native bootstrap secret"
     })
     expect(JSON.stringify(auth.snapshot())).not.toContain("native bootstrap secret")
+  })
+
+  test("a server refusal keeps its words; a dropped request never shows its thrown text", async () => {
+    let answer: "refused" | "dropped" = "refused"
+    const client: LocalIdentityClient = {
+      status: async () => ({ enabled: true, initialized: true }),
+      bootstrap: async () => { throw new Error("unused") },
+      login: async () => {
+        throw answer === "refused"
+          ? new ApplicationClientError("unauthenticated", "Invalid username or password.", 401, "unauthenticated")
+          : new ApplicationClientError("transport", "ECONNRESET secret-socket-detail", null, null, null, { cause: new TypeError("ECONNRESET secret-socket-detail") })
+      }
+    }
+    const auth = createLocalAuthController(client, async () => {})
+    auth.open()
+    await tick()
+    await auth.submit({ username: "owner", password: "wrong" })
+    expect(auth.snapshot().error).toBe("Invalid username or password.")
+    answer = "dropped"
+    await auth.submit({ username: "owner", password: "wrong" })
+    expect(auth.snapshot().error).not.toBeNull()
+    expect(auth.snapshot().error).not.toContain("secret-socket-detail")
   })
 
   test("close and dispose cancel the outstanding status request", async () => {

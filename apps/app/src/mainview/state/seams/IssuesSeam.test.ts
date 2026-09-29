@@ -573,8 +573,10 @@ describe("issues seam — mutations re-fetch so the card states the new truth", 
     expect(store.collections.toasts.get("toast-issue.comment.unknown:will/flows:7")).toMatchObject({
       title: "Comment status unknown",
       status: "failed",
-      detail: "No response from issue #7 in will/flows: connection reset"
+      detail: "No response from issue #7 in will/flows."
     })
+    /* The thrown text is diagnostics, never copy. */
+    expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("connection reset")
     expect([...store.collections.toasts.values()].some(toast => toast.title.includes("didn't run"))).toBe(false)
     expect(calls.filter(call => call.includes("/issues/7"))).toEqual(["POST /api/repos/will/flows/issues/7/comments"])
   })
@@ -609,8 +611,9 @@ describe("issues seam — honest failures, never throws", () => {
     const outcome = await controller.commands.run("issues.view", "7")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toContain("Could not reach the backend")
-      expect(outcome.error).toContain("socket hangup")
+      expect(outcome.error).toContain("Could not reach the backend to load issue #7 in will/flows.")
+      /* The thrown text stays in the fetch tap, never in the answer. */
+      expect(outcome.error).not.toContain("socket hangup")
     }
     await settled()
     expect(store.collections.cards.get("issue-will/flows-7")).toMatchObject({ status: "error", loading: false })

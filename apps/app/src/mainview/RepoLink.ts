@@ -182,8 +182,9 @@ export const openRequestedRepo = async (
     const response = await http(PUBLIC_REPOS_PATH, { headers: { accept: "application/json" } })
     if (!response.ok) return finish(`The public repository catalog answered HTTP ${response.status}.`)
     catalog = await response.json()
-  } catch (cause) {
-    return finish(`The public repository catalog could not be read: ${cause instanceof Error ? cause.message : String(cause)}`)
+  } catch {
+    // A dropped request or an unreadable body: its thrown text is never copy.
+    return finish("The public repository catalog could not be read.")
   }
   if (!current()) return
   if (typeof catalog !== "object" || catalog === null || !Array.isArray((catalog as { repos?: unknown }).repos)) return finish("The public repository catalog could not be read.")

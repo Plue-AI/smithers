@@ -100,8 +100,8 @@ export const createCloudSeam = (ctx: SeamContext, deps: CloudSeamDeps = {}): Clo
           headers: { "content-type": "application/json" },
           body: "{}"
         })
-      } catch (error) {
-        return `Could not reach the local app to start cloud sign-in: ${error instanceof Error ? error.message : String(error)}`
+      } catch {
+        return "Could not reach the local app to start cloud sign-in."
       }
       if (!response.ok) {
         return `Cloud sign-in is not available here (${response.status}).`
@@ -133,8 +133,8 @@ export const createCloudSeam = (ctx: SeamContext, deps: CloudSeamDeps = {}): Clo
           body: "{}"
         })
         if (!response.ok) return `Cloud sign-out failed (${response.status}).`
-      } catch (error) {
-        return `Could not reach the local app to sign out: ${error instanceof Error ? error.message : String(error)}`
+      } catch {
+        return "Could not reach the local app to sign out."
       }
       mirror({ state: "signed-out", username: null, expiresAt: null })
     }

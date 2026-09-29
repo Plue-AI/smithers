@@ -180,7 +180,6 @@ export const cloudDocumentUri = (path: string): string => `${CLOUD_LSP_ROOT_URI}
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
 
-const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error)
 
 /** The `didOpen` languageId for a path, in the server's vocabulary (typescript-language-server's four). */
 const TYPESCRIPT_DOCUMENT_IDS: Readonly<Record<string, string>> = {
@@ -349,9 +348,10 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
           body: JSON.stringify({ workspace_id: conn.workspaceId, kind: "lsp", language: conn.language })
         }))
         assertActive()
-      } catch (error) {
+      } catch {
         assertActive()
-        throw new Refused({ code: "unreachable", message: `Could not reach Smithers Cloud: ${errorText(error)}` })
+        // A thrown request's text is not copy; the tapped fetch recorded it.
+        throw new Refused({ code: "unreachable", message: "Could not reach Smithers Cloud." })
       }
       const body: unknown = await whileActive(response.json().catch(() => null))
       assertActive()
@@ -578,17 +578,17 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       url = options.authorizeSocket === undefined
         ? rawUrl
         : await whileActive(options.authorizeSocket(rawUrl, lifetime.signal))
-    } catch (error) {
+    } catch {
       assertActive()
-      return { close: { code: 0, reason: `socket authorization failed: ${errorText(error)}` } }
+      return { close: { code: 0, reason: "the code intelligence connection could not be authorized" } }
     }
     assertActive()
     return new Promise((resolve) => {
       let socket: WebSocket
       try {
         socket = socketFactory(url, protocol === undefined ? undefined : [protocol])
-      } catch (error) {
-        resolve({ close: { code: 0, reason: `socket open failed: ${errorText(error)}` } })
+      } catch {
+        resolve({ close: { code: 0, reason: "the code intelligence connection could not open" } })
         return
       }
       conn.socket = socket
@@ -676,7 +676,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         void ensureReady(conn).then(
           () => reissue(conn),
           (error: unknown) => {
-            const refusal = error instanceof Refused ? error.refusal : { code: "unreachable", message: errorText(error) }
+            const refusal = error instanceof Refused ? error.refusal : { code: "unreachable", message: "the workspace language server could not restart" }
             rejectPending(conn, refusal)
             emit({ ...scopeOf(conn), type: "closed", code, reason, paths: [...conn.documents.keys()] })
           }
@@ -775,7 +775,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     try {
       return { ok: await work() }
     } catch (error) {
-      return { refusal: error instanceof Refused ? error.refusal : { code: "failed", message: errorText(error) } }
+      return { refusal: error instanceof Refused ? error.refusal : { code: "failed", message: "Code intelligence hit an unexpected error." } }
     }
   }
 

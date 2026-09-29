@@ -39,6 +39,14 @@ test("real diff reads the pinned SHA and leaves the diff intact on failure", asy
   expect(store.collections.cards.get("diff")?.kind).toBe("diff")
 })
 
+test("a thrown pinned read answers a product sentence, never the thrown text", async () => {
+  const { store, seam } = await setup(async () => { throw new TypeError("ECONNRESET secret-socket-detail") })
+  await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "diff", kind: "diff", title: "Diff", status: "active", createdAt: 1, ordinal: 1,
+    payload: { repo: "owner/repo", changeId: "change", from: "parent", to: "current", pin: { changeId: "change", commitId: "abc123", seq: null }, files: [{ path: "a.ts", changeType: "modified", isBinary: false, additions: 1, deletions: 1 }] } } }).isPersisted.promise
+  expect(await seam.openDiffFile("diff", "a.ts")).toBe("Could not read the pinned file.")
+  expect(store.collections.cards.get("diff")?.kind).toBe("diff")
+})
+
 test("real file projection records the diff commit instead of the current head", async () => {
   const { store, seam } = await setup(async () => new Response(JSON.stringify({ content: btoa("pinned content\n"), encoding: "base64" })))
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "diff", kind: "diff", title: "Diff", status: "active", createdAt: 1, ordinal: 1,

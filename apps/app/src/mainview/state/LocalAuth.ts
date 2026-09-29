@@ -1,5 +1,6 @@
 import type { LocalIdentityStatus } from "@smthrs/rpc/ApplicationAuth"
-import type { LocalIdentityClient } from "../runtime/ApplicationClient"
+import { ApplicationClientError, type LocalIdentityClient } from "../runtime/ApplicationClient"
+import { presentAppFailure } from "./controller/AppFailure"
 
 export interface LocalAuthSnapshot {
   readonly open: boolean
@@ -22,7 +23,18 @@ export interface LocalAuthController {
   readonly dispose: () => void
 }
 
-const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error)
+/** Thrown when the owner submits setup without a bootstrap token; its message is authored copy. */
+class BootstrapTokenMissing extends Error {}
+
+/*
+ * A refusal the local server answered keeps its own words (a wrong password
+ * says so). Anything else, including a request that never reached the server,
+ * gets a product sentence; its raw text is never shown.
+ */
+const messageOf = (error: unknown): string =>
+  error instanceof BootstrapTokenMissing || (error instanceof ApplicationClientError && error.status !== null)
+    ? error.message
+    : presentAppFailure(error, () => {}, { fault: "bug", sentence: "Local sign-in could not finish. Try again.", actions: ["retry"] }).sentence
 
 /** Ephemeral credential UI state. Usernames may be reflected; secrets never enter the app store. */
 export const createLocalAuthController = (
@@ -83,7 +95,7 @@ export const createLocalAuthController = (
         await client.login({ username: input.username, password: input.password }, request.signal)
       } else {
         const token = input.bootstrapToken?.trim() || (await bootstrapToken?.())?.trim()
-        if (token === undefined || token === "") throw new Error("Bootstrap token is required.")
+        if (token === undefined || token === "") throw new BootstrapTokenMissing("Bootstrap token is required.")
         if (!isCurrent(request.generation)) return
         await client.bootstrap({
           username: input.username,

@@ -269,16 +269,12 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(request)
         })
-      } catch (error) {
+      } catch {
         release()
         // A cancelled connect is the user's own doing, not a failed turn to report.
         if (abortController.signal.aborted) return { status: "started" }
-        return {
-          status: "error",
-          message: error instanceof Error
-            ? `Could not reach the Smithers web agent: ${error.message}`
-            : "Could not reach the Smithers web agent."
-        }
+        // The thrown text is transport detail, never the transcript's sentence.
+        return { status: "error", message: "Could not reach the Smithers web agent." }
       }
       if (!response.ok || response.body === null) {
         release()
@@ -312,15 +308,9 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
         return { status: "started" }
       }
       void streamFrames(response.body, request.runId, publish, release)
-        .catch((error: unknown) => {
+        .catch(() => {
           if (abortController.signal.aborted) return
-          publish({
-            runId: request.runId,
-            type: "done",
-            error: error instanceof Error
-              ? error.message
-              : "The Smithers web agent stream failed."
-          })
+          publish({ runId: request.runId, type: "done", error: "The Smithers web agent stream failed." })
         })
         .finally(release)
       return { status: "started" }

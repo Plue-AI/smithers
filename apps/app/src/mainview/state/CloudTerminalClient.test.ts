@@ -456,3 +456,21 @@ test("replay control frames are not printed but identical binary shell output is
  await until(() => output.length > 0)
  expect(output.join("")).toBe(marker)
 })
+
+test("a socket that cannot authorize or open prints a product line, never the thrown text", async () => {
+  for (const failure of ["authorize", "open"] as const) {
+    const output: Array<string> = []
+    const terminal = track(createCloudTerminalClient({
+      auth: failure === "authorize" ? "ticket" : "cookie",
+      socketUrl: () => "ws://127.0.0.1:9/tunnel",
+      ...(failure === "authorize"
+        ? { authorizeSocket: async () => { throw new Error("secret-authorize-detail") } }
+        : { openSocket: () => { throw new Error("secret-open-detail") } }),
+      reconnectMs: 60_000
+    }))
+    terminal.attach("will/flows", "sess-1", { onOutput: data => output.push(data) })
+    await until(() => output.length > 0)
+    expect(output.join("")).toContain(failure === "authorize" ? "[the terminal connection could not be authorized]" : "[the terminal connection could not open]")
+    expect(output.join("")).not.toContain("secret-")
+  }
+})

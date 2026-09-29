@@ -53,12 +53,12 @@ export const cloudFailure = async (response: Response, fallback: string): Promis
   }
 }
 
-/** A request that never reached Smithers Cloud: infra-class, because nothing judged it. */
+/**
+ * A request that never reached Smithers Cloud: infra-class, because nothing
+ * judged it. The thrown text is not copy; the tapped fetch recorded it.
+ */
 export const cloudUnreachable = (error: unknown): CloudFailure => {
-  const refusal = clientRefusal(
-    error,
-    `Could not reach Smithers Cloud: ${error instanceof Error ? error.message : String(error)}`
-  )
+  const refusal = clientRefusal(error, "Could not reach Smithers Cloud.")
   return { error: refusal.message, code: null, status: null, retryAfterSeconds: null, refusal }
 }
 

@@ -165,6 +165,15 @@ describe("cloud session seam", () => {
     })
   }
 
+  test("a thrown sign-in or sign-out request answers a product sentence, never the thrown text", async () => {
+    const { seam } = await harness((path) => {
+      if (path === CLOUD_AUTH_SESSION_PATH) return json(200, { state: "signed-out", username: null, expiresAt: null })
+      throw new Error("ECONNREFUSED secret-socket-detail")
+    })
+    expect(await seam.signIn()).toBe("Could not reach the local app to start cloud sign-in.")
+    expect(await seam.signOut()).toBe("Could not reach the local app to sign out.")
+  })
+
   test("sign-out posts the route and mirrors signed-out", async () => {
     const { store, seam, requests } = await harness((path, init) =>
       path === CLOUD_AUTH_SIGN_OUT_PATH && init?.method === "POST" ? json(200, { ok: true }) : json(404, {}))

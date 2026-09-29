@@ -100,8 +100,6 @@ export const readErrorMessage = async (response: Response, fallback: string): Pr
   return errorMessage(await response.json().catch(() => null), fallback)
 }
 
-/** The prose of a thrown value, which is all a rejected fetch ever carries. */
-export const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error)
 
 /**
  * A request that threw before anything answered it: offline, DNS, TLS, a
@@ -113,9 +111,11 @@ export const errorText = (error: unknown): string => error instanceof Error ? er
  * shape for the same event: the throw used to reach the transcript, a card and
  * the chat model as a bare `Could not reach X: Load failed`, which reads as
  * something the reader did, and a dozen seams each worded it themselves.
+ * The thrown text is never part of it: the tapped fetch already recorded the
+ * failed request for diagnostics, and a person reads only what failed.
  */
 export const unreachable = (what: string, error: unknown): Refusal =>
-  clientRefusal(error, `Could not reach ${what}: ${errorText(error)}`)
+  clientRefusal(error, `Could not reach ${what}.`)
 
 /** The one sentence a thrown request earns, with the verdict on the end of it. */
 export const unreachableSentence = (what: string, error: unknown): string => refusalSentence(unreachable(what, error))

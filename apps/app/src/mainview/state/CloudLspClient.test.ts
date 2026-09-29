@@ -294,6 +294,30 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
   })
 })
 
+test("a thrown session request or socket answers a product sentence, never the thrown text", async () => {
+  const server = serve()
+  const dropped = client(server, { http: async () => { throw new TypeError("ECONNRESET secret-socket-detail") } })
+  expect(await dropped.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "unreachable", message: "Could not reach Smithers Cloud." } })
+  const route = sessionRoute()
+  for (const failure of ["authorize", "open"] as const) {
+    const lsp = createCloudLspClient({
+      http: route.http,
+      baseUrl: "http://local.invalid",
+      socketUrl: () => server.url,
+      ...(failure === "authorize"
+        ? { authorizeSocket: async () => { throw new Error("secret-authorize-detail") } }
+        : { socketProtocol: () => "smithers.local.test", socketFactory: () => { throw new Error("secret-open-detail") } }),
+      requestTimeoutMs: 1_000,
+      retry: { maxAttempts: 1, defaultDelayMs: 10 },
+      reconnectMs: 10
+    })
+    clients.push(lsp)
+    const answer = await lsp.hover(DOC, { line: 3, character: 7 })
+    expect(JSON.stringify(answer)).not.toContain("secret-")
+    expect(JSON.stringify(answer)).toContain(failure === "authorize" ? "could not be authorized" : "could not open")
+  }
+})
+
 test("a message plue split into { seq, last, data } fragments is reassembled in order; a gap drops the set whole", async () => {
   const server = serve({ fragmentHover: 40, silentHoverUris: [cloudDocumentUri("src/other.ts")] })
   const { lsp } = client(server, { requestTimeoutMs: 400 })

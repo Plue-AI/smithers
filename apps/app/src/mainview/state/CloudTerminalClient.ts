@@ -224,10 +224,10 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
         url = options.authorizeSocket === undefined
           ? rawUrl
           : await options.authorizeSocket(rawUrl, opening.signal)
-      } catch (error) {
+      } catch {
         if (conn.opening !== opening || opening.signal.aborted || disposed) return
         conn.opening = undefined
-        say(conn, `socket authorization failed: ${error instanceof Error ? error.message : String(error)}`)
+        say(conn, "the terminal connection could not be authorized")
         scheduleReconnect(sessionId, entry)
         return
       }
@@ -236,8 +236,8 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
       let opened: WebSocket
       try {
         opened = openSocket(url, protocol === undefined ? undefined : [protocol])
-      } catch (error) {
-        say(conn, `socket open failed: ${error instanceof Error ? error.message : String(error)}`)
+      } catch {
+        say(conn, "the terminal connection could not open")
         scheduleReconnect(sessionId, entry)
         return
       }

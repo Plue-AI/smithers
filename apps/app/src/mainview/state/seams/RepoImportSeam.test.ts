@@ -289,6 +289,9 @@ describe("repo import — honest failures", () => {
     const card = importCard(store)
     expect(card?.payload.phase).toBe("failed")
     expect(card?.status).toBe("error")
+    /* The thrown text is diagnostics, never the card's sentence. */
+    expect(card?.payload.detail).toBe("The import couldn't start. Nothing answered; try again.")
+    expect(JSON.stringify(card)).not.toContain("socket dropped")
   })
 
   test("a failed job lands the job's error on the card", async () => {

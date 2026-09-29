@@ -402,9 +402,10 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     let response: Response
     try {
       response = await ctx.http(`${ctx.baseUrl}${INSTALL_VERIFY_PATH}${installationId === undefined ? "" : `/${encodeURIComponent(installationId)}`}`)
-    } catch (error) {
+    } catch {
+      // The tapped fetch already recorded the thrown request; its text is not copy.
       if (!stillCurrent()) return
-      return notice(`Nothing came back from GitHub that I could confirm (${error instanceof Error ? error.message : String(error)}). Try again?`)
+      return notice("Nothing came back from GitHub that I could confirm. Try again?")
     }
     if (!stillCurrent()) { await response.body?.cancel(); return }
     if (!response.ok) {

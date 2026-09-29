@@ -14,6 +14,8 @@ import type { ModelProvider } from "../../e2e/real/support/model-provider-proces
 import { createChatStub } from "../../e2e/support/ChatStub"
 import { defaultDistDir, describeCookie, rescopeCookie, startLocalServer } from "./server"
 import type { LocalServer } from "./server"
+import type { CloudAuth } from "./CloudAuth"
+import { CLOUD_AUTH_START_PATH } from "@smthrs/rpc/CloudTunnel"
 
 let dist = ""
 let server: LocalServer
@@ -232,6 +234,48 @@ describe("the local origin", () => {
     } finally {
       await proxied.stop()
       upstream.stop(true)
+    }
+  })
+
+  test("a thrown handler or an unreachable upstream answers a product sentence; the raw text stays in the trail", async () => {
+    const closed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") })
+    const deadOrigin = `http://127.0.0.1:${closed.port}`
+    closed.stop(true)
+    const trail: Array<string> = []
+    const cloudAuth = {
+      start: async () => { throw new Error("secret-handler-detail") },
+      token: () => undefined,
+      session: () => ({ state: "signed-out", username: null, expiresAt: null }),
+      signOut: async () => {},
+      stop: async () => {}
+    } as unknown as CloudAuth
+    const local = await startLocalServer({
+      port: 0,
+      distDir: dist,
+      cloudMode: "hybrid",
+      cloudApi: deadOrigin,
+      identityUpstream: deadOrigin,
+      cloudAuth,
+      home: "/fake/home",
+      log: (line) => trail.push(line)
+    })
+    try {
+      const headers = { [LOCAL_SESSION_HEADER]: local.sessionToken, origin: local.origin }
+      const thrown = await fetch(`${local.origin}${CLOUD_AUTH_START_PATH}`, { method: "POST", headers })
+      expect(thrown.status).toBe(500)
+      const thrownBody = await thrown.json() as { message: string }
+      expect(thrownBody.message).toBe("The local app hit an unexpected error. Try again.")
+      expect(JSON.stringify(thrownBody)).not.toContain("secret-handler-detail")
+      expect(trail.some((line) => line.includes("secret-handler-detail"))).toBe(true)
+      for (const [path, seam] of [["/api/user", "The Smithers identity service"], ["/api/cloud/api/user", "Smithers Cloud"]] as const) {
+        const before = trail.length
+        const dropped = await fetch(`${local.origin}${path}`, { headers })
+        const body = await dropped.json() as { code: string; message: string }
+        expect(body).toMatchObject({ code: "upstream_unreachable", message: `${seam} is unreachable right now. Try again in a moment.` })
+        expect(trail.slice(before).some((line) => line.startsWith(`${seam} is unreachable: `))).toBe(true)
+      }
+    } finally {
+      await local.stop()
     }
   })
 

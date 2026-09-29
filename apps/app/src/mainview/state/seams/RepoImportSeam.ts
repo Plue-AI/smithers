@@ -18,6 +18,7 @@ import type { GitHubRefusal, SeamContext } from "./SeamContext"
 import { createRunEpochs } from "./RunEpochs"
 import { captureCloudOwner, readGitHubRefusal } from "./SeamContext"
 import { TOAST_SUPERSEDED } from "../controller/failures"
+import { presentAppFailure } from "../controller/AppFailure"
 import { actorSharedState } from "../ActorBindings"
 
 export interface RepoImportSeam {
@@ -382,8 +383,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       response = await request()
     } catch (error) {
       if (!current()) return TOAST_SUPERSEDED
-      const reason = error instanceof Error ? error.message : String(error)
-      const message = `The import couldn't start — ${reason}`
+      // A tagged failure keeps its own sentence; a thrown request's text stays in the fetch tap.
+      const message = presentAppFailure(error, () => {}, { fault: "infra", sentence: "The import couldn't start. Nothing answered; try again.", actions: ["retry"] }).sentence
       await upsert(repo, ordinal, createdAt, { phase: "failed", detail: message })
       settleEpoch()
       return message

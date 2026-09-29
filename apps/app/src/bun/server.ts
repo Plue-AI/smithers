@@ -478,18 +478,20 @@ const fetchWithDeadline = async (
   }
 }
 
+/** The body of a request whose handler threw; the raw error goes to the trail only. */
+const LOCAL_INTERNAL_FAILURE = "The local app hit an unexpected error. Try again."
+
 /**
  * The refusal a forwarded request earns when nothing answered it, in the two
  * codes the Worker uses for the same two events. `upstream_timeout` is the leg
  * this host had no way to reach before it had a deadline at all.
  */
-const upstreamRefusal = (seam: string, failure: UpstreamFailure, timeoutMs: number): Response =>
-  failure.failure === "timeout"
-    ? refuse("upstream_timeout", `${seam} did not answer within ${timeoutMs}ms. Try again in a moment.`)
-    : refuse(
-      "upstream_unreachable",
-      `${seam} is unreachable right now: ${failure.cause instanceof Error ? failure.cause.message : "unknown error"}`
-    )
+const upstreamRefusal = (seam: string, failure: UpstreamFailure, timeoutMs: number, log?: (line: string) => void): Response => {
+  if (failure.failure === "timeout") return refuse("upstream_timeout", `${seam} did not answer within ${timeoutMs}ms. Try again in a moment.`)
+  // The thrown text is for the trail; the body a person reads names only the seam.
+  log?.(`${seam} is unreachable: ${failure.cause instanceof Error ? failure.cause.stack ?? failure.cause.message : String(failure.cause)}`)
+  return refuse("upstream_unreachable", `${seam} is unreachable right now. Try again in a moment.`)
+}
 
 /**
  * A request a PERSON is looking at in a browser, rather than a seam's fetch.
@@ -562,7 +564,7 @@ const proxyIdentity = async (
     body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
     redirect: "manual"
   }, timeoutMs, request.signal)
-  if (!("response" in answer)) return upstreamRefusal(IDENTITY_SEAM, answer, timeoutMs)
+  if (!("response" in answer)) return upstreamRefusal(IDENTITY_SEAM, answer, timeoutMs, log)
   const response = answer.response
   const out = new Headers(response.headers)
   out.delete("content-encoding")
@@ -605,7 +607,8 @@ const proxyCloud = async (
   url: URL,
   upstream: string,
   token: string | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  log?: (line: string) => void
 ): Promise<Response> => {
   /*
    * The path after the prefix is joined as a plain path, never as a URL:
@@ -639,7 +642,7 @@ const proxyCloud = async (
     body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
     redirect: "manual"
   }, timeoutMs, request.signal)
-  if (!("response" in answer)) return upstreamRefusal(CLOUD_SEAM, answer, timeoutMs)
+  if (!("response" in answer)) return upstreamRefusal(CLOUD_SEAM, answer, timeoutMs, log)
   const response = answer.response
   const out = new Headers(response.headers)
   out.delete("content-encoding")
@@ -1113,7 +1116,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
           return await handler({ request, url })
         } catch (error) {
           log(`${request.method} ${pathname} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
-          return jsonError("internal", error instanceof Error ? error.message : "Request failed.")
+          return jsonError("internal", LOCAL_INTERNAL_FAILURE)
         }
       }
       if (router.knows(pathname)) return jsonError("method_not_allowed", `${request.method} is not allowed on ${pathname}.`)
@@ -1121,7 +1124,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       if (pathname.startsWith(CLOUD_ROUTE_PREFIX)) {
         return cloudUpstream === null
           ? refuse("feature_unavailable_here", "The cloud seam is disabled in this build.")
-          : proxyCloud(request, url, cloudUpstream, cloudAuth?.token(), upstreamTimeoutMs)
+          : proxyCloud(request, url, cloudUpstream, cloudAuth?.token(), upstreamTimeoutMs, log)
       }
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
         return identityUpstream === null ? stubIdentity(pathname) : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
@@ -1175,7 +1178,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         return answered
       } catch (error) {
         log(`${request.method} ${pathname} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
-        answered = jsonError("internal", error instanceof Error ? error.message : "Request failed.")
+        answered = jsonError("internal", LOCAL_INTERNAL_FAILURE)
         return answered
       } finally {
         if (answered !== undefined && (pathname === "/" || pathname.startsWith("/api/"))) {

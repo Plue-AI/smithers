@@ -440,7 +440,7 @@ export const fileOptions = async (
       const body: unknown = await response.json()
       if (!Array.isArray(body)) return { options, error: "The file chooser expected a directory." }
       entries = body.flatMap(row => { const entry = parseEntry(row); return entry ? [entry] : [] })
-    } catch (error) { return { options, error: error instanceof Error ? error.message : String(error) } }
+    } catch { return { options, error: `Could not list files in ${target.repo}.` } }
     for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
       if (unsafePath(entry.name) || entry.name.includes("/")) continue
       const child = path ? `${path}/${entry.name}` : entry.name
