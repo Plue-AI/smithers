@@ -94,7 +94,7 @@ test("URL-pointer mode traverses browser history and restores its maximized form
   await card.getByRole("button", { name: "Maximize card", exact: true }).click()
   const maximizedUrl = page.url()
   expect(maximizedUrl).not.toBe(rootUrl)
-  expect(decodedFramePath(page)).toMatch(/^\/w\/workspace-main\/b\/branch-main\/f\/frame-card:branch-main:form-tab\.read$/)
+  expect(decodedFramePath(page)).toBe(`/w/workspace-main/b/branch-main/f/frame-card:branch-main:${FORM_VEHICLE_CARD_ID.replace(/^card-/, "")}`)
   await expect(card).toHaveAttribute("data-maximized", "true")
 
   await page.goBack()
