@@ -61,6 +61,34 @@ describe("FailureCopy.describe", () => {
     expect(FailureCopy.describe({ ...unresolved, message: "" }).line).toBe("Sign in and resume.")
   })
 
+  it("says no model was chosen when the router could not pick one, and offers another model first", () => {
+    const unrouted = {
+      _tag: "@smthrs/agent/Seat/SeatUnrouted",
+      seat: "auto",
+      reason: "unreachable",
+      message: "Jev was unavailable: the judge this host binds did not answer."
+    }
+    expect(FailureCopy.describe(new Error("turn", { cause: unrouted }))).toMatchObject({
+      headline: "Model could not be chosen",
+      line: "The model router could not pick a model.",
+      actions: ["switch-model", "resume", "details"]
+    })
+    expect(FailureCopy.describe({ ...unrouted, reason: "no_candidates" })).toMatchObject({
+      headline: "Model could not be chosen",
+      line: "No model is set up to route to."
+    })
+    // The host's own reason, never a claim that a router was asked.
+    const gone = "The seat catalog no longer offers the variant terse"
+    expect(FailureCopy.describe({ ...unrouted, reason: "unconfigured", message: gone }).line).toBe(gone)
+    expect(FailureCopy.describe({ ...unrouted, reason: "unconfigured", message: "x".repeat(500) }).line).toHaveLength(
+      240
+    )
+    expect(FailureCopy.describe({ ...unrouted, reason: "unconfigured", message: "" }).line).toBe(
+      "No model router is set up."
+    )
+    expect(FailureCopy.describe({ ...unrouted, reason: "interrupted" }).line).toBe("Choosing a model was interrupted.")
+  })
+
   it("names a plan that did not converge, and a person's refusal, instead of the model wrapper", () => {
     const frames = {
       _tag: "/harness/HarnessError",

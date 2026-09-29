@@ -36,6 +36,8 @@ export interface Description {
 type ErrorRecord = {
   readonly _tag?: unknown
   readonly code?: unknown
+  readonly reason?: unknown
+  readonly message?: unknown
   readonly cause?: unknown
   readonly resetAtEpochMillis?: unknown
   readonly retryAfterMillis?: unknown
@@ -164,6 +166,7 @@ export const describe = (error: unknown, seat?: string): Description => {
   let found: ErrorRecord | undefined
   let budget: ErrorRecord | undefined
   let unresolved: ErrorRecord | undefined
+  let unrouted: ErrorRecord | undefined
   let named: readonly [string, string, ReadonlyArray<Action>] | undefined
   const seen = new Set<unknown>()
   while (current !== undefined && !seen.has(current)) {
@@ -176,6 +179,8 @@ export const describe = (error: unknown, seat?: string): Description => {
     if (value._tag === "flows/agent/Skipped") budget = record(value.budget)
     // A seat the host could not resolve: its message is the host's own sign-in instruction.
     if (value._tag === "@smthrs/agent/Seat/SeatUnresolved") unresolved = value
+    // An `auto` seat the router could not pick: no model ran, so another one is the way on.
+    if (value._tag === "@smthrs/agent/Seat/SeatUnrouted") unrouted = value
     const key = typeof value.code === "string" ? `${String(value._tag)}/${value.code}` : String(value._tag)
     named = causes[key] ?? causes[String(value._tag)] ?? named
     current = value.cause
@@ -188,6 +193,23 @@ export const describe = (error: unknown, seat?: string): Description => {
       fault,
       line: typeof message === "string" && message !== "" ? message.slice(0, 240) : "Sign in and resume.",
       actions: ["resume", "switch-model", "details"]
+    }
+  }
+  if (unrouted !== undefined) {
+    return {
+      headline: "Model could not be chosen",
+      fault,
+      line: unrouted.reason === "no_candidates"
+        ? "No model is set up to route to."
+        : unrouted.reason === "unconfigured" && typeof unrouted.message === "string" && unrouted.message !== ""
+        // The host's own words: a missing catalog or a variant it stopped offering.
+        ? unrouted.message.slice(0, 240)
+        : unrouted.reason === "unconfigured"
+        ? "No model router is set up."
+        : unrouted.reason === "interrupted"
+        ? "Choosing a model was interrupted."
+        : "The model router could not pick a model.",
+      actions: ["switch-model", "resume", "details"]
     }
   }
   if (budget !== undefined) {

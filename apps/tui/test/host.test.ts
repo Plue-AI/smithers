@@ -1221,6 +1221,35 @@ describe("Host.run seat routing", () => {
     expect(seats).toEqual([])
   })
 
+  test("an auto worker whose judge does not answer fails typed, and its card says no model was chosen", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-route-"))
+    roots.push(cwd)
+    const host = Host.make({
+      cwd,
+      environment: { OPENAI_API_KEY: "sk-test", CODEX_HOME: join(cwd, "codex") },
+      judge: Evaluator.layerUnavailable()
+    })
+    try {
+      expect(host.routes).toBe(true)
+      const outcome = await host.run({
+        prompt: "Look around.",
+        role: "worker",
+        seat: Seat.auto,
+        history: [],
+        onEvent: () => {}
+      }).done
+      const error = outcome._tag === "failed" ? outcome.error : undefined
+      expect(error).toBeInstanceOf(Seat.SeatUnrouted)
+      expect(FailureCopy.describe(error)).toMatchObject({
+        headline: "Model could not be chosen",
+        fault: "dependency",
+        actions: ["switch-model", "resume", "details"]
+      })
+    } finally {
+      await host.dispose()
+    }
+  })
+
   test("a judged worker is taught the operator's stance, and a stance that is neither refuses the host", async () => {
     const { cwd, host } = make(true, { SMITHERS_SUPERVISOR_STANCE: "paranoid" })
     const events: Array<AgentEvent.AgentEvent> = []
