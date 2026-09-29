@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { type RefObject, useEffect, useRef } from "react"
 import type * as Panels from "./panels.ts"
+import * as Tabs from "./tabs.ts"
 import { color, syntax } from "./theme.ts"
 import type * as Transcript from "./transcript.ts"
 import { bar } from "./view.tsx"
@@ -22,11 +23,7 @@ export function FailureCard(
   const diagnostics = tab.detail?.includes(message ?? "") && tab.detail !== ""
     ? tab.detail
     : [message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")
-  const fault = failure.fault === "wait"
-    ? "not your fault · provider"
-    : failure.fault === "infra"
-    ? "not your fault · infra"
-    : failure.fault
+  const fault = Tabs.faultWords(failure.fault)
   return (
     <box style={{ flexShrink: 0, paddingLeft: 1, marginBottom: 1 }}>
       <text fg={color.danger}>{failure.headline}{"  "}·{"  "}{fault}</text>

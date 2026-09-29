@@ -5,6 +5,7 @@
  */
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
+import * as Budget from "./budget.ts"
 import * as Keys from "./keys.ts"
 import { delegateModels } from "./models.ts"
 import type { Model } from "./models.ts"
@@ -32,6 +33,10 @@ export const style = (status: Status, now: number): { readonly glyph: string; re
   return { glyph, tone: toneColor(tone) }
 }
 
+/** Whose fault a failure is, in the words every surface uses: `not your fault · provider`. */
+export const faultWords = (fault: NonNullable<Tab["failure"]>["fault"]): string =>
+  fault === "wait" ? "not your fault · provider" : fault === "infra" ? "not your fault · infra" : fault
+
 /** A worker's glyph: `⇄` in the needs color while the person drives it, else its status glyph. */
 export const styleOf = (
   tab: Pick<Tab, "status" | "driver">,
@@ -55,15 +60,29 @@ export const model = (seat: string, models: ReadonlyArray<Model>): string =>
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>
   Math.max(0, (tab.endedAt ?? now) - tab.startedAt)
 
-export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "takeover"
+export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "takeover" | "raise"
 
 /** What an action's availability reads: the status, and a failure's own offers. */
 type Worker = Pick<Tab, "status" | "failure" | "driver" | "harness">
 
 /** Each worker action is a button in the worker view and a registry key (`panel` context). */
 const registered: ReadonlyArray<
-  { readonly id: ActionId; readonly binding: string; readonly when: (tab: Worker) => boolean }
+  {
+    readonly id: ActionId
+    readonly binding: string
+    /** The button's words when the binding's own label is too general. */
+    readonly label?: string
+    readonly when: (tab: Worker) => boolean
+  }
 > = [
+  // A worker stopped at its run cap: `a` opens the form that resumes it with a chosen allowance. First, so
+  // its chip fits on a narrow card before Resume and Switch model.
+  {
+    id: "raise",
+    binding: "approve-form",
+    label: "Raise cap",
+    when: (tab) => tab.status === "failed" && Budget.capped(tab.failure)
+  },
   { id: "stop", binding: "stop", when: (tab) => WorkerControls.allowed("stop", tab) },
   { id: "retry", binding: "retry", when: (tab) => WorkerControls.allowed("retry", tab) },
   { id: "model", binding: "worker-model", when: (tab) => WorkerControls.allowed("model", tab) },
@@ -78,10 +97,10 @@ const registered: ReadonlyArray<
   { id: "takeover", binding: "take-over", when: (tab) => tab.status === "running" && tab.driver === undefined }
 ]
 
-export const bindings = registered.map(({ id, binding, when }) => {
+export const bindings = registered.map(({ id, binding, label, when }) => {
   const found = Keys.registry.find((each) => each.id === binding && each.context === "panel")
   if (found === undefined) throw new Error(`Worker action ${id} has no panel key binding ${binding}`)
-  return { id, binding, keys: found.keys, label: found.label, when }
+  return { id, binding, keys: found.keys, label: label ?? found.label, when }
 })
 
 export type Action = (typeof bindings)[number]

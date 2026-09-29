@@ -4,6 +4,7 @@
  * needs the person appears once, flat, under Needs you; the rest keep their
  * worker tree. Pure: `subagent-view.tsx` draws it and `app.tsx` moves over it.
  */
+import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as Asks from "./asks.ts"
 import type * as Flows from "./flows.ts"
@@ -165,7 +166,23 @@ export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript
   if (row.run !== undefined) return row.run.message === undefined ? [] : [row.run.message]
   const tab = row.worker
   if (tab === undefined) return []
-  if (tab.failure !== undefined) return [tab.failure.headline, tab.failure.line].filter((line) => line !== "")
+  // A backup seat answering, as `fable → astra`.
+  const backup = tab.activeSeat !== undefined && tab.activeSeat !== tab.seat
+    ? [`${Tabs.model(tab.seat, [])} → ${Tabs.model(tab.activeSeat, [])}`]
+    : []
+  if (tab.failure !== undefined) {
+    return [`${tab.failure.headline} · ${Tabs.faultWords(tab.failure.fault)}`, tab.failure.line, ...backup].filter((
+      line
+    ) => line !== "")
+  }
+  if (tab.status === "parked") {
+    return [
+      `parked${tab.wakeAt === undefined ? "" : ` · resets ${at(tab.wakeAt)}`} · ${
+        tab.parks ?? 0
+      }/${QuotaPolicy.defaultMaxParks}`,
+      ...backup
+    ]
+  }
   if (tab.status === "done" && tab.answer !== undefined) return [tab.answer.replace(/\s+/g, " ").slice(0, 400)]
   const cell = transcript(tab.id).items.findLast((item) => item.kind === "cell")
   if (cell?.kind !== "cell") return []

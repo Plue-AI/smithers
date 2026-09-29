@@ -117,9 +117,18 @@ describe("worker actions", () => {
       const binding = Keys.bindingFor({ name: action.keys[0]! }, "panel")
       expect(binding?.context).toBe("panel")
       expect(binding?.keys).toEqual(action.keys)
-      expect(binding?.label).toBe(action.label)
+      // Raise cap names what `a` does to a capped worker; every other button uses the key's own label.
+      expect(action.id === "raise" ? "Raise cap" : binding?.label).toBe(action.label)
     }
-    expect(Tabs.bindings.map((binding) => binding.id)).toEqual(["stop", "retry", "model", "wait", "steer", "takeover"])
+    expect(Tabs.bindings.map((binding) => binding.id)).toEqual([
+      "raise",
+      "stop",
+      "retry",
+      "model",
+      "wait",
+      "steer",
+      "takeover"
+    ])
   })
 })
 

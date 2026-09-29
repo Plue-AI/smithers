@@ -727,6 +727,8 @@ export function App(props: AppProps) {
           setSteerTarget(tab.id)
           setPanelFocus(false)
         })
+      case "raise":
+        return flushSync(() => answerWorker(tab.id))
       case "takeover":
         // The composer drives it from its own tab; ctrl+y releases.
         if (!workspace.hijack(tab.id, "you")) return setStatus(`${tab.title} is not running`, "warning")
@@ -1954,7 +1956,6 @@ export function App(props: AppProps) {
     }
     if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
       const ids = [SubagentView.chat, ...inboxRows.map((row) => row.key)]
-      const branchKeys = overviewBranch.map((tab) => Subagents.cardKey(tab.id))
       return Dispatch.overviewKey(key, {
         pane: overviewPane,
         worker: overviewPane === "tree" ? overviewTab : overviewCard
@@ -1990,14 +1991,22 @@ export function App(props: AppProps) {
           }),
         card: (direction) => {
           if (overviewCard === undefined) return
+          // Two lanes are two grids at half width: arrows move within the one on screen, in its order.
+          const split = overviewTab === undefined ? undefined : Subagents.lanes(snapshot.tabs, overviewTab.id)
+          const lanes = split === undefined
+            ? [overviewBranch]
+            : [split.implement, split.poc]
+          const order = lanes.flat()
+          const keys = order.map((tab) => Subagents.cardKey(tab.id))
+          const grid = SubagentView.overviewWidths(width).grid
           const next = Subagents.move(
-            branchKeys,
-            [branchKeys],
-            SubagentView.overviewWidths(width).grid,
+            keys,
+            lanes.map((lane) => lane.map((tab) => Subagents.cardKey(tab.id))),
+            split === undefined ? grid : SubagentView.laneWidth(grid) - 2,
             Subagents.cardKey(overviewCard.id),
             direction
           )
-          setOverview((current) => ({ ...current, card: overviewBranch[branchKeys.indexOf(next)]?.id }))
+          setOverview((current) => ({ ...current, card: order[keys.indexOf(next)]?.id }))
         },
         open: () => {
           setOverview((current) => ({ ...current, peek: false, graph: false }))
@@ -2132,7 +2141,12 @@ export function App(props: AppProps) {
   const footerContext = keyContext()
   /** A worker action's registry binding, as a footer hint. */
   const actionHints = (tab: Tab) =>
-    Tabs.actions(tab).flatMap((action) => Keys.registry.filter((binding) => binding.id === action.binding))
+    Tabs.actions(tab).flatMap((action) =>
+      Keys.registry.filter((binding) => binding.id === action.binding).map((binding) => ({
+        ...binding,
+        label: action.label
+      }))
+    )
   const cardHint = (id: string) => Keys.registry.filter((binding) => binding.id === id)
   // A worker's own actions are buttons in its view; the footer carries the rest.
   const footerHints = driven !== undefined && !panelFocus
@@ -2304,6 +2318,7 @@ export function App(props: AppProps) {
               <SubagentView.Overview
                 sections={inbox}
                 tabs={snapshot.tabs}
+                asks={workspace.asks.list()}
                 {...(overviewGraph
                   ? { graph: SubagentView.forest(overviewRow, inboxRows, snapshot.tabs, runs.nodes, now) }
                   : {})}

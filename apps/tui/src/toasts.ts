@@ -20,7 +20,7 @@ export interface Toast {
 }
 
 /** The card actions a worker's toast offers, while its status allows them. */
-const offered: ReadonlyArray<Tabs.ActionId> = ["stop", "steer"]
+const offered: ReadonlyArray<Tabs.ActionId> = ["stop", "steer", "raise"]
 
 export interface Row extends Toast {
   readonly id: string

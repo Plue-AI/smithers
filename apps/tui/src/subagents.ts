@@ -12,6 +12,7 @@ import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
 import * as Timeline from "./timeline.ts"
 import * as Transcript from "./transcript.ts"
+import * as Tree from "./tree.ts"
 import type { Tab } from "./workspace.ts"
 
 const states = { running: "pending", ok: "done", failed: "error" } as const
@@ -180,4 +181,25 @@ export const move = (
   if (target === undefined) return direction === "up" ? step(grid[0]!, -1) : step(grid.at(-1)!, 1)
   const nearest = target.reduce((best, each) => Math.abs(each.x - cell.x) < Math.abs(best.x - cell.x) ? each : best)
   return grid[nearest.index]!
+}
+
+/**
+ * A proof-of-concept lane: a child worker running the agent `poc` (or `…/poc`). It answers
+ * questions and never lands.
+ */
+export const isPoc = (tab: Pick<Tab, "agent">): boolean => tab.agent !== undefined && /(^|\/)poc$/i.test(tab.agent.name)
+
+/**
+ * The superexpert split: a worker with a POC lane among its children, as two
+ * lanes of cards. `undefined` for any other worker.
+ */
+export const lanes = (
+  tabs: ReadonlyArray<Tab>,
+  id: string
+): { readonly implement: ReadonlyArray<Tab>; readonly poc: ReadonlyArray<Tab> } | undefined => {
+  const branch = Tree.branch(tabs, id)
+  const pocRoots = tabs.filter((tab) => tab.parent === id && isPoc(tab))
+  if (pocRoots.length === 0) return undefined
+  const poc = new Set(pocRoots.flatMap((root) => Tree.branch(tabs, root.id)).map((tab) => tab.id))
+  return { implement: branch.filter((tab) => !poc.has(tab.id)), poc: branch.filter((tab) => poc.has(tab.id)) }
 }

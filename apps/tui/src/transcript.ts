@@ -119,6 +119,8 @@ export interface Transcript {
   readonly cells: number
   readonly nextId: number
   readonly usage: Usage
+  /** The last relevance reading drawn, by source and kept ids, so a repeat adds no row. */
+  readonly relevance?: string
 }
 
 export interface Usage {
@@ -423,6 +425,17 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
           irrelevant: (event.irrelevantContext ?? 0) >= 0.5
         }
       }
+    case "relevance-settled": {
+      // What entered the model's window: the task's context at run start, else recalled memory. A
+      // reading that let nothing in, or the same set again, adds no row.
+      const seen = `${event.source}:${event.kept.map((item) => item.id).join(",")}`
+      if ((event.source !== "run" && event.kept.length === 0) || transcript.relevance === seen) return transcript
+      const what = event.source === "run" ? "context" : "memory"
+      return {
+        ...note(transcript, `→ ${what} ${event.kept.length} in · ${event.withheld.length} withheld`, at),
+        relevance: seen
+      }
+    }
     case "model-requested":
       return { ...transcript, streaming: "", thinking: false, requestedAt: at }
     case "model-delta": {

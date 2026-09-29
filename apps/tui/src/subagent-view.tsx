@@ -8,6 +8,7 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef } from "react"
 import stringWidth from "string-width"
+import type * as Asks from "./asks.ts"
 import * as Graph from "./graph.ts"
 import * as Inbox from "./inbox.ts"
 import type { Model } from "./models.ts"
@@ -431,6 +432,8 @@ export function Overview(props: {
   readonly peek?: ReadonlyArray<string>
   /** `g`: the selected row's run forest, drawn instead of the list and cards. */
   readonly graph?: Graph.Node
+  /** Open asks: a POC lane lists its own. */
+  readonly asks?: ReadonlyArray<Asks.Ask>
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
 }) {
   const { tree: treeWidth, cards: rightWidth, grid: gridWidth } = overviewWidths(props.width)
@@ -449,6 +452,7 @@ export function Overview(props: {
   const row = Inbox.flat(props.sections).find((each) => each.key === props.selected)
   const selected = row?.worker
   const branch = selected === undefined ? [] : Tree.branch(props.tabs, selected.id)
+  const split = selected === undefined ? undefined : Subagents.lanes(props.tabs, selected.id)
   const frame = (pane: "tree" | "cards") => props.pane === pane ? color.brand : color.border
   const line = (id: string, content: ReactNode) => {
     const chosen = props.selected === id
@@ -544,11 +548,73 @@ export function Overview(props: {
           props.review :
           props.peek !== undefined || selected === undefined ?
           <Peek row={row} lines={props.peek ?? []} now={props.cards.now} /> :
+          split !== undefined ?
+          (
+            <scrollbox ref={grid} scrollX={false} style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
+              <Lanes split={split} width={gridWidth} cards={props.cards} asks={props.asks ?? []} />
+            </scrollbox>
+          ) :
           (
             <scrollbox ref={grid} scrollX={false} style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
               <Grid tabs={branch} width={gridWidth} cards={props.cards} />
             </scrollbox>
           )}
+      </box>
+    </box>
+  )
+}
+
+/** A dashed border: the POC lane never lands. */
+const dashed = {
+  topLeft: "╭",
+  topRight: "╮",
+  bottomLeft: "╰",
+  bottomRight: "╯",
+  horizontal: "╌",
+  vertical: "╎",
+  topT: "╌",
+  bottomT: "╌",
+  leftT: "╎",
+  rightT: "╎",
+  cross: "╌"
+}
+
+/** Each lane's width when two share the cards pane. */
+export const laneWidth = (width: number): number => Math.max(10, Math.floor(width / 2))
+
+/** The superexpert view: the implement lane's cards beside the POC lane's, with the POC's open questions. */
+function Lanes(props: {
+  readonly split: NonNullable<ReturnType<typeof Subagents.lanes>>
+  readonly width: number
+  readonly cards: Cards
+  readonly asks: ReadonlyArray<Asks.Ask>
+}) {
+  const half = laneWidth(props.width)
+  const poc = new Set(props.split.poc.map((tab) => tab.id))
+  const questions = props.asks.filter((ask) => poc.has(ask.from))
+  return (
+    <box style={{ flexDirection: "row", flexGrow: 1 }}>
+      <box title="implement" style={{ width: half, border: true }} borderColor={color.border} titleColor={color.faint}>
+        <Grid tabs={props.split.implement} width={half - 2} cards={props.cards} />
+      </box>
+      <box
+        title="POC never lands"
+        style={{ width: half, border: true }}
+        borderColor={color.warning}
+        customBorderChars={dashed}
+        titleColor={color.warning}
+      >
+        <Grid tabs={props.split.poc} width={half - 2} cards={props.cards} />
+        {questions.length === 0 ? null : (
+          <>
+            <text fg={color.needs}>{`◆ ${questions.length} question${questions.length === 1 ? "" : "s"}`}</text>
+            {questions.map((ask, index) => (
+              <text key={ask.id} fg={color.text} wrapMode="none">
+                {SubagentCard.clip(`${index + 1} ${ask.question}`, half - 3)}
+              </text>
+            ))}
+          </>
+        )}
       </box>
     </box>
   )
