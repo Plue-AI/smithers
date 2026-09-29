@@ -23,15 +23,22 @@ func TestWorkflowInspection_Cov_ListFiltersStatesAndHandlesErrors(t *testing.T) 
 	h := WorkflowHandler{Service: &mockWorkflowInspectionRouteService{
 		listWorkflowRunsByRepoFn: func(_ context.Context, repositoryID int64, page, perPage int) ([]db.WorkflowRun, error) {
 			assert.Equal(t, int64(101), repositoryID)
-			assert.Equal(t, 2, page)
-			assert.Equal(t, 2, perPage)
-			return []db.WorkflowRun{
-				makeWFRun(1, repositoryID, 10, "completed"),
-				makeWFRun(2, repositoryID, 11, "error"),
-				makeWFRun(3, repositoryID, 12, "canceled"),
-				makeWFRun(4, repositoryID, 13, "running"),
+			all := []db.WorkflowRun{
 				makeWFRun(5, repositoryID, 14, "queued"),
-			}, nil
+				makeWFRun(4, repositoryID, 13, "running"),
+				makeWFRun(3, repositoryID, 12, "canceled"),
+				makeWFRun(2, repositoryID, 11, "error"),
+				makeWFRun(1, repositoryID, 10, "completed"),
+			}
+			start := (page - 1) * perPage
+			if start >= len(all) {
+				return nil, nil
+			}
+			end := start + perPage
+			if end > len(all) {
+				end = len(all)
+			}
+			return all[start:end], nil
 		},
 		listWorkflowDefinitionsFn: func(_ context.Context, repositoryID int64, page, perPage int) ([]db.WorkflowDefinition, error) {
 			assert.Equal(t, 1, page)
@@ -52,12 +59,8 @@ func TestWorkflowInspection_Cov_ListFiltersStatesAndHandlesErrors(t *testing.T) 
 
 	var body listWorkflowRunsInspectionResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Len(t, body.Runs, 3)
-	assert.Equal(t, []string{"success", "failure", "cancelled"}, []string{
-		normalizeWorkflowState(body.Runs[0].Status),
-		normalizeWorkflowState(body.Runs[1].Status),
-		normalizeWorkflowState(body.Runs[2].Status),
-	})
+	require.Len(t, body.Runs, 1)
+	assert.Equal(t, "success", normalizeWorkflowState(body.Runs[0].Status))
 	assert.Equal(t, "build", body.Runs[0].WorkflowName)
 
 	badLimitReq := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/workflows/runs?limit=bad", nil)

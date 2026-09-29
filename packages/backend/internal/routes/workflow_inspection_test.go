@@ -133,6 +133,64 @@ func TestWorkflowHandler_ListWorkflowRunsV2_ReturnsEnhancedRuns(t *testing.T) {
 	assert.Equal(t, ".smithers/workflows/dev-cycle.tsx", resp.Runs[0].WorkflowPath)
 }
 
+func TestListWorkflowRunsFiltersBeforePagination(t *testing.T) {
+	t.Parallel()
+
+	// Newest first; neither the first database page nor the second consists
+	// entirely of matching runs.
+	all := []db.WorkflowRun{
+		makeWFRun(7, 101, 3, "success"),
+		makeWFRun(6, 101, 3, "success"),
+		makeWFRun(5, 101, 3, "failed"),
+		makeWFRun(4, 101, 3, "running"),
+		makeWFRun(3, 101, 3, "failure"),
+		makeWFRun(2, 101, 3, "success"),
+		makeWFRun(1, 101, 3, "error"),
+	}
+	h := WorkflowHandler{Service: &mockWorkflowInspectionRouteService{
+		listWorkflowRunsByRepoFn: func(_ context.Context, _ int64, page, perPage int) ([]db.WorkflowRun, error) {
+			start := (page - 1) * perPage
+			if start >= len(all) {
+				return nil, nil
+			}
+			end := start + perPage
+			if end > len(all) {
+				end = len(all)
+			}
+			return all[start:end], nil
+		},
+	}}
+
+	for _, tc := range []struct {
+		query string
+		want  []int64
+	}{
+		{"state=failure&limit=2", []int64{5, 3}},
+		{"state=failed&limit=2&cursor=2", []int64{1}},
+		{"state=failure&limit=2&cursor=4", nil},
+		{"state=terminal&limit=2&cursor=2", []int64{5, 3}},
+		{"limit=2", []int64{7, 6}},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			req := withRepoContext(httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/workflows/runs?"+tc.query, nil), "alice", "demo")
+			rec := httptest.NewRecorder()
+			h.ListWorkflowRunsV2(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp listWorkflowRunsInspectionResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			ids := make([]int64, 0, len(resp.Runs))
+			for _, run := range resp.Runs {
+				ids = append(ids, run.ID)
+			}
+			if tc.want == nil {
+				require.Empty(t, ids)
+			} else {
+				require.Equal(t, tc.want, ids)
+			}
+		})
+	}
+}
+
 func TestWorkflowHandler_GetWorkflowRunV2_ReturnsNodesGraphAndPlan(t *testing.T) {
 	t.Parallel()
 

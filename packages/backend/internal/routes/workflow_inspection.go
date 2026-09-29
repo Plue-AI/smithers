@@ -117,21 +117,42 @@ func (h *WorkflowHandler) ListWorkflowRunsV2(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	page := cursorToPage(cursor, limit)
-	runs, err := h.Service.ListWorkflowRunsByRepo(r.Context(), repoCtx.Repository.ID, page, limit)
+	stateFilter := normalizeWorkflowState(r.URL.Query().Get("state"))
+	var runs []db.WorkflowRun
+	if stateFilter == "" {
+		runs, err = h.Service.ListWorkflowRunsByRepo(r.Context(), repoCtx.Repository.ID, cursorToPage(cursor, limit), limit)
+	} else {
+		// Count matching runs before applying the requested offset. Filtering a
+		// database page instead would hide older matches behind newer statuses.
+		const batchSize = 100
+		skip := cursorToOffset(cursor)
+		for page := 1; ; page++ {
+			var batch []db.WorkflowRun
+			batch, err = h.Service.ListWorkflowRunsByRepo(r.Context(), repoCtx.Repository.ID, page, batchSize)
+			if err != nil {
+				break
+			}
+			for _, run := range batch {
+				if !workflowRunMatchesState(run.Status, stateFilter) {
+					continue
+				}
+				if skip > 0 {
+					skip--
+				} else {
+					runs = append(runs, run)
+					if len(runs) == limit {
+						break
+					}
+				}
+			}
+			if len(runs) == limit || len(batch) < batchSize {
+				break
+			}
+		}
+	}
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
-	}
-
-	if stateFilter := strings.TrimSpace(r.URL.Query().Get("state")); stateFilter != "" {
-		filtered := make([]db.WorkflowRun, 0, len(runs))
-		for _, run := range runs {
-			if workflowRunMatchesState(run.Status, stateFilter) {
-				filtered = append(filtered, run)
-			}
-		}
-		runs = filtered
 	}
 
 	definitionMap, err := h.listWorkflowDefinitionsByID(r.Context(), repoCtx.Repository.ID)
