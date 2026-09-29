@@ -434,7 +434,9 @@ describe("refusalUserFailure", () => {
     for (const fault of PLUE_FAULTS) {
       const refusal = { ...clientRefusal(new Error("socket hang up")), origin: "plue" as const, fault }
       const doors = refusalDoors(refusal)
-      expect(refusalUserFailure(refusal).actions).toEqual(doors.filter(door => door === "retry" || door === "sign-in"))
+      expect(refusalUserFailure(refusal).actions).toEqual(
+        doors.filter((door) => door === "retry" || door === "sign-in")
+      )
     }
   })
 

@@ -43,9 +43,9 @@
 import type { PlueFailureCode, PlueFault } from "./PlueFailureCodes.ts"
 import { isNativeFailureCode, isWorkerFailureCode, refusalCode, refusalEntry } from "./Refusal.ts"
 import type { Refusal, RefusalOrigin } from "./Refusal.ts"
-import type { WorkerFailureCode } from "./WorkerFailureCodes.ts"
 import { USER_FAILURE_ACTIONS } from "./UserFailure.ts"
 import type { UserFailure, UserFailureAction } from "./UserFailure.ts"
+import type { WorkerFailureCode } from "./WorkerFailureCodes.ts"
 
 /**
  * The line for a real shortage of infra, in one place so it can be reworded in

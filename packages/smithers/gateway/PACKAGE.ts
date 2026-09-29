@@ -20,13 +20,25 @@ const securityReview = Smithers.SecurityReview({
     assets: ["Workspace runs", "Approval decisions", "Credentials"],
     entryPoints: ["Gateway control RPC and runtime bridge"],
     identityTransformations: ["Configured bearer becomes a ControlPrincipal passed into control operations"],
-    enforcementPoints: ["Bind, Host and Origin policy; RPC bearer authentication; control ownership and approval authority"],
-    deploymentAssumptions: ["Loopback is local operator authority; remote listeners require an explicit credential and trusted host composition"],
+    enforcementPoints: [
+      "Bind, Host and Origin policy; RPC bearer authentication; control ownership and approval authority"
+    ],
+    deploymentAssumptions: [
+      "Loopback is local operator authority; remote listeners require an explicit credential and trusted host composition"
+    ],
     path: {
       caller: ["src/GatewayServer.ts", "src/RuntimeBridge.ts"],
-      authorization: ["src/internal/NativeGateway.ts", "//packages/smithers/control/src/ControlRpcs.ts", "//packages/smithers/control/src/ApprovalAuthority.ts"],
+      authorization: [
+        "src/internal/NativeGateway.ts",
+        "//packages/smithers/control/src/ControlRpcs.ts",
+        "//packages/smithers/control/src/ApprovalAuthority.ts"
+      ],
       service: ["//packages/smithers/control/src/ControlServer.ts", "//packages/smithers/control/src/ControlLive.ts"],
-      storageOrEgress: ["//packages/smithers/control/src/ControlExecutor.ts", "//packages/smithers/control/src/ControlRuntime.ts", "//packages/smithers/control/src/SqlControlRuntime.ts"]
+      storageOrEgress: [
+        "//packages/smithers/control/src/ControlExecutor.ts",
+        "//packages/smithers/control/src/ControlRuntime.ts",
+        "//packages/smithers/control/src/SqlControlRuntime.ts"
+      ]
     }
   }],
   checks: [
