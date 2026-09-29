@@ -1,4 +1,7 @@
-# Native review finalization
+---
+title: Native review finalization
+description: Finding scope, anchors, and completion status for native reviews.
+---
 
 `finalizeNativeReview` accepts a readonly array of `NativeReviewFileResult`.
 Each entry pairs a prepared file with its agent output. Results are matched by
@@ -9,6 +12,12 @@ A finding with an empty path inherits the reviewed file path. An explicit path
 must match that file after trimming; a mismatch is dropped with a file-scoped
 `out_of_scope_comment` warning. Anchors resolve against that file's diff.
 Inside a hunk, `+++` and `---` prefixes are code lines, not file headers.
+
+Code snippets that match only the old side remain unanchored, including when
+the reviewer supplies a surviving line number. Finalization retains the finding
+with zero line numbers; GitHub displays it in the review body without an
+applicable suggestion. A unique new-side snippet can still resolve an inline
+anchor and an applicable replacement.
 
 | Agent status | Finalization |
 | --- | --- |

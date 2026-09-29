@@ -13,7 +13,6 @@ type Hunk = {
 
 type IndexedLine = {
   lineNum: number;
-  anchorLine: number;
   content: string;
 };
 
@@ -56,18 +55,15 @@ function extractSideLines(hunk: Hunk, newSide: boolean): IndexedLine[] {
     if (line.type === "context") {
       result.push({
         lineNum: newSide ? newLine : oldLine,
-        anchorLine: newLine,
         content: normalizeCodeLine(line.content),
       });
       oldLine += 1;
       newLine += 1;
     } else if (line.type === "added") {
-      if (newSide) result.push({ lineNum: newLine, anchorLine: newLine, content: normalizeCodeLine(line.content) });
+      if (newSide) result.push({ lineNum: newLine, content: normalizeCodeLine(line.content) });
       newLine += 1;
     } else {
-      // Deleted line: anchor on the nearest following new-side line so any resolved
-      // position stays in new-file numbering (newLine is not advanced for deletions).
-      if (!newSide) result.push({ lineNum: oldLine, anchorLine: newLine, content: normalizeCodeLine(line.content) });
+      if (!newSide) result.push({ lineNum: oldLine, content: normalizeCodeLine(line.content) });
       oldLine += 1;
     }
   }
@@ -86,10 +82,9 @@ function collectMatches(sideLines: IndexedLine[], targetLines: string[]) {
       }
     }
     if (matched) {
-      // anchorLine is always in new-file numbering (equal to lineNum on the new side).
       matches.push({
-        startLine: sideLines[i].anchorLine,
-        endLine: sideLines[i + targetLines.length - 1].anchorLine,
+        startLine: sideLines[i].lineNum,
+        endLine: sideLines[i + targetLines.length - 1].lineNum,
       });
     }
   }
@@ -109,41 +104,25 @@ function withinNewSideRanges(hunks: Hunk[], startLine: number, endLine: number) 
   return newSideHunkRanges(hunks).some((range) => startLine >= range.start && endLine <= range.end);
 }
 /**
- * Pins a finding to new-side lines the diff actually contains: keeps in-range
- * lines, otherwise resolves a unique `existingCode` match, otherwise zeroes the
- * anchor so the finding degrades to the unanchored list.
+ * Pins findings to new-side lines, or keeps them unanchored when their snippet
+ * exists only on the old side. Old-side coordinates must never become a
+ * replacement range for an applicable GitHub suggestion.
  */
 export function anchorFinding(comment: ReviewComment, diffText: string) {
-  if (comment.startLine <= 0 && comment.endLine <= 0) {
-    return resolveCommentLineNumbers(comment, diffText);
+  const hunks = parseHunks(diffText);
+  const targetLines = splitAndNormalizeCode(comment.existingCode);
+  const matches = hunks.flatMap((hunk) => collectMatches(extractSideLines(hunk, true), targetLines));
+  if (matches.length === 0 && hunks.some((hunk) => collectMatches(extractSideLines(hunk, false), targetLines).length > 0)) {
+    // Preserve deleted-side provenance as an unanchored finding, even when the
+    // reviewer supplied an otherwise valid new-side line number.
+    return { ...comment, startLine: 0, endLine: 0 };
   }
   const startLine = comment.startLine > 0 ? comment.startLine : comment.endLine;
   const endLine = Math.max(comment.endLine, startLine);
-  if (withinNewSideRanges(parseHunks(diffText), startLine, endLine)) {
+  if (startLine > 0 && withinNewSideRanges(hunks, startLine, endLine)) {
     return { ...comment, startLine, endLine };
   }
-  // Agent-supplied lines fall outside the diff's new side. Re-run the deterministic
-  // existingCode resolver; if that also fails, zero the anchor so the finding
-  // degrades per-finding to the unanchored list instead of failing a whole
-  // GitHub review batch later.
-  const resolved = resolveCommentLineNumbers({ ...comment, startLine: 0, endLine: 0 }, diffText);
-  if (resolved.startLine > 0 || resolved.endLine > 0) return resolved;
+  // Only a unique new-side match can resolve a missing or out-of-range anchor.
+  if (matches.length === 1) return { ...comment, ...matches[0] };
   return { ...comment, startLine: 0, endLine: 0 };
-}
-
-function resolveCommentLineNumbers(comment: ReviewComment, diffText: string) {
-  if (comment.startLine > 0 || comment.endLine > 0 || !comment.existingCode.trim()) return comment;
-  const targetLines = splitAndNormalizeCode(comment.existingCode);
-  if (targetLines.length === 0) return comment;
-  const hunks = parseHunks(diffText);
-  // Only assign a position when the snippet matches exactly one place; a non-unique
-  // snippet (e.g. a closing brace) can otherwise anchor to the wrong location.
-  // Resolve against the new side first, then fall back to deleted lines (whose anchor
-  // is the nearest following new-file line) so positions stay in new-file numbering.
-  for (const newSide of [true, false]) {
-    const matches = hunks.flatMap((hunk) => collectMatches(extractSideLines(hunk, newSide), targetLines));
-    if (matches.length === 1) return { ...comment, ...matches[0] };
-    if (matches.length > 1) return comment;
-  }
-  return comment;
 }

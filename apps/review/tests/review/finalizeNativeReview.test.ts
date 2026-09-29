@@ -173,7 +173,7 @@ describe("finalizeNativeReview", () => {
     expect(out.comments[0]).toMatchObject({ startLine: 2, endLine: 2 });
   });
 
-  test("keeps removed SQL comments when matching existingCode on the old side", () => {
+  test("does not anchor removed SQL comments through adjacent context", () => {
     const p = prepared([
       {
         id: "a",
@@ -187,7 +187,7 @@ describe("finalizeNativeReview", () => {
         output: { ...emptyOutput, comments: [{ ...finding, existingCode: "-- comment\nunsafeA();" }] },
       },
     ]);
-    expect(out.comments[0]).toMatchObject({ startLine: 1, endLine: 1 });
+    expect(out.comments[0]).toMatchObject({ startLine: 0, endLine: 0 });
   });
 
   test("returns skipped when the prompt says not to review", () => {
@@ -281,7 +281,7 @@ describe("finalizeNativeReview", () => {
     expect(resolved?.startLine).toBeGreaterThan(0);
   });
 
-  test("resolves deleted-line existingCode and zeroes anchors that cannot resolve", () => {
+  test("zeroes deleted-line existingCode and anchors that cannot resolve", () => {
     const p = prepared([{ id: "f1", path: "src/a.ts", diff: diffText }]);
     const out = finalizeNativeReview(baseInput, p, preview(["src/a.ts"]), [
       {
@@ -292,7 +292,7 @@ describe("finalizeNativeReview", () => {
           summary: null,
           warnings: [],
           comments: [
-            // existingCode matches only a DELETED line → resolves via the old-side pass
+            // existingCode matches only a deleted line → remains unanchored
             {
               path: "src/a.ts",
               content: "removed line concern",
@@ -325,6 +325,9 @@ describe("finalizeNativeReview", () => {
     const zeroed = out.comments.find((c) => c.content === "bogus line");
     expect(zeroed?.startLine).toBe(0);
     expect(zeroed?.endLine).toBe(0);
+    const deleted = out.comments.find((c) => c.content === "removed line concern");
+    expect(deleted?.startLine).toBe(0);
+    expect(deleted?.endLine).toBe(0);
   });
 
   test("an explicitly paired output completes its prepared file", () => {
