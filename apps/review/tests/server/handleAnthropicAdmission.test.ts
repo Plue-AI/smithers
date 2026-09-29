@@ -131,7 +131,7 @@ test("rejects an unknown paid model before forwarding", async () => {
     new Request("https://review.test/anthropic/v1/messages", {
       method: "POST",
       headers: { "x-api-key": token },
-      body: JSON.stringify({ model: "claude-opus-4-6", max_tokens: 1, messages: [] }),
+      body: JSON.stringify({ model: "claude-opus-999", max_tokens: 1, messages: [] }),
     }),
     env,
   );

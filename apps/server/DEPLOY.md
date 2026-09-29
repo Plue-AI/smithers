@@ -543,7 +543,7 @@ roster `CANARY_ALLOWLIST_LOGINS`. No such account is configured today:
 `codeplanesmithers`, the shared test account, is in `ADMIN_LOGINS`, so its
 cookie fails the canary's identity check. Satisfy the ruling one of two ways:
 remove `codeplanesmithers` from the identity Worker's `ADMIN_LOGINS`, or create
-a second account for the canary. `apps/HUMAN-TASKS.md` tracks the setup.
+a second account for the canary.
 `codeplanesmithers` is the login the T1 Playwright doubles answer with
 (`apps/app/e2e/playwright/identity.ts`).
 

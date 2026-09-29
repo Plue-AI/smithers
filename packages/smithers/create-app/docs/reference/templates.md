@@ -15,7 +15,7 @@ pnpm exec smithers-build create-app ledger                 # default
 
 |                          | `default`   | `aomi`             |
 | ------------------------ | ----------- | ------------------ |
-| Files copied             | 33          | 116                |
+| Files copied             | 33          | 117                |
 | Pages                    | 1           | 12                 |
 | Panes                    | 1           | 6                  |
 | Flows                    | 1           | 2                  |
