@@ -40,7 +40,7 @@ afterAll(async () => {
 describe("NodeControl.projectSources", () => {
   it("points at the project flows directory", () => {
     expect(NodeControl.projectSources("/work")).toEqual([
-      { source: "project", root: join("/work", "flows"), naming: "path" }
+      { source: "project", root: join("/work", "flows"), naming: "path", optionalRoot: true }
     ])
   })
 })

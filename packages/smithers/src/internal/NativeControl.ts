@@ -70,8 +70,8 @@ import * as RunCatalog from "@smthrs/sync/RunCatalog"
 import * as SyncAuth from "@smthrs/sync/SyncAuth"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import * as WorkspaceShare from "@smthrs/sync/WorkspaceShare"
-import { Cause, Clock, Context, Effect, Fiber, FileSystem, Layer, Option } from "effect"
-import type { Crypto, Path, Scope } from "effect"
+import { Cause, Clock, Context, Effect, Fiber, FileSystem, Layer, Option, Scope } from "effect"
+import type { Crypto, Path } from "effect"
 import * as Deferred from "effect/Deferred"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { randomUUID } from "node:crypto"
@@ -287,7 +287,7 @@ export const make = (
    * @since 0.1.0
    */
   const projectSources = (root: string): ReadonlyArray<Descriptor.Source> => [
-    { source: "project", root: join(root, "flows"), naming: "path" }
+    { source: "project", root: join(root, "flows"), naming: "path", optionalRoot: true }
   ]
 
   // Resolve the shared Jev judge lazily. Pure flows and observing
@@ -430,14 +430,11 @@ export const make = (
     const discovery = Discovery.layer.pipe(Layer.provide(platform))
     return Registry.layer({ sources: projectSources(root) }).pipe(
       Layer.provide([discovery, platform]),
-      // A project with no `flows/` directory simply has no flows. Every other
-      // discovery failure, such as an unreadable root or malformed entry, is a startup
-      // defect rather than a silent empty catalog.
-      Layer.catch((error) =>
-        error.code === "root_missing"
-          ? Registry.layerFromDescriptors([]).pipe(Layer.provide(platform))
-          : Layer.effect(Registry.Registry)(Effect.die(error))
-      )
+      // A project with no `flows/` directory simply has no flows (`optionalRoot`),
+      // and a refresh finds them once it appears. Every other discovery failure,
+      // such as an unreadable root or malformed entry, is a startup defect rather
+      // than a silent empty catalog.
+      Layer.catch((error) => Layer.effect(Registry.Registry)(Effect.die(error)))
     )
   }
 
@@ -787,10 +784,29 @@ export const make = (
           // discovery no longer names was deleted; one from anywhere else is a
           // flow the host registered itself, which discovery never scans.
           const scanned = new Set(projectSources(root).map((source) => resolve(source.root)))
+          // The drift check reads the disk through a registry of its own.
+          // Refreshing `registryService` replaced the snapshot `loadFlows`
+          // plans from, so reading a live run's drift made a flow that run
+          // wrote plannable, as a plan of no nodes, on a host that does not
+          // rebuild authored flows. Built on first use, it scans once then.
+          const scope = yield* Scope.Scope
+          let onDisk: Registry.Registry | undefined
+          const readDisk = Effect.suspend(() =>
+            onDisk !== undefined
+              ? onDisk.refresh().pipe(Effect.as(onDisk))
+              : Layer.buildWithScope(Layer.fresh(registry), scope).pipe(
+                Effect.map((context) => (onDisk = Context.get(context, Registry.Registry))),
+                // `layerRegistry` dies on a discovery failure at startup; here
+                // it is the same typed refusal a failed refresh answers.
+                Effect.catchDefect((defect) =>
+                  Effect.fail({ message: defect instanceof Error ? defect.message : String(defect) })
+                )
+              )
+          )
           const currentFlows = () =>
-            registryService.refresh().pipe(
+            readDisk.pipe(
               Effect.mapError(discoveryError("read the flows' current code")),
-              Effect.andThen(registryService.list()),
+              Effect.flatMap((disk) => disk.list()),
               Effect.map((discovered) => {
                 const named = new Set(discovered.map((flow) => flow.name))
                 return [

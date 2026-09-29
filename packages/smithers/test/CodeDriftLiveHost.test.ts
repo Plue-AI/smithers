@@ -16,7 +16,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Schema } from "effect"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -88,6 +88,88 @@ it("refuses a flow deleted from disk while the host stayed up", async () => {
 it("passes a flow whose bytes on disk did not change", async () => {
   const { drift } = await afterEdit(() => undefined)
   expect(drift).toBeUndefined()
+})
+
+/**
+ * The drift check reads the disk through a registry of its own. Refreshing the
+ * one `plan` reads made a flow file a run wrote plannable on a host that does
+ * not rebuild authored flows, as a plan of no nodes.
+ */
+it("reads drift without replacing the catalog a plan is made from", async () => {
+  const root = mkdtempSync(join(tmpdir(), "smithers-drift-live-"))
+  try {
+    writeFlow(root, "Original review")
+    const registry = NodeControl.layerRegistry(root)
+    const engine = NodeControl.engineDurable(root, registry)
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const runtime = yield* ControlRuntime.ControlRuntime
+        const { card } = yield* runtime.plan({ flowId: "review", input: {} })
+        const token = yield* runtime.lookupApproval(card.approval.target)
+        yield* runtime.resolveApproval(token, "approved", yield* runtime.stampPrincipal(), "run")
+        const launched = yield* runtime.launch(card.planId, card.digest, card.envelope)
+        if (launched._tag !== "Started") return yield* Effect.die(`expected a started run, got ${launched._tag}`)
+        const runId: RunId = launched.run.runId
+        yield* runtime.writeStatus(runId, yield* runtime.claimFence(runId), "parked")
+
+        // Unreadable on the first read: the same typed refusal a failed rescan gives.
+        chmodSync(join(root, "flows"), 0o000)
+        const unreadable = yield* Effect.flip(runtime.codeDrift(runId)).pipe(
+          Effect.ensuring(Effect.sync(() => chmodSync(join(root, "flows"), 0o700)))
+        )
+        // Readable again, the next read is not stuck on that refusal.
+        const unchanged = yield* runtime.codeDrift(runId)
+
+        writeFlow(root, "Edited review")
+        const edited = yield* runtime.codeDrift(runId)
+        const replanned = yield* runtime.plan({ flowId: "review", input: {} })
+        return { card, unreadable, unchanged, edited, replanned: replanned.card }
+      }).pipe(Effect.provide(engine.runtime), Effect.scoped)
+    )
+    expect(observed.unreadable).toMatchObject({ _tag: "/control/PersistenceError" })
+    expect(observed.unreadable.message).toContain("could not read source root")
+    expect(observed.unchanged).toBeUndefined()
+    expect(observed.edited?.recorded).toBe(observed.card.executionDigest)
+    expect(observed.edited?.current).not.toBe(observed.card.executionDigest)
+    // `plan` still answers from the catalog this host started with.
+    expect(observed.replanned.executionDigest).toBe(observed.card.executionDigest)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/** A `flows/` directory missing on the first drift read is not missing for good. */
+it("reads drift again once a flows directory missing on the first read returns", async () => {
+  const root = mkdtempSync(join(tmpdir(), "smithers-drift-live-"))
+  try {
+    writeFlow(root, "Original review")
+    const registry = NodeControl.layerRegistry(root)
+    const engine = NodeControl.engineDurable(root, registry)
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const runtime = yield* ControlRuntime.ControlRuntime
+        const { card } = yield* runtime.plan({ flowId: "review", input: {} })
+        const token = yield* runtime.lookupApproval(card.approval.target)
+        yield* runtime.resolveApproval(token, "approved", yield* runtime.stampPrincipal(), "run")
+        const launched = yield* runtime.launch(card.planId, card.digest, card.envelope)
+        if (launched._tag !== "Started") return yield* Effect.die(`expected a started run, got ${launched._tag}`)
+        const runId: RunId = launched.run.runId
+        yield* runtime.writeStatus(runId, yield* runtime.claimFence(runId), "parked")
+
+        renameSync(join(root, "flows"), join(root, "flows-away"))
+        const missing = yield* runtime.codeDrift(runId)
+        renameSync(join(root, "flows-away"), join(root, "flows"))
+        const returned = yield* runtime.codeDrift(runId)
+        return { card, runId, missing, returned }
+      }).pipe(Effect.provide(engine.runtime), Effect.scoped)
+    )
+    expect(observed.missing).toEqual(
+      new CodeDrift({ runId: observed.runId, flowId: "review", recorded: observed.card.executionDigest })
+    )
+    expect(observed.returned).toBeUndefined()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 // A module flow runs the executable this host loaded, not the file on disk, so
