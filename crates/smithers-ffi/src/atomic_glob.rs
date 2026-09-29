@@ -72,6 +72,13 @@ impl GlobAlternative {
             parsed.to_owned()
         };
         let parsed = parsed.trim_end_matches('/');
+        // Adjacent globstars describe the same depths as one globstar. Collapse
+        // them before deriving the anchor so a remaining terminal globstar
+        // cannot require a descendant when selecting the zero-depth anchor.
+        let mut parts = parsed.split('/').collect::<Vec<_>>();
+        parts.dedup_by(|a, b| *a == "**" && *b == "**");
+        let parsed = parts.join("/");
+        let parsed = parsed.as_str();
         let root_only = parsed.is_empty() || parsed == ".";
         let trailing_globstar = parsed == "**" || parsed.ends_with("/**");
         let core = if trailing_globstar {
@@ -132,7 +139,7 @@ impl GlobAlternative {
         }
         (!self.directory_only || is_directory)
             && (if path.is_empty() {
-                anchor && (self.root_only || self.pattern == "**" || self.pattern == "**/**")
+                anchor && (self.root_only || self.pattern == "**")
             } else {
                 !self.root_only
                     && (Self::matches_segments(&self.segments, path, false)
@@ -623,6 +630,46 @@ mod tests {
                 excluded,
                 "exclusion pattern={pattern:?}, path={path:?}, directory={directory}"
             );
+        }
+    }
+
+    #[test]
+    fn repeated_trailing_globstars_select_their_anchors_but_exclusions_keep_them() {
+        for (pattern, path, directory, selected, excluded) in [
+            ("deep/**/**", "deep", true, true, false),
+            ("deep/**/**", "deep", false, true, false),
+            ("deep.txt/**/**", "deep.txt", false, true, false),
+            ("d*/**/**", "deep", true, true, false),
+            ("t*.txt/**/**", "top.txt", false, false, false),
+            ("deep/**/**/**", "deep", true, true, false),
+            ("deep/**/**", "deep/visible.txt", false, true, true),
+            ("deep/**/**", "deep/nested", true, true, true),
+            ("deep/**/**", "deep/.secret", false, false, false),
+            ("deep/**/**", "deep/nested/.secret", false, false, false),
+            (".hidden/**/**", ".hidden", true, true, false),
+            (".hidden/**/**", ".hidden", false, true, false),
+            (".hidden/**/**/**", ".hidden", true, true, false),
+            (".hidden/**/**", ".hidden/visible.txt", false, true, true),
+            (".hidden/**/**", ".hidden/.secret", false, false, false),
+            ("{deep,.hidden}/**/**", "deep", true, true, false),
+            ("{deep,.hidden}/**/**", ".hidden", true, true, false),
+            ("{deep,.hidden}/**/**", ".hidden/visible.txt", false, true, true),
+            ("**/**/**", "", true, true, false),
+            ("**/**/**/**", "", true, true, false),
+            ("**/**/**", "visible", true, true, true),
+            ("**/**/**", "visible/file.txt", false, true, true),
+            ("**/**/**", ".hidden", true, false, false),
+            ("**/**/**", "visible/.secret", false, false, false),
+        ] {
+            for (anchor, expected) in [(true, selected), (false, excluded)] {
+                assert_eq!(
+                    GlobRule::new(pattern, anchor)
+                        .unwrap()
+                        .matches(path, directory),
+                    expected,
+                    "pattern={pattern:?}, path={path:?}, directory={directory}, anchor={anchor}"
+                );
+            }
         }
     }
 

@@ -48,7 +48,10 @@ exclusion, a `.` segment names an entry no directory holds.
 
 A trailing `**` spans zero segments, so it also names its own anchor: a
 directory always, and a non-directory only when every segment before it is
-literal. `top.txt/**` names the file; `t*.txt/**` names nothing.
+literal. `top.txt/**` names the file; `t*.txt/**` names nothing. Adjacent `**`
+segments act as one: `deep/**/**` includes `deep`, `.hidden/**/**` includes
+`.hidden`, and `**/**/**` includes the root. Repeating `**` still excludes
+hidden descendants unless another segment explicitly names their leading dot.
 
 Matching is segment-wise and linear in the candidate's length, never a compiled
 regular expression, because a pattern of repeated `*x` fragments costs a regex

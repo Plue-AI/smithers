@@ -1594,6 +1594,78 @@ describe("Node atomic filesystem", () => {
       }
     }))
 
+  it.live("selects repeated globstar anchors and retains them under matching exclusions", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (
+        const name of [
+          "keep.txt",
+          "deep/leaf.txt",
+          "deep/nested/child.txt",
+          "deep/.secret",
+          ".hidden/leaf.txt",
+          ".hidden/nested/child.txt",
+          ".hidden/.secret"
+        ]
+      ) {
+        yield* Effect.promise(() => mkdir(dirname(join(root, name)), { recursive: true }))
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      const select = (pattern: string, exclude: ReadonlyArray<string> = []) =>
+        run(
+          root,
+          Effect.flatMap(FileSystem.FileSystem, (fs) =>
+            Effect.map(
+              fs.glob(join(root, pattern), { root, exclude }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/") || ".").sort()
+            ))
+        )
+
+      for (const pattern of ["deep/**/**", "deep/**/**/**"]) {
+        expect(yield* select(pattern), pattern).toEqual([
+          "deep",
+          "deep/leaf.txt",
+          "deep/nested",
+          "deep/nested/child.txt"
+        ])
+        expect(yield* select(pattern, [pattern]), `${pattern} excluded`).toEqual(["deep"])
+      }
+      expect(yield* select("keep.txt/**/**")).toEqual(["keep.txt"])
+      expect(yield* select("keep.txt/**/**", ["keep.txt/**/**"])).toEqual(["keep.txt"])
+      for (const pattern of [".hidden/**/**", ".hidden/**/**/**"]) {
+        expect(yield* select(pattern), pattern).toEqual([
+          ".hidden",
+          ".hidden/leaf.txt",
+          ".hidden/nested",
+          ".hidden/nested/child.txt"
+        ])
+        expect(yield* select(pattern, [pattern]), `${pattern} excluded`).toEqual([".hidden"])
+      }
+      for (const pattern of ["**/**/**", "**/**/**/**"]) {
+        expect(yield* select(pattern), pattern).toEqual([
+          ".",
+          "deep",
+          "deep/leaf.txt",
+          "deep/nested",
+          "deep/nested/child.txt",
+          "keep.txt"
+        ])
+        expect(yield* select(pattern, [pattern]), `${pattern} excluded`).toEqual(["."])
+      }
+      const braced = "{deep,.hidden}/**/**"
+      expect(yield* select(braced)).toEqual([
+        ".hidden",
+        ".hidden/leaf.txt",
+        ".hidden/nested",
+        ".hidden/nested/child.txt",
+        "deep",
+        "deep/leaf.txt",
+        "deep/nested",
+        "deep/nested/child.txt"
+      ])
+      expect(yield* select(braced, [braced])).toEqual([".hidden", "deep"])
+    }))
+
   it.live("treats a slash inside a bracket expression as a path separator", () =>
     Effect.gen(function*() {
       const root = yield* Effect.promise(() => temporaryDirectory())

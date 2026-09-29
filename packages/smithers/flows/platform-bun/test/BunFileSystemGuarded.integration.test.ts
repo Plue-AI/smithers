@@ -27,7 +27,7 @@ import * as Workspace from "@smthrs/kernel/Workspace"
 import { Effect, FileSystem, Layer } from "effect"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import * as BunFileSystem from "../src/BunFileSystem.ts"
 
 /** The kernel's guarded filesystem over the Bun host adapter, bounded at `root`. */
@@ -66,6 +66,57 @@ describe("BunFileSystem under the kernel guard", () => {
         expect(outcome).toEqual({ readBack: "bun guarded", renamedText: "bun guarded", sourceGone: false })
         // The helper wrote to the real filesystem, not to a private view of it.
         expect(readFileSync(renamed, "utf8")).toBe("bun guarded")
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }), 30_000)
+
+  it.live("selects repeated globstar anchors and preserves them under exclusions", () =>
+    Effect.gen(function*() {
+      const root = temporaryDirectory()
+      try {
+        mkdirSync(join(root, "deep", "nested"), { recursive: true })
+        mkdirSync(join(root, ".hidden", "nested"), { recursive: true })
+        for (
+          const name of [
+            "keep.txt",
+            "deep/leaf.txt",
+            "deep/nested/child.txt",
+            "deep/.secret",
+            ".hidden/leaf.txt",
+            ".hidden/nested/child.txt",
+            ".hidden/.secret"
+          ]
+        ) {
+          writeFileSync(join(root, name), "")
+        }
+        const select = (pattern: string, exclude: ReadonlyArray<string> = []) =>
+          Effect.flatMap(FileSystem.FileSystem, (fs) =>
+            Effect.map(
+              fs.glob(join(root, pattern), { root, exclude }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/") || ".").sort()
+            )).pipe(Effect.provide(guarded(root)))
+
+        expect(yield* select("deep/**/**")).toEqual(["deep", "deep/leaf.txt", "deep/nested", "deep/nested/child.txt"])
+        expect(yield* select("deep/**/**", ["deep/**/**"])).toEqual(["deep"])
+        expect(yield* select("keep.txt/**/**")).toEqual(["keep.txt"])
+        expect(yield* select("keep.txt/**/**", ["keep.txt/**/**"])).toEqual(["keep.txt"])
+        expect(yield* select(".hidden/**/**")).toEqual([
+          ".hidden",
+          ".hidden/leaf.txt",
+          ".hidden/nested",
+          ".hidden/nested/child.txt"
+        ])
+        expect(yield* select(".hidden/**/**", [".hidden/**/**"])).toEqual([".hidden"])
+        expect(yield* select("**/**/**")).toEqual([
+          ".",
+          "deep",
+          "deep/leaf.txt",
+          "deep/nested",
+          "deep/nested/child.txt",
+          "keep.txt"
+        ])
+        expect(yield* select("**/**/**", ["**/**/**"])).toEqual(["."])
       } finally {
         rmSync(root, { recursive: true, force: true })
       }
