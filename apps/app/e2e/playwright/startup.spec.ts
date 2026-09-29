@@ -35,7 +35,7 @@ test("a late boot recovers after the startup watchdog without losing React's mou
     await expect(page.locator("body")).not.toContainText("This build isn't connected")
     // The bundle is deliberately still in flight after the watchdog's budget.
     await page.clock.fastForward(90_000)
-    await expect(page.locator("[data-startup-failure]")).toContainText("Smithers failed to start")
+    await expect(page.locator("[data-startup-failure]")).toContainText("Smithers is taking too long to start. Not your fault.")
     await expect(page.locator("#root .session-shell")).toHaveCount(1)
     release()
     await page.clock.resume()

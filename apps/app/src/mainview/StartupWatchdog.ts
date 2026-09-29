@@ -1,4 +1,5 @@
 import { createStartupErrorElement, STARTUP_PAGE_BACKGROUND, startupErrorMessage } from "./StartupError"
+import { presentStartupFailure, StartupTimedOut } from "./StartupFailure"
 import { createClientErrorReporter } from "./state/ClientErrors"
 import type { ClientErrorReporter } from "./state/ClientErrors"
 
@@ -78,7 +79,11 @@ export const startStartupWatchdog = (options: StartupWatchdogOptions): StartupWa
     // children strands a late successful boot on this error forever. Keep the
     // tree intact underneath a separate panel; markMounted removes the panel
     // when a slow network or storage operation finally completes.
-    panel = createStartupErrorElement(documentTarget, startupErrorMessage(reason, firstBootError))
+    // The reporter above already has this failure; the panel only presents it.
+    panel = createStartupErrorElement(documentTarget, {
+      ...presentStartupFailure(reason),
+      detail: startupErrorMessage(reason, firstBootError)
+    })
     overlay = documentTarget.createElement("div")
     overlay.dataset.startupFailure = "true"
     overlay.setAttribute("style", `position: fixed; inset: 0; z-index: 2147483647; overflow: auto; background: ${STARTUP_PAGE_BACKGROUND}`)
@@ -86,7 +91,7 @@ export const startStartupWatchdog = (options: StartupWatchdogOptions): StartupWa
     documentTarget.body.append(overlay)
   }
   const timer = windowTarget.setTimeout(() => {
-    reportFailure(new Error(`Smithers did not finish starting within ${options.timeoutMs}ms.`))
+    reportFailure(new StartupTimedOut(options.timeoutMs))
   }, options.timeoutMs)
   return {
     markMounted,

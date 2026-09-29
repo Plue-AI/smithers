@@ -11,11 +11,20 @@ import {
   STORAGE_RECOVERY_RESET
 } from "./state/StorageRecoveryContract"
 
+/** Which recovery doors a failure offers; each one is a `UserFailureAction`. */
+export interface StartupRecoveryDoors {
+  readonly download: boolean
+  readonly reset: boolean
+}
+
+const BOTH_DOORS: StartupRecoveryDoors = { download: true, reset: true }
+
 /** A non-React projection: the watchdog must also work when React never boots. */
 export const createStartupRecovery = (
   documentTarget: Document,
   host?: StorageRecoveryHost,
-  loadFlow: () => Promise<typeof import("./flows/StorageRecoveryFlow")> = () => import("./flows/StorageRecoveryFlow")
+  loadFlow: () => Promise<typeof import("./flows/StorageRecoveryFlow")> = () => import("./flows/StorageRecoveryFlow"),
+  doors: StartupRecoveryDoors = BOTH_DOORS
 ) => {
   let download: ReturnType<typeof createRecoveryDownload> | undefined
   const action = createStorageRecoveryAction(
@@ -80,7 +89,8 @@ export const createStartupRecovery = (
   }
   button.onclick = () => invoke((module) => module.storageRecoveryExportFlow(action.run))
   reset.onclick = () => invoke((module) => module.storageRecoveryResetFlow(action.reset))
-  element.append(warning, button, status, reset, resetStatus)
+  if (doors.download) element.append(warning, button, status)
+  if (doors.reset) element.append(reset, resetStatus)
   let closing: Promise<void> | undefined
   const dispose = (): Promise<void> => {
     if (closing !== undefined) return closing
@@ -93,17 +103,4 @@ export const createStartupRecovery = (
     return closing
   }
   return { element, dispose }
-}
-
-/** React's commit-time ref owns the same DOM projection; no render-time resources or useEffect. */
-export const mountStartupRecovery = (host: HTMLDivElement | null): (() => void) | undefined => {
-  if (host === null) return undefined
-  const recovery = createStartupRecovery(host.ownerDocument)
-  host.append(recovery.element)
-  return () => {
-    recovery.element.remove()
-    void recovery.dispose().catch(() => {
-      console.warn("Smithers: local recovery cleanup could not finish. Reload before retrying.")
-    })
-  }
 }

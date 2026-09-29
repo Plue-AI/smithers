@@ -568,7 +568,7 @@ matrixTest("a future-schema physical OPFS database fails closed, exports exact r
       .toEqual([{ value: futureVersion }])
 
     await database.page.goto(database.appUrl)
-    await expect(database.page.getByRole("heading", { name: "Smithers failed to start" })).toBeVisible()
+    await expect(database.page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
     await expect(database.page.getByTestId("composer-input")).toHaveCount(0)
     await expect(database.page.locator("body")).not.toContainText(marker)
 

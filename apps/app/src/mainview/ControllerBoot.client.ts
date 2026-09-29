@@ -18,7 +18,8 @@ const promiseEffect = <A>(label: string, run: () => Promise<A>) =>
   Effect.tryPromise({
     try: run,
     catch: (cause) => isWriterOwnershipError(cause) || cause instanceof BootstrapFailure
-      ? cause : new Error(`${label}: ${cause instanceof Error ? cause.message : String(cause)}`)
+      // Keep the cause: the startup panel presents a tagged cause by its `_tag`.
+      ? cause : new Error(`${label}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
   })
 
 /*

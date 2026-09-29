@@ -24,7 +24,7 @@ for (const moment of ["during", "after"] as const) {
     await page.reload()
     await expect(page.locator(".flow-graph-drawer")).toHaveAttribute("data-node", GRAPH_STEADY)
     await expect(page.locator(".flow-graph-drawer")).toHaveAttribute("data-tab", "code")
-    await expect(page.getByText("Smithers failed to start", { exact: true })).toHaveCount(0)
+    await expect(page.locator("main[data-fault]")).toHaveCount(0)
     if (!await composer.isVisible()) await page.locator('[data-flow="chat.open"]').first().click()
     // The door is durable: the overlay reaches the screen a beat after the
     // click, and an Escape sent before it arrives closes a palette that is not

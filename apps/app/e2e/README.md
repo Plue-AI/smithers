@@ -153,7 +153,7 @@ failure, because it returns as soon as the view exists.
 A raw navigation without `awaitBoot` remains correct where the next step
 navigates again, reads only an API response, or expects the app NOT to boot —
 the OPFS schema-fault case in `navigation-frames.spec.ts` waits for
-"Smithers failed to start" instead.
+"Smithers could not start. Not your fault." instead.
 
 `contracts/` holds the assertion contracts both tiers share: pure predicates
 that decide what counts as evidence, each with its own Bun test.

@@ -1,8 +1,9 @@
 import { isWriterOwnershipError, StorageWriteFailedError, type WriterOwnershipError } from "./state/StorageRecoveryContract"
 import { useSmithersHere } from "./state/WriterOwnership"
-import { useState, type CSSProperties } from "react"
-import { errorMessage } from "./state/ClientErrors"
-import { createStartupRecovery, mountStartupRecovery } from "./StartupRecovery"
+import { useMemo, useState, type CSSProperties } from "react"
+import { failureDetail, type UserFailure } from "@smthrs/rpc/UserFailure"
+import { createStartupRecovery } from "./StartupRecovery"
+import { presentStartupFailure } from "./StartupFailure"
 import { BootstrapFailure } from "./runtime/Runtime"
 import { switchBackendTarget } from "./runtime/BackendTargetSelection"
 
@@ -37,13 +38,18 @@ const DETAIL_STYLE = {
   borderRadius: "8px"
 } as const satisfies CSSProperties
 
+const ACTIONS_STYLE = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.5rem",
+  alignItems: "flex-start",
+  margin: "1rem 0"
+} as const satisfies CSSProperties
+
 const cssText = (style: Readonly<Record<string, string>>): string =>
   Object.entries(style)
     .map(([property, value]) => `${property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}: ${value}`)
     .join("; ")
-
-const HEADING = "Smithers failed to start"
-const HINT = "Reload to try again. If this persists, share the error above with the team."
 
 /**
  * The detail text one failure gets.
@@ -54,20 +60,20 @@ const HINT = "Reload to try again. If this persists, share the error above with 
  */
 export const startupErrorMessage = (reason: unknown, earlier?: unknown): string =>
   earlier === undefined
-    ? errorMessage(reason)
+    ? failureDetail(reason)
     : [
-      errorMessage(reason),
+      failureDetail(reason),
       "",
       "Earliest error while the page was blank (some are recovered, so this may not be the cause):",
-      errorMessage(earlier)
+      failureDetail(earlier)
     ].join("\n")
 
 /** The panel React renders when a boot failure reaches the error boundary. */
-type StartupFailure = { readonly kind: "generic"; readonly message: string } | WriterOwnershipError | BootstrapFailure | StorageWriteFailedError
+type StartupFailure = { readonly kind: "generic" } | WriterOwnershipError | BootstrapFailure | StorageWriteFailedError
 
 const startupFailure = (reason: unknown): StartupFailure =>
   isWriterOwnershipError(reason) || reason instanceof BootstrapFailure || reason instanceof StorageWriteFailedError
-    ? reason : { kind: "generic", message: startupErrorMessage(reason) }
+    ? reason : { kind: "generic" }
 
 /** Points this shell at another backend; resolves once the page is leaving for it. */
 export type BackendSwitch = (origin: string, token: string) => Promise<void>
@@ -163,31 +169,89 @@ export function StartupErrorPanel({ message, reason = message, switchBackend = s
     case "generic": break
     default: { const exhaustive: never = failure; return exhaustive }
   }
-  return (
-    <main style={PANEL_STYLE}>
-      <h1>{HEADING}</h1>
-      <pre style={DETAIL_STYLE}>{failure.message}</pre>
-      <p>{HINT}</p>
-      <div ref={mountStartupRecovery} />
-    </main>
-  )
+  return <GenericFailurePanel reason={reason} />
 }
 
+/** React mounts the DOM panel below, so both paths render one set of declarations. */
+function GenericFailurePanel({ reason }: { readonly reason: unknown }) {
+  const mount = useMemo(() => {
+    const failure = presentStartupFailure(reason)
+    return (host: HTMLDivElement | null): (() => void) | undefined => {
+      if (host === null) return undefined
+      const panel = createStartupErrorElement(host.ownerDocument, failure)
+      host.append(panel.element)
+      return () => {
+        panel.element.remove()
+        void panel.dispose().catch(() => {
+          console.warn("Smithers: local recovery cleanup could not finish.")
+        })
+      }
+    }
+  }, [reason])
+  return <div ref={mount} />
+}
+
+/** The label of each plain button; the recovery doors bring their own. */
+const BUTTON_LABELS = { retry: "Retry", "sign-in": "Sign in", "use-here": "Use Smithers here" } as const
+
 /**
- * The same panel built as DOM, for the failure React cannot report: a boot that
- * never resolves, or a bundle that never ran at all.
+ * The generic failure panel as DOM: one sentence, the failure's actions in
+ * order, and the raw detail behind a collapsed Details. The watchdog uses it
+ * for a boot that never resolves or a bundle that never ran; React mounts the
+ * same builder for a boot that rejected.
  */
-export const createStartupErrorElement = (documentTarget: Document, message: string) => {
+export const createStartupErrorElement = (documentTarget: Document, failure: UserFailure) => {
+  const view = documentTarget.defaultView
   const panel = documentTarget.createElement("main")
   panel.setAttribute("style", cssText(PANEL_STYLE))
+  panel.dataset.fault = failure.fault
+  if (failure.tag !== null) panel.dataset.failure = failure.tag
   const heading = documentTarget.createElement("h1")
-  heading.textContent = HEADING
+  heading.textContent = failure.sentence
+  const actions = documentTarget.createElement("div")
+  actions.setAttribute("style", cssText(ACTIONS_STYLE))
+  const button = (label: string, act: () => void): HTMLButtonElement => {
+    const element = documentTarget.createElement("button")
+    element.type = "button"
+    element.textContent = label
+    element.onclick = act
+    return element
+  }
+  let recovery: ReturnType<typeof createStartupRecovery> | undefined
+  for (const action of failure.actions) {
+    switch (action) {
+      case "retry":
+        actions.append(button(BUTTON_LABELS.retry, () => view?.location.reload()))
+        break
+      case "sign-in":
+        actions.append(button(BUTTON_LABELS["sign-in"], () => view?.location.assign("/")))
+        break
+      case "use-here":
+        actions.append(button(BUTTON_LABELS["use-here"], useSmithersHere))
+        break
+      case "download-recovery":
+      case "reset-local-data":
+        if (recovery === undefined) {
+          recovery = createStartupRecovery(documentTarget, undefined, undefined, {
+            download: failure.actions.includes("download-recovery"),
+            reset: failure.actions.includes("reset-local-data")
+          })
+          actions.append(recovery.element)
+        }
+        break
+      default: {
+        const exhaustive: never = action
+        return exhaustive
+      }
+    }
+  }
+  const details = documentTarget.createElement("details")
+  const summary = documentTarget.createElement("summary")
+  summary.textContent = "Details"
   const detail = documentTarget.createElement("pre")
   detail.setAttribute("style", cssText(DETAIL_STYLE))
-  detail.textContent = message
-  const hint = documentTarget.createElement("p")
-  hint.textContent = HINT
-  const recovery = createStartupRecovery(documentTarget)
-  panel.append(heading, detail, hint, recovery.element)
-  return { element: panel, dispose: recovery.dispose }
+  detail.textContent = failure.detail
+  details.append(summary, detail)
+  panel.append(heading, actions, details)
+  return { element: panel, dispose: (): Promise<void> => recovery?.dispose() ?? Promise.resolve() }
 }

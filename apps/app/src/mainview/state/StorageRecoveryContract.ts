@@ -11,8 +11,8 @@ export const RECOVERY_HUMAN_ONLY =
 export const STORAGE_RECOVERY_RESET = "storage.recovery.reset"
 export const STORAGE_RESET_USER_ONLY_REASON =
   "erasing this browser's saved Smithers data and reloading the page is the human's browser gesture; the agent renders the step with storage.recovery"
-export const RECOVERY_RESET_LABEL = "Reset local state and reload"
-export const RECOVERY_RESET_CONFIRM_LABEL = "Confirm reset — this erases local data"
+export const RECOVERY_RESET_LABEL = "Reset this browser's data"
+export const RECOVERY_RESET_CONFIRM_LABEL = "Confirm: erase this browser's data"
 /** Shown once the act is armed, so the second press is an informed one. */
 export const RECOVERY_RESET_ARMED =
   "This erases this browser's saved Smithers conversation, cards and run history, then reloads. Download the recovery file first if you want to keep it. Press again to reset."

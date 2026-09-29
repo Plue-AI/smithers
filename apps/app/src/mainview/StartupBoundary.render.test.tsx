@@ -65,9 +65,9 @@ describe("the startup error boundary", () => {
         </StartupErrorBoundary>
       )
     )
-    expect(document.body.textContent).toContain("Smithers failed to start")
-    expect(document.body.textContent).toContain("opfs unavailable")
-    expect(document.body.textContent).toContain("Reload to try again")
+    expect(document.querySelector("h1")?.textContent).toBe("Smithers could not start. Not your fault.")
+    // The raw text is kept, behind the collapsed Details only.
+    expect(document.querySelector("details:not([open]) pre")?.textContent).toContain("opfs unavailable")
     expect(reported).toBeInstanceOf(Error)
   })
 
@@ -105,6 +105,6 @@ describe("the mounted signal", () => {
       )
     )
     expect(mounted).toBe(0)
-    expect(document.body.textContent).toContain("Smithers failed to start")
+    expect(document.body.textContent).toContain("Smithers could not start. Not your fault.")
   })
 })

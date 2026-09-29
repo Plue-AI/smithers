@@ -4,6 +4,13 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { createStartupErrorElement, StartupErrorPanel, webBackendSwitch } from "./StartupError"
+import { presentStartupFailure, STARTUP_UNKNOWN_FAILURE, StartupTimedOut } from "./StartupFailure"
+import { PRIVACY_RETIREMENT_COPY } from "./chain/PrivacyRetirementCopy"
+import {
+  PrivacyAuthorityMissing, PrivacyCleanupPending, PrivacyConflictingErasureProof, PrivacyKeyNotRemoved,
+  PrivacyMarkerMismatch, PrivacyMarkerUnreadable, PrivacyStorageUnavailable, type PrivacyRetirementError
+} from "./chain/PrivacyRetirement"
+import { RECOVERY_DOWNLOAD_LABEL, RECOVERY_RESET_LABEL } from "./state/StorageRecoveryContract"
 
 import { StorageWriteFailedError, WriterHeldByAnotherTabError, WriterMovedToAnotherTabError } from "./state/StorageRecoveryContract"
 import { BootstrapFailure } from "./runtime/Runtime"
@@ -45,52 +52,142 @@ const detailOf = (panel: HTMLElement): HTMLElement => {
   return detail
 }
 
-const renderReactPanel = (message: string): HTMLElement => {
+const renderReactPanel = (reason: unknown): HTMLElement => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   roots.add(root)
-  flushSync(() => root.render(<StartupErrorPanel message={message} />))
+  flushSync(() => root.render(<StartupErrorPanel reason={reason} />))
   const panel = host.querySelector("main")
   if (panel === null) throw new Error("the React panel rendered no <main>")
   return panel
+}
+
+/** What the panel shows before anyone opens Details. */
+const visibleText = (panel: HTMLElement): string => {
+  const copy = panel.cloneNode(true) as HTMLElement
+  for (const detail of copy.querySelectorAll("pre")) detail.remove()
+  return copy.textContent ?? ""
+}
+
+const buttonsOf = (panel: HTMLElement): Array<string | null> =>
+  [...panel.querySelectorAll("button")].map(button => button.textContent)
+
+/** Both paths for one reason; the caller disposes the DOM panel. */
+const bothPanels = (reason: unknown) => {
+  const fallback = createStartupErrorElement(document, presentStartupFailure(reason))
+  document.body.append(fallback.element)
+  return { fallback, panels: [fallback.element, renderReactPanel(reason)] }
 }
 
 describe("the startup error panel", () => {
   /*
    * The defect this pins: the DOM builder carried its own cssText copy of the
    * React panel's inline styles, so a cosmetic edit to one representation left
-   * the other behind. Editing either declaration alone now reddens this test.
+   * the other behind. React now mounts the DOM builder, and this keeps it so.
    */
   test("styles the panel and its detail identically from React and from the DOM builder", async () => {
-    const fallback = createStartupErrorElement(document, "create app store: opfs unavailable")
+    const { fallback, panels: [dom, react] } = bothPanels(new Error("create app store: opfs unavailable"))
     try {
-      const react = renderReactPanel("create app store: opfs unavailable")
-      const panelStyle = declarations(fallback.element)
-      const detailStyle = declarations(detailOf(fallback.element))
+      const panelStyle = declarations(dom!)
+      const detailStyle = declarations(detailOf(dom!))
       // Guards the comparisons below against passing on two empty declaration sets.
       expect(panelStyle["max-width"]).toBe("44rem")
       expect(detailStyle["white-space"]).toBe("pre-wrap")
-      expect(panelStyle).toEqual(declarations(react))
-      expect(detailStyle).toEqual(declarations(detailOf(react)))
+      expect(panelStyle).toEqual(declarations(react!))
+      expect(detailStyle).toEqual(declarations(detailOf(react!)))
     } finally {
       await fallback.dispose()
     }
   })
 
-  test("shows the message, the heading and the hint on both paths", async () => {
-    const fallback = createStartupErrorElement(document, "boot rejected")
+  /*
+   * The defect this pins: smithers.sh showed "Error: prepare runtime and
+   * persisted state: Local privacy cleanup is incomplete. Reload to retry..."
+   * as the whole panel. Raw text now sits only behind a closed Details.
+   */
+  test("an unknown error shows one sentence and its doors, never its message", async () => {
+    const reason = new Error("prepare runtime and persisted state: SECRET internal jargon")
+    const { fallback, panels } = bothPanels(reason)
     try {
-      const react = renderReactPanel("boot rejected")
-      for (const panel of [fallback.element, react]) {
-        expect(panel.textContent).toContain("Smithers failed to start")
-        expect(panel.textContent).toContain("Reload to try again")
-        expect(detailOf(panel).textContent).toBe("boot rejected")
+      for (const panel of panels) {
+        expect(panel.querySelector("h1")?.textContent).toBe(STARTUP_UNKNOWN_FAILURE.sentence)
+        expect(visibleText(panel)).not.toContain("SECRET")
+        expect(visibleText(panel)).not.toContain("Reload to")
+        expect(buttonsOf(panel)).toEqual(["Retry", RECOVERY_DOWNLOAD_LABEL, RECOVERY_RESET_LABEL])
+        expect(panel.querySelector("details")?.open).toBe(false)
+        expect(panel.querySelector("summary")?.textContent).toBe("Details")
+        expect(detailOf(panel).textContent).toContain("SECRET internal jargon")
+        expect(panel.dataset.fault).toBe("bug")
+        expect(panel.dataset.failure).toBeUndefined()
       }
     } finally {
       await fallback.dispose()
     }
   })
+
+  test("every action is a native button, and Details opens from the keyboard", async () => {
+    const { fallback, panels } = bothPanels(new StartupTimedOut(1))
+    try {
+      for (const panel of panels) {
+        for (const button of panel.querySelectorAll("button")) expect(button.type).toBe("button")
+        const summary = panel.querySelector("summary")!
+        summary.focus()
+        summary.click()
+        expect(panel.querySelector("details")?.open).toBe(true)
+      }
+    } finally {
+      await fallback.dispose()
+    }
+  })
+
+  test("a watchdog timeout blames infra and keeps both doors", async () => {
+    const { fallback, panels } = bothPanels(new StartupTimedOut(60_000))
+    try {
+      for (const panel of panels) {
+        expect(panel.querySelector("h1")?.textContent).toBe("Smithers is taking too long to start. Not your fault.")
+        expect(panel.dataset.fault).toBe("infra")
+        expect(buttonsOf(panel)).toEqual(["Retry", RECOVERY_DOWNLOAD_LABEL, RECOVERY_RESET_LABEL])
+      }
+    } finally {
+      await fallback.dispose()
+    }
+  })
+})
+
+const PRIVACY_VARIANTS: ReadonlyArray<PrivacyRetirementError> = [
+  new PrivacyMarkerUnreadable(), new PrivacyCleanupPending(), new PrivacyConflictingErasureProof(), new PrivacyKeyNotRemoved(),
+  new PrivacyStorageUnavailable(), new PrivacyMarkerMismatch(), new PrivacyAuthorityMissing()
+]
+
+describe("privacy cleanup failures", () => {
+  test("the variant list covers every registered tag", () => {
+    expect(PRIVACY_VARIANTS.map((variant): string => variant._tag).sort()).toEqual(Object.keys(PRIVACY_RETIREMENT_COPY).sort())
+  })
+
+  for (const variant of PRIVACY_VARIANTS) {
+    test(`${variant._tag} shows its own sentence and doors, even under the boot step's wrapper`, async () => {
+      const copy = PRIVACY_RETIREMENT_COPY[variant._tag]
+      const expected = typeof copy === "function" ? copy(variant as never) : copy
+      const wrapped = new Error(`prepare runtime and persisted state: ${variant.message}`, { cause: variant })
+      for (const reason of [variant, wrapped]) {
+        const { fallback, panels } = bothPanels(reason)
+        try {
+          for (const panel of panels) {
+            expect(panel.querySelector("h1")?.textContent).toBe(expected.sentence)
+            expect(panel.dataset.failure).toBe(variant._tag)
+            expect(panel.dataset.fault).not.toBe("user")
+            expect(visibleText(panel)).not.toContain("cleanup is incomplete")
+            expect(visibleText(panel)).not.toContain("Reload to retry")
+            expect(buttonsOf(panel)).toEqual(expected.actions.map(action => action === "retry" ? "Retry" : RECOVERY_RESET_LABEL))
+            expect(buttonsOf(panel)).not.toContain(RECOVERY_DOWNLOAD_LABEL)
+          }
+        } finally {
+          await fallback.dispose()
+        }
+      }
+    })
+  }
 })
 
 for (const [reason, heading, buttons] of [
@@ -240,7 +337,7 @@ describe("the startup panels are legible in every theme", () => {
   }
 
   test("every panel's text and detail clear 4.5:1 in all themes, on both paths", async () => {
-    const fallback = createStartupErrorElement(document, "boot rejected")
+    const fallback = createStartupErrorElement(document, presentStartupFailure(new Error("boot rejected")))
     try {
       const panels = [
         { name: "DOM failed to start", element: fallback.element },

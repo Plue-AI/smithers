@@ -64,8 +64,8 @@ test("an oversized app refuses with recovery actions and leaves complete authori
       </StartupErrorBoundary>))
     } finally { console.error = consoleError }
     expect(reported).toBe(refused)
-    expect(element.textContent).toContain("Smithers failed to start")
-    expect(element.textContent).toContain("source was preserved")
+    expect(element.querySelector("h1")?.textContent).toBe("Smithers could not start. Not your fault.")
+    expect(element.querySelector("details pre")?.textContent).toContain("source was preserved")
     const buttons = [...element.querySelectorAll("button")]
     expect(buttons.map(button => button.textContent)).toEqual(expect.arrayContaining([RECOVERY_DOWNLOAD_LABEL, RECOVERY_RESET_LABEL]))
     expect(buttons.every(button => !button.disabled)).toBe(true)

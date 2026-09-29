@@ -64,7 +64,7 @@ export const storageRecoveryResetFlow = (run: () => Promise<string | void>): Flo
   }),
   input,
   metadata: {
-    summary: "Reset local state and reload",
+    summary: "Reset this browser's data",
     hidden: true,
     userOnlyReason: STORAGE_RESET_USER_ONLY_REASON
   }
