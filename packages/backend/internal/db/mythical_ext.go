@@ -385,6 +385,16 @@ func (q *Queries) InsertMythicalChatItem(ctx context.Context, item MythicalItem)
 	return existing, false, err
 }
 
+// MythicalItemTokens is every metered model token (input, output and cache)
+// the item's lane workspaces spent, across all its attempts.
+func (q *Queries) MythicalItemTokens(ctx context.Context, itemID pgtype.UUID) (int64, error) {
+	var tokens int64
+	err := q.db.QueryRow(ctx, `SELECT COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens), 0)::bigint
+		FROM mythical_lanes l JOIN model_usage u ON u.repository_id = l.repository_id AND u.workspace_id = l.workspace_id
+		WHERE l.item_id = $1`, itemID).Scan(&tokens)
+	return tokens, err
+}
+
 // SaveMythicalItem writes every mutable field of item when its version is
 // still item.Version, and answers the saved row (version + 1). A concurrent
 // writer makes it answer pgx.ErrNoRows; the caller rereads and decides again.

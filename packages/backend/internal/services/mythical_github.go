@@ -74,6 +74,8 @@ type mythicalGitHub interface {
 	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
 	// LabelApplier answers who last applied label to an issue, or nil.
 	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error)
+	// Comment posts one comment on an issue.
+	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
 	// RemoveLabel takes label off an issue; an absent label is removed.
 	RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 }
@@ -352,4 +354,20 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 		}
 	}
 	return applier, nil
+}
+
+func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error {
+	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	if err != nil {
+		return err
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments"
+	status, err := g.api.request(ctx, token, http.MethodPost, path, map[string]string{"body": body}, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusCreated {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
+	}
+	return nil
 }

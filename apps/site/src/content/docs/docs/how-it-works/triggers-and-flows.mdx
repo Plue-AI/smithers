@@ -42,7 +42,7 @@ export const factory = S.Factory({
 
 The app's **Dispatcher** lists each rule as declared.
 
-**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: implementing every issue a maintainer labels `todo`, reviewing each pull request that work opens, merging it when the review approves and a maintainer also labeled the issue `automerge`, and refreshing history and the wiki when code lands. Smithers removes a `todo` or `automerge` label anyone else adds.
+**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: implementing every issue a maintainer labels `todo`, reviewing each pull request that work opens, merging it when the review approves and a maintainer also labeled the issue `automerge`, and refreshing history and the wiki when code lands. Smithers removes a `todo` or `automerge` label anyone else adds. A TODO whose model spend passes its cap (200M tokens; set `SMITHERS_TODO_TOKEN_CAP`) stops and says so on the issue; re-apply `todo` to resume it.
 
 **Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 

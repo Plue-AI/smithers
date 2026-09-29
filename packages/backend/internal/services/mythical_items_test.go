@@ -51,6 +51,8 @@ type fakeMythicalGitHub struct {
 	removed []string
 	// labelers applied an issue's labels; absent, its author did.
 	labelers map[int64]string
+	// comments are the issue comments Comment posted, as "#<issue> <body>".
+	comments []string
 }
 
 // Merge squash-merges like GitHub: only while the pull request is open and
@@ -88,6 +90,13 @@ func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRep
 		}
 	}
 	return nil, nil
+}
+
+func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, number int64, body string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.comments = append(g.comments, fmt.Sprintf("#%d %s", number, body))
+	return nil
 }
 
 func (g *fakeMythicalGitHub) RemoveLabel(_ context.Context, _ mythicalGitHubRepo, number int64, label string) error {

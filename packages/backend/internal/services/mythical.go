@@ -74,11 +74,14 @@ type MythicalService struct {
 	mu               sync.Mutex
 	backfills        map[int64]time.Time
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
+	// todoTokenCap is the tripwire on one TODO's metered spend
+	// (mythicalTodoTokenCap).
+	todoTokenCap int64
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
 	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
-		logger: slog.Default(), now: time.Now}
+		logger: slog.Default(), now: time.Now, todoTokenCap: mythicalTodoTokenCap(os.Getenv("SMITHERS_TODO_TOKEN_CAP"))}
 }
 
 // SetFactoryReconciler uses the same owner-main registration boundary as mirror pulls.

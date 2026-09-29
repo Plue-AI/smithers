@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -185,5 +186,74 @@ func TestFactoryTodoRowsRegisterNoRepositoryJob(t *testing.T) {
 	require.NoError(t, err)
 	for _, registration := range registrations {
 		assert.Empty(t, registration.input.Events, "only schedules register: %s %s", registration.job, registration.input.FlowID)
+	}
+}
+
+// spend records metered model tokens for a lane workspace, as the model
+// proxy does.
+func (o *mythicalOrchestration) spend(workspaceID string, tokens int64) {
+	o.t.Helper()
+	ctx := context.Background()
+	var account, reservation int64
+	key := uuid.NewString()
+	_, err := o.pool.Exec(ctx, `INSERT INTO credit_accounts(owner_type, owner_id) VALUES ('user', $1) ON CONFLICT DO NOTHING`, o.userID)
+	require.NoError(o.t, err)
+	require.NoError(o.t, o.pool.QueryRow(ctx, `SELECT id FROM credit_accounts WHERE owner_type = 'user' AND owner_id = $1`, o.userID).Scan(&account))
+	require.NoError(o.t, o.pool.QueryRow(ctx, `INSERT INTO credit_reservations(account_id, request_key, reserved_nanos)
+		VALUES ($1, $2, 1) RETURNING id`, account, key).Scan(&reservation))
+	_, err = o.pool.Exec(ctx, `INSERT INTO model_usage(request_key, credit_account_id, reservation_id, owner_type, owner_id, source,
+		repository_id, workspace_id, provider, model, input_tokens, output_tokens)
+		VALUES ($1, $2, $3, 'user', $4, 'workspace', $5, $6, 'openai', 'gpt-6-sol', $7, 0)`, key, account, reservation, o.userID, o.repoID, workspaceID, tokens)
+	require.NoError(o.t, err)
+}
+
+// A TODO whose lanes spend past its cap stops before anything more
+// launches, says so once on its issue, and resumes when a maintainer
+// re-applies todo under a raised cap.
+func TestMythicalTodoStopsAtItsSpendCap(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.todoTokenCap = 1_000
+	issue := mythicalIssue{Number: 90, Title: "Spend", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	o.wake()
+	item := o.item(90)
+	require.Equal(t, "running", item.State)
+	o.spend(item.WorkspaceID, 600)
+	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-90", validatedRequest)
+	o.wake()
+	require.Equal(t, "delivering", o.item(90).State, "under the cap the TODO goes on")
+
+	o.spend(item.WorkspaceID, 600)
+	launched := len(o.launcher.requests)
+	o.project(o.launcher.last("coding/vibe"), jobs.StateFailed, "run-vibe-90", "")
+	o.wake()
+	item = o.item(90)
+	require.Equal(t, "blocked", item.State)
+	assert.True(t, strings.HasPrefix(item.Reason, "budget_exceeded: this TODO spent 1200 tokens, past its cap of 1000."), item.Reason)
+	assert.Len(t, o.launcher.requests, launched, "nothing more launches")
+	assert.Empty(t, item.WorkspaceID, "its lane is retired")
+	o.wake()
+	require.Len(t, o.github.comments, 1, "the issue hears about it once")
+	assert.Contains(t, o.github.comments[0], "#90 Smithers stopped work on this TODO: this TODO spent 1200 tokens")
+
+	// Re-applying todo without raising the cap stops it again at once.
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.Equal(t, "queued", o.item(90).State)
+	o.wake()
+	require.Equal(t, "blocked", o.item(90).State)
+	// Under a raised cap, re-applying todo resumes it; a plain issue event does not.
+	o.service.todoTokenCap = 10_000
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
+	require.Equal(t, "blocked", o.item(90).State)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	o.wake()
+	assert.Equal(t, "running", o.item(90).State)
+}
+
+func TestMythicalTodoTokenCapReadsOnlyAPositiveNumber(t *testing.T) {
+	t.Parallel()
+	for configured, want := range map[string]int64{"": 200_000_000, "abc": 200_000_000, "0": 200_000_000, "-5": 200_000_000, " 300000000 ": 300_000_000} {
+		assert.Equal(t, want, mythicalTodoTokenCap(configured), configured)
 	}
 }

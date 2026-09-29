@@ -59,6 +59,25 @@ const (
 	automergeLabel = "automerge"
 )
 
+// A TODO's metered spend past its cap stops the item: something probably
+// went wrong, and a person wants to know. The default is about four times
+// one run's token budget, which a working TODO should not reach;
+// SMITHERS_TODO_TOKEN_CAP overrides it. The stop is the factory's fault, never
+// the author's: its reason starts with mythicalBudgetExceeded.
+const (
+	mythicalTodoTokenCapDefault = int64(200_000_000)
+	mythicalBudgetExceeded      = "budget_exceeded"
+)
+
+// mythicalTodoTokenCap reads the configured cap; an unset or invalid value is
+// the default, never "no cap".
+func mythicalTodoTokenCap(configured string) int64 {
+	if cap, err := strconv.ParseInt(strings.TrimSpace(configured), 10, 64); err == nil && cap > 0 {
+		return cap
+	}
+	return mythicalTodoTokenCapDefault
+}
+
 var (
 	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
 	mythicalSettledStates = map[string]bool{"skipped": true, "declined": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
@@ -187,7 +206,9 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		next := existing
 		next.Checks = checks.encode()
 		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
-			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest)
+			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest) ||
+			// Re-applying todo resumes a TODO stopped at its spend cap.
+			(existing.State == "blocked" && strings.HasPrefix(existing.Reason, mythicalBudgetExceeded) && appliedByMaintainer(applied, todoLabel))
 		switch {
 		case existing.State == "declined" && !notStarted:
 		case state == "cancelled" && (existing.State == "queued" || existing.State == "retrying" || existing.State == "skipped"):
@@ -864,6 +885,12 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			}
 		}
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+			continue
+		}
+		if stopped, err := s.overSpendCap(ctx, r, item); err != nil || stopped {
+			if err != nil {
+				s.logger.Warn("mythical.item_spend_unread", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
+			}
 			continue
 		}
 		if (item.State == "queued" || item.State == "retrying") && (!mythicalLaunchSlot(item.Source, busy, int(r.row.MaxParallel)) || step.launches >= mythicalLaunchesPerRun) {
@@ -2038,6 +2065,44 @@ func (s *MythicalService) revertLabel(ctx context.Context, repositoryID, number 
 	if err != nil {
 		s.logger.Warn("mythical.label_revert_failed", "repository_id", repositoryID, "issue", number, "label", label, "error", err)
 	}
+}
+
+// overSpendCap blocks an item whose lanes spent past the TODO cap, before it
+// launches anything more, and says so once on its issue. A run already going
+// finishes; its projection cannot move a blocked item.
+func (s *MythicalService) overSpendCap(ctx context.Context, r *mythicalRun, item db.MythicalItem) (bool, error) {
+	if item.Source != "issue" || item.WorkspaceID == "" && item.Attempt == 0 {
+		return false, nil
+	}
+	tokens, err := s.queries().MythicalItemTokens(ctx, item.ID)
+	if err != nil || tokens <= s.todoTokenCap {
+		return false, err
+	}
+	next := item
+	next.State = "blocked"
+	next.Reason = fmt.Sprintf("%s: this TODO spent %d tokens, past its cap of %d. That usually means something went wrong; raise SMITHERS_TODO_TOKEN_CAP and re-apply the todo label to resume.",
+		mythicalBudgetExceeded, tokens, s.todoTokenCap)
+	saved, err := s.queries().SaveMythicalItem(ctx, next)
+	if err != nil {
+		return false, err
+	}
+	s.notify(ctx, s.queries(), r.row.RepositoryID, r.row.Generation, "item", uuidString(saved.ID))
+	if saved.WorkspaceID != "" {
+		s.releaseLane(ctx, r, saved)
+	}
+	if s.github != nil && saved.IssueNumber.Valid && r.row.ActorUserID.Valid {
+		repository, owner, err := s.repository(ctx, r.row.RepositoryID)
+		if err == nil {
+			var gh mythicalGitHubRepo
+			if gh, err = s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64); err == nil {
+				err = s.github.Comment(ctx, gh, saved.IssueNumber.Int64, "Smithers stopped work on this TODO: "+strings.TrimPrefix(saved.Reason, mythicalBudgetExceeded+": "))
+			}
+		}
+		if err != nil {
+			s.logger.Warn("mythical.budget_comment_failed", "repository_id", r.row.RepositoryID, "issue", saved.IssueNumber.Int64, "error", err)
+		}
+	}
+	return true, nil
 }
 
 // appliedByMaintainer reports whether this event is a maintainer person
