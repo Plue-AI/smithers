@@ -116,6 +116,11 @@ export * as OpenAIChatGPT from "./OpenAIChatGPT.ts"
 export * as OpenAIResponses from "./OpenAIResponses.ts"
 
 /**
+ * @since 1.0.0-rc.1
+ */
+export * as Pricing from "./Pricing.ts"
+
+/**
  * @since 0.1.0
  * @slop
  */

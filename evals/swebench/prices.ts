@@ -58,7 +58,7 @@ export const jevModel = "typesafe-ai/jev"
  * @category constants
  * @since 0.1.0
  */
-import { modelPrices as table } from "../../packages/backend/modelprice/prices.generated.ts"
+import { modelPrices as table } from "../../packages/smithers/agent/model/src/internal/prices.generated.ts"
 
 export const prices: Record<string, Price> = Object.fromEntries(
   Object.entries(table).map(([id, price]) => [id, {

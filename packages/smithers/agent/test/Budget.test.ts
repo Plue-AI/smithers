@@ -248,11 +248,22 @@ describe("the accumulator", () => {
   })
 
   it("prices weighted usage from its parts and refuses parts it cannot price", () => {
-    const weights = { input: 1, cachedInput: 0.5, output: 3 }
+    const weights = { input: 1, cacheRead: 0.5, cacheWrite: 1.25, output: 3 }
     expect(Budget.tokensOf({ inputTokens: 10, cachedInputTokens: 4, outputTokens: 2 }, weights)).toBe(14)
     expect(Budget.tokensOf({ inputTokens: 10, outputTokens: 2 }, weights)).toBe(16)
     expect(Budget.tokensOf({ inputTokens: 10 }, weights)).toBeNaN()
     expect(Budget.tokensOf({ inputTokens: 3, cachedInputTokens: 4, outputTokens: 2 }, weights)).toBeNaN()
+  })
+
+  it("weighs cache writes at their own rate, not the input rate", () => {
+    // Cache writes are inside the normalized input count, like cache reads.
+    const weights = { input: 5, cacheRead: 0.5, cacheWrite: 6.25, output: 25 }
+    const usage = { inputTokens: 1_001_000, cachedInputTokens: 0, cacheWriteTokens: 1_000_000, outputTokens: 0 }
+    expect(Budget.tokensOf(usage, weights) / 1e6).toBeCloseTo(6.255, 9)
+    expect(Budget.tokensOf({ inputTokens: 10, cachedInputTokens: 4, cacheWriteTokens: 4, outputTokens: 0 }, weights))
+      .toBe(2 * 5 + 4 * 0.5 + 4 * 6.25)
+    expect(Budget.tokensOf({ inputTokens: 10, cachedInputTokens: 6, cacheWriteTokens: 5, outputTokens: 0 }, weights))
+      .toBeNaN()
   })
 
   it("keeps the durable usage payload wire-compatible", () => {
@@ -261,6 +272,16 @@ describe("the accumulator", () => {
     // Changing this literal is a durable wire-format change to record in
     // CHANGELOG.md, because resumed runs read payloads written by older hosts.
     expect(encoded).toEqual({ stepKey: "step-a", spent: 640 })
+    expect(
+      Schema.encodeSync(Budget.UsageRecord)({
+        stepKey: "step-a",
+        spent: 640,
+        costUsd: 0.5,
+        costSource: "reported"
+      })
+    ).toEqual({ stepKey: "step-a", spent: 640, costUsd: 0.5, costSource: "reported" })
+    expect(() => Schema.decodeUnknownSync(Budget.UsageRecord)({ stepKey: "a", spent: 1, costSource: "guessed" }))
+      .toThrow()
   })
 
   it("survives the journal's own redactor", () => {
@@ -2035,7 +2056,7 @@ describe("the envelope", () => {
     expect(
       Budget.policyFromEnvelope({ capabilities: [], flows: [], budget: {} }, { onExceeded: "warn" })
     ).toEqual({})
-    const weights = { "test-model": { input: 1, cachedInput: 0.1, output: 4 } }
+    const weights = { "test-model": { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 4 } }
     expect(
       Budget.policyFromEnvelope({ capabilities: [], flows: [], budget: { tokens: 10 } }, { weights })
     ).toEqual({ weights, tokens: { max: 10, onExceeded: "fail" } })

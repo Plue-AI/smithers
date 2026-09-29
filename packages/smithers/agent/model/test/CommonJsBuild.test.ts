@@ -23,6 +23,7 @@ const expectedExports = [
   "OpenAIChatCompletions",
   "OpenAIChatGPT",
   "OpenAIResponses",
+  "Pricing",
   "Protocol",
   "RequestExecutor",
   "Route",

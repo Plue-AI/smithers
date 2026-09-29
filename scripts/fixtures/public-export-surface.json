@@ -277,6 +277,17 @@
       "reason": "Provider-neutral context window lookup already exposed by the development manifest and root barrel; publication must expose the same public module to installed consumers."
     },
     {
+      "name": "@smthrs/model",
+      "subpath": "./Pricing",
+      "development": "./src/Pricing.ts",
+      "published": {
+        "types": "./dist/esm/Pricing.d.ts",
+        "import": "./dist/esm/Pricing.js",
+        "require": "./dist/cjs/Pricing.js"
+      },
+      "reason": "USD rate cards generated from the backend price table (#1840); @smthrs/agent Budget prices usage records through it."
+    },
+    {
       "name": "@smthrs/engine-store",
       "subpath": "./EventTypes",
       "development": "./src/EventTypes.ts",

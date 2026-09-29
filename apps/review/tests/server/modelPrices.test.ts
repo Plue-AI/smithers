@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { modelPrices } from "../../src/server/proxy/modelPrices.ts";
-import { modelPrices as backendPrices } from "../../../../packages/backend/modelprice/prices.generated.ts";
+import { modelPrices as backendPrices } from "../../../../packages/smithers/agent/model/src/internal/prices.generated.ts";
 
 describe("modelPrices", () => {
   test("exported model prices match backend sheet for every shared model id", () => {

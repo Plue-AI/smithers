@@ -20,6 +20,7 @@
     "**/coverage",
     ".smithers",
     "docs/reference.md",
+    "src/internal/prices.generated.ts",
     "test/fixtures"
   ],
   "plugins": [

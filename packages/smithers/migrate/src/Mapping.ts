@@ -554,6 +554,13 @@ const table: ReadonlyArray<MappingRow> = [
     null,
     "Documentation that teaches `smithers up` or JSX authoring is rewritten.",
     "guided"
+  ),
+  row(
+    "estimateCostUsd",
+    "Pricing.cost(usage, modelId)",
+    "@smthrs/model/Pricing",
+    "Costs come from the backend rate card; pass a seat's own rates as `Budget` `prices`. Budget usage records carry `costUsd` and `costSource`.",
+    "guided"
   )
 ]
 

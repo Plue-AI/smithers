@@ -266,7 +266,9 @@ const ChunkDelta = Schema.Struct({
 const ChunkUsage = Schema.Struct({
   prompt_tokens: Schema.optional(Schema.Number),
   completion_tokens: Schema.optional(Schema.Number),
-  total_tokens: Schema.optional(Schema.Number)
+  total_tokens: Schema.optional(Schema.Number),
+  /** OpenRouter's charge for the call, in USD. */
+  cost: Schema.optional(Schema.Number)
 })
 
 const ChatCompletionChunk = Schema.Struct({
@@ -307,7 +309,8 @@ const usageEvent = (usage: typeof ChunkUsage.Type | null | undefined): ModelEven
   usage === null || usage === undefined ? undefined : ModelEvent.ModelEvent.Usage({
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens
+    totalTokens: usage.total_tokens,
+    costUsd: usage.cost
   })
 
 const stopReasonOf = (reason: string): StopReason =>

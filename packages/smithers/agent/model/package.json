@@ -55,6 +55,7 @@
     "./OpenAIChatCompletions": "./src/OpenAIChatCompletions.ts",
     "./OpenAIChatGPT": "./src/OpenAIChatGPT.ts",
     "./OpenAIResponses": "./src/OpenAIResponses.ts",
+    "./Pricing": "./src/Pricing.ts",
     "./Protocol": "./src/Protocol.ts",
     "./RequestExecutor": "./src/RequestExecutor.ts",
     "./Route": "./src/Route.ts",
@@ -258,6 +259,16 @@
         "require": {
           "types": "./dist/cjs/OpenAIResponses.d.ts",
           "default": "./dist/cjs/OpenAIResponses.js"
+        }
+      },
+      "./Pricing": {
+        "import": {
+          "types": "./dist/esm/Pricing.d.ts",
+          "default": "./dist/esm/Pricing.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Pricing.d.ts",
+          "default": "./dist/cjs/Pricing.js"
         }
       },
       "./Protocol": {

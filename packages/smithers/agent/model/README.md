@@ -106,6 +106,7 @@ The root entry point exports these namespaces. Each is also importable from
 - **`OpenAIChatGPT`**: Route construction for OpenAI's ChatGPT-subscription Responses backend, the deployment the codex CLI speaks.
   `defaultBaseUrl`, `clientHeaders`, `make`
 - **`OpenAIResponses`**: OpenAI Responses request lowering and SSE event handling.
+- **`Pricing`**: USD rate cards from the backend price table and per-call cost.
   `Body`, `ChatGPTBody`, `State`, `protocol`, `chatgptProtocol`
 - **`Protocol`**: The wire contract of a model API family, split from the deployment that serves it.
   `Protocol`, `ProtocolBody`, `ProtocolStream`, `make`, `jsonEvent`

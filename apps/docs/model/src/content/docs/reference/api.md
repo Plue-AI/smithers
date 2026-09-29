@@ -109,7 +109,7 @@ provider answered.
 
 | Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                               |
+| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`, and `costUsd`, the provider's own USD charge (OpenRouter's `usage.cost`). A missing count is not a zero count.                                                                     |
 | `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                                          |
 | `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                                          |
 | `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                                      |
@@ -708,6 +708,23 @@ Static facts about known provider models, read from a model id alone.
 `@smthrs/agent` re-exports this as `SeatResolver.contextWindowTokensFor`, and
 the built-in harness calls it for the compaction budget of a seat whose host
 supplies no `contextWindowTokensFor` callback of its own.
+
+## `Pricing`
+
+USD prices per million tokens, generated from the backend rate card
+(`packages/backend/modelprice`) so the two cannot drift. `inputTokens`
+includes cache reads and cache writes; each class is charged at its own rate.
+
+| Export                             | Kind     | Behavior                                                                                                                                                                                                    |
+| ---------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `table`                            | constant | Every priced model, keyed by wire model id. Spread it with your own rows to override a model or seat.                                                                                                       |
+| `lookup(modelId, { table?, at? })` | resolver | The rate card in effect at `at`: an exact row, else the bare model of a seat (`openai:gpt-5.6-sol`) or gateway id (`anthropic/claude-sonnet-5`), else a dated snapshot's family. `undefined` when unpriced. |
+| `weigh(usage, rates)`              | function | The rate-weighted token sum. `NaN` for missing input or output counts, invalid counters, or cache classes larger than the input count.                                                                      |
+| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold; a per-call charge is added once.                                                                                            |
+| `cost(usage, modelId, options?)`   | function | `{ costUsd, costSource }`: `"reported"` when the usage carries a valid provider charge, else `"estimated"` from the rate card; `undefined` when neither exists.                                             |
+
+`@smthrs/agent`'s `Budget` writes `costUsd` and `costSource` on each usage
+record and spend-ledger entry, and takes `prices` rows over `table`.
 
 ## `CanonicalJson`
 

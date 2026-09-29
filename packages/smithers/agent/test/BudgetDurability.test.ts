@@ -16,12 +16,75 @@ const records = (journal: Journal.Service, runId: string) =>
     Effect.map((page) => page.entries.filter((entry) => entry.eventType === Budget.usageEvent))
   )
 
+describe("budget usage cost", () => {
+  const payloads = (journal: Journal.Service, runId: string) =>
+    Effect.map(records(journal, runId), (entries) => entries.map((entry) => entry.payload))
+
+  it("prices each record in USD, cache reads and writes at their own rates", async () => {
+    await run(inRun(
+      "priced",
+      Effect.gen(function*() {
+        const entries: Array<Budget.LedgerEntry> = []
+        const ledger: Budget.Ledger = {
+          ...Budget.memoryLedger(),
+          record: (entry) => Effect.sync(() => void entries.push(entry))
+        }
+        const budget = yield* Budget.make({}, { ledger })
+        const usage = { inputTokens: 1_001_000, cachedInputTokens: 0, cacheWriteTokens: 1_000_000, outputTokens: 0 }
+        yield* budget.record("estimated", usage, "claude-opus-4-8")
+        yield* budget.record("reported", { inputTokens: 10, outputTokens: 5, costUsd: 0.25 }, "or/unknown-model")
+        yield* budget.record("unpriced", { inputTokens: 10, outputTokens: 5 }, "unknown-model")
+        yield* budget.record("anonymous", { inputTokens: 10, outputTokens: 5 })
+        expect(yield* payloads(yield* Journal.Journal, "priced")).toEqual([
+          { stepKey: "estimated", spent: 1_001_000, costUsd: 6.255, costSource: "estimated" },
+          { stepKey: "reported", spent: 15, costUsd: 0.25, costSource: "reported" },
+          { stepKey: "unpriced", spent: 15 },
+          { stepKey: "anonymous", spent: 15 }
+        ])
+        expect(entries.map(({ costSource, costUsd, stepKey }) => ({ stepKey, costUsd, costSource }))).toEqual([
+          { stepKey: "estimated", costUsd: 6.255, costSource: "estimated" },
+          { stepKey: "reported", costUsd: 0.25, costSource: "reported" },
+          { stepKey: "unpriced", costUsd: undefined, costSource: undefined },
+          { stepKey: "anonymous", costUsd: undefined, costSource: undefined }
+        ])
+        // Cost is reporting: the token tally and its recovery are unchanged.
+        expect((yield* budget.usage).tokens).toBe(1_001_045)
+        expect(yield* (yield* Budget.make({})).usage).toEqual(yield* budget.usage)
+      })
+    ))
+  })
+
+  it("prices a seat from policy rows over the rate card", async () => {
+    await run(inRun(
+      "overridden",
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({
+          prices: { "openai:gpt-5.6-sol": { input: 1, cacheRead: 0.1, cacheWrite: 1, output: 2 } }
+        })
+        yield* budget.record("seat", { inputTokens: 1_000_000, outputTokens: 1_000_000 }, "openai:gpt-5.6-sol")
+        yield* budget.record("card", { inputTokens: 1_000_000, outputTokens: 0 }, "claude-opus-4-8")
+        expect(yield* payloads(yield* Journal.Journal, "overridden")).toEqual([
+          { stepKey: "seat", spent: 2_000_000, costUsd: 3, costSource: "estimated" },
+          { stepKey: "card", spent: 1_000_000, costUsd: 5, costSource: "estimated" }
+        ])
+      })
+    ))
+  })
+
+  it("refuses a price row that is not a non-negative rate", async () => {
+    const exit = await Effect.runPromise(
+      Budget.make({ prices: { bad: { input: -1, cacheRead: 0, cacheWrite: 0, output: 0 } } }).pipe(Effect.exit)
+    )
+    expect(exit._tag).toBe("Failure")
+  })
+})
+
 describe("budget usage durability", () => {
   it("records weighted usage once and recovers the charge without repricing", async () => {
     await run(inRun(
       "weighted",
       Effect.gen(function*() {
-        const weights = { "gpt-6-astra": { input: 1, cachedInput: 0.1, output: 4.5 } }
+        const weights = { "gpt-6-astra": { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 4.5 } }
         const budget = yield* Budget.make({ weights })
         const usage = {
           inputTokens: 1000,

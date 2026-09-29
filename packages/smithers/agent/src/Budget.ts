@@ -72,6 +72,7 @@ import type * as RetryPolicy from "@smthrs/flow/RetryPolicy"
 import type * as HarnessError from "@smthrs/harness/HarnessError"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
+import * as Pricing from "@smthrs/model/Pricing"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -137,15 +138,12 @@ export interface LatencyBudget {
 }
 
 /**
- * Relative charges for uncached input, cached input and output tokens.
+ * Relative charges for uncached input, cache-read, cache-write and output
+ * tokens: the shape of a {@link Pricing.Rates} row.
  * @category schemas
  * @since 0.1.0
  */
-export const TokenWeights = Schema.Struct({
-  input: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  cachedInput: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  output: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
-})
+export const TokenWeights = Pricing.Rates
 
 /** Per-model token charges keyed by canonical model ID.
  * @category models
@@ -164,6 +162,11 @@ export type Weights = Readonly<Record<string, typeof TokenWeights.Type>>
  */
 export interface Policy {
   readonly weights?: Weights | undefined
+  /**
+   * USD rate rows over {@link Pricing.table}, keyed by model id or seat. They
+   * price the `costUsd` of each usage record; they never change the token ceiling.
+   */
+  readonly prices?: Readonly<Record<string, Pricing.Rates>> | undefined
   readonly tokens?: TokenBudget | undefined
   readonly latency?: LatencyBudget | undefined
   /**
@@ -196,6 +199,9 @@ export interface LedgerEntry {
   readonly runId: string
   readonly stepKey: string
   readonly spent: number
+  /** The step's USD cost; absent when the model is unpriced. */
+  readonly costUsd?: number | undefined
+  readonly costSource?: Pricing.CostSource | undefined
 }
 
 /**
@@ -635,7 +641,10 @@ export const usageEvent = "flows.agent.usage.v1"
  */
 export const UsageRecord = Schema.Struct({
   stepKey: Schema.String,
-  spent: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
+  spent: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** Absent for an unpriced model and in records written before pricing. */
+  costUsd: Schema.optional(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
+  costSource: Schema.optional(Pricing.CostSource)
 })
 
 /**
@@ -733,15 +742,9 @@ export const tokensOf = (usage: ModelEvent.Usage, weights?: typeof TokenWeights.
   ]
   if (counters.some((value) => value !== undefined && (!Number.isFinite(value) || value < 0))) return Number.NaN
   if (weights !== undefined) {
-    // Normalized input/output counters already include cached input/reasoning.
-    // Missing parts cannot safely be inferred from a provider total.
-    if (
-      usage.inputTokens === undefined || usage.outputTokens === undefined ||
-      (usage.cachedInputTokens ?? 0) > usage.inputTokens
-    ) return Number.NaN
-    const cached = usage.cachedInputTokens ?? 0
-    return (usage.inputTokens - cached) * weights.input + cached * weights.cachedInput +
-      usage.outputTokens * weights.output
+    // Normalized input/output counters already include cache reads, cache
+    // writes and reasoning. Missing parts cannot be inferred from a total.
+    return Pricing.weigh(usage, weights)
   }
   return usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
 }
@@ -1149,6 +1152,7 @@ const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0))
 const Configuration = Schema.Struct({
   policy: Schema.Struct({
     weights: Schema.optional(Schema.Record(Schema.String, TokenWeights)),
+    prices: Schema.optional(Schema.Record(Schema.String, Pricing.Rates)),
     tokens: Schema.optional(Schema.Struct({
       max: NonNegativeInteger,
       onExceeded: Schema.optional(OnExceeded)
@@ -1194,6 +1198,7 @@ export const make = (
         new ConfigurationError({ message: "Invalid budget configuration: a daily cap needs a ledger" })
       )
     }
+    const prices: Pricing.Table = policy.prices === undefined ? Pricing.table : { ...Pricing.table, ...policy.prices }
     const maxRuns = options.maxRuns ?? defaultMaxRuns
     const recoveryEntries = options.recoveryEntries ?? defaultRecoveryEntries
     const accounts = new Map<string, RunAccount>()
@@ -1612,9 +1617,10 @@ export const make = (
         withRecovered((run, runId) =>
           Effect.gen(function*() {
             const spent = tokensOf(usage, modelId === undefined ? undefined : policy.weights?.[modelId])
+            const priced = Pricing.cost(usage, modelId, { table: prices, at: yield* Clock.currentTimeMillis })
             // A malformed cost must not poison the numeric accumulator. Keep the
             // ledger unavailable until that step supplies a valid record.
-            const payload = yield* Schema.encodeEffect(UsageRecord)({ stepKey, spent }).pipe(
+            const payload = yield* Schema.encodeEffect(UsageRecord)({ stepKey, spent, ...priced }).pipe(
               Effect.mapError((cause) => unavailable("record", runId, "its usage record does not encode", cause)),
               Effect.tapError((failure) =>
                 Effect.sync(() => {
@@ -1632,7 +1638,7 @@ export const make = (
                 if (!counted && !run.pending.has(stepKey)) return
                 if (spendLedger !== undefined) {
                   const now = yield* Clock.currentTimeMillis
-                  yield* restore(spendLedger.record({ day: utcDay(now), runId, stepKey, spent })).pipe(
+                  yield* restore(spendLedger.record({ day: utcDay(now), runId, stepKey, spent, ...priced })).pipe(
                     Effect.mapError((cause) => unavailable("record", runId, String(cause), cause))
                   )
                 }

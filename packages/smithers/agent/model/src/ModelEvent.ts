@@ -27,7 +27,9 @@ export const Usage = Object.assign(
     reasoningTokens: Schema.optional(Schema.Number),
     cachedInputTokens: Schema.optional(Schema.Number),
     cacheWriteTokens: Schema.optional(Schema.Number),
-    totalTokens: Schema.optional(Schema.Number)
+    totalTokens: Schema.optional(Schema.Number),
+    /** The USD charge the provider itself reported for the call, when it reports one. */
+    costUsd: Schema.optional(Schema.Number)
   }).annotate({ identifier: "flows/model/Usage" }),
   {
     make: (input: Usage): Usage => input
@@ -248,7 +250,8 @@ export const UsageEvent = Schema.Struct({
   reasoningTokens: Schema.optional(Schema.Number),
   cachedInputTokens: Schema.optional(Schema.Number),
   cacheWriteTokens: Schema.optional(Schema.Number),
-  totalTokens: Schema.optional(Schema.Number)
+  totalTokens: Schema.optional(Schema.Number),
+  costUsd: Schema.optional(Schema.Number)
 })
 /**
  * The decoded form of {@link UsageEvent}.
@@ -460,7 +463,8 @@ export function settledMessage(
           reasoningTokens: event.reasoningTokens,
           cachedInputTokens: event.cachedInputTokens,
           cacheWriteTokens: event.cacheWriteTokens,
-          totalTokens: event.totalTokens
+          totalTokens: event.totalTokens,
+          costUsd: event.costUsd
         }
         usage = {
           ...usage,

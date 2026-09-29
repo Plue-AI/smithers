@@ -393,6 +393,14 @@ describe("OpenAIChatCompletions.protocol.stream", () => {
     expect(events.at(-1)).toEqual({ type: "usage", inputTokens: 3, outputTokens: 1, totalTokens: 4 })
   })
 
+  it("carries OpenRouter's reported USD charge as the usage cost", () => {
+    const events = replayData([
+      "{\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4,\"cost\":0.00042}}"
+    ])
+    expect(events).toEqual([{ type: "usage", inputTokens: 3, outputTokens: 1, totalTokens: 4, costUsd: 0.00042 }])
+    expect(Events.settledMessage(events).usage.costUsd).toBe(0.00042)
+  })
+
   it("reads a choice-less usage chunk before settlement", () => {
     expect(replayData([
       "{\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}"
