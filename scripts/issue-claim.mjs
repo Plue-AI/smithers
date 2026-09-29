@@ -119,7 +119,10 @@ export const run = (argv, { gh = defaultGh, now = () => new Date(), env = proces
     gh(["api", `${base}/comments`, "-f", `body=${claimBody({ ...me, now: now(), takeover, note: option("--note") })}`])
   } catch (error) {
     if (!initial.labeled) {
-      try { gh(["api", "--method", "DELETE", `${base}/labels/${LABEL}`]) } catch { /* preserve the claim error */ }
+      try {
+        const after = holder(read(issue, gh), now().getTime())
+        if (!after || after.by === "unknown") gh(["api", "--method", "DELETE", `${base}/labels/${LABEL}`])
+      } catch { /* keep the label when ownership cannot be checked */ }
     }
     throw error
   }

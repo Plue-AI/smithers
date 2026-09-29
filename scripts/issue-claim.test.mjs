@@ -120,6 +120,40 @@ describe("issue-claim commands", () => {
     assert.deepEqual(github.state.labels, [])
     assert.ok(github.state.calls.includes(`api --method DELETE repos/smithersai/smithers/issues/7/labels/${LABEL}`))
     assert.deepEqual(github.state.comments, [])
+    github.gh = gh
+    assert.equal(cli(github, ["claim", "smithers#7"]).code, 0)
+  })
+
+  it("keeps a rival's label if their claim lands before a rejected comment", () => {
+    const github = fakeGitHub()
+    const gh = github.gh
+    const limitedGh = (args) => {
+      if (args.includes("repos/smithersai/smithers/issues/7/comments") && args.includes("-f")) {
+        github.state.comments.push({ body: claimBody({ by: "rival", host: "cloud", now: T0 }), created_at: T0.toISOString() })
+        throw new Error("secondary rate limit")
+      }
+      return gh(args)
+    }
+    assert.throws(() => run(["claim", "smithers#7", "--by", "lane-1"],
+      { gh: limitedGh, now: () => T0, env: {} }), /secondary rate limit/)
+    assert.deepEqual(github.state.labels, [LABEL])
+    assert.equal(cli(github, ["check", "smithers#7"], T0, "lane-1").out.holder.by, "rival")
+  })
+
+  it("keeps its label when a successful comment receives an ambiguous error", () => {
+    const github = fakeGitHub()
+    const gh = github.gh
+    const ambiguousGh = (args) => {
+      if (args.includes("repos/smithersai/smithers/issues/7/comments") && args.includes("-f")) {
+        gh(args)
+        throw new Error("response lost")
+      }
+      return gh(args)
+    }
+    assert.throws(() => run(["claim", "smithers#7", "--by", "lane-1"],
+      { gh: ambiguousGh, now: () => T0, env: {} }), /response lost/)
+    assert.deepEqual(github.state.labels, [LABEL])
+    assert.equal(cli(github, ["check", "smithers#7"], T0, "lane-1").out.mine, true)
   })
 
   it("keeps an existing label when its holder's refresh comment fails", () => {
@@ -176,19 +210,6 @@ describe("issue-claim commands", () => {
     assert.equal(code, 2)
     assert.equal(out.action, "lost-race")
     assert.equal(out.holder.by, "rival")
-  })
-
-  it("removes the label when GitHub rejects the claim comment", () => {
-    const github = fakeGitHub()
-    const limitedGh = (args) => {
-      if (args.some((arg) => /\/comments$/.test(arg)) && args.includes("-f")) throw new Error("secondary rate limit")
-      return github.gh(args)
-    }
-    assert.throws(() => run(["claim", "smithers#4", "--by", "lane-1"],
-      { gh: limitedGh, now: () => T0, env: {} }), /secondary rate limit/)
-    assert.deepEqual(github.state.labels, [])
-    assert.equal(github.state.comments.length, 0)
-    assert.equal(cli(github, ["claim", "smithers#4"]).code, 0)
   })
 
   it("releases with a reason, tolerating an already removed label; --force releases another's claim", () => {
