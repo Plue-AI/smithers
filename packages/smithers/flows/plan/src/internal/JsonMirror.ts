@@ -78,16 +78,19 @@ const cyclicPayloadError = (at: ClonePath): GraphBuildError => {
 const inheritedDataProperty = (
   value: object,
   key: PropertyKey
-): { readonly found: boolean; readonly value?: unknown } => {
+):
+  | { readonly kind: "data"; readonly value: unknown }
+  | { readonly kind: "accessor" }
+  | { readonly kind: "missing" } => {
   let current: object | null = value
   while (current !== null) {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor !== undefined) {
-      return "value" in descriptor ? { found: true, value: descriptor.value } : { found: true }
+      return "value" in descriptor ? { kind: "data", value: descriptor.value } : { kind: "accessor" }
     }
     current = Object.getPrototypeOf(current) as object | null
   }
-  return { found: false }
+  return { kind: "missing" }
 }
 
 /**
@@ -144,10 +147,10 @@ export const jsonMirror = (
         throw cyclicPayloadError(path)
       }
       const toJSON = inheritedDataProperty(source, "toJSON")
-      if (toJSON.found && toJSON.value === undefined) {
+      if (toJSON.kind === "accessor") {
         throw payloadError(path, "has an accessor-backed toJSON member")
       }
-      if (typeof toJSON.value === "function") {
+      if (toJSON.kind === "data" && typeof toJSON.value === "function") {
         resolving.add(source)
         replacements.push(source)
         current = Reflect.apply(toJSON.value, source, [])

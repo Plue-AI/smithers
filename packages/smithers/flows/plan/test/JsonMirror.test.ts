@@ -35,6 +35,30 @@ describe("jsonMirror", () => {
     expect(jsonMirror(undefined, refuseEveryPlannedValue)).toBeUndefined()
   })
 
+  it("omits undefined data toJSON on own, nested, and nonenumerable members", () => {
+    const hidden = Object.defineProperty({ value: 3 }, "toJSON", { value: undefined })
+    const input = { toJSON: undefined, value: 1, nested: { toJSON: undefined, value: 2 }, hidden }
+    expect(jsonMirror(input, refuseEveryPlannedValue)).toEqual({
+      value: 1,
+      nested: { value: 2 },
+      hidden: { value: 3 }
+    })
+
+    let called = false
+    const getter = Object.defineProperty({}, "toJSON", {
+      get: () => {
+        called = true
+        return undefined
+      }
+    })
+    expect(thrownBy(() => jsonMirror({ getter }, refuseEveryPlannedValue))).toMatchObject({
+      code: "invalid_payload",
+      path: ["getter"],
+      message: "Plan payload at $.getter has an accessor-backed toJSON member"
+    })
+    expect(called).toBe(false)
+  })
+
   it("hands each planned value and its reference to the caller's policy", () => {
     const planned = (Planned.make<{ readonly x: unknown }>("upstream") as unknown as { readonly x: unknown }).x
     const seen: Array<unknown> = []

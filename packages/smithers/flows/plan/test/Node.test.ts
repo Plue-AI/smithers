@@ -28,6 +28,27 @@ describe("Node", () => {
     expect(Node.isNode({ ast: { _tag: "Succeed", value: 1 } })).toBe(false)
   })
 
+  it("admits undefined data toJSON without invoking getters", () => {
+    const nested = { toJSON: undefined, value: 2 }
+    const hidden = Object.defineProperty({ value: 3 }, "toJSON", { value: undefined })
+    const input = { toJSON: undefined, value: 1, nested, hidden }
+    expect(tagged(Node.succeed(input).ast, "Succeed").value).toEqual({
+      value: 1,
+      nested: { value: 2 },
+      hidden: { value: 3 }
+    })
+
+    let called = false
+    const accessor = Object.defineProperty({ value: 1 }, "toJSON", {
+      get: () => {
+        called = true
+        return undefined
+      }
+    })
+    expect(() => Node.succeed(accessor)).toThrow(GraphBuildError)
+    expect(called).toBe(false)
+  })
+
   it("records a constant failure in the typed error channel", () => {
     const node = Node.fail({ _tag: "Refused", reason: "quota" } as const)
 
