@@ -94,7 +94,25 @@ describe("approval mutations require independent authority", () => {
             expect(yield* runtime.lookupApproval(input.target)).toEqual(before)
             expect((yield* runtime.getPlan(card.planId)).decision).toBe("pending")
             expect(yield* runtime.grants).toEqual([])
-            expect(yield* Stream.runCollect(control.watch({ follow: false }))).toEqual(history)
+            const after = yield* Stream.runCollect(control.watch({ follow: false }))
+            expect(after.slice(0, history.length)).toEqual(history)
+            const added = after.slice(history.length)
+            if (failure === "unavailable") {
+              expect(added).toEqual([])
+            } else {
+              expect(added).toHaveLength(1)
+              expect(added[0]).toMatchObject({
+                kind: "control.approval.refused",
+                runId: `plan:${card.planId}`,
+                occurredAt: expect.any(Number),
+                payload: {
+                  decision: "approved",
+                  principal: { id: principal.id, kind: principal.kind },
+                  scope: input.scope,
+                  target: input.target
+                }
+              })
+            }
             refuse = false
             expect((yield* control.approve(input))._tag).toBe("Accepted")
             expect((yield* control.approve(input))._tag).toBe("AlreadyApplied")
@@ -225,6 +243,13 @@ describe("approval mutations require independent authority", () => {
                 expect(error._tag).toBe("/control/Unauthorized")
                 expect(yield* runtime.lookupApproval(target)).toEqual(before)
                 expect(yield* runtime.grants).toEqual(grants)
+                const refusals = (yield* Stream.runCollect(control.watch({ follow: false })))
+                  .filter((event) => event.kind === "control.approval.refused")
+                expect(refusals).toHaveLength(1)
+                expect(refusals[0]).toMatchObject({
+                  runId: target._tag === "Plan" ? `plan:${target.planId}` : target.runId,
+                  payload: { decision, principal: { id: principal.id, kind: principal.kind }, scope, target }
+                })
               }).pipe(Effect.provide(adapter === "memory" ? live() : durable()), Effect.scoped)
             )
           })

@@ -648,6 +648,27 @@ export const layer: Layer.Layer<
         const input = yield* snapshotApproval(decision, submitted)
         // Check the authenticated identity before replay or any grant writes.
         const principal = yield* runtime.stampPrincipal(input.principal)
+        return yield* decideAs(decision, input, principal).pipe(
+          // Every refusal leaves a durable audit record: who asked, for which
+          // target, under which scope. The journal row's time is when. It is
+          // written after the refused mutation rolled back, so it is the only
+          // row the refusal adds; a record that cannot be written fails the
+          // call rather than leaving an unaudited refusal.
+          Effect.catchTag("/control/Unauthorized", (refusal) =>
+            emit(
+              input.target._tag === "Plan" ? `plan:${input.target.planId}` : input.target.runId,
+              "control.approval.refused",
+              json({ decision, principal, scope: input.scope, target: input.target })
+            ).pipe(Effect.andThen(Effect.fail(refusal))))
+        )
+      })
+
+    const decideAs = (
+      decision: "approved" | "denied",
+      input: Effect.Success<ReturnType<typeof snapshotApproval>>,
+      principal: typeof Principal.Type
+    ) =>
+      Effect.gen(function*() {
         // Authorization precedes target reads and idempotency replay: neither
         // an old receipt nor a terminal run confers authority on this caller.
         yield* runtime.authorizeApproval({ principal, target: input.target, decision, scope: input.scope })
