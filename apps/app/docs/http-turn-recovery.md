@@ -100,7 +100,9 @@ The raw read token is private local state, sent only in POST bodies. Diagnostic
 transition payloads and verbose traces omit it, and the agent-context snapshot
 does not include these collections. Remote erasure uses the separate privacy
 retirement outbox/endpoint; clearing local capabilities alone is not a claim
-that remote retained output has been deleted.
+that remote retained output has been deleted. The retirement receipt commits
+only when HTTP succeeds and its body reports `retired`; a failed response can
+be retried.
 
 Legacy non-journal agent adapters keep their existing runtime path. A saved
 HTTP turn reopened on a host without journal support is interrupted honestly;

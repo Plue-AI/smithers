@@ -103,3 +103,16 @@ test("a 5xx carrying a non-error journal reply stays an integrity refusal", asyn
   const agent = createWebAgent({ fetchImpl: async () => Response.json({ status: "retired" }, { status: 500 }) })
   await expect(agent.journal!.read({ runId: "turn", journal: request.journal })).rejects.toBeInstanceOf(AgentJournalIntegrityError)
 })
+
+test.each([401, 503])("retirement refuses HTTP %s despite a retired receipt, then accepts a later success", async status => {
+  let calls = 0
+  const agent = createWebAgent({ fetchImpl: async (url, init) => {
+    expect(String(url)).toBe(TURN_RETIRE_PATH)
+    expect(JSON.parse(String(init?.body))).toEqual({ runId: request.runId, journal: request.journal })
+    return Response.json({ status: "retired" }, { status: ++calls === 1 ? status : 200 })
+  } })
+  const access = { runId: request.runId, journal: request.journal }
+  await expect(agent.journal!.retire(access)).rejects.toThrow()
+  await expect(agent.journal!.retire(access)).resolves.toBeUndefined()
+  expect(calls).toBe(2)
+})

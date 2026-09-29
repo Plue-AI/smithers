@@ -239,7 +239,7 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
         const response = await fetchImpl(`${baseUrl}${TURN_RETIRE_PATH}`, { method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ runId: access.runId, journal: access.journal }) })
         const reply = AgentTurnJournalReplySchema.parse(await response.json())
-        if (reply.status !== "retired") throw new Error("HTTP journal retirement was not committed")
+        if (!response.ok || reply.status !== "retired") throw new Error("HTTP journal retirement was not committed")
       },
       disconnect: runId => { const active = activeTurns.get(runId); active?.abort(); if (active !== undefined) activeTurns.delete(runId) }
     },
