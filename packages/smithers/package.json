@@ -729,6 +729,7 @@
     "@clack/prompts": "1.7.0",
     "@effect/platform-bun": "4.0.0-rc.115",
     "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",
     "@smthrs/agent": "1.0.0-rc.1",

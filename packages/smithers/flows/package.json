@@ -159,6 +159,7 @@
   "devDependencies": {
     "@effect/language-service": "0.87.2",
     "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
     "@smthrs/control": "1.0.0-rc.1",
@@ -184,12 +185,16 @@
   },
   "peerDependencies": {
     "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@smthrs/platform-node": "1.0.0-rc.1",
     "effect": "4.0.0-rc.115",
     "@smthrs/platform-bun": "1.0.0-rc.1"
   },
   "peerDependenciesMeta": {
     "@effect/platform-node": {
+      "optional": true
+    },
+    "@effect/platform-node-shared": {
       "optional": true
     },
     "@smthrs/platform-node": {
