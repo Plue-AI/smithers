@@ -45,6 +45,8 @@ if [ "$1" = "--version" ]; then echo "jj 0.39.0"; exit 0; fi
 printf '%s\\n' "$*" >> calls
 : > started
 while [ -f hold ]; do /bin/sleep 0.01; done
+# Both Git diff and its path metadata describe an empty change.
+if [ "$1" = "diff" ] && [ "$2" = "--from" ]; then exit 0; fi
 if [ "$1" = op ]; then echo 0abc; else printf "0abc\\nkkkk\\n"; fi
 `
       )

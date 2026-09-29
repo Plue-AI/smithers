@@ -41,6 +41,7 @@ import { mkdtemp, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/
 import { hostname } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { stripVTControlCharacters } from "node:util"
+import { quoteGitPatchPaths } from "../internal/gitPatchPaths.ts"
 import { isJjError, Jj, JjError, jjErrorCause } from "../Jj.ts"
 import { resolveJjBinary } from "./resolveJjBinary.ts"
 
@@ -49,6 +50,7 @@ const MODULE = "NodeJj"
 
 /**
  * Minimum jj CLI version supported by the Node and Bun adapters.
+ * Git patch path quoting is repaired by the shared adapter for 0.39.0.
  *
  * @category constants
  * @since 1.0.0
@@ -785,7 +787,31 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
       ([fromRevision, toRevision]) =>
         repositoryCritical(
           "diff",
-          inRepository("diff", ["diff", "--from", fromRevision, "--to", toRevision, "--git"])
+          Effect.gen(function*() {
+            // Pin both reads before resolving moving refs such as @. Neither
+            // a later file write nor an external jj operation may change the
+            // paths between rendering the patch and reading its metadata.
+            const operationId = (yield* inRepository("diff", ["op", "log", "-n1", "--no-graph", "-T", "id"])).trim()
+            const args = ["diff", "--from", fromRevision, "--to", toRevision, `--at-op=${operationId}`]
+            const patch = yield* inRepository("diff", [...args, "--git"])
+            const paths = yield* inRepository("diff", [
+              ...args,
+              "--template",
+              "json(source.path()) ++ \"\\n\" ++ json(target.path()) ++ \"\\n\""
+            ])
+            return yield* Effect.try({
+              try: () => quoteGitPatchPaths(patch, paths),
+              catch: (cause) =>
+                new JjError({
+                  code: "unknown",
+                  module: MODULE,
+                  method: "diff",
+                  command: "jj diff",
+                  message: "jj diff: could not quote patch paths",
+                  cause: jjErrorCause(cause)
+                })
+            })
+          })
         )
     )
 
