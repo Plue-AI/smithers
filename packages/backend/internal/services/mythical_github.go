@@ -72,6 +72,9 @@ type mythicalGitHub interface {
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error)
+	// HeadChecks answers GitHub CI's verdict on one commit (mythicalCIGreen,
+	// mythicalCIPending or mythicalCIRed).
+	HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error)
 	// Merge squash-merges a pull request only while its head is head, and
 	// answers the merge commit.
 	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
@@ -280,8 +283,8 @@ func (g *mythicalGitHubAPI) CreatePull(ctx context.Context, gh mythicalGitHubRep
 	return mythicalGitHubPull{landingGitHubPullRequest: *created}.pull(), nil
 }
 
-// writeToken mints an installation token holding only permissions.
-func (g *mythicalGitHubAPI) writeToken(ctx context.Context, gh mythicalGitHubRepo, permissions map[string]string) (string, error) {
+// installationToken mints an installation token holding only permissions.
+func (g *mythicalGitHubAPI) installationToken(ctx context.Context, gh mythicalGitHubRepo, permissions map[string]string) (string, error) {
 	installation, err := g.tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, gh.userID, gh.orgID, gh.Owner, gh.Name, permissions)
 	if err != nil {
 		return "", err
@@ -295,7 +298,7 @@ func (g *mythicalGitHubAPI) writeToken(ctx context.Context, gh mythicalGitHubRep
 // Merge is the stack's one write to GitHub main. The sha pins the merge to
 // the reviewed head: GitHub refuses it (409) once the branch moved.
 func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error) {
-	token, err := g.writeToken(ctx, gh, map[string]string{"contents": "write", "pull_requests": "write"})
+	token, err := g.installationToken(ctx, gh, map[string]string{"contents": "write", "pull_requests": "write"})
 	if err != nil {
 		return "", err
 	}
@@ -315,7 +318,7 @@ func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, nu
 }
 
 func (g *mythicalGitHubAPI) RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error {
-	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {
 		return err
 	}
@@ -363,7 +366,7 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 }
 
 func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error {
-	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {
 		return err
 	}
@@ -379,7 +382,7 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 }
 
 func (g *mythicalGitHubAPI) AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error {
-	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {
 		return err
 	}
@@ -392,4 +395,77 @@ func (g *mythicalGitHubAPI) AddLabel(ctx context.Context, gh mythicalGitHubRepo,
 		return landingGitHubStatusError(status, gh.Owner, gh.Name, "edit issue labels")
 	}
 	return nil
+}
+
+// GitHub CI verdicts on one commit.
+const (
+	mythicalCIGreen   = "green"
+	mythicalCIPending = "pending"
+	mythicalCIRed     = "red"
+)
+
+// HeadChecks is green only when at least one check reported on the commit
+// and every check run and commit status on it finished successfully
+// (success, neutral or skipped). A failed one is red; one still running, or
+// no report at all yet, is pending. Nothing reads a job name, so an advisory
+// job's failure holds the merge for a person too.
+func (g *mythicalGitHubAPI) HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error) {
+	token, err := g.installationToken(ctx, gh, map[string]string{"checks": "read", "statuses": "read"})
+	if err != nil {
+		return "", err
+	}
+	commit := landingGitHubRepoPath(gh.Owner, gh.Name) + "/commits/" + url.PathEscape(sha)
+	reported, pending := 0, false
+	for page := 1; page <= 10; page++ {
+		var runs struct {
+			CheckRuns []struct {
+				Status     string  `json:"status"`
+				Conclusion *string `json:"conclusion"`
+			} `json:"check_runs"`
+		}
+		status, err := g.api.request(ctx, token, http.MethodGet, commit+"/check-runs?per_page=100&page="+strconv.Itoa(page), nil, &runs)
+		if err != nil {
+			return "", err
+		}
+		if status != http.StatusOK {
+			return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read check runs")
+		}
+		for _, run := range runs.CheckRuns {
+			reported++
+			switch {
+			case run.Status != "completed" || run.Conclusion == nil:
+				pending = true
+			case *run.Conclusion != "success" && *run.Conclusion != "neutral" && *run.Conclusion != "skipped":
+				return mythicalCIRed, nil
+			}
+		}
+		if len(runs.CheckRuns) < 100 {
+			break
+		}
+	}
+	var combined struct {
+		State      string `json:"state"`
+		TotalCount int    `json:"total_count"`
+	}
+	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read commit statuses")
+	}
+	if combined.TotalCount > 0 {
+		reported += combined.TotalCount
+		switch combined.State {
+		case "success":
+		case "pending":
+			pending = true
+		default:
+			return mythicalCIRed, nil
+		}
+	}
+	if pending || reported == 0 {
+		return mythicalCIPending, nil
+	}
+	return mythicalCIGreen, nil
 }

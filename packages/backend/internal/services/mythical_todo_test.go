@@ -383,3 +383,40 @@ func TestMythicalPolicyMakesTheMaintainersAndTheFactorysIssuesTodos(t *testing.T
 	o.opened(7, "fucory", false, "run")
 	assert.Equal(t, "skipped", o.item(7).State)
 }
+
+// Automerge also needs GitHub CI green on the exact approved head: it waits
+// while CI runs, never merges on red, and merges pinned once green.
+func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 75, Title: "CI", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(75, "seventy-five.md")
+	head := o.item(75).PRHead
+	o.github.mu.Lock()
+	o.github.ci = map[string]string{head: mythicalCIPending}
+	o.github.mu.Unlock()
+	o.answerReviews(`"approve"`)
+	item := o.item(75)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
+	assert.Empty(t, o.github.merges)
+
+	o.github.mu.Lock()
+	o.github.ci[head] = mythicalCIRed
+	o.github.mu.Unlock()
+	o.wake()
+	item = o.item(75)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "CI failed on the approved head; a person decides", item.Reason)
+	assert.Empty(t, o.github.merges, "never on red")
+
+	o.github.mu.Lock()
+	o.github.ci[head] = mythicalCIGreen
+	o.github.mu.Unlock()
+	o.wake()
+	item = o.item(75)
+	require.Equal(t, "landed", item.State, item.Reason)
+	assert.Equal(t, map[int64]string{item.PRNumber.Int64: head}, o.github.merges, "merged at the head CI and the review passed")
+}

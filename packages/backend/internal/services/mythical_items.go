@@ -1824,9 +1824,22 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 }
 
 // merge merges an automerge TODO's pull request at exactly the approved
-// head. A refusal (required checks pending, the branch moved) is retried
-// later; the pull request stays open for a person meanwhile.
+// head, once GitHub CI on that head is green: the Change's affected checks
+// are fast feedback, not proof, and GitHub itself may require nothing. It
+// waits while CI runs and never merges on red. A refusal (the branch moved)
+// is retried later; the pull request stays open for a person meanwhile.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
+	switch ci, err := st.s.github.HeadChecks(ctx, *st.gh, item.PRHead); {
+	case err != nil:
+		return mythicalLater(item, "GitHub did not answer for CI on the approved head; retrying", st.now)
+	case ci == mythicalCIPending:
+		return mythicalLater(item, "waiting for CI on the approved head", st.now)
+	case ci != mythicalCIGreen:
+		next := item
+		next.Reason = "CI failed on the approved head; a person decides"
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+		return &next
+	}
 	commit, err := st.s.github.Merge(ctx, *st.gh, item.PRNumber.Int64, item.PRHead)
 	if err != nil {
 		return mythicalLater(item, "the approved pull request could not be merged: "+err.Error(), st.now)

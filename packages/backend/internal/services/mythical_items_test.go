@@ -55,6 +55,8 @@ type fakeMythicalGitHub struct {
 	// added the labels AddLabel put on, as "#<issue> <label>".
 	comments []string
 	added    []string
+	// ci is GitHub CI's verdict per commit; absent is green.
+	ci map[string]string
 }
 
 // Merge squash-merges like GitHub: only while the pull request is open and
@@ -99,6 +101,16 @@ func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, nu
 	defer g.mu.Unlock()
 	g.comments = append(g.comments, fmt.Sprintf("#%d %s", number, body))
 	return nil
+}
+
+// HeadChecks answers ci[sha], or green when the test set none.
+func (g *fakeMythicalGitHub) HeadChecks(_ context.Context, _ mythicalGitHubRepo, sha string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if verdict, ok := g.ci[sha]; ok {
+		return verdict, nil
+	}
+	return mythicalCIGreen, nil
 }
 
 func (g *fakeMythicalGitHub) AddLabel(_ context.Context, _ mythicalGitHubRepo, number int64, label string) error {
