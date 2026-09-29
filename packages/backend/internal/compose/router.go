@@ -1154,6 +1154,12 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Patch("/user", userHandler.PatchAuthenticatedUser)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/workflow-runs/active-count", workflowRunCountHandler.GetActiveWorkflowRunCount)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/user/repos", repoHandler.CreateRepo)
+			// Incoming private repositories are not readable by their recipient yet.
+			// The service checks recipient identity or current source ownership.
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), middleware.RejectRepositoryRestrictedToken).Get("/user/repository-transfers", repoHandler.ListRepoTransfers)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/accept", repoHandler.AcceptRepoTransfer)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/decline", repoHandler.DeclineRepoTransfer)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/cancel", repoHandler.CancelRepoTransfer)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization)).Post("/orgs/{org}/repos", repoHandler.CreateOrgRepo)
 
 			r.Route("/repos/{owner}/{repo}", func(r chi.Router) {

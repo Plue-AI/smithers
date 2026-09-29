@@ -18,13 +18,64 @@ import (
 // fakeOwnershipTx implements repoOwnershipTx over a mockRepoQuerier, recording
 // call order and commit/rollback outcomes.
 type fakeOwnershipTx struct {
-	q          *mockRepoQuerier
-	getByIDFn  func(ctx context.Context, id int64) (db.Repository, error)
-	commitFn   func(ctx context.Context) error
-	commitErr  error
-	committed  bool
-	rolledBack bool
-	calls      []string
+	q                           *mockRepoQuerier
+	getByIDFn                   func(ctx context.Context, id int64) (db.Repository, error)
+	createTransferRequestFn     func(context.Context, db.CreateRepositoryTransferRequestParams) (db.RepositoryTransferRequest, error)
+	getTransferRequestFn        func(context.Context, int64) (db.RepositoryTransferRequest, error)
+	getPendingTransferRequestFn func(context.Context, int64) (db.RepositoryTransferRequest, error)
+	expireTransferRequestsFn    func(context.Context, int64) error
+	resolveTransferRequestFn    func(context.Context, db.ResolveRepositoryTransferRequestParams) (db.RepositoryTransferRequest, error)
+	commitFn                    func(ctx context.Context) error
+	rollbackFn                  func(ctx context.Context) error
+	commitErr                   error
+	committed                   bool
+	rolledBack                  bool
+	calls                       []string
+}
+
+func (t *fakeOwnershipTx) CreateRepositoryTransferRequest(ctx context.Context, arg db.CreateRepositoryTransferRequestParams) (db.RepositoryTransferRequest, error) {
+	t.calls = append(t.calls, "CreateRepositoryTransferRequest")
+	if t.createTransferRequestFn != nil {
+		return t.createTransferRequestFn(ctx, arg)
+	}
+	return db.RepositoryTransferRequest{ID: 1, RepositoryID: arg.RepositoryID, SenderID: arg.SenderID, RecipientID: arg.RecipientID, SourceUserID: arg.SourceUserID, SourceOrgID: arg.SourceOrgID, SourceOwner: arg.SourceOwner, SourceName: arg.SourceName, Status: "pending"}, nil
+}
+
+func (t *fakeOwnershipTx) GetRepositoryTransferRequest(ctx context.Context, id int64) (db.RepositoryTransferRequest, error) {
+	t.calls = append(t.calls, "GetRepositoryTransferRequest")
+	if t.getTransferRequestFn != nil {
+		return t.getTransferRequestFn(ctx, id)
+	}
+	return db.RepositoryTransferRequest{}, pgx.ErrNoRows
+}
+
+func (t *fakeOwnershipTx) GetPendingRepositoryTransferRequest(ctx context.Context, repositoryID int64) (db.RepositoryTransferRequest, error) {
+	t.calls = append(t.calls, "GetPendingRepositoryTransferRequest")
+	if t.getPendingTransferRequestFn != nil {
+		return t.getPendingTransferRequestFn(ctx, repositoryID)
+	}
+	return db.RepositoryTransferRequest{}, pgx.ErrNoRows
+}
+
+func (t *fakeOwnershipTx) ExpireRepositoryTransferRequests(ctx context.Context, repositoryID int64) error {
+	t.calls = append(t.calls, "ExpireRepositoryTransferRequests")
+	if t.expireTransferRequestsFn != nil {
+		return t.expireTransferRequestsFn(ctx, repositoryID)
+	}
+	return nil
+}
+
+func (t *fakeOwnershipTx) ResolveRepositoryTransferRequest(ctx context.Context, arg db.ResolveRepositoryTransferRequestParams) (db.RepositoryTransferRequest, error) {
+	t.calls = append(t.calls, "ResolveRepositoryTransferRequest")
+	if t.resolveTransferRequestFn != nil {
+		return t.resolveTransferRequestFn(ctx, arg)
+	}
+	return db.RepositoryTransferRequest{}, pgx.ErrNoRows
+}
+
+func (t *fakeOwnershipTx) IsOrgOwnerForRepoUser(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error) {
+	t.calls = append(t.calls, "IsOrgOwnerForRepoUser")
+	return t.q.IsOrgOwnerForRepoUser(ctx, arg)
 }
 
 func (t *fakeOwnershipTx) GetRepoByIDForUpdate(ctx context.Context, id int64) (db.Repository, error) {
@@ -83,12 +134,16 @@ func (t *fakeOwnershipTx) Commit(ctx context.Context) error {
 
 func (t *fakeOwnershipTx) Rollback(ctx context.Context) error {
 	t.rolledBack = true
+	if t.rollbackFn != nil {
+		return t.rollbackFn(ctx)
+	}
 	return nil
 }
 
 type fakeOwnershipTxManager struct {
 	tx          repoOwnershipTx
 	reconcileTx repoOwnershipTx
+	beginErr    error
 	begun       int
 }
 
@@ -147,6 +202,9 @@ func (t *fakeOwnershipDBTransaction) OwnershipDBTX() db.DBTX {
 
 func (m *fakeOwnershipTxManager) BeginOwnershipTx(ctx context.Context, repositoryID int64) (repoOwnershipTx, error) {
 	m.begun++
+	if m.beginErr != nil {
+		return nil, m.beginErr
+	}
 	if m.begun > 1 {
 		if m.reconcileTx != nil {
 			return m.reconcileTx, nil
@@ -188,6 +246,91 @@ func transferQuerierToUser(repository db.Repository, isOrgOwner bool) *mockRepoQ
 	}
 }
 
+// These tests cover the transfer machinery that runs after a recipient accepts
+// a pending user transfer. The public TransferRepo method now only creates the
+// pending request, so exercise the machinery at its existing service seam.
+func transferToBobSerialized(ctx context.Context, svc *RepoService, _ *db.User, repository db.Repository) (db.Repository, error) {
+	return svc.transferRepoSerialized(ctx, repository, "owner", repository.Name, repoTransferTarget{
+		ownerName:   "bob",
+		userID:      pgtype.Int8{Int64: 77, Valid: true},
+		conflictMsg: "user 'bob' already has a repository named '" + repository.Name + "'",
+	})
+}
+
+func transferToBobCompensating(ctx context.Context, svc *RepoService, _ *db.User, repository db.Repository) (db.Repository, error) {
+	return transferToUserCompensating(ctx, svc, repository, 77)
+}
+
+func transferToUserCompensating(ctx context.Context, svc *RepoService, repository db.Repository, targetUserID int64) (db.Repository, error) {
+	return svc.transferRepoCompensating(ctx, repository, "owner", repository.Name, repoTransferTarget{
+		ownerName:   "bob",
+		userID:      pgtype.Int8{Int64: targetUserID, Valid: true},
+		conflictMsg: "user 'bob' already has a repository named '" + repository.Name + "'",
+	})
+}
+
+func TestTransferRepo_UserRequestLeavesOwnershipAndStorageUntouched(t *testing.T) {
+	t.Parallel()
+	actor := &db.User{ID: 1, Username: "actor"}
+	repository := testRepo(nil)
+	q := transferQuerierToUser(repository, false)
+	q.transferRepoToUserFn = func(context.Context, db.TransferRepoToUserParams) (db.Repository, error) {
+		t.Fatal("request creation must not change ownership")
+		return db.Repository{}, nil
+	}
+	q.deleteCollaboratorsByRepoFn = func(context.Context, int64) error {
+		t.Fatal("request creation must not remove collaborators")
+		return nil
+	}
+	q.deleteTeamReposByRepoFn = func(context.Context, int64) error {
+		t.Fatal("request creation must not remove team access")
+		return nil
+	}
+	tx := &fakeOwnershipTx{q: q, getByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
+		require.Equal(t, repository.ID, id)
+		return repository, nil
+	}}
+	tx.createTransferRequestFn = func(_ context.Context, arg db.CreateRepositoryTransferRequestParams) (db.RepositoryTransferRequest, error) {
+		assert.Equal(t, repository.ID, arg.RepositoryID)
+		assert.Equal(t, actor.ID, arg.SenderID)
+		assert.Equal(t, int64(77), arg.RecipientID)
+		assert.Equal(t, repository.UserID, arg.SourceUserID)
+		assert.Equal(t, repository.OrgID, arg.SourceOrgID)
+		assert.Equal(t, "owner", arg.SourceOwner)
+		assert.Equal(t, repository.Name, arg.SourceName)
+		return db.RepositoryTransferRequest{ID: 9, RepositoryID: arg.RepositoryID, RecipientID: arg.RecipientID, Status: "pending"}, nil
+	}
+	host := &mockRepoHostClient{}
+	billing := &stubBillingPolicy{authorizePrivateRepoFn: func(context.Context, string, int64) error {
+		t.Fatal("recipient billing must wait until acceptance")
+		return nil
+	}}
+	svc := NewRepoService(q, host, "s1", WithRepoBillingPolicy(billing))
+	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
+
+	result, err := svc.TransferRepo(context.Background(), actor, "owner", repository.Name, "bob")
+	require.NoError(t, err)
+	require.NotNil(t, result.PendingTransfer)
+	assert.Equal(t, int64(9), result.PendingTransfer.ID)
+	assert.Equal(t, repository, result.Repository)
+	assert.Equal(t, "owner", result.Owner)
+	assert.Equal(t, []string{"GetRepoByIDForUpdate", "ExpireRepositoryTransferRequests", "GetPendingRepositoryTransferRequest", "CreateRepositoryTransferRequest", "Commit"}, tx.calls)
+	assert.True(t, tx.committed)
+	assert.Zero(t, host.moveRepoCalls)
+	assert.Zero(t, host.stageMoveCalls)
+}
+
+func TestTransferRepo_UserRequestRequiresTransactionalStorage(t *testing.T) {
+	t.Parallel()
+	repository := testRepo(nil)
+	q := transferQuerierToUser(repository, false)
+	host := &mockRepoHostClient{}
+	_, err := NewRepoService(q, host, "s1").TransferRepo(context.Background(), &db.User{ID: 1}, "owner", repository.Name, "bob")
+	assert.Equal(t, 500, apiStatus(t, err))
+	assert.False(t, q.transferToUserCalled)
+	assert.Zero(t, host.moveRepoCalls)
+}
+
 func TestTransferRepo_OrgOwnedMoveFailureRevertsToOrg(t *testing.T) {
 	t.Parallel()
 
@@ -215,7 +358,7 @@ func TestTransferRepo_OrgOwnedMoveFailureRevertsToOrg(t *testing.T) {
 		},
 	}
 
-	_, err := NewRepoService(q, rh, "s1").TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobCompensating(context.Background(), NewRepoService(q, rh, "s1"), actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 
 	// The initial transfer targeted user bob; the compensating revert must go
@@ -263,7 +406,7 @@ func TestTransferRepo_RevertFailureSkipsGrantRestore(t *testing.T) {
 		},
 	}
 
-	_, err := NewRepoService(q, rh, "s1").TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobCompensating(context.Background(), NewRepoService(q, rh, "s1"), actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.Equal(t, 2, transferCalls)
 	// Ownership is still with the target owner: restoring the old grants would
@@ -292,7 +435,7 @@ func TestTransferRepo_Serialized_Success(t *testing.T) {
 	txManager := &fakeOwnershipTxManager{tx: tx}
 	svc.ownershipTx = txManager
 
-	updated, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	updated, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	require.NoError(t, err)
 	assert.Equal(t, int64(77), updated.UserID.Int64)
 	assert.True(t, tx.committed)
@@ -348,7 +491,7 @@ func TestTransferRepo_Serialized_UsesOwnershipTransactionForBillingAdmission(t *
 	svc := NewRepoService(q, &mockRepoHostClient{}, "s1", WithRepoBillingPolicy(policy))
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: sharedTx}
 
-	updated, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	updated, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	require.NoError(t, err)
 	assert.True(t, calledInTx)
 	assert.True(t, tx.committed)
@@ -399,7 +542,7 @@ func TestTransferRepo_Serialized_TargetQuotaRejectionLeavesDatabaseAndStorageUnc
 	svc := NewRepoService(q, rh, "s1", WithRepoBillingPolicy(policy))
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 403, apiStatus(t, err))
 	assert.True(t, tx.rolledBack)
 	assert.False(t, tx.committed)
@@ -427,7 +570,7 @@ func TestTransferRepo_Serialized_OwnershipChangedConflict(t *testing.T) {
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 409, apiStatus(t, err))
 	assert.False(t, tx.committed)
 	assert.True(t, tx.rolledBack)
@@ -454,7 +597,7 @@ func TestTransferRepo_Serialized_ConcurrentDeleteNotFound(t *testing.T) {
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 404, apiStatus(t, err))
 	assert.True(t, tx.rolledBack)
 	assert.Equal(t, 0, rh.moveRepoCalls)
@@ -481,7 +624,7 @@ func TestTransferRepo_Serialized_MoveFailureRollsBack(t *testing.T) {
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.False(t, tx.committed)
 	assert.True(t, tx.rolledBack)
@@ -527,7 +670,7 @@ func TestTransferRepo_Serialized_LostSuccessfulMoveResponseRollsStorageBack(t *t
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.Equal(t, []string{"move-response-lost", "move-rolled-back"}, order)
 	assert.True(t, tx.rolledBack)
@@ -567,7 +710,7 @@ func TestTransferRepo_Serialized_CommitFailureMovesStorageBack(t *testing.T) {
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 	require.Len(t, moves, 2)
 	assert.Equal(t, [4]string{"owner", "demo", "bob", "demo"}, moves[0])
@@ -630,7 +773,7 @@ func TestTransferRepo_Serialized_AmbiguousCommitFinalizesWhenSourceRowIsGone(t *
 	txManager := &fakeOwnershipTxManager{tx: tx}
 	svc.ownershipTx = txManager
 
-	updated, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	updated, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	require.NoError(t, err)
 	assert.Equal(t, int64(77), updated.UserID.Int64)
 	assert.Equal(t, []string{"storage-moved", "commit-response-lost", "move-finalized"}, order)
@@ -679,7 +822,7 @@ func TestTransferRepo_Serialized_AmbiguousCommitQueryErrorLeavesStageAtDestinati
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.Equal(t, 1, rh.stageMoveCalls)
 	assert.Equal(t, 0, rh.rollbackMoveCalls)
@@ -740,7 +883,7 @@ func TestTransferRepo_Serialized_AmbiguousCommitMissingOrThirdOwnerLeavesStageAt
 			svc := NewRepoService(q, rh, "s1")
 			svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-			_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+			_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 			assert.Equal(t, 500, apiStatus(t, err))
 			assert.Equal(t, 1, rh.stageMoveCalls)
 			assert.Equal(t, 0, rh.rollbackMoveCalls)
@@ -1222,7 +1365,7 @@ func TestTransferRepo_Serialized_CancellationDuringMoveStillCommits(t *testing.T
 	svc := NewRepoService(q, rh, "s1")
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-	updated, err := svc.TransferRepo(requestCtx, actor, "owner", "demo", "bob")
+	updated, err := transferToBobSerialized(requestCtx, svc, actor, repository)
 	require.NoError(t, err)
 	assert.Equal(t, int64(77), updated.UserID.Int64)
 	assert.True(t, tx.committed)

@@ -159,7 +159,11 @@ func TestPushOutboxRepositoryIdentityAfterRestartPostgres(t *testing.T) {
 					require.NotEqual(t, original.ID, replacement.ID)
 				}
 			case "transfer":
-				moved, err := repos.TransferRepo(ctx, &owner, "alice", "demo", destination.Username)
+				request, err := repos.TransferRepo(ctx, &owner, "alice", "demo", destination.Username)
+				require.NoError(t, err)
+				require.NotNil(t, request.PendingTransfer)
+				require.Equal(t, "alice", request.Owner)
+				moved, err := repos.AcceptRepoTransfer(ctx, &destination, request.PendingTransfer.ID)
 				require.NoError(t, err)
 				require.Equal(t, original.ID, moved.ID)
 			}

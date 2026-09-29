@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:e1ece2c87db8f8282d22045d5fd644fcaa7267e858c7e642891431145f1a7e4a",
+  "digest": "sha256:c9919600502fda32c37cb286f07d1a3f67abe5e145b486950c907774b44863e5",
   "faults": [
     "user",
     "wait",
@@ -583,7 +583,7 @@
       "fault": "user",
       "status": 402,
       "retry_after": 0,
-      "doc": "The user has exhausted a sandbox limit included in their plan."
+      "doc": "The user has exhausted a limit included in their plan."
     },
     {
       "code": "preview_unavailable",

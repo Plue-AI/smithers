@@ -41,21 +41,22 @@ type UpdateRepoRequest struct {
 
 // RepoResponse is the API response for repo operations.
 type RepoResponse struct {
-	ID                         int64      `json:"id"`
-	Owner                      string     `json:"owner"`
-	Name                       string     `json:"name"`
-	FullName                   string     `json:"full_name"`
-	Description                string     `json:"description"`
-	Private                    bool       `json:"private"`
-	IsPublic                   bool       `json:"is_public"`
-	DefaultBookmark            string     `json:"default_bookmark"`
-	Topics                     []string   `json:"topics"`
-	LandingQueueMode           string     `json:"landing_queue_mode"`
-	LandingQueueRequiredChecks []string   `json:"landing_queue_required_checks"`
-	IsArchived                 bool       `json:"is_archived"`
-	ArchivedAt                 *time.Time `json:"archived_at,omitempty"`
-	IsFork                     bool       `json:"is_fork"`
-	ForkID                     *int64     `json:"fork_id,omitempty"`
+	PendingTransfer            *db.RepositoryTransferRequest `json:"pending_transfer,omitempty"`
+	ID                         int64                         `json:"id"`
+	Owner                      string                        `json:"owner"`
+	Name                       string                        `json:"name"`
+	FullName                   string                        `json:"full_name"`
+	Description                string                        `json:"description"`
+	Private                    bool                          `json:"private"`
+	IsPublic                   bool                          `json:"is_public"`
+	DefaultBookmark            string                        `json:"default_bookmark"`
+	Topics                     []string                      `json:"topics"`
+	LandingQueueMode           string                        `json:"landing_queue_mode"`
+	LandingQueueRequiredChecks []string                      `json:"landing_queue_required_checks"`
+	IsArchived                 bool                          `json:"is_archived"`
+	ArchivedAt                 *time.Time                    `json:"archived_at,omitempty"`
+	IsFork                     bool                          `json:"is_fork"`
+	ForkID                     *int64                        `json:"fork_id,omitempty"`
 	// ForkOf is "owner/name" of the upstream this repository was forked from,
 	// present only on a fork whose upstream still resolves.
 	ForkOf *string `json:"fork_of,omitempty"`
@@ -92,7 +93,11 @@ type RepoRouteService interface {
 	ListGitRefs(ctx context.Context, viewer *db.User, owner, repo string) ([]services.GitRef, error)
 	ArchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error)
 	UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error)
-	TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (db.Repository, error)
+	TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error)
+	ListRepoTransfers(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error)
+	AcceptRepoTransfer(ctx context.Context, actor *db.User, transferID int64) (db.Repository, error)
+	DeclineRepoTransfer(ctx context.Context, actor *db.User, transferID int64) error
+	CancelRepoTransfer(ctx context.Context, actor *db.User, transferID int64) error
 	GetRepoView(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error)
 	ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error)
 }
@@ -717,20 +722,26 @@ func (h *RepoHandler) TransferRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	action := "transfer"
+	if updated.PendingTransfer != nil {
+		action = "transfer_requested"
+	}
 	if h.AuditService != nil {
 		h.AuditService.Log(r.Context(), services.AuditEvent{
-			EventType:  "repo.transfer",
+			EventType:  "repo." + action,
 			ActorID:    &user.ID,
 			ActorName:  user.Username,
 			TargetType: "repository",
 			TargetID:   &updated.ID,
 			TargetName: fmt.Sprintf("%s/%s", owner, repoName),
-			Action:     "transfer",
+			Action:     action,
 			IPAddress:  r.RemoteAddr,
 		})
 	}
 
-	errors.WriteJSON(w, http.StatusAccepted, mapRepoResponse(req.NewOwner, updated, h.SSHHost))
+	response := mapRepoResponse(updated.Owner, updated.Repository, h.SSHHost)
+	response.PendingTransfer = updated.PendingTransfer
+	errors.WriteJSON(w, http.StatusAccepted, response)
 }
 
 // ForkRepo handles POST /api/repos/{owner}/{repo}/fork (and its /forks alias).

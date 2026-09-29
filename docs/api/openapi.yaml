@@ -13708,6 +13708,141 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/user/repository-transfers:
+    get:
+      summary: List incoming and outgoing pending repository transfers
+      description: Includes requests addressed to you and repositories you currently own. Expired requests are excluded.
+      operationId: get_api_user_repository_transfers
+      tags:
+        - Repositories
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Pending transfers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RepositoryTransferRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '409':
+          description: Transfer is no longer pending, expired, or conflicts with the destination
+  /api/user/repository-transfers/{transfer_id}/accept:
+    post:
+      summary: Accept an incoming repository transfer
+      operationId: post_api_user_repository_transfers_transfer_id_accept
+      tags:
+        - Repositories
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Repository after ownership and storage have moved to the recipient
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '409':
+          description: Transfer is no longer pending, expired, or conflicts with the destination
+  /api/user/repository-transfers/{transfer_id}/decline:
+    post:
+      summary: Decline an incoming repository transfer
+      operationId: post_api_user_repository_transfers_transfer_id_decline
+      tags:
+        - Repositories
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Transfer resolved; repository ownership and storage are unchanged
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '409':
+          description: Transfer is no longer pending, expired, or conflicts with the destination
+  /api/user/repository-transfers/{transfer_id}/cancel:
+    post:
+      summary: Cancel an outgoing repository transfer
+      operationId: post_api_user_repository_transfers_transfer_id_cancel
+      tags:
+        - Repositories
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Transfer resolved; repository ownership and storage are unchanged
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '409':
+          description: Transfer is no longer pending, expired, or conflicts with the destination
   /api/user/repos:
     get:
       summary: GET /api/user/repos
@@ -17540,7 +17675,8 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/transfer:
     post:
-      summary: POST /api/repos/{owner}/{repo}/transfer
+      summary: Request a repository transfer
+      description: User destinations require recipient acceptance within seven days. The response keeps the source owner and includes pending_transfer. Organization destinations transfer immediately when you own the organization.
       operationId: post_api_repos_owner_repo_transfer
       tags:
         - Repositories
@@ -17559,13 +17695,23 @@ paths:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_owner]
+              properties:
+                new_owner:
+                  type: string
       responses:
-        '200':
-          description: Successful response
+        '202':
+          description: Pending user transfer or completed organization transfer
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/RepositoryTransferResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -17580,6 +17726,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+        '409':
+          description: A transfer is already pending or the destination name conflicts
   /api/repos/{owner}/{repo}/unarchive:
     post:
       summary: POST /api/repos/{owner}/{repo}/unarchive
@@ -23006,6 +23154,56 @@ components:
                   enum:
                     - trusted-only
                     - enforced
+    RepositoryTransferRequest:
+      type: object
+      required: [id, repository_id, sender_id, recipient_id, source_owner, source_name, status, created_at, expires_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        repository_id:
+          type: integer
+          format: int64
+        sender_id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        source_user_id:
+          type: [integer, 'null']
+          format: int64
+        source_org_id:
+          type: [integer, 'null']
+          format: int64
+        source_owner:
+          type: string
+        source_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined, cancelled, expired]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: [string, 'null']
+          format: date-time
+    RepositoryTransferResponse:
+      type: object
+      description: Repository response using its current owner. pending_transfer is present while a user transfer awaits acceptance.
+      properties:
+        owner:
+          type: string
+        full_name:
+          type: string
+        clone_url:
+          type: string
+        pending_transfer:
+          $ref: '#/components/schemas/RepositoryTransferRequest'
     BillingPlan:
       type: object
       required:

@@ -263,7 +263,7 @@ func TestTransferFinalizesMoveAfterBillingAuthorizerReturns(t *testing.T) {
 			svc := NewRepoService(q, host, "s1", WithRepoBillingPolicy(policy))
 			svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-			_, err := svc.TransferRepo(context.Background(), actor, "owner", "demo", "bob")
+			_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
 			require.NoError(t, err)
 			assert.Equal(t, []string{
 				"authorizer-enter", "storage-moved", "ownership-commit", "authorizer-return", "move-finalized",

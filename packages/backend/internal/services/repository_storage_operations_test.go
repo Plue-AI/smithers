@@ -248,7 +248,9 @@ func TestTransferRepoPersistsPreparedHandleBeforeStorageMutation(t *testing.T) {
 	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 	svc.storageOperations = store
 
-	_, err := svc.TransferRepo(context.Background(), actor, "ALICE", "demo", "bob")
+	_, err := svc.transferRepoSerialized(context.Background(), repository, actor.Username, repository.Name, repoTransferTarget{
+		ownerName: "Bob", userID: pgtype.Int8{Int64: 22, Valid: true},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"prepare-move", "persist-intent", "execute-move", "finalize-move", "complete-intent",

@@ -15,22 +15,21 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
-// TransferRepo transfers a repository to a new owner (user or organization).
+// TransferRepo requests a transfer to a user, or immediately transfers to an organization.
 //
 // Only the direct repo owner (or org owner for org-owned repos) may initiate a
-// transfer. Collaborator admins are explicitly denied. Production transfers
-// serialize ownership, re-check destination billing limits, update ownership
-// and grants transactionally, journal the repo-host move, then commit. The
-// non-transactional fallback retains the older compensating sequence for test
-// and alternate queriers.
-func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (db.Repository, error) {
+// transfer. Collaborator admins are explicitly denied. User requests leave
+// ownership, grants, billing, and storage unchanged until the recipient accepts.
+// Acceptance and production organization transfers serialize ownership, check
+// destination limits, and journal the storage move with the ownership commit.
+func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (RepoTransferResult, error) {
 	if actor == nil {
-		return db.Repository{}, errors.Unauthorized("authentication required")
+		return RepoTransferResult{}, errors.Unauthorized("authentication required")
 	}
 
 	newOwner = strings.TrimSpace(newOwner)
 	if newOwner == "" {
-		return db.Repository{}, errors.ValidationFailed(errors.FieldError{
+		return RepoTransferResult{}, errors.ValidationFailed(errors.FieldError{
 			Resource: "Repository",
 			Field:    "new_owner",
 			Code:     "missing_field",
@@ -39,27 +38,27 @@ func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, r
 
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
-		return db.Repository{}, err
+		return RepoTransferResult{}, err
 	}
 	canonicalOwner, err := s.canonicalRepositoryOwner(ctx, repository, owner)
 	if err != nil {
-		return db.Repository{}, err
+		return RepoTransferResult{}, err
 	}
 
 	// Only the repo owner (not merely an admin collaborator) may transfer.
 	allowed, err := s.canOwnRepo(ctx, repository, actor.ID)
 	if err != nil {
-		return db.Repository{}, err
+		return RepoTransferResult{}, err
 	}
 	if !allowed {
-		return db.Repository{}, errors.Forbidden("permission denied")
+		return RepoTransferResult{}, errors.Forbidden("permission denied")
 	}
 
 	// Don't allow transfer to the same owner.
 	lowerNewOwner := strings.ToLower(newOwner)
 	lowerCurrentOwner := strings.ToLower(canonicalOwner)
 	if lowerNewOwner == lowerCurrentOwner {
-		return db.Repository{}, errors.ValidationFailed(errors.FieldError{
+		return RepoTransferResult{}, errors.ValidationFailed(errors.FieldError{
 			Resource: "Repository",
 			Field:    "new_owner",
 			Code:     "invalid",
@@ -77,36 +76,24 @@ func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, r
 			LowerName: repository.LowerName,
 		})
 		if dupErr == nil {
-			return db.Repository{}, errors.Conflict(fmt.Sprintf("user '%s' already has a repository named '%s'", newOwner, repository.Name))
+			return RepoTransferResult{}, errors.Conflict(fmt.Sprintf("user '%s' already has a repository named '%s'", newOwner, repository.Name))
 		}
 		if !stdErrors.Is(dupErr, pgx.ErrNoRows) {
-			return db.Repository{}, errors.Internal("failed to check destination repository")
+			return RepoTransferResult{}, errors.Internal("failed to check destination repository")
 		}
 
-		// The recipient must have private-repo entitlement to receive a private
-		// repo; a transfer otherwise bypasses the target owner's private-repo quota.
-		if !repository.IsPublic && s.billing != nil {
-			if err := s.billing.AuthorizePrivateRepo(ctx, BillingOwnerTypeUser, targetUser.ID); err != nil {
-				return db.Repository{}, err
-			}
-		}
-
-		target = repoTransferTarget{
-			ownerName:   targetUser.Username,
-			userID:      pgtype.Int8{Int64: targetUser.ID, Valid: true},
-			conflictMsg: fmt.Sprintf("user '%s' already has a repository named '%s'", newOwner, repository.Name),
-		}
+		return s.createRepoTransferRequest(ctx, actor, repository, canonicalOwner, targetUser.ID)
 	} else {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Repository{}, errors.Internal("failed to resolve new owner")
+			return RepoTransferResult{}, errors.Internal("failed to resolve new owner")
 		}
 		// Try as an organization.
 		targetOrg, orgErr := s.queries.GetOrgByLowerName(ctx, lowerNewOwner)
 		if orgErr != nil {
 			if stdErrors.Is(orgErr, pgx.ErrNoRows) {
-				return db.Repository{}, errors.NotFound(fmt.Sprintf("user or organization '%s' not found", newOwner))
+				return RepoTransferResult{}, errors.NotFound(fmt.Sprintf("user or organization '%s' not found", newOwner))
 			}
-			return db.Repository{}, errors.Internal("failed to resolve new owner").WithCause(orgErr)
+			return RepoTransferResult{}, errors.Internal("failed to resolve new owner").WithCause(orgErr)
 		}
 
 		// Verify the actor is an owner of the target organization.
@@ -116,12 +103,12 @@ func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, r
 		})
 		if memErr != nil {
 			if stdErrors.Is(memErr, pgx.ErrNoRows) {
-				return db.Repository{}, errors.Forbidden("must be an owner of the target organization")
+				return RepoTransferResult{}, errors.Forbidden("must be an owner of the target organization")
 			}
-			return db.Repository{}, errors.Internal("failed to check organization membership").WithCause(memErr)
+			return RepoTransferResult{}, errors.Internal("failed to check organization membership").WithCause(memErr)
 		}
 		if strings.ToLower(strings.TrimSpace(member.Role)) != "owner" {
-			return db.Repository{}, errors.Forbidden("must be an owner of the target organization")
+			return RepoTransferResult{}, errors.Forbidden("must be an owner of the target organization")
 		}
 
 		// Check if the target org already has a repo with the same name.
@@ -130,17 +117,17 @@ func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, r
 			LowerName: repository.LowerName,
 		})
 		if dupErr == nil {
-			return db.Repository{}, errors.Conflict(fmt.Sprintf("organization '%s' already has a repository named '%s'", newOwner, repository.Name))
+			return RepoTransferResult{}, errors.Conflict(fmt.Sprintf("organization '%s' already has a repository named '%s'", newOwner, repository.Name))
 		}
 		if !stdErrors.Is(dupErr, pgx.ErrNoRows) {
-			return db.Repository{}, errors.Internal("failed to check destination repository")
+			return RepoTransferResult{}, errors.Internal("failed to check destination repository")
 		}
 
 		// The recipient org must have private-repo entitlement to receive a private
 		// repo; a transfer otherwise bypasses the target org's private-repo quota.
 		if !repository.IsPublic && s.billing != nil {
 			if err := s.billing.AuthorizePrivateRepo(ctx, BillingOwnerTypeOrg, targetOrg.ID); err != nil {
-				return db.Repository{}, err
+				return RepoTransferResult{}, err
 			}
 		}
 
@@ -151,16 +138,20 @@ func (s *RepoService) TransferRepo(ctx context.Context, actor *db.User, owner, r
 		}
 	}
 
+	var updated db.Repository
 	if s.ownershipTx != nil {
-		return s.transferRepoSerialized(ctx, repository, canonicalOwner, repository.Name, target)
+		updated, err = s.transferRepoSerialized(ctx, repository, canonicalOwner, repository.Name, target)
+	} else {
+		updated, err = s.transferRepoCompensating(ctx, repository, canonicalOwner, repository.Name, target)
 	}
-	return s.transferRepoCompensating(ctx, repository, canonicalOwner, repository.Name, target)
+	return RepoTransferResult{Repository: updated, Owner: target.ownerName}, err
 }
 
 // repoTransferTarget captures the resolved destination of a repository
 // transfer. Exactly one of userID/orgID is set; ownerName is the exact-case
 // storage path segment of the new owner.
 type repoTransferTarget struct {
+	requestID   int64
 	ownerName   string
 	userID      pgtype.Int8
 	orgID       pgtype.Int8
@@ -229,6 +220,7 @@ func (s *RepoService) transferRepoSerialized(ctx context.Context, repository db.
 	}
 	var prepared *repohost.StagedMove
 	retainIntent := false
+	moveAttempted := false
 	if s.storageOperations != nil {
 		preparedRepoHost, preparedOK := s.repoHost.(repoHostPreparedMoveClient)
 		if !preparedOK {
@@ -257,7 +249,18 @@ func (s *RepoService) transferRepoSerialized(ctx context.Context, repository db.
 		prepared = &staged
 		defer func() {
 			if !retainIntent {
-				s.settleRepoMoveIntent(ctx, repository, *prepared, stagedRepoHost, false)
+				if moveAttempted {
+					s.settleRepoMoveIntent(ctx, repository, *prepared, stagedRepoHost, false)
+				} else {
+					// PrepareStagedMove only resolves placement and creates a token.
+					// Nothing reached the storage host, so a failed/expired decision
+					// must not depend on that host to release its database intent.
+					cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), repoProvisionDBCleanupTimeout)
+					defer cancel()
+					if err := s.storageOperations.Complete(cleanup, repository.ID, prepared.Token); err != nil {
+						slog.Error("failed to remove unexecuted repository move intent", "repo_id", repository.ID, "error", err)
+					}
+				}
 			}
 		}()
 	}
@@ -287,6 +290,23 @@ func (s *RepoService) transferRepoSerialized(ctx context.Context, repository db.
 	}
 	if !repoOwnershipUnchanged(fresh, repository) {
 		return db.Repository{}, errors.Conflict("repository ownership changed concurrently")
+	}
+	if target.requestID != 0 {
+		if err := s.consumeRepoTransferRequest(ctx, tx, fresh, target); err != nil {
+			if stdErrors.Is(err, errRepoTransferExpired) {
+				if commitErr := tx.Commit(ctx); commitErr != nil {
+					return db.Repository{}, errors.Internal("failed to expire repository transfers").WithCause(commitErr)
+				}
+				committed = true
+			}
+			return db.Repository{}, err
+		}
+		// Non-production policies may lack the transaction admission extension.
+		if !fresh.IsPublic && s.billing != nil {
+			if err := s.billing.AuthorizePrivateRepo(ctx, BillingOwnerTypeUser, target.userID.Int64); err != nil {
+				return db.Repository{}, err
+			}
+		}
 	}
 	if prepared != nil {
 		active, verifyErr := s.storageOperations.Verify(ctx, repository.ID, prepared.Token)
@@ -321,7 +341,7 @@ func (s *RepoService) transferRepoSerialized(ctx context.Context, repository db.
 	}
 	applyAndCommit := func(commitCtx context.Context) error {
 		var commitErr error
-		updated, commitErr = s.applyAndCommitRepoTransfer(commitCtx, repository, owner, repo, target, tx, stagedRepoHost, prepared, &committed, &retainIntent, &committedMove)
+		updated, commitErr = s.applyAndCommitRepoTransfer(commitCtx, repository, owner, repo, target, tx, stagedRepoHost, prepared, &committed, &retainIntent, &committedMove, &moveAttempted)
 		return commitErr
 	}
 	if transaction, txOK := tx.(repoOwnershipDBTransaction); txOK {
@@ -409,6 +429,7 @@ func (s *RepoService) applyAndCommitRepoTransfer(
 	committed *bool,
 	retainIntent *bool,
 	committedMove **repohost.StagedMove,
+	moveAttempted *bool,
 ) (db.Repository, error) {
 	removedCollaborators := s.collaboratorsOf(ctx, repository.ID)
 	ownershipHolders := s.ownershipAccessHoldersOf(ctx, repository)
@@ -428,6 +449,7 @@ func (s *RepoService) applyAndCommitRepoTransfer(
 	// token before sending the request, so even a successful move whose response
 	// is lost can be rolled back before this transaction rolls back.
 	var staged repohost.StagedMove
+	*moveAttempted = true
 	if prepared != nil {
 		staged = *prepared
 		err = s.repoHost.(repoHostPreparedMoveClient).ExecuteStagedMove(ctx, staged)

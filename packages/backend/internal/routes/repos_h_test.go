@@ -61,8 +61,8 @@ func TestRepos_H_AuditBranches(t *testing.T) {
 			unarchiveFn: func(context.Context, *db.User, string, string) (db.Repository, error) {
 				return routeRepo(func(r *db.Repository) { r.ID = 103 }), nil
 			},
-			transferFn: func(context.Context, *db.User, string, string, string) (db.Repository, error) {
-				return routeRepo(func(r *db.Repository) { r.ID = 104 }), nil
+			transferFn: func(context.Context, *db.User, string, string, string) (services.RepoTransferResult, error) {
+				return services.RepoTransferResult{Repository: routeRepo(func(r *db.Repository) { r.ID = 104 }), Owner: "alice", PendingTransfer: &db.RepositoryTransferRequest{ID: 77}}, nil
 			},
 			forkFn: func(context.Context, *db.User, string, string, string, string) (db.Repository, error) {
 				return routeRepo(func(r *db.Repository) {
@@ -85,7 +85,23 @@ func TestRepos_H_AuditBranches(t *testing.T) {
 
 	require.Len(t, audit.calls, 8)
 	assert.Equal(t, "repo.create", audit.calls[0].EventType)
+	assert.Equal(t, "repo.transfer_requested", audit.calls[6].EventType)
+	assert.Equal(t, "transfer_requested", audit.calls[6].Action)
 	assert.Equal(t, "repo.fork", audit.calls[7].EventType)
+}
+
+func TestRepos_H_ImmediateOrgTransferKeepsCompletionAudit(t *testing.T) {
+	audit := &reposHAuditQueries{}
+	h := &RepoHandler{
+		AuditService: services.NewAuditService(audit),
+		Service: reposCovService{transferFn: func(context.Context, *db.User, string, string, string) (services.RepoTransferResult, error) {
+			return services.RepoTransferResult{Repository: routeRepo(nil), Owner: "acme"}, nil
+		}},
+	}
+	reposHStatus(t, h, h.TransferRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/transfer", `{"new_owner":"acme"}`, map[string]string{"owner": "alice", "repo": "demo"}, true), http.StatusAccepted)
+	require.Len(t, audit.calls, 1)
+	assert.Equal(t, "repo.transfer", audit.calls[0].EventType)
+	assert.Equal(t, "transfer", audit.calls[0].Action)
 }
 
 func TestRepos_H_ErrorBranches(t *testing.T) {

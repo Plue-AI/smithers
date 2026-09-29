@@ -1471,22 +1471,23 @@ func TestRepoService_TransferRepo_RequiresOwnerPermission(t *testing.T) {
 					return nil
 				},
 				transferRepoToUserFn: func(ctx context.Context, arg db.TransferRepoToUserParams) (db.Repository, error) {
-					assert.Equal(t, tc.repo.ID, arg.ID)
-					assert.Equal(t, tc.targetUser.ID, arg.NewUserID.Int64)
-					return db.Repository{
-						ID:        tc.repo.ID,
-						UserID:    pgtype.Int8{Int64: tc.targetUser.ID, Valid: true},
-						Name:      tc.repo.Name,
-						LowerName: tc.repo.LowerName,
-					}, nil
+					t.Fatal("creating a transfer request must not change repository ownership")
+					return db.Repository{}, nil
 				},
 			}
 			svc := NewRepoService(q, &mockRepoHostClient{}, "smithers-repo-host-0")
+			tx := &fakeOwnershipTx{q: q, getByIDFn: func(context.Context, int64) (db.Repository, error) { return tc.repo, nil }}
+			svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
 
-			_, err := svc.TransferRepo(context.Background(), &db.User{ID: tc.actorID, Username: "actor"}, "owner", "repo", tc.targetOwner)
+			result, err := svc.TransferRepo(context.Background(), &db.User{ID: tc.actorID, Username: "actor"}, "owner", "repo", tc.targetOwner)
 			if tc.allowTransfer {
 				require.NoError(t, err)
-				assert.True(t, q.transferToUserCalled)
+				require.NotNil(t, result.PendingTransfer)
+				assert.Equal(t, tc.repo.ID, result.ID)
+				assert.Equal(t, tc.repo.UserID, result.UserID)
+				assert.Equal(t, tc.targetUser.ID, result.PendingTransfer.RecipientID)
+				assert.True(t, tx.committed)
+				assert.False(t, q.transferToUserCalled)
 				assert.False(t, q.transferToOrgCalled)
 				return
 			}

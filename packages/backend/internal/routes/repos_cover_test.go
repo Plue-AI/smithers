@@ -35,7 +35,7 @@ type reposCovService struct {
 	listGitRefsFn   func(context.Context, *db.User, string, string) ([]services.GitRef, error)
 	archiveFn       func(context.Context, *db.User, string, string) (db.Repository, error)
 	unarchiveFn     func(context.Context, *db.User, string, string) (db.Repository, error)
-	transferFn      func(context.Context, *db.User, string, string, string) (db.Repository, error)
+	transferFn      func(context.Context, *db.User, string, string, string) (services.RepoTransferResult, error)
 	forkFn          func(context.Context, *db.User, string, string, string, string) (db.Repository, error)
 }
 
@@ -151,12 +151,21 @@ func (s reposCovService) UnarchiveRepo(ctx context.Context, actor *db.User, owne
 	return routeRepo(nil), nil
 }
 
-func (s reposCovService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (db.Repository, error) {
+func (s reposCovService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
 	if s.transferFn != nil {
 		return s.transferFn(ctx, actor, owner, repo, newOwner)
 	}
-	return routeRepo(nil), nil
+	return services.RepoTransferResult{Repository: routeRepo(nil), Owner: owner}, nil
 }
+
+func (s reposCovService) ListRepoTransfers(context.Context, *db.User) ([]db.RepositoryTransferRequest, error) {
+	return nil, nil
+}
+func (s reposCovService) AcceptRepoTransfer(context.Context, *db.User, int64) (db.Repository, error) {
+	return db.Repository{}, nil
+}
+func (s reposCovService) DeclineRepoTransfer(context.Context, *db.User, int64) error { return nil }
+func (s reposCovService) CancelRepoTransfer(context.Context, *db.User, int64) error  { return nil }
 
 func (s reposCovService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error) {
 	if s.forkFn != nil {

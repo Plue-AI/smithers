@@ -67,7 +67,10 @@ func newVariableTransferFixture(t *testing.T) variableTransferFixture {
 
 func (f variableTransferFixture) move(t *testing.T, ctx context.Context) {
 	t.Helper()
-	updated, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
+	request, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
+	require.NoError(t, err)
+	require.NotNil(t, request.PendingTransfer)
+	updated, err := f.transfer.AcceptRepoTransfer(ctx, &f.recipient, request.PendingTransfer.ID)
 	require.NoError(t, err)
 	require.Equal(t, f.recipient.ID, updated.UserID.Int64)
 	require.True(t, updated.UserID.Valid)
@@ -243,6 +246,9 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 				require.NoError(t, err)
 			}
 			guard := newPausedVariableGuard(f.pool, true)
+			request, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
+			require.NoError(t, err)
+			require.NotNil(t, request.PendingTransfer)
 			service := NewVariableService(&pausedVariableQueries{Queries: f.queries, guard: guard}, WithVariableOwnershipGuard(guard))
 			writeResult := make(chan error, 1)
 			go func() {
@@ -256,7 +262,7 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 			awaitVariableFence(t, ctx, guard.entered) // the shared advisory lock is held during the write callback
 			transferResult := make(chan error, 1)
 			go func() {
-				_, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
+				_, err := f.transfer.AcceptRepoTransfer(ctx, &f.recipient, request.PendingTransfer.ID)
 				transferResult <- err
 			}()
 			require.Eventually(t, func() bool {
@@ -288,7 +294,7 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 				f.assertVariable(t, name, nil)
 			}
 			newOwnerService := NewVariableService(f.queries, WithVariableOwnershipGuard(NewRepoOwnershipFence(f.pool)))
-			_, err := newOwnerService.SetVariable(ctx, &f.recipient, f.recipient.Username, f.repo.Name, name, "new-owner-write")
+			_, err = newOwnerService.SetVariable(ctx, &f.recipient, f.recipient.Username, f.repo.Name, name, "new-owner-write")
 			require.NoError(t, err)
 			f.assertVariable(t, name, variableValue("new-owner-write"))
 		})

@@ -43,8 +43,12 @@ type mockRouterSearchService struct{}
 
 type mockRouterAuthService struct{}
 type mockRouterRepoService struct {
-	getRepoCalls  int
-	forkRepoCalls int
+	getRepoCalls      int
+	forkRepoCalls     int
+	listTransfersFn   func(context.Context, *db.User) ([]db.RepositoryTransferRequest, error)
+	acceptTransferFn  func(context.Context, *db.User, int64) (db.Repository, error)
+	declineTransferFn func(context.Context, *db.User, int64) error
+	cancelTransferFn  func(context.Context, *db.User, int64) error
 }
 type mockRouterCommitStatusService struct {
 	listCommitStatusesFn func(ctx context.Context, repositoryID int64, ref string, page, perPage int) ([]db.CommitStatus, int64, error)
@@ -222,8 +226,32 @@ func (m *mockRouterRepoService) UnarchiveRepo(ctx context.Context, actor *db.Use
 	return db.Repository{}, nil
 }
 
-func (m *mockRouterRepoService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (db.Repository, error) {
+func (m *mockRouterRepoService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
+	return services.RepoTransferResult{}, nil
+}
+func (m *mockRouterRepoService) ListRepoTransfers(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error) {
+	if m.listTransfersFn != nil {
+		return m.listTransfersFn(ctx, actor)
+	}
+	return nil, nil
+}
+func (m *mockRouterRepoService) AcceptRepoTransfer(ctx context.Context, actor *db.User, id int64) (db.Repository, error) {
+	if m.acceptTransferFn != nil {
+		return m.acceptTransferFn(ctx, actor, id)
+	}
 	return db.Repository{}, nil
+}
+func (m *mockRouterRepoService) DeclineRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
+	if m.declineTransferFn != nil {
+		return m.declineTransferFn(ctx, actor, id)
+	}
+	return nil
+}
+func (m *mockRouterRepoService) CancelRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
+	if m.cancelTransferFn != nil {
+		return m.cancelTransferFn(ctx, actor, id)
+	}
+	return nil
 }
 
 func (m *mockRouterRepoService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error) {

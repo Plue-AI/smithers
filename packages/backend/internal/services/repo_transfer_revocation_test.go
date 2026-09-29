@@ -46,7 +46,7 @@ func TestTransferRepo_RevokesThePreviousPersonalOwner(t *testing.T) {
 	base := transferQuerierToUser(repository, false)
 	svc, publisher := transferRevocationService(t, base, base, repository)
 
-	_, err := svc.TransferRepo(context.Background(), &db.User{ID: 1, Username: "actor"}, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, &db.User{ID: 1, Username: "actor"}, repository)
 	require.NoError(t, err)
 
 	events := publisher.all()
@@ -76,7 +76,7 @@ func TestTransferRepo_RevokesOldOrganizationOwnersAndTeamMembers(t *testing.T) {
 	}
 	svc, publisher := transferRevocationService(t, q, base, repository)
 
-	_, err := svc.TransferRepo(context.Background(), &db.User{ID: 1, Username: "actor"}, "owner", "demo", "bob")
+	_, err := transferToBobSerialized(context.Background(), svc, &db.User{ID: 1, Username: "actor"}, repository)
 	require.NoError(t, err)
 
 	var users []int64

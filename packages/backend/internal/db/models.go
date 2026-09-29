@@ -2303,6 +2303,21 @@ type RepositoryStorageOperation struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
+type RepositoryTransferRequest struct {
+	ID           int64              `json:"id"`
+	RepositoryID int64              `json:"repository_id"`
+	SenderID     int64              `json:"sender_id"`
+	RecipientID  int64              `json:"recipient_id"`
+	SourceUserID pgtype.Int8        `json:"source_user_id"`
+	SourceOrgID  pgtype.Int8        `json:"source_org_id"`
+	SourceOwner  string             `json:"source_owner"`
+	SourceName   string             `json:"source_name"`
+	Status       string             `json:"status"`
+	CreatedAt    time.Time          `json:"created_at"`
+	ExpiresAt    time.Time          `json:"expires_at"`
+	ResolvedAt   pgtype.Timestamptz `json:"resolved_at"`
+}
+
 type RepositoryVariable struct {
 	ID           int64     `json:"id"`
 	RepositoryID int64     `json:"repository_id"`
@@ -2328,6 +2343,23 @@ type RevocationEvent struct {
 	ActorID        pgtype.Int8 `json:"actor_id"`
 	CreatedAt      time.Time   `json:"created_at"`
 	KeyFingerprint string      `json:"key_fingerprint"`
+}
+
+type SandboxEgressDailyUsage struct {
+	Scope string      `json:"scope"`
+	Day   pgtype.Date `json:"day"`
+	Bytes int64       `json:"bytes"`
+}
+
+type SandboxEgressUsage struct {
+	ID             string      `json:"id"`
+	SandboxID      string      `json:"sandbox_id"`
+	BillingUserID  int64       `json:"billing_user_id"`
+	Day            pgtype.Date `json:"day"`
+	RequestedBytes int64       `json:"requested_bytes"`
+	Bytes          int64       `json:"bytes"`
+	QuotaBytes     int64       `json:"quota_bytes"`
+	CreatedAt      time.Time   `json:"created_at"`
 }
 
 type SandboxUsageInterval struct {

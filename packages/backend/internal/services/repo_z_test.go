@@ -434,12 +434,12 @@ func TestRepo_Z_TransferUserBranches(t *testing.T) {
 
 	q = baseQ()
 	q.listCollaboratorsByRepoFn = func(context.Context, int64) ([]db.Collaborator, error) { return nil, stderrors.New("list collabs") }
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+	_, err = transferToUserCompensating(ctx, NewRepoService(q, &mockRepoHostClient{}, "s1"), repository, 22)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	q = baseQ()
 	q.listTeamReposByRepoFn = func(context.Context, int64) ([]db.TeamRepo, error) { return nil, stderrors.New("list teams") }
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+	_, err = transferToUserCompensating(ctx, NewRepoService(q, &mockRepoHostClient{}, "s1"), repository, 22)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	q = baseQ()
@@ -465,19 +465,26 @@ func TestRepo_Z_TransferUserBranches(t *testing.T) {
 		return db.Repository{}, pgx.ErrNoRows
 	}
 	billing := &stubBillingPolicy{authorizePrivateRepoFn: func(context.Context, string, int64) error {
-		return pkgerrors.Forbidden("blocked")
+		t.Fatal("recipient billing is checked when the transfer is accepted")
+		return nil
 	}}
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1", WithRepoBillingPolicy(billing)).TransferRepo(ctx, actor, "owner", "demo", "bob")
-	assert.Equal(t, http.StatusForbidden, apiStatus(t, err))
+	privateService := NewRepoService(q, &mockRepoHostClient{}, "s1", WithRepoBillingPolicy(billing))
+	privateService.ownershipTx = &fakeOwnershipTxManager{tx: &fakeOwnershipTx{
+		q: q, getByIDFn: func(context.Context, int64) (db.Repository, error) { return privateRepo, nil },
+	}}
+	pending, err := privateService.TransferRepo(ctx, actor, "owner", "demo", "bob")
+	require.NoError(t, err)
+	require.NotNil(t, pending.PendingTransfer)
+	assert.Equal(t, actor.ID, pending.UserID.Int64)
 
 	q = baseQ()
 	q.deleteCollaboratorsByRepoFn = func(context.Context, int64) error { return stderrors.New("delete collabs") }
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+	_, err = transferToUserCompensating(ctx, NewRepoService(q, &mockRepoHostClient{}, "s1"), repository, 22)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	q = baseQ()
 	q.deleteTeamReposByRepoFn = func(context.Context, int64) error { return stderrors.New("delete teams") }
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+	_, err = transferToUserCompensating(ctx, NewRepoService(q, &mockRepoHostClient{}, "s1"), repository, 22)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	for _, tc := range []struct {
@@ -499,7 +506,7 @@ func TestRepo_Z_TransferUserBranches(t *testing.T) {
 			q.addTeamRepoFn = func(context.Context, db.AddTeamRepoParams) (db.TeamRepo, error) {
 				return db.TeamRepo{}, stderrors.New("restore team failed")
 			}
-			_, err := NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+			_, err := transferToUserCompensating(ctx, NewRepoService(q, &mockRepoHostClient{}, "s1"), repository, 22)
 			assert.Equal(t, tc.code, apiStatus(t, err))
 		})
 	}
@@ -516,7 +523,7 @@ func TestRepo_Z_TransferUserBranches(t *testing.T) {
 	rh := &mockRepoHostClient{moveRepoFn: func(context.Context, string, string, string, string) error {
 		return stderrors.New("move failed")
 	}}
-	_, err = NewRepoService(q, rh, "s1").TransferRepo(ctx, actor, "owner", "demo", "bob")
+	_, err = transferToUserCompensating(ctx, NewRepoService(q, rh, "s1"), repository, 22)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 	assert.Equal(t, 2, revertCalls)
 }
