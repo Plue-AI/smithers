@@ -73,6 +73,13 @@ if (harness !== undefined && !Cli.validBox(harness)) {
   console.error("SMITHERS_HARNESS needs owner/repo/workspace-id")
   process.exit(1)
 }
+// Worker tools run repository code as the workspace's user, who can read the harness's Claude login.
+if (box !== undefined && harness !== undefined && Cli.sameWorkspace(box, harness)) {
+  console.error(
+    "The worker workspace (--box or SMITHERS_BOX) is the harness workspace (--harness or SMITHERS_HARNESS). Worker tools run repository code, which could read the harness's Claude login; use a separate workspace for worker tools."
+  )
+  process.exit(1)
+}
 const available = await Models.detect(
   harness === undefined
     ? process.env

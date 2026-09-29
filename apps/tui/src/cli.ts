@@ -19,6 +19,15 @@ export const usage = `Usage: smithers-tui [directory] [options]
 /** Whether `reference` names a Smithers Cloud workspace: `OWNER/REPO/WORKSPACE_ID`. */
 export const validBox = (reference: string): boolean => /^[\w.-]+\/[\w.-]+\/[\w-]+$/.test(reference)
 
+/**
+ * Whether two valid references reach the same workspace. The id alone names it,
+ * and the backend reads it as a UUID, so case and hyphens do not distinguish two.
+ */
+export const sameWorkspace = (left: string, right: string): boolean => {
+  const id = (reference: string) => reference.split("/")[2]!.toLowerCase().replaceAll("-", "")
+  return id(left) === id(right)
+}
+
 export const parse = (args: ReadonlyArray<string>, cwd: string) => {
   try {
     const { values, positionals } = parseArgs({
