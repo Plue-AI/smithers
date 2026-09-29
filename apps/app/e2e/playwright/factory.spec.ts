@@ -346,7 +346,7 @@ test("history: the card is an issue list grouped Needs you, Working, Done with m
   // Landed over decided (two landed, one blocked; proposed is still open); one revert; the median of 6h and 4h is 5h.
   await expect(card.getByTestId("stack-metric-landed")).toHaveText("2/3 landed")
   await expect(card.getByTestId("stack-metric-reverts")).toHaveText("1 revert")
-  await expect(card.getByTestId("stack-metric-p50")).toHaveText("5h p50 issue→landed")
+  await expect(card.getByTestId("stack-metric-p50")).toHaveText("5h p50")
   await shot(page, card, "04-issues.png")
   await toggleTheme(page, "dark")
   await shot(page, card, "04-issues-dark.png")
