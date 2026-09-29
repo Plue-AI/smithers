@@ -408,7 +408,7 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../cards/RunsCards.tsx": 11, // + the inbox rows' run reference.
       "../cards/SearchResultsCard.tsx": 2,
-      "../cards/SecretsCard.tsx": 6,
+      "../cards/SecretsCard.tsx": 9,
       /* 9 = the Stack card's Backfill, fewer/more lanes, a row's Retry, a failure's Retry, Bootstrap, the Wiki row's pages (wiki.cloud) and Retry (wiki.create), and the Issues/Metrics switch (history.view; card only, not the homepage). */
       "../cards/StackCard.tsx": 9,
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */

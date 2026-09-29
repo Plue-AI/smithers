@@ -103,3 +103,87 @@ authenticatedTest("repository secret metadata survives reload and follows actual
   for (const description of outcome.teardown) testInfo.annotations.push({ type: TEARDOWN_ANNOTATION, description })
   if (outcome.verdict !== undefined) throw outcome.verdict
 })
+
+authenticatedTest("the Secrets card adds, rotates and deletes a secret through the masked form, never reading a value back", scenario("secrets.card-editor", {
+  capabilities: ["identity", "cloud"],
+  description: "In a uniquely owned private repository, add a bound secret from the card's masked form, rotate it with a blank binding, and delete it, reading the real backend's metadata after each step without the value reaching the page or any response.",
+  coverage: ["action:secrets.set", "action:secrets.delete", "action:secrets.list", "host:local", "host:production", "path:success", "door:button", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
+}), async ({ page, request }, testInfo) => {
+  const user = await realApi(page, request, "GET", "/api/user")
+  expect(user.status()).toBe(200)
+  const { username } = await user.json() as { username: string }
+  const name = fixtureProtocolId(`smithers-e2e-secret-editor-${randomUUID()}`)
+  const repo = `${username}/${name}`
+  const repoPath = `/api/repos/${encodeURIComponent(username)}/${name}`
+  const environmentPath = `${repoPath}/agent-environment`
+  const secretName = "EDITOR_TOKEN"
+  const secretPath = `${environmentPath}/secrets/${secretName}`
+  const values = [fixtureInputText(`editor-secret-${randomUUID()}`), fixtureInputText(`editor-rotated-${randomUUID()}`)]
+  const host = fixtureInputText("api.example.test")
+  let submitted = false, failure: unknown
+  const cleanup: unknown[] = []
+  const unrevealed = (text: string) => { for (const value of values) expect(text.includes(value)).toBe(false) }
+  try {
+    submitted = true
+    const created = await realApi(page, request, "POST", "/api/user/repos", { name, private: true, auto_init: false })
+    expect(created.status()).toBe(201)
+    const read = async () => {
+      const response = await realApi(page, request, "GET", environmentPath)
+      expect(response.status()).toBe(200)
+      const text = await response.text()
+      unrevealed(text)
+      return (JSON.parse(text) as { secrets: Array<{ name: string; hosts: string[]; match_headers: string[] }> }).secrets
+    }
+    const started = performance.now()
+    await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
+    await awaitBoot(page, "navigate", started)
+    await finishFirstVisit(page)
+    await command(page, `/secrets.list ${repo}`)
+    await closeComposer(page)
+    const card = page.locator('.smithers-card[data-kind="secrets"]')
+    await expect(card).toBeVisible()
+    const form = page.locator('.flow-form[data-flow-name="secrets.set"]').last()
+    const save = async (value: string, fields: Record<string, string>) => {
+      for (const [field, text] of Object.entries(fields)) await form.getByTestId(`flow-form-${field}`).fill(text)
+      const masked = form.getByTestId("flow-form-value")
+      await expect(masked).toHaveAttribute("type", "password")
+      await masked.fill(value)
+      const put = page.waitForResponse(response => response.request().method() === "PUT" && new URL(response.url()).pathname === secretPath)
+      await form.getByTestId("flow-form-submit").click()
+      const answer = await put
+      expect(answer.status()).toBe(201)
+      unrevealed(await answer.text())
+    }
+
+    await card.getByRole("button", { name: "Add secret" }).click()
+    await save(values[0]!, { name: secretName, hosts: host, headers: "authorization" })
+    await expect.poll(read).toEqual([expect.objectContaining({ name: secretName, hosts: [host], match_headers: ["authorization"] })])
+    const row = card.getByTestId(`secret-${secretName}`)
+    await expect(row).toContainText(host)
+
+    await row.getByRole("button", { name: `Rotate ${secretName}` }).click()
+    await save(values[1]!, {})
+    await expect.poll(read).toEqual([expect.objectContaining({ name: secretName, hosts: [host], match_headers: ["authorization"] })])
+    unrevealed(await page.locator("body").innerText())
+
+    const deleted = page.waitForResponse(response => response.request().method() === "DELETE" && new URL(response.url()).pathname === secretPath)
+    await row.getByRole("button", { name: `Delete ${secretName}` }).click()
+    expect((await deleted).status()).toBe(204)
+    await expect.poll(read).toEqual([])
+    await expect(row).toHaveCount(0)
+    unrevealed(await page.locator("body").innerText())
+    await testInfo.attach("secret-editor-readback", { contentType: "application/json", body: Buffer.from(JSON.stringify({ repo, afterDeletion: [] })) })
+  } catch (error) { failure = error }
+  finally {
+    if (submitted) {
+      try {
+        const deleted = await realApi(page, request, "DELETE", repoPath)
+        expect([204, 404]).toContain(deleted.status())
+        expect((await realApi(page, request, "GET", repoPath)).status()).toBe(404)
+      } catch (error) { cleanup.push(new TeardownProblem(`Removing owned secret repository ${repo} failed`, { cause: error })) }
+    }
+  }
+  const outcome = scenarioOutcome({ repository: repo, bodyError: failure, teardownFailures: cleanup })
+  for (const description of outcome.teardown) testInfo.annotations.push({ type: TEARDOWN_ANNOTATION, description })
+  if (outcome.verdict !== undefined) throw outcome.verdict
+})

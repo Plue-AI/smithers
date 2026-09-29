@@ -219,6 +219,7 @@ export const APP_TRANSITION_TYPES = {
   "librarian.launches.changed": true,
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
+  "secret.requests.changed": true,
   "theme.changed": true,
   "palette.changed": true,
   "composer.control.changed": true,
@@ -774,6 +775,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.approvalsInboxRequests
     delete draft.runOpenRequests
     delete draft.codingProviderRequests
+    delete draft.secretRequests
     draft.phase = "idle"
     draft.composerOwner = "user"
     draft.turnTabId = null
@@ -2027,6 +2029,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
         case "coding.provider.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.codingProviderRequests = transition.requests })
+          break
+        }
+        case "secret.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.secretRequests = transition.requests })
           break
         }
         case "stack.wiki.requests.changed": {

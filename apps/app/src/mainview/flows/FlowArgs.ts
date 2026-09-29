@@ -61,6 +61,9 @@ export interface FlowInput {
   readonly "commits.list": { readonly branch: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
+  /** Carried as JSON: the form opens with these and asks for the value. */
+  readonly "secrets.set": { readonly name?: string; readonly repo: string }
+  readonly "secrets.delete": { readonly name: string; readonly repo: string }
   readonly "history.parallel": { readonly value: number; readonly repo: string }
   readonly "history.retry": { readonly id: string; readonly repo: string }
   readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
@@ -246,6 +249,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
+  "secrets.set": payload => JSON.stringify(payload),
+  "secrets.delete": payload => line(token(payload, "name"), token(payload, "repo")),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.fix": payload => line(token(payload, "number"), token(payload, "repo")),
   // The prompt is free text; the grammar reads the repository off the end.

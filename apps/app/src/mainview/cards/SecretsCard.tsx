@@ -5,7 +5,8 @@
  * when it is delivered as a placeholder without a binding), the header the
  * proxy swaps it into, and the updated time. The header line states the scope
  * plainly because every session in the repository may use these; personal
- * secrets are a later lane's second scope.
+ * secrets are a later lane's second scope. Add and Rotate open the
+ * `secrets.set` form, whose value field is write-only; Delete asks first.
  */
 import { Button } from "@smthrs/ui"
 import { flowArgs } from "../flows/FlowArgs"
@@ -32,6 +33,7 @@ export const SecretsCardBody = ({
     <p className="secrets-scope" data-testid="secrets-scope">
       Repository secrets: every session in this repository may use them.
     </p>
+    <Button size="sm" {...flowAction(onRunCommand, "secrets.set", flowArgs("secrets.set", { repo: card.payload.repo }))}>Add secret</Button>
     {card.payload.secrets.length === 0 ?
       <p className="world-card-empty">No secrets yet.</p> :
       (
@@ -42,6 +44,7 @@ export const SecretsCardBody = ({
               <th scope="col">Bound to</th>
               <th scope="col">Header</th>
               <th scope="col">Updated</th>
+              <th scope="col" aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -56,6 +59,12 @@ export const SecretsCardBody = ({
                 <td>{secret.hosts.length === 0 ? "setup only" : secret.hosts.join(", ")}</td>
                 <td>{secret.matchHeaders.join(", ")}</td>
                 <td>{updatedLabel(secret.updatedAt)}</td>
+                <td>
+                  <Button size="sm" aria-label={`Rotate ${secret.name}`}
+                    {...flowAction(onRunCommand, "secrets.set", flowArgs("secrets.set", { name: secret.name, repo: card.payload.repo }))}>Rotate</Button>
+                  <Button size="sm" aria-label={`Delete ${secret.name}`}
+                    {...flowAction(onRunCommand, "secrets.delete", flowArgs("secrets.delete", { name: secret.name, repo: card.payload.repo }))}>Delete</Button>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -329,6 +329,15 @@ const triggerRun = (args: string | undefined, known?: KnownRepositories): Parsed
   return ok({ ...(slug === "" ? {} : { slug }), ...(repo === undefined ? {} : { repo }) })
 }
 
+/** `<NAME> [owner/repo]`: a secret name holds no whitespace, so the repository trails it. */
+const secretName = (name: string, args: string | undefined, known: KnownRepositories | undefined, needed: boolean): Parsed => {
+  const { rest, repo } = identifierRepo(args, known)
+  const secret = rest.trim()
+  if (/\s/.test(secret)) return no(`${name} takes a secret name and optionally an owner/repo`)
+  if (needed && secret === "") return no("Choose a secret")
+  return ok({ ...(secret === "" ? {} : { name: secret }), ...(repo === undefined ? {} : { repo }) })
+}
+
 /** The three sandbox kinds `box.open --kind` accepts (ADR 0002). */
 const KINDS: ReadonlyArray<string> = ["container", "vm", "desktop"]
 
@@ -935,6 +944,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(repo === undefined ? { name, scope } : { name, scope, repo })
   },
   "secrets.list": (args) => repoOnly("secrets.list", args),
+  /* The value is never on a line: it arrives only through the form's write-only field. */
+  "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
+  "secrets.delete": (args, known) => secretName("secrets.delete", args, known, true),
   "model.show": (args) => modelName("model.show", args),
   "model.edit": (args) => modelName("model.edit", args),
   "model.remove": (args) => modelName("model.remove", args),

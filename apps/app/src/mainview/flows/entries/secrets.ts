@@ -68,6 +68,46 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
   }),
   flow({
+    name: "secrets.set",
+    summary: "Add a repository secret or replace its value",
+    runtime: ["cloud"],
+    args: "<NAME> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({
+      name: Schema.String, value: Schema.optional(Schema.String),
+      hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+    }),
+    form: {
+      submitLabel: "Save",
+      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "repo"].flatMap(key =>
+        typeof payload[key] === "string" && payload[key] !== "" ? [[key, payload[key]]] : []))),
+      fields: {
+        name: { label: "Name", placeholder: "API_TOKEN", kind: "text" },
+        value: { label: "Value", kind: "write-only", required: true },
+        hosts: { label: "Hosts", placeholder: "api.example.com", kind: "text" },
+        headers: { label: "Headers", placeholder: "authorization", kind: "text" },
+        /* Shown so a slash-opened form names where the save goes; the card's doors fill it. */
+        repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
+      }
+    },
+    confirm: payload => `save secret ${String(payload["name"])}`,
+    handler: ({ name, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, hosts, headers, repo }, gesture)
+  }),
+  flow({
+    name: "secrets.delete",
+    summary: "Delete a repository secret",
+    runtime: ["cloud"],
+    args: "<NAME> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({ name: Schema.String, repo: Schema.optional(Schema.String) }),
+    confirm: payload => `delete secret ${String(payload["name"])} from ${scopeRepo(actions, payload) ?? "the selected repository"}`,
+    confirmArgs: payload => {
+      const repo = scopeRepo(actions, payload)
+      return repo === undefined ? undefined : `${String(payload["name"])} ${repo}`
+    },
+    handler: ({ name, repo }) => actions.deleteSecret(name, repo)
+  }),
+  flow({
     name: "secrets.list",
     summary: "Show the secrets a repository's sessions may use: names and bindings, never values",
     runtime: ["cloud"],

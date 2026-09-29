@@ -766,6 +766,11 @@ export const SessionSchema = z.object({
     device: z.object({ id: z.string(), userCode: z.string(), verificationUri: z.string(), interval: z.number(), expiresAt: z.string() }).optional(),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
+  /* Repository secret writes (SecretsSeam.setSecret/deleteSecret): never a value, only what a reload needs to settle them. */
+  secretRequests: z.array(z.object({
+    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete"]),
+    state: z.enum(["requested", "completed", "failed"])
+  })).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
@@ -1231,6 +1236,7 @@ export type AppTransition =
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */
   | { type: "palette.changed"; actor: "user"; palette: Palette }

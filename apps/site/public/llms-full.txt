@@ -2268,7 +2268,9 @@ smithers secret list --repo acme/app
 
 **GUI**
 
-**Planned.** Adding and removing secrets in the app. Ask a repository admin to use the API meanwhile.
+**Available now**, admin only. On the Secrets card, **Add secret** opens a form: the name, the value, and optionally the hosts and header it is bound to. **Rotate** replaces a value and keeps its binding; **Delete** removes it. The value field is masked, and the app never shows or keeps a saved value.
+
+`/secrets.set API_TOKEN` and `/secrets.delete API_TOKEN` do the same from chat.
 
 **TUI**
 
@@ -2285,7 +2287,7 @@ smithers secret delete NAME --repo acme/app
 
 **API**
 
-**Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it.
+**Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it. The app's secrets are `PUT` and `DELETE /api/repos/{owner}/{repo}/agent-environment/secrets/{name}`; `PUT` takes `value`, `hosts` and `match_headers` and answers metadata only.
 
 ## Keep a secret to main
 

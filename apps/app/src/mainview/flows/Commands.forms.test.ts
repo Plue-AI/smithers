@@ -440,6 +440,10 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
       }
       const kept = decoded.value as Record<string, unknown>
       for (const field of fields) {
+        if (field.kind === "write-only") {
+          if (field.name in kept) failures.push(`${name}.${field.name}: write-only value entered the payload`)
+          continue
+        }
         /* A field the schema requires and a `required: false` hint lets stand blank submits as the blank it shows. */
         const expected = field.name in given
           ? given[field.name]

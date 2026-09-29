@@ -4,8 +4,11 @@ import { preparedView, type ViewAction } from "../PreparedView"
  * agent-environment document (GET /api/repos/{owner}/{repo}/agent-environment,
  * EnvironmentSeam.ts). plue serves secret METADATA only: name, the egress
  * binding (hosts, match_headers) and the updated time. No value exists on the
- * wire, so none can reach a card, the journal or the model. Adding and
- * removing secrets land in later Secrets lanes.
+ * wire, so none can reach a card, the journal or the model. A value the
+ * person types reaches the seam only through the form's write-only gesture,
+ * lives in one background closure until its PUT is sent, and is never
+ * persisted, re-read or replayed: a reload settles an unfinished save as
+ * failed and the person enters the value again.
  *
  * The same seam owns the account's coding-provider pool
  * (/api/user/provider-connections): Claude token enrollment, Codex device
@@ -14,7 +17,7 @@ import { preparedView, type ViewAction } from "../PreparedView"
  */
 import type { Card } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
-import { readEnvironment } from "./EnvironmentSeam"
+import { environmentUrl, readEnvironment, type EnvironmentConfig } from "./EnvironmentSeam"
 import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner, readErrorMessage, readResult } from "./SeamContext"
 import type { CommandGesture } from "../../flows/CommandGesture"
@@ -53,6 +56,7 @@ const featureGated = async (response: Response): Promise<boolean> => {
   return typeof body?.message === "string" && body.message.startsWith("feature not available")
 }
 type AccountsCard = Extract<Card, { kind: "provider-accounts" }>
+type SecretsCard = Extract<Card, { kind: "secrets" }>
 type Account = AccountsCard["payload"]["accounts"][number]
 type PendingCode = NonNullable<AccountsCard["payload"]["pending"]>
 /** One provider's live accounts in pool order. */
@@ -86,7 +90,24 @@ export interface SecretsSeam {
   readonly revokeCodingProvider: (id: string) => Promise<{ readonly value: string } | string>
   readonly moveCodingProvider: (id: string, direction: "up" | "down") => Promise<{ readonly value: string } | string>
   readonly resumeCodingProviders: () => void
+  /** Add or rotate one repository secret; the value comes only from the gesture's write-only field. */
+  readonly setSecret: (input: SecretInput, gesture?: CommandGesture) => Promise<{ readonly value: string } | string>
+  readonly deleteSecret: (name: string, repo?: string) => Promise<{ readonly value: string } | string>
+  /** Settle secret writes a reload interrupted: deletes replay, saves fail (their value is gone). */
+  readonly resumeSecretRequests: () => void
 }
+
+export interface SecretInput {
+  readonly name: string
+  /** Comma- or space-separated; both blank keeps an existing secret's binding. */
+  readonly hosts?: string
+  readonly headers?: string
+  readonly repo?: string
+}
+
+/* plue's agentEnvironmentNamePattern and header shape (packages/backend agent_environment.go). */
+const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,254}$/
+const listOf = (value: string | undefined): string[] => (value ?? "").split(/[\s,]+/).filter(item => item !== "")
 
 export interface SecretsSeamOptions {
   /** The wait between device-sign-in polls; tests hold or skip it. */
@@ -100,10 +121,13 @@ type Flight = { readonly current: () => boolean; readonly admitted: Promise<bool
  * builds one of each over the same store), so a duplicate from either door
  * joins the running request instead of starting a second one.
  */
-const shared = new WeakMap<object, { readonly inFlight: Map<string, Flight>; moves: Promise<unknown>; reads: number; applied: number }>()
+const shared = new WeakMap<object, {
+  readonly inFlight: Map<string, Flight>; moves: Promise<unknown>; reads: number; applied: number
+  readonly secretReads: Map<string, number>; readonly secretApplied: Map<string, number>
+}>()
 const sharedFor = (store: object) => {
   let state = shared.get(store)
-  if (!state) shared.set(store, state = { inFlight: new Map(), moves: Promise.resolve(), reads: 0, applied: 0 })
+  if (!state) shared.set(store, state = { inFlight: new Map(), moves: Promise.resolve(), reads: 0, applied: 0, secretReads: new Map(), secretApplied: new Map() })
   return state
 }
 
@@ -524,6 +548,170 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     }, false, current).then(outcome => report(outcome, current))
     return receipt
   }
+  /** One repository's secrets card from the platform's metadata answer. */
+  const secretsCard = (repo: string, config: EnvironmentConfig, ordinal: number): SecretsCard => ({
+    id: `secrets-${repo}`,
+    kind: "secrets",
+    title: `Secrets · ${repo}`,
+    status: "active",
+    createdAt: Date.now(),
+    ordinal,
+    payload: {
+      repo,
+      scope: "repository",
+      secrets: config.secrets.map((secret) => ({
+        name: secret.name,
+        hosts: [...secret.hosts],
+        matchHeaders: [...secret.matchHeaders],
+        updatedAt: secret.updatedAt,
+        ...(secret.reconnect ? { reconnect: true } : {})
+      }))
+    }
+  })
+  /* Card reads (lists and refreshes) are numbered per repository; an answer older than one already applied is dropped. */
+  const secretRead = (repo: string): number => {
+    const seq = (state.secretReads.get(repo) ?? 0) + 1
+    state.secretReads.set(repo, seq)
+    return seq
+  }
+  const secretFresh = (repo: string, seq: number): boolean => {
+    if (seq < (state.secretApplied.get(repo) ?? 0)) return false
+    state.secretApplied.set(repo, seq)
+    return true
+  }
+  /** Re-read an open secrets card in place after a write; a failed read keeps the rows it had. */
+  const refreshSecrets = async (repo: string, current: () => boolean): Promise<void> => {
+    if (ctx.store.collections.cards?.get(`secrets-${repo}`)?.kind !== "secrets") return
+    const seq = secretRead(repo)
+    const config = await readEnvironment(ctx, repo).catch(() => "unread")
+    if (!current() || typeof config === "string" || !secretFresh(repo, seq)) return
+    const previous = ctx.store.collections.cards?.get(`secrets-${repo}`)
+    if (previous?.kind !== "secrets") return
+    ctx.dispatch({ type: "card.upsert", actor: "system", card: { ...secretsCard(repo, config, previous.ordinal), createdAt: previous.createdAt } })
+  }
+
+  type SecretRequest = NonNullable<ReturnType<typeof ctx.store.session>["secretRequests"]>[number]
+  const secretRequests = (): SecretRequest[] => ctx.store.session().secretRequests ?? []
+  const saveSecretRequest = async (row: SecretRequest, current: () => boolean): Promise<boolean> => {
+    if (!current()) return false
+    await ctx.dispatch({ type: "secret.requests.changed", actor: "system", requests: [...secretRequests().filter(item => item.id !== row.id), row].slice(-64) }).isPersisted.promise
+    return current()
+  }
+  const secretKey = (row: Pick<SecretRequest, "owner" | "repo" | "name">) => `secret:${row.owner}:${row.repo}:${row.name}`
+  const secretPath = (repo: string, name: string) => `${environmentUrl(ctx, repo)}/secrets/${encodeURIComponent(name)}`
+  /** Admit one secret write: durable before the acknowledgment, one per name at a time. */
+  const admitSecret = async (row: SecretRequest, current: () => boolean): Promise<{ readonly flight: Flight } | string> => {
+    const key = secretKey(row)
+    if (flightAt(key) || secretRequests().some(item => item.state === "requested" && secretKey(item) === key)) return `${row.name} is already being changed.`
+    const flight: Flight = { current, admitted: saveSecretRequest(row, current).catch(() => false) }
+    inFlight.set(key, flight)
+    if (await flight.admitted && current()) return { flight }
+    release(key, flight)
+    return "The request could not be saved."
+  }
+  /** Send one DELETE; a secret already gone is removed. */
+  const sendDelete = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
+    const response = await ctx.http(secretPath(row.repo, row.name), { method: "DELETE" })
+    if (!current()) return TOAST_SUPERSEDED
+    if (response.status !== 204 && response.status !== 404) {
+      const message = await readErrorMessage(response, `${row.name} couldn't be deleted (HTTP ${response.status}).`)
+      return await saveSecretRequest({ ...row, state: "failed" }, current) ? message : TOAST_SUPERSEDED
+    }
+    if (!await saveSecretRequest({ ...row, state: "completed" }, current)) return TOAST_SUPERSEDED
+    void refreshSecrets(row.repo, current)
+    return true
+  }
+  const runSecret = (row: SecretRequest, flight: Flight, work: () => Promise<true | string | typeof TOAST_SUPERSEDED>): void => {
+    const verb = row.action === "set" ? ["Saving", "saved"] : ["Deleting", "deleted"]
+    void withToast(secretKey(row), `${verb[0]} ${row.name}…`, `${row.name} ${verb[1]}`, async () => {
+      try { return await work() }
+      catch {
+        if (!flight.current()) return TOAST_SUPERSEDED
+        await saveSecretRequest({ ...row, state: "failed" }, flight.current).catch(() => false)
+        return `${row.name} couldn't be ${verb[1]}.`
+      } finally { release(secretKey(row), flight) }
+    }, false, flight.current).then(outcome => report(outcome, flight.current))
+  }
+  const setSecret: SecretsSeam["setSecret"] = async (input, gesture) => {
+    let value = gesture?.takeWriteOnly?.("value")
+    gesture?.release()
+    try {
+      const login = owner()
+      const current = captureCloudOwner(ctx, false)
+      if (!login) return "Sign in to save a secret."
+      const target = resolveTargetRepo(ctx.store, input.repo)
+      if ("error" in target) return target.error
+      const name = input.name.trim()
+      if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
+      if (!value) return "Enter the value."
+      const hosts = listOf(input.hosts)
+      const headers = listOf(input.headers)
+      if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
+      const row: SecretRequest = { id: crypto.randomUUID(), owner: login, repo: target.repo, name, action: "set", state: "requested" }
+      const admitted = await admitSecret(row, current)
+      if (typeof admitted === "string") return admitted
+      let sending: string | undefined = value
+      value = undefined
+      runSecret(row, admitted.flight, async () => {
+        try {
+          if (!current()) return TOAST_SUPERSEDED
+          // Rotation keeps the stored binding: an omitted binding would unbind it.
+          let binding = { hosts, match_headers: headers }
+          if (hosts.length === 0) {
+            const config = await readEnvironment(ctx, row.repo)
+            if (!current()) return TOAST_SUPERSEDED
+            if (typeof config === "string") return await saveSecretRequest({ ...row, state: "failed" }, current) ? config : TOAST_SUPERSEDED
+            const existing = config.secrets.find(secret => secret.name === name)
+            binding = { hosts: [...existing?.hosts ?? []], match_headers: [...existing?.matchHeaders ?? []] }
+          }
+          const body = JSON.stringify({ value: sending, ...binding })
+          sending = undefined
+          const response = await ctx.http(secretPath(row.repo, name), { method: "PUT", headers: { "content-type": "application/json" }, body })
+          if (!current()) return TOAST_SUPERSEDED
+          if (!response.ok) {
+            const message = await readErrorMessage(response, `${name} couldn't be saved (HTTP ${response.status}).`)
+            return await saveSecretRequest({ ...row, state: "failed" }, current) ? message : TOAST_SUPERSEDED
+          }
+          // The answer is metadata only; nothing of it is kept but the receipt.
+          await response.body?.cancel()
+          if (!await saveSecretRequest({ ...row, state: "completed" }, current)) return TOAST_SUPERSEDED
+          void refreshSecrets(row.repo, current)
+          return true
+        } finally { sending = undefined }
+      })
+      return { value: "Requested" }
+    } finally { value = undefined }
+  }
+  const deleteSecret: SecretsSeam["deleteSecret"] = async (input, repo) => {
+    const login = owner()
+    const current = captureCloudOwner(ctx, false)
+    if (!login) return "Sign in to delete a secret."
+    const target = resolveTargetRepo(ctx.store, repo)
+    if ("error" in target) return target.error
+    const name = input.trim()
+    if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
+    const row: SecretRequest = { id: crypto.randomUUID(), owner: login, repo: target.repo, name, action: "delete", state: "requested" }
+    const admitted = await admitSecret(row, current)
+    if (typeof admitted === "string") return admitted
+    runSecret(row, admitted.flight, () => current() ? sendDelete(row, current) : Promise.resolve(TOAST_SUPERSEDED))
+    return { value: "Requested" }
+  }
+  const resumeSecretRequests: SecretsSeam["resumeSecretRequests"] = () => {
+    const login = owner()
+    if (!login) return
+    for (const row of secretRequests().filter(item => item.owner === login && item.state === "requested" && !flightAt(secretKey(item)))) {
+      const current = captureCloudOwner(ctx, false)
+      const flight: Flight = { current, admitted: Promise.resolve(true) }
+      inFlight.set(secretKey(row), flight)
+      runSecret(row, flight, async () => {
+        if (!current()) return TOAST_SUPERSEDED
+        if (row.action === "delete") return sendDelete(row, current)
+        // The value was never persisted, so an interrupted save is not replayed.
+        return await saveSecretRequest({ ...row, state: "failed" }, current) ? `Saving ${row.name} was interrupted. Enter it again.` : TOAST_SUPERSEDED
+      })
+    }
+  }
+
   /*
    * One secrets card per repository, re-surfaced at the end of the transcript
    * on every list. Leaving it at its old ordinal would answer the command with
@@ -533,27 +721,12 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
     return { id: `secrets-${target.repo}`, title: `Secrets · ${target.repo}`, read: async () => {
+    const seq = secretRead(target.repo)
     const config = await readEnvironment(ctx, target.repo)
     if (typeof config === "string") return config
-    const card: Card = {
-      id: `secrets-${target.repo}`,
-      kind: "secrets",
-      title: `Secrets · ${target.repo}`,
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: ctx.nextOrdinal(),
-      payload: {
-        repo: target.repo,
-        scope: "repository",
-        secrets: config.secrets.map((secret) => ({
-          name: secret.name,
-          hosts: [...secret.hosts],
-          matchHeaders: [...secret.matchHeaders],
-          updatedAt: secret.updatedAt,
-          ...(secret.reconnect ? { reconnect: true } : {})
-        }))
-      }
-    }
+    // A list is the person's newest read: it applies, and any earlier refresh still in flight is dropped.
+    state.secretApplied.set(target.repo, Math.max(seq, state.secretApplied.get(target.repo) ?? 0))
+    const card = secretsCard(target.repo, config, ctx.nextOrdinal())
     return { card, ...readResult(card.payload.secrets.length === 0
       ? `No secrets in ${card.payload.repo}.`
       : [
@@ -586,5 +759,8 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return { value: `${name}: ${stored?.main_only === true ? "main only" : "every run"}` }
   }
 
-  return { listSecrets, scopeSecret, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders }
+  return {
+    listSecrets, scopeSecret, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders,
+    setSecret, deleteSecret, resumeSecretRequests
+  }
 }

@@ -557,6 +557,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
   readonly listSecrets: SecretsSeam["listSecrets"]
   readonly scopeSecret: SecretsSeam["scopeSecret"]
+  readonly setSecret: SecretsSeam["setSecret"]
+  readonly deleteSecret: SecretsSeam["deleteSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
   readonly showStack: StackSeam["showStack"]
   readonly setStackView: StackSeam["setStackView"]
@@ -1882,6 +1884,8 @@ export const createAppController = (
     moveCodingProvider: secretsSeam.moveCodingProvider,
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
+    setSecret: secretsSeam.setSecret,
+    deleteSecret: secretsSeam.deleteSecret,
     showStack: stackSeam.showStack,
     setStackView: stackSeam.setStackView,
     bootstrapStack: stackSeam.bootstrapStack,
@@ -2080,6 +2084,7 @@ export const createAppController = (
   triggersSeam.resumePreparations()
   repoImportSeam.resume()
   secretsSeam.resumeCodingProviders()
+  secretsSeam.resumeSecretRequests()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
   repositorySetup.resumeRepositorySetups()
@@ -2090,7 +2095,7 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) secretsSeam.resumeCodingProviders() })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     queueMicrotask(() => { if (!ctx.disposed) { resumeModels(); resumeModelCalls(); account.resumeAccount() } })
@@ -2105,7 +2110,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) secretsSeam.resumeCodingProviders() })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   subscribeToAgent()
