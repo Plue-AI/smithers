@@ -151,6 +151,15 @@ func (s *Service) LoadParsedConfigFromCommit(ctx context.Context, repositoryID i
 		if err != nil {
 			return ParsedConfig{}, fmt.Errorf("read %s: %w", filePath, err)
 		}
+		if file.Path != filePath {
+			return ParsedConfig{}, fmt.Errorf("read %s: repository host returned mismatched file path %q", filePath, file.Path)
+		}
+		if file.TooLarge {
+			return ParsedConfig{}, fmt.Errorf("read %s: file exceeds repository host read limit", filePath)
+		}
+		if file.Encoding != "" && file.Encoding != "utf8" {
+			return ParsedConfig{}, fmt.Errorf("read %s: unsupported content encoding %q", filePath, file.Encoding)
+		}
 		files[filePath] = []byte(file.Content)
 	}
 

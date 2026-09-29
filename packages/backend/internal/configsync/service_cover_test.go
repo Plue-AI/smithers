@@ -249,7 +249,7 @@ func TestService_Cov_LoadParsedConfigFromCommitErrors(t *testing.T) {
 					return []repohost.ChangeFile{{Path: labelsFilePath}}, nil
 				},
 				getFileAtChangeFn: func(context.Context, string, string, string, string) (repohost.FileContent, error) {
-					return repohost.FileContent{Content: "labels:\n  - name: bug\n    color: bad\n"}, nil
+					return repohost.FileContent{Path: labelsFilePath, Content: "labels:\n  - name: bug\n    color: bad\n"}, nil
 				},
 			}, nil, nil, nil),
 			repoID:  1,
@@ -302,7 +302,7 @@ func TestService_Cov_SyncFromCommitSuccessAndFailureAudit(t *testing.T) {
 			return []repohost.ChangeFile{{Path: configFilePath}}, nil
 		},
 		getFileAtChangeFn: func(context.Context, string, string, string, string) (repohost.FileContent, error) {
-			return repohost.FileContent{Content: "repository:\n  description: loaded\n"}, nil
+			return repohost.FileContent{Path: configFilePath, Content: "repository:\n  description: loaded\n"}, nil
 		},
 	}
 
