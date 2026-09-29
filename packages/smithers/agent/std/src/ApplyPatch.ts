@@ -181,6 +181,23 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder("utf-8", { fatal: true })
 
 /**
+ * The one sentence a model sees for a failure this handler did not design.
+ * The raw failure goes to the log, never into the tool result.
+ */
+const unknownFailureSentence = "Something went wrong on our side. Not your fault."
+
+const unknownFailure = (error: unknown, path?: string): Effect.Effect<never, StdError.StdError> =>
+  Effect.logError("apply_patch failed unexpectedly", error).pipe(
+    Effect.andThen(Effect.fail(
+      new StdError.StdError(
+        path === undefined
+          ? { code: "command_failed", message: unknownFailureSentence }
+          : { code: "command_failed", message: unknownFailureSentence, path }
+      )
+    ))
+  )
+
+/**
  * Parses and applies a V4A patch through the permission-aware kernel
  * filesystem, preserving Codex error text.
  *
@@ -197,12 +214,10 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
   try {
     parsed = ApplyPatchText.parsePatch(input.input)
   } catch (error) {
-    return yield* Effect.fail(
-      new StdError.StdError({
-        code: "invalid_input",
-        message: error instanceof Error ? error.message : String(error)
-      })
-    )
+    if (error instanceof ApplyPatchText.ParseError) {
+      return yield* Effect.fail(new StdError.StdError({ code: "invalid_input", message: error.message }))
+    }
+    return yield* unknownFailure(error)
   }
 
   // Every update hunk is derived from the file as it is on disk, so two
@@ -293,13 +308,12 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
     try {
       contents = ApplyPatchText.deriveNewContents(original, hunk.path, hunk.chunks)
     } catch (error) {
-      return yield* Effect.fail(
-        new StdError.StdError({
-          code: "no_match",
-          message: error instanceof Error ? error.message : String(error),
-          path: hunk.path
-        })
-      )
+      if (error instanceof ApplyPatchText.ComputeReplacementsError) {
+        return yield* Effect.fail(
+          new StdError.StdError({ code: "no_match", message: error.message, path: hunk.path })
+        )
+      }
+      return yield* unknownFailure(error, hunk.path)
     }
     prepared.set(hunk, contents)
   }
