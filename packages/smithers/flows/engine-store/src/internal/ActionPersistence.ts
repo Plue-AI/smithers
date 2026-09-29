@@ -2387,7 +2387,8 @@ export const make = (deps: Dependencies) => {
             )
           const outcome = isolated === undefined
             ? yield* dispatch.pipe(Effect.exit)
-            : Exit.map(isolated, (settled) => settled.result)
+            : Exit.map(isolated, (settled) =>
+              settled.result)
           if (Exit.isFailure(outcome)) {
             /**
              * A DURABLE PARK IS NOT A SETTLEMENT (N-08). A body that reaches a

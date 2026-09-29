@@ -502,8 +502,7 @@ describe("FlowBinding.make", () => {
       flow: echo,
       handler: (input) => Effect.fail({ text: input.text, detail: `${input.text} ran too long` }),
       publicError: (error) => error.detail,
-      timedOut: (error) =>
-        error.text === "slow" ? { limitMillis: 250 } : error.text === "unsaid" ? {} : undefined
+      timedOut: (error) => error.text === "slow" ? { limitMillis: 250 } : error.text === "unsaid" ? {} : undefined
     })
 
     const slow = await Effect.runPromise(binding.run(call("echo", { text: "slow" })))

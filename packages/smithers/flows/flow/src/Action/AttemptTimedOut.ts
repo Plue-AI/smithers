@@ -35,4 +35,3 @@ export class AttemptTimedOut extends Schema.TaggedError<AttemptTimedOut>()(
     message: Schema.String
   }
 ) {}
-

@@ -134,7 +134,12 @@ describe("the mythical stack contract", () => {
 
   test("factory reconciliation remains visible apart from stack progress", () => {
     for (const factoryState of ["reconciled", "skipped", "failed", "empty"] as const) {
-      const receipt = { ...snapshot, state: "active" as const, factoryState, factoryError: "owner workspace unavailable" }
+      const receipt = {
+        ...snapshot,
+        state: "active" as const,
+        factoryState,
+        factoryError: "owner workspace unavailable"
+      }
       expect(MythicalStackSchema.parse(receipt)).toMatchObject({
         state: "active",
         factoryState,

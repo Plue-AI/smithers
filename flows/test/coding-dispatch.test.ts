@@ -215,7 +215,14 @@ test("the caller's window is bounded at the schema, not at the prompt", () => {
 
 test("a recorded message trigger is provenance the schema bounds and the prompt never reads", () => {
   const decode = Schema.decodeUnknownOption(DispatchInput)
-  const trigger = { kind: "message", author: "alice", conversationId: "session-1", messageId: "314", text: baseInput.prompt, origin: "chat" }
+  const trigger = {
+    kind: "message",
+    author: "alice",
+    conversationId: "session-1",
+    messageId: "314",
+    text: baseInput.prompt,
+    origin: "chat"
+  }
   const decoded = decode({ ...baseInput, trigger })
   assert.equal(decoded._tag, "Some")
   if (decoded._tag === "Some") assert.deepEqual(decoded.value.trigger, trigger)
