@@ -14,7 +14,7 @@ import * as Option from "effect/Option"
 import { TestClock } from "effect/testing"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { createServer } from "node:http"
+import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import * as CacheStore from "../src/CacheStore.ts"
 import * as CacheStoreMetrics from "../src/CacheStoreMetrics.ts"
@@ -336,6 +336,126 @@ describe("imported provenance retention", () => {
       expect(yield* local.get(entry.keyDigest, { recordedBy })).toEqual(Option.none())
       expect(remote.calls).toEqual(["get"])
     })))
+})
+
+describe("lookup selector detachment", () => {
+  // Keep the expiry regression on real SQLite and HTTP; a permissive tier
+  // double cannot reproduce the ledger refusal that triggers this bug.
+  it.effect.each(["stable", "recordedBy", "maxAgeMs", "inner"] as const)(
+    "keeps the expired exact ledger fence with %s selectors over SQLite and HTTP",
+    (selector) =>
+      withSqlStore(Effect.scoped(Effect.gen(function*() {
+        const local = yield* CacheStore.CacheStore
+        const expired = { ...entry, result: "exact old result", createdAtMs: 0 }
+        const fresh = { ...entry, result: "fresh remote result", createdAtMs: 5000, recordedRunId: "remote-run" }
+        yield* local.put(expired)
+        yield* local.evict(entry.keyDigest)
+        yield* TestClock.adjust("5 seconds")
+
+        const requests: Array<string> = []
+        const server = yield* Effect.acquireRelease(
+          Effect.callback<Server>((resume) => {
+            const server = createServer((request, response) => {
+              requests.push(`${request.method} ${request.url}`)
+              response.writeHead(200, { "content-type": "application/json" })
+              response.end(JSON.stringify(fresh))
+            })
+            server.listen(0, "127.0.0.1", () => resume(Effect.succeed(server)))
+          }),
+          (server) =>
+            Effect.callback<void>((resume) => {
+              server.close(() => resume(Effect.void))
+            })
+        )
+        const remote = yield* RemoteCacheStore.make({
+          endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        }).pipe(Effect.provide(FetchHttpClient.layer))
+        // Prove the shared head is fresh and reachable through the real client.
+        expect(Option.getOrThrow(yield* remote.get(entry.keyDigest))).toEqual(fresh)
+        expect(requests).toEqual([`GET /ac/${entry.keyDigest}`])
+        requests.length = 0
+
+        let reads = 0
+        let eventReads = 0
+        const recordedBy = { runId: entry.recordedRunId, eventSeq: entry.recordedEventSeq }
+        const options = { recordedBy, maxAgeMs: 1000 }
+        if (selector === "recordedBy") {
+          Object.defineProperty(options, "recordedBy", {
+            enumerable: true,
+            get: () => ++reads === 1 ? recordedBy : undefined
+          })
+        } else if (selector === "maxAgeMs") {
+          Object.defineProperty(options, "maxAgeMs", {
+            enumerable: true,
+            get: () => ++reads === 1 ? 1000 : undefined
+          })
+        } else if (selector === "inner") {
+          Object.defineProperties(recordedBy, {
+            runId: { enumerable: true, get: () => ++reads === 1 ? entry.recordedRunId : "remote-run" },
+            eventSeq: { enumerable: true, get: () => ++eventReads === 1 ? entry.recordedEventSeq : 8 }
+          })
+        }
+
+        const combined = CombinedCacheStore.make({ local, remote })
+        expect(yield* combined.get(entry.keyDigest, options)).toEqual(Option.none())
+        expect(requests).toEqual([])
+        expect(reads).toBe(selector === "stable" ? 0 : 1)
+        expect(eventReads).toBe(selector === "inner" ? 1 : 0)
+        expect(Option.getOrThrow(
+          yield* local.get(entry.keyDigest, {
+            recordedBy: { runId: entry.recordedRunId, eventSeq: entry.recordedEventSeq }
+          })
+        )).toEqual(expired)
+        expect(yield* local.get(entry.keyDigest)).toEqual(Option.none())
+      })))
+  )
+
+  // Tier doubles pin the asynchronous boundary and a losing write-back, so
+  // both expiry guards and the remote lookup must use the original selectors.
+  it.effect.each(["local", "remote"] as const)(
+    "ignores caller mutation while the %s tier is suspended",
+    (pausedTier) =>
+      Effect.gen(function*() {
+        const local = tier({ putOutcome: { _tag: "Conflict" } })
+        const remote = tier()
+        remote.rows.set(entry.keyDigest, entry)
+        const entered = yield* Deferred.make<void>()
+        const resume = yield* Deferred.make<void>()
+        const paused = pausedTier === "local" ? local.store : remote.store
+        const gated: CacheStore.Service = {
+          ...paused,
+          get: (keyDigest, options) =>
+            Effect.gen(function*() {
+              yield* Deferred.succeed(entered, undefined)
+              yield* Deferred.await(resume)
+              return yield* paused.get(keyDigest, options)
+            })
+        }
+        const combined = CombinedCacheStore.make({
+          local: pausedTier === "local" ? gated : local.store,
+          remote: pausedTier === "remote" ? gated : remote.store
+        })
+        const recordedBy = { runId: "original-run", eventSeq: 3 }
+        const expected = { recordedBy: { ...recordedBy }, maxAgeMs: 1000 }
+        const options = { recordedBy, maxAgeMs: 1000 }
+        const fiber = yield* combined.get(entry.keyDigest, options).pipe(Effect.forkChild)
+        yield* Deferred.await(entered)
+        recordedBy.runId = "mutated-run"
+        recordedBy.eventSeq = 8
+        options.recordedBy = { runId: "replacement-run", eventSeq: 9 }
+        options.maxAgeMs = 0
+        yield* Deferred.succeed(resume, undefined)
+
+        expect(Option.getOrThrow(yield* Fiber.join(fiber))).toEqual(entry)
+        expect(remote.getOptions).toEqual([expected])
+        expect(local.getOptions).toEqual([
+          expected,
+          { recordedBy: expected.recordedBy },
+          expected,
+          { recordedBy: expected.recordedBy }
+        ])
+      })
+  )
 })
 
 describe("age-bounded SQL composition", () => {
