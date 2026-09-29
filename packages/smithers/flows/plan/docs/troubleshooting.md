@@ -58,6 +58,15 @@ member.
 not one: the marker is a public string, and every combinator reads `ast` as
 trusted topology, so a lookalike is refused exactly like any other non-node.
 
+### invalid_join
+
+**What happened.** `Node.race`, `Node.any`, or `Node.quorum` received a non-node
+member, no members, or a quorum count outside 1 to its member count. `node` names
+the member, or the combinator for a count.
+
+**What to change.** Pass at least one node, and a whole-number quorum its members
+can reach.
+
 ### invalid_continuation
 
 **What happened.** A branch arm, a catch arm, or a direct `andThen`

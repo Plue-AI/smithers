@@ -837,6 +837,7 @@ describe("a flow's behavior is its body", () => {
       | "unsupported_call"
       | "missing_operation"
       | "node_record_too_large"
+      | "join_mismatch"
     >()
   })
 

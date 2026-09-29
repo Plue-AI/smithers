@@ -171,6 +171,58 @@ describe("Node", () => {
     })
   })
 
+  it("builds race, any, and quorum joins with their mode and success count", () => {
+    const members = { left: Node.succeed(1), right: Node.fail("two") }
+    const raced = Node.race(members)
+    const first = Node.any(members)
+    const agreed = Node.quorum(2, { ...members, third: Node.succeed(true) })
+    expect(raced.ast).toEqual({
+      _tag: "Race",
+      mode: "race",
+      count: 1,
+      nodes: { left: { _tag: "Succeed", value: 1 }, right: { _tag: "Fail", error: "two" } }
+    })
+    expect(tagged(first.ast, "Race")).toMatchObject({ mode: "any", count: 1 })
+    expect(tagged(agreed.ast, "Race")).toMatchObject({ mode: "quorum", count: 2 })
+    expectTypeOf<Node.Success<typeof raced>>().toEqualTypeOf<number>()
+    expectTypeOf<Node.Error<typeof first>>().toEqualTypeOf<string>()
+    expectTypeOf<Node.Success<typeof agreed>>().toEqualTypeOf<
+      { readonly left?: number; readonly right?: never; readonly third?: boolean }
+    >()
+    expect(Node.isNode(raced) && Node.isNode(first) && Node.isNode(agreed)).toBe(true)
+  })
+
+  it.each(
+    [
+      ["an empty race", () => Node.race({}), "race", "Node.race needs at least one member"],
+      ["an empty any", () => Node.any({}), "any", "Node.any needs at least one member"],
+      ["a quorum of zero", () => Node.quorum(0, { a: Node.succeed(1) }), "quorum", /got 0$/],
+      [
+        "a quorum wider than its members",
+        () => Node.quorum(3, { a: Node.succeed(1), b: Node.succeed(2) }),
+        "quorum",
+        /between 1 and its 2 members, got 3$/
+      ],
+      ["a fractional quorum", () => Node.quorum(1.5, { a: Node.succeed(1), b: Node.succeed(2) }), "quorum", /got 1.5$/],
+      ["an empty quorum", () => Node.quorum(1, {}), "quorum", /its 0 members/],
+      [
+        "a non-node member",
+        () => Node.any({ a: Node.succeed(1), b: 2 as unknown as Node.Any }),
+        "b",
+        "Node.any expected a Node at member \"b\""
+      ]
+    ] as const
+  )("refuses %s as invalid_join", (_, build, node, message) => {
+    let refusal: unknown
+    try {
+      build()
+    } catch (error) {
+      refusal = error
+    }
+    expect(refusal).toBeInstanceOf(GraphBuildError)
+    expect(refusal).toMatchObject({ code: "invalid_join", node, path: [], message: expect.stringMatching(message) })
+  })
+
   it("stores a digest for a mapper and keeps the function beside the AST", () => {
     const node = Node.succeed(2).pipe(Node.map((value) => value + 1))
     const ast = tagged(node.ast, "Map")
@@ -1037,6 +1089,19 @@ describe("Node.isNode", () => {
     ["an All without nodes", { _tag: "All" }],
     ["an All whose nodes is an array", { _tag: "All", nodes: [leaf] }],
     ["an All with a malformed member", { _tag: "All", nodes: { ok: leaf, bad: { _tag: "Loop" } } }],
+    ["a Race without nodes", { _tag: "Race", mode: "race", count: 1 }],
+    ["a Race whose nodes is an array", { _tag: "Race", mode: "race", count: 1, nodes: [leaf] }],
+    ["a Race with an unknown mode", { _tag: "Race", mode: "all", count: 1, nodes: { a: leaf } }],
+    ["a Race with no members", { _tag: "Race", mode: "any", count: 1, nodes: {} }],
+    ["a race needing two successes", { _tag: "Race", mode: "race", count: 2, nodes: { a: leaf, b: leaf } }],
+    ["a quorum wider than its members", { _tag: "Race", mode: "quorum", count: 2, nodes: { a: leaf } }],
+    ["a quorum count that is not an integer", { _tag: "Race", mode: "quorum", count: "1", nodes: { a: leaf } }],
+    ["a Race with a malformed member", {
+      _tag: "Race",
+      mode: "any",
+      count: 1,
+      nodes: { ok: leaf, bad: { _tag: "Loop" } }
+    }],
     ["a Map without a mapper", { _tag: "Map", first: leaf }],
     ["a Map whose mapper has the wrong tag", { _tag: "Map", first: leaf, mapper: { ...identity, _tag: "Digest" } }],
     ["a Map whose mapper names an unknown algorithm", {
@@ -1129,6 +1194,7 @@ describe("Node.isNode", () => {
     expect(Node.isNode(rehydrated)).toBe(true)
     // Every combinator admits it and stores the ast it carries.
     expect(tagged(Node.all({ member: rehydrated }).ast, "All").nodes.member).toBe(rehydrated.ast)
+    expect(tagged(Node.race({ member: rehydrated }).ast, "Race").nodes.member).toBe(rehydrated.ast)
     expect(tagged(Node.andThen(Node.succeed(0), rehydrated).ast, "AndThen").next).toBe(rehydrated.ast)
     const decided = Node.branch(Node.succeed(0), { if: () => true, then: () => rehydrated, else: () => rehydrated })
     expect(tagged(decided.ast, "Branch")).toMatchObject({ then: rehydrated.ast, else: rehydrated.ast })
@@ -1139,6 +1205,8 @@ describe("Node.isNode", () => {
 
   it("accepts a shared sub-ast and refuses a cyclic one", () => {
     expect(Node.isNode(rehydrate({ _tag: "All", nodes: { left: leaf, right: leaf } }))).toBe(true)
+    expect(Node.isNode(rehydrate({ _tag: "Race", mode: "quorum", count: 2, nodes: { left: leaf, right: leaf } })))
+      .toBe(true)
     expect(Node.isNode(rehydrate({ _tag: "AndThen", first: leaf, continuation: identity, next: leaf }))).toBe(true)
     expect(Node.isNode(rehydrate(cyclic))).toBe(false)
   })

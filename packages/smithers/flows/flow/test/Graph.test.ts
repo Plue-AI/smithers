@@ -457,6 +457,21 @@ describe("Graph.build composition", () => {
     }))
   })
 
+  it("expands every join member as topology and keys the join by its mode and count", () => {
+    const members = { fast: Node.succeed(1), slow: Node.succeed(2), third: Node.succeed(3) }
+    const quorum = Graph.build(Node.quorum(2, members))
+    expect(Graph.nodes(quorum).map((observed) => [observed.id, observed.kind])).toEqual([
+      ["root.race.fast", "Succeed"],
+      ["root.race.slow", "Succeed"],
+      ["root.race.third", "Succeed"],
+      ["root", "Race"]
+    ])
+    expect(body(quorum, "root")).toEqual({ _tag: "Race", mode: "quorum", count: 2, members: ["fast", "slow", "third"] })
+    expect(node(quorum, "root").dependencies).toEqual(["root.race.fast", "root.race.slow", "root.race.third"])
+    expect(body(Graph.build(Node.any(members)), "root")).toMatchObject({ mode: "any", count: 1 })
+    expect(body(Graph.build(Node.race(members)), "root")).toMatchObject({ mode: "race", count: 1 })
+  })
+
   it("leaves an explicit boundary and a declaration-less inline call as leaf nodes", () => {
     // Every flow has a body, so an inline call splices unless its declaration
     // did not survive beside its AST. Those are the only two leaves left.

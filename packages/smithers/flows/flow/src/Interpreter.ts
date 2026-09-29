@@ -55,6 +55,7 @@ import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -62,6 +63,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import { type Implementation, Implementations, layerImplementations } from "./Action/Implementations.ts"
 import { DispatchReport, DispatchSite } from "./Action/StepIdentity.ts"
+import * as DurableDeferred from "./DurableDeferred.ts"
 import { attenuateCapabilities } from "./Flow/CapabilityCeiling.ts"
 import type { Any as AnyFlow, AnyStructSchema, AnyWithProps, Flow } from "./Flow/Flow.ts"
 import * as Outcome from "./Flow/Outcome.ts"
@@ -86,6 +88,8 @@ import { OutcomeValueTypeId } from "./internal/OutcomeMarker.ts"
  * names a content-reusable action that lacks the canonical version contract;
  * `implementation_version_mismatch` names a declaration and registry that
  * disagree. Both are preflight failures, before action dispatch.
+ * `join_mismatch` names a race, any, or quorum whose journaled decision this
+ * plan's members can no longer reproduce.
  *
  * @category errors
  * @since 0.1.0
@@ -102,7 +106,8 @@ export class InterpreterError extends Schema.TaggedError<InterpreterError>()(
       "unresolved_reference",
       "unsupported_call",
       "missing_operation",
-      "node_record_too_large"
+      "node_record_too_large",
+      "join_mismatch"
     ]),
     flow: Schema.String,
     node: Schema.String,
@@ -736,6 +741,18 @@ const interpretWithPolicy = (
     const inFlight = new Map<string, Deferred.Deferred<unknown, unknown>>()
     const nodes = yield* Scope.make()
     /**
+     * The execution fiber of every node still running, so a join that settled
+     * early can interrupt the work of the members it no longer waits for.
+     */
+    const executions = new Map<string, Fiber.Fiber<unknown, unknown>>()
+    /**
+     * The child execution each `.child()` node opened. Interrupting the node's
+     * fiber only stops its join: a losing child is cancelled through the
+     * runtime, the same request a caller's cancellation makes.
+     */
+    const childExecutions = new Map<string, { readonly declaration: AnyWithProps; readonly executionId: string }>()
+
+    /**
      * The nodes this walk has already settled a record for.
      *
      * Everything else is what the walk never reached, which is exactly the
@@ -830,6 +847,7 @@ const interpretWithPolicy = (
             // recovery arm, a re-driven walk — re-executes the node instead
             // of replaying an interrupt that says nothing about it.
             if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) inFlight.delete(id)
+            executions.delete(id)
             return Deferred.done(deferred, exit)
           })
         )
@@ -837,9 +855,186 @@ const interpretWithPolicy = (
         // old inline execution: the node runs synchronously until its first
         // real suspension, so a body that parks does so before the driver's
         // next tick — the same observable cadence a sequential walk had.
-        return Effect.forkIn(execution, nodes, { startImmediately: true }).pipe(
-          Effect.andThen(Deferred.await(deferred))
+        return Effect.forkIn(
+          Effect.withFiber((fiber) => {
+            executions.set(id, fiber)
+            return execution
+          }),
+          nodes,
+          { startImmediately: true }
+        ).pipe(Effect.andThen(Deferred.await(deferred)))
+      })
+
+    /**
+     * The nodes that read each node's value through their key material: the
+     * payload references and barriers a structural subtree does not show.
+     */
+    const readers = new Map<string, Array<string>>()
+    for (const node of graphNodes) {
+      for (const dependency of KeyMaterial.dependencies(node.draft.material)) {
+        readers.set(dependency, [...readers.get(dependency) ?? [], node.id])
+      }
+    }
+
+    /**
+     * Interrupts the work of the members a join no longer waits for.
+     *
+     * A member's structural subtree is its own, so its running executions are
+     * interrupted; nothing else demands them again. A node something outside that
+     * subtree also reads is shared work the interpretation owns — the same
+     * ownership an `All` failure respects — and keeps running, together with
+     * everything inside the subtree it depends on.
+     */
+    const cancel = (joinId: string, roots: ReadonlyArray<string>): Effect.Effect<void, never, Services> =>
+      Effect.suspend(() => {
+        const subtree = new Set<string>()
+        const pending = [...roots]
+        while (pending.length > 0) {
+          const id = pending.pop()!
+          if (subtree.has(id)) continue
+          subtree.add(id)
+          pending.push(...sources.get(id) ?? [])
+        }
+        const kept = new Set<string>()
+        const shared = [...subtree].filter((id) =>
+          (readers.get(id) ?? []).some((reader) => reader !== joinId && !subtree.has(reader))
         )
+        while (shared.length > 0) {
+          const id = shared.pop()!
+          if (kept.has(id) || !subtree.has(id)) continue
+          kept.add(id)
+          shared.push(...sources.get(id) ?? [], ...KeyMaterial.dependencies(byId.get(id)!.draft.material))
+        }
+        const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
+        const childRuns: Array<{ readonly declaration: AnyWithProps; readonly executionId: string }> = []
+        for (const id of subtree) {
+          if (kept.has(id)) continue
+          const fiber = executions.get(id)
+          if (fiber === undefined) continue
+          fibers.push(fiber)
+          const child = childExecutions.get(id)
+          if (child !== undefined) childRuns.push(child)
+        }
+        // The interruption is requested, not awaited: a loser's finalizers may
+        // wait on work that only settles after the join returns, and the node
+        // scope awaits every fiber when the walk ends anyway.
+        return Effect.withFiber((current) =>
+          Effect.sync(() => {
+            for (const fiber of fibers) fiber.interruptUnsafe(current.id)
+          })
+        ).pipe(
+          Effect.andThen(Effect.forEach(
+            childRuns,
+            ({ declaration, executionId }) => Effect.orDie(runtime.interrupt(declaration as AnyFlow, executionId)),
+            { discard: true }
+          ))
+        )
+      })
+
+    /**
+     * Settles a `Race` node: `race`, `any`, or `quorum`.
+     *
+     * The members that decided are journaled, in the order they decided,
+     * under a durable deferred named for the node before any loser is
+     * interrupted. A resumed walk that finds the record settles exactly those
+     * members — whose own dispatches replay from their durable records — and
+     * never demands the others, so it reaches the same verdict without
+     * running a loser again. A defect or an interpreter refusal in a member is
+     * not a decision: it propagates unjournaled, as it would from an `All`.
+     */
+    const join = (
+      node: Graph.GraphNode,
+      ast: Extract<Node.Ast, { readonly _tag: "Race" }>,
+      children: ReadonlyArray<string>
+    ): Effect.Effect<unknown, unknown, Services> =>
+      Effect.gen(function*() {
+        const members = Object.keys(ast.nodes)
+        const journal = DurableDeferred.make(`join/${node.id}`, { success: JoinDecision })
+        const instance = yield* FlowInstance
+        // A join is not a wait: reading its record must not consume the
+        // waiting classification a parked sibling declared.
+        const waiting = instance.waiting
+        const recorded = yield* runtime.deferredResult(journal)
+        instance.waiting = waiting
+        if (Option.isSome(recorded) && Exit.isSuccess(recorded.value)) {
+          const decided = recorded.value.value
+          const indices = decided.map((member) => members.indexOf(member))
+          if (indices.some((index) => index < 0) || new Set(indices).size !== indices.length) {
+            return yield* refuse(
+              "join_mismatch",
+              node.id,
+              `Join at "${node.id}" journaled members ${JSON.stringify(decided)}, which it no longer holds.`
+            )
+          }
+          // The losers are never demanded, so nothing of theirs starts again.
+          const exits = yield* Effect.forEach(indices, (index) => Effect.exit(settleNode(children[index]!)), {
+            concurrency: "unbounded"
+          })
+          // The verdict must close on the LAST journaled member, exactly as it
+          // did live: one that closes earlier, or never, is a different join.
+          const outcomes: Array<Decision> = []
+          for (let position = 0; position < exits.length; position++) {
+            const exit = exits[position]!
+            if (classify(exit) !== "decisive") return yield* exit
+            outcomes.push({ member: members[indices[position]!]!, exit })
+            const verdict = decide(ast, members.length, outcomes)
+            if (verdict !== undefined && position === exits.length - 1) return yield* verdict
+            if (verdict !== undefined) break
+          }
+          return yield* refuse(
+            "join_mismatch",
+            node.id,
+            `Join at "${node.id}" replayed members ${JSON.stringify(decided)} without reaching its verdict.`
+          )
+        }
+
+        const outcomes: Array<Decision> = []
+        let verdict: Exit.Exit<unknown, unknown> | undefined
+        let journaled = false
+        const over = Deferred.makeUnsafe<void>()
+        const watch = (index: number) =>
+          Effect.exit(settleNode(children[index]!)).pipe(
+            Effect.flatMap((exit) =>
+              Effect.sync(() => {
+                if (verdict !== undefined) return
+                const kind = classify(exit)
+                // An interrupted member is still undecided: it parked, or a
+                // join elsewhere cancelled shared work. The others may still
+                // decide without it.
+                if (kind === "pending") return
+                if (kind === "fatal") {
+                  verdict = exit
+                } else {
+                  outcomes.push({ member: members[index]!, exit })
+                  verdict = decide(ast, members.length, outcomes)
+                  journaled = verdict !== undefined
+                }
+                if (verdict !== undefined) Deferred.doneUnsafe(over, Exit.void)
+              })
+            )
+          )
+        yield* Effect.raceFirst(
+          Effect.forEach(children, (_, index) => watch(index), { concurrency: "unbounded", discard: true }),
+          Deferred.await(over)
+        )
+        // Every member ended interrupted: the join cannot decide in this
+        // round, and the walk parks or ends with it.
+        if (verdict === undefined) return yield* Effect.interrupt
+        const decidedMembers = outcomes.map((outcome) => outcome.member)
+        yield* Effect.uninterruptible(
+          Effect.gen(function*() {
+            if (journaled) {
+              yield* runtime.deferredDone(journal, {
+                flowName: instance.flow._tag,
+                executionId: instance.executionId,
+                deferredName: journal.name,
+                exit: Exit.succeed(decidedMembers)
+              })
+            }
+            yield* cancel(node.id, children.filter((_, index) => !decidedMembers.includes(members[index]!)))
+          })
+        )
+        return yield* verdict
       })
 
     const compute: (node: Graph.GraphNode) => Effect.Effect<unknown, unknown, Services> = Effect.fnUntraced(
@@ -887,6 +1082,20 @@ const interpretWithPolicy = (
             },
             onSuccess: Effect.succeed
           })
+        }
+        if (ast._tag === "Race") {
+          // A join must not wait for every member, so its members are left
+          // out of the dependency barrier below; its other dependencies — the
+          // references and barriers it reads — still settle first.
+          const members = new Set(children)
+          yield* Effect.forEach(
+            KeyMaterial.dependencies(node.draft.material).filter((dependency) =>
+              !members.has(dependency) && !failed.has(dependency)
+            ),
+            settleNode,
+            { concurrency: "unbounded", discard: true }
+          )
+          return yield* join(node, ast, children)
         }
         // Dependency order, from the key material: the same `Ref` and `Pending`
         // inputs the plan turns into edges, settled before the node that reads
@@ -999,6 +1208,7 @@ const interpretWithPolicy = (
                 declaration._tag,
                 childPayload
               ) as unknown as Effect.Effect<string, never, Services>)
+              childExecutions.set(node.id, { declaration, executionId })
               return yield* (declaration.execute(childPayload, {
                 executionId
               }) as Effect.Effect<unknown, unknown, Services>).pipe(attenuateCapabilities(node.capabilityCeilings))
@@ -1066,6 +1276,66 @@ const interpretWithPolicy = (
       skipped: Graph.nodes(graph).filter((node) => !settled.has(node.id) && !failed.has(node.id)).map((node) => node.id)
     }
   })
+
+/** The members a join decided on, in the order they decided. @private */
+const JoinDecision = Schema.Array(Schema.String)
+
+/** One member's decisive settlement. @private */
+interface Decision {
+  readonly member: string
+  readonly exit: Exit.Exit<unknown, unknown>
+}
+
+/**
+ * How a member's settlement counts toward a join: a value or a typed failure
+ * decides, an interruption is still undecided, and a defect or interpreter
+ * refusal is fatal to the join.
+ *
+ * @private
+ */
+const classify = (exit: Exit.Exit<unknown, unknown>): "decisive" | "pending" | "fatal" => {
+  if (Exit.isSuccess(exit)) return "decisive"
+  if (Cause.hasInterruptsOnly(exit.cause)) return "pending"
+  const reasons = exit.cause.reasons
+  const typed = reasons.every((reason) => reason._tag !== "Die") &&
+    reasons.some((reason) => reason._tag === "Fail") &&
+    !reasons.some((reason) => reason._tag === "Fail" && Schema.is(InterpreterError)(reason.error))
+  return typed ? "decisive" : "fatal"
+}
+
+/**
+ * A join's verdict over the members that decided, in the order they decided,
+ * or `undefined` while it is still open.
+ *
+ * `race` takes the first settlement. `any` and `quorum` succeed once `count`
+ * members succeed, and fail with the failure that leaves too few members able
+ * to: for `any`, that is the last one.
+ *
+ * @private
+ */
+const decide = (
+  ast: Extract<Node.Ast, { readonly _tag: "Race" }>,
+  width: number,
+  outcomes: ReadonlyArray<Decision>
+): Exit.Exit<unknown, unknown> | undefined => {
+  if (ast.mode === "race") return outcomes[0]?.exit
+  const successes = outcomes.filter((outcome) => Exit.isSuccess(outcome.exit))
+  if (successes.length >= ast.count) {
+    if (ast.mode === "any") return successes[0]!.exit
+    const joined: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+    for (const success of successes) {
+      Object.defineProperty(joined, success.member, {
+        configurable: true,
+        enumerable: true,
+        value: (success.exit as Exit.Success<unknown>).value,
+        writable: true
+      })
+    }
+    return Exit.succeed(joined)
+  }
+  if (outcomes.length - successes.length > width - ast.count) return outcomes[outcomes.length - 1]!.exit
+  return undefined
+}
 
 /**
  * Turns a body's root value into the settlement the engine acts on.

@@ -18,6 +18,13 @@ Options that change behavior are declared through `Node.capture`, so two plans t
 
 A declared flow joins its members with `Node.andThen`, `Node.all`, and `Node.catch`. The first two do not continue past a failed member; `Node.catch` is the recovery arm that lets a declaration continue anyway. `CheckSuite`'s `continueOnFail`, `Kanban`'s per-item continuation, and `MergeQueue`'s `failurePolicy: "quarantine"` are declared through that arm, so the plan tolerates what `run` tolerates. `Runbook`'s `onDeny: "skip"` stays a `run` option and `make` refuses it: a denial and a step failure share one error channel, so an arm around the gated step would also declare that a runbook continues past a failed critical step. Each section below repeats this where it applies.
 
+A team that needs only some members joins them with `Node.race` (first to settle), `Node.any` (first success), or `Node.quorum(k, members)` (first `k` successes). The join interrupts the members it no longer waits for and journals the members that decided, so a resumed run returns the same winners without starting a loser again:
+
+```ts
+const hedged = Node.any({ primary: Review.call({ model: "a" }), backup: Review.call({ model: "b" }) })
+const agreed = Node.quorum(2, { a: Vote.call({ seat: 1 }), b: Vote.call({ seat: 2 }), c: Vote.call({ seat: 3 }) })
+```
+
 Every arm on this page isolates typed failures only, the rule [`Quarantine`](./api.md#quarantine) states. A member that throws raises a defect, and a defect is not a tolerated outcome: it fails the run and cancels the members beside it. Interruption propagates for the same reason. [`Sidecar`](./loops.md#sidecar) quarantines a shadow defect, because a shadow is an experiment rather than a member of the result.
 
 ## `Supervisor`

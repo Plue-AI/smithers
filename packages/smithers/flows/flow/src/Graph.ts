@@ -1485,6 +1485,36 @@ export const build = (
         sequence(steps)
         return
       }
+      case "Race": {
+        // A join that settles early is expanded exactly as `All` is: every
+        // member is topology the plan shows, and the interpreter decides at
+        // run time which of them it waits for.
+        const members = Object.keys(ast.nodes)
+        const steps: Array<() => void> = []
+        for (const member of members) {
+          const memberId = `${id}.race.${member}`
+          steps.push(() => expand(child(ast.nodes[member]!, memberId)))
+          steps.push(() => depend(memberId, "value"))
+        }
+        steps.push(() =>
+          record({
+            id,
+            kind: ast._tag,
+            dependencies,
+            capabilities,
+            effects: undefined,
+            placement: undefined,
+            priority,
+            tier: "sealed",
+            body: { _tag: ast._tag, mode: ast.mode, count: ast.count, members },
+            inputs,
+            ast,
+            payload: undefined
+          })
+        )
+        sequence(steps)
+        return
+      }
       case "Map": {
         observeIdentity(id, "mapper", ast.mapper)
         const first = `${id}.map`

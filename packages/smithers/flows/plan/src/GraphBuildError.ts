@@ -22,6 +22,8 @@ import * as Schema from "effect/Schema"
  *
  * `planned_value_computed` is a body computing on a step result;
  * `invalid_all_member` is a non-node handed to {@link module:Node.all};
+ * `invalid_join` is a race, any, or quorum with a non-node member, no members,
+ * or a quorum count its members cannot reach;
  * `invalid_continuation` is a branch arm or continuation that did not return a
  * node; `recursion_requires_boundary` is a flow calling itself inline, which
  * has to become a trampoline handoff or an explicit child boundary;
@@ -73,6 +75,7 @@ import * as Schema from "effect/Schema"
 export const GraphBuildErrorCode = Schema.Literals([
   "planned_value_computed",
   "invalid_all_member",
+  "invalid_join",
   "invalid_continuation",
   "recursion_requires_boundary",
   "placement_requires_boundary",

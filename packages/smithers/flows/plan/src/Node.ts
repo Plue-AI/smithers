@@ -337,15 +337,26 @@ export const all = <const Nodes extends Readonly<Record<string, Any>>>(
   Types.Simplify<{ readonly [K in keyof Nodes]: Success<Nodes[K]> }>,
   Error<Nodes[keyof Nodes]>,
   Services<Nodes[keyof Nodes]>
-> => {
+> => internal.makeNode(internal.all(memberAsts(nodes, "all", "invalid_all_member")))
+
+/**
+ * The member ASTs of a combination, keyed by name, refusing a non-node member.
+ *
+ * @private
+ */
+const memberAsts = (
+  nodes: Readonly<Record<string, unknown>>,
+  combinator: string,
+  code: "invalid_all_member" | "invalid_join"
+): Record<string, Ast> => {
   const asts: Record<string, Ast> = Object.create(null) as Record<string, Ast>
   for (const [member, node] of Object.entries(nodes)) {
     if (!isNode(node)) {
       throw new GraphBuildError({
-        code: "invalid_all_member",
+        code,
         node: member,
         path: [],
-        message: `Node.all expected a Node at member "${member}"`
+        message: `Node.${combinator} expected a Node at member "${member}"`
       })
     }
     Object.defineProperty(asts, member, {
@@ -355,8 +366,87 @@ export const all = <const Nodes extends Readonly<Record<string, Any>>>(
       writable: true
     })
   }
-  return internal.makeNode(internal.all(asts))
+  return asts
 }
+
+/**
+ * Builds a join that settles early, refusing a member set it could never
+ * decide on.
+ *
+ * @private
+ */
+const join = (mode: internal.RaceMode, count: number, nodes: Readonly<Record<string, unknown>>): Ast => {
+  const asts = memberAsts(nodes, mode, "invalid_join")
+  const width = Object.keys(asts).length
+  if (!internal.isRaceCount(mode, count, width)) {
+    throw new GraphBuildError({
+      code: "invalid_join",
+      node: mode,
+      path: [],
+      message: mode === "quorum"
+        ? `Node.quorum needs a whole number of successes between 1 and its ${width} members, got ${String(count)}`
+        : `Node.${mode} needs at least one member`
+    })
+  }
+  return internal.race(mode, count, asts)
+}
+
+/**
+ * The members of an early-settling join, keyed by name.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type Members = Readonly<Record<string, Any>>
+
+/**
+ * Settles with the first member to settle, success or typed failure.
+ *
+ * The other members are interrupted. The winner is journaled, so a resumed run
+ * settles the same member and never starts the others again.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const race = <const Nodes extends Members>(
+  nodes: Nodes
+): Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>> =>
+  internal.makeNode(join("race", 1, nodes))
+
+/**
+ * Settles with the first member to succeed, ignoring typed failures while a
+ * member is still running.
+ *
+ * It fails with the last failure when every member fails. The other members
+ * are interrupted, and the winner is journaled as {@link race} journals it.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const any = <const Nodes extends Members>(
+  nodes: Nodes
+): Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>> =>
+  internal.makeNode(join("any", 1, nodes))
+
+/**
+ * Succeeds once `count` members succeed, with exactly those members' values
+ * keyed by name.
+ *
+ * It fails with the failure that leaves fewer than `count` members able to
+ * succeed. Either way the members still running are interrupted, and the
+ * members that decided are journaled as {@link race} journals its winner.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const quorum = <const Nodes extends Members>(
+  count: number,
+  nodes: Nodes
+): Node<
+  Types.Simplify<{ readonly [K in keyof Nodes]?: Success<Nodes[K]> }>,
+  Error<Nodes[keyof Nodes]>,
+  Services<Nodes[keyof Nodes]>
+> => internal.makeNode(join("quorum", count, nodes))
 
 /**
  * Transforms an eventual success value with a deferred pure function.

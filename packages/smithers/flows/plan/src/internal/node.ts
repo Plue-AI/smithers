@@ -113,6 +113,30 @@ export interface All extends Scheduled {
 }
 
 /**
+ * How a {@link Race} settles: `race` on the first member to settle, `any` on
+ * the first member to succeed, and `quorum` once `count` members succeed.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export type RaceMode = "race" | "any" | "quorum"
+
+/**
+ * Independent children that settle early: the join decides as soon as its
+ * {@link RaceMode} can, and the members it did not wait for are interrupted.
+ * `count` is the successes a quorum needs, and 1 for `race` and `any`.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export interface Race extends Scheduled {
+  readonly _tag: "Race"
+  readonly mode: RaceMode
+  readonly count: number
+  readonly nodes: Readonly<Record<string, NodeAst>>
+}
+
+/**
  * A deferred pure transformation of an upstream result. `map` transforms; it
  * never decides.
  *
@@ -357,7 +381,7 @@ export const plannedReference = (value: unknown): PlannedReference | undefined =
  * @private
  * @slop
  */
-export type NodeAst = Succeed | Fail | All | Map | AndThen | Branch | Catch | FlowCall | ActionCall
+export type NodeAst = Succeed | Fail | All | Race | Map | AndThen | Branch | Catch | FlowCall | ActionCall
 
 type Operation = (value: unknown) => unknown
 
@@ -423,6 +447,20 @@ const isIdentityAlgorithm = Schema.is(IdentityAlgorithm)
 /** Recognizes the modes {@link CallMode} declares, and nothing else. */
 const isCallMode = Schema.is(CallMode)
 
+/** Recognizes the modes {@link RaceMode} names, and nothing else. @private */
+const isRaceMode = (value: unknown): value is RaceMode => value === "race" || value === "any" || value === "quorum"
+
+/**
+ * Whether `count` is a successes target a {@link Race} of `members` can reach:
+ * a quorum needs between one and every member, and the other modes need one.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const isRaceCount = (mode: RaceMode, count: unknown, members: number): boolean =>
+  members > 0 && Number.isSafeInteger(count) &&
+  (mode === "quorum" ? (count as number) >= 1 && (count as number) <= members : count === 1)
+
 /** @private */
 const isFunctionIdentity = (value: unknown): value is FunctionIdentity =>
   isRecord(value) && value._tag === "FunctionIdentity" && isIdentityAlgorithm(value.algorithm) &&
@@ -463,6 +501,13 @@ export const isNodeAst = (value: unknown): value is NodeAst => {
       case "All": {
         if (!isRecord(ast.nodes) || Array.isArray(ast.nodes)) return false
         for (const child of Object.values(ast.nodes)) children.push(child)
+        break
+      }
+      case "Race": {
+        if (!isRecord(ast.nodes) || Array.isArray(ast.nodes)) return false
+        const members = Object.values(ast.nodes)
+        if (!isRaceMode(ast.mode) || !isRaceCount(ast.mode, ast.count, members.length)) return false
+        for (const child of members) children.push(child)
         break
       }
       case "Map": {
@@ -570,6 +615,19 @@ export const fail = (error: unknown): Fail => ({ _tag: "Fail", error: payloadMir
  * @slop
  */
 export const all = (nodes: Readonly<Record<string, NodeAst>>): All => ({ _tag: "All", nodes })
+
+/**
+ * Constructs a {@link Race}.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const race = (mode: RaceMode, count: number, nodes: Readonly<Record<string, NodeAst>>): Race => ({
+  _tag: "Race",
+  mode,
+  count,
+  nodes
+})
 
 /**
  * Constructs a {@link Map}, filing the mapper under the AST it belongs to.

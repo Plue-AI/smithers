@@ -123,6 +123,7 @@ author meets are:
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
 | `planned_value_computed`                               | A body computed on a step result.                                                                                      |
 | `invalid_all_member`, `invalid_continuation`           | An `all` member or a branch arm was not a node.                                                                        |
+| `invalid_join`                                         | A race, any, or quorum had a non-node member, no members, or a quorum count its members cannot reach.                  |
 | `recursion_requires_boundary`                          | A flow called itself inline. Use `flow.to` or `flow.child`.                                                            |
 | `placement_requires_boundary`                          | An inline callee declares a placement the caller cannot satisfy. Use `flow.child`.                                     |
 | `duplicate_node`                                       | Two structural addresses resolved to one durable node id, which would let a later settlement overwrite an earlier one. |

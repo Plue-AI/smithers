@@ -19,6 +19,7 @@ describe("GraphBuildError", () => {
     expect(GraphBuildErrorCode.literals).toEqual([
       "planned_value_computed",
       "invalid_all_member",
+      "invalid_join",
       "invalid_continuation",
       "recursion_requires_boundary",
       "placement_requires_boundary",
