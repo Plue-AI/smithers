@@ -144,13 +144,27 @@ node_digest() {
   esac
 }
 
-# The major the pinned release carries. A runner already on that major or a
-# later one keeps its Node, so no download happens on a host that is already
-# current; anything older is replaced.
-node_required_major() {
-  local version
-  version="$(node_pinned_version)" || return 1
-  printf '%s\n' "${version%%.*}"
+# Read the supported floor without running Node: the installed runtime may be
+# too old to start the JS toolchain. The root engines field is the same source
+# runtime admission uses.
+node_supported_floor() {
+  local floor
+  floor="$(sed -nE 's/^[[:space:]]*"node"[[:space:]]*:[[:space:]]*">=([0-9]+\.[0-9]+\.[0-9]+)"[[:space:]]*,?[[:space:]]*$/\1/p' package.json)"
+  if [ -z "$floor" ]; then
+    echo 'package.json engines.node must hold a >=x.y.z supported floor' >&2
+    return 1
+  fi
+  printf '%s\n' "$floor"
+}
+
+node_version_at_least() {
+  [[ "$1" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+  local have_major="${BASH_REMATCH[1]}" have_minor="${BASH_REMATCH[2]}" have_patch="${BASH_REMATCH[3]}"
+  local required_major required_minor required_patch
+  IFS=. read -r required_major required_minor required_patch <<< "$2"
+  (( 10#$have_major > 10#$required_major ||
+     (10#$have_major == 10#$required_major && 10#$have_minor > 10#$required_minor) ||
+     (10#$have_major == 10#$required_major && 10#$have_minor == 10#$required_minor && 10#$have_patch >= 10#$required_patch) ))
 }
 
 ensure_node() {
@@ -162,15 +176,18 @@ ensure_node() {
   fi
   local version required have
   version="$(node_pinned_version)" || exit 1
-  required="${version%%.*}"
+  required="$(node_supported_floor)" || exit 1
+  if ! node_version_at_least "$version" "$required"; then
+    echo "Pinned Node $version is below the supported floor $required" >&2
+    exit 1
+  fi
   have="$(node --version 2>/dev/null || true)"
   have="${have#v}"
-  have="${have%%.*}"
-  if [[ "$have" =~ ^[0-9]+$ ]] && [ "$have" -ge "$required" ]; then
-    echo "Node v$have satisfies the pinned .node-version $version; keeping it" >&2
+  if node_version_at_least "$have" "$required"; then
+    echo "Node $have meets the supported floor $required; keeping it" >&2
     return 0
   fi
-  echo "Node ${have:-none} does not satisfy the pinned .node-version $version; installing v$version" >&2
+  echo "Node ${have:-none} is below the supported floor $required; installing verified v$version" >&2
   # No apt here: the runner is an unprivileged container with no sudo, and the
   # gzip tarball needs only the curl and tar the image already ships.
   local arch sha

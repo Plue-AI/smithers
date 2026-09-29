@@ -88,7 +88,7 @@ describe("Smithers Cloud CI", () => {
       }
     }
     for (const toolchain of tools.values()) {
-      for (const tool of toolchain) expect(["js", "jj", "foundry", "rust"]).toContain(tool)
+      for (const tool of toolchain) expect(["js", "jj", "foundry", "rust", "postgres"]).toContain(tool)
     }
     expect(shell).toContain('require("./package.json").packageManager')
     expect(shell).toContain('"$package_manager" --ignore-scripts')
@@ -99,6 +99,7 @@ describe("Smithers Cloud CI", () => {
 
   test("covers all non-publishing Linux commands except canonical-host wasm rebuild", () => {
     const excluded = new Set([
+      "pnpm exec smthrs review '//...' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --known-red '.github/ci-known-red.json' --verbose"
     ])
     const commands = Array.from(github.matchAll(/run: "(pnpm exec [^"]+)"/g), ([, command]) => command!)
@@ -194,9 +195,10 @@ describe("Smithers Cloud CI", () => {
       return result
     }
     const pinned = nodeVersion.trim()
+    const floor = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).engines.node.replace(/^>=/, "")
     const tools = ".flows/cloud-tools"
     const ensureNode = shell.slice(shell.indexOf("ensure_node() {"), shell.indexOf("ensure_js() {"))
-    const digests = shell.slice(shell.indexOf("node_digest() {"), shell.indexOf("# The major the pinned release"))
+    const digests = shell.slice(shell.indexOf("node_digest() {"), shell.indexOf("# Read the supported floor"))
 
     test(".node-version holds the one exact Node release, and the script takes it from there", () => {
       expect(pinned).toMatch(/^\d+\.\d+\.\d+$/)
@@ -279,7 +281,7 @@ describe("Smithers Cloud CI", () => {
       expect(result.stdout).toContain("SHA256SUM -c -")
       expect(result.stdout).toContain("TAR -xzf")
       expect(result.stdout).not.toContain("APT")
-      expect(result.stderr).toContain("does not satisfy the pinned .node-version")
+      expect(result.stderr).toContain("is below the supported floor")
       // node/bin goes on the front of PATH, behind only the npm global prefix.
       const path = result.stdout.match(/^PATH=(.*)$/m)?.[1]
       expect(path?.startsWith(`${root}${tools}/bin:${root}${tools}/node/bin:`)).toBe(true)
@@ -296,8 +298,45 @@ describe("Smithers Cloud CI", () => {
       for (const absent of ["DOWNLOAD", "TAR ", "APT", "SHA256SUM"]) {
         expect(result.stdout).not.toContain(absent)
       }
-      expect(result.stderr).toContain(`satisfies the pinned .node-version ${pinned}`)
+      expect(result.stderr).toContain(`meets the supported floor ${floor}`)
       expect(result.stdout).not.toContain(`${tools}/node/bin`)
+    })
+
+    test("keeps only complete Node releases at or above the supported floor", () => {
+      const [major, minor, patch] = floor.split(".").map(Number)
+      const below = [`${major! - 1}.0.0`, ...(minor! > 0 ? [`${major}.${minor! - 1}.99`] : []),
+        ...(patch! > 0 ? [`${major}.${minor}.${patch! - 1}`] : [])]
+      for (const measured of below) {
+        const result = run({ node: `v${measured}` })
+        expect(result.stdout).toContain(`node-v${pinned}-linux-x64.tar.gz`)
+        expect(result.stdout).toContain("SHA256SUM -c -")
+        expect(result.stderr).toContain(`Node ${measured} is below the supported floor ${floor}`)
+        expect(result.stderr).not.toContain("satisfies")
+      }
+      for (const measured of [floor, pinned, `${major! + 1}.0.0`]) {
+        const result = run({ node: `v${measured}` })
+        expect(result.stdout).not.toContain("DOWNLOAD")
+        expect(result.stderr).toContain(`Node ${measured} meets the supported floor ${floor}`)
+      }
+    })
+
+    test("refuses an unreadable supported floor before installing", () => {
+      for (const engine of ['"node": "^26.4.0"', '"other": ">=26.4.0"']) {
+        const substitute = `sed() { if [ "\${@: -1}" = package.json ]; then command sed "$1" "$2" <<< '${engine}'; else command sed "$@"; fi; }`
+        writeFileSync(probe, shell.replace(marker, ['uname() { echo Linux; }', substitute, "ensure_node", "", marker].join("\n")))
+        const result = spawnSync("bash", ["scripts/ci/cloud.node-probe.tmp.sh"], { cwd: root, encoding: "utf8" })
+        expect(result.status).toBe(1)
+        expect(result.stderr).toContain("engines.node must hold a >=x.y.z supported floor")
+        expect(result.stdout).not.toContain("DOWNLOAD")
+      }
+    })
+
+    test("refuses a pin below the supported floor", () => {
+      writeFileSync(probe, shell.replace(marker, ['uname() { echo Linux; }', 'node_supported_floor() { echo 99.0.0; }', "ensure_node", "", marker].join("\n")))
+      const result = spawnSync("bash", ["scripts/ci/cloud.node-probe.tmp.sh"], { cwd: root, encoding: "utf8" })
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain(`Pinned Node ${pinned} is below the supported floor 99.0.0`)
+      expect(result.stdout).not.toContain("DOWNLOAD")
     })
 
     test("bootstraps as a non-root user with no sudo, and apt skips instead of dying", () => {

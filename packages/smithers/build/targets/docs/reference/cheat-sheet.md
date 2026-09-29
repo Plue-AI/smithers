@@ -1152,6 +1152,8 @@ const changesetsPublish = S.Changesets.Publish({
 
 `CiToolchain.Node` takes exactly one of `release`, an exact version the job installs, or `versionFile`, a checked-in file the setup action reads at run time. Prefer `versionFile` whenever anything outside the workflow needs the same number: `.node-version` is read by `actions/setup-node`, by fnm, nvm and asdf, and by a shell bootstrap that has no Node to parse JSON with, so one file keeps them from drifting apart.
 
+The Cloud CI bootstrap keeps an installed Node release when its full version meets `package.json` `engines.node`. Otherwise it installs the verified release from `.node-version`.
+
 `CiToolchain.Node` accepts an optional `npmRelease` pin. The generated job installs that npm version after setting up Node; omitting it keeps Node's bundled npm. The release tarball rehearsal requires npm 11.16.0, so its toolchain declares that pin explicitly.
 
 `CiToolchain.Postgres` puts `initdb` and `pg_ctl` on `PATH`: PGDG `postgresql-18` on Linux and Homebrew `postgresql@18` on macOS. Windows uses the runner image's own server when it is PostgreSQL 17 or later.
