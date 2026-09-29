@@ -864,16 +864,25 @@ const jsdocRules = Smithers.NodeTest({
 
 /**
  * The factory flows' shared harness: workspace package identities, package
- * selection, confinement and process guards. `factory/` has no manifest of its
- * own, so the root owns the suite; it is written against `bun:test`.
+ * selection, confinement and process guards, plus the queue inventory (every
+ * retained queue prompt names its issue and is queued). `factory/` has no
+ * manifest of its own, so the root owns the suites; they are written against
+ * `bun:test`.
  *
  * @since 1.0.0
  * @category test
  */
 const factoryHarness = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
-  runner: Smithers.testRunner([Smithers.file("//factory/flows/harness.test.ts")]),
-  srcs: [Smithers.glob("//factory/flows/*.ts"), Smithers.file("//scripts/workspace-packages.mjs")],
+  runner: Smithers.testRunner([
+    Smithers.file("//factory/flows/harness.test.ts"),
+    Smithers.file("//factory/queue/queue.test.ts")
+  ]),
+  srcs: [
+    Smithers.glob("//factory/flows/*.ts"),
+    Smithers.glob("//factory/queue/*.md"),
+    Smithers.file("//scripts/workspace-packages.mjs")
+  ],
   deps: []
 })
 
