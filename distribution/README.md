@@ -2,7 +2,10 @@
 
 Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs are trusted processes for one owner, or microVMs with [MicroVM isolation](#microvm-isolation).
 
+Only use a version after its [release notes](https://github.com/smithersai/smithers/releases) contain a public image digest. The commands below require that publication receipt. For a source build, follow the [release guide](../packages/backend/docs/distribution-release.md).
+
 ```sh
+export SMITHERS_IMAGE=ghcr.io/smithersai/smithers:1.0.0-rc.1
 umask 077
 cat >smithers.env <<EOF
 DATABASE_URL=postgres://smithers:replace-me@postgres:5432/smithers?sslmode=require
@@ -13,7 +16,7 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
   --network "$SMITHERS_DOCKER_NETWORK" \
   --env-file ./smithers.env \
   -v smithers-data:/var/lib/smithers \
-  ghcr.io/smithersai/smithers:0.1.0
+  "$SMITHERS_IMAGE"
 ```
 
 `DATABASE_URL` (or `SMITHERS_DATABASE_URL`) must name the external PostgreSQL 18 database. The bootstrap token is required only until the first owner account exists; keep it private and remove it from the service environment after setup. Set `PORT` when the application must listen on a port other than 4000.
@@ -34,7 +37,7 @@ Agent runs, workspaces and Flow hosts can use provider keys the installation pay
 
 ```sh
 docker run --rm -i -v smithers-data:/var/lib/smithers --entrypoint sh \
-  ghcr.io/smithersai/smithers:0.1.0 \
+  "$SMITHERS_IMAGE" \
   -c 'f=/var/lib/smithers/config/platform-model-keys.json; umask 077 && cat >"$f" && chmod 600 "$f"' <<'EOF'
 {"anthropic": "sk-ant-...", "openai": "sk-..."}
 EOF
@@ -161,12 +164,12 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   -v smithers-data:/var/lib/smithers \
   -v "$PWD/backups:/backups" \
   --entrypoint /opt/smithers/backup.sh \
-  ghcr.io/smithersai/smithers:0.1.0
+  "$SMITHERS_IMAGE"
 ```
 
 The command uses `pg_dump`, archives repositories, blobs, workspaces, journals, and configuration, and writes checksums before publishing the backup. The scripts pass `psql`, `pg_dump`, and `pg_restore` the database URL without its password and hand the password over in `PGPASSWORD`, so other users on a shared Docker host cannot read it from the process list. This covers both places a `postgres://` URL can hold a password: the userinfo (`postgres://user:secret@host/db`) and a `password=` query parameter, which wins when both are present, as in libpq. A key/value connection string such as `host=... password=...` is passed unchanged; use a `postgres://` URL. Copy the resulting backup directory away from the host. Browser-only drafts remain on their originating device and are outside the server backup.
 
-On a clean target with an empty database and empty data volume, restore with the exact image version recorded in the backup manifest:
+On a clean target with an empty database and empty data volume, set `SMITHERS_IMAGE` to the exact image version recorded in the backup manifest, then restore:
 
 ```sh
 docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
@@ -174,7 +177,7 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   -v smithers-restored-data:/var/lib/smithers \
   -v "$PWD/backups:/backups:ro" \
   --entrypoint /opt/smithers/restore.sh \
-  ghcr.io/smithersai/smithers:0.1.0 \
+  "$SMITHERS_IMAGE" \
   /backups/smithers-YYYYMMDDTHHMMSSZ
 ```
 
@@ -182,7 +185,7 @@ Restore verifies archive checksums, the distribution/schema/PostgreSQL versions,
 
 Never change issue or comment rows with triggers disabled (for example `session_replication_role = replica`). Triggers record who last wrote each title and body, and automation trusts that record; text changed without them keeps its previous writer.
 
-For an upgrade, first create the backup with the old image as above. Then run the new image against the stopped installation and that verified backup:
+For an upgrade, first create the backup with the old image as above. Set `SMITHERS_NEW_IMAGE` to the digest-pinned image from the new release notes, then run it against the stopped installation and that verified backup:
 
 ```sh
 docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
@@ -190,7 +193,7 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   -v smithers-data:/var/lib/smithers \
   -v "$PWD/backups:/backups:ro" \
   --entrypoint /opt/smithers/upgrade.sh \
-  ghcr.io/smithersai/smithers:NEW_VERSION \
+  "$SMITHERS_NEW_IMAGE" \
   /backups/smithers-YYYYMMDDTHHMMSSZ
 ```
 

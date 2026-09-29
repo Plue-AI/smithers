@@ -30,6 +30,11 @@ jobs:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_POSTGRES_TEST_MAJOR: "18"
         run: go test -p 1 ./distribution -run TestRealBackupRestorePostgreSQL -count=1 -v
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.4.0
+      - name: Distribution release contracts
+        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/publish-image.test.mjs
       - name: Build distribution image
         run: docker build --build-arg "BUILD_SHA=$GITHUB_SHA" -f distribution/Dockerfile -t smithers-distribution:ci .
       - name: Test distribution image

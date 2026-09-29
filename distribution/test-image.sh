@@ -282,6 +282,8 @@ for _ in $(seq 1 120); do
   sleep 1
 done
 test "$flow_completed" = 1 || { printf 'coding Flow did not complete: %s\n' "$session_response" >&2; exit 1; }
+# The configured local evaluator must have answered during judged completion.
+docker logs "$provider" 2>&1 | grep -F 'POST /v4/ai/evaluation-model' >/dev/null
 workspace_id=$(printf '%s' "$session_response" | sed -n 's/.*"workspace_id":"\([^"]*\)".*/\1/p')
 test -n "$workspace_id"
 curl -fsS -H "Authorization: token $api_token" \

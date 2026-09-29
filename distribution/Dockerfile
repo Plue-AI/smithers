@@ -127,7 +127,7 @@ COPY packages/backend/db/product/migrations /opt/smithers/migrations
 COPY distribution/lib.sh distribution/entrypoint.sh distribution/backup.sh distribution/restore.sh distribution/upgrade.sh distribution/version.env /opt/smithers/
 COPY LICENSE THIRD_PARTY_NOTICES.md distribution/licenses/ /opt/smithers/licenses/
 # A version-only release must not invalidate the runtime setup above.
-ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0
+ARG SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
   && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \

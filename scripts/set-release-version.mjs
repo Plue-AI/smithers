@@ -37,6 +37,24 @@ export const versionedTemplates = ["packages/smithers/create-app/template/defaul
  */
 export const versionedSources = [
   {
+    package: "packages/smithers",
+    path: "distribution/README.md",
+    declaration: "SMITHERS_IMAGE",
+    pattern: /(export SMITHERS_IMAGE=ghcr\.io\/smithersai\/smithers:)([^\s]+)(\n)/
+  },
+  {
+    package: "packages/smithers",
+    path: "distribution/version.env",
+    declaration: "SMITHERS_DISTRIBUTION_VERSION",
+    pattern: /(SMITHERS_DISTRIBUTION_VERSION=)([^\n]+)(\n)/
+  },
+  {
+    package: "packages/smithers",
+    path: "distribution/Dockerfile",
+    declaration: "SMITHERS_DISTRIBUTION_VERSION",
+    pattern: /(ARG SMITHERS_DISTRIBUTION_VERSION=)([^\n]+)(\n)/
+  },
+  {
     path: "packages/smithers/flows/observability/src/Otlp.ts",
     declaration: "defaultServiceVersion",
     pattern: /(export const defaultServiceVersion = ")([^"]*)(")/

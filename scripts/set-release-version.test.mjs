@@ -145,16 +145,16 @@ test("retargetSource refuses a file that no longer carries the declaration", () 
 
 test("sourceMismatches names a literal the manifests left behind", () => {
   const manifests = readManifests()
-  assert.deepEqual(sourceMismatches("9.9.9"), versionedSources.map(({ path, declaration }) => {
-    const version = manifests.find((entry) => entry.directory === path.split("/src/")[0]).manifest.version
+  assert.deepEqual(sourceMismatches("9.9.9"), versionedSources.map(({ path, declaration, package: ownerPackage }) => {
+    const version = manifests.find((entry) => entry.directory === (ownerPackage ?? path.split("/src/")[0])).manifest.version
     return `${path}: ${declaration} is ${version}, expected 9.9.9`
   }))
 })
 
 test("every versioned source agrees with the version its own package declares", () => {
   const entries = readManifests()
-  for (const { path } of versionedSources) {
-    const directory = path.split("/src/")[0]
+  for (const { path, package: ownerPackage } of versionedSources) {
+    const directory = ownerPackage ?? path.split("/src/")[0]
     const owner = entries.find((entry) => entry.directory === directory)
     assert.ok(owner, `${path} is not inside a workspace package`)
     assert.deepEqual(sourceMismatches(owner.manifest.version), [])

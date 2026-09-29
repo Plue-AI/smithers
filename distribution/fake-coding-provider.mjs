@@ -33,10 +33,25 @@ const server = createServer(async (request, response) => {
     input = JSON.parse(input.messages.at(-1).content.find(part => part.type === "text").text)
   }
   if (subscriptionJudge || request.method === "POST" && request.url === "/v4/ai/evaluation-model") {
-    const answers = Object.fromEntries(Object.entries(input.questions ?? {}).map(([name, question]) => {
-      if (question.type !== "boolean") throw new Error(`unexpected evaluation type: ${question.type}`)
-      return [name, { type: "boolean", probability: name === "complete" ? 0.99 : 0.01 }]
-    }))
+    let answers
+    try {
+      answers = Object.fromEntries(Object.entries(input.questions ?? {}).map(([name, question]) => {
+        switch (question.type) {
+          case "boolean":
+            return [name, { type: "boolean", probability: ["complete", "on_target"].includes(name) ? 0.99 : 0.01 }]
+          case "score":
+            return [name, { type: "score", score: name === "confident" ? question.criteria.length - 1 : 0 }]
+          case "choice":
+            if (!Object.hasOwn(question.criteria, "none")) throw new Error(`unexpected choice question: ${name}`)
+            return [name, { type: "choice", choice: "none" }]
+          default:
+            throw new Error(`unexpected evaluation type: ${question.type}`)
+        }
+      }))
+    } catch (error) {
+      response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: error.message }))
+      return
+    }
     if (subscriptionJudge) {
       response.writeHead(200, { "content-type": "text/event-stream" })
       for (const event of [
