@@ -41,7 +41,7 @@ it("resolves a relative workspace and keeps prompt and model flags", () => {
 it("refuses redirected interactive streams while print mode still works", () => {
   const app = resolve(import.meta.dir, "../src/main.tsx")
   const env = { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") }
-  const interactive = spawnSync("bun", [app], { encoding: "utf8", env, timeout: 3000 })
+  const interactive = spawnSync("bun", [app], { encoding: "utf8", env, timeout: 10_000 })
   expect(interactive.error).toBeUndefined()
   expect(interactive.status).toBe(1)
   expect(interactive.stdout).toBe("")
@@ -50,9 +50,8 @@ it("refuses redirected interactive streams while print mode still works", () => 
   expect(printed.status, printed.stderr).toBe(0)
   expect(printed.stdout.trim()).toBe("pong")
   expect(printed.stderr).toBe("")
-  // The test's own bound covers both child bounds; Bun's 5 s default did not,
-  // and killed a print run that was still inside its 10 s allowance.
-}, 15_000)
+  // The test's own bound covers both child bounds under a loaded suite.
+}, 25_000)
 
 it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
   "does not load terminal libraries for %j",

@@ -58,8 +58,8 @@ it("reads an agent's body and refuses a module's", async () => {
 }, 30_000)
 
 it("keeps an agent's declared capabilities when it also declares flows", async () => {
-  // The registry widens a delegating markdown flow to `*`; the agent's envelope must not widen with it.
-  expect((await port.discover()).find((flow) => flow.name === "scout")?.capabilities).toEqual(["*"])
+  // The registry keeps the declaration as the ceiling of a delegate grant.
+  expect((await port.discover()).find((flow) => flow.name === "scout")?.capabilities).toEqual(["fs:read:**"])
   expect((await port.body("scout")).capabilities).toEqual(["fs:read:**"])
   expect((await port.body("review")).capabilities).toEqual(["fs:read:**"])
 }, 30_000)

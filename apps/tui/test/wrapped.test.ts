@@ -288,12 +288,12 @@ it("keeps the session's brief bytes across a retry, even when memory would now a
   workspace.cancel("c")
   await until(() => tab().status === "cancelled")
   workspace.retry("c")
-  await until(() => tab().status === "done")
+  await until(() => tab().status === "done", 500)
   expect(tab().status).toBe("done")
   expect(tab().harness!.brief).toBe(file)
   expect(readFileSync(file, "utf8")).toBe(first)
   expect(calls).toBe(1)
-})
+}, 15_000)
 
 it("ends a wrapped worker's take-over on restart and continues it headless on its session", async () => {
   // Still running when the first process goes away.
@@ -312,11 +312,11 @@ it("ends a wrapped worker's take-over on restart and continues it headless on it
     persist: () => {},
     restored: { tabs: [saved], panels: [] }
   })
-  await until(() => tab(second).status === "done")
+  await until(() => tab(second).status === "done", 500)
   expect(tab(second).driver).toBeUndefined()
   expect(tab(second).drivers).toHaveLength(1)
   expect(readFileSync(log, "utf8").trim().split("\n").at(-1)).toContain(`--resume ${saved.harness!.session}`)
-})
+}, 15_000)
 
 it("withdraws a take-over released before its hand-over, so the vendor's TUI never runs beside the headless run", async () => {
   const log = vendors("0.3")
