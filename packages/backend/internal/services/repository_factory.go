@@ -102,6 +102,9 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 // Reconciliation still retires old factory registrations before returning it.
 var ErrFactoryNeedsOwner = errors.New("factory rules need a configured organization owner")
 
+// ErrFactoryNeedsWorkspace is retryable once the configured owner has a workspace.
+var ErrFactoryNeedsWorkspace = errors.New("factory needs the owner's workspace")
+
 // ReconcileFactoryRules runs after repository main is verified at revision.
 // It serializes reconciliation and retires removed rules; retries of identical
 // source/configuration never reactivate paused rows.
@@ -167,16 +170,28 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	if !ownerID.Valid {
 		rules = nil
 	}
+	// A person's pause updates these same rows. Lock before reading its state so
+	// neither suspension nor recovery can overwrite a concurrent pause using a
+	// stale enabled flag or automatic-suspension marker.
+	if _, err := tx.Exec(ctx, `SELECT id FROM repository_job_registrations WHERE repository_id=$1 ORDER BY id FOR UPDATE`, repoID); err != nil {
+		return err
+	}
 	existing, err := q.ListRepositoryJobRegistrations(ctx, repoID)
 	if err != nil {
 		return err
 	}
 	keep := map[string]bool{}
+	var workspace db.Workspace
+	var workspaceError error
 	if len(rules) > 0 {
-		workspace, err := q.GetActiveWorkspaceForUserRepo(ctx, db.GetActiveWorkspaceForUserRepoParams{RepositoryID: repoID, UserID: ownerID.Int64})
-		if err != nil {
-			return fmt.Errorf("factory needs the owner's workspace: %w", err)
+		workspace, err = q.GetActiveWorkspaceForUserRepo(ctx, db.GetActiveWorkspaceForUserRepoParams{RepositoryID: repoID, UserID: ownerID.Int64})
+		if errors.Is(err, pgx.ErrNoRows) {
+			workspaceError = fmt.Errorf("%w: %w", ErrFactoryNeedsWorkspace, err)
+		} else if err != nil {
+			return err
 		}
+	}
+	if workspaceError == nil {
 		for _, rule := range rules {
 			keep[rule.job] = true
 			input := rule.input
@@ -186,7 +201,15 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 			for _, old := range existing {
 				if old.Job == rule.job && old.Mode == "enabled" {
 					input.Revision = old.Revision + 1
-					unchanged = old.Digest == input.Digest && old.WorkspaceID == workspace.ID && old.UserID == ownerID.Int64
+					var previous struct {
+						OwnerSuspended bool `json:"factory_owner_suspended"`
+					}
+					if err := json.Unmarshal(old.Configuration, &previous); err != nil {
+						return errors.New("invalid stored factory registration")
+					}
+					intentionallyPaused := !old.Enabled && !previous.OwnerSuspended
+					sameOwnerWorkspace := old.WorkspaceID == workspace.ID && old.UserID == ownerID.Int64
+					unchanged = old.Digest == input.Digest && !previous.OwnerSuspended && (intentionallyPaused || sameOwnerWorkspace)
 				}
 			}
 			if unchanged {
@@ -211,8 +234,15 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 		if json.Unmarshal(old.Configuration, &input) != nil {
 			return errors.New("invalid stored factory registration")
 		}
-		if input.FactoryRevision != "" && !keep[old.Job] {
-			if _, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repoID, Job: old.Job}); err != nil {
+		if input.FactoryRevision == "" || keep[old.Job] {
+			continue
+		}
+		// Missing execution prerequisites must stop obsolete owners immediately.
+		// Preserve the distinction between automatic suspension and a person's pause.
+		if old.Enabled {
+			if _, err = tx.Exec(ctx, `UPDATE repository_job_registrations
+				SET enabled=false, configuration=configuration || '{"factory_owner_suspended":true}'::jsonb, updated_at=now()
+				WHERE id=$1`, old.ID); err != nil {
 				return err
 			}
 		}
@@ -223,7 +253,7 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	if declaredWithoutOwner {
 		return ErrFactoryNeedsOwner
 	}
-	return nil
+	return workspaceError
 }
 
 // reconcileLocalFactory reads committed data at the exact folded main. The stack
@@ -254,4 +284,25 @@ func (s *MythicalService) reconcileLocalFactory(ctx context.Context, r *mythical
 		}
 	}
 	return s.reconcileFactory(ctx, r.row.RepositoryID, r.mainTip, projection)
+}
+
+// localFactoryOutcome keeps an injected reconciler's errors and panics from
+// interrupting stack work, while retaining a separate durable receipt.
+func (s *MythicalService) localFactoryOutcome(ctx context.Context, r *mythicalRun) (state, message string) {
+	state = "failed"
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			state, message = "failed", "internal factory error"
+			s.logger.ErrorContext(ctx, "mythical.factory_panic", "repository_id", r.row.RepositoryID, "panic", recovered)
+		}
+	}()
+	err := s.reconcileLocalFactory(ctx, r)
+	switch {
+	case errors.Is(err, ErrFactoryNeedsOwner):
+		return "skipped", err.Error()
+	case err != nil:
+		return "failed", sanitizeMirrorError(err, r.bridge.URL())
+	default:
+		return "reconciled", ""
+	}
 }

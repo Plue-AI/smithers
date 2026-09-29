@@ -1240,7 +1240,7 @@ func (q *Queries) LockRepositoryJobTrial(ctx context.Context, arg LockRepository
 }
 
 const pauseRepositoryJob = `-- name: PauseRepositoryJob :many
-UPDATE repository_job_registrations SET enabled=false, configuration=configuration - 'factory_unapproved', updated_at=now()
+UPDATE repository_job_registrations SET enabled=false, configuration=configuration - 'factory_unapproved' - 'factory_owner_suspended', updated_at=now()
 WHERE repository_id=$1 AND job=$2 RETURNING id, repository_id, workspace_id, user_id, job, mode, revision, digest, source_revision, flow_id, configuration, enabled, trial_issue_number, trial_source, schedule, next_fire_at, activated_at, created_at, updated_at
 `
 

@@ -17,20 +17,22 @@ import (
 // names and shapes are @smthrs/rpc/Mythical's MythicalStackSchema exactly.
 
 type MythicalStackView struct {
-	Repository string               `json:"repository"`
-	State      string               `json:"state"`
-	Reason     string               `json:"reason,omitempty"`
-	Generation int64                `json:"generation"`
-	Tip        *MythicalTipView     `json:"tip,omitempty"`
-	LandedMain string               `json:"landedMain,omitempty"`
-	MainBehind bool                 `json:"mainBehind"`
-	Changes    []MythicalChangeView `json:"changes"`
-	Items      []MythicalItemView   `json:"items"`
-	Lanes      []MythicalLaneView   `json:"lanes"`
-	Limits     MythicalLimitsView   `json:"limits"`
-	LastError  string               `json:"lastError,omitempty"`
-	UpdatedAt  string               `json:"updatedAt,omitempty"`
-	Wiki       *MythicalWikiView    `json:"wiki,omitempty"`
+	FactoryState string               `json:"factoryState,omitempty"`
+	FactoryError string               `json:"factoryError,omitempty"`
+	Repository   string               `json:"repository"`
+	State        string               `json:"state"`
+	Reason       string               `json:"reason,omitempty"`
+	Generation   int64                `json:"generation"`
+	Tip          *MythicalTipView     `json:"tip,omitempty"`
+	LandedMain   string               `json:"landedMain,omitempty"`
+	MainBehind   bool                 `json:"mainBehind"`
+	Changes      []MythicalChangeView `json:"changes"`
+	Items        []MythicalItemView   `json:"items"`
+	Lanes        []MythicalLaneView   `json:"lanes"`
+	Limits       MythicalLimitsView   `json:"limits"`
+	LastError    string               `json:"lastError,omitempty"`
+	UpdatedAt    string               `json:"updatedAt,omitempty"`
+	Wiki         *MythicalWikiView    `json:"wiki,omitempty"`
 }
 
 type MythicalTipView struct {
@@ -218,6 +220,7 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	view.State, view.Reason, view.Generation, view.LandedMain = stack.State, stack.Reason, stack.Generation, stack.LandedMain
 	view.Limits.MaxParallel = stack.MaxParallel
 	view.LastError = stack.LastError
+	view.FactoryState, view.FactoryError = stack.FactoryState, stack.FactoryError
 	if stack.TipCommit != "" {
 		view.Tip = &MythicalTipView{ChangeID: stack.TipChange, CommitID: stack.TipCommit}
 	}

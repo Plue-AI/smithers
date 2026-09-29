@@ -14,14 +14,14 @@ import (
 
 const mythicalStackColumns = `s.repository_id, s.actor_user_id, s.state, s.reason, s.reset_generation, s.bootstrap_depth, s.max_parallel, s.tip_commit,
 s.tip_change, s.notes_commit, s.landed_main, s.generation, s.requested_generation, s.processed_generation, s.claimed_generation,
-s.claim, s.running, s.lease_expires_at, s.next_attempt_at, s.attempts, s.pending_op, s.last_error, s.created_at, s.updated_at`
+s.claim, s.running, s.lease_expires_at, s.next_attempt_at, s.attempts, s.pending_op, s.last_error, s.created_at, s.updated_at, s.factory_state, s.factory_error`
 
 func scanMythicalStack(row interface{ Scan(...any) error }) (MythicalStack, error) {
 	var s MythicalStack
 	var pending []byte
 	err := row.Scan(&s.RepositoryID, &s.ActorUserID, &s.State, &s.Reason, &s.ResetGeneration, &s.BootstrapDepth, &s.MaxParallel, &s.TipCommit,
 		&s.TipChange, &s.NotesCommit, &s.LandedMain, &s.Generation, &s.RequestedGeneration, &s.ProcessedGeneration, &s.ClaimedGeneration,
-		&s.Claim, &s.Running, &s.LeaseExpiresAt, &s.NextAttemptAt, &s.Attempts, &pending, &s.LastError, &s.CreatedAt, &s.UpdatedAt)
+		&s.Claim, &s.Running, &s.LeaseExpiresAt, &s.NextAttemptAt, &s.Attempts, &pending, &s.LastError, &s.CreatedAt, &s.UpdatedAt, &s.FactoryState, &s.FactoryError)
 	if len(pending) > 0 {
 		s.PendingOp = json.RawMessage(pending)
 	}
@@ -166,6 +166,8 @@ func (q *Queries) SetMythicalPendingOp(ctx context.Context, repositoryID, claim 
 // A prepared write survives every finish except the one that confirmed it
 // (ClearPendingOp), so a crash or a transient failure never loses evidence.
 type FinishMythicalStackParams struct {
+	FactoryState string
+	FactoryError string
 	RepositoryID int64
 	Claim        int64
 	State        string
@@ -203,6 +205,8 @@ SET processed_generation = CASE WHEN $9 THEN processed_generation ELSE GREATEST(
     generation = generation + CASE WHEN $12 THEN 1 ELSE 0 END,
     pending_op = CASE WHEN $13 THEN NULL ELSE pending_op END,
     reset_generation = CASE WHEN $14 > 0 AND reset_generation = $14 THEN 0 ELSE reset_generation END,
+    factory_state = CASE WHEN $16 <> '' THEN $16 WHEN $8 <> '' AND $8 <> landed_main THEN '' ELSE factory_state END,
+    factory_error = CASE WHEN $16 <> '' THEN $17 WHEN $8 <> '' AND $8 <> landed_main THEN '' ELSE factory_error END,
     running = false,
     lease_expires_at = NULL,
     updated_at = NOW()
@@ -216,7 +220,7 @@ func (q *Queries) FinishMythicalStack(ctx context.Context, arg FinishMythicalSta
 	var generation int64
 	err := q.db.QueryRow(ctx, finishMythicalStack, arg.RepositoryID, arg.Claim, arg.State, strings.TrimSpace(arg.Reason), arg.TipCommit,
 		arg.TipChange, arg.NotesCommit, arg.LandedMain, arg.Failed, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.Changed,
-		arg.ClearPendingOp, arg.ResetGeneration, arg.Held).Scan(&generation)
+		arg.ClearPendingOp, arg.ResetGeneration, arg.Held, arg.FactoryState, arg.FactoryError).Scan(&generation)
 	return generation, err
 }
 

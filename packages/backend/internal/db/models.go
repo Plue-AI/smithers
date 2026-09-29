@@ -1536,6 +1536,8 @@ type MythicalStack struct {
 	LastError           string             `json:"last_error"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	FactoryState        string             `json:"factory_state"`
+	FactoryError        string             `json:"factory_error"`
 }
 
 type MythicalWiki struct {

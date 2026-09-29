@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -205,6 +207,149 @@ func TestMythicalServiceBootstrapsFoldsAndServesTheSnapshot(t *testing.T) {
 	assert.Equal(t, row.Generation, again.Generation)
 }
 
+func TestMythicalLocalFactoryForOrganizationRecordsIndependentOutcome(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	pool := f.pool.(*pgxpool.Pool)
+	ctx := context.Background()
+	projectionJSON := `{"flows":[{"id":"assistant","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":12000,"milliseconds":600000}}],"on":[{"event":"issue_comment","flow":"assistant"}]}`
+	require.NoError(t, os.MkdirAll(filepath.Join(f.work, ".smithers"), 0o755))
+	f.commit("add local factory", gitHubMainPullFactoryPath, projectionJSON)
+	main := f.publish()
+	_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
+	require.NoError(t, err)
+	require.Equal(t, "active", f.poll().State)
+
+	orgName := "mythical-org-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	var org int64
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO organizations (name, lower_name, description, factory_owner_id) VALUES ($1, $1, '', $2) RETURNING id`, orgName, f.userID).Scan(&org))
+	_, err = f.pool.Exec(ctx, `INSERT INTO org_members (organization_id, user_id, role) VALUES ($1, $2, 'owner')`, org, f.userID)
+	require.NoError(t, err)
+	moveRepositoryForTest(t, pool, f.repoID, nil, &org)
+	t.Cleanup(func() {
+		moveRepositoryForTest(t, pool, f.repoID, &f.userID, nil)
+		_, _ = f.pool.Exec(context.Background(), `DELETE FROM organizations WHERE id=$1`, org)
+	})
+
+	calls := 0
+	f.service.reconcileFactory = func(_ context.Context, repo int64, revision string, projection FactoryProjection) error {
+		calls++
+		require.Equal(t, f.repoID, repo)
+		require.Equal(t, main, revision)
+		require.Len(t, projection.On, 1)
+		if calls == 2 {
+			return ErrFactoryNeedsOwner
+		}
+		if calls == 3 {
+			return errors.New("factory unavailable")
+		}
+		if calls == 4 {
+			panic("factory panic")
+		}
+		return nil
+	}
+
+	f.service.MainMoved(ctx, f.repoID)
+	configured := f.poll()
+	require.Equal(t, 1, calls, "organization repositories use the local factory path")
+	require.Equal(t, "active", configured.State)
+	require.Equal(t, main, configured.LandedMain)
+	require.Equal(t, "reconciled", configured.FactoryState)
+	require.Empty(t, configured.FactoryError)
+
+	_, err = f.pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=NULL WHERE id=$1`, org)
+	require.NoError(t, err)
+	f.service.MainMoved(ctx, f.repoID)
+	skipped := f.poll()
+	require.Equal(t, 2, calls, "missing owner still reconciles, so former factory rules can retire")
+	require.Equal(t, "active", skipped.State)
+	require.Equal(t, main, skipped.LandedMain)
+	require.Empty(t, skipped.LastError)
+	require.Equal(t, "skipped", skipped.FactoryState)
+	require.ErrorContains(t, ErrFactoryNeedsOwner, skipped.FactoryError)
+
+	f.service.MainMoved(ctx, f.repoID)
+	failed := f.poll()
+	require.Equal(t, 3, calls)
+	require.Equal(t, "active", failed.State, "factory errors must not block the stack")
+	require.Empty(t, failed.LastError)
+	require.Equal(t, "failed", failed.FactoryState)
+	require.Contains(t, failed.FactoryError, "factory unavailable")
+	view, err := f.service.Snapshot(ctx, f.repoID, orgName+"/smithers", main, MythicalViewer{})
+	require.NoError(t, err)
+	require.Equal(t, "failed", view.FactoryState)
+	require.Contains(t, view.FactoryError, "factory unavailable")
+
+	f.service.MainMoved(ctx, f.repoID)
+	panicked := f.poll()
+	require.Equal(t, 4, calls)
+	require.Equal(t, "active", panicked.State)
+	require.Empty(t, panicked.LastError)
+	require.Equal(t, "failed", panicked.FactoryState)
+	require.Equal(t, "internal factory error", panicked.FactoryError)
+
+	_, err = f.pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=$2 WHERE id=$1`, org, f.userID)
+	require.NoError(t, err)
+	workspace := uuid.NewString()
+	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status) VALUES ($1, $2, $3, 'running')`, workspace, f.repoID, f.userID)
+	require.NoError(t, err)
+	jobs := NewRepositoryJobService(db.New(f.pool), nil, pool)
+	f.service.SetFactoryReconciler(jobs.ReconcileFactoryRules)
+	f.service.MainMoved(ctx, f.repoID)
+	recovered := f.poll()
+	require.Equal(t, 4, calls)
+	require.Equal(t, "reconciled", recovered.FactoryState)
+	require.Empty(t, recovered.FactoryError)
+	registrations, err := db.New(f.pool).ListRepositoryJobRegistrations(ctx, f.repoID)
+	require.NoError(t, err)
+	require.Len(t, registrations, 1)
+	require.True(t, registrations[0].Enabled)
+	require.Equal(t, f.userID, registrations[0].UserID)
+	require.Equal(t, workspace, registrations[0].WorkspaceID)
+	view, err = f.service.Snapshot(ctx, f.repoID, orgName+"/smithers", main, MythicalViewer{})
+	require.NoError(t, err)
+	require.Equal(t, "reconciled", view.FactoryState)
+	require.Empty(t, view.FactoryError)
+
+	_, err = f.pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=NULL WHERE id=$1`, org)
+	require.NoError(t, err)
+	f.service.MainMoved(ctx, f.repoID)
+	withoutOwner := f.poll()
+	require.Equal(t, "active", withoutOwner.State)
+	require.Empty(t, withoutOwner.LastError)
+	require.Equal(t, "skipped", withoutOwner.FactoryState)
+	require.ErrorContains(t, ErrFactoryNeedsOwner, withoutOwner.FactoryError)
+	registrations, err = db.New(f.pool).ListRepositoryJobRegistrations(ctx, f.repoID)
+	require.NoError(t, err)
+	require.Len(t, registrations, 1)
+	require.False(t, registrations[0].Enabled, "the local no-owner pass retires factory registrations")
+}
+
+func TestMythicalLocalFactoryFailureDoesNotHoldItemsOrWiki(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetWiki(&fakeWikiStore{pages: map[string]WikiPageResponse{}})
+	o.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error {
+		return errors.New("factory unavailable")
+	})
+	main := o.declareWiki()
+	stack := o.wake() // First fold the new main into the stack.
+	require.Equal(t, main, stack.LandedMain)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{
+		Number: 81, Title: "Update docs", URL: "https://github.com/smithersai/smithers/issues/81",
+		State: "open", TextByMaintainer: true, Body: "Update docs", Labels: []string{"todo"},
+	}, maintainerTodo))
+	require.Equal(t, "queued", o.item(81).State)
+	stack = o.wake()
+	require.Equal(t, "active", stack.State)
+	require.Empty(t, stack.LastError)
+	require.Equal(t, "failed", stack.FactoryState)
+	require.Contains(t, stack.FactoryError, "factory unavailable")
+	require.Equal(t, "running", o.item(81).State, "the queued item must launch despite factory failure")
+	require.Equal(t, "running", o.wiki().State, "the wiki must refresh despite factory failure")
+	require.NotEmpty(t, o.launcher.last("coding/request").RequestID)
+	require.NotEmpty(t, o.launcher.last(mythicalWikiFlow).RequestID)
+}
+
 func TestMythicalServiceRecoversAPushItCouldNotConfirm(t *testing.T) {
 	f := newMythicalServiceFixture(t)
 	ctx := context.Background()
@@ -388,12 +533,16 @@ func TestMythicalFactoryReconcilesLocalMainAndRetriesFailure(t *testing.T) {
 	require.NoError(t, err)
 	f.poll() // Bootstrap first; factory reconciliation follows on the active stack.
 	row := f.poll()
-	require.Contains(t, row.LastError, "temporarily unavailable")
+	require.Equal(t, "active", row.State)
+	require.Empty(t, row.LastError)
+	require.Equal(t, "failed", row.FactoryState)
+	require.Contains(t, row.FactoryError, "temporarily unavailable")
 	require.Empty(t, f.hostRef("refs/heads/unrelated"))
-	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET next_attempt_at=NOW() WHERE repository_id=$1`, f.repoID)
-	require.NoError(t, err)
+	f.service.MainMoved(ctx, f.repoID)
 	row = f.poll()
 	require.Empty(t, row.LastError)
+	require.Equal(t, "reconciled", row.FactoryState)
+	require.Empty(t, row.FactoryError)
 	require.Equal(t, 2, calls)
 	require.Equal(t, main, f.hostRef("refs/heads/main"))
 }

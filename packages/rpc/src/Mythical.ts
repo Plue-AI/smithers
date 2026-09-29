@@ -534,6 +534,8 @@ export const MythicalStackSchema = z.object({
   lanes: z.array(MythicalLaneSchema),
   limits: z.object({ maxParallel: z.number().int().positive() }),
   lastError: z.string().optional(),
+  factoryState: z.enum(["reconciled", "skipped", "failed", "empty"]).optional(),
+  factoryError: z.string().optional(),
   updatedAt: z.string().optional(),
   /** Absent while the repository declares no wiki. */
   wiki: MythicalWikiSchema.optional()

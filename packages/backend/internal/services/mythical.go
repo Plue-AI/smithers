@@ -204,11 +204,12 @@ type mythicalAdoption struct {
 
 // mythicalOutcome is what one run records.
 type mythicalOutcome struct {
-	state, reason, err string
-	failed             bool
-	heldFor            time.Duration // the repository was held: try again then
-	clearPending       bool          // the prepared write is settled or discarded
-	op                 *mythicalOp   // a confirmed write to finalize
+	state, reason, err         string
+	factoryState, factoryError string
+	failed                     bool
+	heldFor                    time.Duration // the repository was held: try again then
+	clearPending               bool          // the prepared write is settled or discarded
+	op                         *mythicalOp   // a confirmed write to finalize
 }
 
 func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStack) {
@@ -262,9 +263,11 @@ func (s *MythicalService) finish(ctx context.Context, row db.MythicalStack, outc
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
+	factoryChanged := outcome.factoryState != "" && (outcome.factoryState != row.FactoryState || outcome.factoryError != row.FactoryError)
 	params := db.FinishMythicalStackParams{RepositoryID: row.RepositoryID, Claim: row.Claim, State: outcome.state,
 		Reason: outcome.reason, Failed: outcome.failed, Error: outcome.err, BackoffSeconds: gitHubMainPullBackoff(row.Attempts).Seconds(),
-		ClearPendingOp: outcome.clearPending, Changed: outcome.state != "" && outcome.state != row.State}
+		FactoryState: outcome.factoryState, FactoryError: outcome.factoryError,
+		ClearPendingOp: outcome.clearPending, Changed: (outcome.state != "" && outcome.state != row.State) || factoryChanged}
 	if outcome.heldFor > 0 {
 		// Still due, after the hold's delay, with no attempt spent and no error.
 		params.Failed, params.Held, params.BackoffSeconds = true, true, outcome.heldFor.Seconds()
@@ -388,16 +391,15 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 			short(r.tip), short(row.TipCommit))
 	}
 	if r.mainTip == row.LandedMain {
-		// The stack is current: reconcile its owner-approved factory before work.
-		if s.reconcileFactory != nil && repository.UserID.Valid {
-			if err := s.reconcileLocalFactory(ctx, r); err != nil {
-				return mythicalFailed("reconcile factory: %v", err)
-			}
+		// Factory receipts are independent of stack and main processing.
+		outcome := mythicalOutcome{state: "active", clearPending: true}
+		if s.reconcileFactory != nil {
+			outcome.factoryState, outcome.factoryError = s.localFactoryOutcome(ctx, r)
 		}
 		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
-		return mythicalOutcome{state: "active", clearPending: true}
+		return outcome
 	}
 	return s.fold(ctx, r)
 }

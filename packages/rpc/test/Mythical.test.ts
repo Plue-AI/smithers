@@ -132,6 +132,18 @@ describe("the mythical stack contract", () => {
     expect(absent.tip).toBeUndefined()
   })
 
+  test("factory reconciliation remains visible apart from stack progress", () => {
+    for (const factoryState of ["reconciled", "skipped", "failed", "empty"] as const) {
+      const receipt = { ...snapshot, state: "active" as const, factoryState, factoryError: "owner workspace unavailable" }
+      expect(MythicalStackSchema.parse(receipt)).toMatchObject({
+        state: "active",
+        factoryState,
+        factoryError: "owner workspace unavailable"
+      })
+    }
+    expect(MythicalStackSchema.safeParse({ ...snapshot, factoryState: "complete" }).success).toBe(false)
+  })
+
   test("a lane's account decodes without its label for a reader, and never as an unknown provider", () => {
     const lane = {
       index: 0,
