@@ -70,7 +70,9 @@ export const Attrs = Schema.Struct({
   /** The hand-written pnpm workspace definition and the manifests it selects. @default null */
   workspaceManifest: Schema.NullOr(Input.PnpmWorkspace).pipe(
     Schema.withConstructorDefault(Effect.succeed(null))
-  )
+  ),
+  /** Patch files used by a pnpm workspace's patchedDependencies. */
+  patches: Schema.Array(Input.File).pipe(Schema.withConstructorDefault(Effect.succeed([])))
 })
 
 /**
@@ -96,6 +98,8 @@ export const inputsFor = (attrs: Attrs): ReadonlyArray<Input.Declared> => [
   Input.file(attrs.lockfilePath ?? PackageManager.lockfileName(attrs.packageManager)),
   Input.file(".npmrc"),
   Input.file("package.json"),
+  Input.file(".pnpmfile.mjs"),
+  ...attrs.patches,
   ...(attrs.workspaceManifest === null ? [] : [attrs.workspaceManifest])
 ]
 

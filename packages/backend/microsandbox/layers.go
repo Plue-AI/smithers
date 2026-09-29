@@ -774,30 +774,6 @@ type indexTarget struct {
 	} `json:"inputs"`
 }
 
-var patchPattern = regexp.MustCompile(`(?m)^\s+\S.*:\s*['"]?([^'"\s]+\.patch)['"]?\s*$`)
-
-// patchedDependencies lists the patch files a pnpm-workspace.yaml's
-// patchedDependencies block names.
-func patchedDependencies(workspace []byte) []string {
-	var patches []string
-	inBlock := false
-	for _, line := range strings.Split(string(workspace), "\n") {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "patchedDependencies:"):
-			inBlock = true
-		case inBlock && trimmed != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t"):
-			inBlock = false
-		case inBlock:
-			if match := patchPattern.FindStringSubmatch(line); match != nil {
-				patches = append(patches, match[1])
-			}
-		}
-	}
-	sort.Strings(patches)
-	return patches
-}
-
 // dprintPlugins lists the distinct plugin URLs the dprint configs name,
 // keeping a checksummed spelling when one exists.
 func dprintPlugins(node *dependencyNode, inputs map[string][]byte) []string {
@@ -907,15 +883,6 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 							return layer, nil, err
 						}
 					}
-					// A pnpm workspace's patchedDependencies are inputs of its
-					// install: pnpm refuses to fetch without the patch files.
-					if input.Kind == "pnpm-workspace" {
-						for _, patch := range patchedDependencies(inputs[strings.TrimPrefix(input.Path, "//")]) {
-							if err := addFile(node, patch); err != nil {
-								return layer, nil, err
-							}
-						}
-					}
 				}
 				nodes[node.Label] = node
 			case target.Rule == "NodeBinary" && declares(target, "pnpm-lock.yaml"):
@@ -990,14 +957,8 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 		if node.Rule != "Install" {
 			continue
 		}
-		// pnpm records its hook's checksum in the lockfile and refuses a
-		// frozen install without it; the build package's install measure
-		// keys on it too.
-		for _, hook := range []string{".pnpmfile.cjs", ".pnpmfile.mjs"} {
-			if err := addFile(node, hook); err != nil {
-				return layer, nil, err
-			}
-		}
+		// Workspace member manifests still come from lockfile importers until
+		// the declaration index enumerates the members of pnpm-workspace inputs.
 		for _, importer := range lockImporters(inputs["pnpm-lock.yaml"]) {
 			if importer == "." {
 				continue

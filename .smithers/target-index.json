@@ -495,6 +495,34 @@
       },
       {
         "kind": "file",
+        "path": "patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__aws@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__axiom@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__cloudflare@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__core@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
+        "path": "patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch"
+      },
+      {
+        "kind": "file",
         "path": "pnpm-lock.yaml"
       },
       {
@@ -504,6 +532,10 @@
       {
         "kind": "file",
         "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": ".pnpmfile.mjs"
       }
     ],
     "outputs": [],
@@ -16491,6 +16523,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/asks.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/budget.ts"
       },
       {
@@ -16575,6 +16611,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/inbox.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/key-dispatch.ts"
       },
       {
@@ -16656,6 +16696,10 @@
       {
         "kind": "file",
         "path": "apps/tui/src/smithers.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/spend.ts"
       },
       {
         "kind": "file",
@@ -20500,6 +20544,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/jj/src/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/jj/src/internal/gitPatchPaths.ts"
       },
       {
         "kind": "file",
@@ -27841,6 +27889,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-builtin-routes.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-runtime-bridge.test.ts"
       },
       {
@@ -28308,6 +28360,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-request-coordinator.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/factory-todo.test.ts"
       },
       {
         "kind": "file",

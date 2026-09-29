@@ -7,11 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPatchedDependencies(t *testing.T) {
-	workspace := []byte("packages:\n  - a\npatchedDependencies:\n  '@x/y@1.0.0': patches/@x__y@1.0.0.patch\n  z@2.0.0: \"patches/z@2.0.0.patch\"\nonlyBuilt:\n  - q\n")
-	require.Equal(t, []string{"patches/@x__y@1.0.0.patch", "patches/z@2.0.0.patch"}, patchedDependencies(workspace))
-}
-
 func fakeRepository(files map[string]string) func(string) ([]byte, bool, error) {
 	return func(path string) ([]byte, bool, error) {
 		contents, ok := files[path]
@@ -44,10 +39,10 @@ func TestToolchainRecipeReadsRepositoryPins(t *testing.T) {
 // input changes the dependency key; an unrelated file does not.
 
 func TestDependencyKeyFollowsDeclaredInputs(t *testing.T) {
-	index := `[{"label":"//:nodeModules","rule":"Install","inputs":[{"kind":"pnpm-workspace","path":"pnpm-workspace.yaml"},{"kind":"file","path":"pnpm-lock.yaml"}]},
+	index := `[{"label":"//:nodeModules","rule":"Install","inputs":[{"kind":"pnpm-workspace","path":"pnpm-workspace.yaml"},{"kind":"file","path":"pnpm-lock.yaml"},{"kind":"file","path":".pnpmfile.mjs"},{"kind":"file","path":"patches/fix.patch"}]},
 	{"label":"//:backendGoModules","rule":"Go.ModDownload","inputs":[{"kind":"file","path":"go.mod"},{"kind":"file","path":"go.sum"}]},
 	{"label":"//:docs","rule":"Generate","inputs":[{"kind":"file","path":"README.md"}]}]`
-	files := map[string]string{".smithers/target-index.json": index, "pnpm-workspace.yaml": "packages: []\n", "pnpm-lock.yaml": "lock-1\n  playwright-core@1.62.1:\n",
+	files := map[string]string{".smithers/target-index.json": index, "pnpm-workspace.yaml": "packages: []\n", "pnpm-lock.yaml": "lock-1\n  playwright-core@1.62.1:\n", ".pnpmfile.mjs": "hook", "patches/fix.patch": "patch",
 		"go.mod": "module x\n", "go.sum": "sum\n", "README.md": "one"}
 	key := func() string {
 		recipe, _, err := dependencyRecipe("toolchain", fakeRepository(files))
@@ -57,6 +52,12 @@ func TestDependencyKeyFollowsDeclaredInputs(t *testing.T) {
 		return value
 	}
 	base := key()
+	files["patches/fix.patch"] = "changed patch"
+	require.NotEqual(t, base, key(), "a declared patch must change the install key")
+	files["patches/fix.patch"] = "patch"
+	files[".pnpmfile.mjs"] = "changed hook"
+	require.NotEqual(t, base, key(), "a declared hook must change the install key")
+	files[".pnpmfile.mjs"] = "hook"
 	files["README.md"] = "two"
 	require.Equal(t, base, key(), "a file outside the install nodes changed the key")
 	files["go.sum"] = "sum-2\n"

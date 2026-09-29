@@ -86,7 +86,16 @@ const lockfile = Smithers.Lockfile({
 const nodeModules = Smithers.Install({
   lockfilePath,
   lockfile,
-  workspaceManifest: workspace
+  workspaceManifest: workspace,
+  patches: [
+    Smithers.file("patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch"),
+    Smithers.file("patches/@distilled.cloud__aws@1.0.0-rc.8.patch"),
+    Smithers.file("patches/@distilled.cloud__axiom@1.0.0-rc.8.patch"),
+    Smithers.file("patches/@distilled.cloud__cloudflare@1.0.0-rc.8.patch"),
+    Smithers.file("patches/@distilled.cloud__core@1.0.0-rc.8.patch"),
+    Smithers.file("patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch"),
+    Smithers.file("patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch")
+  ]
 })
 
 /**

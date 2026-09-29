@@ -236,11 +236,17 @@ describe("Install", () => {
   it("keys on the lockfile, npmrc, and manifest, and on a declared workspace definition", () => {
     const attrs = Target.metadata(Install.Install({ packageManager })).attrs as Install.Attrs
     expect(Install.inputsFor(attrs).map((input) => (input as Input.File).path))
-      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json"])
+      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json", ".pnpmfile.mjs"])
     const withWorkspace = Target.metadata(
       Install.Install({ packageManager, workspaceManifest: Input.pnpmWorkspace("pnpm-workspace.yaml") })
     ).attrs as Install.Attrs
-    expect(Install.inputsFor(withWorkspace)).toHaveLength(4)
+    expect(Install.inputsFor(withWorkspace)).toHaveLength(5)
+    const withPatch = Target.metadata(Install.Install({
+      packageManager,
+      patches: [Input.file("patches/fix.patch")]
+    })).attrs as Install.Attrs
+    expect(Install.inputsFor(withPatch).map((input) => (input as Input.File).path))
+      .toContain("patches/fix.patch")
   })
 })
 
