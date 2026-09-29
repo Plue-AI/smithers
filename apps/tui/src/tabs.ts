@@ -66,6 +66,10 @@ export const model = (seat: string, models: ReadonlyArray<Model>): string =>
   aliases.get(seat) ?? models.find((each) => each.seat === seat)?.label ??
     (seat.startsWith("replay:") ? "replay" : seat.slice(seat.indexOf(":") + 1))
 
+/** Who runs a worker: its wrapped harness (`claude`, `codex`), else its model's short name. */
+export const seatName = (tab: Pick<Tab, "seat" | "activeSeat" | "harness">, models: ReadonlyArray<Model>): string =>
+  tab.harness?.vendor ?? model(tab.activeSeat ?? tab.seat, models)
+
 /** From the request until settlement; a settled tab's clock stops. */
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>
   Math.max(0, (tab.endedAt ?? now) - tab.startedAt)

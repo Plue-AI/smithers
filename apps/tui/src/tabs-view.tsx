@@ -96,7 +96,7 @@ export function TabStrip(props: {
 
 /** `sol · 12.4s`, then the estimate while it runs: `sol · 12.4s ~3m`. */
 const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta: string): string =>
-  `${Tabs.model(tab.seat, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}${eta === "" ? "" : ` ${eta}`}`
+  `${Tabs.seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}${eta === "" ? "" : ` ${eta}`}`
 
 /** A worker's tab chip: glyph, title, model, clock and estimate. */
 export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta = ""): Chip => {

@@ -50,7 +50,7 @@ export const subagent = (
   return {
     title: tabTitle(tab),
     status: tab.status,
-    model: Tabs.model(tab.activeSeat ?? tab.seat, models),
+    model: Tabs.seatName(tab, models),
     startedAt: tab.startedAt,
     ...(tab.endedAt === undefined ? {} : { endedAt: tab.endedAt }),
     entries: cells.flatMap((cell): Array<SubagentCard.Entry> => [

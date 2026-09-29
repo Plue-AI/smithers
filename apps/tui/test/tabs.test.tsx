@@ -428,3 +428,12 @@ describe("WorkerView", () => {
     expect(actions).toEqual(["retry", "model"])
   })
 })
+
+describe("seat names", () => {
+  it("names a wrapped worker by its vendor and any other by its model", () => {
+    const base = { seat: "openai:gpt-6-sol" }
+    expect(Tabs.seatName(base, [])).toBe("sol")
+    expect(Tabs.seatName({ ...base, harness: { vendor: "claude" } }, [])).toBe("claude")
+    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6-astra" }, [])).toBe("astra")
+  })
+})
