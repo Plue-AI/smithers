@@ -474,25 +474,53 @@ def check_guest_prelude() -> None:
     assert umask in ("0022", "022"), umask
 
 
-def check_storage_limit() -> None:
-    """takens-embedding-lean asks for a 50 GiB disk; with suspended
-    workspaces' disks counted, the best sandbox host had 38.2 GB free and
-    the create waited on no_capacity for an hour. A disk over
-    PLUE_MAX_STORAGE_MB is unplaceable at once, like PLUE_MAX_CPUS."""
-    os.environ["PLUE_MAX_STORAGE_MB"] = "32768"
+def check_disk_request_preservation() -> None:
+    """TB4 51200-MB disk request preservation: pass the full disk to create
+    at an eligible limit; refuse a request above it before calling the CLI."""
+    previous = os.environ.get("PLUE_MAX_STORAGE_MB")
+    previous_repo = os.environ.get("PLUE_REPO")
+    os.environ["PLUE_MAX_STORAGE_MB"] = "51200"
+    os.environ["PLUE_REPO"] = "acme/bench"
     try:
         ops = plue_env._PlueOps()
         ops.logger = logging.getLogger("check")
         ops.session_id = "t__x__env"
         ops.task_env_config = types.SimpleNamespace(cpus=4, storage_mb=51200)
+        ops._plue_reserved = False
+        ops._plue_image = "task-image"
+        ops._plue_network = lambda: ("none", [])
+        ops._plue_ledger = lambda: None
+        calls = []
+
+        async def capture(*args, **kwargs):
+            calls.append(args)
+            return types.SimpleNamespace(stdout=b'{"id":"ws-1","status":"running"}')
+
+        ops._run = capture
+        asyncio.run(ops._plue_reserve())
+        assert len(calls) == 1, calls
+        args = calls[0]
+        assert args[:2] == ("workspace", "create") and args[args.index("--disk") + 1] == "51200", args
+        assert ops._workspace_id == "ws-1", ops._workspace_id
+
+        ops._plue_reserved = False
+        ops.task_env_config.storage_mb = 51201
         try:
             asyncio.run(ops._plue_reserve())
         except plue_env.PlueUnplaceable as error:
-            assert "51200" in str(error) and error.code == "unplaceable", error
+            assert error.code == "unplaceable" and "51201" in str(error) and "51200" in str(error), error
         else:
-            raise AssertionError("a 50 GiB disk is unplaceable on 38 GB hosts")
+            raise AssertionError("a disk beyond the eligible host limit must be refused")
+        assert len(calls) == 1, "unplaceable requests must not reach workspace create"
     finally:
-        os.environ.pop("PLUE_MAX_STORAGE_MB", None)
+        if previous is None:
+            os.environ.pop("PLUE_MAX_STORAGE_MB", None)
+        else:
+            os.environ["PLUE_MAX_STORAGE_MB"] = previous
+        if previous_repo is None:
+            os.environ.pop("PLUE_REPO", None)
+        else:
+            os.environ["PLUE_REPO"] = previous_repo
 
 
 def check_retried_attempts_are_kept() -> None:
@@ -963,7 +991,7 @@ if __name__ == "__main__":
     check_durable_exec_and_workdir()
     check_shim_durable_exec()
     check_guest_prelude()
-    check_storage_limit()
+    check_disk_request_preservation()
     check_retried_attempts_are_kept()
     check_guest_restart_watchdog()
     check_auth_denial_waits()
