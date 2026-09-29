@@ -40,7 +40,13 @@ const redaction = "[redacted]"
 /** Credentials in a process's environment (a check's build-cache read token),
  * which its retained output must never carry. */
 export const environmentSecrets = (environment: Readonly<Record<string, string>> | undefined): Array<string> =>
-  [...new Set(Object.entries(environment ?? {}).flatMap(([name, value]) => credentialName.test(name) && value.length >= 8 ? [value] : []))]
+  [
+    ...new Set(
+      Object.entries(environment ?? {}).flatMap(([name, value]) =>
+        credentialName.test(name) && value.length >= 8 ? [value] : []
+      )
+    )
+  ]
     .sort((a, b) => b.length - a.length)
 
 /** Replaces every secret in retained output. A truncated prefix can end inside

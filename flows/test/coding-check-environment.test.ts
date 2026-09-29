@@ -77,13 +77,21 @@ test("only repository checks add the cache credential to the allowlist", () => {
 
 test("a check's retained output never carries its cache credential", async () => {
   const token = "smithers_0123456789abcdef"
-  const environment = { PATH: process.env.PATH ?? "/usr/bin:/bin", SMITHERS_CACHE_TOKEN: token, SMITHERS_CACHE_READ_TOKEN: token }
+  const environment = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    SMITHERS_CACHE_TOKEN: token,
+    SMITHERS_CACHE_READ_TOKEN: token
+  }
   const measured = await Effect.runPromise(
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       return yield* runSourceProcess(
         { repositoryPath: "/", fs, environment },
-        ["/bin/sh", "-c", "echo \"token=$SMITHERS_CACHE_TOKEN\"; echo \"$SMITHERS_CACHE_READ_TOKEN\" >&2; echo \"$PATH\""],
+        [
+          "/bin/sh",
+          "-c",
+          "echo \"token=$SMITHERS_CACHE_TOKEN\"; echo \"$SMITHERS_CACHE_READ_TOKEN\" >&2; echo \"$PATH\""
+        ],
         "/",
         10_000
       )
