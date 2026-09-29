@@ -2022,7 +2022,8 @@ const issued = (
     // for the parked call, so Continue issues it again and Stop refuses it
     // here before it runs.
     const subject = JSON.stringify(identity)
-    if (refused === undefined && engine.guard !== undefined) yield* engine.guard.admit(subject)
+    const guarded = refused === undefined ? engine.guard : undefined
+    if (guarded !== undefined) yield* guarded.admit(subject)
     let bounded = false
     const settlement = refused ?? (yield* issue.pipe(
       Effect.timeoutOrElse({
@@ -2035,11 +2036,8 @@ const issued = (
       }),
       Effect.flatMap(Cell.decodeCallResult)
     ))
-    if (
-      refused === undefined && engine.guard !== undefined && settlement.outcome === "failure" &&
-      settlement.code === "timeout"
-    ) {
-      yield* engine.guard.trip({
+    if (guarded !== undefined && settlement.outcome === "failure" && settlement.code === "timeout") {
+      yield* guarded.trip({
         source: "tool-call",
         subject,
         limitMillis: bounded ? callMs : undefined,

@@ -497,6 +497,35 @@ describe("FlowBinding.make", () => {
     expect(Exit.isSuccess(exit) && exit.value.message).toBe("Flow echo failed.")
   })
 
+  it("reports a handler failure the binding recognises as its own timeout under the timeout code", async () => {
+    const binding = FlowBinding.make({
+      flow: echo,
+      handler: (input) => Effect.fail({ timedOut: input.text === "slow", detail: `${input.text} ran too long` }),
+      publicError: (error) => error.detail,
+      timedOut: (error) => error.timedOut
+    })
+
+    const slow = await Effect.runPromise(binding.run(call("echo", { text: "slow" })))
+    const busy = await Effect.runPromise(binding.run(call("echo", { text: "busy" })))
+
+    expect(slow).toStrictEqual(
+      new Cell.CallResult({
+        outcome: "failure",
+        value: null,
+        code: "timeout",
+        message: "Flow echo failed: slow ran too long"
+      })
+    )
+    expect(busy).toStrictEqual(
+      new Cell.CallResult({
+        outcome: "failure",
+        value: null,
+        code: "flow_failed",
+        message: "Flow echo failed: busy ran too long"
+      })
+    )
+  })
+
   it("bounds explicitly public handler failure text before it enters later frames", async () => {
     const binding = FlowBinding.make({
       flow: echo,

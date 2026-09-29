@@ -2717,3 +2717,242 @@ describe("durable completion decisions", () => {
     }
   )
 })
+
+describe("CellTurn timeout guard", () => {
+  /**
+   * A host guard that records what it was asked, in order, beside the calls
+   * the engine issued. `parks` is a guarded run: every trip fails with the park
+   * an operator's Continue or Stop later answers.
+   */
+  const guarding = (parks: boolean, stops: (subject: string) => boolean = () => false) => {
+    const log: Array<string> = []
+    const admitted: Array<string> = []
+    const tripped: Array<EngineLike.TimedOut> = []
+    const park = new HarnessError({ code: "suspended", message: "A timeout is waiting for Continue or Stop" })
+    const stop = new HarnessError({ code: "engine_failed", message: "The operator stopped this timeout" })
+    const guard: EngineLike.Guard = {
+      admit: (subject) =>
+        Effect.suspend(() => {
+          log.push(`admit ${subject}`)
+          admitted.push(subject)
+          return stops(subject) ? Effect.fail(stop) : Effect.void
+        }),
+      trip: (timeout) =>
+        Effect.suspend(() => {
+          log.push(`trip ${timeout.subject}`)
+          tripped.push(timeout)
+          return parks ? Effect.fail(park) : Effect.void
+        })
+    }
+    return { guard, log, admitted, tripped, park, stop }
+  }
+
+  /** The frame's attempt-zero marker names the cell digest every subject derives from. */
+  const frameSubjectOf = (records: ReadonlyArray<EngineLike.RecordBoundary<unknown>>): string => {
+    const marker = records.find((record) => record.name === "cell-frame")!
+    return JSON.stringify(marker.identity)
+  }
+  const callSubjectOf = (records: ReadonlyArray<EngineLike.RecordBoundary<unknown>>, ordinal: number): string => {
+    const marker = records.find((record) => record.name === "cell-frame")!
+    return JSON.stringify({
+      session: "session-1",
+      frame: 0,
+      boundary: `cell-call:${marker.identity.boundary.slice("cell-frame:".length)}:${ordinal}`
+    })
+  }
+
+  const callRun = async (options: {
+    readonly parks: boolean
+    readonly stops?: ((subject: string) => boolean) | undefined
+    readonly call: (call: Cell.Call) => Effect.Effect<Cell.CallResult, HarnessError>
+    readonly admit?: ((call: Cell.Call) => Effect.Effect<Cell.CallResult | undefined, HarnessError>) | undefined
+  }) => {
+    const cell = `const listed = await ctx.call("fs/list", { path: "." })
+       ctx.done(listed.ok === false ? listed.error.code : "listed")`
+    const model = ScriptedModel.make([emits(cell)])
+    const engine = ScriptedEngine.make(model.model, [])
+    const guard = guarding(options.parks, options.stops)
+    const stub = EngineLike.make({
+      ...engine.engine,
+      guard: guard.guard,
+      ...(options.admit === undefined ? {} : { admit: options.admit }),
+      call: (call) =>
+        Effect.suspend(() => {
+          guard.log.push("call")
+          engine.recorder.calls.push(call)
+          return options.call(call)
+        })
+    })
+    const observed = await collect(
+      { state: state({ maxFrames: 1 }), flows: [lister], limits: { callMs: 20 } },
+      { engine: EngineLike.layer(stub) }
+    )
+    return { ...observed, guard, records: engine.recorder.records }
+  }
+
+  it("parks a call cut off at the per-call ceiling with its exact limit and records nothing for it", async () => {
+    const observed = await callRun({ parks: true, call: () => Effect.never })
+    const frameSubject = frameSubjectOf(observed.records)
+    const callSubject = callSubjectOf(observed.records, 0)
+
+    expect(observed.failure).toBe(observed.guard.park)
+    expect(observed.guard.tripped).toEqual([{
+      source: "tool-call",
+      subject: callSubject,
+      limitMillis: 20,
+      message: Sandbox.callTimedOut("fs/list", 20).message
+    }])
+    // The frame and then the call are admitted under the subjects the trip
+    // names, and the call's admission comes before the call runs.
+    expect(observed.guard.log).toEqual([
+      `admit ${frameSubject}`,
+      `admit ${callSubject}`,
+      "call",
+      `trip ${callSubject}`
+    ])
+    // Continue must issue the call again: nothing settled it, and the frame
+    // never got past its attempt marker.
+    expect(observed.records.filter((record) => record.name === "cell-call")).toEqual([])
+    expect(observed.records.filter((record) => record.name === "cell-frame")).toHaveLength(1)
+    expect(of(observed.events, "resolved")).toEqual([])
+  })
+
+  it("parks a call that reports its own timeout with no limit and a message naming the flow", async () => {
+    const observed = await callRun({
+      parks: true,
+      call: () => Effect.succeed(new Cell.CallResult({ outcome: "failure", value: null, code: "timeout" }))
+    })
+    const callSubject = callSubjectOf(observed.records, 0)
+
+    expect(observed.failure).toBe(observed.guard.park)
+    expect(observed.guard.tripped).toHaveLength(1)
+    expect(observed.guard.tripped[0]).toStrictEqual({
+      source: "tool-call",
+      subject: callSubject,
+      limitMillis: undefined,
+      message: "Flow fs/list timed out."
+    })
+    expect(observed.guard.admitted.at(-1)).toBe(callSubject)
+    expect(observed.records.filter((record) => record.name === "cell-call")).toEqual([])
+  })
+
+  it("hands the cell its timeout and records it when the run's timeouts are not guarded", async () => {
+    const observed = await callRun({ parks: false, call: () => Effect.never })
+
+    expect(observed.failure).toBeUndefined()
+    expect(resolvedText(observed.events)).toBe("timeout")
+    expect(observed.guard.tripped.map((timeout) => timeout.limitMillis)).toEqual([20])
+    expect(observed.records.filter((record) => record.name === "cell-call")).toHaveLength(1)
+  })
+
+  it("fails the run with the guard's Stop before a stopped call is issued again", async () => {
+    const observed = await callRun({
+      parks: true,
+      stops: (subject) => subject.includes("cell-call:"),
+      call: () => Effect.succeed(new Cell.CallResult({ outcome: "success", value: "listed" }))
+    })
+    const frameSubject = frameSubjectOf(observed.records)
+    const callSubject = callSubjectOf(observed.records, 0)
+
+    expect(observed.failure).toBe(observed.guard.stop)
+    expect(observed.guard.log).toEqual([`admit ${frameSubject}`, `admit ${callSubject}`])
+    expect(observed.records.filter((record) => record.name === "cell-call")).toEqual([])
+  })
+
+  it("never asks the guard about a call the host refused before it ran", async () => {
+    const observed = await callRun({
+      parks: true,
+      admit: () =>
+        Effect.succeed(
+          new Cell.CallResult({ outcome: "failure", value: null, code: "capability_refused", message: "Denied" })
+        ),
+      call: () => Effect.never
+    })
+    const frameSubject = frameSubjectOf(observed.records)
+
+    expect(observed.failure).toBeUndefined()
+    expect(resolvedText(observed.events)).toBe("capability_refused")
+    // Only the frame was admitted; the refused call never reached the guard
+    // or the engine.
+    expect(observed.guard.log).toEqual([`admit ${frameSubject}`])
+    expect(observed.guard.tripped).toEqual([])
+  })
+
+  const frameRun = async (parks: boolean) => {
+    const cut = new Cell.Rejected({
+      code: "limit_exceeded",
+      message: "This cell exceeded its wall-clock limit of 50 milliseconds"
+    })
+    const model = ScriptedModel.make([emits(`ctx.done("unreachable")`), emits(`ctx.done("recovered")`)])
+    const engine = ScriptedEngine.make(model.model, [])
+    const guard = guarding(parks)
+    const evaluated: Array<number> = []
+    const stub = EngineLike.make({ ...engine.engine, guard: guard.guard })
+    const observed = await collect(
+      { state: state({ maxFrames: 3 }), flows: [lister], limits: { totalMs: 50 } },
+      {
+        engine: EngineLike.layer(stub),
+        sandbox: Sandbox.layer({
+          capabilities: { calls: true, memoryBytes: false, steps: false, timeMs: false },
+          openRealm: () =>
+            Effect.succeed(
+              {
+                evaluate: (evaluation: Sandbox.RealmEvaluation) =>
+                  Effect.sync(() => {
+                    guard.log.push("evaluate")
+                    evaluated.push(evaluation.frame)
+                    return evaluation.frame === 0
+                      ? {
+                        outcome: cut,
+                        prints: "",
+                        bindings: [],
+                        boundary: { terminal: "timeout" as const, dispatched: -1, settled: -1 }
+                      }
+                      : {
+                        outcome: new Cell.Settled({
+                          transition: Sandbox.replTransition({ _tag: "Done", output: "recovered" }, undefined)
+                        }),
+                        prints: "",
+                        bindings: []
+                      }
+                  })
+              } as Sandbox.Realm
+            )
+        })
+      }
+    )
+    return { ...observed, guard, cut, evaluated, records: engine.recorder.records }
+  }
+
+  it("parks a fresh frame past its wall-clock limit with the frame's exact facts and records no frame", async () => {
+    const observed = await frameRun(true)
+    const frameSubject = frameSubjectOf(observed.records)
+
+    expect(observed.failure).toBe(observed.guard.park)
+    expect(observed.guard.tripped).toEqual([{
+      source: "cell",
+      subject: frameSubject,
+      limitMillis: 50,
+      message: observed.cut.message
+    }])
+    // The subject is the frame, not its attempt, and it is admitted before
+    // the realm evaluates the cell.
+    expect(frameSubject).not.toContain(":attempt:")
+    expect(observed.guard.log).toEqual([`admit ${frameSubject}`, "evaluate", `trip ${frameSubject}`])
+    // Only the attempt marker exists; the settled frame was never recorded,
+    // so Continue re-evaluates it.
+    expect(observed.records.filter((record) => record.name === "cell-frame").map((record) => record.identity))
+      .toEqual([JSON.parse(frameSubject)])
+    expect(of(observed.events, "resolved")).toEqual([])
+  })
+
+  it("records the timed-out frame and lets the run recover when the run's timeouts are not guarded", async () => {
+    const observed = await frameRun(false)
+
+    expect(observed.failure).toBeUndefined()
+    expect(observed.guard.tripped.map((timeout) => timeout.source)).toEqual(["cell"])
+    expect(of(observed.events, "cell-settled")[0]?.outcome).toMatchObject({ _tag: "rejected", code: "limit_exceeded" })
+    expect(resolvedText(observed.events)).toBe("recovered")
+    expect(observed.evaluated).toEqual([0, 1])
+  })
+})
