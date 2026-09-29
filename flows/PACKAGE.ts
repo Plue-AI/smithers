@@ -201,6 +201,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
+    Smithers.file("//flows/test/factory-todo.test.ts"),
     Smithers.file("//flows/test/coding-correction-stall.test.ts"),
     Smithers.file("//flows/test/coding-host-policy.test.ts"),
     Smithers.file("//flows/test/coding-host-modules.test.ts"),

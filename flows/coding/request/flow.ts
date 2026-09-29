@@ -1,6 +1,7 @@
 /** The repository's prompt entry composes existing planning and correction flows. */
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
 import { CorrectPlan } from "../correction.ts"
 import { PrepareRequest } from "../preparation.ts"
@@ -8,6 +9,7 @@ import { CodingError, Plan, PlanningInput, RequestInput, RequestResult } from ".
 import { AdmitSource } from "../source-admission.ts"
 import { admitStackBase } from "../stack.ts"
 import { FeedbackReceipt, ReceiveFeedback } from "../steering.ts"
+import { Todo } from "../todo.ts"
 
 export const maximumPlanningPasses = 8
 /** Private durable cursor. Notification bodies and provenance stay in the
@@ -106,20 +108,25 @@ export default Flow.make("coding/Request", {
   error: PrepareRequest.errorSchema,
   body: (input) => {
     const wiki = input.wiki === undefined ? {} : { wiki: input.wiki }
-    const prepare = PrepareRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "", ...wiki })
-    // A stack request first stands on a fresh working change on the tip.
-    return (input.base === undefined ? prepare : admitStackBase(input.base).pipe(Node.andThen(prepare))).pipe(
-      Node.bindPlanned((plan) => AdmitSource.call({ plan })),
-      Node.bindPlanned((preparedPlan) =>
-        Coordinate.child({
-          prompt: input.prompt,
-          feedback: input.feedback ?? "",
-          ...wiki,
-          maxRounds: input.maxRounds ?? 3,
-          revision: 0,
-          preparedPlan
-        })
+    const implement = (feedback: string | Planned.Planned<string>) =>
+      PrepareRequest.child({ prompt: input.prompt, feedback, ...wiki }).pipe(
+        Node.bindPlanned((plan) => AdmitSource.call({ plan })),
+        Node.bindPlanned((preparedPlan) =>
+          Coordinate.child({
+            prompt: input.prompt,
+            feedback,
+            ...wiki,
+            maxRounds: input.maxRounds ?? 3,
+            revision: 0,
+            preparedPlan
+          })
+        )
       )
+    // A stack request is a TODO: it stands on a fresh working change on the
+    // tip, and factory/Todo routes it before it is planned.
+    return input.base === undefined ? implement(input.feedback ?? "") : admitStackBase(input.base).pipe(
+      Node.andThen(Todo.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
+      Node.bindPlanned((routed) => implement(routed.feedback))
     )
   }
 })

@@ -1,6 +1,7 @@
 import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, FlowRuntime } from "@smthrs/flow"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -13,6 +14,7 @@ import { CodingError, type Plan, type Revision } from "../coding/schema.ts"
 import { AdmitSource } from "../coding/source-admission.ts"
 import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
 import { type FeedbackReceipt, ReceiveFeedback } from "../coding/steering.ts"
+import { todoLayers } from "../coding/todo.ts"
 
 const revision = (name: string): Revision => ({
   changeId: `change-${name}`,
@@ -102,6 +104,7 @@ const fixture = (
   }))
   const layer = Layer.mergeAll(
     requestRegistration,
+    todoLayers(Evaluator.layerScripted(() => ({ route: { choice: "implement" } }))),
     prototypeRegistration,
     registration,
     PrepareStackBase.toLayer(({ base }) =>

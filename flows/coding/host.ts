@@ -66,6 +66,7 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
+import { todoLayers } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -397,6 +398,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           sourceAdmission,
           stackBaseLayer,
           requestRegistration,
+          todoLayers(evaluator),
           feedbackLayer,
           verifyRegistration,
           pocPolicy,
