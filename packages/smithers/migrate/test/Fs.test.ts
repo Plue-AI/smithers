@@ -121,6 +121,23 @@ describe("Fs.walkReport and Fs.walkAll never follow a symbolic link", () => {
       expect(result.skipped).toEqual([])
     }))
 
+  it.effect("walkAll includes files beyond the source scan depth limit", () =>
+    Effect.gen(function*() {
+      const root = scratch()
+      const expected: Array<string> = []
+      for (const depth of [12, 13, 32]) {
+        const directory = Array.from({ length: depth }, () => "nested").join("/")
+        mkdirSync(join(root, directory), { recursive: true })
+        writeFileSync(join(root, directory, "state.log"), "state\n")
+        expected.push(`${directory}/state.log`)
+      }
+      const deep = Array.from({ length: 13 }, () => "nested").join("/")
+      symlinkSync(root, join(root, deep, "cycle"))
+      expected.push(`${deep}/cycle`)
+
+      expect(yield* Fs.walkAll(root).pipe(Effect.provide(nodeLayer))).toEqual(expected.sort())
+    }))
+
   it.effect("walkAll lists a link as an entry of its own and never descends it", () =>
     Effect.gen(function*() {
       const root = scratch()

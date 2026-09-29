@@ -257,9 +257,8 @@ export const walkAll = (
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const found: Array<string> = []
-    const visit = (directory: string, depth: number): Effect.Effect<void> =>
+    const visit = (directory: string): Effect.Effect<void> =>
       Effect.gen(function*() {
-        if (depth > maxDepth) return
         const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => [] as Array<string>))
         for (const name of names.slice().sort()) {
           const absolute = path.join(directory, name)
@@ -269,13 +268,13 @@ export const walkAll = (
           }
           const info = yield* fs.stat(absolute).pipe(Effect.option)
           if (info._tag === "None") continue
-          if (info.value.type === "Directory") yield* visit(absolute, depth + 1)
+          if (info.value.type === "Directory") yield* visit(absolute)
           else if (info.value.type === "File") found.push(relative(root, path, absolute))
         }
       })
     const info = yield* fs.stat(root).pipe(Effect.option)
     if (info._tag === "None" || info.value.type !== "Directory") return []
-    yield* visit(root, 0)
+    yield* visit(root)
     return found.sort()
   })
 

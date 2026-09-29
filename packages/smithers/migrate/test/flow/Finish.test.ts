@@ -626,38 +626,52 @@ describe("MigrateFlow.finish verifies the tree it leaves behind", () => {
       expect(project(hashTree(root))).toEqual(project(before))
     }))
 
-  it.effect("fails a unit whose final verification writes into 0.x run state", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("persisted-db")
-      const chosen = options(root, {
-        acknowledgeRunState: true,
-        commands: {
-          typecheck: [],
-          test: "node -e \"require('node:fs').writeFileSync('.smithers/executions/after.log', 'resumed')\""
-        }
-      })
-      const scanned = yield* MigrateFlow.scan(chosen).pipe(Effect.provide(platform))
-      const outline = MigrateFlow.outlines(scanned, chosen).find((entry) => entry.id === "workflow:simple-workflow")!
-      const checkpoint = yield* checkpointed(root, outline, MigrateFlow.runStateRoots(scanned))
-      mkdirSync(join(root, "flows", "simple-workflow"), { recursive: true })
-      writeFileSync(join(root, "flows", "simple-workflow", "flow.ts"), golden)
+  for (const depth of [0, 12, 13]) {
+    it.effect(`fails a unit whose final verification writes into 0.x run state at depth ${depth}`, () =>
+      Effect.gen(function*() {
+        const root = bareWorkflow()
+        mkdirSync(join(root, ".smithers", "executions"), { recursive: true })
+        writeFileSync(join(root, ".smithers", "executions", "before.log"), "original\n")
+        const directory = [".smithers/executions", ...Array.from({ length: depth }, () => "nested")].join("/")
+        const addedPath = `${directory}/after.log`
+        const before = hashTree(join(root, ".smithers", "executions"))
+        const chosen = options(root, {
+          acknowledgeRunState: true,
+          commands: {
+            typecheck: [],
+            test:
+              `node -e "const fs = require('node:fs'); fs.mkdirSync('${directory}', { recursive: true }); fs.writeFileSync('${addedPath}', 'resumed')"`
+          }
+        })
+        const scanned = yield* MigrateFlow.scan(chosen).pipe(Effect.provide(platform))
+        const outline = MigrateFlow.outlines(scanned, chosen).find((entry) => entry.id === "workflow:simple-workflow")!
+        expect(MigrateFlow.runStateRoots(scanned)).toContain(".smithers/executions")
+        const checkpoint = yield* checkpointed(root, outline, MigrateFlow.runStateRoots(scanned))
+        mkdirSync(join(root, "flows", "simple-workflow"), { recursive: true })
+        writeFileSync(join(root, "flows", "simple-workflow", "flow.ts"), golden)
 
-      const outcome = yield* MigrateFlow.finish({
-        options: chosen,
-        outline,
-        checkpoint,
-        runStateRoots: MigrateFlow.runStateRoots(scanned),
-        result: answered(outline.id, ["flows/simple-workflow/flow.ts"]),
-        verification: passing,
-        repairRounds: 0
-      }).pipe(Effect.provide(platform))
+        const outcome = yield* MigrateFlow.finish({
+          options: chosen,
+          outline,
+          checkpoint,
+          runStateRoots: MigrateFlow.runStateRoots(scanned),
+          result: answered(outline.id, ["flows/simple-workflow/flow.ts"]),
+          verification: passing,
+          repairRounds: 0
+        }).pipe(Effect.provide(platform))
 
-      expect(outcome.status).toBe("failed")
-      const added = outcome.unresolved.find((entry) => entry.file === ".smithers/executions/after.log")
-      expect(added?.construct).toBe("run state is byte-identical")
-      expect(added?.reason).toContain("run state was added")
-      expect(existsSync(join(root, "simple-workflow.jsx"))).toBe(true)
-    }))
+        expect(outcome.verification?.tests?.exitCode).toBe(0)
+        expect(outcome.verification?.discovery?.exitCode).toBe(0)
+        expect(outcome.status).toBe("failed")
+        const added = outcome.unresolved.find((entry) => entry.file === addedPath)
+        expect(added?.construct).toBe("run state is byte-identical")
+        expect(added?.reason).toContain("run state was added")
+        expect(existsSync(join(root, "simple-workflow.jsx"))).toBe(true)
+        expect(readFileSync(join(root, addedPath), "utf8")).toBe("resumed")
+        const after = hashTree(join(root, ".smithers", "executions"))
+        for (const [file, digest] of before) expect(after.get(file)).toBe(digest)
+      }))
+  }
 })
 
 describe("MigrateFlow.finish, after the archive has moved the tree", () => {
