@@ -151,7 +151,7 @@ func (s *Server) reconcileUserRefs(ctx context.Context, gitDir string, refs map[
 func deleteGitRef(ctx context.Context, gitDir, ref, oid string) error {
 	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "-d", ref, oid).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("delete expired %s: %s", ref, strings.TrimSpace(string(output)))
+		return fmt.Errorf("delete %s: %s", ref, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

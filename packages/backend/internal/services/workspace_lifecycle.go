@@ -232,6 +232,9 @@ func (s *WorkspaceService) destroyWorkspace(ctx context.Context, workspace db.Wo
 	} else if err := s.teardownWorkspaceVM(ctx, workspace); err != nil {
 		return err
 	}
+	if err := s.deleteWorkspaceRefs(ctx, workspace); err != nil {
+		return err
+	}
 
 	// Ticket 0105: DeleteWorkspace is soft. We stamp deleted_at so that
 	// the row drops out of MaxActiveWorkspacesPerUser accounting and the

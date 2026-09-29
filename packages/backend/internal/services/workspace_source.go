@@ -59,3 +59,30 @@ func (s *WorkspaceService) reportRetainedSource(ctx context.Context, workspace d
 	response.RetainedSource = &WorkspaceRetainedSource{WorkspaceSourceReceipt: result, RepositoryID: workspace.RepositoryID}
 	return response, nil
 }
+
+// WorkspaceRefDeleter removes a deleted workspace's refs from repo-host.
+type WorkspaceRefDeleter interface {
+	DeleteWorkspaceRefs(context.Context, string, string, string) (repohost.DeletedWorkspaceRefs, error)
+}
+
+func WithWorkspaceRefDeleter(deleter WorkspaceRefDeleter) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.refDeleter = deleter }
+}
+
+// deleteWorkspaceRefs deletes every refs/smithers/workspaces/<id>/ ref
+// (#1990). It runs once the workspace can no longer run or push, and before
+// its row is tombstoned, so a failure leaves the delete retryable.
+func (s *WorkspaceService) deleteWorkspaceRefs(ctx context.Context, workspace db.Workspace) error {
+	if s.refDeleter == nil {
+		return nil
+	}
+	slug, err := s.workspaceRepoSlug(ctx, workspace.RepositoryID)
+	if err != nil {
+		return err
+	}
+	owner, repo, _ := strings.Cut(slug, "/")
+	if _, err := s.refDeleter.DeleteWorkspaceRefs(ctx, owner, repo, workspace.ID); err != nil {
+		return pkgerrors.Internal("delete workspace refs: " + err.Error())
+	}
+	return nil
+}

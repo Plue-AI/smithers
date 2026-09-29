@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 )
 
@@ -49,5 +50,23 @@ func (c *Client) ReadWorkspaceSource(ctx context.Context, owner, repo string, re
 	}
 	var result WorkspaceSourceReceipt
 	err = c.doJSON(ctx, http.MethodPost, repoByIDEndpoint(baseURL, owner, repo)+"/workspace-source", req, http.StatusOK, &result)
+	return result, err
+}
+
+// DeletedWorkspaceRefs lists the refs DeleteWorkspaceRefs removed.
+type DeletedWorkspaceRefs struct {
+	Refs []string `json:"refs"`
+}
+
+// DeleteWorkspaceRefs deletes every ref under refs/smithers/workspaces/<id>/
+// (the workspace's head and retained sources) once the workspace is gone.
+func (c *Client) DeleteWorkspaceRefs(ctx context.Context, owner, repo, workspaceID string) (DeletedWorkspaceRefs, error) {
+	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
+	if err != nil {
+		return DeletedWorkspaceRefs{}, fmt.Errorf("resolve storage set url: %w", err)
+	}
+	var result DeletedWorkspaceRefs
+	endpoint := repoByIDEndpoint(baseURL, owner, repo) + "/workspace-refs/" + url.PathEscape(workspaceID)
+	err = c.doJSON(ctx, http.MethodDelete, endpoint, nil, http.StatusOK, &result)
 	return result, err
 }

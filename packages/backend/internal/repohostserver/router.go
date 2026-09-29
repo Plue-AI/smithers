@@ -249,6 +249,7 @@ func (s *Server) Handler() http.Handler {
 			r.Method(http.MethodGet, "/repos/{id}/user-refs/{user_id}", s.withAppError(s.listUserRefs))
 			r.Method(http.MethodPost, "/repos/{id}/user-refs/{user_id}/retain", s.withAppError(s.retainUserRef))
 			r.Method(http.MethodPost, "/repos/{id}/user-refs/{user_id}/renew", s.withAppError(s.renewUserRef))
+			r.Method(http.MethodDelete, "/repos/{id}/workspace-refs/{workspace_id}", s.withAppError(s.deleteWorkspaceRefs))
 			r.Method(http.MethodPost, "/repos/{id}/superproject", s.withAppError(s.composeSuperproject))
 			r.Method(http.MethodGet, "/repos/{id}/superproject/{revision}", s.withAppError(s.getSuperproject))
 			r.Method(http.MethodGet, "/repos/{id}/operations", s.withAppError(s.listOperations))

@@ -559,6 +559,7 @@ type WorkspaceService struct {
 	sessionProvisionGrace time.Duration
 	billing               BillingPolicy
 	sourceReader          WorkspaceSourceReader
+	refDeleter            WorkspaceRefDeleter
 	q                     WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).

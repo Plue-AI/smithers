@@ -42,8 +42,9 @@ expiry (also for an unchanged commit) and prints `expires_at`;
 `smithers repo push --list` shows every ref of yours with its expiry. A fork
 does not copy them. A coding run started from one pins its commit under the
 workspace's own `refs/smithers/workspaces/<id>/sources/<commit>`, which the
-ref's expiry does not remove. Anyone who can read the repository can fetch
-these refs.
+ref's expiry does not remove. Deleting the workspace deletes every
+`refs/smithers/workspaces/<id>/` ref, its head and pinned sources. Anyone
+who can read the repository can fetch user refs.
 
 ## Push duration
 
