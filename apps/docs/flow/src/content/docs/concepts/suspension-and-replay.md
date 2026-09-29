@@ -35,8 +35,12 @@ operator reads off the run:
 | `event`    | `WaitFor`, carrying the wake token a completion is matched against. |
 | `approval` | `HumanTask`, carrying the current attempt's token.                  |
 
-`Flow.execute` returns while the run stays parked, and `flow.poll(executionId)`
-answers `Option.none` for a run that is known and has not settled. An id the
+`execute(payload, { discard: true })`, `start(payload)`, and
+`ensure(payload, { key })` acknowledge admission without awaiting the result;
+the run can stay parked after the caller receives its execution id.
+Ordinary `execute` follows the run instead: a parked run keeps its caller waiting.
+`flow.poll(executionId)` answers `Option.none` for a run that is known and has
+not settled. An id the
 runtime never recorded is `FlowRuntime.FlowExecutionNotFound` instead, which is a
 different fact and a different failure.
 
@@ -63,12 +67,13 @@ does not overwrite the first.
 
 ## The caller's polling budget
 
-`Flow.make`'s `suspendedRetryPolicy` bounds how long **one caller** keeps polling
-a suspended execution. It is a per-caller wall-clock budget, not a bound on the
-run: `execute` re-drives a parked execution on that schedule and gives up when
-the schedule is spent, the execution stays parked, and the next caller starts a
-budget of its own. Nothing about it is durable, and a spent budget cancels
-nothing.
+Ordinary `execute` follows a suspended run, polling and re-driving it instead
+of returning a suspended result. Its default `suspendedRetryPolicy` has no
+attempt or expiry bound, so the caller can keep waiting while the run is parked.
+A bounded `Flow.make` `suspendedRetryPolicy` limits **one caller**: if its
+schedule is spent, `execute` fails with a `SuspendedResumeGaveUp` defect, but
+the execution stays parked. The next caller starts a budget of its own. This
+budget is not durable and does not cancel the run.
 
 What bounds work durably is an action's own `RetryPolicy`. The engine restores
 `maxAttempts` from the persisted attempt sequence and the `expirationMs` origin

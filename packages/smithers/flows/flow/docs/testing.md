@@ -96,8 +96,10 @@ composition rather than overriding one.
 
 ## Drive a suspension
 
-A flow that parks returns from `execute` while the run stays suspended. Test the
-wake by completing the wait point and resuming:
+To test a parked run without waiting for its result, use
+`execute(payload, { discard: true })`, `start(payload)`, or
+`ensure(payload, { key })` to acknowledge admission. Test the wake by completing
+the wait point and resuming:
 
 ```ts
 import { DurableDeferred, WaitFor } from "@smthrs/flow"
@@ -117,7 +119,11 @@ it.effect("resumes when the wait point is completed", () =>
 ```
 
 `discard: true` answers with the execution id instead of waiting for the result,
-which is what you want for a run you intend to park.
+which is what you want for a run you intend to park. Ordinary `execute` follows
+the run: with the default polling policy (no attempt or expiry bound), its caller
+can stay pending while the run is suspended. A bounded `suspendedRetryPolicy`
+can end that caller with a `SuspendedResumeGaveUp` defect without cancelling the
+parked run.
 
 For a timer, drive the clock rather than the wall. Effect's `TestClock` advances
 a `Sleep.action` or a `DurableClock.sleep` deterministically, and a test that
