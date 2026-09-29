@@ -55,7 +55,7 @@ Scheduler.layer({ pollInterval: "30 seconds", runPollInterval: "5 seconds" })
 | Option            | Default        | What it paces                                                                          |
 | ----------------- | -------------- | -------------------------------------------------------------------------------------- |
 | `pollInterval`    | `"1 minute"`   | How often a tick lists triggers and evaluates due work.                                |
-| `runPollInterval` | `"1 second"`   | How often a launched run's monitor asks the runner whether it is still active.         |
+| `runPollInterval` | `"15 seconds"` | How often a launched run's monitor asks the runner whether it is still active.         |
 | `host`            | `"local"`      | The name every tick records its heartbeat under, so a listing can say who last polled. |
 | `concurrency`     | `4`            | How many triggers one tick claims at the same time.                                    |
 | `startTimeout`    | `"4 minutes"`  | How long one `Runner.start` may take before the launch is abandoned and left pending.  |
