@@ -35,6 +35,7 @@ import * as Detect from "../Detect.ts"
 import * as CliScripts from "../internal/CliScripts.ts"
 import * as Fs from "../internal/Fs.ts"
 import * as Jsonc from "../internal/Jsonc.ts"
+import { isTsconfig } from "../internal/Tsconfig.ts"
 import * as Versions from "../internal/Versions.ts"
 import { io, make, MigrateError } from "../MigrateError.ts"
 import * as Report from "../Report.ts"
@@ -304,7 +305,7 @@ export const rewriteGitignore = (text: string, flowsState = ".flows/"): string =
  */
 export const isRewritable = (file: string): boolean => {
   const name = file.split("/").pop() ?? file
-  return name === "package.json" || name === ".gitignore" || /^tsconfig(\..+)?\.json$/.test(name) ||
+  return name === "package.json" || name === ".gitignore" || isTsconfig(file) ||
     file.endsWith(".md") ||
     file.endsWith(".sh") ||
     file.endsWith("Makefile") ||
@@ -434,7 +435,7 @@ export const rewritten = (
     const rewrite = rewriteManifest(text, { remove: oldNames(manifest), add: [] })
     return { text: pinEffect(rewrite.text), scripts: rewrite.scripts }
   }
-  if (/^tsconfig(\..+)?\.json$/.test(name)) return { text: rewriteTsconfig(text, specifiers), scripts: [] }
+  if (isTsconfig(file)) return { text: rewriteTsconfig(text, specifiers), scripts: [] }
   if (name === ".gitignore") return { text: rewriteGitignore(text), scripts: [] }
   return undefined
 }

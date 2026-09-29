@@ -43,8 +43,8 @@ const installReact = (root: string): void => {
   writeFileSync(join(root, "src", "App.tsx"), app)
 }
 
-const compile = (root: string): void => {
-  const result = spawnSync(process.execPath, [tsc, "--noEmit", "-p", "tsconfig.json"], {
+const compile = (root: string, tsconfig = "tsconfig.json"): void => {
+  const result = spawnSync(process.execPath, [tsc, "--noEmit", "-p", tsconfig], {
     cwd: root,
     encoding: "utf8",
     timeout: 60_000
@@ -62,6 +62,74 @@ const project = (root: string) =>
   })
 
 describe("retained React JSX through project migration", () => {
+  it.effect("keeps and verifies a hyphenated tsconfig while the React UI still compiles", () =>
+    Effect.gen(function*() {
+      const root = mkdtempSync(join(tmpdir(), "migrate-react-hyphenated-"))
+      const filename = "tsconfig-build.json"
+      const configFile = join(root, filename)
+      const archiveDir = join(root, ".smithers-migrate", "archive")
+      try {
+        installReact(root)
+        writeFileSync(
+          join(root, "package.json"),
+          JSON.stringify({ name: "react-ui", dependencies: { react: "19.2.8" } })
+        )
+        writeFileSync(join(root, ".gitignore"), "node_modules\n")
+        const initial = config("react")
+        writeFileSync(
+          configFile,
+          `${
+            JSON.stringify(
+              {
+                ...initial,
+                compilerOptions: { ...initial.compilerOptions, paths: { "smthrs/*": ["./legacy/*"] } }
+              },
+              null,
+              2
+            )
+          }\n`
+        )
+        compile(root, filename)
+
+        const { scanned, outline } = yield* project(root)
+        expect(scanned.detection.tsconfigs.map((entry) => entry.path)).toContain(filename)
+        expect(outline.sources).toContain(filename)
+        const result = yield* Archive.run({
+          root,
+          unit: outline.id,
+          kind: "project",
+          sources: outline.sources,
+          targets: outline.targets,
+          archiveDir,
+          keepOldSources: false,
+          specifiers: outline.specifiers
+        })
+
+        expect(existsSync(configFile)).toBe(true)
+        expect(existsSync(join(archiveDir, filename))).toBe(false)
+        expect(result.changed).toContainEqual(expect.objectContaining({ path: filename, change: "modified" }))
+        const retained = JSON.parse(readFileSync(configFile, "utf8"))
+        expect(retained.compilerOptions).toMatchObject({ jsx: "react-jsx", jsxImportSource: "react" })
+        expect(retained.compilerOptions.paths).toBeUndefined()
+        compile(root, filename)
+
+        const check = (yield* MigrateFlow.postconditions(root, outline))
+          .find((entry) => entry.name === "no tsconfig configures the 0.x JSX runtime")
+        expect(check).toMatchObject({ ok: true, findings: [] })
+
+        retained.compilerOptions.paths = { "smthrs/*": ["./legacy/*"] }
+        writeFileSync(configFile, `${JSON.stringify(retained, null, 2)}\n`)
+        const failedCheck = (yield* MigrateFlow.postconditions(root, outline))
+          .find((entry) => entry.name === "no tsconfig configures the 0.x JSX runtime")
+        expect(failedCheck).toMatchObject({
+          ok: false,
+          findings: [expect.objectContaining({ file: filename })]
+        })
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("keeps the mixed project's React UI compiling before and after cleanup", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")

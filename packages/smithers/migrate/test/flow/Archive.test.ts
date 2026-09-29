@@ -154,11 +154,11 @@ describe("Archive.rewriteTsconfig", () => {
   })
 
   it("reads a tsconfig that carries comments", () => {
-    const rewritten = Archive.rewriteTsconfig(`{
+    const original = `{
   // ordinary JSX configuration
   "compilerOptions": { "jsx": "react-jsx", "strict": true }
-}`)
-    expect(JSON.parse(rewritten)).toEqual({ compilerOptions: { jsx: "react-jsx", strict: true } })
+}`
+    expect(Archive.rewriteTsconfig(original)).toBe(original)
   })
 
   it("keeps an include list whose globs look like comments", () => {

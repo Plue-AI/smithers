@@ -40,6 +40,7 @@ import * as Checks from "../Checks.ts"
 import * as Detect from "../Detect.ts"
 import * as Fs from "../internal/Fs.ts"
 import * as Ts from "../internal/Ts.ts"
+import { isTsconfig } from "../internal/Tsconfig.ts"
 import { io, make, MigrateError } from "../MigrateError.ts"
 import * as Report from "../Report.ts"
 import * as RunState from "../RunState.ts"
@@ -655,7 +656,7 @@ export const postconditions = (
     }
 
     if (outline.kind === "project") {
-      const tsconfigs = outline.sources.filter((file) => /^tsconfig(\..+)?\.json$/.test(file.split("/").pop() ?? file))
+      const tsconfigs = outline.sources.filter(isTsconfig)
       const settings: Array<Finding> = []
       for (const file of tsconfigs) {
         const text = yield* read(file)

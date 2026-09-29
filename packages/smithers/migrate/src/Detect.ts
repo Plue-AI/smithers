@@ -22,6 +22,7 @@ import * as Jsonc from "./internal/Jsonc.ts"
 import * as Semver from "./internal/Semver.ts"
 import * as Sort from "./internal/Sort.ts"
 import * as Ts from "./internal/Ts.ts"
+import { isTsconfig } from "./internal/Tsconfig.ts"
 import * as Versions from "./internal/Versions.ts"
 import type { MigrateError } from "./MigrateError.ts"
 
@@ -886,7 +887,7 @@ export const scan = (
 
     // 3.2 tsconfig chains.
     const tsconfigs: Array<TsconfigFinding> = []
-    for (const file of files.filter((candidate) => /(^|\/)tsconfig[^/]*\.json$/.test(candidate))) {
+    for (const file of files.filter(isTsconfig)) {
       const text = yield* readText(file)
       if (text === undefined) continue
       const json = readJsonWithComments(text)
