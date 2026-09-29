@@ -384,7 +384,9 @@ func relativeToDir(dir, p string) string {
 }
 
 func cleanRepoPath(p string) string {
-	p = strings.TrimPrefix(path.Clean("/"+strings.TrimSpace(p)), "/")
+	// Whitespace belongs to repository names; trimming it can select a
+	// different directory's ownership policy.
+	p = strings.TrimPrefix(path.Clean("/"+p), "/")
 	if p == "." {
 		return ""
 	}
