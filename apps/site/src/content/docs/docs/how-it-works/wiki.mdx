@@ -21,9 +21,9 @@ The **wiki** is what people and agents know about a repository. Both read it and
 
 ## Kept current
 
-When a change lands, Smithers regenerates the pages it affects, reviews each against the code, and publishes it. Pages a person edited stay as written.
+When wiki upkeep is enabled and a change lands, Smithers regenerates the pages it affects, reviews each against the code, and publishes it. Pages a person edited stay as written.
 
-**Partly available.** Refresh runs when main moves, for repositories with the stack on and a declared wiki. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
+**Partly available.** Wiki upkeep is off by default. Set `planning.wiki` to `true` in the host-owned coding request configuration to refresh wiki input before planning. For post-fold refresh when main moves, set `"wiki": true` and provide a non-empty `pages` array in `.smithers/coding-project.json` on main; the repository also needs the stack on. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
 
 ## Sync with Notion and Obsidian
 

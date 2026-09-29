@@ -11,7 +11,7 @@
 
 <p align="center"><strong>The codebase maintainer agent</strong></p>
 
-Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.
+Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how.
 
 ## Open Smithers
 
