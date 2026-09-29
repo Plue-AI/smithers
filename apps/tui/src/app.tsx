@@ -2515,6 +2515,7 @@ export function App(props: AppProps) {
               >
                 <textarea
                   ref={composer}
+                  selectionOccupancy="boundary"
                   focused={picker === undefined && !panelFocus && form === undefined}
                   placeholder={steered !== undefined || driven !== undefined
                     ? ""

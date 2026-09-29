@@ -58,6 +58,7 @@ export function FlowFormView(props: {
               {focused && (field.kind === "text" || field.kind === "number")
                 ? (
                   <input
+                    selectionOccupancy="boundary"
                     focused
                     value={value === undefined ? "" : String(value)}
                     textColor={color.text}
@@ -141,6 +142,7 @@ export function PickerDialog(props: {
         (
           <box style={{ paddingLeft: 3, paddingRight: 3, marginBottom: compact ? 0 : 1 }}>
             <input
+              selectionOccupancy="boundary"
               focused
               value={props.query}
               placeholder="Search"

@@ -1,4 +1,5 @@
 import type { TextareaRenderable } from "@opentui/core"
+import { createMockKeys } from "@opentui/core/testing"
 import { testRender } from "@opentui/react/test-utils"
 import { expect, it } from "bun:test"
 import * as Cursor from "../src/cursor.ts"
@@ -45,6 +46,27 @@ it("inserts at the selected JS boundary without splitting emoji or losing the su
     expect(input.plainText).toBe("日本語😀 @café.txt suffix")
     Cursor.move(input, 4) // In the emoji's surrogate pair: snap before it.
     expect(Cursor.index(input)).toBe(3)
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+it("keeps the suffix when replacing one keyboard-selected character with boundary occupancy", async () => {
+  const ref = { current: null as TextareaRenderable | null }
+  const setup = await testRender(<textarea ref={ref} focused selectionOccupancy="boundary" />, {
+    width: 80,
+    height: 12
+  })
+  try {
+    await setup.renderOnce()
+    const input = ref.current!
+    input.setText("abc")
+    input.gotoBufferEnd()
+    const keys = createMockKeys(setup.renderer)
+    keys.pressArrow("left")
+    keys.pressArrow("left", { shift: true })
+    await keys.typeText("z")
+    expect(input.plainText).toBe("azc")
   } finally {
     setup.renderer.destroy()
   }
