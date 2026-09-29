@@ -82,6 +82,7 @@ export const ReviewRequest = AgentAction.make("coding/review-request", {
     "context.sources holds the current text of the files the request names; do not ask the human for file contents that are present there; ask only when a file is listed under missing and the request depends on it.",
     "Ask only material questions whose answers cannot be inferred from the request and evidence. Bundle them into clarification; use an empty string when ready.",
     "When the request is not actionable as a code change (the evidence shows it is already done, it is only a question, it duplicates another request, or it needs a product decision nobody has made), set decline to one short sentence saying which and why, and leave clarification empty. Otherwise omit decline or leave it empty.",
+    "When the feedback asks you to lint a feature request and it is not clear, valid and worth building, set decline to at most three questions for its author, and leave clarification empty.",
     "You are planning from captured evidence. Do not edit files, run commands or change version control. Do not claim checks passed."
   ],
   prompt: planningPrompt

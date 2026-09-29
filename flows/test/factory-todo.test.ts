@@ -28,6 +28,8 @@ test("each leaf keeps the given feedback and adds only its own instruction", () 
     leafFeedback("close", ""),
     /^Jev routed this TODO as needing no code change\. Decline it with the evidence/
   )
+  assert.match(leafFeedback("feature", ""), /^Jev routed this TODO as a feature request\. Lint it before planning/)
+  assert.match(leafFeedback("feature", ""), /decline it with at most three questions/)
 })
 
 test("Jev answers the route from the TODO text; low confidence is still Jev deciding", async () => {
@@ -182,10 +184,10 @@ test(
 )
 
 test(
-  "the close leaf asks the planner to decline with evidence; implement plans as written",
+  "the close and feature leaves ask the planner to decline with evidence or questions; implement plans as written",
   { timeout: 60_000 },
   async (t) => {
-    for (const route of ["close", "implement"] as const) {
+    for (const route of ["close", "feature", "implement"] as const) {
       const f = fixture(route)
       t.after(() => f.host.dispose())
       await f.host.runPromise(Request.execute({ prompt, base }, { executionId: `todo-${route}` }))

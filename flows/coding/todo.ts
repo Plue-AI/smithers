@@ -6,6 +6,9 @@
  *
  * - implement: plan and implement the TODO as written.
  * - bug: reproduce first; the plan's first atom is a failing regression test.
+ * - feature: lint it first; the planner declines an unclear request with
+ *   at most three questions, and a maintainer re-applying `todo` after the
+ *   author's edit is the acceptance.
  * - close: the TODO needs no code change; the planner declines with the
  *   evidence (the existing `declined` path), unless the source shows a change
  *   is needed after all.
@@ -18,7 +21,7 @@ import { Effect, Layer, Schema } from "effect"
 import { CodingError, PlanningInput } from "./schema.ts"
 
 /** The leaves a TODO routes to. */
-export const Route = Schema.Literals(["implement", "bug", "close"])
+export const Route = Schema.Literals(["implement", "bug", "feature", "close"])
 export type Route = typeof Route.Type
 
 /** One question: which leaf this TODO takes. */
@@ -33,6 +36,7 @@ export const todoRouter = Classifier.make("factory/route", {
       criteria: {
         implement: "a new behavior or change to build as written",
         bug: "existing behavior is wrong: it must be reproduced by a failing test before it is fixed",
+        feature: "a new capability someone asked for, which must first be clear, valid and worth building",
         close: "no code change: it is already done, only a question, a duplicate, or invalid"
       }
     })
@@ -53,6 +57,8 @@ export const leafFeedback = (route: Route, feedback: string): string => {
     implement: "",
     bug:
       "Jev routed this TODO as a bug. Reproduce it first: the plan's first atom adds a regression test that fails on the current source for the reported reason, and the fix follows it.",
+    feature:
+      "Jev routed this TODO as a feature request. Lint it before planning: it must say how the product behaves now, the assumptions, and the measurable behavior wanted, each checkable. If it is not clear, valid and worth building, decline it with at most three questions for its author; the author edits the issue and a maintainer re-applying todo accepts it. Otherwise plan it.",
     close:
       "Jev routed this TODO as needing no code change. Decline it with the evidence from the source (already done, only a question, a duplicate, or invalid). Plan a change only if the source shows one is needed, and say why."
   }[route]
