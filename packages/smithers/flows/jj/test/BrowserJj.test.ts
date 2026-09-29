@@ -426,6 +426,42 @@ describe("BrowserJj over the fake ABI module", () => {
       expect(stderr.filter((entry) => entry === "INIT")).toHaveLength(1)
     }))
 
+  it.effect("refuses every operation after scope disposal, including effects constructed before closure", () =>
+    Effect.gen(function*() {
+      const options: BrowserJj.BrowserJjOptions = { wasm: new Uint8Array(), fs: slice, root: "/repo" }
+      for (
+        const acquire of [
+          BrowserJj.makeScoped(options),
+          Effect.flatMap(Effect.provide(Jj, BrowserJj.layerScoped(options)), (jj) => Effect.succeed(jj))
+        ]
+      ) {
+        let operations: ReadonlyArray<readonly [string, string, Effect.Effect<unknown, JjFailure | PlatformError>]> = []
+        yield* Effect.scoped(Effect.map(acquire, (jj) => {
+          operations = [
+            ["snapshot", "jj snapshot", jj.snapshot()],
+            ["restore", "jj restore", jj.restore("rev")],
+            ["diff", "jj diff", jj.diff("a", "b")],
+            ["workspaceAdd", "jj workspace add", jj.workspaceAdd("lane", "/lane")],
+            ["workspaceForget", "jj workspace forget", jj.workspaceForget("lane")],
+            ["status", "jj status", jj.status()],
+            ["root", "jj root", jj.root!("/repo/file")],
+            ["root", "jj root", jj.root!("/outside")],
+            ["revert", "jj revert", jj.revert!("rev")],
+            ["opRestore", "jj op restore", jj.opRestore!("op")]
+          ]
+        }))
+        for (const [method, command, operation] of operations) {
+          const error = jjError(yield* Effect.flip(operation))
+          expect(error).toMatchObject({
+            code: "unknown",
+            method,
+            command,
+            message: `jj ${method}: the browser reactor was disposed`
+          })
+        }
+      }
+    }))
+
   it.effect("layerScoped closes the live reactor's descriptors when the scope closes", () =>
     Effect.gen(function*() {
       const counting = countingSlice()

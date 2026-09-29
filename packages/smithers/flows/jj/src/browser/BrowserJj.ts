@@ -524,6 +524,27 @@ const create = (options: BrowserJjOptions): {
     })
   )
 
+  // Operations that never enter the reactor still observe scoped disposal at
+  // execution time, under the same permit as reactor calls and finalization.
+  const withoutReactor = <A>(
+    method: string,
+    command: string,
+    operation: Effect.Effect<A, JjError>
+  ): Effect.Effect<A, JjError> =>
+    gate.withPermit(Effect.suspend(() =>
+      disposed
+        ? Effect.fail(
+          new JjError({
+            code: "unknown",
+            module: MODULE,
+            method,
+            command,
+            message: `jj ${method}: the browser reactor was disposed`
+          })
+        )
+        : operation
+    ))
+
   const jj = Jj.of({
     snapshot: (message) =>
       invoke("snapshot", "jj snapshot", { op: "snapshot", root, ...(message === undefined ? {} : { message }) }).pipe(
@@ -606,23 +627,27 @@ const create = (options: BrowserJjOptions): {
     // inside it. Answering for a path in an unrelated tree would be a wrong
     // answer rather than a missing one, so it fails instead.
     root: (from) =>
-      contains(root, from)
-        ? Effect.succeed(root)
-        : Effect.fail(
-          new JjError({
-            code: "unknown",
-            module: MODULE,
-            method: "root",
-            command: "jj root",
-            message: `jj root: ${from} is not inside the workspace root ${root}`
-          })
-        ),
+      withoutReactor(
+        "root",
+        "jj root",
+        contains(root, from)
+          ? Effect.succeed(root)
+          : Effect.fail(
+            new JjError({
+              code: "unknown",
+              module: MODULE,
+              method: "root",
+              command: "jj root",
+              message: `jj root: ${from} is not inside the workspace root ${root}`
+            })
+          )
+      ),
     // The frozen rc.0 wasm ABI has no revert or operation-restore operation,
     // and its snapshot reports no operation id. The methods remain present
     // and fail explicitly so feature detection never depends on an optional
     // property disappearing.
-    revert: () => fail("revert", "jj revert"),
-    opRestore: () => fail("opRestore", "jj op restore")
+    revert: () => withoutReactor("revert", "jj revert", fail("revert", "jj revert")),
+    opRestore: () => withoutReactor("opRestore", "jj op restore", fail("opRestore", "jj op restore"))
   })
   return { jj, dispose }
 }
