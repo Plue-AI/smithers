@@ -52,9 +52,10 @@ export const fromModel = (model: Model.Model, modelId: string): Evaluator.Evalua
   })
 
 /**
- * Use the backup only when the primary is unavailable: unreachable, timed
+ * Use the backup only when the primary is unavailable: unconfigured, unreachable, timed
  * out, or refusing with a server error or 429 after its own retries. A
- * refusal of the caller (4xx) or of the question never falls back.
+ * refusal of the caller (4xx) or of the question never falls back. If both
+ * fail, keep a configuration or usage-limit reason over a transport outage.
  *
  * @category constructors
  * @since 1.0.0-rc.1
@@ -64,9 +65,15 @@ export const withFallback = (primary: Evaluator.Evaluator, backup: Evaluator.Eva
     evaluate: (request) =>
       primary.evaluate(request).pipe(
         Effect.catch((error) =>
-          error.code === "unreachable" || error.code === "timeout" ||
+          error.code === "unconfigured" || error.code === "unreachable" || error.code === "timeout" ||
             (error.code === "refused" && error.status !== undefined && (error.status >= 500 || error.status === 429))
-            ? backup.evaluate(request)
+            ? backup.evaluate(request).pipe(Effect.mapError((failure) =>
+              ((failure.code === "unreachable" || failure.code === "timeout") && error.code === "unconfigured") ||
+                ((failure.code === "unreachable" || failure.code === "timeout" || failure.code === "unconfigured") &&
+                  error.code === "refused" && error.status === 429)
+                ? error
+                : failure
+            ))
             : Effect.fail(error)
         )
       )

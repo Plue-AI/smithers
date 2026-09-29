@@ -30,12 +30,14 @@ import type * as HttpClientResponse from "effect/unstable/http/HttpClientRespons
 import * as CanonicalJson from "./CanonicalJson.ts"
 import * as Endpoint from "./Endpoint.ts"
 import type * as Model from "./Model.ts"
+import { ModelError } from "./ModelError.ts"
 import * as ModelEvent from "./ModelEvent.ts"
 import { ModelRequest } from "./ModelRequest.ts"
 
 /**
  * The failure vocabulary shared by the transport and the classifier above it.
  *
+ * `unconfigured` needs host credentials or subscription opt-in;
  * `unreachable` is a transport that answered nothing; `refused` is a gateway
  * status other than 200, carried in `status`; `empty` is a 200 whose body
  * held no answers; `timeout` is this call's own deadline; `invalid_answer` is
@@ -46,6 +48,7 @@ import { ModelRequest } from "./ModelRequest.ts"
  * @since 1.0.0-rc.0
  */
 export const EvaluatorErrorCode = Schema.Literals([
+  "unconfigured",
   "unreachable",
   "refused",
   "empty",
@@ -72,6 +75,7 @@ export type EvaluatorErrorCode = typeof EvaluatorErrorCode.Type
 export class EvaluatorError extends Schema.TaggedError<EvaluatorError>()("flows/model/EvaluatorError", {
   code: EvaluatorErrorCode,
   status: Schema.optional(Schema.Number),
+  resetAtEpochMillis: Schema.optional(Schema.Number),
   message: Schema.String
 }) {}
 
@@ -84,6 +88,7 @@ export class EvaluatorError extends Schema.TaggedError<EvaluatorError>()("flows/
  * @since 1.0.0
  */
 export const faults = {
+  unconfigured: "policy",
   unreachable: "dependency",
   timeout: "dependency",
   refused: "dependency",
@@ -106,15 +111,37 @@ Fault.register("flows/model/EvaluatorError", faults)
 export const unreachableMessage = "Jev was unavailable: the judge this host binds did not answer."
 
 /**
+ * How a native host can configure a judge.
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const unconfiguredMessage =
+  "Set AI_GATEWAY_API_KEY, or opt in to Luna: codex login and SMITHERS_OPENAI_AUTH=chatgpt."
+
+const usageLimitMessage = (reset: number | undefined): string =>
+  reset === undefined || !Number.isFinite(new Date(reset).getTime())
+    ? "The judge reached its usage limit (429). Wait for quota to reset."
+    : `The judge reached its usage limit (429). Resets ${new Date(reset).toISOString()}.`
+
+/**
  * The text of an evaluator failure that is safe to journal or hand a model:
- * the fixed {@link unreachableMessage} for `unreachable`, the failure's own
- * message for every other code.
+ * fixed copy for transport outages and 429 usage limits, including a known
+ * reset time. Other codes carry the host's or evaluator's own safe message.
  *
  * @category conversions
  * @since 1.0.0-rc.0
  */
-export const publicMessage = (error: { readonly code: EvaluatorErrorCode; readonly message: string }): string =>
-  error.code === "unreachable" ? unreachableMessage : error.message
+export const publicMessage = (error: {
+  readonly code: EvaluatorErrorCode
+  readonly message: string
+  readonly status?: number | undefined
+  readonly resetAtEpochMillis?: number | undefined
+}): string =>
+  error.code === "unreachable" ?
+    unreachableMessage :
+    error.code === "refused" && error.status === 429
+    ? usageLimitMessage(error.resetAtEpochMillis)
+    : error.message
 
 const criteriaKeyCount = Schema.makeFilter(
   (criteria: Readonly<Record<string, string>>) => {
@@ -879,7 +906,26 @@ export const layerFromSeat = (
           })
         ).pipe(
           Stream.runCollect,
-          Effect.mapError(() => new EvaluatorError({ code: "unreachable", message: unreachableMessage }))
+          Effect.catch((error) =>
+            Effect.gen(function*() {
+              if (error instanceof ModelError && (error.code === "rate_limited" || error.code === "quota_exceeded")) {
+                const reset = error.resetAtEpochMillis ??
+                  (error.retryAfterMillis === undefined
+                    ? undefined
+                    : (yield* Clock.currentTimeMillis) + error.retryAfterMillis)
+                const resetAtEpochMillis = reset !== undefined && Number.isFinite(new Date(reset).getTime())
+                  ? reset
+                  : undefined
+                return yield* new EvaluatorError({
+                  code: "refused",
+                  status: 429,
+                  ...(resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis }),
+                  message: usageLimitMessage(resetAtEpochMillis)
+                })
+              }
+              return yield* new EvaluatorError({ code: "unreachable", message: unreachableMessage })
+            })
+          )
         )
         const { message, usage } = ModelEvent.settledMessage(events)
         const invalid = () =>

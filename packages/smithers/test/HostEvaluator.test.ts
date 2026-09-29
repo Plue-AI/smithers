@@ -203,23 +203,99 @@ it("does not fall back to Luna when Jev answers something invalid", async () => 
   expect(sent).toEqual([jevUrl])
 })
 
-it("never judges on a provider API key when Jev is unreachable", async () => {
+it("explains missing gateway setup through the TUI message, without using a provider API key", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
     execute: () => Effect.die("must not call an API-key provider")
   })
-  await expect(
-    Effect.runPromise(
+  try {
+    await Effect.runPromise(
       Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
         Effect.provide(
-          layerSeatEvaluator({ OPENAI_API_KEY: "sk-test", SMITHERS_OPENAI_AUTH: "api-key" })
+          layerSeatEvaluator({
+            OPENAI_API_KEY: "sk-test",
+            SMITHERS_OPENAI_AUTH: "api-key",
+            CODEX_HOME: "/nonexistent"
+          })
             .pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
         )
       )
     )
-  ).rejects.toMatchObject({ code: "unreachable" })
+    throw new Error("Expected missing judge setup to fail")
+  } catch (error) {
+    expect(error).toMatchObject({ code: "unconfigured" })
+    const message = Evaluator.publicMessage(error as Evaluator.EvaluatorError)
+    expect(message).toContain("AI_GATEWAY_API_KEY")
+    expect(message).not.toContain("did not answer")
+    expect(message).not.toContain("sk-test")
+  }
 })
 
-it("fails unreachable when Luna cannot resolve either", async () => {
+it("explains Luna subscription opt-in when the gateway cannot answer", async () => {
+  const calls: string[] = []
+  const jevHttp = HttpClient.make((request) => {
+    calls.push(request.url)
+    return Effect.fail(
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({
+          request,
+          description: "private gateway address and token"
+        })
+      })
+    )
+  })
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: () => Effect.die("An unsubscribed Luna must never use the model transport")
+  })
+  try {
+    await Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
+        Effect.provide(
+          layerSeatEvaluator({
+            AI_GATEWAY_API_KEY: "vck_test",
+            CODEX_HOME: "/nonexistent"
+          }, Layer.succeed(HttpClient.HttpClient)(jevHttp)).pipe(
+            Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor))
+          )
+        )
+      )
+    )
+    throw new Error("Expected subscription opt-in failure")
+  } catch (error) {
+    expect(error).toMatchObject({ code: "unconfigured" })
+    const message = Evaluator.publicMessage(error as Evaluator.EvaluatorError)
+    expect(message).toMatch(/Codex|Luna|subscription/i)
+    expect(message).not.toContain("private gateway address")
+    expect(message).not.toContain("did not answer")
+  }
+  expect(calls).toEqual(Array(Evaluator.defaultAttempts).fill(jevUrl))
+})
+
+it("asks for Codex login when Luna was opted in without a usable session", async () => {
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: () => Effect.die("An unsigned Luna must never reach model transport")
+  })
+  try {
+    await Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
+        Effect.provide(
+          layerSeatEvaluator({
+            SMITHERS_OPENAI_AUTH: "chatgpt",
+            CODEX_HOME: "/nonexistent"
+          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+        )
+      )
+    )
+    throw new Error("Expected missing Codex session")
+  } catch (error) {
+    expect(error).toMatchObject({ code: "unconfigured" })
+    const message = Evaluator.publicMessage(error as Evaluator.EvaluatorError)
+    expect(message).toContain("ChatGPT login")
+    expect(message).toContain("codex login")
+    expect(message).not.toContain("did not answer")
+  }
+})
+
+it("keeps the missing gateway setup reason when Luna cannot resolve either", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
     execute: () => Effect.die("must not call an API-key provider")
   })
@@ -234,7 +310,7 @@ it("fails unreachable when Luna cannot resolve either", async () => {
         )
       )
     )
-  ).rejects.toMatchObject({ code: "unreachable" })
+  ).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
 })
 
 it.each(["unavailable", "disconnected"] as const)(
@@ -265,7 +341,7 @@ it.each(["unavailable", "disconnected"] as const)(
             OPENAI_API_KEY: "must-not-use"
           }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
         ))
-    )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
+    )).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
     expect(sent).toHaveLength(1)
   }
 )
@@ -293,6 +369,6 @@ it("fails closed when the subscription pool's route list cannot be read", async 
           OPENAI_API_KEY: "must-not-use"
         }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
       ))
-  )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
+  )).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
   expect(sent).toEqual(["https://pool.example/routes"])
 })

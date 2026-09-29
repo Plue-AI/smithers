@@ -6,8 +6,10 @@ import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
+import * as Model from "@smthrs/model/Model"
+import { ModelError } from "@smthrs/model/ModelError"
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -988,6 +990,94 @@ describe("Host.run jev binding", () => {
     expect(coordinator.settled).not.toContain("success")
     // A judged host still never arms its coordinator.
     expect(coordinator.armed).toEqual([undefined])
+  })
+})
+
+describe("Host.run judge failure copy", () => {
+  test.each(
+    [
+      ["missing gateway key and Luna opt-in", false, "Luna is not opted in."],
+      ["missing Codex login after opt-in", true, "Luna needs a ChatGPT login."]
+    ] as const
+  )("shows %s on the worker failure card", async (_, optIn, expected) => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-judge-failure-"))
+    roots.push(cwd)
+    const codexHome = join(cwd, "codex")
+    mkdirSync(codexHome)
+    if (!optIn) {
+      writeFileSync(
+        join(codexHome, "auth.json"),
+        JSON.stringify({
+          tokens: { access_token: "fixture-session", refresh_token: "fixture-refresh" }
+        })
+      )
+    }
+    const host = Host.make({
+      cwd,
+      environment: {
+        CODEX_HOME: codexHome,
+        OPENAI_API_KEY: "provider-key-must-not-judge",
+        ...(optIn ? { SMITHERS_OPENAI_AUTH: "chatgpt" } : {})
+      }
+    })
+    try {
+      const outcome = await host.run({
+        prompt: "answer",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd)}`,
+        history: [],
+        onEvent: () => {}
+      }).done
+      expect(outcome._tag).toBe("failed")
+      if (outcome._tag !== "failed") return
+      const card = FailureCopy.describe(outcome.error)
+      expect(card.fault).toBe("policy")
+      expect(card.line).toContain(expected)
+      expect(card.line).toContain("AI_GATEWAY_API_KEY")
+      expect(card.line).toContain("codex login")
+      expect(card.line).not.toContain("did not answer")
+      expect(card.line).not.toContain("provider-key-must-not-judge")
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("shows a subscription usage limit with its reset on the worker failure card", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-judge-limit-"))
+    roots.push(cwd)
+    const resetAtEpochMillis = Date.UTC(2026, 8, 30, 21)
+    const judge = Evaluator.layerFromSeat({
+      modelId: "fixture/judge",
+      model: Model.make({
+        stream: () =>
+          Stream.fail(
+            new ModelError({
+              code: "rate_limited",
+              resetAtEpochMillis,
+              message: "private account diagnostic"
+            })
+          )
+      })
+    })
+    const host = Host.make({ cwd, environment: {}, judge })
+    try {
+      const outcome = await host.run({
+        prompt: "answer",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd)}`,
+        history: [],
+        onEvent: () => {}
+      }).done
+      expect(outcome._tag).toBe("failed")
+      if (outcome._tag !== "failed") return
+      const card = FailureCopy.describe(outcome.error)
+      expect(card.line).toContain("usage limit")
+      expect(card.line).toContain("2026-09-30T21:00:00.000Z")
+      expect(card.line).not.toContain("private account diagnostic")
+      expect(card.line).not.toContain("did not answer")
+    } finally {
+      await host.dispose()
+    }
   })
 })
 

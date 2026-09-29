@@ -6,6 +6,7 @@
 
 import * as Faults from "@smthrs/flow/Fault"
 import * as Schema from "effect/Schema"
+import * as Evaluator from "./Evaluator.ts"
 // A value import, so the model rows register wherever this copy is read.
 import { ModelErrorCode } from "./ModelError.ts"
 
@@ -41,6 +42,7 @@ type ErrorRecord = {
   readonly cause?: unknown
   readonly resetAtEpochMillis?: unknown
   readonly retryAfterMillis?: unknown
+  readonly status?: unknown
   readonly seat?: unknown
   readonly route?: unknown
   readonly budget?: unknown
@@ -67,6 +69,7 @@ const provider = (seat: string | undefined): string => {
 }
 
 const isModelCode = Schema.is(ModelErrorCode)
+const isEvaluatorCode = Schema.is(Evaluator.EvaluatorErrorCode)
 
 const model: Record<ModelErrorCode, readonly [string, string, ReadonlyArray<Action>]> = {
   invalid_request: ["Model rejected the request", "Change the request and resume.", [
@@ -167,6 +170,7 @@ export const describe = (error: unknown, seat?: string): Description => {
   let budget: ErrorRecord | undefined
   let unresolved: ErrorRecord | undefined
   let unrouted: ErrorRecord | undefined
+  let evaluator: ErrorRecord | undefined
   let named: readonly [string, string, ReadonlyArray<Action>] | undefined
   const seen = new Set<unknown>()
   while (current !== undefined && !seen.has(current)) {
@@ -181,6 +185,7 @@ export const describe = (error: unknown, seat?: string): Description => {
     if (value._tag === "@smthrs/agent/Seat/SeatUnresolved") unresolved = value
     // An `auto` seat the router could not pick: no model ran, so another one is the way on.
     if (value._tag === "@smthrs/agent/Seat/SeatUnrouted") unrouted = value
+    if (value._tag === "flows/model/EvaluatorError" || value._tag === "flows/model/ClassifierError") evaluator = value
     const key = typeof value.code === "string" ? `${String(value._tag)}/${value.code}` : String(value._tag)
     named = causes[key] ?? causes[String(value._tag)] ?? named
     current = value.cause
@@ -208,6 +213,8 @@ export const describe = (error: unknown, seat?: string): Description => {
         ? "No model router is set up."
         : unrouted.reason === "interrupted"
         ? "Choosing a model was interrupted."
+        : isEvaluatorCode(unrouted.reason) && typeof unrouted.message === "string" && unrouted.message !== ""
+        ? Evaluator.publicMessage({ code: unrouted.reason, message: unrouted.message }).slice(0, 240)
         : "The model router could not pick a model.",
       actions: ["switch-model", "resume", "details"]
     }
@@ -224,6 +231,19 @@ export const describe = (error: unknown, seat?: string): Description => {
           daily ? " today" : ""
         }.`
         : "The run spent its budget.",
+      actions: ["resume", "details"]
+    }
+  }
+  if (evaluator !== undefined && isEvaluatorCode(evaluator.code) && typeof evaluator.message === "string") {
+    return {
+      headline: "Worker result could not be checked",
+      fault,
+      line: Evaluator.publicMessage({
+        code: evaluator.code,
+        message: evaluator.message,
+        status: typeof evaluator.status === "number" ? evaluator.status : undefined,
+        resetAtEpochMillis: typeof evaluator.resetAtEpochMillis === "number" ? evaluator.resetAtEpochMillis : undefined
+      }),
       actions: ["resume", "details"]
     }
   }

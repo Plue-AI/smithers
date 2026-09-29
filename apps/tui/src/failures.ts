@@ -12,6 +12,7 @@
  */
 import type * as Permission from "@smthrs/capability/Permission"
 import type * as Cell from "@smthrs/harness/Cell"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import type { PlueFault } from "@smthrs/rpc/PlueFailureCodes"
 import {
   presentUserFailure,
@@ -158,6 +159,7 @@ const tab = (failure: TabError): UserFailureCopy => {
 }
 
 const judge: Readonly<Record<Extract<MonitorFailure, { _tag: "JevFailed" }>["code"], string>> = {
+  unconfigured: Evaluator.unconfiguredMessage,
   unreachable: "Jev could not be reached.",
   refused: "Jev refused the request.",
   empty: "Jev gave no answer.",
@@ -192,7 +194,7 @@ export const registry: UserFailureRegistry<Known> = {
   TabError: tab,
   SessionCorrupt: (failure) => copy("infra", `That conversation is damaged at line ${failure.line}.`),
   SessionWriteFailed: copy("infra", "The conversation is not being saved; check the disk."),
-  JevFailed: (failure) => copy("dependency", judge[failure.code]),
+  JevFailed: (failure) => copy(Evaluator.faults[failure.code], judge[failure.code]),
   LunaFailed: copy("dependency", "Luna could not summarize the change."),
   SourceFailed: copy("infra", "The watched source could not be read."),
   Refused: copy("user", "The watch command was not approved.")

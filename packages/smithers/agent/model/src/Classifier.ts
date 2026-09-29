@@ -36,6 +36,7 @@ import * as Evaluator from "./Evaluator.ts"
 export class ClassifierError extends Schema.TaggedError<ClassifierError>()("flows/model/ClassifierError", {
   code: Evaluator.EvaluatorErrorCode,
   status: Schema.optional(Schema.Number),
+  resetAtEpochMillis: Schema.optional(Schema.Number),
   message: Schema.String
 }) {}
 Fault.register("flows/model/ClassifierError", Evaluator.faults)
@@ -457,6 +458,7 @@ export const fromEvaluatorError = (error: Evaluator.EvaluatorError): ClassifierE
   new ClassifierError({
     code: error.code,
     ...(error.status === undefined ? {} : { status: error.status }),
+    ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
     message: error.message
   })
 

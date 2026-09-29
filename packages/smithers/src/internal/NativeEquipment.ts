@@ -536,7 +536,7 @@ const jevBaseUrl = (environment: Readonly<Record<string, string | undefined>>): 
  * Judges with Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`), and
  * with GPT-6 Luna only when Jev is unreachable, times out, or stays
  * unavailable (5xx or 429) through its retries. A missing key
- * makes Jev unreachable; Luna resolves through the subscription resolver at
+ * leaves Jev unconfigured; Luna resolves through the subscription resolver at
  * evaluation time, so newly connected pool accounts work after startup, and
  * never judges on a provider API key.
  *
@@ -561,7 +561,12 @@ export const layerSeatEvaluator = (
     const jev = key === undefined || key === ""
       ? Evaluator.Evaluator.of({
         evaluate: () =>
-          Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "AI_GATEWAY_API_KEY is not set" }))
+          Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "unconfigured",
+              message: `AI_GATEWAY_API_KEY is not set. ${Evaluator.unconfiguredMessage}`
+            })
+          )
       })
       : Context.get(
         yield* Layer.build(
@@ -584,9 +589,23 @@ export const layerSeatEvaluator = (
     const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>
         Effect.promise(subscribed).pipe(
-          Effect.flatMap((ready) => ready ? resolver.resolve("luna") : Effect.fail(undefined)),
-          Effect.mapError(() =>
-            new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+          Effect.flatMap((ready) =>
+            ready
+              ? resolver.resolve("luna").pipe(
+                Effect.mapError(() =>
+                  new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+                )
+              )
+              : Effect.fail(
+                new Evaluator.EvaluatorError({
+                  code: "unconfigured",
+                  message: `${key === undefined || key === "" ? "AI_GATEWAY_API_KEY is not set. " : ""}${
+                    environment["SMITHERS_OPENAI_AUTH"]?.trim() === "chatgpt"
+                      ? "Luna needs a ChatGPT login."
+                      : "Luna is not opted in."
+                  } ${Evaluator.unconfiguredMessage}`
+                })
+              )
           ),
           Effect.flatMap((seat) => EvaluatorBackup.fromModel(seat.model, seat.modelId).evaluate(request))
         )

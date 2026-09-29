@@ -72,6 +72,13 @@ describe("tagged failures read as one plain sentence", () => {
   })
 
   it("words monitor, session, plugin, depth and approval failures", () => {
+    expect(sentence(new MonitorError({ _tag: "JevFailed", code: "unconfigured", message: RAW }))).toMatchObject({
+      sentence: "Set AI_GATEWAY_API_KEY, or opt in to Luna: codex login and SMITHERS_OPENAI_AUTH=chatgpt.",
+      fault: "policy"
+    })
+    expect(sentence(new MonitorError({ _tag: "JevFailed", code: "invalid_question", message: RAW })).fault).toBe(
+      "bug"
+    )
     expect(sentence(new MonitorError({ _tag: "JevFailed", code: "timeout", message: RAW })).sentence).toBe(
       "Jev timed out."
     )

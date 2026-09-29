@@ -434,22 +434,54 @@ describe("the claim brake", () => {
     }
   })
 
-  it("carries the transport's code and status as the cause, and never its text", async () => {
+  it("serializes a safe typed judge cause with status and reset, never raw transport text", async () => {
     const failure = new Evaluator.EvaluatorError({
-      code: "unreachable",
-      status: 503,
-      message: "connect ECONNREFUSED judge.internal:8443"
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: Date.UTC(2026, 8, 30, 21),
+      message: "private account response with a token"
     })
     const error = await unjudged({ layer: refusing(failure).layer })
 
-    expect(error.cause).toEqual({ code: "unreachable", status: 503 })
-    expect(error.message).not.toContain("judge.internal")
-    const persisted = Schema.decodeSync(HarnessError)(Schema.encodeSync(HarnessError)(error))
-    expect(persisted.cause).toEqual({ code: "unreachable", status: 503 })
+    expect(error.cause).toBeInstanceOf(Evaluator.EvaluatorError)
+    expect(error.cause).toMatchObject({
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: Date.UTC(2026, 8, 30, 21)
+    })
+    expect(error.message).toContain("usage limit")
+    expect(error.message).not.toContain("private account response")
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(HarnessError)(error)))
+    expect(JSON.stringify(wire)).not.toContain("private account response")
+    const persisted = Schema.decodeUnknownSync(HarnessError)(wire)
+    expect(persisted.cause).toBeInstanceOf(Evaluator.EvaluatorError)
+    expect(persisted.cause).toMatchObject({
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: Date.UTC(2026, 8, 30, 21)
+    })
+    const unreachable = await unjudged({
+      layer: refusing(
+        new Evaluator.EvaluatorError({
+          code: "unreachable",
+          status: 503,
+          message: "connect ECONNREFUSED judge.internal:8443"
+        })
+      ).layer
+    })
+    expect(unreachable.message).toContain(Evaluator.unreachableMessage)
+    expect(unreachable.message).not.toContain("judge.internal")
+    const unreachableWire = JSON.parse(JSON.stringify(Schema.encodeSync(HarnessError)(unreachable)))
+    expect(JSON.stringify(unreachableWire)).not.toContain("judge.internal")
+    expect(Schema.decodeUnknownSync(HarnessError)(unreachableWire).cause).toMatchObject({
+      code: "unreachable",
+      status: 503,
+      message: Evaluator.unreachableMessage
+    })
     const bare = await unjudged({
       layer: refusing(new Evaluator.EvaluatorError({ code: "timeout", message: "late" })).layer
     })
-    expect(bare.cause).toEqual({ code: "timeout" })
+    expect(bare.cause).toMatchObject({ code: "timeout" })
   })
 
   it("journals its decision without the transport's usage, which claim-demanded carries", async () => {

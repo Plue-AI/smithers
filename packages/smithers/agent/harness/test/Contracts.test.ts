@@ -652,7 +652,6 @@ describe("AgentEvent", () => {
     expect(AgentEvent.SupervisorUnjudged.fields.reason).toBe(AgentEvent.UnjudgedReason)
     expect(AgentEvent.DecisionUnjudged.fields.reason).toBe(AgentEvent.UnjudgedReason)
     expect(AgentEvent.UnjudgedReason.literals).toEqual([
-      "unconfigured",
       "interrupted",
       ...Evaluator.EvaluatorErrorCode.literals
     ])

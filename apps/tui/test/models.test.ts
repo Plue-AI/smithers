@@ -49,6 +49,34 @@ describe("default chat seat", () => {
       "custom:chat"
     )
   })
+
+  test("keeps Codex subscription seats behind explicit opt-in even when an API key is present", () => {
+    const codexHome = mkdtempSync(join(tmpdir(), "tui-codex-"))
+    try {
+      writeFileSync(
+        join(codexHome, "auth.json"),
+        JSON.stringify({
+          tokens: { access_token: "fixture-session", refresh_token: "fixture-refresh" }
+        })
+      )
+      const environment = { CODEX_HOME: codexHome, OPENAI_API_KEY: "key" }
+      const keyed = Models.detectWithoutClaude(environment)
+      expect(keyed.environment.SMITHERS_OPENAI_AUTH).toBeUndefined()
+      expect(keyed.models.filter((model) => model.seat.startsWith("openai:"))).toEqual(
+        expect.arrayContaining([expect.objectContaining({ provider: "OpenAI" })])
+      )
+      expect(keyed.models.some((model) => model.provider === "Codex subscription")).toBe(false)
+
+      const optedIn = Models.detectWithoutClaude({ ...environment, SMITHERS_OPENAI_AUTH: "chatgpt" })
+      expect(optedIn.environment.SMITHERS_OPENAI_AUTH).toBe("chatgpt")
+      expect(optedIn.models.filter((model) => model.seat.startsWith("openai:"))).toEqual(
+        expect.arrayContaining([expect.objectContaining({ provider: "Codex subscription" })])
+      )
+      expect(optedIn.models.some((model) => model.provider === "OpenAI")).toBe(false)
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("routing", () => {

@@ -122,6 +122,78 @@ describe("EvaluatorBackup.withFallback", () => {
     expect(calls).toEqual([request])
   })
 
+  it("tries the subscription backup when Jev has no gateway key", async () => {
+    const calls: Array<Evaluator.Request> = []
+    const primary = failed("unconfigured")
+    const result = await run(EvaluatorBackup.withFallback(primary, answered(calls)))
+    expect(Result.isSuccess(result)).toBe(true)
+    expect(calls).toEqual([request])
+  })
+
+  it.each(["unreachable", "timeout"] as const)(
+    "keeps the actionable Jev setup fault when backup is %s",
+    async (code) => {
+      const primary = Evaluator.Evaluator.of({
+        evaluate: () =>
+          Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "unconfigured",
+              message: "Set AI_GATEWAY_API_KEY to enable Jev."
+            })
+          )
+      })
+      const result = await run(EvaluatorBackup.withFallback(primary, failed(code)))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({ code: "unconfigured", message: "Set AI_GATEWAY_API_KEY to enable Jev." })
+        expect(Evaluator.publicMessage(result.failure)).toContain("AI_GATEWAY_API_KEY")
+      }
+    }
+  )
+
+  it("keeps a subscription setup fault when Jev only had a transport failure", async () => {
+    const backup = Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.fail(
+          new Evaluator.EvaluatorError({
+            code: "unconfigured",
+            message: "Sign in to a Codex subscription to enable Luna."
+          })
+        )
+    })
+    const result = await run(EvaluatorBackup.withFallback(failed("unreachable"), backup))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        code: "unconfigured",
+        message: "Sign in to a Codex subscription to enable Luna."
+      })
+    }
+  })
+
+  it.each(["unreachable", "timeout", "unconfigured"] as const)(
+    "does not replace a quota refusal with a %s backup failure",
+    async (code) => {
+      const primary = Evaluator.Evaluator.of({
+        evaluate: () =>
+          Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "refused",
+              status: 429,
+              message: "The judge reached its usage limit.",
+              resetAtEpochMillis: 1_800_000_000_000
+            })
+          )
+      })
+      const result = await run(EvaluatorBackup.withFallback(primary, failed(code)))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({ code: "refused", status: 429, resetAtEpochMillis: 1_800_000_000_000 })
+        expect(Evaluator.publicMessage(result.failure)).toContain("usage limit")
+      }
+    }
+  )
+
   it.each([500, 503, 429] as const)("uses the backup after a %s refusal", async (status) => {
     const calls: Array<Evaluator.Request> = []
     const result = await run(EvaluatorBackup.withFallback(failed("refused", status), answered(calls)))

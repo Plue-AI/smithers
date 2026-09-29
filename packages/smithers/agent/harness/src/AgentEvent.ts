@@ -95,7 +95,7 @@ export const Suppression = Schema.Literals(["streak", "cooldown", "limit", "slot
  * @category models
  * @since 1.0.0-rc.0
  */
-export const UnjudgedReason = Schema.Literals(["unconfigured", "interrupted", ...Evaluator.EvaluatorErrorCode.literals])
+export const UnjudgedReason = Schema.Literals(["interrupted", ...Evaluator.EvaluatorErrorCode.literals])
 
 /** Token usage an evaluator reported for one reading. */
 const Usage = Schema.Struct({ inputTokens: Schema.Number, outputTokens: Schema.Number })

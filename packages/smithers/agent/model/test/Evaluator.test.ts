@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
@@ -16,6 +17,8 @@ import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import type { TestContext } from "vitest"
 import { describe, expect, it } from "vitest"
 import * as Evaluator from "../src/Evaluator.ts"
+import * as Model from "../src/Model.ts"
+import { ModelError } from "../src/ModelError.ts"
 
 describe("public evaluator failures", () => {
   it("replaces unreachable transport details with the public sentence", () => {
@@ -28,6 +31,108 @@ describe("public evaluator failures", () => {
   it("preserves the judge's explanation when it answered with a refusal", () => {
     expect(Evaluator.publicMessage({ code: "refused", message: "This model does not support choice questions." }))
       .toBe("This model does not support choice questions.")
+  })
+
+  it("classifies missing judge setup as a policy fault with actionable public copy", () => {
+    const error = new Evaluator.EvaluatorError({
+      code: "unconfigured",
+      message: Evaluator.unconfiguredMessage
+    })
+    expect(Evaluator.faults.unconfigured).toBe("policy")
+    expect(Evaluator.publicMessage(error)).toContain("AI_GATEWAY_API_KEY")
+    expect(Evaluator.publicMessage(error)).toContain("codex login")
+  })
+
+  it.each(["rate_limited", "quota_exceeded"] as const)(
+    "shows a typed %s subscription usage limit and its reset without exposing account details",
+    async (code) => {
+      const resetAtEpochMillis = Date.UTC(2026, 8, 30, 21)
+      const accountText = "private account email and upstream token"
+      const layer = Evaluator.layerFromSeat({
+        modelId: "fixture/judge",
+        model: Model.make({
+          stream: () =>
+            Stream.fail(
+              new ModelError({
+                code,
+                message: accountText,
+                resetAtEpochMillis
+              })
+            )
+        })
+      })
+      const error = failure(await evaluate(layer))
+      expect(error).toMatchObject({ code: "refused", status: 429, resetAtEpochMillis })
+      const message = Evaluator.publicMessage(error)
+      expect(message).toContain("usage limit")
+      expect(message).toMatch(/reset/i)
+      expect(message).not.toContain(accountText)
+      expect(message).not.toContain("did not answer")
+    }
+  )
+
+  it("shows a usage limit without inventing a reset time", async () => {
+    const layer = Evaluator.layerFromSeat({
+      modelId: "fixture/judge",
+      model: Model.make({
+        stream: () =>
+          Stream.fail(
+            new ModelError({
+              code: "rate_limited",
+              message: "private account diagnostic"
+            })
+          )
+      })
+    })
+    const error = failure(await evaluate(layer))
+    expect(error).toMatchObject({ code: "refused", status: 429 })
+    expect(error.resetAtEpochMillis).toBeUndefined()
+    expect(Evaluator.publicMessage(error)).toBe("The judge reached its usage limit (429). Wait for quota to reset.")
+  })
+
+  it("derives a reset time from retry-after when the provider omitted an absolute reset", async () => {
+    const retryAfterMillis = 60_000
+    const before = Date.now()
+    const layer = Evaluator.layerFromSeat({
+      modelId: "fixture/judge",
+      model: Model.make({
+        stream: () =>
+          Stream.fail(
+            new ModelError({
+              code: "quota_exceeded",
+              message: "private account diagnostic",
+              retryAfterMillis
+            })
+          )
+      })
+    })
+    const error = failure(await evaluate(layer))
+    const after = Date.now()
+    expect(error).toMatchObject({ code: "refused", status: 429 })
+    expect(error.resetAtEpochMillis).toBeGreaterThanOrEqual(before + retryAfterMillis)
+    expect(error.resetAtEpochMillis).toBeLessThanOrEqual(after + retryAfterMillis)
+    expect(Evaluator.publicMessage(error)).toContain(new Date(error.resetAtEpochMillis!).toISOString())
+  })
+
+  it("omits an invalid provider reset instead of showing an invalid date", async () => {
+    const layer = Evaluator.layerFromSeat({
+      modelId: "fixture/judge",
+      model: Model.make({
+        stream: () =>
+          Stream.fail(
+            new ModelError({
+              code: "rate_limited",
+              message: "private account diagnostic",
+              resetAtEpochMillis: Number.POSITIVE_INFINITY
+            })
+          )
+      })
+    })
+    const error = failure(await evaluate(layer))
+    expect(error).toMatchObject({ code: "refused", status: 429 })
+    expect(error.resetAtEpochMillis).toBeUndefined()
+    expect(Evaluator.publicMessage(error)).not.toContain("Invalid Date")
+    expect(Evaluator.publicMessage(error)).not.toContain("private account")
   })
 })
 

@@ -158,6 +158,7 @@ describe("Probe.classify", () => {
 
   it.each(
     [
+      ["unconfigured", "provider_unavailable"],
       ["unreachable", "provider_unavailable"],
       ["refused", "provider_unavailable"],
       ["empty", "provider_unavailable"],

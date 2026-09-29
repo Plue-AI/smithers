@@ -915,10 +915,17 @@ export const read = (
     // message can name hosts and URLs, so the message is the public one and
     // the cause keeps only the structured facts.
     const failed = (error: Classifier.ClassifierError) =>
-      unjudged(error.code, Evaluator.publicMessage(error), evidence.claim, {
-        code: error.code,
-        ...(error.status === undefined ? {} : { status: error.status })
-      })
+      unjudged(
+        error.code,
+        Evaluator.publicMessage(error),
+        evidence.claim,
+        new Evaluator.EvaluatorError({
+          code: error.code,
+          message: Evaluator.publicMessage(error),
+          ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
+          ...(error.status === undefined ? {} : { status: error.status })
+        })
+      )
     const { answers, asked } = yield* Judgement.measured(classifier, evidence).pipe(
       Effect.provideService(Evaluator.Evaluator, bound.value),
       Effect.mapError(failed)

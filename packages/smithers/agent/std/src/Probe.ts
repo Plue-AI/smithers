@@ -174,6 +174,7 @@ const judged = (reason: Reason, confidence: number, executed: boolean): string =
 
 /** Which typed failure each way the judge can fail to answer is. */
 const unjudgedCode: Record<Evaluator.EvaluatorErrorCode, StdError.Code> = {
+  unconfigured: "provider_unavailable",
   unreachable: "provider_unavailable",
   refused: "provider_unavailable",
   empty: "provider_unavailable",

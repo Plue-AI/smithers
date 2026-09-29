@@ -96,7 +96,6 @@ export class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
   {
     seat: Schema.String,
     reason: Schema.Literals([
-      "unconfigured",
       "interrupted",
       "no_candidates",
       ...Evaluator.EvaluatorErrorCode.literals
@@ -109,7 +108,6 @@ Fault.register("@smthrs/agent/Seat/SeatUnresolved", "user")
 Fault.register(
   "@smthrs/agent/Seat/SeatUnrouted",
   {
-    unconfigured: "policy",
     interrupted: "infra",
     no_candidates: "factory",
     ...Evaluator.faults

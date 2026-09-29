@@ -382,14 +382,26 @@ describe("Classifier.evaluate", () => {
       await run(
         Relevance.evaluate(state),
         Evaluator.layerScripted(() =>
-          Effect.fail(new Evaluator.EvaluatorError({ code: "refused", status: 429, message: "rate limited" }))
+          Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "refused",
+              status: 429,
+              resetAtEpochMillis: Date.UTC(2026, 8, 30, 21),
+              message: "rate limited"
+            })
+          )
         )
       )
     )
     const unreachable = failure(await run(Relevance.evaluate(state), Evaluator.layerUnavailable()))
 
     expect(refused).toBeInstanceOf(Classifier.ClassifierError)
-    expect(refused).toMatchObject({ code: "refused", status: 429, message: "rate limited" })
+    expect(refused).toMatchObject({
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: Date.UTC(2026, 8, 30, 21),
+      message: "rate limited"
+    })
     expect(unreachable).toMatchObject({ code: "unreachable", message: "No evaluator is installed on this host" })
     expect(unreachable.status).toBeUndefined()
   })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import * as Evaluator from "../src/Evaluator.ts"
 import * as FailureCopy from "../src/FailureCopy.ts"
 import { ModelError } from "../src/ModelError.ts"
 
@@ -70,7 +71,7 @@ describe("FailureCopy.describe", () => {
     }
     expect(FailureCopy.describe(new Error("turn", { cause: unrouted }))).toMatchObject({
       headline: "Model could not be chosen",
-      line: "The model router could not pick a model.",
+      line: Evaluator.unreachableMessage,
       actions: ["switch-model", "resume", "details"]
     })
     expect(FailureCopy.describe({ ...unrouted, reason: "no_candidates" })).toMatchObject({
@@ -87,6 +88,36 @@ describe("FailureCopy.describe", () => {
       "No model router is set up."
     )
     expect(FailureCopy.describe({ ...unrouted, reason: "interrupted" }).line).toBe("Choosing a model was interrupted.")
+  })
+
+  it("shows native judge setup and quota reasons through wrapped worker failures", () => {
+    const unconfigured = new Evaluator.EvaluatorError({
+      code: "unconfigured",
+      message: Evaluator.unconfiguredMessage
+    })
+    const limit = new Evaluator.EvaluatorError({
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: Date.UTC(2026, 8, 30, 21),
+      message: "private account diagnostic"
+    })
+    const wrapped = (cause: Evaluator.EvaluatorError) => ({
+      _tag: "/harness/HarnessError",
+      code: "completion_unjudged",
+      message: "The result was not verified.",
+      cause
+    })
+
+    expect(FailureCopy.describe(wrapped(unconfigured))).toMatchObject({
+      headline: "Worker result could not be checked",
+      fault: "policy",
+      line: Evaluator.unconfiguredMessage,
+      actions: ["resume", "details"]
+    })
+    const quota = FailureCopy.describe(wrapped(limit))
+    expect(quota.line).toContain("usage limit")
+    expect(quota.line).toContain("2026-09-30T21:00:00.000Z")
+    expect(quota.line).not.toContain("private account diagnostic")
   })
 
   it("names a plan that did not converge, and a person's refusal, instead of the model wrapper", () => {

@@ -104,10 +104,7 @@ export const detectWithoutClaude = (environment: NodeJS.ProcessEnv): Available =
   if ((environment.ANTHROPIC_API_KEY ?? "") !== "") {
     for (const model of anthropic) models.push({ ...model, provider: "Anthropic" })
   }
-  return withModels(models, {
-    ...environment,
-    ...(subscribed && environment.SMITHERS_OPENAI_AUTH === undefined ? { SMITHERS_OPENAI_AUTH: "chatgpt" } : {})
-  })
+  return withModels(models, { ...environment })
 }
 
 const withModels = (models: ReadonlyArray<Model>, environment: NodeJS.ProcessEnv): Available => ({
