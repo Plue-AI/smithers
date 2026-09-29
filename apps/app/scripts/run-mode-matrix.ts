@@ -7,6 +7,7 @@ import {
   MANDATORY_DETERMINISTIC_BROWSER_SPECS,
   MANDATORY_DETERMINISTIC_BUN_TESTS,
   MODE_DESCRIPTORS,
+  READINESS_DEADLINE_MS,
   applicableScenarioIds,
   missingModeReadiness,
   matrixVerdict,
@@ -25,7 +26,7 @@ import { archiveEvidence, rawEvidence, readEvidenceReference, validateRawMatrixE
 const appDir = fileURLToPath(new URL("../", import.meta.url))
 const args = process.argv.slice(2)
 const command = args[0] ?? "audit"
-if (command !== "audit" && command !== "run") throw new Error("usage: run-mode-matrix.ts audit|run [--config path] [--report path] [--modes comma-separated]")
+if (command !== "audit" && command !== "run") throw new Error("usage: run-mode-matrix.ts audit|run [--config path] [--report path] [--modes comma-separated] [--readiness-timeout-ms n]")
 
 const option = (name: string): string | undefined => {
   const index = args.indexOf(name)
@@ -34,6 +35,9 @@ const option = (name: string): string | undefined => {
   if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
   return value
 }
+const readinessTimeout = option("--readiness-timeout-ms")
+const readinessDeadlineMs = readinessTimeout === undefined ? READINESS_DEADLINE_MS : Number(readinessTimeout)
+if (!Number.isSafeInteger(readinessDeadlineMs) || readinessDeadlineMs <= 0) throw new Error("--readiness-timeout-ms requires a positive integer")
 const selection = selectMatrixModes(option("--modes"))
 const selectedModes = selection.modes
 const executionID = randomUUID()
@@ -74,7 +78,7 @@ for (const mode of selectedModes) {
   const modeConfig = config.modes.find((entry) => entry.mode === mode)
   const state = configFailure ? missingModeReadiness(mode, configFailure)
     : modeConfig === undefined ? missingModeReadiness(mode, `configuration for ${mode} is unavailable`)
-      : await probeMode(modeConfig, config.revision)
+      : await probeMode(modeConfig, config.revision, process.env, fetch, readinessDeadlineMs)
   readiness.push(state)
   const record = modeConfig ? { mode, origin: modeConfig.origin, endpoint: modeConfig.endpoint, errors: [] as string[] } as typeof evidence[number] : undefined
   if (record && modeConfig) {

@@ -116,6 +116,9 @@ repository path; its production default is
 their old host tag, so a mode cannot get a smaller copied suite. `audit`
 records readiness only; `run` also runs the deterministic nonblocking/toast
 specs and every currently implemented real scenario in the catalog.
+Each mode's readiness requests, bodies included, share one 30 s deadline
+(`--readiness-timeout-ms` overrides it); an expired probe fails that mode and
+the matrix continues to the next.
 
 Pass `--config <path>` or set `SMITHERS_MODE_MATRIX_CONFIG`. The JSON file has
 one exact source revision and an array of mode records:

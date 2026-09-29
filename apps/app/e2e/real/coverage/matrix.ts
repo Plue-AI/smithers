@@ -191,6 +191,9 @@ export interface MatrixScenarioReceipt {
 
 type MatrixFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
+/** Total budget for one mode's readiness requests, from connection through body decoding. */
+export const READINESS_DEADLINE_MS = 30_000
+
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 const exactRevision = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{40,64}$/.test(value)
 const deploymentMode = (value: unknown): value is DeploymentMode => typeof value === "string" && (DEPLOYMENT_MODES as readonly string[]).includes(value)
@@ -285,7 +288,8 @@ export const probeMode = async (
   config: ModeConfig,
   revision: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  fetcher: MatrixFetcher = fetch
+  fetcher: MatrixFetcher = fetch,
+  deadlineMs: number = READINESS_DEADLINE_MS
 ): Promise<ModeReadiness> => {
   const descriptor = MODE_DESCRIPTORS[config.mode]
   const reasons: string[] = []
@@ -305,11 +309,15 @@ export const probeMode = async (
   let capabilities: readonly string[] = []
   let buildSha: string | undefined
   let bootstrapSHA256: string | undefined
+  const signal = AbortSignal.timeout(deadlineMs)
+  const expired = new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))
+  expired.catch(() => undefined)
+  const bounded = <T>(work: Promise<T>): Promise<T> => Promise.race([work, expired])
   try {
-    const bootstrap = await fetcher(new URL("/api/bootstrap", config.origin))
+    const bootstrap = await bounded(fetcher(new URL("/api/bootstrap", config.origin), { signal }))
     if (!bootstrap.ok) reasons.push(`bootstrap returned HTTP ${bootstrap.status}`)
     else {
-      const body = await bootstrap.json()
+      const body: unknown = await bounded(bootstrap.json())
       if (config.auth.kind === "owner-session" && (!isObject(body) || body.authFlow !== "credentials")) {
         reasons.push(`bootstrap authFlow ${isObject(body) ? String(body.authFlow) : "unknown"} does not advertise owner credentials`)
       }
@@ -331,10 +339,13 @@ export const probeMode = async (
       }
     }
     if (descriptor.provider === "selfhost") {
-      const health = await fetcher(new URL("/api/health", config.origin))
+      const health = await bounded(fetcher(new URL("/api/health", config.origin), { signal }))
       if (!health.ok) reasons.push(`health returned HTTP ${health.status}`)
     }
-  } catch (error) { reasons.push(`readiness request failed: ${error instanceof Error ? error.message : String(error)}`) }
+  } catch (error) {
+    reasons.push(signal.aborted ? `readiness timed out after ${deadlineMs} ms`
+      : `readiness request failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
   // The web-plue launcher observes the deployed page, so its receipt names the deployed build; every other surface runs this checkout.
   const surfaceRevision = descriptor.surface === "web" && descriptor.provider === "plue" ? buildSha : revision
   if (surfaceRevision === undefined) reasons.push("the deployed build is unknown, so the web-plue receipt cannot be checked")
