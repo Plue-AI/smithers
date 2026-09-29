@@ -10,6 +10,7 @@ import { test, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
 import { separateWikiOutput } from "../coding/wiki-output.ts"
 import { reviewEvidence } from "../wiki/evidence.ts"
+import { CITATION_CONTEXT_LINES, MAX_CLAIM_BYTES, MAX_STATE_BYTES } from "../wiki/jev-citations.ts"
 import { operations } from "../wiki/operations.ts"
 import { PageSpec, type Review, type ReviewedPage } from "../wiki/schema.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
@@ -437,19 +438,25 @@ test("real AgentAction review and flow replay use the existing engine", { timeou
   const EventSink = await import("@smthrs/agent/EventSink")
   const f = await fixture(t), evidence = await run(f.ops.collect(f.spec))
   let calls = 0
+  const requests: Array<string> = []
   const armed: Array<unknown> = []
   const sink = Layer.succeed(EventSink.EventSink)(EventSink.make({
     emit: (event) => Effect.sync(() => event._tag === "discipline-armed" && armed.push(event.judged))
   }))
   const model = Model.make({
-    stream: () =>
+    stream: (request) =>
       Stream.suspend(() => {
         calls++
+        requests.push(request.system.map((part) => part.text).join("\n"))
         const review = {
           sections: supported(evidence).sections.map((section) => ({
             ...section,
             citations: section.citations.map((citation) =>
-              calls === 1 ? { ...citation, quote: `${citation.quote}\ninvalid second line` } : citation
+              calls === 1 ?
+                { ...citation, quote: `${citation.quote}\ninvalid second line` }
+                : calls === 2
+                ? { ...citation, line: 999 }
+                : citation
             )
           }))
         }
@@ -507,8 +514,27 @@ test("real AgentAction review and flow replay use the existing engine", { timeou
       assert.deepEqual(second, first)
     }).pipe(Effect.provide(layer))
   ))
-  assert.equal(calls, 2, "the invalid multiline quote consumes one schema correction; replay consumes no model call")
-  assert.deepEqual(armed, [true, true], "the review and its correction each arm judged discipline")
+  assert.equal(calls, 3, "schema correction and exact repair each consume one call; replay consumes none")
+  const view = JSON.stringify(reviewEvidence(evidence))
+  for (const request of requests) {
+    assert.match(request, /each citation on any verdict independently against the whole section Markdown/)
+    assert.ok(request.includes(`clipped at ${MAX_CLAIM_BYTES} UTF-8 bytes`))
+    assert.ok(request.includes(`visible local window of up to ${CITATION_CONTEXT_LINES} lines`))
+    assert.ok(request.includes(`${MAX_STATE_BYTES}-byte state`))
+    assert.match(request, /no other citations, full file, or reviewer explanation/)
+    assert.match(request, /auxiliary references cannot rescue an unrelated citation/)
+    assert.match(request, /mark the section uncertain.*instead of inventing evidence or omitting claims/)
+    assert.match(request, /owning explanation is evidence\.spec\.document/)
+    assert.ok(request.includes("Owning explanation path: \"page.md\""))
+    assert.ok(request.includes(view), "initial and repair requests use the same captured source")
+  }
+  assert.doesNotMatch(requests[0]!, /The prior review failed exact validation/)
+  assert.match(requests[1]!, /Your previous answer did not validate/)
+  assert.match(requests[2]!, /The prior review failed exact validation/)
+  assert.match(requests[2]!, /Review citation is not exact source evidence: answer\//)
+  assert.match(requests[2]!, /invalidCitationCount/)
+  assert.match(requests[2]!, /"line":999/)
+  assert.deepEqual(armed, [true, true, true], "every review request arms judged discipline")
 })
 
 test("independent page reviews finish before exact citation assessment can fail", async (t) => {
