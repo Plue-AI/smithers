@@ -124,6 +124,35 @@ it("judges with Jev and never calls Luna when the gateway answers", async () => 
   expect(sent).toEqual([jevUrl])
 })
 
+it("judges through the metered model proxy a self-hosted Flow host is given", async () => {
+  // The backend hands a Flow host a per-binding credential and the proxy URLs,
+  // never a gateway key; the public gateway answers that credential 401.
+  const proxied = judge({
+    AI_GATEWAY_API_KEY: "smithers-binding-credential",
+    SMITHERS_MODEL_PROXY_URL: "http://backend.internal:4000/model-proxy",
+    SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras,vercel"
+  }, "answers")
+  await Effect.runPromise(proxied.run)
+  expect(proxied.sent).toEqual(["http://backend.internal:4000/model-proxy/vercel/v4/ai/evaluation-model"])
+
+  const explicit = judge({
+    AI_GATEWAY_API_KEY: "smithers-binding-credential",
+    SMITHERS_EVALUATOR_BASE_URL: "http://backend.internal:4000/model-proxy/vercel/v4/ai/evaluation-model"
+  }, "answers")
+  await Effect.runPromise(explicit.run)
+  expect(explicit.sent).toEqual(["http://backend.internal:4000/model-proxy/vercel/v4/ai/evaluation-model"])
+})
+
+it("keeps Jev on the public gateway when the proxy does not serve vercel", async () => {
+  const { run, sent } = judge({
+    AI_GATEWAY_API_KEY: "vck_test",
+    SMITHERS_MODEL_PROXY_URL: "http://backend.internal:4000/model-proxy",
+    SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras"
+  }, "answers")
+  await Effect.runPromise(run)
+  expect(sent).toEqual([jevUrl])
+})
+
 it("answers with Luna through the pool seat when Jev is unreachable", async () => {
   const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, "unreachable")
   const result = await Effect.runPromise(run)

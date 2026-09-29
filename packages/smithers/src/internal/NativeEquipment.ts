@@ -519,6 +519,20 @@ export const layerSeatCatalog = (
   })
 
 /**
+ * Jev's evaluation endpoint for this environment. A self-hosted Flow host
+ * holds a per-binding credential, not a gateway key, so it must judge through
+ * the backend's metered proxy: an explicit `SMITHERS_EVALUATOR_BASE_URL` wins,
+ * otherwise the gateway origin honors `SMITHERS_MODEL_PROXY_URL` (and its
+ * provider list) through `Endpoint.providerOrigin`.
+ */
+const jevBaseUrl = (environment: Readonly<Record<string, string | undefined>>): string => {
+  const explicit = environment["SMITHERS_EVALUATOR_BASE_URL"]?.trim()
+  return explicit !== undefined && explicit !== ""
+    ? explicit
+    : `${Endpoint.providerOrigin("vercel", environment)}/v4/ai/evaluation-model`
+}
+
+/**
  * Judges with Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`), and
  * with GPT-6 Luna only when Jev is unreachable, times out, or stays
  * unavailable (5xx or 429) through its retries. A missing key
@@ -551,7 +565,7 @@ export const layerSeatEvaluator = (
       })
       : Context.get(
         yield* Layer.build(
-          Evaluator.layerVercelGateway({ apiKey: Redacted.make(key) }).pipe(
+          Evaluator.layerVercelGateway({ apiKey: Redacted.make(key), baseUrl: jevBaseUrl(environment) }).pipe(
             Layer.provide(jevHttp)
           )
         ),
