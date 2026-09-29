@@ -15,6 +15,7 @@ import { AdmitSource } from "../coding/source-admission.ts"
 import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
 import { type FeedbackReceipt, ReceiveFeedback } from "../coding/steering.ts"
 import { todoLayers } from "../coding/todo.ts"
+import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
 
 const revision = (name: string): Revision => ({
   changeId: `change-${name}`,
@@ -113,6 +114,7 @@ const fixture = (
       })
     ),
     todoLayers(Evaluator.layerScripted(() => ({ route: { choice: "implement" } }))),
+    InstallDependencyPages.toLayer(() => Effect.void),
     prototypeRegistration,
     registration,
     PrepareStackBase.toLayer(({ base }) =>

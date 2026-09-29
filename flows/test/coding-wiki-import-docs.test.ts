@@ -19,6 +19,7 @@ import { test } from "node:test"
 import { Journal } from "../../packages/smithers/flows/journal/src/Journal.ts"
 import { Refreshed } from "../coding/planning-wiki.ts"
 import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
+import { withDependencyPages } from "../coding/wiki-refresh.ts"
 import { wikiRefreshRegistration } from "../coding/wiki-route.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import { directory, maxDocBytes } from "../memory/deps.ts"
@@ -169,3 +170,34 @@ for (
     assert.match(text, new RegExp(`"code":"${code}"`))
   })
 }
+
+test("dependency pages publish first, and a colliding id or more than 30 pages is refused", async () => {
+  const page = (id: string) => ({
+    id,
+    title: id,
+    kind: "current" as const,
+    body: "# " + id,
+    inputDigest: "i",
+    contentDigest: "c",
+    reviewDigest: "r",
+    sources: []
+  })
+  const dep = {
+    id: "dep-lib-readme-md",
+    title: "deps/lib/README.md",
+    body: "# lib",
+    inputDigest: "p",
+    contentDigest: "c"
+  }
+  const pages = await Effect.runPromise(withDependencyPages([page("start-here")], [dep]))
+  assert.deepEqual(pages.map((page) => [page.id, page.reviewDigest]), [["dep-lib-readme-md", null], [
+    "start-here",
+    "r"
+  ]])
+  const collided = await Effect.runPromise(Effect.flip(withDependencyPages([page("dep-lib-readme-md")], [dep])))
+  assert.match(collided.message, /collides/)
+  const many = Array.from({ length: 30 }, (_, i) => page(`page-${i}`))
+  const over = await Effect.runPromise(Effect.flip(withDependencyPages(many, [dep])))
+  assert.equal(over.code, "invalid-input")
+  assert.match(over.message, /30 pages and 1 dependency pages exceed 30/)
+})

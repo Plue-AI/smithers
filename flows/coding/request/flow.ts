@@ -3,6 +3,7 @@ import { Action, Flow, HumanTask } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
+import { isDependencyPage } from "../../memory/deps.ts"
 import { CorrectPlan } from "../correction.ts"
 import { PrepareRequest } from "../preparation.ts"
 import { CodingError, Plan, PlanningInput, RequestInput, RequestResult } from "../schema.ts"
@@ -10,6 +11,7 @@ import { AdmitSource } from "../source-admission.ts"
 import { admitStackBase } from "../stack.ts"
 import { FeedbackReceipt, ReceiveFeedback } from "../steering.ts"
 import { StampRoute, Todo } from "../todo.ts"
+import { InstallDependencyPages } from "../wiki-refresh.ts"
 
 export const maximumPlanningPasses = 8
 /** Private durable cursor. Notification bodies and provenance stay in the
@@ -181,7 +183,10 @@ export default Flow.make("coding/Request", {
     // A stack request is a TODO: it stands on a fresh working change on the
     // tip, and factory/Todo routes it before it is planned. Its result and
     // its failure both carry the route, which the stack keeps.
+    // The dependency pages the stack published reach this checkout first.
+    const dependencyPages = (input.wiki?.pages ?? []).filter(isDependencyPage)
     return input.base === undefined ? implement(input.feedback ?? "") : admitStackBase(input.base).pipe(
+      Node.andThen(InstallDependencyPages.call({ pages: dependencyPages })),
       Node.andThen(Todo.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
       Node.bindPlanned((routed) =>
         Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback) }).pipe(

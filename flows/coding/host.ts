@@ -68,7 +68,7 @@ import { wikiCheckDelegate, wikiCheckLayers, wikiCheckPolicy } from "./wiki-chec
 import { separateWikiOutput } from "./wiki-output.ts"
 import { runningWikiPolicy } from "./wiki-policy.ts"
 import { bindWikiRegistry } from "./wiki-registry.ts"
-import { wikiRefreshRegistration } from "./wiki-route.ts"
+import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
@@ -407,6 +407,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           correctionLayers,
           sourceAdmission,
           stackBaseLayer,
+          dependencyPagesLayer(options.repositoryPath, fs),
           requestRegistration,
           todoLayers(evaluator),
           feedbackLayer,

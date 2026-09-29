@@ -264,3 +264,128 @@ export const importDocs = (
 /** Reads the workspace declaration and imports what it declares. */
 export const importDeclared = (root: string, fetchBytes?: (url: string) => Promise<Uint8Array>) =>
   Effect.flatMap(declared(root), (docs) => importDocs(root, docs, fetchBytes))
+
+/**
+ * Imported files travel to agent checkouts as ordinary wiki pages: a wiki
+ * refresh publishes each one ({@link publishedPages}), the stack hands its
+ * published pages to every stack request, and the request writes these back
+ * under {@link directory} in its own checkout ({@link installPages}). A page's
+ * title is where it lives, `deps/<name>/<file>`, and its id is that path
+ * slugged under `dep-`; its first line names the pin. A lane gets the pages
+ * of the last published main, so a dependency upgrade reaches it with the
+ * next refresh. The pages also show in the cloud wiki; a person's edit there
+ * stays in the cloud wiki and never reaches a lane.
+ */
+const pageTitle = /^deps\/([A-Za-z0-9][A-Za-z0-9._-]*)\/([^/\\\0-\x1f\x7f]+\.mdx?)$/i
+/**
+ * The most bytes all dependency pages together may take: a quarter of the
+ * 64 KiB of wiki the stack hands a lane, so the repository's own pages keep
+ * the rest.
+ */
+export const maxPageBytes = 16 * 1024
+
+/** Whether a wiki page is an imported dependency file. */
+export const isDependencyPage = (page: { readonly id: string; readonly title: string }) =>
+  page.id.startsWith("dep-") && pageTitle.test(page.title)
+
+/** One imported file as a wiki page. */
+export interface DependencyPage {
+  readonly id: string
+  readonly title: string
+  readonly body: string
+  /** The pin and the file's SHA-256: the page is unchanged while both are. */
+  readonly inputDigest: string
+  readonly contentDigest: string
+}
+
+/**
+ * The Markdown files a refresh imported under `root`, as pages, verified
+ * against each source's receipt. Refuses a set a lane could not be handed
+ * whole: a page over {@link maxPageBytes}, all of them together over it, or
+ * two whose ids collide.
+ */
+export const publishedPages = (root: string) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const refuse = (source: string, message: string) => new DocsImportError({ code: "invalid", source, message })
+    const base = path.join(root, directory)
+    if (!(yield* fs.exists(base))) return []
+    const Receipt = Schema.Struct({
+      pin: Schema.String,
+      files: Schema.Array(Schema.Struct({ name: Schema.String, sha256: Schema.String }))
+    })
+    const pages: Array<DependencyPage> = []
+    let total = 0
+    for (const name of (yield* fs.readDirectory(base)).sort()) {
+      const receipt = yield* fs.readFileString(path.join(base, name, "source.json")).pipe(
+        Effect.flatMap((text) =>
+          Effect.try({ try: () => JSON.parse(text) as unknown, catch: () => refuse(name, "source.json is not JSON") })
+        ),
+        Effect.flatMap(Schema.decodeUnknownEffect(Receipt)),
+        Effect.mapError((error) =>
+          error instanceof DocsImportError ? error : refuse(name, `${directory}/${name} has no import receipt`)
+        )
+      )
+      for (const file of receipt.files) {
+        const title = `deps/${name}/${file.name}`
+        if (!pageTitle.test(title)) return yield* refuse(name, `${file.name} cannot be a wiki page`)
+        const bytes = yield* fs.readFile(path.join(base, name, file.name)).pipe(
+          Effect.mapError(() => refuse(name, `${file.name} was not imported`))
+        )
+        if (sha256(bytes) !== file.sha256) return yield* refuse(name, `${file.name} changed after it was imported`)
+        const id = `dep-${`${name}-${file.name}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`
+        if (id.length > 81 || pages.some((page) => page.id === id)) {
+          return yield* refuse(name, `${file.name} has no page id of its own (${id})`)
+        }
+        const body = `<!-- ${receipt.pin} -->\n${new TextDecoder().decode(bytes)}`
+        // What the lane is handed is the body, pin line and all.
+        total += new TextEncoder().encode(body).byteLength
+        if (total > maxPageBytes) {
+          return yield* new DocsImportError({
+            code: "too_large",
+            source: name,
+            message: `dependency docs exceed ${maxPageBytes} bytes, their share of what a lane is handed`
+          })
+        }
+        pages.push({
+          id,
+          title,
+          body,
+          inputDigest: sha256(new TextEncoder().encode(`${receipt.pin}\n${file.sha256}`)),
+          contentDigest: sha256(new TextEncoder().encode(body))
+        })
+      }
+    }
+    return pages
+  })
+
+/**
+ * Writes the dependency pages a stack request was handed into `root`'s
+ * {@link directory}, replacing what was there, so `memory` in this checkout
+ * reads them as it reads a local import. Other pages are ignored. It
+ * refuses a `.flows`, `.flows/wiki` or deps directory that is a link, so it
+ * never removes or writes outside the checkout.
+ */
+export const installPages = (
+  root: string,
+  pages: ReadonlyArray<{ readonly id: string; readonly title: string; readonly body: string }>
+) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const base = path.join(root, directory)
+    const realRoot = yield* fs.realPath(root)
+    for (const relative of [".flows", ".flows/wiki", directory]) {
+      const at = path.join(root, relative)
+      if ((yield* fs.exists(at)) && (yield* fs.realPath(at)) !== path.join(realRoot, relative)) {
+        return yield* new DocsImportError({ code: "invalid", source: relative, message: `${relative} is a link` })
+      }
+    }
+    yield* fs.remove(base, { recursive: true, force: true })
+    for (const page of pages.filter(isDependencyPage)) {
+      const [, name, file] = pageTitle.exec(page.title)!
+      yield* fs.makeDirectory(path.join(base, name!), { recursive: true })
+      yield* fs.writeFileString(path.join(base, name!, file!), page.body)
+    }
+  })

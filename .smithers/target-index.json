@@ -18967,6 +18967,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/build/targets/src/DependencyDocs.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/build/targets/src/DepsLint.ts"
       },
       {
@@ -29147,6 +29151,14 @@
     ],
     "cacheable": true,
     "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/memory-deps.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-wiki-import-docs.test.ts"
+      },
       {
         "kind": "file",
         "path": "flows/test/memory-calibrate.test.ts"

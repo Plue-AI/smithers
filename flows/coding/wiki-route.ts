@@ -1,9 +1,10 @@
 /** The host wiring of `coding/wiki` (wiki/flow.ts), beside the planning wiki it reuses. */
 import { Interpreter } from "@smthrs/flow"
 import { Effect, FileSystem, Layer } from "effect"
-import { importDeclared } from "../memory/deps.ts"
+import { importDeclared, installPages } from "../memory/deps.ts"
 import { type PageSpec, WikiError } from "../wiki/schema.ts"
-import { ImportDocs, ReadPublishedWiki, readPublishedWiki } from "./wiki-refresh.ts"
+import { CodingError } from "./schema.ts"
+import { ImportDocs, InstallDependencyPages, ReadPublishedWiki, readPublishedWiki } from "./wiki-refresh.ts"
 import CodingWiki from "./wiki/flow.ts"
 
 export const wikiRefreshRegistration = (options: {
@@ -26,6 +27,17 @@ export const wikiRefreshRegistration = (options: {
             message: `Dependency docs were not imported: ${error.message}`
           })
         )
+      )
+    )
+  )
+
+/** The lane side: a stack request writes the dependency pages it was handed into its checkout. */
+export const dependencyPagesLayer = (repositoryPath: string, fs?: FileSystem.FileSystem) =>
+  InstallDependencyPages.toLayer(({ pages }) =>
+    installPages(repositoryPath, pages).pipe(
+      fs === undefined ? (effect) => effect : Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.mapError((error) =>
+        new CodingError({ code: "execution", message: `Dependency pages were not written: ${error.message}` })
       )
     )
   )

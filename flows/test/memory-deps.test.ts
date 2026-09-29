@@ -8,7 +8,18 @@ import { createServer, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { declared, directory, fetchBounded, importDeclared, importDocs, maxDocBytes, TooLarge } from "../memory/deps.ts"
+import {
+  declared,
+  directory,
+  fetchBounded,
+  importDeclared,
+  importDocs,
+  installPages,
+  maxDocBytes,
+  maxPageBytes,
+  publishedPages,
+  TooLarge
+} from "../memory/deps.ts"
 
 type Platform = FileSystem.FileSystem | Path.Path
 const run = <A, E>(effect: Effect.Effect<A, E, Platform>) =>
@@ -254,4 +265,52 @@ test("fetchBounded refuses a declared oversize body and stops streaming one at t
 test("fetchBounded gives up on a server that never answers", async (t) => {
   const url = await serve(t, () => undefined)
   await assert.rejects(fetchBounded(`${url}/stall`, 200), (error: Error) => error.name === "TimeoutError")
+})
+
+test("imported Markdown publishes as ordinary pages that a lane writes back where memory reads them", async (t) => {
+  const root = await repository(), lane = await realpath(await mkdtemp(join(tmpdir(), "memory-deps-lane-")))
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(lane, { recursive: true, force: true })]))
+  await run(importDocs(root, { lib: S.Docs.Package("@scope/lib", { files: ["README.md", "docs/api.md"] }) }))
+  const pages = await run(publishedPages(root))
+  assert.deepEqual(pages.map((page) => [page.id, page.title, page.body]), [
+    ["dep-lib-readme-md", "deps/lib/README.md", "<!-- @scope/lib@1.2.3 -->\n# lib\n\nUse lib.start().\n"],
+    ["dep-lib-docs-api-md", "deps/lib/docs__api.md", "<!-- @scope/lib@1.2.3 -->\n# API\n"]
+  ], "each page names its pin first")
+  assert.equal(pages[0]!.contentDigest, sha(pages[0]!.body))
+  assert.equal(pages[0]!.inputDigest, sha(`@scope/lib@1.2.3\n${sha("# lib\n\nUse lib.start().\n")}`))
+  await mkdir(join(lane, directory, "stale"), { recursive: true })
+  const other = { id: "start-here", title: "deps/x/README.md", body: "not a dependency" }
+  await run(installPages(lane, [...pages, other]))
+  assert.deepEqual(await readdir(join(lane, directory)), ["lib"], "the handed pages replace what was there")
+  assert.deepEqual((await readdir(join(lane, directory, "lib"))).sort(), ["README.md", "docs__api.md"])
+  assert.equal(
+    await readFile(join(lane, directory, "lib", "docs__api.md"), "utf8"),
+    "<!-- @scope/lib@1.2.3 -->\n# API\n"
+  )
+})
+
+test("a lane refuses to write dependency pages through a linked .flows directory", async (t) => {
+  const lane = await realpath(await mkdtemp(join(tmpdir(), "memory-deps-lane-")))
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "memory-deps-outside-")))
+  t.after(() =>
+    Promise.all([rm(lane, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })])
+  )
+  await mkdir(join(outside, "wiki", "deps", "keep"), { recursive: true })
+  await symlink(outside, join(lane, ".flows"))
+  const page = { id: "dep-lib-readme-md", title: "deps/lib/README.md", body: "# lib\n" }
+  assert.match((await failure(installPages(lane, [page]))).message, /\.flows is a link/)
+  assert.deepEqual(await readdir(join(outside, "wiki", "deps")), ["keep"], "nothing outside the checkout is touched")
+})
+
+test("a file changed after its import, and dependency docs over a lane's budget, are refused", async (t) => {
+  const root = await repository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await run(importDocs(root, { lib: S.Docs.Package("@scope/lib", { files: ["README.md"] }) }))
+  await writeFile(join(root, directory, "lib", "README.md"), "# edited\n")
+  assert.match((await failure(publishedPages(root))).message, /README.md changed after it was imported/)
+  await writeFile(join(root, "node_modules", "@scope", "lib", "README.md"), "x".repeat(maxPageBytes + 1))
+  await run(importDocs(root, { lib: S.Docs.Package("@scope/lib", { files: ["README.md"] }) }))
+  const refused = await failure(publishedPages(root))
+  assert.equal(refused.code, "too_large")
+  assert.match(refused.message, /their share of what a lane is handed/)
 })

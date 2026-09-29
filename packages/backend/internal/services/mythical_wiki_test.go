@@ -231,6 +231,43 @@ func TestMythicalWikiPublishesCitationsAtFoldedMain(t *testing.T) {
 	assert.Len(t, store.pages, 1)
 }
 
+// An imported dependency file travels as an ordinary page (flows/memory/deps.ts):
+// it publishes, is handed to every stack request with the repository's pages,
+// and is retired once the workspace no longer declares it.
+func TestMythicalWikiCarriesDependencyPagesToLanes(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	o.declareWiki()
+	stack := o.wake()
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(wikiResult(stack.TipCommit, `null`, "runtime", "# Runtime\n")), &result))
+	dep := map[string]any{"id": "dep-effect-readme-md", "title": "deps/effect/README.md", "kind": "current", "body": "# Effect\n",
+		"inputDigest": "pin", "contentDigest": "c", "reviewDigest": nil, "sources": []any{}}
+	result["pages"] = append([]any{dep}, result["pages"].([]any)...)
+	withDep, err := json.Marshal(result)
+	require.NoError(t, err)
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-deps", string(withDep))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	assert.Equal(t, "# Effect\n", store.body("generated-dep-effect-readme-md"))
+	supplied, ok := o.service.suppliedWiki(context.Background(), o.repoID)
+	require.True(t, ok)
+	encoded, err := json.Marshal(supplied)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"pages":[{"id":"dep-effect-readme-md","title":"deps/effect/README.md","kind":"current","body":"# Effect\n"`)
+	assert.Contains(t, string(encoded), `"id":"runtime"`)
+
+	o.commit("✨ feat: more source", "more.txt", "more\n")
+	o.publish()
+	next := o.wake()
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-deps-2", wikiResult(next.TipCommit, `null`, "runtime", "# Runtime\n"))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	_, kept := store.pages["generated-dep-effect-readme-md"]
+	assert.False(t, kept, "an undeclared dependency page is retired")
+}
+
 // A refresh at B with the same reviewed input must leave the stored wiki
 // revision and its citation at A. The source at A remains readable after B.
 func TestMythicalWikiUnchangedPageKeepsRevision(t *testing.T) {

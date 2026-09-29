@@ -7,11 +7,12 @@
  */
 import { Action } from "@smthrs/flow"
 import { Effect, FileSystem, Path, Schema } from "effect"
+import { publishedPages } from "../memory/deps.ts"
 import { operations } from "../wiki/operations.ts"
 import { Pool, reuseOperations } from "../wiki/reuse.ts"
 import { type PageSpec, Receipt, WikiError } from "../wiki/schema.ts"
 import { Refreshed } from "./planning-wiki.ts"
-import { StackBase } from "./schema.ts"
+import { CodingError, StackBase } from "./schema.ts"
 
 export const WikiRefreshInput = Schema.Struct({
   base: StackBase,
@@ -57,6 +58,38 @@ export const ImportDocs = Action.make("coding/import-dependency-docs", {
   error: WikiError,
   nondeterministic: true
 })
+
+/**
+ * Writes the dependency pages a stack request was handed into its checkout's
+ * `.flows/wiki/deps`, where `memory` reads them (flows/memory/deps.ts).
+ */
+export const InstallDependencyPages = Action.make("coding/install-dependency-pages", {
+  payload: { pages: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String })) },
+  success: Schema.Void,
+  error: CodingError
+})
+
+/**
+ * The published pages with the imported dependency pages first, where the
+ * stack's supply to a lane reaches them within its budget. Refuses an id
+ * collision and more than the 30 pages the stack publishes.
+ */
+export const withDependencyPages = (
+  pages: ReadonlyArray<PublishedWikiPage>,
+  deps: ReadonlyArray<Pick<PublishedWikiPage, "id" | "title" | "body" | "inputDigest" | "contentDigest">>
+) =>
+  Effect.gen(function*() {
+    if (pages.some((page) => deps.some((dep) => dep.id === page.id))) {
+      return yield* fail("A wiki page id collides with a dependency page's", "invalid-input")
+    }
+    if (deps.length + pages.length > 30) {
+      return yield* fail(
+        `The wiki's ${pages.length} pages and ${deps.length} dependency pages exceed 30; declare fewer dependency files`,
+        "invalid-input"
+      )
+    }
+    return [...deps.map((dep) => ({ ...dep, kind: "current" as const, reviewDigest: null, sources: [] })), ...pages]
+  })
 
 /** Reads the verified snapshot the refresh just installed, through its owning checker. */
 export const ReadPublishedWiki = Action.make("coding/read-published-wiki", {
@@ -136,6 +169,14 @@ export const readPublishedWiki = (
         error instanceof WikiError ? error : fail("The wiki pointer is not a verified snapshot", "output-conflict")
       )
     )
+    const deps = yield* publishedPages(options.repositoryPath).pipe(
+      options.fs === undefined ? (effect) => effect : Effect.provideService(FileSystem.FileSystem, options.fs),
+      Effect.mapError((error) =>
+        error instanceof WikiError
+          ? error
+          : fail(`Dependency docs cannot be published: ${error.message}`, "invalid-input")
+      )
+    )
     const titles = new Map(snapshot.pages.map((page) => [page.id, page.title]))
     // The same extraction the next run in this engine would use, carried out.
     const pool = yield* reuseOperations({
@@ -152,16 +193,19 @@ export const readPublishedWiki = (
       receipt: refreshed.receipt,
       reviews: reviewCounts(snapshot.pages),
       pool,
-      pages: snapshot.pages.map((page) => ({
-        id: page.id,
-        title: page.title,
-        kind: page.kind,
-        body: cloudWikiBody(page.body, titles),
-        inputDigest: page.inputDigest,
-        contentDigest: page.contentDigest,
-        reviewDigest: page.verification.reviewDigest,
-        sources: page.sources.map(({ path, digest }) => ({ path, digest }))
-      }))
+      pages: yield* withDependencyPages(
+        snapshot.pages.map((page) => ({
+          id: page.id,
+          title: page.title,
+          kind: page.kind,
+          body: cloudWikiBody(page.body, titles),
+          inputDigest: page.inputDigest,
+          contentDigest: page.contentDigest,
+          reviewDigest: page.verification.reviewDigest,
+          sources: page.sources.map(({ path, digest }) => ({ path, digest }))
+        })),
+        deps
+      )
     }
     if (new TextEncoder().encode(JSON.stringify(result)).length > maximumResultBytes) {
       return yield* fail("The published wiki and its reviews exceed 4 MiB; narrow the page catalog", "invalid-input")

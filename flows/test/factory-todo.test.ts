@@ -1,9 +1,12 @@
-import { NodeCrypto } from "@effect/platform-node"
+import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, FlowRuntime } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
 import { CorrectPlan } from "../coding/correction.ts"
 import { PrepareRequest } from "../coding/preparation.ts"
@@ -13,6 +16,7 @@ import { AdmitSource } from "../coding/source-admission.ts"
 import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
 import { ReceiveFeedback } from "../coding/steering.ts"
 import { clipTodo, leafFeedback, MAX_TODO_BYTES, type Route, routeTodo, todoLayers } from "../coding/todo.ts"
+import { dependencyPagesLayer } from "../coding/wiki-route.ts"
 
 const prompt =
   "Resolve GitHub issue #7: Saving twice loses the title\n\n<issue>\nSaving twice drops the title.\n</issue>"
@@ -81,6 +85,7 @@ const revision = (name: string): Revision => ({
  * scripted evaluator; planning, source and correction are scripted children. */
 const fixture = (route: Route | "down", decline = false) => {
   const events: Array<string> = [], planned: Array<string> = []
+  const checkout = mkdtempSync(join(tmpdir(), "factory-todo-"))
   let head = revision("initial")
   const children = Layer.effectDiscard(Effect.gen(function*() {
     const runtime = yield* FlowRuntime.FlowRuntime
@@ -131,6 +136,7 @@ const fixture = (route: Route | "down", decline = false) => {
   const layer = Layer.mergeAll(
     requestRegistration,
     todoLayers(evaluator),
+    dependencyPagesLayer(checkout),
     children,
     PrepareStackBase.toLayer(({ base }) =>
       Effect.sync(() => ({
@@ -159,9 +165,10 @@ const fixture = (route: Route | "down", decline = false) => {
   ).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(FlowEngine.layerMemory),
-    Layer.provideMerge(NodeCrypto.layer)
+    Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(NodeServices.layer)
   )
-  return { host: ManagedRuntime.make(layer), events, planned }
+  return { host: ManagedRuntime.make(layer), events, planned, checkout }
 }
 
 const tip = "a".repeat(40)
@@ -217,6 +224,31 @@ test("a declined TODO fails with the planner's decline and the route Jev gave it
     })
     assert.deepEqual(f.events, ["base", "jev", "plan"])
   }
+})
+
+test("a TODO's checkout gets the stack's dependency pages, and no other page", { timeout: 60_000 }, async (t) => {
+  const f = fixture("implement")
+  t.after(() => f.host.dispose())
+  t.after(() => rmSync(f.checkout, { recursive: true, force: true }))
+  const page = (id: string, title: string, body: string) => ({
+    id,
+    title,
+    kind: "current" as const,
+    body,
+    inputDigest: "d"
+  })
+  const wiki = {
+    sourceRevision: "main@" + tip,
+    pages: [
+      page("dep-effect-readme-md", "deps/effect/README.md", "# Effect\n"),
+      page("start-here", "Start here", "# Start\n"),
+      page("dep-escape", "deps/../../x.md", "no")
+    ]
+  }
+  await f.host.runPromise(Request.execute({ prompt, base, wiki }, { executionId: "todo-deps" }))
+  const deps = join(f.checkout, ".flows/wiki/deps")
+  assert.equal(readFileSync(join(deps, "effect/README.md"), "utf8"), "# Effect\n")
+  assert.ok(!existsSync(join(deps, "start-here")) && !existsSync(join(f.checkout, "x.md")))
 })
 
 test("a request without a stack base is not a TODO and is never routed", { timeout: 60_000 }, async (t) => {
