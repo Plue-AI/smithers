@@ -23,12 +23,16 @@ try {
 }
 
 const pattern = (value: string) => Option.getOrThrow(parsePattern(value))
+// Capability resources are native paths and patterns match them as text, so
+// the rules join with the platform separator: `C:\w/**` never selects `C:\w\a`.
 const rules = (root: string) => [
-  new Rule({ effect: "allow", pattern: pattern(`fs:read:${root}/**`) }),
-  new Rule({ effect: "allow", pattern: pattern(`fs:write:${root}/**`) }),
-  new Rule({ effect: "deny", pattern: pattern(`fs:read:${root}/.env`) }),
-  new Rule({ effect: "deny", pattern: pattern(`fs:write:${root}/ReportDir/**`) })
+  new Rule({ effect: "allow", pattern: pattern(`fs:read:${join(root, "**")}`) }),
+  new Rule({ effect: "allow", pattern: pattern(`fs:write:${join(root, "**")}`) }),
+  new Rule({ effect: "deny", pattern: pattern(`fs:read:${join(root, ".env")}`) }),
+  new Rule({ effect: "deny", pattern: pattern(`fs:write:${join(root, "ReportDir", "**")}`) })
 ]
+// A policy denial, not an unanswered request: both surface as PermissionDenied.
+const deniedByPolicy = { _tag: "@smthrs/capability/PermissionDenied", reason: "denied by permission policy" }
 
 const guarded = (root: string) =>
   KernelFileSystem.layer.pipe(
@@ -66,7 +70,9 @@ describe("filesystem grants on a case-insensitive volume", () => {
             const secret = yield* Effect.result(fs.readFileString(join(root, ".ENV")))
             expect(secret).toMatchObject({
               _tag: "Failure",
-              failure: { reason: { _tag: "PermissionDenied", pathOrDescriptor: join(root, ".env") } }
+              failure: {
+                reason: { _tag: "PermissionDenied", pathOrDescriptor: join(root, ".env"), cause: deniedByPolicy }
+              }
             })
           }).pipe(Effect.provide(guarded(root)))
 
@@ -90,7 +96,13 @@ describe("filesystem grants on a case-insensitive volume", () => {
           }).pipe(Effect.provide(guarded(root)))
           expect(result).toMatchObject({
             _tag: "Failure",
-            failure: { reason: { _tag: "PermissionDenied", pathOrDescriptor: join(root, "ReportDir", "missing.txt") } }
+            failure: {
+              reason: {
+                _tag: "PermissionDenied",
+                pathOrDescriptor: join(root, "ReportDir", "missing.txt"),
+                cause: deniedByPolicy
+              }
+            }
           })
           expect(existsSync(join(root, "ReportDir", "missing.txt"))).toBe(false)
         } finally {

@@ -647,6 +647,97 @@ export const canonicalResource = (
 }
 
 /**
+ * The errno a host attached to a filesystem failure, when it kept one.
+ */
+const errnoOf = (error: PlatformError.PlatformError): string | undefined => {
+  const cause: unknown = error.reason.cause
+  return typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+    ? cause.code
+    : undefined
+}
+
+/**
+ * Resolves the resource a no-follow executor addresses by reading link text
+ * instead of following links. Windows `realpath` opens its argument through
+ * every link, so asking it about a planted link to `\\.\pipe\name` or
+ * `\\host\share\x` connects to that pipe or share during authorization.
+ *
+ * Each component inside the workspace is read with `readLink` first. Link text
+ * is resolved lexically, and a result outside both roots is returned untouched
+ * for the caller to deny. Only a confirmed non-link (`EINVAL`) is passed to
+ * `realPath`, for its on-disk spelling, and its canonical parent must be the
+ * parent the walk already resolved; anything else, such as a Windows volume
+ * mount point that `readLink` cannot read, is refused after `realPath` has
+ * traversed it (#2882). A missing component
+ * (`ENOENT`, `ENOTDIR`) keeps the requested spelling for itself and every
+ * descendant. Every other inspection failure is refused.
+ */
+const confinedResource = <E>(
+  fileSystem: EffectFileSystem.FileSystem,
+  path: EffectPath.Path,
+  root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
+  value: string,
+  refuse: (resource: string, reason: string) => Effect.Effect<never, E>,
+  symlinkDepth = 0
+): Effect.Effect<string, E> => {
+  const base = isInside(path, root.logicalRoot, value)
+    ? root.logicalRoot
+    : isInside(path, root.boundaryRoot, value)
+    ? root.boundaryRoot
+    : undefined
+  if (base === undefined) {
+    return Effect.succeed(value)
+  }
+  const segments = path.relative(base, value).split(path.sep).filter((segment) => segment !== "")
+  const logical = (canonical: string) =>
+    path.normalize(path.join(root.logicalRoot, path.relative(root.boundaryRoot, canonical)))
+  const walk = (index: number, parent: string): Effect.Effect<string, E> => {
+    const segment = segments[index]
+    if (segment === undefined) {
+      return Effect.succeed(logical(parent))
+    }
+    const candidate = path.join(parent, segment)
+    const rest = segments.slice(index + 1)
+    return fileSystem.readLink(candidate).pipe(
+      Effect.matchEffect({
+        onSuccess: (target) =>
+          symlinkDepth >= 40
+            ? refuse(logical(candidate), "too many levels of symbolic links")
+            : confinedResource(
+              fileSystem,
+              path,
+              root,
+              path.resolve(parent, target, ...rest),
+              refuse,
+              symlinkDepth + 1
+            ),
+        onFailure: (error) => {
+          const code = errnoOf(error)
+          if (error.reason._tag === "NotFound" || code === "ENOENT" || code === "ENOTDIR") {
+            return Effect.succeed(logical(path.join(candidate, ...rest)))
+          }
+          if (code !== "EINVAL") {
+            return refuse(logical(candidate), "path component could not be inspected without following it")
+          }
+          // Residual gap (#2882): an untranslatable reparse point, or a component
+          // swapped to a link after readLink, is traversed here, then refused.
+          return fileSystem.realPath(candidate).pipe(
+            Effect.matchEffect({
+              onFailure: () => refuse(logical(candidate), "path component could not be inspected without following it"),
+              onSuccess: (canonical) =>
+                path.dirname(canonical) === parent
+                  ? walk(index + 1, canonical)
+                  : refuse(logical(candidate), "path component resolves outside its parent directory")
+            })
+          )
+        }
+      })
+    )
+  }
+  return walk(0, root.boundaryRoot)
+}
+
+/**
  * Decorates Effect's filesystem service in place with workspace-normalized
  * capability checks. Every host resolves canonical path spelling before the
  * capability check and again after every grant decision. Descriptor-relative
@@ -701,7 +792,9 @@ export const layer: Layer.Layer<
       )
     /**
      * Resolves the on-disk resource spelling even for no-follow executors:
-     * a differently cased name can address the same file. `guard` runs it twice — once
+     * a differently cased name can address the same file. No-follow executors
+     * resolve through {@link confinedResource}, which reads link text instead
+     * of following links. `guard` runs it twice — once
      * before the grant decision and once after — so the resolution must be a
      * pure question about the current filesystem state.
      */
@@ -711,14 +804,24 @@ export const layer: Layer.Layer<
       value: string
     ): Effect.Effect<string, PlatformError.PlatformError> => {
       const normalized = normalize(value)
-      return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
-        Effect.flatMap((resource) => {
-          if (atomic?.noFollowAuthorization === true) {
-            return isInside(path, logicalRoot, resource)
+      if (atomic?.noFollowAuthorization === true) {
+        return confinedResource(
+          fileSystem,
+          path,
+          root,
+          normalized,
+          (resource, reason) => deny(action, method, resource, reason)
+        ).pipe(
+          Effect.flatMap((resource) =>
+            isInside(path, logicalRoot, resource)
               ? Effect.succeed(resource)
               : deny(action, method, resource, "path is outside the workspace")
-          }
-          return fileSystem.stat(normalized).pipe(
+          )
+        )
+      }
+      return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
+        Effect.flatMap((resource) =>
+          fileSystem.stat(normalized).pipe(
             Effect.matchEffect({
               onFailure: () => Effect.succeed(resource),
               onSuccess: (info) => {
@@ -729,7 +832,7 @@ export const layer: Layer.Layer<
               }
             })
           )
-        })
+        )
       )
     }
     const guard = (

@@ -13,6 +13,7 @@ import {
   Stream
 } from "effect"
 import * as ByteSize from "effect/ByteSize"
+import { posix } from "node:path"
 import * as FileSystem from "../src/FileSystem.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -58,6 +59,147 @@ const provide = (
     Effect.provideService(GrantStore, grants)
   )
 
+/** A readLink failure the way Node reports one: the errno rides on the cause. */
+const fsError = (method: string, code: string, tag: PlatformError.SystemErrorTag = "Unknown") =>
+  PlatformError.systemError({ _tag: tag, module: "test", method, cause: Object.assign(new Error(code), { code }) })
+
+const notALink = fsError("readLink", "EINVAL")
+
+type VolumeEntry =
+  | { readonly kind: "directory" | "file" | "locked" }
+  | { readonly kind: "link" | "mount"; readonly target: string }
+
+/**
+ * An in-memory volume whose `realPath` follows links and mount points the way
+ * a native one does and records every path it opens on the way in `chain`.
+ * `readLink` opens the parent chain and the entry itself, never its target.
+ * A `mount` is a reparse point `readLink` cannot read, like a Windows volume
+ * mount point. `after` runs a swap once, right after the named call returns.
+ */
+const modelVolume = (entries: Map<string, VolumeEntry>) => {
+  const chain: Array<string> = []
+  const after = new Map<string, () => void>()
+  const settle = <A, E>(key: string, effect: Effect.Effect<A, E>) =>
+    Effect.ensuring(
+      effect,
+      Effect.sync(() => {
+        after.get(key)?.()
+        after.delete(key)
+      })
+    )
+  const follow = (value: string, depth = 0): Effect.Effect<string, PlatformError.PlatformError> => {
+    const parts = value.split("/").filter((part) => part !== "")
+    let current = ""
+    for (const [index, part] of parts.entries()) {
+      const next = `${current}/${part}`
+      chain.push(next)
+      const entry = entries.get(next)
+      if (entry === undefined) {
+        return Effect.fail(PlatformError.systemError({ _tag: "NotFound", module: "test", method: "realPath" }))
+      }
+      if (entry.kind === "link" || entry.kind === "mount") {
+        return depth >= 40
+          ? Effect.fail(fsError("realPath", "ELOOP", "BadResource"))
+          : follow(posix.resolve(current || "/", entry.target, ...parts.slice(index + 1)), depth + 1)
+      }
+      if (entry.kind === "file" && index < parts.length - 1) {
+        return Effect.fail(fsError("realPath", "ENOTDIR", "BadResource"))
+      }
+      current = next
+    }
+    return Effect.succeed(current || "/")
+  }
+  const host = EffectFileSystem.makeNoop({
+    realPath: (value) => settle(`realPath:${value}`, follow(value)),
+    readLink: (value) =>
+      settle(
+        `readLink:${value}`,
+        follow(posix.dirname(value)).pipe(
+          Effect.flatMap((parent) => {
+            if (entries.get(parent)?.kind === "file") {
+              return Effect.fail(fsError("readLink", "ENOTDIR", "BadResource"))
+            }
+            const leaf = posix.join(parent, posix.basename(value))
+            chain.push(leaf)
+            const entry = entries.get(leaf)
+            if (entry === undefined) {
+              return Effect.fail(PlatformError.systemError({ _tag: "NotFound", module: "test", method: "readLink" }))
+            }
+            if (entry.kind === "link") return Effect.succeed(entry.target)
+            return Effect.fail(
+              entry.kind === "locked" ? fsError("readLink", "EACCES", "PermissionDenied") : notALink
+            )
+          })
+        )
+      ),
+    stat: () => Effect.die("native executor owns hard-link checks")
+  })
+  return { after, chain, entries, host }
+}
+
+const modelEntries = (): Map<string, VolumeEntry> =>
+  new Map<string, VolumeEntry>([
+    ["/workspace", { kind: "directory" }],
+    ["/workspace/a", { kind: "file" }],
+    ["/workspace/leaf", { kind: "file" }],
+    ["/workspace/gone", { kind: "file" }],
+    ["/workspace/dir", { kind: "directory" }],
+    ["/workspace/dir/file", { kind: "file" }],
+    ["/workspace/pipe", { kind: "link", target: "/device/pipe" }],
+    ["/workspace/share", { kind: "link", target: "/remote/share" }],
+    ["/workspace/inside", { kind: "link", target: "a" }],
+    ["/workspace/loop", { kind: "link", target: "loop" }],
+    ["/workspace/locked", { kind: "locked" }],
+    ["/workspace/mount", { kind: "mount", target: "/volume" }],
+    ["/device", { kind: "directory" }],
+    ["/device/pipe", { kind: "file" }],
+    ["/remote", { kind: "directory" }],
+    ["/remote/share", { kind: "directory" }],
+    ["/remote/share/file", { kind: "file" }],
+    ["/volume", { kind: "directory" }],
+    ["/volume/file", { kind: "file" }]
+  ])
+
+/** Runs `body` over the model behind a no-follow executor and a store that allows everything. */
+const overModel = (
+  volume: ReturnType<typeof modelVolume>,
+  body: (
+    fs: EffectFileSystem.FileSystem,
+    observed: { readonly checks: Array<Capability.Capability>; readonly requests: Array<FileSystem.AtomicRequest> }
+  ) => Effect.Effect<void, unknown>
+) => {
+  const checks: Array<Capability.Capability> = []
+  const requests: Array<FileSystem.AtomicRequest> = []
+  const host = FileSystem.withAtomicFileSystem(volume.host, {
+    noFollowAuthorization: true,
+    identifyRoot: () => Effect.succeed("7:9"),
+    execute: (request) =>
+      Effect.sync(() => {
+        requests.push(request)
+        return new Uint8Array([7]) as never
+      })
+  })
+  const grants = GrantStore.of({
+    ...scriptedStore(new Set(), checks),
+    check: (capability) => Effect.sync(() => void checks.push(capability))
+  })
+  return provide(
+    Effect.flatMap(EffectFileSystem.FileSystem, (fs) => body(fs, { checks, requests })),
+    host,
+    grants
+  )
+}
+
+const outsideWorkspace = (chain: ReadonlyArray<string>) =>
+  chain.filter((path) => path !== "/workspace" && !path.startsWith("/workspace/"))
+
+const refusedAs = (failure: unknown, resource: string, reason: string) =>
+  expect(denial(failure)).toMatchObject({
+    code: "permission_denied",
+    capability: { action: "fs:read", resource },
+    reason
+  })
+
 itEffect("resolves no-follow executor resources without statting descendant targets", () => {
   const checks: Array<Capability.Capability> = []
   const requests: Array<FileSystem.AtomicRequest> = []
@@ -69,6 +211,7 @@ itEffect("resolves no-follow executor resources without statting descendant targ
         inspected.push(path)
         return Effect.succeed(path.replace("/workspace", "/canonical"))
       },
+      readLink: () => Effect.fail(notALink),
       stat: () => Effect.die("descendant metadata was opened")
     }),
     {
@@ -90,9 +233,14 @@ itEffect("resolves no-follow executor resources without statting descendant targ
       expect(yield* fs.readFile("/canonical/a")).toEqual(new Uint8Array([7]))
       expect(yield* Effect.flip(fs.readFile("link"))).toBe(refusal)
       expect((yield* Effect.exit(fs.readFile("/outside/a")))._tag).toBe("Failure")
-      expect(inspected.filter((path) => path === "/workspace/a")).toHaveLength(2)
-      expect(inspected.filter((path) => path === "/canonical/a")).toHaveLength(2)
-      expect(inspected.filter((path) => path === "/workspace/link")).toHaveLength(2)
+      // The root is pinned once; each guard resolves twice, from the pinned
+      // canonical root, and a path outside the workspace is never inspected.
+      expect(inspected).toEqual([
+        "/workspace",
+        ...Array.from({ length: 4 }, () => "/canonical/a"),
+        "/canonical/link",
+        "/canonical/link"
+      ])
       expect(requests).toHaveLength(3)
       expect(checks).toEqual([
         { action: "fs:read", resource: "/workspace/a" },
@@ -105,6 +253,94 @@ itEffect("resolves no-follow executor resources without statting descendant targ
   )
 })
 
+itEffect("resolves no-follow resources by link text and never opens a stable link's target", () => {
+  // Windows `realpath` opens its argument through every link, so one call on a
+  // planted link to a pipe or share connects to it. The model records every
+  // path any call opens, so traversal through an inside name is visible too.
+  const volume = modelVolume(modelEntries())
+  return overModel(volume, (fs, { checks, requests }) =>
+    Effect.gen(function*() {
+      refusedAs(yield* Effect.flip(fs.readFile("pipe")), "/device/pipe", "path is outside the workspace")
+      refusedAs(yield* Effect.flip(fs.readFile("share/file")), "/remote/share/file", "path is outside the workspace")
+      refusedAs(yield* Effect.flip(fs.readFile("loop")), "/workspace/loop", "too many levels of symbolic links")
+      expect(yield* fs.readFile("inside")).toEqual(new Uint8Array([7]))
+      expect(yield* fs.readFile("dir/file")).toEqual(new Uint8Array([7]))
+      expect(yield* fs.readFile("missing/child")).toEqual(new Uint8Array([7]))
+      expect(yield* fs.readFile("a/child")).toEqual(new Uint8Array([7]))
+      expect(yield* fs.readFile(".")).toEqual(new Uint8Array([7]))
+      expect(outsideWorkspace(volume.chain)).toEqual([])
+      expect(checks.map((capability) => capability.resource)).toEqual([
+        "/workspace/a",
+        "/workspace/dir/file",
+        "/workspace/missing/child",
+        "/workspace/a/child",
+        "/workspace"
+      ])
+      expect(requests).toHaveLength(5)
+    }))
+})
+
+itEffect("refuses a no-follow path whose component cannot be inspected without following it", () => {
+  const volume = modelVolume(modelEntries())
+  // An entry removed between readLink and realPath is refused, not guessed.
+  volume.after.set("readLink:/workspace/gone", () => volume.entries.delete("/workspace/gone"))
+  return overModel(volume, (fs, { checks, requests }) =>
+    Effect.gen(function*() {
+      const reason = "path component could not be inspected without following it"
+      refusedAs(yield* Effect.flip(fs.readFile("locked")), "/workspace/locked", reason)
+      refusedAs(yield* Effect.flip(fs.readFile("gone")), "/workspace/gone", reason)
+      expect(outsideWorkspace(volume.chain)).toEqual([])
+      expect(checks).toEqual([])
+      expect(requests).toEqual([])
+    }))
+})
+
+itEffect("refuses a no-follow path through a reparse point readLink cannot read", () => {
+  // Windows reports EINVAL from readlink for a volume mount point, exactly as
+  // for a plain directory; realPath then lands on another volume, so the
+  // component's canonical parent is not the directory the walk resolved.
+  const volume = modelVolume(modelEntries())
+  return overModel(volume, (fs, { checks, requests }) =>
+    Effect.gen(function*() {
+      refusedAs(
+        yield* Effect.flip(fs.readFile("mount/file")),
+        "/workspace/mount",
+        "path component resolves outside its parent directory"
+      )
+      // realPath follows the mount point once, to its local volume root.
+      expect(outsideWorkspace(volume.chain)).toEqual(["/volume"])
+      expect(checks).toEqual([])
+      expect(requests).toEqual([])
+    }))
+})
+
+itEffect(
+  "residual race (#2882): a component swapped to a link between checks may reach its target, then is denied",
+  () => {
+    // Descriptor-relative canonicalization in the native executor would close
+    // this (#2882); until then a swap between readLink and realPath (leaf) or between
+    // realPath and the next readLink (ancestor) can reach the outside target before the deny.
+    const volume = modelVolume(modelEntries())
+    volume.after.set("readLink:/workspace/leaf", () => {
+      volume.entries.set("/workspace/leaf", { kind: "link", target: "/device/pipe" })
+    })
+    volume.after.set("realPath:/workspace/dir", () => {
+      volume.entries.set("/workspace/dir", { kind: "link", target: "/remote/share" })
+    })
+    return overModel(volume, (fs, { checks, requests }) =>
+      Effect.gen(function*() {
+        const reason = "path component resolves outside its parent directory"
+        refusedAs(yield* Effect.flip(fs.readFile("leaf")), "/workspace/leaf", reason)
+        expect(outsideWorkspace(volume.chain)).toEqual(["/device", "/device/pipe"])
+        volume.chain.length = 0
+        refusedAs(yield* Effect.flip(fs.readFile("dir/file")), "/workspace/dir/file", reason)
+        expect(outsideWorkspace(volume.chain)).toContain("/remote/share/file")
+        expect(checks).toEqual([])
+        expect(requests).toEqual([])
+      }))
+  }
+)
+
 itEffect("refuses a case-only resource change during a native grant decision", () => {
   let spelling = "Allowed"
   let executed = false
@@ -112,6 +348,7 @@ itEffect("refuses a case-only resource change during a native grant decision", (
   const host = FileSystem.withAtomicFileSystem(
     EffectFileSystem.makeNoop({
       realPath: (value) => Effect.sync(() => value === "/workspace/ALLOWED" ? `/workspace/${spelling}` : value),
+      readLink: () => Effect.fail(notALink),
       stat: () => Effect.die("native executor owns hard-link checks")
     }),
     {

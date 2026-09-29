@@ -36,7 +36,23 @@ so distinct files on case-sensitive volumes keep distinct permissions.
 
 Native guarded operations on outside-pointing symlinks fail with
 `PermissionDenied`, including `readLink`, `stat`, `exists`, and `remove`.
-The link and its outside target remain untouched.
+Authorization for a descriptor-relative executor reads link text instead of
+following links, so a stable planted symlink or drive-letter junction is never
+opened. This matters on
+Windows, where `realpath` opens its argument through links: one call on a link
+to `\\.\pipe\name` or `\\host\share` connects to that pipe or share. A
+component that is not a link is passed to `realPath` for its on-disk spelling,
+and a component `readLink` cannot inspect, or whose canonical parent is not
+the directory already resolved, is refused. Two cases can still traverse an
+outside target before authorization denies the request: a reparse point that
+`readLink` cannot translate, such as a volume mount point, which `realPath`
+follows before the parent check refuses it; and a component swapped for a link
+between checks. Closing both needs descriptor-relative canonicalization in the
+native executor, tracked in #2882.
+
+Capability resources are native paths, and patterns match them as text. On
+Windows, write filesystem patterns with the native separator, such as
+`fs:read:C:\work\**`. The pattern `fs:read:C:\work/**` selects nothing.
 
 Resolution also applies one always-on refusal: a regular file with more than
 one link fails with `"hard-linked files cannot be confined to the workspace"`.
