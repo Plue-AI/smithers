@@ -178,6 +178,19 @@ func (r *Runtime) load() error {
 		directory := filepath.Join(r.root, "workspaces", entry.Name())
 		contents, err := os.ReadFile(filepath.Join(directory, "metadata.json"))
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				// Older creates (or an interrupted delete) can leave an uncommitted
+				// directory. Move it aside rather than discarding possible user data.
+				quarantine, mkErr := os.MkdirTemp(filepath.Join(r.root, "workspaces"), ".incomplete-")
+				if mkErr != nil {
+					return fmt.Errorf("quarantine process workspace %s: %w", entry.Name(), mkErr)
+				}
+				if renameErr := os.Rename(directory, filepath.Join(quarantine, entry.Name())); renameErr != nil {
+					_ = os.Remove(quarantine)
+					return fmt.Errorf("quarantine process workspace %s: %w", entry.Name(), renameErr)
+				}
+				continue
+			}
 			return fmt.Errorf("read process workspace metadata %s: %w", entry.Name(), err)
 		}
 		var stored metadata
@@ -249,25 +262,24 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return workspaceapi.Workspace{}, fmt.Errorf("inspect process workspace directory: %w", err)
 	}
-	if err := os.Mkdir(directory, 0o700); err != nil {
+	staging, err := os.MkdirTemp(filepath.Join(r.root, "workspaces"), ".creating-")
+	if err != nil {
 		return workspaceapi.Workspace{}, fmt.Errorf("create process workspace: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.RemoveAll(directory)
-		}
-	}()
-	if err := ensureWorkspaceDirectories(directory); err != nil {
+	defer os.RemoveAll(staging)
+	if err := ensureWorkspaceDirectories(staging); err != nil {
 		return workspaceapi.Workspace{}, fmt.Errorf("create process workspace directories: %w", err)
 	}
-	ws := &workspace{metadata: metadata{Version: metadataVersion, ID: id, State: string(workspaceapi.WorkspaceStopped)}, directory: directory,
+	ws := &workspace{metadata: metadata{Version: metadataVersion, ID: id, State: string(workspaceapi.WorkspaceStopped)}, directory: staging,
 		processes: make(map[*managedProcess]struct{}), services: make(map[string]*managedService)}
 	if err := writeMetadata(ws); err != nil {
 		return workspaceapi.Workspace{}, err
 	}
+	if err := os.Rename(staging, directory); err != nil {
+		return workspaceapi.Workspace{}, fmt.Errorf("publish process workspace: %w", err)
+	}
+	ws.directory = directory
 	r.workspaces[id] = ws
-	committed = true
 	return describeWorkspace(ws), nil
 }
 

@@ -37,6 +37,39 @@ func newTestRuntime(t *testing.T, root string, options ...func(*Config)) *Runtim
 	return runtime
 }
 
+func TestInterruptedCreateDoesNotBrickRuntime(t *testing.T) {
+	root := t.TempDir()
+	runtime := newTestRuntime(t, root)
+	healthy, err := runtime.CreateWorkspace(context.Background(), workspaceapi.WorkspaceSpec{ID: "healthy"})
+	require.NoError(t, err)
+	require.NoError(t, runtime.Close())
+
+	interrupted := filepath.Join(root, "workspaces", workspaceDirectoryName("interrupted"))
+	require.NoError(t, os.Mkdir(interrupted, 0o700))
+	require.NoError(t, ensureWorkspaceDirectories(interrupted))
+	require.NoError(t, os.WriteFile(filepath.Join(interrupted, "root", "uncommitted"), []byte("preserve"), 0o600))
+
+	reopened := newTestRuntime(t, root)
+	loaded, err := reopened.InspectWorkspace(context.Background(), healthy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, healthy.Root, loaded.Root)
+	_, err = reopened.CreateWorkspace(context.Background(), workspaceapi.WorkspaceSpec{ID: "interrupted"})
+	require.NoError(t, err)
+	entries, err := os.ReadDir(filepath.Join(root, "workspaces"))
+	require.NoError(t, err)
+	found := false
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".incomplete-") {
+			continue
+		}
+		contents, readErr := os.ReadFile(filepath.Join(root, "workspaces", entry.Name(), workspaceDirectoryName("interrupted"), "root", "uncommitted"))
+		if readErr == nil && string(contents) == "preserve" {
+			found = true
+		}
+	}
+	assert.True(t, found, "incomplete workspace data must be retained for recovery")
+}
+
 func TestRuntimePersistentLifecycleControlledEnvironmentAndFiles(t *testing.T) {
 	dataRoot := t.TempDir()
 	t.Setenv("SMITHERS_UNSAFE_INHERITED", "must-not-leak")
