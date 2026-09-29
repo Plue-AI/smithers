@@ -79,7 +79,7 @@ The members and the value each one carries across the seam:
 | `resume`                | no       | None.                                                                                                                                      |
 | `resumeSignal`          | yes      | None.                                                                                                                                      |
 | `actionExecute`         | no       | Encoded. `makeUnsafe` decodes it through the action's `exitSchemaPartial`.                                                                 |
-| `actionReplayKey`       | yes      | Selects a copied fork attempt key using the engine's canonical derivation. Fresh fork work is run-scoped.                                  |
+| `actionReplayKey`       | yes      | None.                                                                                                                                      |
 | `actionRetryOrigin`     | yes      | None.                                                                                                                                      |
 | `actionLatestAttempt`   | yes      | None.                                                                                                                                      |
 | `actionSnapshot`        | yes      | None.                                                                                                                                      |
