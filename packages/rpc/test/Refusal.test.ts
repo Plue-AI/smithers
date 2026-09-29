@@ -16,6 +16,8 @@ import {
   isCapacityRefusal,
   mayAutoRetry,
   plueFailureCode,
+  REFUSAL_ORIGINS,
+  refusalFromStored,
   refusalOf,
   retryAfterHeader,
   statedRetryDelayMs
@@ -204,6 +206,80 @@ describe("classifying a refusal", () => {
     expect(retryAfterHeader(headers("Wed, 21 Oct 2026 07:28:00 GMT"))).toBeNull()
     expect(retryAfterHeader(headers("0"))).toBeNull()
     expect(retryAfterHeader(headers(null))).toBeNull()
+  })
+})
+
+describe("a persisted refusal", () => {
+  const codes = [
+    { label: "missing code", fields: {}, code: null, fault: "infra", origin: "worker" },
+    { label: "null code", fields: { code: null }, code: null, fault: "infra", origin: "worker" },
+    { label: "undefined code", fields: { code: undefined }, code: null, fault: "infra", origin: "worker" },
+    { label: "unknown code", fields: { code: "future_code" }, code: null, fault: "infra", origin: "worker" },
+    { label: "plue code", fields: { code: "quota_exceeded" }, code: "quota_exceeded", fault: "user", origin: "plue" },
+    {
+      label: "worker code",
+      fields: { code: "seam_not_configured" },
+      code: "seam_not_configured",
+      fault: "infra",
+      origin: "worker"
+    },
+    {
+      label: "native code",
+      fields: { code: "native_node_missing" },
+      code: "native_node_missing",
+      fault: "dependency",
+      origin: "local"
+    }
+  ] as const
+
+  test.each(codes)("status 0 means no answer with $label", ({ fields, code, fault }) => {
+    expect(refusalFromStored({ status: 0, message: "Load failed", ...fields })).toEqual({
+      code,
+      rawCode: "code" in fields ? fields.code ?? null : null,
+      fault,
+      message: "Load failed",
+      retryAfter: null,
+      status: null,
+      origin: "client"
+    })
+  })
+
+  test.each(codes)("a nonzero status keeps code attribution with $label", ({ fields, code, fault, origin }) => {
+    expect(refusalFromStored({ status: 503, message: "Server refused", ...fields })).toEqual({
+      code,
+      rawCode: "code" in fields ? fields.code ?? null : null,
+      fault,
+      message: "Server refused",
+      retryAfter: null,
+      status: 503,
+      origin
+    })
+  })
+
+  test.each([403, 500, 502, 504])("an uncoded HTTP %i keeps its status-based fault and worker origin", (status) => {
+    const refusal = refusalFromStored({ status, message: "Server refused" })
+    expect(refusal.status).toBe(status)
+    expect(refusal.origin).toBe("worker")
+    expect(refusal.fault).toBe(status === 403 ? "user" : status === 500 ? "bug" : "dependency")
+  })
+
+  test.each(REFUSAL_ORIGINS)("an explicit %s origin and fault survive status and code inference", (origin) => {
+    for (const status of [0, 503]) {
+      for (const { fields } of codes) {
+        for (const fault of PLUE_FAULTS) {
+          const refusal = refusalFromStored({ status, message: "Stored verdict", ...fields, origin, fault })
+          expect(refusal.origin).toBe(origin)
+          expect(refusal.fault).toBe(fault)
+          expect(refusal.status).toBe(status === 0 ? null : status)
+        }
+      }
+    }
+  })
+
+  test.each(PLUE_FAULTS)("an explicit %s fault survives client inference without an origin", (fault) => {
+    const refusal = refusalFromStored({ status: 0, message: "Stored verdict", code: "quota_exceeded", fault })
+    expect(refusal.origin).toBe("client")
+    expect(refusal.fault).toBe(fault)
   })
 })
 

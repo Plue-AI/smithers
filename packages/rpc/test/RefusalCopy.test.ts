@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { PLUE_FAILURES, PLUE_FAULTS } from "../src/PlueFailureCodes.ts"
 import type { PlueFailureCode } from "../src/PlueFailureCodes.ts"
-import { clientRefusal, mayAutoRetry, refusalOf } from "../src/Refusal.ts"
+import { clientRefusal, mayAutoRetry, refusalFromStored, refusalOf } from "../src/Refusal.ts"
 import {
   agentFaultNote,
   agentRefusalText,
@@ -421,6 +421,30 @@ describe("the agent's tool result", () => {
 })
 
 describe("refusalUserFailure", () => {
+  test.each([
+    { label: "missing code", fields: {} },
+    { label: "null code", fields: { code: null } }
+  ])("a legacy status-0 refusal with $label gets connection copy and only Retry", ({ fields }) => {
+    const refusal = refusalFromStored({ status: 0, message: "Load failed", ...fields })
+    const sentence = "Nothing answered at all — that's the connection, not something you did. Try it again."
+    expect(refusalLead(refusal)).toBe(sentence)
+    expect(refusalSentence(refusal)).toBe(`Load failed. ${sentence}`)
+    expect(refusalDoors(refusal)).toEqual(["retry"])
+    expect(refusalUserFailure(refusal)).toEqual({
+      tag: null,
+      fault: "infra",
+      sentence,
+      actions: ["retry"],
+      detail: "Load failed"
+    })
+    const agent = agentRefusalText(refusal)
+    expect(agent).toContain("origin=client")
+    expect(agent).toContain("fault=infra")
+    expect(agent).toContain("Load failed")
+    expect(agent).toContain("Do NOT say Smithers ran out of infra")
+    expect(agent).not.toContain("@fucory")
+  })
+
   test("the lead is the sentence and the server's words stay in the detail", () => {
     const refusal = forCode("no_capacity", "fleet full: 0 of 40 slots free")
     const failure = refusalUserFailure(refusal)

@@ -414,7 +414,13 @@ export const refusalFromStored = (stored: StoredRefusal): Refusal => {
     retryAfter: secondsOf(stored.retryAfterSeconds) ?? null,
     status,
     origin: stored.origin ??
-      (isNativeFailureCode(code) ? "local" : isWorkerFailureCode(code) || code === null ? "worker" : "plue")
+      (status === null
+        ? "client"
+        : isNativeFailureCode(code)
+        ? "local"
+        : isWorkerFailureCode(code) || code === null
+        ? "worker"
+        : "plue")
   }
 }
 
