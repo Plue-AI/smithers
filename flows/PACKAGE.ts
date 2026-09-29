@@ -347,6 +347,7 @@ const repositoryFixtures = [
   "jev-score",
   "native-error",
   "pause-integrity",
+  "policy-identity",
   "proposal-review",
   "push",
   "remote-source",

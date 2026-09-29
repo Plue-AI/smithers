@@ -89,6 +89,13 @@ include this identity in the approved plan. It returns `undefined` when the
 descriptor has no `body.contentDigest`: the descriptor may be displayed, but
 `AgentSession` refuses to execute a prompt without a measured, approved identity.
 
+The repository host also binds its own policy identity to reserved job
+descriptors. In source mode it measures every TypeScript file in
+`flows/repository`, including the semantic judge and its helpers, together with
+the other host sources and prompt bodies. A change to those bytes changes the
+job's execution digest; `Registry.loadBody` refuses a previously approved digest
+with `execution_changed`. A compiled host uses its bundled artifact digest.
+
 ### Descriptor.declarationDigest
 
 ```ts

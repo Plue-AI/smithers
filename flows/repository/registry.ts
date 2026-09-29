@@ -42,29 +42,6 @@ declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | 
 const authoringSource = (name: string) => `../${name}/flow.mdx`
 const issueFlows = ["issue/repro", "issue/poc"] as const
 const policySources = [
-  "schema.ts",
-  "approved-text.ts",
-  "remote.ts",
-  "inspection.ts",
-  "jobs.ts",
-  "execution.ts",
-  "events.ts",
-  "intake.ts",
-  "retention.ts",
-  "evaluation.ts",
-  "setup.ts",
-  "registry.ts",
-  "receipts.ts",
-  "activation.ts",
-  "source.ts",
-  "checks.ts",
-  "check-context.ts",
-  "changes.ts",
-  "replies.ts",
-  "delivery.ts",
-  "ci-policy.ts",
-  "check-receipt.ts",
-  "triggers.ts",
   "../coding/host.ts",
   "../coding/native.ts",
   "../coding/native-schema.ts",
@@ -108,7 +85,12 @@ export const runningRepositoryPolicy = Effect.gen(function*() {
     return __SMITHERS_CODING_ARTIFACT_DIGEST__
   }
   const fs = yield* FileSystem.FileSystem
-  const sources = yield* Effect.forEach(policySources, (name) =>
+  // Every repository helper runs with this host's authority. Discovering the
+  // source directory keeps new judge and check modules in the policy identity.
+  const repositorySources = (yield* fs.readDirectory(fileURLToPath(new URL(".", import.meta.url))))
+    .filter((name) => name.endsWith(".ts"))
+    .sort()
+  const sources = yield* Effect.forEach([...repositorySources, ...policySources], (name) =>
     Effect.gen(function*() {
       const path = fileURLToPath(new URL(name, import.meta.url)), stat = yield* fs.stat(path)
       if (stat.size > 2_000_000n) return yield* Effect.fail(new Error("Repository policy source exceeds its bound"))
