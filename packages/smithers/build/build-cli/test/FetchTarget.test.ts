@@ -133,6 +133,27 @@ const fixtureWorkspace = async (options?: {
 }
 
 describe("S.Fetch in a PACKAGE.ts workspace", () => {
+  it("fetches an ordinary output declared by the root PACKAGE.ts", async () => {
+    const root = await temporaryWorkspace()
+    await write(root, "WORKSPACE.ts", workspaceModule)
+    await write(
+      root,
+      "PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {
+  ordinary: S.Fetch({ url: ${JSON.stringify(serverUrl)}, sha256: ${
+        JSON.stringify(schemaSha256)
+      }, out: "ordinary/file.txt" })
+} })
+`
+    )
+    const requestsBefore = requests
+    const result = await serve(root, ["//:ordinary"])
+    expect(result.exitCode, result.logs).toBe(0)
+    expect(requests).toBe(requestsBefore + 1)
+    expect(await Fs.readFile(NodePath.join(root, "ordinary/file.txt"))).toEqual(schemaBytes)
+  })
+
   it("loads without leaving its entry module directory in the OS temp dir", async () => {
     const root = await fixtureWorkspace()
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))

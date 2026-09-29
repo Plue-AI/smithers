@@ -2107,7 +2107,8 @@ const visit = async (
       rule,
       target,
       attrs,
-      packagePath,
+      // The root package's canonical path is empty; Fetch output validation needs a cwd.
+      packagePath: rule === "Fetch" && packagePath === "" ? "." : packagePath,
       labelFor,
       docsFiles: (check) => docsCheckFiles(context, check, declaredInputs, depLabels)
     })

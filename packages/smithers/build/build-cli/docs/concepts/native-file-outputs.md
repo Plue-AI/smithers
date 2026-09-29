@@ -11,3 +11,6 @@ use an ordinary workspace directory. A refused output leaves existing external
 bytes and missing external directories untouched. Accepted outputs are staged
 in their destination directory and published only after writing succeeds;
 Fetch also verifies its SHA-256 before publication.
+
+A Fetch in the root `PACKAGE.ts` writes its package-relative `out` path from
+the workspace root, just as a Fetch in a nested package writes from that package.
