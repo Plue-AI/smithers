@@ -111,7 +111,7 @@ func TestLFS_Cov_ValidationPermissionAndStorageErrors(t *testing.T) {
 	}, &mockBlobStore{}, time.Minute)
 	_, err = svc.Batch(context.Background(), nil, "alice", "demo", LFSBatchInput{Operation: "download", Objects: []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}}})
 	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 }
 
 func TestLFS_Cov_ConfirmUploadBillingAndBlobValidation(t *testing.T) {

@@ -31,7 +31,7 @@ func TestLfs_Z_EntryPermissionAndValidationErrors(t *testing.T) {
 		},
 	}, &mockBlobStore{}, time.Minute)
 	_, err = svc.Batch(ctx, lfsUser(), "alice", "demo", LFSBatchInput{Operation: "upload", Objects: []LFSObjectInput{{Oid: oid, Size: 1}}})
-	require.Equal(t, 403, apiStatus(t, err))
+	require.Equal(t, 404, apiStatus(t, err))
 
 	_, err = svc.ConfirmUpload(ctx, lfsUser(), "", "demo", LFSConfirmUploadInput{Oid: oid, Size: 1})
 	require.Equal(t, 400, apiStatus(t, err))

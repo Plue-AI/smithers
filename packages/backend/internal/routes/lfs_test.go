@@ -89,11 +89,12 @@ func TestLFSHandler_BatchAndConfirm(t *testing.T) {
 		h.PostBatch(rec, req)
 		require.Equal(t, http.StatusForbidden, rec.Code)
 	})
-	t.Run("batch upload requires write scope for token auth", func(t *testing.T) {
+	t.Run("batch delegates token scope decision to service", func(t *testing.T) {
 		called := false
 		h := LFSHandler{Service: &mockLFSRouteService{batchFn: func(ctx context.Context, actor *db.User, owner, repo string, input services.LFSBatchInput) (services.LFSBatchResponse, error) {
 			called = true
-			return services.LFSBatchResponse{}, nil
+			assert.True(t, middleware.AuthInfoFromContext(ctx).Scopes.Has(middleware.ScopeReadRepository))
+			return services.LFSBatchResponse{}, pkgerrors.Forbidden("insufficient token scope")
 		}}}
 		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/lfs/batch", strings.NewReader(`{"operation":"upload","objects":[{"oid":"a","size":1}]}`))
 		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
@@ -101,21 +102,7 @@ func TestLFSHandler_BatchAndConfirm(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.PostBatch(rec, req)
 		require.Equal(t, http.StatusForbidden, rec.Code)
-		assert.False(t, called)
-	})
-	t.Run("batch mixed-case upload requires write scope for token auth", func(t *testing.T) {
-		called := false
-		h := LFSHandler{Service: &mockLFSRouteService{batchFn: func(ctx context.Context, actor *db.User, owner, repo string, input services.LFSBatchInput) (services.LFSBatchResponse, error) {
-			called = true
-			return services.LFSBatchResponse{}, nil
-		}}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/lfs/batch", strings.NewReader(`{"operation":" Upload ","objects":[{"oid":"a","size":1}]}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withTokenAuth(req, 1, "alice", middleware.ScopeReadRepository)
-		rec := httptest.NewRecorder()
-		h.PostBatch(rec, req)
-		require.Equal(t, http.StatusForbidden, rec.Code)
-		assert.False(t, called)
+		assert.True(t, called)
 	})
 	t.Run("batch download allows read scope for token auth", func(t *testing.T) {
 		h := LFSHandler{Service: &mockLFSRouteService{batchFn: func(ctx context.Context, actor *db.User, owner, repo string, input services.LFSBatchInput) (services.LFSBatchResponse, error) {

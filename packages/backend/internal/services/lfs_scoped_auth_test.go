@@ -111,20 +111,20 @@ func TestLFSService_ScopedCredentialFailsClosedForWrongOperationAndRepository(t 
 		Operation: "upload",
 		Objects:   []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}},
 	})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 
 	wrongRepoCtx := lfsScopedContext(t, lfsRepo().ID+1, lfsauth.OperationUpload, lfsauth.PrincipalDeployKey)
 	_, err = svc.Batch(wrongRepoCtx, nil, "alice", "demo", LFSBatchInput{
 		Operation: "upload",
 		Objects:   []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}},
 	})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 
 	_, err = svc.Batch(lfsScopedContext(t, lfsRepo().ID, lfsauth.OperationUpload, lfsauth.PrincipalUser), nil, "bob", "demo", LFSBatchInput{
 		Operation: "upload",
 		Objects:   []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}},
 	})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 }
 
 func TestLFSService_VerifyCredentialRejectsWrongPathOIDSizeAndBatch(t *testing.T) {
@@ -148,7 +148,7 @@ func TestLFSService_VerifyCredentialRejectsWrongPathOIDSizeAndBatch(t *testing.T
 		Operation: "upload",
 		Objects:   []LFSObjectInput{{Oid: oid, Size: int64(len(body))}},
 	})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 	_, err = svc.ConfirmUpload(ctx, nil, "bob", "demo", LFSConfirmUploadInput{Oid: oid, Size: int64(len(body))})
 	assert.Equal(t, 403, apiStatus(t, err))
 	_, err = svc.ConfirmUpload(ctx, nil, "alice", "demo", LFSConfirmUploadInput{Oid: strings.Repeat("b", 64), Size: int64(len(body))})
@@ -174,7 +174,7 @@ func TestLFSService_RepositoryBoundTokenCannotCrossRepositoryOnAnyOperation(t *t
 		Operation: "upload",
 		Objects:   []LFSObjectInput{{Oid: oid, Size: 1}},
 	})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 	_, err = svc.ConfirmUpload(ctx, lfsUser(), "alice", "demo", LFSConfirmUploadInput{Oid: oid, Size: 1})
 	assert.Equal(t, 403, apiStatus(t, err))
 	err = svc.DeleteObject(ctx, lfsUser(), "alice", "demo", oid)

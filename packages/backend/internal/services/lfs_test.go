@@ -216,7 +216,11 @@ func TestLFSService_BatchUpload_GeneratesSignedURLs(t *testing.T) {
 }
 
 func TestLFSService_BatchUpload_RequiresAuth(t *testing.T) {
-	svc := NewLFSService(&mockLFSQuerier{}, &mockBlobStore{}, time.Minute)
+	svc := NewLFSService(&mockLFSQuerier{getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+		repo := lfsRepo()
+		repo.IsPublic = true
+		return repo, nil
+	}}, &mockBlobStore{}, time.Minute)
 	_, err := svc.Batch(context.Background(), nil, "alice", "demo", LFSBatchInput{Operation: "upload", Objects: []LFSObjectInput{{Oid: strings.Repeat("a", 64), Size: 1}}})
 	assert.Equal(t, 401, apiStatus(t, err))
 }

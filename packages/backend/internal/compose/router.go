@@ -1325,16 +1325,14 @@ func buildRouter(
 
 				if lfsHandler != nil {
 					// LFS batch handles both upload and download. LFSService.Batch
-					// enforces repository write access for operation:"upload" and read
-					// access for "download" itself; LFSHandler enforces write scope for
-					// token-authenticated upload requests after decoding the operation.
+					// enforces repository and token scope access for each operation.
 					// /objects/batch is the canonical Git LFS Batch API path. Keep
 					// /batch as a compatibility alias for existing direct API users.
 					// Batch itself selects read vs write authorization from the
 					// operation. Keeping it out of readRepo permits anonymous downloads
 					// from public repositories while the service still rejects private
 					// reads and enforces write access for uploads.
-					r.With(readRepo...).Post("/lfs/batch", lfsHandler.PostBatch)
+					r.Post("/lfs/batch", lfsHandler.PostBatch)
 					r.With(writeRepo...).Post("/lfs/confirm", lfsHandler.PostConfirm)
 					r.With(writeRepo...).Delete("/lfs/objects/{oid}", lfsHandler.DeleteObject)
 				}

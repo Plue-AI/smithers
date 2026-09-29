@@ -45,22 +45,6 @@ func (h *LFSHandler) PostBatch(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
-	operation := strings.ToLower(strings.TrimSpace(req.Operation))
-	if err := validateLFSScopedRoute(r.Context(), owner, repo, lfsauth.Operation(operation), false); err != nil {
-		errors.WriteError(w, err)
-		return
-	}
-	authInfo := middleware.AuthInfoFromContext(r.Context())
-	if authInfo != nil && authInfo.User != nil && authInfo.IsTokenAuth {
-		requiredScope := middleware.ScopeReadRepository
-		if operation == "upload" {
-			requiredScope = middleware.ScopeWriteRepository
-		}
-		if !authInfo.Scopes.Has(requiredScope) {
-			errors.WriteError(w, errors.Forbidden("insufficient token scope"))
-			return
-		}
-	}
 	rows, svcErr := h.Service.Batch(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, services.LFSBatchInput{Operation: req.Operation, Objects: req.Objects})
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)

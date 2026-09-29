@@ -23,6 +23,7 @@ const routerTestLFSSigningSecret = "router-test-lfs-signing-secret"
 
 type routerLFSProtocolService struct {
 	batchCalled   bool
+	batchErr      error
 	confirmCalled bool
 	batchActor    *db.User
 	confirmActor  *db.User
@@ -41,6 +42,9 @@ func (s *routerLFSProtocolService) Batch(ctx context.Context, actor *db.User, ow
 	s.batchCalled = true
 	s.batchActor = actor
 	s.batchClaims, _ = lfsauth.ClaimsFromContext(ctx)
+	if s.batchErr != nil {
+		return services.LFSBatchResponse{}, s.batchErr
+	}
 	verify := services.LFSBatchActionLink{Href: "https://plue.example/api/repos/alice/demo/lfs/verify"}
 	if claims, ok := lfsauth.ClaimsFromContext(ctx); ok {
 		manager, err := lfsauth.NewManager(routerTestLFSSigningSecret)
@@ -72,6 +76,26 @@ func (s *routerLFSProtocolService) Batch(ctx context.Context, actor *db.User, ow
 			},
 		}},
 	}, nil
+}
+
+func TestServerRouter_AnonymousLFSBatchLetsServiceHidePrivateRepository(t *testing.T) {
+	for _, path := range []string{
+		"/api/repos/alice/demo/lfs/objects/batch",
+		"/alice/demo.git/info/lfs/objects/batch",
+		"/api/repos/alice/demo/lfs/batch",
+	} {
+		t.Run(path, func(t *testing.T) {
+			service := &routerLFSProtocolService{batchErr: pkgerrors.NotFound("repository not found")}
+			router := defaultRouter(nil, &routes.LFSHandler{Service: service})
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"operation":"download","objects":[{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1}]}`))
+			req.Header.Set("Content-Type", routes.LFSJSONMediaType)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+			assert.True(t, service.batchCalled)
+			assert.Nil(t, service.batchActor)
+		})
+	}
 }
 
 func (s *routerLFSProtocolService) ConfirmUpload(ctx context.Context, actor *db.User, _, _ string, input services.LFSConfirmUploadInput) (db.LfsObject, error) {

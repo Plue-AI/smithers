@@ -190,14 +190,6 @@ func (s *LFSService) Batch(ctx context.Context, actor *db.User, owner, repo stri
 			"too many objects: batch supports at most %d objects per request", maxLFSBatchObjects,
 		))
 	}
-	if err := validateLFSScopedPath(ctx, owner, repo, lfsauth.Operation(op), false); err != nil {
-		return LFSBatchResponse{}, err
-	}
-	if op == "upload" && actor == nil {
-		if _, scoped := lfsauth.ClaimsFromContext(ctx); !scoped {
-			return LFSBatchResponse{}, pkgerrors.Unauthorized("authentication required")
-		}
-	}
 	batchObjectSizes := make(map[string]int64, len(input.Objects))
 	for _, obj := range input.Objects {
 		oid, size, err := validateLFSObjectInput(obj)
@@ -213,15 +205,54 @@ func (s *LFSService) Batch(ctx context.Context, actor *db.User, owner, repo stri
 	if err != nil {
 		return LFSBatchResponse{}, err
 	}
-	if err := enforceLFSRepositoryRestriction(ctx, repository.ID); err != nil {
+	_, scoped := lfsauth.ClaimsFromContext(ctx)
+	if !repository.IsPublic && !scoped {
+		if err := s.requireReadAccess(ctx, repository, actor); err != nil {
+			if apiErr, ok := err.(*pkgerrors.APIError); ok && apiErr.Status == 403 {
+				return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+			}
+			return LFSBatchResponse{}, err
+		}
+	}
+	if err := validateLFSScopedPath(ctx, owner, repo, lfsauth.Operation(op), false); err != nil {
+		if !repository.IsPublic {
+			return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+		}
 		return LFSBatchResponse{}, err
+	}
+	if err := enforceLFSRepositoryRestriction(ctx, repository.ID); err != nil {
+		if !repository.IsPublic {
+			return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+		}
+		return LFSBatchResponse{}, err
+	}
+	if authInfo := middleware.AuthInfoFromContext(ctx); authInfo != nil && authInfo.User != nil && authInfo.IsTokenAuth {
+		requiredScope := middleware.ScopeReadRepository
+		if op == "upload" {
+			requiredScope = middleware.ScopeWriteRepository
+		}
+		if !authInfo.Scopes.Has(requiredScope) {
+			if !repository.IsPublic && !authInfo.Scopes.Has(middleware.ScopeReadRepository) {
+				return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+			}
+			return LFSBatchResponse{}, pkgerrors.Forbidden("insufficient token scope")
+		}
+	}
+	if op == "upload" && actor == nil && !scoped {
+		return LFSBatchResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
 	// Download only requires read access; upload requires write access.
 	if op == "upload" {
 		if err := s.requireLFSScopedOrWriteAccess(ctx, repository, actor, lfsauth.OperationUpload); err != nil {
+			if scoped && !repository.IsPublic {
+				return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+			}
 			return LFSBatchResponse{}, err
 		}
 	} else if err := s.requireLFSScopedOrReadAccess(ctx, repository, actor, lfsauth.OperationDownload); err != nil {
+		if scoped && !repository.IsPublic {
+			return LFSBatchResponse{}, pkgerrors.NotFound("repository not found")
+		}
 		return LFSBatchResponse{}, err
 	}
 	// Resolve the full batch before issuing any upload capability. This makes
