@@ -42,14 +42,15 @@ package.
 ### class SmithersError
 
 ```ts
-class SmithersError extends Error {
+class SmithersError<Tag extends string = string> extends Data.Error<SmithersErrorFields> {
   constructor(
     code: SmithersErrorCode,
     summary: string,
     details?: Record<string, unknown>,
-    options?: SmithersErrorOptions
+    options?: SmithersErrorOptions<Tag>
   )
 
+  declare readonly _tag: Tag
   declare readonly name: string
   readonly code: SmithersErrorCode
   readonly summary: string
@@ -76,6 +77,7 @@ Fields:
 | `docsUrl` | `string`                                           | Always `ERROR_REFERENCE_URL`.                                                                                                                                    |
 | `details` | `Readonly<Record<string, unknown>>` or `undefined` | A frozen shallow copy of the record passed in, or absent as an own property when none was passed. Nested values are shared by reference and are not deep-frozen. |
 | `name`    | `string`                                           | `options.name`, or `"SmithersError"`. Installed as a non-enumerable, writable, configurable own property.                                                        |
+| `_tag`    | `Tag`                                              | The Effect tag, equal to `name`. Installed as a non-enumerable own property, so `Effect.catchTag(name)` catches the instance.                                    |
 | `message` | `string`                                           | Inherited from `Error`: `summary` plus `" See <docsUrl>"`, unless `includeDocsUrl` is `false` or `summary` is blank.                                             |
 | `cause`   | `unknown`                                          | Inherited from `Error`, and an own property only when `options.cause` is not `undefined`. Stored verbatim.                                                       |
 
@@ -89,13 +91,22 @@ cause before attaching it.
 The constructor restores the subclass prototype through `new.target`, so
 `instanceof` holds for a subclass under a transpiled target.
 
+`SmithersError` is an Effect tagged error: yielding an instance inside
+`Effect.gen` fails the effect with it, and `Effect.catchTag` routes by `_tag`.
+A subclass passes its tag as the type argument and the same string as
+`options.name`, as `IntegrationError extends SmithersError<"IntegrationError">`
+does. The type argument defaults to `string`, so `SmithersError` alone types
+any instance, subclasses included. Name a literal, as in
+`new SmithersError<"SmithersError">(...)`, when a `catchTag` must narrow a base
+instance.
+
 ### SmithersErrorOptions
 
 ```ts
-interface SmithersErrorOptions {
+interface SmithersErrorOptions<Tag extends string = string> {
   readonly cause?: unknown
   readonly includeDocsUrl?: boolean
-  readonly name?: string
+  readonly name?: Tag
 }
 ```
 
@@ -103,7 +114,7 @@ interface SmithersErrorOptions {
 | ---------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `cause`          | none              | Stored verbatim and not redacted. `undefined` is treated as no cause, so a subclass may always spell the key.                     |
 | `includeDocsUrl` | `true`            | Set `false` to leave the documentation URL out of `message`. The suffix is still stripped from a summary that already carried it. |
-| `name`           | `"SmithersError"` | The name the error reports, and the name its stack starts with.                                                                   |
+| `name`           | `"SmithersError"` | The name the error reports, its Effect `_tag`, and the name its stack starts with.                                                |
 
 ### isSmithersError
 

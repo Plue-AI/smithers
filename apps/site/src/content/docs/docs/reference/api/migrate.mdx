@@ -947,7 +947,7 @@ The order is fixed:
    component, library, and prompt attaches to the first workflow that imports
    it, so nothing is migrated twice.
 3. one `integration:<name>` per integration seam.
-4. `project`: remove the old packages, the JSX settings, the preload, the
+4. `project`: remove the old packages, the 0.x JSX settings, the preload, the
    agent pool, and the old CLI scripts, once nothing depends on them.
 
 `Units.orderWorkflows(workflows, imports)` puts the workflow units in that
@@ -1004,19 +1004,19 @@ the command it spawns.
 enforcement half of the migration contract. The prompt asks; these checks
 decide, and a failed check fails the round exactly as a failed test does:
 
-| Check                                                         | What it refuses                                                                                                                                                               |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                                                 |
-| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                                                |
-| no react import under the flows directory                     | React inside a flow                                                                                                                                                           |
-| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                                             |
-| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                                           |
-| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                                                  |
-| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                                            |
-| every flow module's descriptor describes the flow it declares | a default export that admits an `input`/`output` no durable flow in the module declares, one whose `body` calls something else, or a lone declaration with no behavior at all |
-| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                                     |
-| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                                               |
-| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                                                |
+| Check                                                         | What it refuses                                                                                                                                           |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                             |
+| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                            |
+| no react import under the flows directory                     | React inside a flow                                                                                                                                       |
+| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                         |
+| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                       |
+| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                              |
+| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                        |
+| every flow module's descriptor describes the flow it declares | a default export without a nonempty literal tag, payload schema or field object, or callable body; a body that does not reach the flow declared beside it |
+| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                 |
+| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                           |
+| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                            |
 
 Every one of these is parsed rather than matched where a match would be a lie.
 The old-import check reads the module specifiers out of the syntax tree and
@@ -1029,17 +1029,14 @@ constructor the registry's own tokenizer looks for: a description on a
 `Widget.make`, on a bare `make`, or on a namespace alias is a description no
 registry ever reads.
 
-The descriptor check is the other half of that. A migrated module default-exports
-the flow itself, tag and `body` included, which is what the tool emits: one
-declaration, so the contract the control plane admits is the one that runs.
-Discovery reads the default export and never a named one, so the two ways a
-module can still admit one thing and run another are both refused. A default
-export that names a durable flow the module declares beside it has to reach it by
-`body`; the contract is accepted as the binding instead, meaning the default
-export's `input` and `output` are that flow's `payload` and `success`, with
-`{ ... }` fields and `Schema.Struct({ ... })` read as the same thing. A module
-with no durable flow of its own has to carry its own `body`, `model`, or `flows`,
-or calling it fails with `missing_body`.
+The descriptor check requires exactly `Flow.make("<tag>", { ... })` with a
+nonempty literal tag, a `payload` schema or field object (including `{}` for no
+input), and a callable `body`. Object-first declarations and `model` or `flows`
+without a body are rejected. When a module declares another flow beside the
+default export, the default body's call must reach that flow. These checks run
+before archiving the old source, even without a project typecheck command.
+They inspect syntax without executing generated code; the project's typecheck
+and tests validate referenced values and runtime behavior.
 
 The escape-hatch check counts each kind separately against
 `checkpointFiles.sources`, so a project that already had an `as any` in a
@@ -1330,9 +1327,9 @@ Every fallible operation in `Finish`, including the initial owned-file and whole
 
 What the scope puts back is read from the tree at the moment it fires, never from a set computed before it: `Checkpoint.rollback` diffs the tree against the checkpoint's manifest then, puts every recorded file back byte for byte, removes every path added since, and deletes the archive copy of anything it put back. A postcondition that fails after the archive has moved a unit's sources therefore leaves the project exactly as the checkpoint found it, and so does any step a later version adds below the archive.
 
-`Archive.run` tells two kinds of source apart. A source the migration replaced moves to `.smithers-migrate/archive/<original path>`, in two phases: every copy is written before any source is removed. A source a 1.0 project keeps, `package.json`, `tsconfig*.json`, `.gitignore`, is rewritten where it is and never moved: old packages out, `effect` pinned to the version this release ships, `smithers up <file>` scripts rewritten to `smthrs flow start <flow>` with input/detach flags translated and unsafe mappings reported rather than deleted, the JSX compiler options and old path mappings removed, `.flows/` ignored. The project unit also keeps Markdown documentation and command script paths recognized by detection (`.sh`, Makefile, Justfile, justfile, Procfile, bunfig.toml, `.github/workflows/*.yml` or `*.yaml`, and docker-compose YAML files), preserving their in-place transform edits. A `dependencies` or `integration` unit archives nothing, because its files are the ones the migration edits. Tool code gets the agent's rule too: an archive whose source set reaches a run-state path fails with `run-state-blocked` rather than moving it.
+`Archive.run` tells two kinds of source apart. A source the migration replaced moves to `.smithers-migrate/archive/<original path>`, in two phases: every copy is written before any source is removed. A source a 1.0 project keeps, `package.json`, `tsconfig*.json`, `.gitignore`, is rewritten where it is and never moved: old packages out, `effect` pinned to the version this release ships, `smithers up <file>` scripts rewritten to `smthrs flow start <flow>` with input/detach flags translated and unsafe mappings reported rather than deleted, retired Smithers JSX settings and old path mappings removed, `.flows/` ignored. The project unit also keeps Markdown documentation and command script paths recognized by detection (`.sh`, Makefile, Justfile, justfile, Procfile, bunfig.toml, `.github/workflows/*.yml` or `*.yaml`, and docker-compose YAML files), preserving their in-place transform edits. A `dependencies` or `integration` unit archives nothing, because its files are the ones the migration edits. Tool code gets the agent's rule too: an archive whose source set reaches a run-state path fails with `run-state-blocked` rather than moving it.
 
-`MigrateFlow.postconditions` asks, after the archive, whether the project is in the state this kind of unit exists to produce. The content checks read the files a unit changed, so a unit that changed nothing passes all of them and used to be recorded as migrated on that basis. There is one set per kind, and a file a check needs has to be there: a workflow unit wrote the flow it was planned for; a dependencies or project unit's manifests still exist and pin `effect`; a project unit's manifests also declare no 0.x package in any of the six dependency fields, a check the dependencies unit is never asked for because the units that run after it still import the 0.x facade, its tsconfigs still exist and configure no JSX runtime, and its root `.gitignore` exists and covers `.flows/` (the project unit owns it, as a source when the project has one and as a target it creates when it does not); an integration unit's sources still exist and no longer import the 0.x facade.
+`MigrateFlow.postconditions` asks, after the archive, whether the project is in the state this kind of unit exists to produce. The content checks read the files a unit changed, so a unit that changed nothing passes all of them and used to be recorded as migrated on that basis. There is one set per kind, and a file a check needs has to be there: a workflow unit wrote the flow it was planned for; a dependencies or project unit's manifests still exist and pin `effect`; a project unit's manifests also declare no 0.x package in any of the six dependency fields, a check the dependencies unit is never asked for because the units that run after it still import the 0.x facade, its tsconfigs still exist and configure no retired Smithers JSX runtime, and its root `.gitignore` exists and covers `.flows/` (the project unit owns it, as a source when the project has one and as a target it creates when it does not); an integration unit's sources still exist and no longer import the 0.x facade.
 
 The final tree is then verified as the final tree. `Verify.run` runs again over it, install, format, every typecheck, the tests, and registry discovery, and its result is the verification the unit report records; the whole-tree confinement check and the run-state check run again after it, because the archive and the verification both ran commands, and a file the unit owns under a run-state root (`.smithers/smithers.config.ts` beside `.smithers/smithers.db`) is the unit's to archive and is left out of the run-state comparison. Only then is the unit `migrated`; any failure restores it.
 
@@ -1469,11 +1466,12 @@ drives its implementation.
 | `Result`                                                | `Schema.Struct`                                                                                               | What moved, what was rewritten, and what was reported instead.                                                        |
 | `rewriteManifest`                                       | `(text: string, rewrite: ManifestRewrite) => { ... }`                                                         | Old packages out, `effect` pinned, scripts rewritten.                                                                 |
 | `rewriteScripts`                                        | `(scripts: Readonly<Record<string, string>>) => ReadonlyArray<ScriptRewrite>`                                 | `smithers up <file>` becomes `smthrs flow start <flow>` with translated flags. Unsafe mappings are left and reported. |
-| `rewriteTsconfig`                                       | `(text: string, specifiers?: SpecifierContext) => string`                                                     | The JSX options and the old path mappings removed.                                                                    |
+| `rewriteTsconfig`                                       | `(text: string, specifiers?: SpecifierContext) => string`                                                     | Retired Smithers JSX settings and old path mappings removed; untouched configs preserved byte for byte.               |
 | `rewriteGitignore`                                      | `(text: string, flowsState?: string) => string`                                                               | `.flows/` ignored.                                                                                                    |
 | `rewritten`                                             | `(file, text, specifiers?, kind?) => { ... }`                                                                 | The rewrite for one kept file.                                                                                        |
 | `isRewritable`                                          | `(file: string) => boolean`                                                                                   | Whether a file is rewritten in place rather than moved.                                                               |
 | `isOldPathsKey`                                         | `(key: string, specifiers?: SpecifierContext) => boolean`                                                     | Whether a tsconfig path mapping is a 0.x one.                                                                         |
+| `isOldJsxImportSource`                                  | `(source: unknown, specifiers?: SpecifierContext) => boolean`                                                 | Whether a JSX import source identifies a retired Smithers runtime.                                                    |
 | `withoutComments`                                       | `(text: string) => string`                                                                                    | JSONC without its comments, for parsing.                                                                              |
 | `pinFor`                                                | `(name: string) => string \| undefined`                                                                       | The version this release pins a package to.                                                                           |
 | `dependencyFields`                                      | `["dependencies", "devDependencies", "peerDependencies", "optionalDependencies", "overrides", "resolutions"]` | The six fields a postcondition checks.                                                                                |
