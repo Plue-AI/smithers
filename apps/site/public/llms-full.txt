@@ -14183,7 +14183,7 @@ is used exactly like any other declared action: `.call()` in a flow body,
 `.layer` in the composition. The layer resolves the seat through `SeatResolver`,
 runs one agent loop through `Agent` inside the current flow execution, and
 decodes the run's final answer with the declared output schema, spending
-`Options.corrections` re-prompts before it reports a typed
+`Options.corrections` corrections before it reports a typed
 `StructuredOutputFailure`.
 
 ### AgentAction.Options
@@ -14196,7 +14196,7 @@ decodes the run's final answer with the declared output schema, spending
 | `phase`       | `SeatRouter.Phase`                                | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail. |
 | `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                                   |
 | `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                                       |
-| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default.         |
+| `corrections` | `number`                                          | How many times a decode miss may be corrected, in the same session or a fresh one. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal.         |
 | `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                         |
 | `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                                     |
 | `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                               |
@@ -28189,7 +28189,7 @@ journals them in order: `DisciplineArmed` once at the start, the frame cycle
 `CellPrinted`, `CellSettled`, `TransitionApplied`), the interventions and
 observations (`ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`,
 `NarrowedDemanded`, `NarrowOnlyDemanded`, `UnmovedDemanded`,
-`UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `ClaimDemanded`,
+`UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `OutputDemanded`, `ClaimDemanded`,
 `DecisionSettled`,
 `SufficiencyObserved`, `VacuousVerificationObserved`,
 `MutationObserved`, `CheckpointMinted`, `CompactionSettled`,
@@ -28310,6 +28310,7 @@ writes and `Transcript` reads:
 | `unresolved-demanded`           | `unresolvedDemanded`          | `flows.harness.unresolved-demanded.v1`           |
 | `failed-call-demanded`          | `failedCallDemanded`          | `flows.harness.failed-call-demanded.v1`          |
 | `unobserved-demanded`           | `unobservedDemanded`          | `flows.harness.unobserved-demanded.v1`           |
+| `output-demanded`               | `outputDemanded`              | `flows.harness.output-demanded.v1`               |
 | `vacuous-verification-observed` | `vacuousVerificationObserved` | `flows.harness.vacuous-verification-observed.v1` |
 
 ## HarnessError
@@ -28364,14 +28365,17 @@ export const decode: <S extends Schema.Top>(
 
 `decode` tries every `candidates(text)` entry in order, the complete
 BOM-stripped response first and then the balanced JSON container whose
-matching close ends last (`lastBalanced`), and returns the first the schema
-accepts. When none does, the `StructuredOutputFailure` reports the issues of
+matching close ends last (`lastBalanced`), then the answer itself, untrimmed,
+as a string unless it is a JSON string literal, and returns the first the
+schema accepts. The last is how `ctx.done("text")` reaches a string schema.
+When none does, the `StructuredOutputFailure` reports the issues of
 the last candidate, with `code` one of `invalid_json`, `schema_mismatch`,
 `no_candidate`, or `correction_exhausted` once the budget is spent.
 
 The prompt half is `instructions(schema)`, which renders the declared schema
-as a JSON Schema document for the run's system teaching: the model is told
-the shape before it answers, and the answer is still validated locally.
+as a JSON Schema document for the run's system teaching and asks for the value
+itself as the `ctx.done` argument, not a JSON string: the model is told the
+shape before it answers, and the answer is still validated locally.
 `digest(schema)` is the schema's canonical digest, `jsonSchema(schema)` its
 JSON Schema document, `issuesDigest(failure)` the digest of one failure's
 rendered issues, and `correction(failure)` the teaching appended when a
@@ -28582,6 +28586,16 @@ callback, an alias), and a cell whose calls are effects with discarded
 results, are spared. `FailedCallDemanded` takes precedence, and with no frame
 left the answer stands; a refused answer is also what the run ends on when
 the budget runs out before it completes again.
+
+`Input.output` (`OutputCheck`, `{ check, cap }`) is the host's shape for the
+final output. Before any demand above, `check(output, corrected)` answers a
+completion with a correction note or `undefined`; the verdict is a recorded
+boundary. A refused completion is handed back to the same session, with what
+its cell printed and the note, and journaled as `OutputDemanded`
+(`{ note, nextFrame }`). The realm and every settled call stay, so the
+correction repeats no work. At most `cap` completions are handed back, and
+only while a frame is left; past either the completion stands and the host
+decides. `AgentAction` supplies it from the declared output schema.
 
 ## UnresolvedFailure
 
@@ -35785,7 +35799,7 @@ const live = Evaluator.layerVercelGateway({ apiKey: Config.Redacted("AI_GATEWAY_
 | `confident(answer, floor)`                    | getter      | `Option` of the answer's value when `confidence(answer) >= floor`.                                                                                                                                                                                                                                                                         |
 | `decodeAnswers(questions, raw)`               | decoding    | `Effect<AnswersOf<questions>, ClassifierError>`. Shared by the typed path and the ad-hoc path.                                                                                                                                                                                                                                             |
 | `Question`, `Answer`                          | schemas     | Effect Schemas for the ad-hoc path: a model-authored question is decoded with `Question` (the same value as `Evaluator.Question`, construction limits included) before it reaches the transport, and a decoded answer in any of the three shapes matches `Answer`.                                                                         |
-| `ClassifierError`                             | error       | `{ code, status?, message }` with `code` from `Evaluator.EvaluatorErrorCode`. Typed, never thrown.                                                                                                                                                                                                                                         |
+| `ClassifierError`                             | error       | `{ code, status?, resetAtEpochMillis?, message }` with `code` from `Evaluator.EvaluatorErrorCode`. Typed, never thrown.                                                                                                                                                                                                                    |
 
 Decoding is strict. Every question needs an answer of its own type; a
 boolean's probability and every distribution entry lie in `[0, 1]`; a choice
@@ -35822,11 +35836,11 @@ selected by a flow host or used as a subscription fallback.
 | `Evaluator`                                                                                                                                              | service interface and tag | `evaluate({ state, questions }) => Effect<{ answers, confidence?, usage?, latencyMs }, EvaluatorError>`. `confidence` is the provider's own number per question, read from `providerMetadata.typesafe.confidence` and absent when the transport sent none. Tag id `/model/Evaluator`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `layerVercelGateway(options)`                                                                                                                            | layer                     | Jev through the Vercel AI Gateway over the kernel `HttpClient`. One deadline over the whole evaluation; a 429, 502, 503 or 504, or a connection that failed before any status, is asked again after a doubling pause from `retryBackoffMs` (100 ms), and one shed on every attempt fails `refused`. Options: `apiKey` (a `Redacted` or a `Config` read at construction), `model` (`typesafe-ai/jev`), `timeoutMs` (3000), `attempts` (3), `zeroDataRetention` (true), `baseUrl` (`https://ai-gateway.vercel.sh/v4/ai/evaluation-model`, validated by `Endpoint.make` before the key is signed onto it; an invalid one fails `unreachable` without a request). A 200 body is read up to `maxResponseBytes` (1 MiB) and fails `empty` past it. Every request runs as a `model:call` on the model. |
 | `layerScripted(script)`                                                                                                                                  | layer                     | Answers from `(request) => answers` or `(request) => Effect<answers, EvaluatorError>`. A scripted answer may omit its `type`; the layer fills it from the question and decodes the result like a gateway body, so a script answering the wrong shape fails as `invalid_answer`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `layerFromSeat(seat, { timeoutMs? })`                                                                                                                    | layer                     | Judges through an existing resolved seat's model and credentials. Accepts `{ modelId, model }`, including subscription seats. No gateway key or alternative auth path. Invalid, missing, out-of-range and truncated verdicts fail closed; provider errors are redacted. The default deadline is 120 seconds.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `layerFromSeat(seat, { timeoutMs? })`                                                                                                                    | layer                     | Judges through an existing resolved seat's model and credentials. Accepts `{ modelId, model }`, including subscription seats. No gateway key or alternative auth path. Invalid, missing, out-of-range and truncated verdicts fail closed. Rate and quota limits become `refused` with `status: 429` and the reset time when known; provider diagnostics stay redacted. The default deadline is 120 seconds.                                                                                                                                                                                                                                                                                                                                                                                     |
 | `layerUnavailable()`                                                                                                                                     | layer                     | Fails every request as `unreachable`; a classifier outage fixture, and the binding for a host composed to drive no run, never a completion-capable host's default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `Question`, `RawAnswer`, `RawAnswers`                                                                                                                    | schemas                   | The wire shapes. A boolean answer is `{ type: "boolean", probability }`, a choice `{ type: "choice", choice, probabilities? }`, a score `{ type: "score", score, probabilities? }`. The question schema enforces 2 to 255 choice options and at least 2 distinct score rungs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `EvaluatorErrorCode`                                                                                                                                     | schema                    | `unreachable` (no response), `refused` (a status other than 200, 400 or 422, kept in `status`), `empty` (a 200 whose body carried no answers or could not be read), `timeout` (this call's deadline), `invalid_answer`, `invalid_question` (a 400 or 422, or a rejected question).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `EvaluatorError`                                                                                                                                         | error                     | `{ code, status?, message }`. Evaluation failures, including missing subscriptions, are typed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `EvaluatorErrorCode`                                                                                                                                     | schema                    | `unconfigured` (missing credentials or subscription opt-in, a policy fault), `unreachable` (no response), `refused` (a status other than 200, 400 or 422, kept in `status`), `empty` (a 200 whose body carried no answers or could not be read), `timeout` (this call's deadline), `invalid_answer`, `invalid_question` (a 400 or 422, or a rejected question).                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EvaluatorError`                                                                                                                                         | error                     | `{ code, status?, resetAtEpochMillis?, message }`. Evaluation failures, including missing subscriptions, are typed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `defaultBaseUrl`, `defaultModel`, `defaultTimeoutMs`, `defaultAttempts`, `retryBackoffMs`, `maxResponseBytes`, `protocolVersion`, `specificationVersion` | constants                 | The gateway defaults, the 1 MiB answer cap, and the protocol versions sent as `ai-gateway-protocol-version` (`0.0.1`) and `ai-evaluation-model-specification-version` (`4`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 The wire protocol is the AI SDK gateway provider's own, as recorded on
@@ -36931,6 +36945,8 @@ and the handles.
 const runThroughput: Metric.Counter // "flows_run_throughput"
 const activeSeats: Metric.Gauge // "flows_seat_active"
 const quotaParks: Metric.Counter // "flows_quota_park"
+const structuredOutputRejections: Metric.Counter // "flows_agent_structured_output_rejections"
+const structuredOutputExhausted: Metric.Counter // "flows_agent_structured_output_exhausted"
 const droppedLogRecords: Metric.Counter // "flows_observability_log_dropped"
 ```
 
@@ -36941,6 +36957,10 @@ const droppedLogRecords: Metric.Counter // "flows_observability_log_dropped"
   interruption.
 - `quotaParks` advances when a sealed quota decision is first executed, not
   when it is replayed after a wake or a process restart.
+- `structuredOutputRejections` advances once per agent answer its declared
+  output schema refuses, in the same session or a fresh one.
+- `structuredOutputExhausted` advances once per agent step that fails after
+  spending every output correction and its repair.
 - `droppedLogRecords` advances once per record lost by `JournalLogger`.
 
 Step-cache lookup and write counters remain owned by
@@ -36954,11 +36974,13 @@ const registry: {
   readonly runThroughput: typeof runThroughput
   readonly activeSeats: typeof activeSeats
   readonly quotaParks: typeof quotaParks
+  readonly structuredOutputRejections: typeof structuredOutputRejections
+  readonly structuredOutputExhausted: typeof structuredOutputExhausted
   readonly droppedLogRecords: typeof droppedLogRecords
 }
 ```
 
-All four handles as one object, for a host that enumerates them. The four
+All six handles as one object, for a host that enumerates them. The six
 series names are the dashboard contract; treat them as public API.
 
 ## Otel
@@ -38376,6 +38398,30 @@ const all: <const Nodes extends Readonly<Record<string, Any>>>(
 
 Combines independent children into one node, keyed by name. Width is fixed at plan time. A non-node member throws `invalid_all_member` naming that member.
 
+### Node.race, Node.any, and Node.quorum
+
+```ts
+type Members = Readonly<Record<string, Any>>
+const race: <const Nodes extends Members>(
+  nodes: Nodes
+) => Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>>
+const any: <const Nodes extends Members>(
+  nodes: Nodes
+) => Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>>
+const quorum: <const Nodes extends Members>(
+  count: number,
+  nodes: Nodes
+) => Node<
+  Types.Simplify<{ readonly [K in keyof Nodes]?: Success<Nodes[K]> }>,
+  Error<Nodes[keyof Nodes]>,
+  Services<Nodes[keyof Nodes]>
+>
+```
+
+Joins that settle early. `race` settles with the first member to settle, success or typed failure. `any` settles with the first success and fails with the last failure when every member fails. `quorum` succeeds with exactly the first `count` successes, keyed by member, and fails with the failure that leaves too few members able to succeed.
+
+Members still running when the join decides are interrupted. The members that decided are journaled in order, so a resumed run settles the same members and never starts the others again. An interrupted (parked) member is undecided; a defect or interpreter refusal in a member propagates without a decision. No members, a non-node member, or a quorum count outside 1 to the member count throws `invalid_join`.
+
 ### Node.map
 
 ```ts
@@ -38999,6 +39045,7 @@ class GraphBuildError extends Schema.TaggedError<GraphBuildError>()("@smthrs/pla
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `planned_value_computed`      | a body computed on a step result                                                               |
 | `invalid_all_member`          | `Node.all` received a non-node member                                                          |
+| `invalid_join`                | a race, any, or quorum has a non-node member, no members, or an unreachable count              |
 | `invalid_continuation`        | a branch arm, catch arm, or continuation did not return a node                                 |
 | `recursion_requires_boundary` | a flow calls itself inline instead of using a trampoline handoff or an explicit child boundary |
 | `placement_requires_boundary` | an inline call's callee declares a placement the enclosing flow cannot satisfy                 |
@@ -39020,7 +39067,7 @@ class GraphBuildError extends Schema.TaggedError<GraphBuildError>()("@smthrs/pla
 | `payload_too_large`           | one plan value expands to more members than the bound                                          |
 | `invalid_node`                | a malformed node AST                                                                           |
 
-`GraphBuildErrorCode` is a closed schema literal, so a caller may switch on it and a new refusal is a deliberate addition rather than a new free-form string. This package raises `planned_value_computed`, `invalid_all_member`, `invalid_continuation`, `invalid_priority`, `invalid_payload`, and `cyclic_payload`. [`@smthrs/flow`](/docs/reference/api/flow/)'s graph walk raises `recursion_requires_boundary`, `placement_requires_boundary`, `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `unstable_callback`, and the four effect-authority codes. [`@smthrs/core`](/docs/reference/api/core/)'s graph builder raises the last six, plus `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `invalid_payload`, and the four effect-authority codes; it uses this error rather than a second class of its own. `unstable_callback` is raised when `Graph.build` runs with `callbackIdentity: "stable"` and a callback carries no `Node.capture` declaration; declare its complete inert captures, including the version of any imported implementation, so the callback keys by content instead of by process.
+`GraphBuildErrorCode` is a closed schema literal, so a caller may switch on it and a new refusal is a deliberate addition rather than a new free-form string. This package raises `planned_value_computed`, `invalid_all_member`, `invalid_join`, `invalid_continuation`, `invalid_priority`, `invalid_payload`, and `cyclic_payload`. [`@smthrs/flow`](/docs/reference/api/flow/)'s graph walk raises `recursion_requires_boundary`, `placement_requires_boundary`, `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `unstable_callback`, and the four effect-authority codes. [`@smthrs/core`](/docs/reference/api/core/)'s graph builder raises the last six, plus `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `invalid_payload`, and the four effect-authority codes; it uses this error rather than a second class of its own. `unstable_callback` is raised when `Graph.build` runs with `callbackIdentity: "stable"` and a callback carries no `Node.capture` declaration; declare its complete inert captures, including the version of any imported implementation, so the callback keys by content instead of by process.
 
 The four effect-authority codes are recorded while a walk checks every
 declaration against the envelope enclosing it, using the narrowing rule
@@ -40805,6 +40852,7 @@ class FlowDescriptor {
   readonly capabilities: ReadonlyArray<string>
   readonly effects: EffectDeclaration
   readonly placement: Option.Option<Placement>
+  readonly sandbox?: SandboxSelection
   readonly modelInvocable: boolean
   readonly budget?: FlowBudget
   readonly path: string
@@ -40817,6 +40865,15 @@ The discovered metadata for one flow, excluding its unloaded body content.
 `frontmatter` retains every declared key verbatim, including keys discovery
 does not use. `budget` is absent for a flow that declares none; read it through
 `budgetOf` rather than from the field.
+
+`sandbox` is absent for a flow that selects none. Markdown frontmatter selects
+one with `sandbox: { provider, network?, cpus?, memoryMib?, timeoutSecs? }`:
+`provider` is one of `SandboxProvider` (`aws`, `cloudflare`, `command`,
+`container`, `daytona`, `directory`, `just-bash`, `kubernetes`, `microsandbox`,
+`vercel`), `network` is `none` or `{ allow: [hosts] }` of host names, `cpus` is a positive
+number, and the other limits are positive whole numbers. A selection places the
+flow in `sandbox`. An unknown provider or key, a malformed option, or a
+`placement` other than `sandbox` refuses the flow with `invalid_sandbox`.
 
 ### Descriptor.executionDigest
 
@@ -41116,15 +41173,15 @@ class DiscoveryWarning {
 
 A non-fatal source-discovery diagnostic. Anything a scan can survive is
 reported this way rather than raised, and read back through
-`registry.warnings()`. The 33 codes are grouped by what they say:
+`registry.warnings()`. The 34 codes are grouped by what they say:
 
-| Group                  | Codes                                                                                                                                                                                                                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                       |
-| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
-| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                            |
-| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                 |
-| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                            |
+| Group                  | Codes                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                          |
+| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
+| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                               |
+| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                    |
+| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                               |
 
 Each code, with its cause and its fix, is in
 [Diagnose a flow that did not appear](https://registry.smithers.sh/guides/diagnose-a-missing-flow/).
