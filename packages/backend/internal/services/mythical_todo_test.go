@@ -1223,7 +1223,24 @@ func TestMythicalSnapshotShowsATodosProgressOnly(t *testing.T) {
 	encoded, err := json.Marshal(item)
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), `"todo":{"replans":1,"fault":{"class":"factory","tag":"coding/Error/stalled"}}`)
-	assert.NotContains(t, string(encoded), `"checks"`, "the bookkeeping never leaves the service")
+	assert.NotContains(t, string(encoded), `"checks"`, "nothing was verified yet")
+	assert.NotContains(t, string(encoded), `notice`, "the bookkeeping never leaves the service")
+	assert.NotContains(t, string(encoded), `todoEvent`)
+
+	// The candidate's verification is the wire's checks (Astra confirm M2).
+	for _, tc := range []struct {
+		item db.MythicalItem
+		want *MythicalChecksView
+	}{
+		{db.MythicalItem{State: "verifying"}, &MythicalChecksView{State: "pending", Failed: []string{}}},
+		{db.MythicalItem{State: "proposing", VerifyOutcome: "passed", CandidateVerified: true}, &MythicalChecksView{State: "passed", Failed: []string{}}},
+		{db.MythicalItem{State: "proposing", CandidateVerified: true}, &MythicalChecksView{State: "passed", Failed: []string{}}},
+		{db.MythicalItem{State: "retrying", VerifyOutcome: "failed: unit, types"}, &MythicalChecksView{State: "failed", Failed: []string{"unit", "types"}}},
+		{db.MythicalItem{State: "retrying", VerifyOutcome: "outage: infra: x"}, nil},
+		{db.MythicalItem{State: "running"}, nil},
+	} {
+		assert.Equal(t, tc.want, mythicalChecksView(tc.item), "%+v", tc.item.VerifyOutcome)
+	}
 }
 
 // pullsDown answers no pull request: GitHub is down for the follow.
@@ -1349,13 +1366,90 @@ func TestMythicalRetainedWorkspaceHoldsItsLane(t *testing.T) {
 		Labels: []string{"todo"}}, maintainerTodo))
 	for range 3 {
 		o.wake()
-		running := 0
-		for _, number := range []int64{411, 412} {
-			if mythicalHoldsLane(o.item(number)) {
-				running++
-			}
-		}
-		require.LessOrEqual(t, running, 1, "#411 %s, #412 %s: two lanes on a one-lane stack", o.item(411).State, o.item(412).State)
+		require.LessOrEqual(t, o.lanes.live(), 1, "#411 %s, #412 %s: two live workspaces on a one-lane stack", o.item(411).State, o.item(412).State)
 	}
 	assert.Equal(t, "queued", o.item(411).State, "#411 waits for the lane")
+}
+
+// live counts the lane workspaces created and not yet deleted.
+func (l *fakeMythicalLanes) live() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.created) - len(l.deleted)
+}
+
+// A person's resume starts GitHub's outage count over too: a TODO stopped
+// after seven GitHub failures, retried or given todo again, backs off on
+// its next failure instead of stopping at once (Fable confirm M1).
+func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 421, Title: "GitHub", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	item := o.item(421)
+	item.State = "proposing"
+	for range mythicalOutageBound + 1 {
+		item = *mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", time.Now())
+	}
+	require.Equal(t, "blocked", item.State)
+	require.Equal(t, mythicalOutageBound+1, mythicalChecksOf(item).GitHubOutages)
+	saved, err := o.service.queries().SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+
+	// A person's Retry.
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(saved.ID))
+	require.NoError(t, err)
+	retried := o.item(421)
+	assert.Zero(t, mythicalChecksOf(retried).GitHubOutages)
+	retried.State = "proposing"
+	next := mythicalInfraOutage(retried, "github", "GitHub did not answer; retrying the proposal", time.Now())
+	assert.Equal(t, "proposing", next.State, "one failure backs off")
+	assert.WithinDuration(t, time.Now().Add(2*time.Minute), next.NextAttemptAt.Time, 30*time.Second)
+
+	// A maintainer re-applying todo.
+	stopped := o.item(421)
+	checks := mythicalChecksOf(stopped)
+	checks.GitHubOutages, checks.Fault = mythicalOutageBound+1, &mythicalFault{Class: "policy", Tag: "outages"}
+	stopped.State, stopped.Checks = "blocked", checks.encode()
+	_, err = o.service.queries().SaveMythicalItem(ctx, stopped)
+	require.NoError(t, err)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	assert.Equal(t, "queued", o.item(421).State)
+	assert.Zero(t, mythicalChecksOf(o.item(421)).GitHubOutages)
+}
+
+// A verification on a kept workspace takes its lane under the cap as it
+// stands now: after the cap is lowered, it waits (Astra confirm M1).
+func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.SetMaxParallel(ctx, o.repoID, 3))
+	for _, number := range []int64{511, 512} {
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Cap %d", number), State: "open",
+			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	}
+	stack := o.wake()
+	require.Equal(t, "running", o.item(511).State)
+	item := o.item(512)
+	require.Equal(t, "running", item.State)
+	var request flowdispatch.LaunchRequest
+	for _, launched := range o.launcher.byFlow("coding/request") {
+		if launched.Target.BindingID == uuidString(item.ID) {
+			request = launched
+		}
+	}
+	o.project(request, jobs.StateCompleted, "run-512", validatedRequest)
+	o.wake()
+	require.Equal(t, "delivering", o.item(512).State)
+	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"five-twelve.md": "x\n"}, "📝 docs: add five-twelve")
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+		Source: candidate, RequestRunID: "run-512", Summary: "📝 docs: add five-twelve"})
+	require.NoError(t, err)
+	o.commit("✨ feat: three", "c.txt", "c\n")
+	o.publish()
+	require.NoError(t, o.service.SetMaxParallel(ctx, o.repoID, 1))
+	o.wake()
+	assert.Equal(t, "running", o.item(511).State)
+	assert.Equal(t, "integrating", o.item(512).State, "the verification waits for a lane under the lowered cap")
+	assert.Empty(t, o.launcher.byFlow("coding/verify"))
 }

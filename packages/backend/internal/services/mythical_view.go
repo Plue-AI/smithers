@@ -76,6 +76,9 @@ type MythicalItemView struct {
 	Runs        MythicalRunsView   `json:"runs"`
 	Plan        json.RawMessage    `json:"plan,omitempty"`
 	Integration json.RawMessage    `json:"integration,omitempty"`
+	// Checks is the verification of the item's candidate: pending while it
+	// runs, passed, or failed with the failed checks' ids.
+	Checks *MythicalChecksView `json:"checks,omitempty"`
 	// Todo is how far a TODO's plan got; absent for an item that is none.
 	Todo        *MythicalTodoView        `json:"todo,omitempty"`
 	PullRequest *MythicalPullRequestView `json:"pullRequest,omitempty"`
@@ -85,6 +88,26 @@ type MythicalItemView struct {
 	// item row, whatever its state then (often skipped, waiting for a label);
 	// it is not when the issue became actionable.
 	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// MythicalChecksView is the verification of an item's candidate.
+type MythicalChecksView struct {
+	State  string   `json:"state"`
+	Failed []string `json:"failed"`
+}
+
+// mythicalChecksView reads the candidate's verification from the item's
+// verify outcome; nil while nothing was verified.
+func mythicalChecksView(item db.MythicalItem) *MythicalChecksView {
+	switch outcome := item.VerifyOutcome; {
+	case outcome == "passed" || outcome == "" && item.CandidateVerified:
+		return &MythicalChecksView{State: "passed", Failed: []string{}}
+	case strings.HasPrefix(outcome, "failed: "):
+		return &MythicalChecksView{State: "failed", Failed: strings.Split(strings.TrimPrefix(outcome, "failed: "), ", ")}
+	case outcome == "" && item.State == "verifying":
+		return &MythicalChecksView{State: "pending", Failed: []string{}}
+	}
+	return nil
 }
 
 // MythicalTodoView is a TODO's progress for display: the replans so far
@@ -312,7 +335,7 @@ func mythicalSettled(state string) bool {
 func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	row := MythicalItemView{ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
-		Plan: item.Plan, Integration: item.Integration, Todo: mythicalTodoView(item), DependsOn: []string{}}
+		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), DependsOn: []string{}}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
 	}

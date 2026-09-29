@@ -912,11 +912,12 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 }
 
 // mythicalHoldsLane reports whether item occupies a lane workspace: a run
-// in flight, a running review, or a coding workspace retained between
-// delivery and its proposal (integrating, proposing, waiting).
+// in flight, a running review, a coding workspace retained between delivery
+// and its proposal (integrating, proposing, waiting), or the last attempt's
+// workspace an item keeps while it backs off (queued, retrying).
 func mythicalHoldsLane(item db.MythicalItem) bool {
 	switch item.State {
-	case "integrating", "proposing", "waiting":
+	case "integrating", "proposing", "waiting", "queued", "retrying":
 		return item.WorkspaceID != ""
 	case "proposed":
 		return mythicalChecksOf(item).reviewing(item)
@@ -1656,8 +1657,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return hold, false, nil
 	}
 	workspaceID := item.WorkspaceID
-	if workspaceID == "" && !st.slot(item) {
-		// A fresh verification lane waits for one under the cap.
+	if !st.slot(item) {
+		// A verification waits for a lane under the cap, a kept workspace
+		// traded in for its own (the cap may have been lowered meanwhile).
 		return nil, false, nil
 	}
 	if workspaceID == "" {
@@ -2436,7 +2438,7 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 			retried.resume()
 		} else {
 			// A run's retry keeps the launch bound where it was.
-			retried.Outages, retried.VeryHard, retried.Fault = 0, false, nil
+			retried.Outages, retried.GitHubOutages, retried.VeryHard, retried.Fault = 0, 0, false, nil
 		}
 		next.Checks = retried.encode()
 		if item.PRNumber.Valid && item.PRState != "open" {
@@ -2823,7 +2825,7 @@ func (c mythicalChecks) bounded() bool {
 // resume lifts the bounds when a person resumes the item: its launch
 // bound counts from the launches it has made so far.
 func (c *mythicalChecks) resume() {
-	c.LaunchBase, c.Outages, c.VeryHard, c.Fault = c.Launches, 0, false, nil
+	c.LaunchBase, c.Outages, c.GitHubOutages, c.VeryHard, c.Fault = c.Launches, 0, 0, false, nil
 }
 
 // mythicalNotice is one issue comment the stack owes, keyed so it is posted
