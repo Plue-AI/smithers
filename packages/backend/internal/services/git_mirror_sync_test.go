@@ -42,7 +42,7 @@ func newFakeGitMirrorSyncStore() *fakeGitMirrorSyncStore {
 // seed records an earlier run's ref result as the real store would.
 func (f *fakeGitMirrorSyncStore) seed(result db.GithubMirrorSyncRefResult) {
 	f.refs[result.Name] = result
-	if result.Status == gitMirrorRefSucceeded {
+	if result.Status == gitMirrorRefSucceeded && result.FromRevision != result.ToRevision {
 		f.succeeded[result.Name] = result
 	}
 }
@@ -122,7 +122,7 @@ func (f *fakeGitMirrorSyncStore) UpsertGithubMirrorSyncRefResult(_ context.Conte
 		ToRevision: arg.ToRevision, Status: arg.Status, Error: arg.Error,
 	}
 	f.refs[arg.Name] = result
-	if arg.Status == gitMirrorRefSucceeded {
+	if arg.Status == gitMirrorRefSucceeded && arg.FromRevision != arg.ToRevision {
 		f.succeeded[arg.Name] = result
 	} else if f.succeeded[arg.Name].RunID == arg.RunID {
 		delete(f.succeeded, arg.Name)

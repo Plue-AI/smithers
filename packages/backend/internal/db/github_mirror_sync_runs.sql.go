@@ -13,8 +13,16 @@ import (
 )
 
 const createGithubMirrorSyncRun = `-- name: CreateGithubMirrorSyncRun :one
+WITH expired AS (
+    UPDATE github_mirror_sync_runs AS sync_run
+    SET state = 'failed', finished_at = NOW(), updated_at = NOW()
+    WHERE sync_run.repository_id = $1
+      AND sync_run.state IN ('queued', 'running')
+      AND sync_run.updated_at < NOW() - INTERVAL '11 minutes'
+    RETURNING sync_run.id
+)
 INSERT INTO github_mirror_sync_runs (repository_id, requested_by)
-VALUES ($1, $2)
+SELECT $1, $2 FROM (SELECT COUNT(*) FROM expired) AS expiry
 RETURNING id, repository_id, requested_by, state, started_at, finished_at, created_at, updated_at
 `
 
@@ -23,6 +31,9 @@ type CreateGithubMirrorSyncRunParams struct {
 	RequestedBy  pgtype.Int8 `json:"requested_by"`
 }
 
+// Recover abandoned slots after the ten-minute worker deadline plus a minute
+// for cancellation. The INSERT depends on expiry; the active-run unique index
+// still serializes competing admissions for this repository.
 func (q *Queries) CreateGithubMirrorSyncRun(ctx context.Context, arg CreateGithubMirrorSyncRunParams) (GithubMirrorSyncRun, error) {
 	row := q.db.QueryRow(ctx, createGithubMirrorSyncRun, arg.RepositoryID, arg.RequestedBy)
 	var i GithubMirrorSyncRun
@@ -40,11 +51,29 @@ func (q *Queries) CreateGithubMirrorSyncRun(ctx context.Context, arg CreateGithu
 }
 
 const finishGithubMirrorSyncRun = `-- name: FinishGithubMirrorSyncRun :exec
-UPDATE github_mirror_sync_runs
-SET state = $1::text,
-    finished_at = NOW(),
-    updated_at = NOW()
-WHERE id = $2
+WITH finished AS (
+    UPDATE github_mirror_sync_runs AS sync_run
+    SET state = $1::text, finished_at = NOW(), updated_at = NOW()
+    WHERE sync_run.id = $2 AND sync_run.state IN ('queued', 'running')
+    RETURNING sync_run.id, sync_run.repository_id, sync_run.state
+)
+UPDATE repositories r
+SET mirror_status = 'failed',
+    mirror_behind_refs = (
+        SELECT COUNT(*)::integer FROM github_mirror_sync_ref_results rr
+        WHERE rr.run_id = finished.id AND rr.status <> 'succeeded'
+    ),
+    mirror_failed_refs = (
+        SELECT COUNT(*)::integer FROM github_mirror_sync_ref_results rr
+        WHERE rr.run_id = finished.id AND rr.status = 'failed'
+    ),
+    last_mirror_error = COALESCE((
+        SELECT NULLIF(rr.error, '') FROM github_mirror_sync_ref_results rr
+        WHERE rr.run_id = finished.id AND rr.status = 'failed' AND rr.error <> ''
+        ORDER BY rr.name LIMIT 1
+    ), 'Git mirror sync failed')
+FROM finished
+WHERE r.id = finished.repository_id AND finished.state = 'failed'
 `
 
 type FinishGithubMirrorSyncRunParams struct {
@@ -52,6 +81,8 @@ type FinishGithubMirrorSyncRunParams struct {
 	ID    int64  `json:"id"`
 }
 
+// Failed runs publish current failure health without replacing the last
+// verified success. A completed run cannot finalize again over newer health.
 func (q *Queries) FinishGithubMirrorSyncRun(ctx context.Context, arg FinishGithubMirrorSyncRunParams) error {
 	_, err := q.db.Exec(ctx, finishGithubMirrorSyncRun, arg.State, arg.ID)
 	return err
@@ -155,6 +186,7 @@ JOIN github_mirror_sync_runs runs ON runs.id = rr.run_id
 WHERE runs.repository_id = $1
   AND rr.name = $2::text
   AND rr.status = 'succeeded'
+  AND rr.from_revision <> rr.to_revision
 ORDER BY runs.created_at DESC, runs.id DESC
 LIMIT 1
 `
@@ -165,7 +197,7 @@ type GetLatestSucceededGithubMirrorSyncRefResultParams struct {
 }
 
 // The last revision this mirror verifiably wrote for a ref. Failed and
-// refused results never grant a prune.
+// refused or already-matching results never grant a prune.
 func (q *Queries) GetLatestSucceededGithubMirrorSyncRefResult(ctx context.Context, arg GetLatestSucceededGithubMirrorSyncRefResultParams) (GithubMirrorSyncRefResult, error) {
 	row := q.db.QueryRow(ctx, getLatestSucceededGithubMirrorSyncRefResult, arg.RepositoryID, arg.Name)
 	var i GithubMirrorSyncRefResult

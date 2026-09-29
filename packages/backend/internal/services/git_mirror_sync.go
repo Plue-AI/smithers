@@ -537,7 +537,7 @@ func (s *GitMirrorSyncService) runMirrorSyncDetached(runID, repositoryID int64, 
 	for _, change := range changes {
 		status := gitMirrorRefSucceeded
 		message := ""
-		if !mirrorRefReached(change, afterRefs) {
+		if syncErr != nil || !mirrorRefReached(change, afterRefs) {
 			failed = true
 			status = gitMirrorRefFailed
 			if syncErr != nil {
@@ -696,36 +696,17 @@ func defaultListRemoteRefs(ctx context.Context, remote string) (map[string]strin
 }
 
 func defaultRunGitRefSync(ctx context.Context, sourceURL, targetURL, ref, fromRevision, toRevision string) error {
-	dir, err := os.MkdirTemp("", "smithers-git-ref-sync-")
-	if err != nil {
-		return fmt.Errorf("create git ref sync directory: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	if err := runMirrorGitCommand(ctx, "", "init", "--bare", dir); err != nil {
-		return err
-	}
-	if toRevision != "" {
-		if err := runMirrorGitCommand(ctx, dir, "fetch", "--no-tags", sourceURL, "+"+ref+":"+ref); err != nil {
-			return err
-		}
-		return runMirrorGitCommand(ctx, dir, "push", targetURL, ref+":"+ref)
-	}
-	return runMirrorGitCommand(ctx, dir, "push", mirrorDeleteLease(ref, fromRevision), targetURL, ":"+ref)
+	return defaultRunGitMirrorPush(ctx, sourceURL, targetURL, []gitMirrorRefChange{{name: ref, from: fromRevision, to: toRevision}})
 }
 
-// mirrorDeleteLease makes git delete ref only while the target still holds
-// the revision the prune was approved for; a GitHub write after planning
-// rejects the deletion.
-func mirrorDeleteLease(ref, expected string) string {
-	return "--force-with-lease=" + ref + ":" + expected
-}
-
-// defaultRunGitMirrorPush fetches the changed source refs into a scratch
-// repository and pushes each one without force, so a target ref that diverged
-// is rejected rather than overwritten. Deletions carry a lease on the planned
-// target revision. Refs are pushed independently; the
-// caller verifies each against the target afterwards.
+// defaultRunGitMirrorPush verifies both sides of the plan before pushing its
+// exact revisions atomically. Explicit leases close the target race after
+// verification; because leases permit force, ancestry and tag checks must run
+// before push. Independent Git remotes cannot lock the source through push.
 func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, changes []gitMirrorRefChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
 	dir, err := os.MkdirTemp("", "smithers-git-mirror-sync-")
 	if err != nil {
 		return fmt.Errorf("create git mirror sync directory: %w", err)
@@ -734,24 +715,78 @@ func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, c
 	if err := runMirrorGitCommand(ctx, "", "init", "--bare", dir); err != nil {
 		return err
 	}
-	fetch := []string{"fetch", "--no-tags", sourceURL}
-	leases := []string{}
-	refspecs := []string{}
 	for _, change := range changes {
-		if change.to == "" {
-			leases = append(leases, mirrorDeleteLease(change.name, change.from))
-			refspecs = append(refspecs, ":"+change.name)
-			continue
+		if !isMirroredGitRef(change.name) {
+			return fmt.Errorf("invalid mirror ref %q", change.name)
 		}
-		fetch = append(fetch, "+"+change.name+":"+change.name)
-		refspecs = append(refspecs, change.to+":"+change.name)
-	}
-	if len(fetch) > 3 {
-		if err := runMirrorGitCommand(ctx, dir, fetch...); err != nil {
+		if err := runMirrorGitCommand(ctx, dir, "check-ref-format", change.name); err != nil {
 			return err
 		}
 	}
-	push := append(append([]string{"push"}, leases...), targetURL)
+	targetRefs, err := defaultListRemoteRefs(ctx, targetURL)
+	if err != nil {
+		return err
+	}
+	sourceFetch := []string{"fetch", "--no-tags", sourceURL}
+	targetFetch := []string{"fetch", "--no-tags", targetURL}
+	push := []string{"push", "--atomic"}
+	refspecs := make([]string, 0, len(changes))
+	for i, change := range changes {
+		if targetRefs[change.name] != change.from {
+			return fmt.Errorf("target ref %s changed since planning", change.name)
+		}
+		if change.to != "" {
+			sourceFetch = append(sourceFetch, change.name+":refs/mirror-source/"+strconv.Itoa(i))
+		}
+		if change.from != "" && change.to != "" {
+			targetFetch = append(targetFetch, change.name+":refs/mirror-target/"+strconv.Itoa(i))
+		}
+		push = append(push, "--force-with-lease="+change.name+":"+change.from)
+		refspecs = append(refspecs, change.to+":"+change.name)
+	}
+	for _, fetch := range [][]string{sourceFetch, targetFetch} {
+		if len(fetch) > 3 {
+			if err := runMirrorGitCommand(ctx, dir, fetch...); err != nil {
+				return err
+			}
+		}
+	}
+	fetchedRefs, err := defaultListRemoteRefs(ctx, dir)
+	if err != nil {
+		return err
+	}
+	for i, change := range changes {
+		if change.to == "" {
+			continue
+		}
+		if fetchedRefs["refs/mirror-source/"+strconv.Itoa(i)] != change.to {
+			return fmt.Errorf("source ref %s changed since planning", change.name)
+		}
+		if change.from == "" {
+			continue
+		}
+		if fetchedRefs["refs/mirror-target/"+strconv.Itoa(i)] != change.from {
+			return fmt.Errorf("target ref %s changed since planning", change.name)
+		}
+		if strings.HasPrefix(change.name, "refs/tags/") && change.from != change.to {
+			return fmt.Errorf("refusing to replace existing tag %s", change.name)
+		}
+		if err := runMirrorGitCommand(ctx, dir, "merge-base", "--is-ancestor", change.from, change.to); err != nil {
+			return fmt.Errorf("refusing non-fast-forward update of %s: %w", change.name, err)
+		}
+	}
+	// Recheck after fetching: this also protects planned deletions if the
+	// source ref has reappeared, and catches source movement during transfer.
+	sourceRefs, err := defaultListRemoteRefs(ctx, sourceURL)
+	if err != nil {
+		return err
+	}
+	for _, change := range changes {
+		if sourceRefs[change.name] != change.to {
+			return fmt.Errorf("source ref %s changed since planning", change.name)
+		}
+	}
+	push = append(push, targetURL)
 	return runMirrorGitCommand(ctx, dir, append(push, refspecs...)...)
 }
 
