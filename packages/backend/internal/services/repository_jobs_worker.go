@@ -319,6 +319,14 @@ func (s *RepositoryJobService) repositoryName(ctx context.Context, reg db.Reposi
 	if err != nil {
 		return "", err
 	}
+	var configuration RegisterRepositoryJobInput
+	if len(reg.Configuration) > 0 && json.Unmarshal(reg.Configuration, &configuration) != nil {
+		return "", errors.New("invalid stored repository job configuration")
+	}
+	factory := configuration.FactoryRevision != ""
+	if factory && repo.UserID.Valid && repo.UserID.Int64 != reg.UserID {
+		return "", pkgerrors.Forbidden("factory owner changed")
+	}
 	var owner string
 	if repo.UserID.Valid {
 		user, err := s.q.GetUserByID(ctx, repo.UserID.Int64)
@@ -330,6 +338,18 @@ func (s *RepositoryJobService) repositoryName(ctx context.Context, reg db.Reposi
 		org, err := s.q.GetOrgByID(ctx, repo.OrgID.Int64)
 		if err != nil {
 			return "", err
+		}
+		if factory {
+			if !org.FactoryOwnerID.Valid || org.FactoryOwnerID.Int64 != reg.UserID {
+				return "", pkgerrors.Forbidden("factory owner changed")
+			}
+			isOwner, err := s.q.IsOrgOwnerForRepoUser(ctx, db.IsOrgOwnerForRepoUserParams{RepositoryID: repo.ID, UserID: reg.UserID})
+			if err != nil {
+				return "", err
+			}
+			if !isOwner {
+				return "", pkgerrors.Forbidden("factory owner is no longer an organization owner")
+			}
 		}
 		owner = org.Name
 	}

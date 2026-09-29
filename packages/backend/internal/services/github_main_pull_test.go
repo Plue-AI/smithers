@@ -72,7 +72,11 @@ func (f *fakeMainPullStore) GetRepoByOwnerAndLowerName(_ context.Context, arg db
 		return db.Repository{ID: 99}, nil
 	}
 	for _, repo := range f.repos {
-		if arg.Owner == "smithers-canary" && repo.LowerName == arg.LowerName {
+		owner := "smithers-canary"
+		if repo.OrgID.Valid {
+			owner = "smithersai"
+		}
+		if arg.Owner == owner && repo.LowerName == arg.LowerName {
 			return repo, nil
 		}
 	}
@@ -83,8 +87,11 @@ func (f *fakeMainPullStore) GetUserByID(context.Context, int64) (db.User, error)
 	return db.User{Username: "smithers-canary"}, nil
 }
 
-func (f *fakeMainPullStore) GetOrgByID(context.Context, int64) (db.Organization, error) {
-	return db.Organization{Name: "smithers-canary"}, nil
+func (f *fakeMainPullStore) GetOrgByID(_ context.Context, id int64) (db.Organization, error) {
+	if id == 2 {
+		return db.Organization{ID: 2, Name: "smithersai"}, nil
+	}
+	return db.Organization{}, pgx.ErrNoRows
 }
 
 func (f *fakeMainPullStore) ListRepositoryIDsForGitHubSource(_ context.Context, owner, repo string) ([]int64, error) {
@@ -142,6 +149,7 @@ func (f *fakeMainPullStore) FinishGithubMainPull(_ context.Context, arg db.Finis
 	if row == nil || row.Claim != arg.Claim || row.State != "running" {
 		return 0, nil
 	}
+	previousGitHubRepository := row.GithubRepository
 	if arg.State == "failed" {
 		row.State = "failed"
 		row.NextAttemptAt = pgtype.Timestamptz{Time: time.Now().Add(time.Duration(arg.BackoffSeconds) * time.Second), Valid: true}
@@ -175,6 +183,14 @@ func (f *fakeMainPullStore) FinishGithubMainPull(_ context.Context, arg db.Finis
 		row.SmithersHead = arg.SmithersHead
 	}
 	row.LastError = arg.Error
+	if arg.ResetPolicy {
+		row.FactoryState, row.FactoryError = "", ""
+	} else if arg.FactoryState != "" {
+		row.FactoryState, row.FactoryError = arg.FactoryState, arg.FactoryError
+	} else if (arg.Policy != "" && arg.Policy != "pull") ||
+		(arg.GithubRepository != "" && arg.GithubRepository != previousGitHubRepository) {
+		row.FactoryState, row.FactoryError = "", ""
+	}
 	row.LeaseExpiresAt = pgtype.Timestamptz{}
 	return 1, nil
 }
@@ -1049,26 +1065,160 @@ func TestGitHubMainPullReadTokenIsReadOnly(t *testing.T) {
 	assert.Equal(t, []map[string]string{{"contents": "read"}}, tokens.permissions)
 }
 
-func TestReadGitHubAccount(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer ghs_token", r.Header.Get("Authorization"))
-		switch r.URL.Path {
-		case "/users/roninjin10":
-			_, _ = w.Write([]byte(`{"login":"roninjin10","id":35039927}`))
-		case "/users/ghost":
-			w.WriteHeader(http.StatusNotFound)
-		default:
-			w.WriteHeader(http.StatusBadGateway)
-		}
-	}))
-	defer server.Close()
-	ctx := context.Background()
-	account, err := readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "roninjin10")
-	require.NoError(t, err)
-	assert.Equal(t, "35039927", account)
-	account, err = readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "ghost")
-	require.NoError(t, err)
-	assert.Empty(t, account, "no account holds the login")
-	_, err = readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "down")
-	require.ErrorContains(t, err, "HTTP 502", "an outage is an error, never an unheld login")
+// An organization without a configured factory owner skips factory rules.
+// 2026-09-29, production: smithersai/smithers synced main to
+// GitHub's tip and still ended every pull "failed: reconcile factory: factory
+// auto-approval requires an owner repository" (#2801).
+func TestGitHubMainPullOfAnOrganizationRepositorySyncsWithoutFactoryRules(t *testing.T) {
+	h := newPullHarness(t)
+	repo := h.store.repos[19]
+	repo.UserID = pgtype.Int8{}
+	repo.OrgID = pgtype.Int8{Int64: 2, Valid: true}
+	h.store.repos[19] = repo
+	reconciled := 0
+	h.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error {
+		reconciled++
+		return ErrFactoryNeedsOwner
+	})
+	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil }
+	require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
+	require.NoError(t, h.service.PollOnce(context.Background()))
+	row := h.row(t)
+	assert.Equal(t, "synced", row.State, row.LastError)
+	assert.Equal(t, pullNew, row.SmithersHead)
+	assert.Equal(t, "skipped", row.FactoryState)
+	assert.Contains(t, row.FactoryError, ErrFactoryNeedsOwner.Error())
+	assert.Empty(t, row.LastError)
+	assert.Equal(t, 1, reconciled, "reconciliation still runs so a former owner's rules retire")
+}
+
+func TestGitHubMainPullRecordsFactoryResultIndependentlyOfMainSync(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		equalHeads   bool
+		factoryErr   error
+		readErr      error
+		raw          string
+		panicFactory bool
+		factoryState string
+		factoryText  string
+		wantCalls    int
+	}{
+		{name: "moved/reconciled", factoryState: "reconciled", wantCalls: 1},
+		{name: "moved/skipped", factoryErr: fmt.Errorf("no configured owner: %w", ErrFactoryNeedsOwner), factoryState: "skipped", factoryText: "no configured owner", wantCalls: 1},
+		{name: "moved/failed", factoryErr: errors.New("factory database unavailable"), factoryState: "failed", factoryText: "factory database unavailable", wantCalls: 1},
+		{name: "moved/read failed", readErr: errors.New("factory read unavailable"), factoryState: "failed", factoryText: "factory read unavailable"},
+		{name: "moved/invalid projection", raw: "not JSON", factoryState: "failed", factoryText: "invalid factory projection"},
+		{name: "moved/panic", panicFactory: true, factoryState: "failed", factoryText: "internal factory error", wantCalls: 1},
+		{name: "moved/empty", raw: "{}", factoryState: "empty", wantCalls: 1},
+		{name: "equal/reconciled", equalHeads: true, factoryState: "reconciled", wantCalls: 1},
+		{name: "equal/skipped", equalHeads: true, factoryErr: fmt.Errorf("no configured owner: %w", ErrFactoryNeedsOwner), factoryState: "skipped", factoryText: "no configured owner", wantCalls: 1},
+		{name: "equal/failed", equalHeads: true, factoryErr: errors.New("factory database unavailable"), factoryState: "failed", factoryText: "factory database unavailable", wantCalls: 1},
+		{name: "equal/read failed", equalHeads: true, readErr: errors.New("factory read unavailable"), factoryState: "failed", factoryText: "factory read unavailable"},
+		{name: "equal/invalid projection", equalHeads: true, raw: "not JSON", factoryState: "failed", factoryText: "invalid factory projection"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newPullHarness(t)
+			if tc.equalHeads {
+				h.github = pullOld
+			}
+			calls := 0
+			h.service.SetFactoryReconciler(func(_ context.Context, repoID int64, revision string, projection FactoryProjection) error {
+				calls++
+				assert.Equal(t, int64(19), repoID)
+				assert.Equal(t, h.github, revision)
+				if tc.panicFactory {
+					panic("factory panic detail")
+				}
+				if tc.raw == "{}" {
+					assert.Empty(t, projection.On)
+				} else {
+					assert.Len(t, projection.On, 1)
+				}
+				return tc.factoryErr
+			})
+			h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
+				if tc.readErr != nil {
+					return nil, tc.readErr
+				}
+				if tc.raw != "" {
+					return []byte(tc.raw), nil
+				}
+				return []byte(`{"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
+			}
+			require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
+			require.NoError(t, h.service.PollOnce(context.Background()))
+			row := h.row(t)
+			assert.Equal(t, "synced", row.State, row.LastError)
+			assert.Empty(t, row.LastError)
+			assert.Equal(t, h.github, row.GithubHead)
+			assert.Equal(t, h.github, row.SmithersHead)
+			assert.Equal(t, tc.factoryState, row.FactoryState)
+			if tc.factoryText == "" {
+				assert.Empty(t, row.FactoryError)
+			} else {
+				assert.Contains(t, row.FactoryError, tc.factoryText)
+			}
+			assert.Equal(t, tc.wantCalls, calls)
+			status, err := h.service.Status(context.Background(), 19)
+			require.NoError(t, err)
+			assert.True(t, status.Fresh)
+			if tc.equalHeads {
+				assert.Zero(t, h.git.fetches)
+			} else {
+				assert.Equal(t, 1, h.git.pushes)
+			}
+		})
+	}
+}
+
+func TestGitHubMainPullClearsFactoryFailureAfterSuccessfulRetry(t *testing.T) {
+	h := newPullHarness(t)
+	factoryErr := errors.New("factory database unavailable")
+	h.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error { return factoryErr })
+	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
+		return []byte(`{"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
+	}
+	request := func() db.GithubMainPull {
+		t.Helper()
+		require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
+		require.NoError(t, h.service.PollOnce(context.Background()))
+		return h.row(t)
+	}
+	first := request()
+	assert.Equal(t, "synced", first.State)
+	assert.Equal(t, "failed", first.FactoryState)
+	assert.Contains(t, first.FactoryError, factoryErr.Error())
+	assert.Equal(t, pullNew, first.SmithersHead)
+	factoryErr = nil
+	second := request()
+	assert.Equal(t, "synced", second.State)
+	assert.Equal(t, "reconciled", second.FactoryState)
+	assert.Empty(t, second.FactoryError)
+	assert.Empty(t, second.LastError)
+	assert.Equal(t, pullNew, second.SmithersHead)
+	assert.Equal(t, 1, h.git.pushes, "recovery at equal heads does not push again")
+}
+
+func TestGitHubMainPullKeepsFactoryResultWhenNextPullFailsBeforeReconcile(t *testing.T) {
+	h := newPullHarness(t)
+	h.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error {
+		return ErrFactoryNeedsOwner
+	})
+	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil }
+	require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
+	require.NoError(t, h.service.PollOnce(context.Background()))
+	first := h.row(t)
+	require.Equal(t, "synced", first.State)
+	require.Equal(t, "skipped", first.FactoryState)
+	require.Contains(t, first.FactoryError, ErrFactoryNeedsOwner.Error())
+
+	h.service.lsRemote = func(context.Context, string, string) (string, error) { return "", errors.New("GitHub unavailable") }
+	require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
+	require.NoError(t, h.service.PollOnce(context.Background()))
+	second := h.row(t)
+	assert.Equal(t, "failed", second.State)
+	assert.Contains(t, second.LastError, "GitHub unavailable")
+	assert.Equal(t, first.FactoryState, second.FactoryState)
+	assert.Equal(t, first.FactoryError, second.FactoryError)
 }

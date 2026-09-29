@@ -3,16 +3,13 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/stretchr/testify/require"
-
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 func factoryFixture(t *testing.T) FactoryProjection {
@@ -54,12 +51,10 @@ func TestFactoryReconcileRestartAndRetirement(t *testing.T) {
 	repo := gateway.target.RepositoryID
 	revision := strings.Repeat("a", 40)
 	projection := factoryFixture(t)
-	projection.Github.Maintainers = []string{"someone-else"}
 	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, revision, projection))
 	first, err := q.ListRepositoryJobRegistrations(ctx, repo)
 	require.NoError(t, err)
 	require.Len(t, first, 2)
-	require.Equal(t, gateway.target.UserID, first[0].UserID, "a user's repository runs its rules as its owner")
 	// A fresh service sees the same rows; unchanged main cannot reenable a pause.
 	_, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repo, Job: first[0].Job})
 	require.NoError(t, err)
@@ -98,195 +93,177 @@ func TestLocalFactoryRemovalAndMalformedProjection(t *testing.T) {
 	require.Equal(t, 1, calls, "a broken projection cannot silently retire registrations")
 }
 
-// An organization repository's rules run as the first committed maintainer
-// whose GitHub account, the one holding the login now, is linked to a Cloud
-// user with write access and a workspace (#2801). Until one resolves, main
-// still syncs: the pull is synced, its receipt names the missing link, every
-// factory rule is paused, and the next poll retries.
-func TestFactoryOrgRepositoryRulesRunAsALinkedMaintainer(t *testing.T) {
-	pool, q, service, _, _ := repositoryJobFixture(t)
+// An organization's repository has no owner workspace to run factory rules in
+// (#2801). One that moved from a user keeps no live rule from that owner, and
+// a declared rule set is reported rather than silently dropped.
+func TestFactoryReconcileRetiresRulesWhenAnOrganizationOwnsTheRepository(t *testing.T) {
+	pool, q, service, gateway, _ := repositoryJobFixture(t)
 	ctx := context.Background()
-	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
-	exec := func(statement string, args ...any) {
-		_, err := pool.Exec(ctx, statement, args...)
-		require.NoError(t, err)
-	}
-	var orgID, repo int64
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO organizations(name,lower_name,description) VALUES($1,$1,'') RETURNING id`, "org"+suffix).Scan(&orgID))
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(org_id,name,lower_name,description,is_public,default_bookmark,next_issue_number)
-		VALUES($1,'r','r','',TRUE,'main',1) RETURNING id`, orgID).Scan(&repo))
-	// GitHub's accounts now: login -> account ID. "ghost" has none.
-	accounts := map[string]string{}
-	for i, login := range []string{"nobody", "reader", "idle", "maint", "second"} {
-		accounts[login+suffix] = suffix[:6] + string(rune('1'+i))
-	}
-	// person is a Cloud user signed in through GitHub (auth.go stores that
-	// identity under "workos") as account, whose profile says login.
-	person := func(login, account string, write, workspace bool) int64 {
-		var id int64
-		name := strings.ToLower(login) + uuid.NewString()[:8]
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
-			name, name+"@example.invalid").Scan(&id))
-		exec(`INSERT INTO oauth_accounts(user_id,provider,provider_user_id,profile_data) VALUES($1,'workos',$2,jsonb_build_object('login',$3::text))`,
-			id, account, login+suffix)
-		if write {
-			exec(`INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, id)
-		}
-		if workspace {
-			exec(`INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, uuid.NewString(), repo, id)
-		}
-		return id
-	}
-	person("reader", accounts["reader"+suffix], false, true)
-	person("idle", accounts["idle"+suffix], true, false)
-	// A writer whose account once held "maint" and was renamed away.
-	person("maint", "999"+suffix[:6], true, true)
+	repo := gateway.target.RepositoryID
 	projection := factoryFixture(t)
-	projection.gitHubAccount = func(login string) (string, error) { return accounts[strings.ToLower(login)], nil }
-	revision := strings.Repeat("a", 40)
-	for maintainer, reason := range map[string]string{
-		"":       ".smithers/factory.json names no maintainers",
-		"Ghost":  "Ghost" + suffix + ": no GitHub account holds this login",
-		"Nobody": "Nobody" + suffix + ": no Cloud user is linked to this GitHub account",
-		"maint":  "maint" + suffix + ": no Cloud user is linked to this GitHub account",
-		"READER": "READER" + suffix + ": the linked Cloud user has no write access",
-		"idle":   "idle" + suffix + ": the linked Cloud user has no workspace for this repository",
-	} {
-		projection.Github.Maintainers = nil
-		if maintainer != "" {
-			projection.Github.Maintainers = []string{maintainer + suffix}
-		}
-		var unapproved *FactoryRulesUnapprovedError
-		require.True(t, errors.As(service.ReconcileFactoryRules(ctx, repo, revision, projection), &unapproved), maintainer)
-		require.Contains(t, unapproved.Error(), reason)
-	}
-	none, err := q.ListRepositoryJobRegistrations(ctx, repo)
+	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, strings.Repeat("a", 40), projection))
+	live, err := q.ListRepositoryJobRegistrations(ctx, repo)
 	require.NoError(t, err)
-	require.Empty(t, none, "an unapproved projection registers nothing")
+	require.NotEmpty(t, live)
 
-	// The pull of GitHub main resolves each login and reconciles.
-	h := newPullHarness(t)
-	h.store.repos[19] = db.Repository{ID: 19, Name: "smithers", LowerName: "smithers", DefaultBookmark: "main", OrgID: pgtype.Int8{Int64: orgID, Valid: true}}
-	maintainers := []string{"Ghost" + suffix, "maint" + suffix}
-	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
-		projection.Github.Maintainers = maintainers
-		return json.Marshal(projection)
-	}
-	var outage error
-	var looked []string
-	h.service.readGitHubAccount = func(_ context.Context, _, login string) (string, error) {
-		looked = append(looked, login)
-		return accounts[strings.ToLower(login)], outage
-	}
-	h.service.SetFactoryReconciler(func(ctx context.Context, _ int64, revision string, projection FactoryProjection) error {
-		return service.ReconcileFactoryRules(ctx, repo, revision, projection)
+	var org int64
+	name := "factory-org-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO organizations (name, lower_name, description) VALUES ($1, $1, '') RETURNING id`, name).Scan(&org))
+	var owner int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id FROM repositories WHERE id=$1`, repo).Scan(&owner))
+	moveRepositoryForTest(t, pool, repo, nil, &org)
+	t.Cleanup(func() {
+		moveRepositoryForTest(t, pool, repo, &owner, nil)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM organizations WHERE id=$1`, org)
 	})
-	pull := func() db.GithubMainPull {
-		require.NoError(t, h.service.RequestForGitHub(ctx, "SmithersAI", "smithers"))
-		require.NoError(t, h.service.PollOnce(ctx))
-		return h.row(t)
-	}
-	row := pull()
-	require.Equal(t, "synced", row.State, "a synced main is not a failed pull")
-	require.Equal(t, pullNew, row.SmithersHead)
-	require.Contains(t, row.LastError, "reconcile factory: factory rules not registered")
-	require.Contains(t, row.LastError, "maint"+suffix+": no Cloud user is linked")
-	status, err := h.service.Status(ctx, 19)
-	require.NoError(t, err)
-	require.True(t, status.Fresh)
 
-	maintainer := person("maint", accounts["maint"+suffix], true, true)
-	row = pull()
-	require.Equal(t, "synced", row.State)
-	require.Empty(t, row.LastError)
-	registered, err := q.ListRepositoryJobRegistrations(ctx, repo)
+	err = service.ReconcileFactoryRules(ctx, repo, strings.Repeat("b", 40), projection)
+	require.ErrorIs(t, err, ErrFactoryNeedsOwner)
+	retired, err := q.ListRepositoryJobRegistrations(ctx, repo)
 	require.NoError(t, err)
-	require.Len(t, registered, 2)
-	for _, registration := range registered {
-		require.Equal(t, maintainer, registration.UserID)
-		require.True(t, registration.Enabled)
+	for _, row := range retired {
+		require.False(t, row.Enabled, row.Job)
 	}
+	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, strings.Repeat("c", 40), FactoryProjection{}), "no declared rules is nothing to report")
+}
 
-	jobs := func() map[string]db.RepositoryJobRegistration {
-		rows, err := q.ListRepositoryJobRegistrations(ctx, repo)
+func TestFactoryReconcileUsesConfiguredOrganizationOwner(t *testing.T) {
+	pool, q, service, gateway, input := repositoryJobFixture(t)
+	ctx := context.Background()
+	repo := gateway.target.RepositoryID
+	owner := gateway.target.UserID
+	var org int64
+	name := "factory-org-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO organizations (name, lower_name, description, factory_owner_id) VALUES ($1, $1, '', $2) RETURNING id`, name, owner).Scan(&org))
+	_, err := pool.Exec(ctx, `INSERT INTO org_members (organization_id, user_id, role) VALUES ($1, $2, 'owner')`, org, owner)
+	require.NoError(t, err)
+	moveRepositoryForTest(t, pool, repo, nil, &org)
+	t.Cleanup(func() {
+		moveRepositoryForTest(t, pool, repo, &owner, nil)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM organizations WHERE id=$1`, org)
+	})
+
+	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, strings.Repeat("d", 40), factoryFixture(t)))
+	rows, err := q.ListRepositoryJobRegistrations(ctx, repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.True(t, row.Enabled, row.Job)
+		require.Equal(t, owner, row.UserID, row.Job)
+		require.Equal(t, input.WorkspaceID, row.WorkspaceID, row.Job)
+		resolved, err := service.repositoryName(ctx, row)
 		require.NoError(t, err)
-		byJob := map[string]db.RepositoryJobRegistration{}
-		for _, row := range rows {
-			byJob[row.Job] = row
-		}
-		return byJob
+		require.Equal(t, name+"/"+strings.SplitN(input.Repo, "/", 2)[1], resolved)
 	}
-	paused, running := registered[0].Job, registered[1].Job
-
-	// The approver changes at the same main: an enabled rule moves to the
-	// next maintainer; a rule a person paused stays paused as it was.
-	second := person("second", accounts["second"+suffix], true, true)
-	exec(`UPDATE oauth_accounts SET provider='auth0' WHERE user_id=$1`, second) // Auth0's GitHub sign-in
-	maintainers = []string{"maint" + suffix, "second" + suffix}
-	_, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repo, Job: paused})
+	_, err = pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=NULL WHERE id=$1`, org)
 	require.NoError(t, err)
-	exec(`DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo, maintainer)
-	require.Empty(t, pull().LastError)
-	byJob := jobs()
-	require.True(t, byJob[running].Enabled)
-	require.Equal(t, second, byJob[running].UserID)
-	require.False(t, byJob[paused].Enabled)
-	require.Equal(t, maintainer, byJob[paused].UserID)
-
-	// A GitHub outage approves nothing, so it revokes every rule, visibly;
-	// when a maintainer resolves again, only the refusal's pause ends.
-	outage = errors.New("GitHub answered HTTP 502")
-	row = pull()
-	require.Equal(t, "synced", row.State)
-	require.Contains(t, row.LastError, "second"+suffix+": GitHub lookup failed: GitHub answered HTTP 502")
-	for _, registration := range jobs() {
-		require.False(t, registration.Enabled)
-	}
-	outage = nil
-	require.Empty(t, pull().LastError)
-	byJob = jobs()
-	require.True(t, byJob[running].Enabled)
-	require.Equal(t, second, byJob[running].UserID)
-	require.False(t, byJob[paused].Enabled, "a person's pause outlives a refusal")
-
-	// A person who pauses a rule during an outage keeps it paused after.
-	outage = errors.New("GitHub answered HTTP 502")
-	require.NotEmpty(t, pull().LastError)
-	_, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repo, Job: running})
+	_, err = service.repositoryName(ctx, rows[0])
+	require.ErrorContains(t, err, "factory owner changed")
+	_, err = pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=$2 WHERE id=$1`, org, owner)
 	require.NoError(t, err)
-	outage = nil
-	require.Empty(t, pull().LastError)
-	require.False(t, jobs()[running].Enabled, "a person's pause during an outage outlives it")
+	_, err = pool.Exec(ctx, `UPDATE org_members SET role='member' WHERE organization_id=$1 AND user_id=$2`, org, owner)
+	require.NoError(t, err)
+	var team int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO teams (organization_id, name, lower_name, permission) VALUES ($1, 'factory-write', 'factory-write', 'write') RETURNING id`, org).Scan(&team))
+	_, err = pool.Exec(ctx, `INSERT INTO team_members (team_id, user_id) VALUES ($1, $2)`, team, owner)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO team_repos (team_id, repository_id) VALUES ($1, $2)`, team, repo)
+	require.NoError(t, err)
+	_, err = service.repositoryName(ctx, rows[0])
+	require.ErrorContains(t, err, "no longer an organization owner")
 
-	// Logins resolve lazily: the first approver ends the lookups.
-	maintainers = []string{"second" + suffix, "Ghost" + suffix}
-	looked = nil
-	require.Empty(t, pull().LastError)
-	require.Equal(t, []string{"second" + suffix}, looked)
-
-	// A person who pauses while recovery looks a maintainer up keeps the pause.
-	moved := strings.Repeat("b", 40)
-	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, moved, projection))
-	projection.gitHubAccount = func(string) (string, error) { return "", errors.New("GitHub did not answer") }
-	require.Error(t, service.ReconcileFactoryRules(ctx, repo, moved, projection))
-	lookups := 0
-	projection.gitHubAccount = func(login string) (string, error) {
-		lookups++
-		var free bool
-		require.NoError(t, pool.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, repo).Scan(&free))
-		require.True(t, free, "no lock waits on GitHub")
-		_, err := q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repo, Job: running})
+	// A new configured owner uses their own workspace even when the rule names
+	// and source revision already existed under the former owner.
+	login := "factory-owner-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	var nextOwner int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (username, lower_username, email, lower_email) VALUES ($1, $1, $2, $2) RETURNING id`, login, login+"@example.invalid").Scan(&nextOwner))
+	nextWorkspace := uuid.NewString()
+	t.Cleanup(func() {
+		cleanup := context.Background()
+		_, err := pool.Exec(cleanup, `DELETE FROM repository_job_registrations WHERE repository_id=$1`, repo)
 		require.NoError(t, err)
-		return accounts[strings.ToLower(login)], nil
+		_, err = pool.Exec(cleanup, `DELETE FROM workspaces WHERE id=$1`, nextWorkspace)
+		require.NoError(t, err)
+		_, err = pool.Exec(cleanup, `DELETE FROM org_members WHERE organization_id=$1 AND user_id=$2`, org, nextOwner)
+		require.NoError(t, err)
+		_, err = pool.Exec(cleanup, `DELETE FROM users WHERE id=$1`, nextOwner)
+		require.NoError(t, err)
+	})
+	_, err = pool.Exec(ctx, `INSERT INTO org_members (organization_id, user_id, role) VALUES ($1, $2, 'owner')`, org, nextOwner)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status) VALUES ($1, $2, $3, 'running')`, nextWorkspace, repo, nextOwner)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=$2 WHERE id=$1`, org, nextOwner)
+	require.NoError(t, err)
+	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, strings.Repeat("f", 40), factoryFixture(t)))
+	rows, err = q.ListRepositoryJobRegistrations(ctx, repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.True(t, row.Enabled, row.Job)
+		require.Equal(t, nextOwner, row.UserID, row.Job)
+		require.Equal(t, nextWorkspace, row.WorkspaceID, row.Job)
 	}
-	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, moved, projection))
-	require.Equal(t, 1, lookups, "the locked pass reuses the answer")
-	byJob = jobs()
-	require.False(t, byJob[running].Enabled, "a pause during recovery's lookup outlives it")
-	require.True(t, byJob[paused].Enabled)
 
-	// Only a GitHub main pull resolves logins; elsewhere the reason says so.
-	projection.gitHubAccount = nil
-	projection.Github.Maintainers = []string{"second" + suffix}
-	require.ErrorContains(t, service.ReconcileFactoryRules(ctx, repo, revision, projection), "only a GitHub main pull resolves maintainers")
+	for _, unavailable := range []struct {
+		name   string
+		change string
+	}{
+		{name: "inactive", change: `UPDATE users SET is_active=FALSE WHERE id=$1`},
+		{name: "login prohibited", change: `UPDATE users SET prohibit_login=TRUE WHERE id=$1`},
+		{name: "deleted", change: `UPDATE users SET deleted_at=NOW() WHERE id=$1`},
+	} {
+		t.Run(unavailable.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE users SET is_active=TRUE, prohibit_login=FALSE, deleted_at=NULL WHERE id=$1`, nextOwner)
+			require.NoError(t, err)
+			require.NoError(t, service.ReconcileFactoryRules(ctx, repo, strings.Repeat("1", 40), factoryFixture(t)))
+			_, err = pool.Exec(ctx, unavailable.change, nextOwner)
+			require.NoError(t, err)
+			err = service.ReconcileFactoryRules(ctx, repo, strings.Repeat("2", 40), factoryFixture(t))
+			require.ErrorIs(t, err, ErrFactoryNeedsOwner)
+			retired, err := q.ListRepositoryJobRegistrations(ctx, repo)
+			require.NoError(t, err)
+			for _, row := range retired {
+				require.False(t, row.Enabled, row.Job)
+			}
+		})
+	}
+}
+
+func TestFactoryReconcileUserRepositoryKeepsItsOwner(t *testing.T) {
+	_, q, service, gateway, input := repositoryJobFixture(t)
+	repo := gateway.target.RepositoryID
+	require.NoError(t, service.ReconcileFactoryRules(context.Background(), repo, strings.Repeat("e", 40), factoryFixture(t)))
+	rows, err := q.ListRepositoryJobRegistrations(context.Background(), repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.True(t, row.Enabled, row.Job)
+		require.Equal(t, gateway.target.UserID, row.UserID, row.Job)
+		require.Equal(t, input.WorkspaceID, row.WorkspaceID, row.Job)
+	}
+}
+
+// moveRepositoryForTest changes a repository's owner through the storage
+// journal the repository_storage_fence trigger requires.
+func moveRepositoryForTest(t *testing.T, pool *pgxpool.Pool, repo int64, user, org *int64) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+	_, err = tx.Exec(ctx, `
+		INSERT INTO repository_storage_operations (repository_id, operation_type, token, storage_route_key,
+			source_owner, source_repo, source_user_id, source_org_id, target_owner, target_repo, target_user_id, target_org_id)
+		SELECT r.id, 'move', $2, 'static', 'source', r.name, r.user_id, r.org_id, 'target', r.name, $3, $4
+		FROM repositories r WHERE r.id = $1`, repo, token, user, org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SELECT set_config('smithers.repository_storage_operation_token', $1, TRUE)`, token)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE repositories SET user_id=$2, org_id=$3 WHERE id=$1`, repo, user, org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `DELETE FROM repository_storage_operations WHERE repository_id=$1`, repo)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
 }

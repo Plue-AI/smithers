@@ -28,91 +28,6 @@ type FactoryProjection struct {
 		Event string          `json:"event"`
 		Flow  json.RawMessage `json:"flow"`
 	} `json:"on"`
-	Github struct {
-		Maintainers []string `json:"maintainers"`
-	} `json:"github"`
-	// gitHubAccount returns the ID of the GitHub account holding a login now,
-	// or "" when none does, so a login a renamed account left behind approves
-	// nothing. The GitHub main pull sets it; logins resolve lazily, in order.
-	gitHubAccount func(login string) (string, error)
-}
-
-// FactoryRulesUnapprovedError is why an organization repository's factory
-// rules are not registered: no committed maintainer resolves to a Cloud user
-// who can approve them. Missing names each maintainer's missing link.
-type FactoryRulesUnapprovedError struct{ Missing []string }
-
-func (e *FactoryRulesUnapprovedError) Error() string {
-	if len(e.Missing) == 0 {
-		return "factory rules not registered: " + gitHubMainPullFactoryPath + " names no maintainers to approve them"
-	}
-	return "factory rules not registered: no maintainer can approve them (" + strings.Join(e.Missing, "; ") + ")"
-}
-
-// factoryApprover is the Cloud user factory rules run as, and that user's
-// workspace. A user's repository is its owner's. An organization's is the
-// first committed maintainer, in declaration order, whose GitHub account is
-// linked to a Cloud user with write access and a workspace; write access
-// alone never approves.
-func factoryApprover(ctx context.Context, tx db.DBTX, q *db.Queries, repo db.Repository, projection FactoryProjection) (int64, db.Workspace, error) {
-	if repo.UserID.Valid {
-		workspace, err := q.GetActiveWorkspaceForUserRepo(ctx, db.GetActiveWorkspaceForUserRepoParams{RepositoryID: repo.ID, UserID: repo.UserID.Int64})
-		if err != nil {
-			return 0, workspace, fmt.Errorf("factory needs the owner's workspace: %w", err)
-		}
-		return repo.UserID.Int64, workspace, nil
-	}
-	unapproved := &FactoryRulesUnapprovedError{}
-	for _, login := range projection.Github.Maintainers {
-		login = strings.TrimSpace(login)
-		if projection.gitHubAccount == nil {
-			unapproved.Missing = append(unapproved.Missing, login+": only a GitHub main pull resolves maintainers")
-			continue
-		}
-		account, err := projection.gitHubAccount(login)
-		if err != nil {
-			// A failed lookup approves nothing, so it still revokes.
-			unapproved.Missing = append(unapproved.Missing, login+": GitHub lookup failed: "+err.Error())
-			continue
-		}
-		if account == "" {
-			unapproved.Missing = append(unapproved.Missing, login+": no GitHub account holds this login")
-			continue
-		}
-		// GitHub sign-in stores the account ID under "workos" or "auth0"
-		// (auth.go; Auth0's github|<id>, other subjects hash to 63 bits), a
-		// GitHub connection under "github".
-		rows, err := tx.Query(ctx, `SELECT o.user_id FROM oauth_accounts o JOIN users u ON u.id = o.user_id
-			WHERE o.provider IN ('github', 'workos', 'auth0') AND o.provider_user_id = $1
-			  AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL ORDER BY o.user_id`, account)
-		if err != nil {
-			return 0, db.Workspace{}, err
-		}
-		users, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-		if err != nil {
-			return 0, db.Workspace{}, err
-		}
-		reason := login + ": no Cloud user is linked to this GitHub account"
-		for _, user := range users {
-			if ok, err := canWriteRepo(ctx, q, repo, user); err != nil {
-				return 0, db.Workspace{}, err
-			} else if !ok {
-				reason = login + ": the linked Cloud user has no write access"
-				continue
-			}
-			workspace, err := q.GetActiveWorkspaceForUserRepo(ctx, db.GetActiveWorkspaceForUserRepoParams{RepositoryID: repo.ID, UserID: user})
-			if errors.Is(err, pgx.ErrNoRows) {
-				reason = login + ": the linked Cloud user has no workspace for this repository"
-				continue
-			}
-			if err != nil {
-				return 0, db.Workspace{}, err
-			}
-			return user, workspace, nil
-		}
-		unapproved.Missing = append(unapproved.Missing, reason)
-	}
-	return 0, db.Workspace{}, unapproved
 }
 
 type factoryRegistration struct {
@@ -178,9 +93,13 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 	return result, nil
 }
 
-// ReconcileFactoryRules runs only after a repository's main is verified at
-// revision; factoryApprover names the user its rules run as. The transaction serializes reconciliation and retires removed
-// rules; retries of identical source/configuration never reactivate paused rows.
+// ErrFactoryNeedsOwner means declared rules have no configured execution owner.
+// Reconciliation still retires old factory registrations before returning it.
+var ErrFactoryNeedsOwner = errors.New("factory rules need a configured organization owner")
+
+// ReconcileFactoryRules runs after repository main is verified at revision.
+// It serializes reconciliation and retires removed rules; retries of identical
+// source/configuration never reactivate paused rows.
 func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID int64, revision string, projection FactoryProjection) error {
 	if !isImmutableGitObjectID(revision) {
 		return errors.New("factory requires an immutable main revision")
@@ -191,32 +110,6 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	}
 	if s.transactions == nil {
 		return errors.New("factory reconciliation requires transactions")
-	}
-	if lookup := projection.gitHubAccount; len(rules) > 0 && lookup != nil {
-		// Look maintainers up once, before any lock: the locked pass below
-		// reuses the answers, and calls GitHub only for a login the first pass
-		// never reached (its approver lost access in between).
-		type answer struct {
-			account string
-			err     error
-		}
-		answers := map[string]answer{}
-		projection.gitHubAccount = func(login string) (string, error) {
-			a, ok := answers[login]
-			if !ok {
-				a.account, a.err = lookup(login)
-				answers[login] = a
-			}
-			return a.account, a.err
-		}
-		pre, err := s.transactions.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		if repo, err := db.New(pre).GetRepoByID(ctx, repoID); err == nil {
-			_, _, _ = factoryApprover(ctx, pre, db.New(pre), repo, projection)
-		}
-		_ = pre.Rollback(ctx)
 	}
 	tx, err := s.transactions.Begin(ctx)
 	if err != nil {
@@ -235,25 +128,39 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	if err != nil {
 		return err
 	}
-	var approver int64
-	var workspace db.Workspace
-	var unapproved *FactoryRulesUnapprovedError
-	if len(rules) > 0 {
-		approver, workspace, err = factoryApprover(ctx, tx, q, repo, projection)
-		if errors.As(err, &unapproved) {
-			// No maintainer approves: every factory rule pauses, so a removed
-			// maintainer's registrations never keep running as them.
-			rules = nil
-		} else if err != nil {
+	ownerID := repo.UserID
+	if !ownerID.Valid && repo.OrgID.Valid {
+		// Serialize configuration and membership changes with reconciliation.
+		if _, err := q.LockOrganization(ctx, repo.OrgID.Int64); err != nil {
 			return err
 		}
+		org, err := q.GetOrgByID(ctx, repo.OrgID.Int64)
+		if err != nil {
+			return err
+		}
+		ownerID = org.FactoryOwnerID
+		if ownerID.Valid {
+			member, err := q.GetOrgMember(ctx, db.GetOrgMemberParams{OrganizationID: org.ID, UserID: ownerID.Int64})
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if errors.Is(err, pgx.ErrNoRows) || member.Role != "owner" {
+				ownerID.Valid = false
+			}
+		}
+		if ownerID.Valid {
+			owner, err := q.GetUserByIDNotDeleted(ctx, ownerID.Int64)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if errors.Is(err, pgx.ErrNoRows) || !owner.IsActive || owner.ProhibitLogin {
+				ownerID.Valid = false
+			}
+		}
 	}
-	// Read the rules locked: a person's pause either lands before this read
-	// or waits for this decision. Enabled rows in job order, as
-	// RegisterRepositoryJob locks a job's enabled row before its trial row.
-	if _, err = tx.Exec(ctx, `SELECT 1 FROM repository_job_registrations WHERE repository_id = $1 AND mode = 'enabled'
-		ORDER BY job FOR NO KEY UPDATE`, repoID); err != nil {
-		return err
+	declaredWithoutOwner := !ownerID.Valid && len(rules) > 0
+	if !ownerID.Valid {
+		rules = nil
 	}
 	existing, err := q.ListRepositoryJobRegistrations(ctx, repoID)
 	if err != nil {
@@ -261,6 +168,10 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	}
 	keep := map[string]bool{}
 	if len(rules) > 0 {
+		workspace, err := q.GetActiveWorkspaceForUserRepo(ctx, db.GetActiveWorkspaceForUserRepoParams{RepositoryID: repoID, UserID: ownerID.Int64})
+		if err != nil {
+			return fmt.Errorf("factory needs the owner's workspace: %w", err)
+		}
 		for _, rule := range rules {
 			keep[rule.job] = true
 			input := rule.input
@@ -270,13 +181,7 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 			for _, old := range existing {
 				if old.Job == rule.job && old.Mode == "enabled" {
 					input.Revision = old.Revision + 1
-					// A person's pause holds until main moves, whoever
-					// approves; a refusal's pause ends with the refusal.
-					var mark struct {
-						Unapproved bool `json:"factory_unapproved"`
-					}
-					_ = json.Unmarshal(old.Configuration, &mark)
-					unchanged = old.Digest == input.Digest && (!old.Enabled && !mark.Unapproved || old.Enabled && old.WorkspaceID == workspace.ID && old.UserID == approver)
+					unchanged = old.Digest == input.Digest && old.WorkspaceID == workspace.ID && old.UserID == ownerID.Int64
 				}
 			}
 			if unchanged {
@@ -290,7 +195,7 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 			if err != nil {
 				return err
 			}
-			_, err = q.RegisterRepositoryJob(ctx, db.RegisterRepositoryJobParams{RepositoryID: repoID, WorkspaceID: workspace.ID, UserID: approver, Job: rule.job, Mode: "enabled", Revision: input.Revision, Digest: input.Digest, SourceRevision: revision, FlowID: input.FlowID, Configuration: configuration, Schedule: input.Schedule, NextFireAt: next})
+			_, err = q.RegisterRepositoryJob(ctx, db.RegisterRepositoryJobParams{RepositoryID: repoID, WorkspaceID: workspace.ID, UserID: ownerID.Int64, Job: rule.job, Mode: "enabled", Revision: input.Revision, Digest: input.Digest, SourceRevision: revision, FlowID: input.FlowID, Configuration: configuration, Schedule: input.Schedule, NextFireAt: next})
 			if err != nil {
 				return err
 			}
@@ -302,18 +207,7 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 			return errors.New("invalid stored factory registration")
 		}
 		if input.FactoryRevision != "" && !keep[old.Job] {
-			// Mark a rule the refusal pauses, so approval re-enables it. The
-			// row's current enabled decides, so a person's pause committed
-			// first is never marked; PauseRepositoryJob strips the mark.
-			if unapproved != nil {
-				if _, err = tx.Exec(ctx, `UPDATE repository_job_registrations SET configuration = configuration || '{"factory_unapproved":true}'
-					WHERE repository_id = $1 AND job = $2 AND mode = $3 AND enabled`, repoID, old.Job, old.Mode); err != nil {
-					return err
-				}
-			}
-			// PauseRepositoryJob's scope, keeping the mark.
-			if _, err = tx.Exec(ctx, `UPDATE repository_job_registrations SET enabled = false, updated_at = now()
-				WHERE repository_id = $1 AND job = $2`, repoID, old.Job); err != nil {
+			if _, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repoID, Job: old.Job}); err != nil {
 				return err
 			}
 		}
@@ -321,8 +215,8 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	if unapproved != nil {
-		return unapproved
+	if declaredWithoutOwner {
+		return ErrFactoryNeedsOwner
 	}
 	return nil
 }

@@ -755,6 +755,8 @@ type GithubMainPull struct {
 	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	FactoryState        string             `json:"factory_state"`
+	FactoryError        string             `json:"factory_error"`
 }
 
 type GithubMirrorSyncRefResult struct {
@@ -1644,15 +1646,16 @@ type OrgMember struct {
 }
 
 type Organization struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	LowerName   string    `json:"lower_name"`
-	Description string    `json:"description"`
-	Visibility  string    `json:"visibility"`
-	Website     string    `json:"website"`
-	Location    string    `json:"location"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID             int64       `json:"id"`
+	Name           string      `json:"name"`
+	LowerName      string      `json:"lower_name"`
+	Description    string      `json:"description"`
+	Visibility     string      `json:"visibility"`
+	Website        string      `json:"website"`
+	Location       string      `json:"location"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	FactoryOwnerID pgtype.Int8 `json:"factory_owner_id"`
 }
 
 type OrganizationSecret struct {

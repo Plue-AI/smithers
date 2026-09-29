@@ -80,6 +80,7 @@ SET name = sqlc.arg(name),
     visibility = sqlc.arg(visibility),
     website = sqlc.arg(website),
     location = sqlc.arg(location),
+    factory_owner_id = CASE WHEN sqlc.arg(set_factory_owner)::boolean THEN sqlc.narg(factory_owner_id)::bigint ELSE factory_owner_id END,
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
 RETURNING *;

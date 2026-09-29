@@ -252,7 +252,7 @@ func (q *Queries) CountUserOrgs(ctx context.Context, userID int64) (int64, error
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name, lower_name, description, visibility)
 VALUES ($1, $2, $3, $4)
-RETURNING id, name, lower_name, description, visibility, website, location, created_at, updated_at
+RETURNING id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 `
 
 type CreateOrganizationParams struct {
@@ -280,6 +280,7 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.Location,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FactoryOwnerID,
 	)
 	return i, err
 }
@@ -362,7 +363,7 @@ func (q *Queries) DeleteTeamMembershipsForOrgUser(ctx context.Context, arg Delet
 }
 
 const getOrgByID = `-- name: GetOrgByID :one
-SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at
+SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 FROM organizations
 WHERE id = $1
 `
@@ -380,12 +381,13 @@ func (q *Queries) GetOrgByID(ctx context.Context, id int64) (Organization, error
 		&i.Location,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FactoryOwnerID,
 	)
 	return i, err
 }
 
 const getOrgByLowerName = `-- name: GetOrgByLowerName :one
-SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at
+SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 FROM organizations
 WHERE lower_name = $1
 `
@@ -403,6 +405,7 @@ func (q *Queries) GetOrgByLowerName(ctx context.Context, lowerName string) (Orga
 		&i.Location,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FactoryOwnerID,
 	)
 	return i, err
 }
@@ -537,7 +540,7 @@ func (q *Queries) GetTeamByOrgAndLowerName(ctx context.Context, arg GetTeamByOrg
 }
 
 const listAllOrgs = `-- name: ListAllOrgs :many
-SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at
+SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 FROM organizations
 ORDER BY id ASC
 LIMIT $2
@@ -568,6 +571,7 @@ func (q *Queries) ListAllOrgs(ctx context.Context, arg ListAllOrgsParams) ([]Org
 			&i.Location,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FactoryOwnerID,
 		); err != nil {
 			return nil, err
 		}
@@ -841,7 +845,7 @@ func (q *Queries) ListTeamRepos(ctx context.Context, arg ListTeamReposParams) ([
 }
 
 const listUserOrgs = `-- name: ListUserOrgs :many
-SELECT o.id, o.name, o.lower_name, o.description, o.visibility, o.website, o.location, o.created_at, o.updated_at
+SELECT o.id, o.name, o.lower_name, o.description, o.visibility, o.website, o.location, o.created_at, o.updated_at, o.factory_owner_id
 FROM organizations o
 JOIN org_members om ON om.organization_id = o.id
 WHERE om.user_id = $1
@@ -875,6 +879,7 @@ func (q *Queries) ListUserOrgs(ctx context.Context, arg ListUserOrgsParams) ([]O
 			&i.Location,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FactoryOwnerID,
 		); err != nil {
 			return nil, err
 		}
@@ -976,19 +981,22 @@ SET name = $1,
     visibility = $4,
     website = $5,
     location = $6,
+    factory_owner_id = CASE WHEN $7::boolean THEN $8::bigint ELSE factory_owner_id END,
     updated_at = NOW()
-WHERE id = $7
-RETURNING id, name, lower_name, description, visibility, website, location, created_at, updated_at
+WHERE id = $9
+RETURNING id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 `
 
 type UpdateOrganizationParams struct {
-	Name        string `json:"name"`
-	LowerName   string `json:"lower_name"`
-	Description string `json:"description"`
-	Visibility  string `json:"visibility"`
-	Website     string `json:"website"`
-	Location    string `json:"location"`
-	ID          int64  `json:"id"`
+	Name            string      `json:"name"`
+	LowerName       string      `json:"lower_name"`
+	Description     string      `json:"description"`
+	Visibility      string      `json:"visibility"`
+	Website         string      `json:"website"`
+	Location        string      `json:"location"`
+	SetFactoryOwner bool        `json:"set_factory_owner"`
+	FactoryOwnerID  pgtype.Int8 `json:"factory_owner_id"`
+	ID              int64       `json:"id"`
 }
 
 func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error) {
@@ -999,6 +1007,8 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		arg.Visibility,
 		arg.Website,
 		arg.Location,
+		arg.SetFactoryOwner,
+		arg.FactoryOwnerID,
 		arg.ID,
 	)
 	var i Organization
@@ -1012,6 +1022,7 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		&i.Location,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FactoryOwnerID,
 	)
 	return i, err
 }

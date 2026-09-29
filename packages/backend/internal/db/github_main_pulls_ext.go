@@ -7,13 +7,13 @@ import (
 
 const githubMainPullColumns = `p.repository_id, p.requested_generation, p.synced_generation, p.claimed_generation, p.claim, p.state,
 p.attempts, p.lease_expires_at, p.next_attempt_at, p.github_repository, p.branch, p.policy, p.policy_commit, p.github_head,
-p.smithers_head, p.last_error, p.last_checked_at, p.last_synced_at, p.created_at, p.updated_at`
+p.smithers_head, p.last_error, p.last_checked_at, p.last_synced_at, p.created_at, p.updated_at, p.factory_state, p.factory_error`
 
 func scanGithubMainPull(row interface{ Scan(...any) error }) (GithubMainPull, error) {
 	var p GithubMainPull
 	err := row.Scan(&p.RepositoryID, &p.RequestedGeneration, &p.SyncedGeneration, &p.ClaimedGeneration, &p.Claim, &p.State,
 		&p.Attempts, &p.LeaseExpiresAt, &p.NextAttemptAt, &p.GithubRepository, &p.Branch, &p.Policy, &p.PolicyCommit, &p.GithubHead,
-		&p.SmithersHead, &p.LastError, &p.LastCheckedAt, &p.LastSyncedAt, &p.CreatedAt, &p.UpdatedAt)
+		&p.SmithersHead, &p.LastError, &p.LastCheckedAt, &p.LastSyncedAt, &p.CreatedAt, &p.UpdatedAt, &p.FactoryState, &p.FactoryError)
 	return p, err
 }
 
@@ -83,7 +83,8 @@ func (q *Queries) ClaimGithubMainPulls(ctx context.Context, limit int32, leaseSe
 
 // FinishGithubMainPullParams closes one claim. State is synced, skipped or
 // failed. A failure keeps synced_generation, so the row stays due after
-// BackoffSeconds. Empty receipt fields keep their previous values.
+// BackoffSeconds. Empty receipt fields keep their previous values. Factory
+// receipts clear when policy is reset or an unreconciled source/policy changes.
 type FinishGithubMainPullParams struct {
 	RepositoryID     int64
 	Claim            int64
@@ -94,6 +95,8 @@ type FinishGithubMainPullParams struct {
 	PolicyCommit     string
 	GithubHead       string
 	SmithersHead     string
+	FactoryState     string
+	FactoryError     string
 	Error            string
 	BackoffSeconds   float64
 	// ResetPolicy clears the source/policy tuple instead of keeping it.
@@ -117,6 +120,16 @@ SET synced_generation = CASE WHEN $3 = 'failed' THEN synced_generation ELSE GREA
     github_head = CASE WHEN $8 = '' THEN github_head ELSE $8 END,
     smithers_head = CASE WHEN $9 = '' THEN smithers_head ELSE $9 END,
     last_error = $10,
+    factory_state = CASE
+        WHEN $12 THEN ''
+        WHEN $13 <> '' THEN $13
+        WHEN ($6 <> '' AND $6 <> 'pull') OR ($4 <> '' AND $4 <> github_repository) THEN ''
+        ELSE factory_state END,
+    factory_error = CASE
+        WHEN $12 THEN ''
+        WHEN $13 <> '' THEN $14
+        WHEN ($6 <> '' AND $6 <> 'pull') OR ($4 <> '' AND $4 <> github_repository) THEN ''
+        ELSE factory_error END,
     last_checked_at = NOW(),
     last_synced_at = CASE WHEN $3 = 'synced' THEN NOW() ELSE last_synced_at END,
     updated_at = NOW()
@@ -128,7 +141,7 @@ WHERE repository_id = $1
 // FinishGithubMainPull returns 0 when the claim was lost to a newer claimant.
 func (q *Queries) FinishGithubMainPull(ctx context.Context, arg FinishGithubMainPullParams) (int64, error) {
 	tag, err := q.db.Exec(ctx, finishGithubMainPull, arg.RepositoryID, arg.Claim, arg.State, arg.GithubRepository, arg.Branch,
-		arg.Policy, arg.PolicyCommit, arg.GithubHead, arg.SmithersHead, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.ResetPolicy)
+		arg.Policy, arg.PolicyCommit, arg.GithubHead, arg.SmithersHead, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.ResetPolicy, arg.FactoryState, strings.TrimSpace(arg.FactoryError))
 	if err != nil {
 		return 0, err
 	}

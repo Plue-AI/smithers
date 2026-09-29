@@ -30,11 +30,13 @@ type CreateOrgRequest struct {
 }
 
 type UpdateOrgRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Visibility  string `json:"visibility"`
-	Website     string `json:"website"`
-	Location    string `json:"location"`
+	// Omit to preserve the owner; zero clears the configured principal.
+	FactoryOwnerID *int64 `json:"factory_owner_id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Visibility     string `json:"visibility"`
+	Website        string `json:"website"`
+	Location       string `json:"location"`
 }
 
 type CreateTeamRequest struct {
@@ -509,14 +511,33 @@ func (s *OrgService) UpdateOrg(ctx context.Context, actor *db.User, orgName stri
 		location = req.Location
 	}
 
+	var factoryOwner pgtype.Int8
+	if req.FactoryOwnerID != nil {
+		if *req.FactoryOwnerID < 0 {
+			return db.Organization{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Organization", Field: "factory_owner_id", Code: "invalid"})
+		}
+		if *req.FactoryOwnerID > 0 {
+			member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{OrganizationID: org.ID, UserID: *req.FactoryOwnerID})
+			if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+				return db.Organization{}, pkgerrors.Internal("failed to load organization membership").WithCause(err)
+			}
+			if stdErrors.Is(err, pgx.ErrNoRows) || member.Role != "owner" {
+				return db.Organization{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Organization", Field: "factory_owner_id", Code: "invalid"})
+			}
+			factoryOwner = pgtype.Int8{Int64: *req.FactoryOwnerID, Valid: true}
+		}
+	}
+
 	updated, err := s.queries.UpdateOrganization(ctx, db.UpdateOrganizationParams{
-		ID:          org.ID,
-		Name:        name,
-		LowerName:   strings.ToLower(name),
-		Description: description,
-		Visibility:  visibility,
-		Website:     website,
-		Location:    location,
+		FactoryOwnerID:  factoryOwner,
+		SetFactoryOwner: req.FactoryOwnerID != nil,
+		ID:              org.ID,
+		Name:            name,
+		LowerName:       strings.ToLower(name),
+		Description:     description,
+		Visibility:      visibility,
+		Website:         website,
+		Location:        location,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
