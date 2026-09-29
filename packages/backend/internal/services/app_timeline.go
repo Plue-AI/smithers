@@ -57,8 +57,10 @@ type AppTimelineStore interface {
 }
 
 // AppTimelineTxBeginner opens transactions for per-timeline advisory locks.
-// Those locks serialize append/rewrite/snapshot writes so the truncate +
+// Those locks serialize membership changes and append/rewrite/snapshot writes so the truncate +
 // insert + head-seq update lands atomically and gap checks cannot race.
+// Transactions must use READ COMMITTED (the PostgreSQL default) so authority
+// reads see membership changes committed while waiting for the lock.
 // Satisfied by *pgxpool.Pool. When nil (store-only test doubles), writes run
 // unserialized against the store directly.
 type AppTimelineTxBeginner interface {
@@ -374,13 +376,13 @@ func (s *AppTimelineService) AppendEvents(ctx context.Context, userID int64, tim
 	firstSeq := events[0].Seq
 	lastSeq := events[len(events)-1].Seq
 	return s.withAppTimelineMutation(ctx, timelineID, func(s *AppTimelineService) error {
-		// Re-read under the lock: the gap check must see the serialized head.
-		timeline, err := s.store.GetAppTimeline(ctx, timelineID)
+		// Re-read authority and head under the same lock as membership changes.
+		timeline, role, err := s.resolve(ctx, userID, timelineID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return pkgerrors.NotFound("timeline not found")
-			}
-			return pkgerrors.Internal("load timeline: " + err.Error())
+			return err
+		}
+		if err := requireAppTimelineEditor(role); err != nil {
+			return err
 		}
 		if firstSeq > timeline.HeadSeq {
 			return pkgerrors.Conflict("event seq is ahead of the timeline head; resync and retry")
@@ -463,6 +465,13 @@ func (s *AppTimelineService) Rewrite(ctx context.Context, userID int64, timeline
 	}
 
 	return s.withAppTimelineMutation(ctx, timelineID, func(s *AppTimelineService) error {
+		_, role, err := s.resolve(ctx, userID, timelineID)
+		if err != nil {
+			return err
+		}
+		if err := requireAppTimelineEditor(role); err != nil {
+			return err
+		}
 		if err := s.store.DeleteAllAppTimelineEvents(ctx, timelineID); err != nil {
 			return pkgerrors.Internal("clear events: " + err.Error())
 		}
@@ -526,12 +535,12 @@ func (s *AppTimelineService) PutSnapshot(ctx context.Context, userID int64, time
 	}
 
 	return s.withAppTimelineMutation(ctx, timelineID, func(s *AppTimelineService) error {
-		timeline, err := s.store.GetAppTimeline(ctx, timelineID)
+		timeline, role, err := s.resolve(ctx, userID, timelineID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return pkgerrors.NotFound("timeline not found")
-			}
-			return pkgerrors.Internal("load timeline: " + err.Error())
+			return err
+		}
+		if err := requireAppTimelineEditor(role); err != nil {
+			return err
 		}
 		if seq > timeline.HeadSeq {
 			return pkgerrors.Conflict("snapshot seq is ahead of the timeline head; resync and retry")
@@ -592,13 +601,27 @@ func (s *AppTimelineService) AddMember(ctx context.Context, actorID int64, timel
 	if user.ID == timeline.OwnerUserID {
 		return db.AppTimelineMember{}, pkgerrors.BadRequest("the owner is already a member")
 	}
-	member, err := s.store.ReAddAppTimelineMember(ctx, db.ReAddAppTimelineMemberParams{
-		TimelineID: timelineID,
-		UserID:     user.ID,
-		Role:       role,
+	var member db.AppTimelineMember
+	err = s.withAppTimelineMutation(ctx, timelineID, func(s *AppTimelineService) error {
+		_, actorRole, err := s.resolve(ctx, actorID, timelineID)
+		if err != nil {
+			return err
+		}
+		if actorRole != AppTimelineRoleOwner {
+			return pkgerrors.Forbidden("only the timeline owner can manage members")
+		}
+		member, err = s.store.ReAddAppTimelineMember(ctx, db.ReAddAppTimelineMemberParams{
+			TimelineID: timelineID,
+			UserID:     user.ID,
+			Role:       role,
+		})
+		if err != nil {
+			return pkgerrors.Internal("add timeline member: " + err.Error())
+		}
+		return nil
 	})
 	if err != nil {
-		return db.AppTimelineMember{}, pkgerrors.Internal("add timeline member: " + err.Error())
+		return db.AppTimelineMember{}, err
 	}
 	return member, nil
 }
@@ -612,14 +635,23 @@ func (s *AppTimelineService) RemoveMember(ctx context.Context, actorID int64, ti
 	if actorRole != AppTimelineRoleOwner {
 		return pkgerrors.Forbidden("only the timeline owner can manage members")
 	}
-	if _, err := s.store.RevokeAppTimelineMember(ctx, db.RevokeAppTimelineMemberParams{
-		TimelineID: timelineID,
-		UserID:     memberUserID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return pkgerrors.NotFound("no such member")
+	return s.withAppTimelineMutation(ctx, timelineID, func(s *AppTimelineService) error {
+		_, actorRole, err := s.resolve(ctx, actorID, timelineID)
+		if err != nil {
+			return err
 		}
-		return pkgerrors.Internal("revoke timeline member: " + err.Error())
-	}
-	return nil
+		if actorRole != AppTimelineRoleOwner {
+			return pkgerrors.Forbidden("only the timeline owner can manage members")
+		}
+		if _, err := s.store.RevokeAppTimelineMember(ctx, db.RevokeAppTimelineMemberParams{
+			TimelineID: timelineID,
+			UserID:     memberUserID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return pkgerrors.NotFound("no such member")
+			}
+			return pkgerrors.Internal("revoke timeline member: " + err.Error())
+		}
+		return nil
+	})
 }
