@@ -52,7 +52,7 @@ import type * as McpClient from "@smthrs/mcp/McpClient"
 import * as McpFlows from "@smthrs/mcp/McpFlows"
 import * as Maintenance from "@smthrs/memory/Maintenance"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
-import type * as Recall from "@smthrs/memory/Recall"
+import * as Recall from "@smthrs/memory/Recall"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import type { NotificationQueue } from "@smthrs/notifications"
@@ -1078,7 +1078,9 @@ export const make = (
         const shellServices = yield* Effect.context<
           KernelChildProcessSpawner.ChildProcessSpawner | Path.Path
         >()
-        const memoryServices = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>()
+        const memoryServices = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>().pipe(
+          Effect.map(Context.pick(MemoryStore.MemoryStore, Recall.Recall))
+        )
         const nativeSearch = NativeSearch.make(Context.merge(filesystemServices, shellServices))
         // What `memory` reads through: the workspace, jj and git, the judge,
         // and the facts store.

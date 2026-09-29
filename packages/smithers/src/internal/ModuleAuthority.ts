@@ -43,6 +43,7 @@ export const make = (
   }
 ) =>
   Effect.gen(function*() {
+    const authorityContext = yield* Effect.context<never>()
     const engine = yield* FlowRuntime.FlowRuntime
     const state = yield* DurableEngineState.DurableEngineState
     const runs = yield* RunStore.RunStore
@@ -136,7 +137,12 @@ export const make = (
         // agent/run parent is entered again after a process restart.
         yield* registry.loadBody(card.flowId, approved).pipe(Effect.orDie)
         return { rootId, flowId: card.flowId, envelope: card.envelope }
-      })
+      }).pipe(
+        // Ownership and pinned source verification are host admission work.
+        // A module need not grant itself filesystem reads to let the host
+        // verify its source; its handler retains the execution ceiling below.
+        Effect.updateContext<never, never>(() => authorityContext)
+      )
 
     const parking = AgentSession.budgetParking(budgetHost.controlJournal, control)
     // Concurrent descendants share one existing Budget accumulator. RcMap

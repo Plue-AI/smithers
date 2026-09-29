@@ -60,6 +60,15 @@ descriptor identity and pinned source body before each handler runs. Missing,
 ambiguous, or excessively deep ancestry refuses execution. Caller-supplied IDs
 and payload fields do not establish ownership.
 
+Module layer construction receives only the selected memory services from the
+host memory context. A typed `Effect.context` capture still contains every
+ambient service; forwarding that whole context would replace the approved
+registration runtime with the raw engine. Exported round interpreters and
+detached children therefore register through the same authority wrapper.
+Source identity checks run in the captured host context: reading the approved
+module for verification does not require granting filesystem access to its
+actions. The handler still executes under the approved capability ceiling.
+
 Each handler intersects its capabilities with the approved envelope. Concurrent
 descendants **in one executor** share one existing `Budget` service, retained with Effect `RcMap`
 while in use. Accounting attributes usage to the control ancestor and qualifies
@@ -98,7 +107,10 @@ receipts from their owning actions.
 
 The native runtime's final registration receives the native execution journal. ModuleAuthority intentionally records root budget usage there; AgentSession control transitions use the separate captured control journal. Shared root budget accumulators have host-scoped ownership, without an arbitrary root-count cap. Authority validation wraps registered execution outside the action retry ladder: a refusal settles as a failure instead of being silently retried as an action.
 
-Detached module children are currently unsupported. Module work must remain under its approved active root and that root's shared budget lifetime. The executable catalog is frozen for the host's lifetime. Updating a discovered module requires a configured-host restart; stale descriptor/delegate digests refuse adoption until then. An ordinary CLI with no matching module catalog leaves parked module roots untouched.
+Detached module children remain under their approved active root and share its
+budget. Source edits require the host's configured catalog refresh or a restart;
+stale descriptor/delegate digests refuse adoption until the matching executable
+is registered. Observing commands leave parked module roots untouched.
 
 The shared private native composition selects existing Node or Bun adapters, including their own SQLite drivers and HTTP servers. See [native host composition](https://github.com/smithersai/smithers/blob/main/packages/smithers/NATIVE-CONTROL.md) for platform and lifetime boundaries.
 
