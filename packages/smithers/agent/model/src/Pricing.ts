@@ -161,7 +161,8 @@ export const weigh = (usage: ModelEvent.Usage, rates: Rates): number => {
 /**
  * The USD cost of one call under a rate card, `NaN` for malformed usage (see
  * {@link weigh}). A long-context card prices the whole call once the prompt
- * reaches its threshold; a per-call charge is added once.
+ * reaches its threshold; a per-call charge is added once, and a per-call card
+ * prices a call that reported no input or output count at that charge alone.
  *
  * @category accounting
  * @since 1.0.0-rc.1
@@ -171,7 +172,11 @@ export const costUsd = (usage: ModelEvent.Usage, price: Rates | Price): number =
   const rates = card.longContext !== undefined && (usage.inputTokens ?? 0) >= Number(card.longContextFrom) ?
     card.longContext :
     card
-  return Math.round((weigh(usage, rates) / 1_000_000 + (card.flatPerCall ?? 0)) * 1e9) / 1e9
+  // A per-call endpoint may report no token usage at all; that is not malformed.
+  const unmetered = card.flatPerCall !== undefined && usage.inputTokens === undefined &&
+    usage.outputTokens === undefined
+  const metered = unmetered ? 0 : weigh(usage, rates) / 1_000_000
+  return Math.round((metered + (card.flatPerCall ?? 0)) * 1e9) / 1e9
 }
 
 /**

@@ -90,6 +90,15 @@ describe("Pricing.costUsd", () => {
     expect(Pricing.costUsd({ inputTokens: million, outputTokens: 0 }, Pricing.table["claude-opus-4-8"]!)).toBe(5)
   })
 
+  it("prices a per-call endpoint that reports no token usage at its per-call charge", () => {
+    const jev = Pricing.table["typesafe-ai/jev"]!
+    expect(Pricing.costUsd({}, jev)).toBe(0.002)
+    expect(Pricing.costUsd({ inputTokens: 1 }, jev)).toBeNaN()
+    expect(Pricing.costUsd({ outputTokens: 1 }, jev)).toBeNaN()
+    expect(Pricing.cost({}, "typesafe-ai/jev")).toEqual({ costUsd: 0.002, costSource: "estimated" })
+    expect(Pricing.costUsd({}, Pricing.table["claude-opus-4-8"]!)).toBeNaN()
+  })
+
   it("is NaN for usage it cannot price", () => {
     expect(Pricing.costUsd({ totalTokens: 10 }, Pricing.table["gpt-5.6-sol"]!)).toBeNaN()
   })

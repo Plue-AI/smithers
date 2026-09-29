@@ -401,6 +401,15 @@ describe("OpenAIChatCompletions.protocol.stream", () => {
     expect(Events.settledMessage(events).usage.costUsd).toBe(0.00042)
   })
 
+  it("reads cached prompt tokens so they are priced at the cache-read rate", () => {
+    expect(replayData([
+      "{\"choices\":[],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":1,\"prompt_tokens_details\":{\"cached_tokens\":20}}}"
+    ])).toEqual([{ type: "usage", inputTokens: 30, outputTokens: 1, cachedInputTokens: 20 }])
+    expect(replayData([
+      "{\"choices\":[],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":1,\"prompt_tokens_details\":null}}"
+    ])).toEqual([{ type: "usage", inputTokens: 30, outputTokens: 1 }])
+  })
+
   it("reads a choice-less usage chunk before settlement", () => {
     expect(replayData([
       "{\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}"

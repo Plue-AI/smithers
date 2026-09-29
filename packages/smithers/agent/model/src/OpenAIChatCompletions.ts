@@ -267,6 +267,9 @@ const ChunkUsage = Schema.Struct({
   prompt_tokens: Schema.optional(Schema.Number),
   completion_tokens: Schema.optional(Schema.Number),
   total_tokens: Schema.optional(Schema.Number),
+  prompt_tokens_details: Schema.optional(Schema.NullOr(Schema.Struct({
+    cached_tokens: Schema.optional(Schema.Number)
+  }))),
   /** OpenRouter's charge for the call, in USD. */
   cost: Schema.optional(Schema.Number)
 })
@@ -309,6 +312,7 @@ const usageEvent = (usage: typeof ChunkUsage.Type | null | undefined): ModelEven
   usage === null || usage === undefined ? undefined : ModelEvent.ModelEvent.Usage({
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
+    cachedInputTokens: usage.prompt_tokens_details?.cached_tokens,
     totalTokens: usage.total_tokens,
     costUsd: usage.cost
   })
