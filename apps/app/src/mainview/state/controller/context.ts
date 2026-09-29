@@ -94,6 +94,8 @@ export interface ControllerContext {
    * the epoch it captured together with the owner it admitted.
    */
   readonly accountEpoch: number
+  /** Synchronously revoke account work when its generation ends. */
+  readonly onAccountChange: (listener: () => void) => () => void
   /** The owner of this page's account data (state/AccountOwner.ts). */
   readonly accountOwner: () => string | null | undefined
   /**
@@ -162,11 +164,19 @@ export const createControllerContext = (
   let owner = accountOwner()
   let provider = store.collections.identitySessions.get("identity")?.provider
   let accountEpoch = 0
+  const accountListeners = new Set<() => void>()
   const advance = (next: string | null | undefined): void => {
     owner = next
     accountEpoch += 1
     netRing.length = 0
     failures.reset()
+    for (const listener of [...accountListeners]) {
+      try { listener() }
+      catch {
+        // Do not retain an old account's exception text in the new diagnostics.
+        failures.report("account.revoke", new Error("Account work could not be fully disconnected."))
+      }
+    }
   }
   const recordNet = (entry: NetEntry, generation: number): void => {
     if (generation !== accountEpoch) return
@@ -208,6 +218,10 @@ export const createControllerContext = (
     commandActor: "user",
     get accountEpoch() { return accountEpoch },
     accountOwner,
+    onAccountChange: (listener: () => void) => {
+      accountListeners.add(listener)
+      return () => { accountListeners.delete(listener) }
+    },
     endAccount: () => { advance(null) },
     identityChanged: () => {},
     authReprobeAt: 0,
@@ -277,7 +291,7 @@ export const createControllerContext = (
     if (next !== owner || accountProviderChanged(provider, nextProvider)) advance(next)
     provider = nextProvider
   })
-  ctx.onDispose(() => { ownerChanges.unsubscribe() })
+  ctx.onDispose(() => { ownerChanges.unsubscribe(); accountListeners.clear() })
 
   /*
    * Mid-session 401 recovery (multi's AUTH_REQUIRED discipline, one seam):

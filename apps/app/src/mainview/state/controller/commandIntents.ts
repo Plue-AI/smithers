@@ -6,7 +6,7 @@ import { reserveBrowserCommandGesture } from "../../flows/CommandGesture"
 import type { PreparedWikiEdit } from "../../flows/CommandGesture"
 import { payloadFor } from "../../flows/SlashPayload"
 import { digest } from "@smthrs/core/Digest"
-import type { CommandLifecycle, CommandRequest, PendingCommandInput } from "../../flows/CommandLifecycle"
+import type { CommandLifecycle, CommandReceipt, CommandRequest, PendingCommandInput } from "../../flows/CommandLifecycle"
 import { canonicalEventValue } from "../EventValue"
 import type { ControllerContext } from "./context"
 import { INPUT_MODES, type InputMode } from "../InputMode"
@@ -25,7 +25,9 @@ const currentHttpCall = (ctx: ControllerContext, call: CommandRequest["httpCall"
 /** Command facts contain metadata only. Pending human edits never execute a form submission. */
 export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?: (request: CommandRequest) => void,
   setInputMode?: (mode: InputMode) => Promise<void>,
-  prepareWikiEdit?: (id: string, body: string) => PreparedWikiEdit | undefined): CommandLifecycle => ({
+  prepareWikiEdit?: (id: string, body: string) => PreparedWikiEdit | undefined): CommandLifecycle => {
+  const receiptEpochs = new WeakMap<CommandReceipt, number>()
+  return {
   before: createPrivacyActions(ctx).before,
   reserveGesture: (request, args, named) => {
     if (ctx.disposed || request.actor !== "user") return undefined
@@ -160,13 +162,21 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
       return { refusal: "The command's controller, account, or turn changed before it could start.", persistenceFailed: true }
     }
     onAccepted?.(request)
-    return { receipt: { id, actor: request.actor, acceptedRevision: accepted.acceptedRevision }, ...(pendingInput === undefined ? {} : { pendingInput: { clear: clearRetiredInput } }) }
+    const receipt = { id, actor: request.actor, acceptedRevision: accepted.acceptedRevision }
+    receiptEpochs.set(receipt, epoch)
+    return { receipt, ...(pendingInput === undefined ? {} : { pendingInput: { clear: clearRetiredInput } }) }
   },
   canExecute: (receipt, request) => {
     const row = ctx.store.collections.commandIntents.get(receipt.id)
-    return !ctx.disposed && !request.invocation?.signal?.aborted && row?.status === "accepted"
+    return !ctx.disposed && receiptEpochs.get(receipt) === ctx.accountEpoch
+      && !request.invocation?.signal?.aborted && row?.status === "accepted"
       && row.acceptedRevision === receipt.acceptedRevision && row.actor === receipt.actor
       && currentHttpCall(ctx, request.httpCall)
+  },
+  canPublish: (receipt) => {
+    const row = ctx.store.collections.commandIntents.get(receipt.id)
+    return !ctx.disposed && receiptEpochs.get(receipt) === ctx.accountEpoch && row !== undefined
+      && row.acceptedRevision === receipt.acceptedRevision && row.actor === receipt.actor
   },
   settle: async (receipt, outcome, retryableAuthorization = false) => {
     const accepted = ctx.store.collections.commandIntents.get(receipt.id)
@@ -182,4 +192,5 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
       return ctx.store.collections.commandIntents.get(receipt.id)?.status === "settled"
     } catch { return false }
   }
-})
+  }
+}

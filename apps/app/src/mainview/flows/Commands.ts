@@ -515,14 +515,15 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       authorizationRefused = true
       invocation.refused(error)
     } }
+    const canPublish = (): boolean => acceptance === undefined || lifecycle?.canPublish?.(acceptance.receipt, request) !== false
     let outcome: CommandOutcome
-    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution) }
+    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution, canPublish) }
     catch { outcome = { status: "failed", error: "The command did not finish. Check its result before trying again." } }
     const retryableAuthorization = authorizationRefused && (!execution.invoked || name === "form.submit")
     if (acceptance !== undefined && lifecycle !== undefined && !await lifecycle.settle(acceptance.receipt, outcome, retryableAuthorization)) {
       return { status: "failed", error: "The command's outcome could not be saved. Check its result before trying again.", persistenceFailed: true }
     }
-    trace(
+    if (canPublish()) trace(
       invoker,
       name,
       args,
@@ -556,7 +557,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     /** The payload a named submission already carries; absent for a text invocation. */
     named?: Record<string, unknown>,
     gesture?: CommandGesture,
-    execution?: { invoked: boolean }
+    execution?: { invoked: boolean },
+    canPublish: () => boolean = () => true
   ): Promise<CommandOutcome> => {
     const entry = find(name)
     if (entry === undefined) {
@@ -631,7 +633,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
         ...(globalPath ? { path: sourcePath!.slice(prefix.length).replace(/^\/+/, "") } : {}),
         repo: repo ?? readiness.repo
       }, { refresh: readiness.phase !== "pending", scope: readiness.scope })
-      trace(invoker, name, args, startedAt, "deferred", "waits on repository catalog")
+      if (canPublish()) trace(invoker, name, args, startedAt, "deferred", "waits on repository catalog")
       return { status: "executed", value: "Requested" }
     }
     const unmet = unmetRequirements(target.metadata, snapshot, flowRequirements)[0]
@@ -661,7 +663,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
          * that settles the prerequisite resumes it — Chat answers now.
          */
         actions.deferCommand(nameOf(target), args ?? null, unmet.id)
-        trace(invoker, name, args, startedAt, "deferred", `waits on ${unmet.id}`)
+        if (canPublish()) trace(invoker, name, args, startedAt, "deferred", `waits on ${unmet.id}`)
         return { status: "executed", value: "Requested" }
       }
       if (seen.has(unmet.fulfill)) {
@@ -672,7 +674,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       }
       actions.deferCommand(nameOf(target), args ?? null, unmet.id)
       // The deferral is its own trace; the fulfilling flow traces itself below.
-      trace(invoker, name, args, startedAt, "deferred", `waits on ${unmet.id}`)
+      if (canPublish()) trace(invoker, name, args, startedAt, "deferred", `waits on ${unmet.id}`)
       return runAs(invoker, unmet.fulfill, undefined, new Set([...seen, unmet.fulfill]))
     }
     // JSON can parse successfully while omitting a required schema field.
@@ -770,7 +772,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       : settledOutcome
     // A successful, user-invoked, LISTED flow feeds the slash menu's recency
     // ranking; hidden id-scoped acts never rank.
-    if (outcome.status === "executed" && invoker === "user" && target.metadata.hidden !== true) {
+    if (canPublish() && outcome.status === "executed" && invoker === "user" && target.metadata.hidden !== true) {
       actions.noteCommandRun(nameOf(target))
     }
     return outcome

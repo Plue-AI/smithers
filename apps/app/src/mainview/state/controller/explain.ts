@@ -64,6 +64,9 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
   const timeoutMs = config.timeoutMs ?? 60_000
 
   const explain: ExplainController["explain"] = async (what) => {
+    if (ctx.disposed) return
+    const epoch = ctx.accountEpoch
+    const ownsAccount = (): boolean => ctx.accountEpoch === epoch
     const decoded = decodeTargetExplanation(what)
     const target = decoded._tag === "Some" ? decoded.value : undefined
     const question = (target?.request ?? what).trim()
@@ -82,6 +85,8 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
     const now = Date.now()
     let answer = ""
     let settled = false
+    let revoked = false
+    let unwatchAccount: () => void = () => {}
     let unsubscribe: () => void = () => {}
     let timer: ReturnType<typeof setTimeout> | undefined
     let replayTimer: ReturnType<typeof setTimeout> | undefined
@@ -96,6 +101,7 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
       token: [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("")
     }
     const patch = (phase: "asking" | "answered" | "failed", error?: string): void => {
+      if (!ownsAccount() || revoked) return
       const receipt = store.dispatch({
         type: "card.upsert",
         actor: "smithers",
@@ -111,27 +117,66 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
       })
       lastCardCommit = receipt?.isPersisted?.promise ?? Promise.resolve()
     }
-    const finish = (phase: "answered" | "failed", error?: string): void => {
-      if (settled) return
-      settled = true
+    const release = (): void => {
       if (timer !== undefined) clearTimeout(timer)
       if (replayTimer !== undefined) clearTimeout(replayTimer)
-      unsubscribe()
+      try { unsubscribe() }
+      finally { unwatchAccount() }
+    }
+    const cancel = async (): Promise<void> => {
+      try { await agent.cancelTurn(runId) }
+      catch (error) {
+        // A late failure must not repopulate the next account's diagnostics.
+        if (ownsAccount()) ctx.failures.report("explain.cancel", error, runId)
+      }
+    }
+    const retire = async (): Promise<void> => {
+      if (journal === undefined) return
+      try { await agent.journal!.retire({ runId, journal }) }
+      catch (error) {
+        if (ownsAccount()) ctx.failures.report("explain.retire", error, runId)
+      }
+    }
+    const disconnect = (): void => {
+      try { agent.journal?.disconnect(runId) }
+      catch (error) {
+        if (ownsAccount()) ctx.failures.report("explain.disconnect", error, runId)
+      }
+    }
+    const revoke = (): void => {
+      revoked = true
+      settled = true
+      try { release() }
+      finally {
+        try { disconnect() }
+        finally { void cancel().then(retire) }
+      }
+    }
+    const finish = (phase: "answered" | "failed", error?: string): void => {
+      if (settled || !ownsAccount()) return
+      settled = true
+      release()
       patch(phase, error)
       if (journal !== undefined) {
         cleanup = lastCardCommit.catch(() => {}).then(async () => {
           // Wait for the card receipt before releasing remote output. Even if
           // that write fails, keep a delete-only proof for offline cleanup.
+          if (!ownsAccount() || revoked) {
+            await retire()
+            return
+          }
           if (store.queueTurnErasure?.(runId, journal)) return
           await agent.journal!.retire({ runId, journal })
         })
         void cleanup.catch(() => {})
       }
     }
+    unwatchAccount = ctx.onAccountChange(revoke)
     const closing = ctx.onDispose(async () => {
       if (!settled) {
         finish("failed", "The explanation was stopped.")
-        await agent.cancelTurn(runId).catch(error => ctx.failures.report("explain.cancel", error, runId))
+        disconnect()
+        await cancel()
       }
       await cleanup
     })
@@ -142,9 +187,9 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
     }
     patch("asking")
     if (journal !== undefined) await lastCardCommit
-    if (settled) return
+    if (settled || !ownsAccount()) return
     const applyFrame = (frame: AgentTurnFrame): void => {
-      if (frame.runId !== runId || settled) return
+      if (frame.runId !== runId || settled || !ownsAccount()) return
       if (frame.type === "delta") {
         if (frame.kind === "text") {
           answer += frame.text
@@ -162,7 +207,7 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
       unsubscribe = agent.subscribe(applyFrame)
     } else {
       const applyDelivery = (delivery: AgentTurnJournalDelivery): void => {
-        if (settled || delivery.cursor.runId !== runId || delivery.cursor.legId !== journal.legId) return
+        if (settled || !ownsAccount() || delivery.cursor.runId !== runId || delivery.cursor.legId !== journal.legId) return
         if (delivery.type === "accepted") {
           if (cursor === undefined) cursor = delivery.cursor
           else if (cursor.batch === 0 && cursor.hash !== delivery.cursor.hash) finish("failed", "The explainer response failed an integrity check.")
@@ -199,12 +244,12 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
       }
       unsubscribe = agent.journal!.subscribe(enqueue)
       const catchUp = async (): Promise<void> => {
-        if (settled) return
+        if (settled || !ownsAccount()) return
         try {
           const before = cursor
           const reply = await agent.journal!.read({ runId, journal, after: before ?? null })
           await pending
-          if (settled || before !== cursor) return
+          if (settled || !ownsAccount() || before !== cursor) return
           if (reply.status === "ok") {
             if (cursor === undefined) await enqueue({ type: "accepted", cursor: reply.after })
             for (const batch of reply.batches) await enqueue({ type: "batch", batch, cursor: {
@@ -217,15 +262,16 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
         } catch { finish("failed", "The explainer response could not be recovered.") }
       }
       const scheduleReplay = (): void => {
-        if (settled) return
+        if (settled || !ownsAccount()) return
         replayTimer = setTimeout(() => { void catchUp().finally(scheduleReplay) }, 1_000)
         ctx.unref(replayTimer)
       }
       scheduleReplay()
     }
     timer = setTimeout(() => {
+      if (settled || !ownsAccount()) return
       finish("failed", launchFailure ?? "The explainer took too long to answer.")
-      void agent.cancelTurn(runId).catch(error => ctx.failures.report("explain.cancel", error, runId))
+      void cancel()
     }, timeoutMs)
     ctx.unref(timer)
     try {
@@ -244,11 +290,25 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
         ...(journal === undefined ? {} : { journal }),
         ...(bound === undefined ? {} : { model: bindingOf(bound) })
       })
+      if (revoked || !ownsAccount() || ctx.disposed) {
+        // Cancellation can beat admission while the launch request is pending.
+        disconnect()
+        await cancel()
+        await retire()
+        return
+      }
       if (result.status === "error") {
         if (journal === undefined) finish("failed", result.message)
         else launchFailure = result.message
       }
     } catch (error) {
+      if (revoked || !ownsAccount() || ctx.disposed) {
+        // A lost response can reject after the remote turn was admitted.
+        disconnect()
+        await cancel()
+        await retire()
+        return
+      }
       if (journal === undefined) finish("failed", error instanceof Error ? error.message : String(error))
       else launchFailure = error instanceof Error ? error.message : String(error)
     }

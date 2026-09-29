@@ -824,6 +824,14 @@ publishes the new identity. Missing ownership on a legacy unavailable row is
 unknown, so the next definitive answer scrubs conservatively. Fresh anonymous
 sessions retain deferred sign-in intent until their first login.
 
+Explainer answers belong to the account that asked the question. Confirmed
+sign-out or account replacement cancels the explanation and disconnects its
+output. Delayed launches, saved output and recovery reads cannot restore cleared
+questions, answers or local cleanup records. Command history also drops late
+results and private input after its accepting account is cleared. Rechecking
+the same account keeps its active explanations running. The app requests
+deletion of old saved answers without restoring local cleanup records.
+
 ## Verification
 
 - `SqliteRowStorage.test.ts`: normalized rows, atomic commit/rollback,

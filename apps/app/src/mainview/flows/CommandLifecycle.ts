@@ -41,5 +41,7 @@ export interface CommandLifecycle {
   readonly reserveGesture?: (request: CommandRequest, args?: string, named?: Record<string, unknown>) => CommandGesture | undefined
   readonly accept: (request: CommandRequest, pendingFieldInput?: PendingFieldInput | PendingFormInput) => Promise<CommandAcceptance>
   readonly canExecute?: (receipt: CommandReceipt, request: CommandRequest) => boolean
+  /** Whether this invocation still owns its durable diagnostics after an await. */
+  readonly canPublish?: (receipt: CommandReceipt, request: CommandRequest) => boolean
   readonly settle: (receipt: CommandReceipt, outcome: CommandOutcome, retryableAuthorization?: boolean) => Promise<boolean>
 }

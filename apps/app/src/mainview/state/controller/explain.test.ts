@@ -28,7 +28,7 @@ const recordingController = () => {
     services: {},
     agent,
     unref: () => {},
-    onDispose: () => {}
+    onDispose: () => {}, onAccountChange: () => () => {}
   } as unknown as ControllerContext)
   return { controller, launches, dispatches }
 }
@@ -212,7 +212,7 @@ describe("the explainer seat", () => {
       startTurn: async (request) => { launches.push(request); return { status: "error", message: "recorded" } },
       cancelTurn: async () => {}
     }
-    const controller = createExplainController({ store, agent, services: {}, unref: () => {}, onDispose: () => {} } as unknown as ControllerContext)
+    const controller = createExplainController({ store, agent, services: {}, unref: () => {}, onDispose: () => {}, onAccountChange: () => () => {} } as unknown as ControllerContext)
     const card = () => [...store.collections.cards.values()].find((row) => row.kind === "explain")
     return { store, controller, launches, card, close: async () => { await store.dispose?.() } }
   }
@@ -352,7 +352,7 @@ test("replay and live delivery of one batch apply its text once, and a changed d
       },
       queueTurnErasure: () => { erased++; return true }
     },
-    services: {}, agent, unref: () => {}, onDispose: () => {}
+    services: {}, agent, unref: () => {}, onDispose: () => {}, onAccountChange: () => () => {}
   } as unknown as ControllerContext)
   await controller.explain("Why?")
   expect(actions.at(-1)).toMatchObject({ card: { payload: { phase: "asking" } } })
@@ -398,7 +398,7 @@ test("terminal cleanup waits for the answered card's durable receipt", async () 
       }),
       queueTurnErasure: () => { queued++; return true }
     },
-    services: {}, agent, unref: () => {}, onDispose: () => {}
+    services: {}, agent, unref: () => {}, onDispose: () => {}, onAccountChange: () => () => {}
   } as unknown as ControllerContext)
   await controller.explain("Why?")
   const runId = request!.runId, legId = request!.journal!.legId
