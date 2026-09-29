@@ -127,6 +127,52 @@ jobs:
             reliability-artifacts/**
           if-no-files-found: error
           retention-days: 30
+  run-lifecycle-state-model:
+    name: run lifecycle state model (rotating seed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.4.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Select and record reproducible campaign
+        env:
+          REQUESTED_SEED: ${{ inputs.seed }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs'
+          const seed = process.env.REQUESTED_SEED || String(Math.floor(Date.now() / 86400000))
+          if (!/^\d+$/.test(seed) || !Number.isInteger(Number(seed)) || Number(seed) > 4294967295) throw new Error('seed must be an unsigned 32-bit integer')
+          const configuration = `SMITHERS_FUZZ_SEED=${seed}\nSMITHERS_FUZZ_CASES=40\nSMITHERS_FUZZ_STEPS=200\n`
+          appendFileSync(process.env.GITHUB_ENV, configuration)
+          console.log(configuration)
+          JS
+      - name: Run generated run lifecycle histories
+        env:
+          SMITHERS_FUZZ_ARTIFACT_DIR: ${{ github.workspace }}/reliability-artifacts
+        run: pnpm --filter @smthrs/engine-store exec vitest run test/RunLifecycleModel.test.ts --coverage.enabled=false
+      - name: Verify campaign evidence
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const seed = Number(process.env.SMITHERS_FUZZ_SEED)
+          const cases = Number(process.env.SMITHERS_FUZZ_CASES)
+          const artifact = JSON.parse(readFileSync(`reliability-artifacts/run-lifecycle-${seed}.json`, 'utf8'))
+          if (artifact.status !== 'passed' || artifact.seed !== seed || artifact.executed < cases || artifact.restarts < 1) throw new Error(`Incomplete run lifecycle campaign evidence: ${JSON.stringify(artifact)}`)
+          console.log(JSON.stringify(artifact))
+          JS
+      - name: Preserve seed and shrunk case
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: run-lifecycle-state-model-${{ github.run_id }}
+          path: reliability-artifacts/**
+          if-no-files-found: error
+          retention-days: 30
   jj-native-wasm-abi:
     name: generated native and real WASM ABI corpus
     runs-on: ubuntu-latest

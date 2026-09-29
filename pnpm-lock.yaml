@@ -4891,6 +4891,9 @@ importers:
       eslint-plugin-unicorn:
         specifier: 65.0.0
         version: 65.0.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))
+      fast-check:
+        specifier: 4.9.0
+        version: 4.9.0
       madge:
         specifier: 8.0.0
         version: 8.0.0(supports-color@10.2.2)
