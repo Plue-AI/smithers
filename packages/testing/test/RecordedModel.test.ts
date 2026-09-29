@@ -145,7 +145,13 @@ describe("RecordedModel", () => {
         calls: [{
           ...fixture.calls[0]!,
           events: [],
-          failure: { code: "rate_limited", message: "Too many requests", retryAfterMillis: 3_000, httpStatus: 429 }
+          failure: {
+            code: "rate_limited",
+            message: "Too many requests",
+            retryAfterMillis: 3_000,
+            httpStatus: 429,
+            quotaScope: "model"
+          }
         }]
       }
       const replay = yield* make(refusing)
@@ -156,7 +162,8 @@ describe("RecordedModel", () => {
         code: "rate_limited",
         message: "Too many requests",
         retryAfterMillis: 3_000,
-        httpStatus: 429
+        httpStatus: 429,
+        quotaScope: "model"
       })
     }))
 

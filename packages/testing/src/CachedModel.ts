@@ -47,9 +47,11 @@ const asModelError = (failure: ModelErrorLike): ModelError =>
   new ModelError({
     code: failure.code,
     message: failure.message,
+    path: failure.path,
     retryAfterMillis: failure.retryAfterMillis,
     resetAtEpochMillis: failure.resetAtEpochMillis,
     resetSource: failure.resetSource,
+    quotaScope: failure.quotaScope,
     providerCode: failure.providerCode,
     requestId: failure.requestId,
     httpStatus: failure.httpStatus

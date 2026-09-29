@@ -180,7 +180,7 @@ const _rejectsAnAddedEventField: Keys<
 > = false
 const _rejectsAnAddedErrorField: Exact<
   Exclude<ProductionErrorField, "_tag">,
-  Exclude<keyof ModelErrorLike, "_tag"> | "quotaScope"
+  Exclude<keyof ModelErrorLike, "_tag"> | "providerRegion"
 > = false
 
 // ---------------------------------------------------------------------------

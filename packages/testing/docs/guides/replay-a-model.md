@@ -86,6 +86,9 @@ is a broken test setup rather than an outcome the code under test can handle,
 so it is a defect. A fixture that does not exist yet is `None`, which is what a
 first recording run sees.
 
+Recorded model failures retain the optional `quotaScope` value (`model` or
+`account`) through fixture decoding and replay.
+
 ## Replay strictly
 
 `RecordedModel` is the strict double. It matches by request shape with

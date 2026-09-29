@@ -217,6 +217,7 @@ const failureSchema = Schema.Struct({
   retryAfterMillis: Schema.optional(Schema.Number),
   resetAtEpochMillis: Schema.optional(Schema.Number),
   resetSource: Schema.optional(Schema.String),
+  quotaScope: Schema.optional(Schema.Literals(["model", "account"])),
   providerCode: Schema.optional(Schema.String),
   requestId: Schema.optional(Schema.String),
   httpStatus: Schema.optional(Schema.Number)

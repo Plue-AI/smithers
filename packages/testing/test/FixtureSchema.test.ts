@@ -129,6 +129,7 @@ const completeFailure: Complete<Omit<Failure, "_tag">> = {
   retryAfterMillis: 250,
   resetAtEpochMillis: 1_757_000_000_000,
   resetSource: "retry-after",
+  quotaScope: "account",
   providerCode: "invalid_request_error",
   requestId: "req_1",
   httpStatus: 400

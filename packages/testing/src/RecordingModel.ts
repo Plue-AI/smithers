@@ -36,6 +36,7 @@ const recordedFailure = (error: Model.ModelFailure): ModelErrorLike | undefined 
       retryAfterMillis: error.retryAfterMillis,
       resetAtEpochMillis: error.resetAtEpochMillis,
       resetSource: error.resetSource,
+      quotaScope: error.quotaScope,
       providerCode: error.providerCode,
       requestId: error.requestId,
       httpStatus: error.httpStatus

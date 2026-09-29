@@ -10,6 +10,9 @@ import { join } from "node:path"
 import * as CachedModel from "../src/CachedModel.ts"
 import { decode, type Fixture, type RecordedCall, recordedRequest } from "../src/Fixture.ts"
 import * as FixtureStore from "../src/FixtureStore.ts"
+import type { ModelErrorLike } from "../src/ModelLike.ts"
+
+type Complete<T> = { readonly [K in keyof T]-?: Exclude<T[K], undefined> }
 
 const request = (text: string, modelId = "openai:gpt-5-mini"): ModelRequest.ModelRequest =>
   ModelRequest.ModelRequest.make({
@@ -145,11 +148,19 @@ describe("CachedModel", () => {
 
   it.effect("replays a recorded provider failure as a ModelError, after the events that preceded it", () =>
     Effect.gen(function*() {
-      const failure = new ModelError({
-        code: "context_overflow",
-        message: "prompt is too long",
-        httpStatus: 400
-      })
+      const fields: Complete<Omit<ModelErrorLike, "_tag">> = {
+        code: "quota_exceeded",
+        message: "account quota exhausted",
+        path: "$.model",
+        retryAfterMillis: 1_000,
+        resetAtEpochMillis: 1_757_000_000_000,
+        resetSource: "retry-after",
+        quotaScope: "account",
+        providerCode: "quota_exceeded",
+        requestId: "req_1",
+        httpStatus: 429
+      }
+      const failure = new ModelError(fields)
       const live = Model.make({
         stream: () => Stream.concat(Stream.fail(failure))(Stream.fromIterable(events.slice(0, 2)))
       })
@@ -167,7 +178,7 @@ describe("CachedModel", () => {
         )
       expect(seen).toEqual(events.slice(0, 2))
       expect(replayed).toBeInstanceOf(ModelError)
-      expect(replayed).toMatchObject({ code: "context_overflow", message: "prompt is too long", httpStatus: 400 })
+      expect(replayed).toMatchObject(fields)
     }))
 
   it.effect("provides the cached model as the Model seam", () =>

@@ -231,6 +231,7 @@ export interface ModelErrorLike {
   readonly retryAfterMillis?: number | undefined
   readonly resetAtEpochMillis?: number | undefined
   readonly resetSource?: string | undefined
+  readonly quotaScope?: "model" | "account" | undefined
   readonly providerCode?: string | undefined
   readonly requestId?: string | undefined
   readonly httpStatus?: number | undefined
