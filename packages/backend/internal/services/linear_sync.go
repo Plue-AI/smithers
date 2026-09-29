@@ -1422,6 +1422,7 @@ func (s *LinearSyncService) runInitialSync(ctx context.Context, integration db.L
 	vars := map[string]any{"teamId": integration.LinearTeamID}
 
 	issuesChecked := 0
+	failedImports := 0
 	seenCursors := make(map[string]struct{})
 	for {
 		result, err := s.linearGraphQLMutation(ctx, accessToken, query, vars)
@@ -1471,6 +1472,8 @@ func (s *LinearSyncService) runInitialSync(ctx context.Context, integration db.L
 			}
 			node, ok := n.(map[string]any)
 			if !ok {
+				failedImports++
+				s.recordSyncRunResult(ctx, runID, "issue", true)
 				continue
 			}
 			linearIssueID, _ := node["id"].(string)
@@ -1489,6 +1492,7 @@ func (s *LinearSyncService) runInitialSync(ctx context.Context, integration db.L
 			}
 
 			if err := s.importLinearIssue(ctx, integration, linearIssueID, linearIdentifier, title, description); err != nil {
+				failedImports++
 				s.logSyncOpWithPayload(ctx, integration.ID, "linear", "jjhub", "issue", linearIssueID, "initial_sync", "failed", err.Error(), node)
 				s.recordSyncRunResult(ctx, runID, "issue", true)
 				slog.Error("linear initial sync: failed to import issue",
@@ -1510,6 +1514,9 @@ func (s *LinearSyncService) runInitialSync(ctx context.Context, integration db.L
 
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if failedImports > 0 {
+		return fmt.Errorf("Linear issue imports failed: %d", failedImports)
 	}
 	if err := s.queries.UpdateLinearIntegrationLastSync(ctx, integration.ID); err != nil {
 		return fmt.Errorf("update Linear integration sync timestamp: %w", err)

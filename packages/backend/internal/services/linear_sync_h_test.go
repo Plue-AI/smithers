@@ -420,7 +420,7 @@ func TestLinearSync_H_RunInitialSyncBranches(t *testing.T) {
 		return http.StatusOK, `{"data":{"issues":{"nodes":[123,{"id":"already","identifier":"PLT-1","title":"Already","description":"Body"}],"pageInfo":{"hasNextPage":false}}}}`, nil
 	})
 	svc.RunInitialSync(ctx, integration)
-	assert.Equal(t, []int64{integration.ID}, q.lastSyncIDs)
+	assert.Empty(t, q.lastSyncIDs)
 
 	q = &linearSyncCovQuerier{integration: integration, createIssueErr: errors.New("create failed")}
 	svc = NewLinearSyncService(q, integrationSvc)
@@ -430,5 +430,5 @@ func TestLinearSync_H_RunInitialSyncBranches(t *testing.T) {
 	svc.RunInitialSync(ctx, integration)
 	require.Len(t, q.logs, 1)
 	assert.Equal(t, "failed", q.logs[0].Status)
-	assert.Equal(t, []int64{integration.ID}, q.lastSyncIDs)
+	assert.Empty(t, q.lastSyncIDs)
 }
