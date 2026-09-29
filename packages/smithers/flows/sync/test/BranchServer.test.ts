@@ -424,6 +424,84 @@ describe("BranchRpcs over the wire", () => {
       expect(roster).toEqual([])
     }))
 
+  it.effect("catches invalid in-process cursors as SyncError without changing the roster", () =>
+    Effect.gen(function*() {
+      const refusals = yield* program(Effect.gen(function*() {
+        const client = yield* connect(yield* TestSocket.makePair())
+        const presence = yield* BranchPresence.BranchPresence
+        const created = yield* client["Branch.CreateBranch"]({ ttlMs: 600_000 })
+        const invalidCursors = [
+          { label: "empty cardId", cardId: "", offset: 0 },
+          { label: "non-string cardId", cardId: 42, offset: 0 },
+          { label: "negative offset", cardId: "branch-card", offset: -1 },
+          { label: "non-number offset", cardId: "branch-card", offset: "3" },
+          { label: "fractional offset", cardId: "branch-card", offset: 1.5 },
+          { label: "NaN offset", cardId: "branch-card", offset: Number.NaN },
+          { label: "infinite offset", cardId: "branch-card", offset: Number.POSITIVE_INFINITY },
+          { label: "unsafe integer offset", cardId: "branch-card", offset: Number.MAX_SAFE_INTEGER + 1 }
+        ]
+        const announceWithCursor = (cursor: Cursor) =>
+          presence.announce({
+            capability: created.capability,
+            branchId: created.branchId,
+            participantId: alice,
+            displayName: "Alice",
+            cursor
+          }).pipe(
+            Effect.as("accepted"),
+            Effect.catchTag("@smthrs/sync/SyncError", (error) => Effect.succeed(error.code))
+          )
+        const outcomes = []
+        for (const { label, cardId, offset } of invalidCursors) {
+          // A service caller can bypass the wire schema and Cursor constructor.
+          const outcome = yield* announceWithCursor({ cardId, offset } as unknown as Cursor)
+          outcomes.push({ label, outcome })
+        }
+        for (
+          const { label, cursor } of [
+            { label: "undefined cursor", cursor: undefined as unknown as Cursor },
+            { label: "primitive cursor", cursor: 17 as unknown as Cursor }
+          ]
+        ) {
+          const outcome = yield* announceWithCursor(cursor)
+          outcomes.push({ label, outcome })
+        }
+        const roster = yield* presence.list({ capability: created.capability, branchId: created.branchId })
+        return { outcomes, roster }
+      }))
+
+      for (const { label, outcome } of refusals.outcomes) {
+        expect(outcome, label).toBe("invalid_request")
+      }
+      expect(refusals.roster).toEqual([])
+    }))
+
+  it.effect("authorizes a read-only link before refusing its malformed cursor", () =>
+    Effect.gen(function*() {
+      const refusal = yield* program(Effect.gen(function*() {
+        const client = yield* connect(yield* TestSocket.makePair())
+        const presence = yield* BranchPresence.BranchPresence
+        const created = yield* client["Branch.CreateBranch"]({ ttlMs: 600_000 })
+        const readLink = yield* client["Branch.MintShare"]({
+          capability: created.capability,
+          access: "read",
+          ttlMs: 60_000
+        })
+        return yield* presence.announce({
+          capability: readLink,
+          branchId: created.branchId,
+          participantId: alice,
+          displayName: "Alice",
+          cursor: { cardId: "", offset: -1 } as Cursor
+        }).pipe(
+          Effect.as("accepted"),
+          Effect.catchTag("@smthrs/sync/SyncError", (error) => Effect.succeed(error.code))
+        )
+      }))
+
+      expect(refusal).toBe("unauthorized")
+    }))
+
   it.effect("denies the roster to a capability for another branch and to an expired one", () =>
     Effect.gen(function*() {
       const [foreign, expired] = yield* program(

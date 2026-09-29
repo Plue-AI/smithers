@@ -316,33 +316,51 @@ const makeResolved = (
       ...detachRoster(request),
       participantId: request.participantId
     })
-    const detachAnnouncement = (request: Announcement): Announcement => ({
-      ...detachLeave(request),
-      displayName: request.displayName,
-      cursor: request.cursor === null
+    const detachAnnouncement = (request: Announcement) => {
+      const suppliedCursor: unknown = request.cursor
+      const cursor: { readonly cardId: unknown; readonly offset: unknown } | null = suppliedCursor === null
         ? null
-        : new Cursor({ cardId: request.cursor.cardId, offset: request.cursor.offset })
-    })
+        : typeof suppliedCursor === "object"
+        ? { cardId: (suppliedCursor as Cursor).cardId, offset: (suppliedCursor as Cursor).offset }
+        : { cardId: undefined, offset: undefined }
+      return { ...detachLeave(request), displayName: request.displayName, cursor }
+    }
 
     const announce = Effect.fn("BranchPresence.announce")(function*(supplied: Announcement) {
-      const announcement = detachAnnouncement(supplied)
+      const detached = detachAnnouncement(supplied)
       yield* Effect.annotateCurrentSpan({
-        branchId: announcement.branchId,
-        participantId: announcement.participantId
+        branchId: detached.branchId,
+        participantId: detached.participantId
       })
-      const claims = yield* share.verify(announcement.capability, {
-        branchId: announcement.branchId,
+      const claims = yield* share.verify(detached.capability, {
+        branchId: detached.branchId,
         access: "write"
       })
       // The wire schema IS `Announcement`, so a remote caller cannot reach
       // here with an empty name. An in-process caller can, and `Participant`
       // requires a `NonEmptyString`: without this the constructor threw a
       // defect out of an operation whose type promises a `SyncError`.
-      if (announcement.displayName.length === 0) {
+      if (detached.displayName.length === 0) {
         return yield* Effect.fail(
           new SyncError({ code: "invalid_request", message: "A participant's display name must not be empty" })
         )
       }
+      let cursor: Cursor | null = null
+      if (detached.cursor !== null) {
+        const { cardId, offset } = detached.cursor
+        if (typeof cardId !== "string" || cardId.length === 0) {
+          return yield* Effect.fail(
+            new SyncError({ code: "invalid_request", message: "A cursor's card ID must not be empty" })
+          )
+        }
+        if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
+          return yield* Effect.fail(
+            new SyncError({ code: "invalid_request", message: "A cursor's offset must be a nonnegative safe integer" })
+          )
+        }
+        cursor = new Cursor({ cardId, offset })
+      }
+      const announcement = { ...detached, cursor }
       const nowMs = yield* Clock.currentTimeMillis
       // Run-out leases are dropped before the cap is judged, so a branch that
       // has simply been busy over time is never refused for a stale roster.
