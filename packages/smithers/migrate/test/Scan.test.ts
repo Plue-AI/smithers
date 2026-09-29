@@ -252,8 +252,8 @@ describe("Scan.decisions merges every occurrence of a construct", () => {
     }
     const merged = Scan.decisions([hit("Loop", ["continueAsNewEvery"]), unbounded])
 
-    expect(merged[0]?.class).toBe("unsafe")
-    expect(merged[0]?.reason).toContain("Continued")
+    expect(merged[0]?.class).toBe("guided")
+    expect(merged[0]?.reason).toContain("maxRounds")
     expect(merged[0]?.reason).toContain("fuel")
     expect(Scan.decisions([unbounded, hit("Loop", ["continueAsNewEvery"])])).toEqual(merged)
   })
