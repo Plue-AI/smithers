@@ -108,6 +108,35 @@ describe("issue-claim commands", () => {
     assert.ok(github.state.calls.some((call) => call.startsWith("api repos/smithersai/smithers/labels -f name=in-progress -f color=fbca04")))
   })
 
+  it("rolls back a newly added label and propagates a failed claim comment", () => {
+    const github = fakeGitHub()
+    const error = new Error("secondary rate limit")
+    const gh = github.gh
+    github.gh = (args) => {
+      if (args.includes("repos/smithersai/smithers/issues/7/comments") && args.includes("-f")) throw error
+      return gh(args)
+    }
+    assert.throws(() => cli(github, ["claim", "smithers#7"]), (caught) => caught === error)
+    assert.deepEqual(github.state.labels, [])
+    assert.ok(github.state.calls.includes(`api --method DELETE repos/smithersai/smithers/issues/7/labels/${LABEL}`))
+    assert.deepEqual(github.state.comments, [])
+  })
+
+  it("keeps an existing label when its holder's refresh comment fails", () => {
+    const github = fakeGitHub()
+    cli(github, ["claim", "smithers#7"])
+    const error = new Error("secondary rate limit")
+    const gh = github.gh
+    github.gh = (args) => {
+      if (args.includes("repos/smithersai/smithers/issues/7/comments") && args.includes("-f")) throw error
+      return gh(args)
+    }
+    assert.throws(() => cli(github, ["claim", "smithers#7"], hours(1)), (caught) => caught === error)
+    assert.ok(github.state.labels.includes(LABEL))
+    assert.ok(!github.state.calls.some((call) => call.includes("DELETE")))
+    assert.equal(github.state.comments.length, 1)
+  })
+
   it("refuses another agent's live claim without writing, and check reports it", () => {
     const github = fakeGitHub()
     cli(github, ["claim", "plue#7"], T0, "lane-1")
@@ -147,6 +176,19 @@ describe("issue-claim commands", () => {
     assert.equal(code, 2)
     assert.equal(out.action, "lost-race")
     assert.equal(out.holder.by, "rival")
+  })
+
+  it("removes the label when GitHub rejects the claim comment", () => {
+    const github = fakeGitHub()
+    const limitedGh = (args) => {
+      if (args.some((arg) => /\/comments$/.test(arg)) && args.includes("-f")) throw new Error("secondary rate limit")
+      return github.gh(args)
+    }
+    assert.throws(() => run(["claim", "smithers#4", "--by", "lane-1"],
+      { gh: limitedGh, now: () => T0, env: {} }), /secondary rate limit/)
+    assert.deepEqual(github.state.labels, [])
+    assert.equal(github.state.comments.length, 0)
+    assert.equal(cli(github, ["claim", "smithers#4"]).code, 0)
   })
 
   it("releases with a reason, tolerating an already removed label; --force releases another's claim", () => {

@@ -100,7 +100,8 @@ export const run = (argv, { gh = defaultGh, now = () => new Date(), env = proces
   const issue = parseRef(ref)
   const me = { by: option("--by") || env.ISSUE_CLAIM_BY || env.CLAUDE_SESSION_NAME || `${userInfo().username}-${process.ppid}`, host: hostname() }
   const id = `${issue.repo}#${issue.number}`
-  const before = holder(read(issue, gh), now().getTime())
+  const initial = read(issue, gh)
+  const before = holder(initial, now().getTime())
   const blocked = before && !before.stale && !mine(before, me)
   if (command === "check") return { code: blocked ? 2 : 0, out: { issue: id, free: !before || before.stale, mine: Boolean(mine(before, me)), holder: before } }
   const base = `repos/${issue.repo}/issues/${issue.number}`
@@ -114,7 +115,14 @@ export const run = (argv, { gh = defaultGh, now = () => new Date(), env = proces
   try { gh(["api", `repos/${issue.repo}/labels`, "-f", `name=${LABEL}`, "-f", `color=${COLOR}`, "-f", "description=An agent is working this; see its Claimed by comment"]) } catch { /* exists */ }
   gh(["api", `${base}/labels`, "-f", `labels[]=${LABEL}`])
   const takeover = before && before.stale && !mine(before, me) ? before.line : undefined
-  gh(["api", `${base}/comments`, "-f", `body=${claimBody({ ...me, now: now(), takeover, note: option("--note") })}`])
+  try {
+    gh(["api", `${base}/comments`, "-f", `body=${claimBody({ ...me, now: now(), takeover, note: option("--note") })}`])
+  } catch (error) {
+    if (!initial.labeled) {
+      try { gh(["api", "--method", "DELETE", `${base}/labels/${LABEL}`]) } catch { /* preserve the claim error */ }
+    }
+    throw error
+  }
   const after = holder(read(issue, gh), now().getTime())
   if (!mine(after, me)) return { code: 2, out: { issue: id, action: "lost-race", holder: after } }
   return { code: 0, out: { issue: id, action: takeover ? "took-over" : mine(before, me) ? "refreshed" : "claimed", holder: after } }
