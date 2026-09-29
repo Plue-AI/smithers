@@ -242,6 +242,52 @@ describe("permission failures", () => {
     })
   })
 
+  it.each(["plain", "transparent", "throwing"] as const)(
+    "inspects %s metadata arrays without ordinary property reads",
+    (kind) => {
+      const reads: Array<PropertyKey> = []
+      const array = kind === "plain" ? [1] : new Proxy([1], {
+        get(target, key, receiver) {
+          reads.push(key)
+          if (kind === "throwing" && key === "length") throw new Error("metadata-length-marker")
+          return Reflect.get(target, key, receiver)
+        }
+      })
+      const input = {
+        _tag: "@smthrs/capability/PermissionRequired",
+        code: "permission_required",
+        requestId: "r",
+        capability: { action: "fs:read", resource: "/a" },
+        tier: "sealed",
+        meta: { nested: { array } }
+      }
+      expect(isPermissionError(input)).toBe(true)
+      expect(reads).toEqual([])
+      // Construction performs schema validation after descriptor-only refinement.
+      // Its ordinary reads may fail, but decoding must contain that failure.
+      expect(Option.isSome(decodePermissionError(input))).toBe(kind !== "throwing")
+    }
+  )
+
+  it.each(["getPrototypeOf", "ownKeys", "getOwnPropertyDescriptor"] as const)(
+    "returns None when metadata inspection throws in %s",
+    (trap) => {
+      const array = new Proxy([1], {
+        [trap]() {
+          throw new Error("metadata-inspection-marker")
+        }
+      })
+      expect(decodePermissionError({
+        _tag: "@smthrs/capability/PermissionRequired",
+        code: "permission_required",
+        requestId: "r",
+        capability: { action: "fs:read", resource: "/a" },
+        tier: "sealed",
+        meta: { array }
+      })).toEqual(Option.none())
+    }
+  )
+
   it("rejects an inconsistent inherited message descriptor", () => {
     const input = new Proxy({ _tag: "@smthrs/capability/GrantStoreError", code: "store_closed" }, {
       has: (_target, key) => key === "message",
