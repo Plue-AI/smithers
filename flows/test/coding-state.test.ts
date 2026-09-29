@@ -2,7 +2,7 @@ import * as ApprovalAuthority from "@smthrs/control/ApprovalAuthority"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
@@ -89,6 +89,50 @@ test("the configured host refuses an in-root state directory before it opens a d
       repositoryPath,
       stateRoot: "/srv/coding-state"
     })
+  )
+})
+
+test("a sibling state symlink into the working copy is refused by the resolver and host", async (t) => {
+  const temporary = await mkdtemp(join(tmpdir(), "coding-state-symlink-"))
+  t.after(() => rm(temporary, { force: true, recursive: true }))
+  const repositoryPath = join(temporary, "workspace")
+  const repositoryLink = join(temporary, "linked-workspace")
+  const stateLink = join(temporary, "linked-state")
+  const outsideState = join(temporary, "outside-state")
+  await mkdir(join(repositoryPath, "mutable-state"), { recursive: true })
+  await mkdir(outsideState)
+  await symlink(repositoryPath, repositoryLink, "dir")
+  await symlink(join(repositoryPath, "mutable-state"), stateLink, "dir")
+
+  for (const stateRoot of [stateLink, join(stateLink, "new-state")]) {
+    assert.throws(
+      () => CodingState.resolveStateRoot({ root: repositoryPath, explicit: stateRoot }),
+      /inside the served working copy/
+    )
+    assert.throws(
+      () => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath, stateRoot }),
+      /inside the served working copy/
+    )
+  }
+
+  const stateInsidePhysicalWorkspace = join(repositoryPath, "mutable-state", "new-state")
+  assert.throws(
+    () => CodingState.resolveStateRoot({ root: repositoryLink, explicit: stateInsidePhysicalWorkspace }),
+    /inside the served working copy/
+  )
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, {
+        ...options,
+        repositoryPath: repositoryLink,
+        stateRoot: stateInsidePhysicalWorkspace
+      }),
+    /inside the served working copy/
+  )
+
+  assert.equal(CodingState.resolveStateRoot({ root: repositoryPath, explicit: outsideState }), outsideState)
+  assert.doesNotThrow(() =>
+    layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath, stateRoot: outsideState })
   )
 })
 

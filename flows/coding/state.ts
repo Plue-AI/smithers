@@ -14,6 +14,7 @@
  * only when an operator names it.
  */
 import { createHash } from "node:crypto"
+import { lstatSync, realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve, sep } from "node:path"
 
@@ -26,6 +27,25 @@ export const inRootVariable = "SMITHERS_CODING_STATE_IN_ROOT"
 export const inside = (parent: string, child: string): boolean => {
   const from = resolve(parent), to = resolve(child)
   return to === from || to.startsWith(from.endsWith(sep) ? from : from + sep)
+}
+
+/** Resolve symlinks through the nearest existing ancestor of a path. */
+const physicalPath = (path: string): string => {
+  let ancestor = resolve(path)
+  const missing: Array<string> = []
+  for (;;) {
+    try {
+      lstatSync(ancestor)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      const parent = dirname(ancestor)
+      if (parent === ancestor) throw error
+      missing.push(basename(ancestor))
+      ancestor = parent
+      continue
+    }
+    return join(realpathSync(ancestor), ...missing.reverse())
+  }
 }
 
 const truthy = (value: string | undefined): boolean =>
@@ -69,7 +89,7 @@ export const resolveStateRoot = (options: {
     : resolve(root, named)
   // A root that is the filesystem root has no outside, so the XDG fallback it
   // resolves to is the best available answer rather than a refusal.
-  if (dirname(root) !== root && inside(root, stateRoot) && !optedIn) {
+  if (dirname(root) !== root && inside(physicalPath(root), physicalPath(stateRoot)) && !optedIn) {
     throw new Error(
       `Refusing to keep coding host state at ${stateRoot}: it is inside the served working copy ${root}, ` +
         "where .flows/control.db and .flows/engine.db become untracked JJ files and fail every planning " +
