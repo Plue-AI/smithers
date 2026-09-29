@@ -303,7 +303,7 @@ describe("the shipped Node executor's supervisor memory", () => {
       })
       const layer = Application.layer({ root }, registry, engine, runs) as Layer.Layer<Control.Control>
       const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
-      await Effect.runPromise(
+      const events = await Effect.runPromise(
         Effect.gen(function*() {
           const control = yield* Control.Control
           const card = yield* control.plan({ flowId: "probe", input: {} })
@@ -318,24 +318,44 @@ describe("the shipped Node executor's supervisor memory", () => {
           if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
             return yield* Effect.die("expected an accepted run")
           }
-          yield* control.watch({ runId: receipt.runId, follow: true }).pipe(
+          return yield* control.watch({ runId: receipt.runId, follow: true }).pipe(
             Stream.takeUntil((event) => terminal.has(event.kind)),
             Stream.runCollect
           )
         }).pipe(Effect.provide(layer), Effect.scoped, Effect.orDie)
       )
-      return requests
+      // The frame-0 reading of the run's own session: opening memory rows are
+      // judged there as `memory` items, beside flows and instructions.
+      const settled = events.find((event) =>
+        event.kind === "control.agent.relevance-settled" && event.step === undefined
+      )?.payload as
+        | {
+          readonly frame: number
+          readonly source: string
+          readonly kept: ReadonlyArray<{ readonly kind: string; readonly id: string }>
+          readonly withheld: ReadonlyArray<{ readonly kind: string; readonly id: string }>
+        }
+        | undefined
+      return { requests, settled }
     }
 
     const open = await probe({})
     // The opening seeds the file the task names, and the agent's call reads it.
-    expect(open[0]).toContain("host-only-secret")
-    expect(open[1]).toContain("MEMORY-OK")
-    expect(open[1]).toContain("host-only-secret")
+    expect(open.requests[0]).toContain("host-only-secret")
+    expect(open.requests[1]).toContain("MEMORY-OK")
+    expect(open.requests[1]).toContain("host-only-secret")
+    // The opening row reached the agent through the run-start relevance reading.
+    expect(open.settled).toMatchObject({ frame: 0, source: "run" })
+    expect(open.settled!.kept.filter((item) => item.kind === "memory").map((item) => item.id)).toEqual([
+      "file/notes/secret.txt"
+    ])
+    expect(open.settled!.withheld.filter((item) => item.kind === "memory")).toEqual([])
 
     const sealed = await probe({ SMITHERS_BASH_CONTAINER: "benchmark-cell" })
-    expect(sealed.length).toBeGreaterThan(1)
-    expect(sealed.join("\n")).not.toContain("host-only-secret")
-    expect(sealed[1]).toContain("MEMORY-REFUSED")
+    expect(sealed.requests.length).toBeGreaterThan(1)
+    expect(sealed.requests.join("\n")).not.toContain("host-only-secret")
+    expect(sealed.requests[1]).toContain("MEMORY-REFUSED")
+    // A sealed host opens with no workspace rows to judge.
+    expect(sealed.settled!.kept.filter((item) => item.kind === "memory")).toEqual([])
   }, 60_000)
 })
