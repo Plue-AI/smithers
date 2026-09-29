@@ -416,4 +416,7 @@ func TestMythicalBridgeAnswersTheLargePackProbe(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, pullNew, host.bookmarks["main"])
+	status, _, err = postReceivePack(ctx, bridge.URL(), "", []repohost.ReceivePackCommand{{OldOID: pullOld, NewOID: pullNew, RefName: "refs/heads/main"}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, status, "the allowance is spent by the push, not the probe")
 }

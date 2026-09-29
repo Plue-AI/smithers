@@ -248,7 +248,7 @@ func waitForServiceReady(ctx context.Context, spec workspaceapi.ServiceSpec, pro
 	if spec.ReadyAddress != "" {
 		readyCtx, cancel := context.WithTimeout(ctx, spec.ReadyTimeout)
 		defer cancel()
-		if err := waitForTCP(readyCtx, spec.ReadyAddress, process.done); err != nil {
+		if err := waitForTCP(readyCtx, spec.ReadyAddress, process); err != nil {
 			return fmt.Errorf("workspace service %q readiness: %w", spec.Name, err)
 		}
 		return nil
@@ -411,7 +411,7 @@ func (r *Runtime) ManageService(ctx context.Context, workspaceID, name, action s
 	return r.InspectService(ctx, workspaceID, name)
 }
 
-func waitForTCP(ctx context.Context, address string, exited <-chan struct{}) error {
+func waitForTCP(ctx context.Context, address string, process *managedProcess) error {
 	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -424,7 +424,12 @@ func waitForTCP(ctx context.Context, address string, exited <-chan struct{}) err
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-exited:
+		case <-process.done:
+			// The exit status names the cause for an operator; stderr stays in
+			// InspectService, never in this error.
+			if process.waitErr != nil {
+				return fmt.Errorf("process exited before accepting connections: %w", process.waitErr)
+			}
 			return errors.New("process exited before accepting connections")
 		case <-ticker.C:
 		}

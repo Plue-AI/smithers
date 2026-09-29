@@ -66,3 +66,21 @@ func TestRuntimeDuplicateServiceStartWaitsForReadiness(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, observed.PID, duplicate.PID)
 }
+
+// A service that exits before it listens reports its exit status, so an
+// operator reading the startup failure sees why (smithersai/smithers#2472).
+// The status is the whole of it: stderr stays in InspectService.
+func TestRuntimeServiceExitBeforeListeningReportsItsExitStatus(t *testing.T) {
+	runtime := newTestRuntime(t, t.TempDir())
+	workspace, err := runtime.CreateWorkspace(context.Background(), workspaceapi.WorkspaceSpec{ID: "early-exit"})
+	require.NoError(t, err)
+	_, err = runtime.StartWorkspace(context.Background(), workspace.ID)
+	require.NoError(t, err)
+	command := helperCommand("serve", nil)
+	command.Args = []string{"/bin/sh", "-c", "echo secret-detail >&2; exit 23"}
+	spec := workspaceapi.ServiceSpec{Name: "host", Command: command, ReadyAddress: reserveTestAddress(t), ReadyTimeout: 5 * time.Second}
+	_, err = runtime.StartService(context.Background(), workspace.ID, spec)
+	require.ErrorContains(t, err, "process exited before accepting connections")
+	require.ErrorContains(t, err, "exit status 23")
+	require.NotContains(t, err.Error(), "secret-detail")
+}
