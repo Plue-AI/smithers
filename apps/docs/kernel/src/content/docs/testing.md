@@ -8,6 +8,12 @@ The kernel ships two public test helpers: `test/TestGrantStore` and
 `test/contract` (also exported as `test/HostContract`). They are published code,
 so consumers can use the same doubles and host contract as the package tests.
 
+## Run the kernel suite
+
+From the repository root, run `pnpm --dir packages/smithers/flows/kernel exec vitest run`.
+The same command runs in the independent Windows kernel job, with the package's
+coverage thresholds enforced.
+
 ## Pick a grant-store double
 
 `@smthrs/kernel/test/TestGrantStore` gives you three layers, and none of them
