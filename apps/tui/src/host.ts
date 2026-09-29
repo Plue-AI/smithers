@@ -623,9 +623,37 @@ export const make = (options: {
       // selects. The coordinator never does: Jev would sit in front of the
       // chat's acknowledgment.
       const opened = turn.memory && box === undefined
-        ? yield* Memory.opening(input.prompt, memoryOptions).pipe(Effect.provideContext(memoryServices))
+        ? yield* Memory.opening(input.prompt, memoryOptions).pipe(
+          Effect.provideContext(memoryServices),
+          // Frame zero identifies the host's opening recall in the TUI session.
+          // Record its failure before preserving the failed worker outcome.
+          Effect.tapError((error) =>
+            Effect.promise(() =>
+              Promise.resolve(input.onEvent({
+                _tag: "supervisor-memory-failed",
+                eventType: "flows.harness.supervisor-memory-failed.v1",
+                scope: session,
+                frame: 0,
+                operation: "recall",
+                detail: error.code
+              }))
+            )
+          )
+        )
         : undefined
-      if (opened?.unjudged !== undefined) Log.write("host.memory", opened.unjudged)
+      const unjudged = opened?.unjudged
+      if (unjudged !== undefined) {
+        Log.write("host.memory", unjudged)
+        yield* Effect.promise(() =>
+          Promise.resolve(input.onEvent({
+            ...unjudged,
+            _tag: "decision-unjudged",
+            eventType: "flows.harness.decision-unjudged.v1",
+            scope: session,
+            frame: 0
+          }))
+        )
+      }
       const body = agent.run({
         session,
         seat,

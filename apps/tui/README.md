@@ -178,6 +178,7 @@ completion menu follow opencode's shapes; fuzzy matching is pi's.
 
 A worker's timeline shows what entered its window: `→ context 12 in · 3
 withheld` at run start and `→ memory 7 in · 4 withheld` for recalled memory.
+An unjudged or failed memory opening shows `→ memory unavailable`.
 A worker whose child runs the agent `poc` (or `…/poc`), a POC lane, shows its lanes side
 by side in the overview's cards pane, the POC's open questions under it.
 

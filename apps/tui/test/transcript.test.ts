@@ -1,3 +1,4 @@
+import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -117,6 +118,58 @@ describe("Jev context assessment", () => {
       outdated: false,
       irrelevant: false
     })
+  })
+})
+
+describe("memory opening availability", () => {
+  const unjudged = (scope: string, classifier: string, frame = 0) =>
+    new AgentEvent.DecisionUnjudged({
+      eventType: AgentEvent.eventType.decisionUnjudged,
+      scope,
+      frame,
+      classifier,
+      reason: "unreachable",
+      detail: "Judge unavailable",
+      items: 2
+    })
+  const fault = (scope: string, operation: "recall" | "remember", frame = 0) =>
+    new AgentEvent.SupervisorMemoryFailed({
+      eventType: AgentEvent.eventType.supervisorMemoryFailed,
+      scope,
+      frame,
+      operation,
+      detail: "judge_failed: invalid answer"
+    })
+  const notes = (transcript: Transcript.Transcript) =>
+    transcript.items.filter((item) => item.kind === "note").map((item) => item.text)
+
+  it("shows one row for repeated unjudged memory readings in a run", () => {
+    const first = Transcript.apply(Transcript.empty, unjudged("worker-1", "memory/needed"), 1)
+    expect(notes(first)).toEqual(["→ memory unavailable"])
+    const repeated = Transcript.apply(first, unjudged("worker-1", "memory/descend"), 2)
+    expect(notes(repeated)).toEqual(["→ memory unavailable"])
+    const second = Transcript.apply(repeated, unjudged("worker-2", "memory/needed"), 3)
+    expect(notes(second)).toEqual(["→ memory unavailable", "→ memory unavailable"])
+    const interleaved = Transcript.apply(second, unjudged("worker-1", "memory/descend"), 4)
+    expect(notes(interleaved)).toEqual(["→ memory unavailable", "→ memory unavailable"])
+  })
+
+  it("shows a failed memory opening once even if an unjudged reading follows", () => {
+    const failed = Transcript.apply(Transcript.empty, fault("worker-1", "recall"), 1)
+    expect(notes(failed)).toEqual(["→ memory unavailable"])
+    expect(notes(Transcript.apply(failed, unjudged("worker-1", "memory/needed"), 2)))
+      .toEqual(["→ memory unavailable"])
+  })
+
+  it("ignores unrelated unjudged readings and memory writes", () => {
+    const other = Transcript.apply(Transcript.empty, unjudged("worker-1", "relevance/unnecessary"), 1)
+    expect(notes(Transcript.apply(other, fault("worker-1", "remember"), 2))).toEqual([])
+  })
+
+  it("ignores memory failures after the opening frame", () => {
+    const laterReading = Transcript.apply(Transcript.empty, unjudged("worker-1", "memory/needed", 1), 1)
+    const laterRecall = Transcript.apply(laterReading, fault("worker-1", "recall", 2), 2)
+    expect(notes(laterRecall)).toEqual([])
   })
 })
 

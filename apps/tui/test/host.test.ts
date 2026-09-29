@@ -30,6 +30,9 @@ import * as Log from "../src/log.ts"
 import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
 import * as Spend from "../src/spend.ts"
+import * as Subagents from "../src/subagents.ts"
+import * as Timeline from "../src/timeline.ts"
+import * as Transcript from "../src/transcript.ts"
 
 const roots: Array<string> = []
 afterEach(() => {
@@ -1694,6 +1697,14 @@ describe("Host.run memory", () => {
     expect(system).not.toContain("export const other = 2")
     const settled = events.find((event) => event._tag === "cell-call-settled" && event.flowName === "memory")
     expect(settled?._tag === "cell-call-settled" && settled.result.outcome).toBe("success")
+    expect(events.some((event) => event._tag === "decision-unjudged" && event.classifier.startsWith("memory/")))
+      .toBe(false)
+    expect(events.some((event) => event._tag === "supervisor-memory-failed" && event.operation === "recall"))
+      .toBe(false)
+    expect(
+      events.reduce((current, event, at) => Transcript.apply(current, event, at), Transcript.empty).items
+        .some((item) => item.kind === "note" && item.text === "→ memory unavailable")
+    ).toBe(false)
   })
 
   test("memory stays callable when the run-start reading withholds everything it can", async () => {
@@ -1711,6 +1722,101 @@ describe("Host.run memory", () => {
     expect(outcome).toEqual({ _tag: "done", answer: "needed.ts" })
     const settled = events.find((event) => event._tag === "cell-call-settled" && event.flowName === "memory")
     expect(settled?._tag === "cell-call-settled" && settled.result.outcome).toBe("success")
+  })
+
+  test("shows one unavailable memory row when the opening judge cannot be reached", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-memory-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "needed.ts"), "export const needed = 1\n")
+    const host = Host.make({ cwd, environment: {}, judge: Evaluator.layerUnavailable() })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      await host.run({
+        prompt: "Change needed.ts",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd)}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      const unavailable = events.filter((event) =>
+        event._tag === "decision-unjudged" && event.classifier.startsWith("memory/")
+      )
+      expect(unavailable).toMatchObject([{ reason: "unreachable", scope: expect.any(String), frame: 0 }])
+      expect(events.indexOf(unavailable[0]!)).toBeLessThan(
+        events.findIndex((event) => event._tag === "model-requested")
+      )
+      const transcript = events.reduce(
+        (current, event, at) => Transcript.apply(current, event, at),
+        Transcript.empty
+      )
+      expect(
+        Timeline.rows(transcript).filter((row) => row.item.kind === "note" && row.item.text === "→ memory unavailable")
+      )
+        .toHaveLength(1)
+      expect(
+        Subagents.lines(Timeline.rows(transcript), []).filter((line) =>
+          line.kind === "row" && line.row.item.kind === "note" && line.row.item.text === "→ memory unavailable"
+        )
+      )
+        .toHaveLength(1)
+      expect(transcript.items.filter((item) => item.kind === "note" && item.text.startsWith("→ memory ")))
+        .toHaveLength(1)
+
+      const writer = Session.create(cwd, "worker")
+      roots.push(Session.directory(cwd))
+      writer.append({ type: "user", at: 0, text: "Change needed.ts" })
+      for (const event of unavailable) writer.append({ type: "event", at: 1, event })
+      const restored = Session.restore(Session.load(writer.file)).transcript
+      expect(
+        Timeline.rows(restored).filter((row) => row.item.kind === "note" && row.item.text === "→ memory unavailable")
+      )
+        .toHaveLength(1)
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("records a failed memory opening before ending the worker", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-memory-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "needed.ts"), "export const needed = 1\n")
+    const host = Host.make({
+      cwd,
+      environment: {},
+      judge: Evaluator.layerScripted(() => ({ complete: { probability: 0.99 } }))
+    })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "Change needed.ts",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd)}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      expect(outcome._tag).toBe("failed")
+      const openingFailure = events.filter((event) =>
+        event._tag === "supervisor-memory-failed" && event.operation === "recall" && event.frame === 0
+      )
+      expect(openingFailure).toHaveLength(1)
+      const transcript = events.reduce(
+        (current, event, at) => Transcript.apply(current, event, at),
+        Transcript.empty
+      )
+      expect(transcript.items.filter((item) => item.kind === "note" && item.text === "→ memory unavailable"))
+        .toHaveLength(1)
+
+      const writer = Session.create(cwd, "worker")
+      roots.push(Session.directory(cwd))
+      writer.append({ type: "user", at: 0, text: "Change needed.ts" })
+      for (const event of openingFailure) writer.append({ type: "event", at: 1, event })
+      const restored = Session.restore(Session.load(writer.file)).transcript
+      expect(
+        Timeline.rows(restored).filter((row) => row.item.kind === "note" && row.item.text === "→ memory unavailable")
+      ).toHaveLength(1)
+    } finally {
+      await host.dispose()
+    }
   })
 
   test("tells a wrapped harness the block Jev chose, with what it kept and left out", async () => {
@@ -1763,9 +1869,17 @@ describe("Host.run memory", () => {
   })
 
   test("a coordinator neither opens with memory nor offers it", async () => {
-    const { asked, outcome, requests } = await run("coordinator", `ctx.done(String("memory" in ctx.flows))`)
+    const { asked, events, outcome, requests } = await run("coordinator", `ctx.done(String("memory" in ctx.flows))`)
     expect(outcome).toEqual({ _tag: "done", answer: "false" })
     expect(asked).toEqual([])
     expect(requests[0]!.system.map((part) => part.text).join("\n")).not.toContain("<flows_memory_context>")
+    expect(events.some((event) => event._tag === "decision-unjudged" && event.classifier.startsWith("memory/")))
+      .toBe(false)
+    expect(events.some((event) => event._tag === "supervisor-memory-failed" && event.operation === "recall"))
+      .toBe(false)
+    expect(
+      events.reduce((current, event, at) => Transcript.apply(current, event, at), Transcript.empty).items
+        .some((item) => item.kind === "note" && item.text === "→ memory unavailable")
+    ).toBe(false)
   })
 })

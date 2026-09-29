@@ -121,6 +121,8 @@ export interface Transcript {
   readonly usage: Usage
   /** The last relevance reading drawn, by source and kept ids, so a repeat adds no row. */
   readonly relevance?: string
+  /** Runs whose unavailable memory already has a timeline row. */
+  readonly memoryUnavailable?: ReadonlyArray<string>
 }
 
 export interface Usage {
@@ -414,6 +416,17 @@ export const apply = (transcript: Transcript, event: Activity.Observed, at: numb
 
 const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number): Transcript => {
   switch (event._tag) {
+    case "decision-unjudged":
+    case "supervisor-memory-failed": {
+      const unavailable = event._tag === "decision-unjudged"
+        ? event.classifier.startsWith("memory/")
+        : event.operation === "recall"
+      if (event.frame !== 0 || !unavailable || transcript.memoryUnavailable?.includes(event.scope)) return transcript
+      return {
+        ...note(transcript, "→ memory unavailable", at),
+        memoryUnavailable: [...transcript.memoryUnavailable ?? [], event.scope]
+      }
+    }
     case "supervisor-settled":
       if (event.outdatedContext === undefined && event.irrelevantContext === undefined) return transcript
       return {
