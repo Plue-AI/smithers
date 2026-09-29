@@ -854,25 +854,27 @@ the two hint modules.
 | `Classification` | `interface`                                        | The verdict and its reason.                                                        |
 | `ZodHint`        | `interface`                                        | One chain, its file, and its classification.                                       |
 
-Printed text needs `Schema` in scope, and `Effect` too when a field has a
-default.
+Printed text needs `Schema` in scope. A field with a default also needs
+`Effect` from `effect/Effect` and `SchemaGetter` from `effect/SchemaGetter`.
 
 `ZodSchemaHints.classify(chain)` and `print(chain)` convert the safe zod subset
 to `effect/Schema` text: `z.object`, `z.string`, `z.number`, `z.boolean`,
-`z.array`, `z.enum`, `z.literal`, `z.union`, `z.record`, `z.int`, `.optional()`,
-`.nullable()`, `.default()`, `.describe()`, and `.min()`/`.max()`/`.int()`/
-`.nonnegative()` become `Schema.Struct`, `Schema.String`, `Schema.Number`,
-`Schema.Boolean`, `Schema.Array`, `Schema.Literals`, `Schema.Literal`,
-`Schema.Union`, `Schema.Record`, `Schema.Int`, `Schema.optional`,
-`Schema.NullOr`, `Schema.withDecodingDefaultKey`, `.annotate({ description })`,
-and `Schema.check(...)`.
+`z.unknown`, `z.any`, `z.array`, `z.enum`, `z.literal`, `z.union`, `z.record`,
+`z.int`, `.optional()`, `.nullable()`, `.nullish()`, supported `.default()`
+fields, `.describe()`, and numeric and length checks become `Schema.Struct`,
+`Schema.String`, `Schema.Number`, `Schema.Boolean`, `Schema.Unknown`,
+`Schema.Array`, `Schema.Literals`, `Schema.Literal`, `Schema.Union`,
+`Schema.Record`, `Schema.Int`, `Schema.optional`, `Schema.NullOr`,
+`Schema.decodeTo` with `SchemaGetter.withDefault` and
+`SchemaGetter.required`, `.annotate({ description })`, and
+`Schema.check(...)`.
 
 Chained `.int()` adds `Schema.check(Schema.isInt())` to the current schema.
 Numeric bounds from `.min()`, `.max()`, `.positive()`, and `.nonnegative()`
 are preserved before or after `.int()`.
 
-Printed text needs `Schema` in scope, and `Effect` too when a field has a
-default.
+Supported field defaults apply to missing and explicit `undefined` inputs.
+Encoding requires the decoded field key to be present.
 
 The printer refuses, rather than approximates, whatever it cannot say with the
 same meaning: a `z.record` key that is neither a string nor a literal set, a
@@ -885,6 +887,16 @@ and a number gets a bound, decided by what the chain is rather than by its
 text. `printField(chain)` is `print` for a struct field: a top-level default,
 optional, or description is applied the way the field carries it, which is
 what `Mapping.snippet` uses for a step's payload keys.
+
+Automatic defaults accept string, finite unsigned numeric, boolean, and `null`
+literals, plus empty array and object literals, when the value belongs to the
+unrefined field domain. Other default expressions and incompatible literal
+values are guided. Defaults combined with `.optional()` or `.nullish()`, on
+`z.unknown()` or `z.any()`, or followed by a check are guided. Defaults on a
+union, `z.int()`, a checked schema, a record with literal keys, or an object
+unless all its fields are optional or nullish and none has a default are also
+guided, except when `.nullable()` adds a `null` fallback. A union containing
+`z.unknown()` or `z.any()` remains guided even with that fallback.
 
 Everything else is `guided` with a reason: `.passthrough()`, `.refine()`,
 `.transform()`, `z.discriminatedUnion`, `z.lazy`, `z.tuple`, and custom error
