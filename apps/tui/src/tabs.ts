@@ -7,7 +7,7 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
 import * as Budget from "./budget.ts"
 import * as Keys from "./keys.ts"
-import { delegateModels } from "./models.ts"
+import { aliases as seatAliases, delegateModels } from "./models.ts"
 import type { Model } from "./models.ts"
 import { color } from "./theme.ts"
 import type { Tab } from "./workspace.ts"
@@ -59,12 +59,19 @@ export const styleOf = (
 
 export const live = WorkerControls.live
 
-const aliases = new Map<string, string>(Object.entries(delegateModels).map(([alias, seat]) => [seat, alias]))
+// A delegate alias wins where both tables name a seat (`cerebras`, not `qwen`).
+const aliases = new Map<string, string>(
+  [...Object.entries(seatAliases), ...Object.entries(delegateModels)].map(([alias, seat]) => [seat, alias])
+)
 
-/** The shortest name that tells seats apart: `sol`, else the picker's label, else the model id. */
-export const model = (seat: string, models: ReadonlyArray<Model>): string =>
-  aliases.get(seat) ?? models.find((each) => each.seat === seat)?.label ??
+/** The shortest name that tells seats apart: its seat alias (`opus`, `sol`), else the picker's label, else the model id. */
+export const model = (seat: string, models: ReadonlyArray<Model>): string => {
+  // Claude Code runs an alias or a full seat: `claude-code:opus` is `opus`.
+  const bare = seat.startsWith("claude-code:") ? seat.slice("claude-code:".length) : seat
+  return aliases.get(bare) ?? (Object.hasOwn(seatAliases, bare) ? bare : undefined) ??
+    models.find((each) => each.seat === seat)?.label ??
     (seat.startsWith("replay:") ? "replay" : seat.slice(seat.indexOf(":") + 1))
+}
 
 /** Who runs a worker: its wrapped harness (`claude`, `codex`), else its model's short name. */
 export const seatName = (tab: Pick<Tab, "seat" | "activeSeat" | "harness">, models: ReadonlyArray<Model>): string =>

@@ -392,8 +392,29 @@ export function GraphView(props: {
   )
 }
 
-/** Fixed columns right of the name: seat, clock, window and cache. */
-const columns = { seat: 7, clock: 7, meter: 10 } as const
+/** Fixed columns right of the name: seat, clock, window and cache; each value leaves a space before the next. */
+const columns = { seat: 9, clock: 8, meter: 10 } as const
+
+/**
+ * A tree row right of its `lead` cells in a pane `inner` cells wide: the name
+ * clipped to fit, the gap, and the fixed seat, clock and meter columns. A
+ * narrow pane keeps the names readable: the meter column goes first.
+ */
+export const treeRow = (
+  row: Inbox.Row,
+  lead: number,
+  inner: number
+): { readonly title: string; readonly gap: number; readonly aside: string } => {
+  const meter = inner - columns.seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
+  const pad = (text: string, width: number) => SubagentCard.clip(text, width - 1).padEnd(width)
+  const aside = `${pad(row.seat, columns.seat)}${pad(row.clock, columns.clock)}${
+    meter === 0 ? "" : SubagentCard.clip(Inbox.meter(row), meter)
+  }`
+  const right = columns.seat + columns.clock + meter
+  // One space always separates the clipped name from the seat column.
+  const title = SubagentCard.clip(row.name, Math.max(1, inner - 2 - lead - right))
+  return { title, gap: Math.max(1, inner - 1 - lead - stringWidth(title) - right), aside }
+}
 
 /** The pending question or the last step of the selected row, `space` in the overview. */
 export function Peek(props: { readonly row: Inbox.Row; readonly lines: ReadonlyArray<string>; readonly now: number }) {
@@ -468,21 +489,10 @@ export function Overview(props: {
       </box>
     )
   }
-  // A narrow pane keeps the names readable: the window and cache column goes first.
-  const meterWidth = inner - columns.seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
-  const aside = (each: Inbox.Row) => {
-    const pad = (text: string, width: number) => SubagentCard.clip(text, width).padEnd(width)
-    return `${pad(each.seat, columns.seat)}${pad(each.clock, columns.clock)}${
-      meterWidth === 0 ? "" : Inbox.meter(each)
-    }`
-  }
   const nodeRow = (each: Inbox.Row) => {
     const glyph = rowGlyph(each, props.cards.now)
     const lead = `  ${"  ".repeat(each.level)}${glyph.glyph} `
-    const right = columns.seat + columns.clock + meterWidth
-    const room = Math.max(1, inner - 1 - stringWidth(lead) - right)
-    const title = SubagentCard.clip(each.name, room)
-    const gap = Math.max(1, inner - 1 - stringWidth(lead) - stringWidth(title) - right)
+    const { title, gap, aside } = treeRow(each, stringWidth(lead), inner)
     const chosen = props.selected === each.key
     return line(
       each.key,
@@ -491,7 +501,7 @@ export function Overview(props: {
         {"  ".repeat(each.level + 1)}
         <span fg={glyph.tone}>{glyph.glyph}{" "}</span>
         <span fg={chosen ? color.text : color.muted}>{title}</span>
-        <span fg={color.faint}>{" ".repeat(gap)}{SubagentCard.clip(aside(each), right)}</span>
+        <span fg={color.faint}>{" ".repeat(gap)}{aside}</span>
       </text>
     )
   }

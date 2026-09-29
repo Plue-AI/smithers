@@ -3,6 +3,7 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act } from "react"
 import * as Keys from "../src/keys.ts"
+import * as Models from "../src/models.ts"
 import { TabStrip, WorkerList, WorkerView } from "../src/tabs-view.tsx"
 import * as Tabs from "../src/tabs.ts"
 import { color } from "../src/theme.ts"
@@ -75,6 +76,18 @@ describe("worker status", () => {
       .toBe("Claude X")
     expect(Tabs.model("test:worker", [])).toBe("worker")
     expect(Tabs.model("replay:/tmp/sessions/fix-add.jsonl", [])).toBe("replay")
+  })
+
+  it("names a Claude seat by its seat alias, not the picker's long label", () => {
+    const claude = [
+      { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5", provider: "anthropic" },
+      { seat: "claude-code:opus", label: "Claude Opus 5.5", provider: "claude-code" }
+    ]
+    expect(Tabs.model("anthropic:claude-opus-5-5", claude)).toBe("opus")
+    expect(Tabs.model("claude-code:opus", claude)).toBe("opus")
+    expect(Tabs.model("claude-code:anthropic:claude-fable-5-1", [])).toBe("fable")
+    // A delegate alias still wins where both name the seat.
+    expect(Tabs.model(Models.delegateModels.cerebras, [])).toBe("cerebras")
   })
 
   it("counts elapsed time to the end once settled", () => {

@@ -281,3 +281,34 @@ describe("the card grid", () => {
     expect(captureCharFrame()).toContain("◉ docs finished")
   })
 })
+
+describe("the Summary overview's tree row", () => {
+  const row = {
+    key: "w1",
+    group: "working",
+    level: 0,
+    status: "running",
+    name: "Fix UTF-8 split-chunk decoding in flows/release so a multibyte char survives",
+    seat: "Claude Opus 5.5",
+    clock: "11m 43s",
+    window: 20,
+    cache: 48
+  } as const
+  it("keeps a space between the clipped name and every fixed column", () => {
+    const line = SubagentView.treeRow(row, 4, 64)
+    const text = `${line.title}${" ".repeat(line.gap)}${line.aside}`
+    expect(4 + text.length).toBeLessThanOrEqual(64 - 1)
+    expect(text).toMatch(/… +Claude … +11m 43s +20% 48%$/)
+  })
+  it("pads short values to the same columns, so rows line up", () => {
+    const a = SubagentView.treeRow({ ...row, seat: "opus", clock: "4s" }, 4, 64)
+    const b = SubagentView.treeRow(row, 4, 64)
+    expect(a.aside.indexOf("20%")).toBe(b.aside.indexOf("20%"))
+    expect(a.title.length + a.gap).toBe(b.title.length + b.gap)
+  })
+  it("drops the meter first in a narrow pane and still separates the clock", () => {
+    const line = SubagentView.treeRow(row, 4, 36)
+    expect(line.aside).not.toContain("%")
+    expect(`${line.title}${" ".repeat(line.gap)}${line.aside}`).toMatch(/… +Claude … +11m 43s *$/)
+  })
+})
