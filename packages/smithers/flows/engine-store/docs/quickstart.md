@@ -103,7 +103,8 @@ import * as Effect from "effect/Effect"
 const stubJj = Layer.succeed(
   Jj.Jj,
   Jj.make({
-    snapshot: () => Effect.succeed({ changeId: "quickstart-snapshot" as never, commitId: "quickstart-commit" as never }),
+    snapshot: () =>
+      Effect.succeed({ changeId: "quickstart-snapshot" as never, commitId: "quickstart-commit" as never }),
     restore: () => Effect.void,
     diff: () => Effect.succeed(""),
     workspaceAdd: () => Effect.void,
