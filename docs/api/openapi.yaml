@@ -20683,7 +20683,7 @@ paths:
         - Agent
       parameters: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -20694,8 +20694,11 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: A new turn streams newline-delimited deliveries, starting with an accepted delivery; a repeated turn returns its existing acceptance as JSON.
           content:
+            application/x-ndjson:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
             application/json:
               schema:
                 $ref: '#/components/schemas/AnyJSON'
