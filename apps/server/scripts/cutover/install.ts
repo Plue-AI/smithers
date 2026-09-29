@@ -55,7 +55,7 @@ export interface InstallPlan extends FenceExpected {
   workers: WorkerPlan[]; sequence: Step[]
 }
 export interface JournalEntry {
-  seq: number; prev: string; at: string; planSHA256: string; step: number | null; worker: string; action: Action | "restore"
+  seq: number; prev: string; at: string; planSHA256: string; step: number | null; worker: string; action: Action | "restore" | "restore-previews"
   event: "authorized" | "intent" | "uploaded" | "adopted" | "verified" | "failed" | "restored" | "refused"
   version?: string; code?: string; authorizationSHA256?: string; lockTag?: string
 }
@@ -374,6 +374,38 @@ const writeCollectPlans = async (root: string, plan: InstallPlan, journal: Journ
   same("admission.json", Object.fromEntries(ADMISSION_WORKERS.map(w => [w, verifiedVersion(journal, w, "admission") ?? fail("CF_INSTALL_ADMISSION_NOT_VERIFIED")])))
 }
 
+/** Restores only a verified, outstanding preview disable. Booleans cannot prove ownership after an ambiguous write. */
+const restorePreviews = async (root: string, planSHA256: string, plan: InstallPlan, w: WorkerPlan): Promise<boolean> => {
+  const step = plan.sequence.find(s => s.worker === w.worker && s.action === "previews-off")
+  if (!step) return false
+  const journal = readJournal(root, planSHA256).filter(e => e.worker === w.worker)
+  // Include completed restores from older journals: their preview ownership is already spent.
+  const restored = journal.filter(e => (e.action === "restore-previews" || e.action === "restore") && e.event === "restored").at(-1)?.seq ?? -1
+  const pending = journal.filter(e => e.seq > restored && e.step === step.index)
+  const disable = pending.filter(e => e.action === "previews-off").at(-1)
+  if (!disable) return false
+  const record = (entry: Omit<JournalEntry, "seq" | "prev" | "at" | "planSHA256" | "step" | "worker" | "action">) =>
+    appendJournal(root, planSHA256, { step: step.index, worker: w.worker, action: "restore-previews", ...entry })
+  const read = async () => (await api<{ enabled: boolean; previews_enabled: boolean }>(`/workers/scripts/${w.worker}/subdomain`)).result
+  const current = await read()
+  if (current.previews_enabled) { record({ event: "restored" }); return false }
+  if (current.enabled !== w.surface.workersDev) fail("CF_RESTORE_PREVIEWS_DRIFT")
+  if (disable.event !== "verified" || !pending.some(e => e.action === "previews-off" && e.event === "intent" && e.seq < disable.seq) ||
+    pending.some(e => e.action === "restore-previews" && e.event === "intent" && e.seq > disable.seq)) fail("CF_RESTORE_PREVIEWS_UNCERTAIN")
+  const auth = authorizeStep({ schema: "smithers-cutover-phase-request/v1", executionID: plan.executionID, smithersRevision: plan.smithersRevision, plueRevision: plan.plueRevision,
+    endpoint: plan.endpoint, planSHA256, phase: "restore", step: step.index, worker: w.worker, action: "restore-previews" })
+  record({ event: "authorized", ...auth })
+  // The gate may take time. Check again before recording intent and changing either setting.
+  const checked = await read()
+  if (checked.previews_enabled) { record({ event: "restored" }); return false }
+  if (checked.enabled !== w.surface.workersDev) fail("CF_RESTORE_PREVIEWS_DRIFT")
+  if ((await liveVersion(w.worker)).version !== w.originalVersion) fail("CF_RESTORE_VERSION_NOT_LIVE")
+  record({ event: "intent" })
+  await setPreviews(w.worker, w.surface, true)
+  record({ event: "restored" })
+  return true
+}
+
 /** Redeploys each exact original version, newest step first. Never overwrites a version this execution does not own. */
 export const restoreAll = async (directory: string, planSHA256: string): Promise<Array<{ worker: string; outcome: "restored" | "already-original" | "refused"; code?: string }>> => {
   const root = privateRoot(directory), plan = loadPlan(root, planSHA256)
@@ -405,11 +437,8 @@ export const restoreAll = async (directory: string, planSHA256: string): Promise
         const runtime = deployed.resources.script_runtime
         if (stable(nonSecret({ bindings: deployed.resources.bindings } as Settings)) !== stable(nonSecret(original)) || stable(secretNames({ bindings: deployed.resources.bindings } as Settings)) !== stable(w.secretNames) ||
           runtime.compatibility_date !== original.compatibility_date || stable(runtime.compatibility_flags ?? []) !== stable(original.compatibility_flags ?? []) || runtime.usage_model !== original.usage_model) fail("CF_RESTORE_SETTINGS_DIFFER")
-        if (w.surface.previews) {
-          const sub = (await api<{ previews_enabled: boolean }>(`/workers/scripts/${worker}/subdomain`)).result
-          if (!sub.previews_enabled) await setPreviews(worker, w.surface, true)
-        }
-        const wasOriginal = live.version === w.originalVersion
+        const previewsRestored = await restorePreviews(root, planSHA256, plan, w)
+        const wasOriginal = live.version === w.originalVersion && !previewsRestored
         record({ event: "restored", version: w.originalVersion })
         results.push({ worker, outcome: wasOriginal ? "already-original" : "restored" })
       } catch (error) {

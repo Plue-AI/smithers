@@ -95,7 +95,7 @@ test("admission then final fence preserve secrets and object identity, hand off 
   const journal = readJournal(root, planSHA256)
   // Every mutation has an authorization and an fsynced intent recorded before it.
   for (const [i, e] of journal.entries()) if (e.event === "intent") expect(journal[i - 1]!.event).toBe("authorized")
-  expect(readFileSync(calls, "utf8").trim().split("\n")).toHaveLength(plan.sequence.length + 14)
+  expect(readFileSync(calls, "utf8").trim().split("\n")).toHaveLength(plan.sequence.length + 14 + plan.sequence.filter(s => s.action === "previews-off").length)
 })
 
 test("original drift before apply refuses before any mutation of that worker", async () => {
@@ -117,6 +117,256 @@ test("no mutation without an exact, fresh gate authorization for that step", asy
   expect(readJournal(root, planSHA256).some(e => e.event === "intent")).toBe(false)
 })
 
+test("prepare-only restore preserves a foreign preview disable with absent or refusing authorization", async () => {
+  const { root, planSHA256, originals, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  expect(readJournal(root, planSHA256)).toEqual([])
+  fake.workers.get(worker)!.subdomain.previews_enabled = false // independent operator change after prepare
+  for (const mode of ["absent", "refuse"] as const) {
+    if (mode === "absent") delete process.env.SMITHERS_CUTOVER_AUTHORIZE
+    else hook(root, "refuse")
+    const results = await restoreAll(root, planSHA256)
+    expect(fake.live(worker).id).toBe(originals[worker])
+    expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+    expect(fake.mutations).toEqual([])
+    expect(results.find(r => r.worker === worker)?.outcome).toBe("already-original")
+  }
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews")).toEqual([])
+})
+
+test("owned previews need a separate restore authorization and durable intent even when the original version is live", async () => {
+  const { root, planSHA256, plan, originals, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  const previewStep = plan.sequence.find(s => s.worker === worker && s.action === "previews-off")!
+  const calls = hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  expect(fake.live(worker).id).toBe(originals[worker])
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  const providerFetch = globalThis.fetch
+  let checkedBeforeWrite = false
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      const entries = readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews")
+      expect(entries.map(e => e.event)).toEqual(["authorized", "intent"])
+      expect(entries.every(e => e.step === previewStep.index)).toBe(true)
+      checkedBeforeWrite = true
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(checkedBeforeWrite).toBe(true)
+  expect(results.find(r => r.worker === worker)?.outcome).toBe("restored")
+  expect(fake.mutations.slice(priorMutations).filter(m => m === `subdomain ${worker}`)).toEqual([`subdomain ${worker}`])
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(true)
+  expect(readFileSync(calls, "utf8")).toContain(`${worker} restore-previews\n`)
+  const entries = readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews")
+  expect(entries.map(e => e.event)).toEqual(["authorized", "intent", "restored"])
+  expect(entries.every(e => e.step === previewStep.index)).toBe(true)
+})
+
+test("absent, refusing, wrong-plan, and stale restore gates leave owned disabled previews untouched", async () => {
+  const { root, planSHA256, originals, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  expect(fake.live(worker).id).toBe(originals[worker])
+  const priorMutations = fake.mutations.length
+  for (const mode of ["absent", "refuse", "wrong-plan", "stale"] as const) {
+    if (mode === "absent") delete process.env.SMITHERS_CUTOVER_AUTHORIZE
+    else hook(root, mode)
+    const results = await restoreAll(root, planSHA256)
+    expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_INSTALL_PHASE_UNAUTHORIZED" })
+  }
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews" && e.event === "intent")).toEqual([])
+})
+
+test("restore refuses foreign workersDev drift before touching owned previews", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  fake.workers.get(worker)!.subdomain.enabled = false // changed independently after our previews-off write
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_RESTORE_PREVIEWS_DRIFT" })
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(fake.workers.get(worker)!.subdomain).toEqual({ enabled: false, previews_enabled: false })
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews" && e.event === "intent")).toEqual([])
+})
+
+test("a second restore preserves previews disabled independently after the first restore", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  await restoreAll(root, planSHA256)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(true)
+  fake.workers.get(worker)!.subdomain.previews_enabled = false // independent change after ownership was consumed
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(results.find(r => r.worker === worker)?.outcome).toBe("already-original")
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews" && e.event === "intent")).toHaveLength(1)
+})
+
+test("already-enabled previews retire an owned disable without another provider write", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  fake.workers.get(worker)!.subdomain.previews_enabled = true // an independent operator already enabled them
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(results.find(r => r.worker === worker)?.outcome).toBe("already-original")
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews").map(e => e.event)).toEqual(["restored"])
+  fake.workers.get(worker)!.subdomain.previews_enabled = false
+  await restoreAll(root, planSHA256)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+})
+
+test("workersDev drift arising during authorization is refused before preview intent or write", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  const calls = hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  const providerFetch = globalThis.fetch
+  let driftedDuringGate = false
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (!driftedDuringGate && request.method === "GET" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`) &&
+      readFileSync(calls, "utf8").includes(`${worker} restore-previews\n`)) {
+      fake.workers.get(worker)!.subdomain.enabled = false
+      driftedDuringGate = true
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(driftedDuringGate).toBe(true)
+  expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_RESTORE_PREVIEWS_DRIFT" })
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews").map(e => e.event)).toEqual(["authorized"])
+})
+
+test("an ambiguous failed preview-disable response cannot establish ownership for restore", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  const providerFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      const response = await providerFetch(input, init) // provider committed the write, but its response was lost
+      globalThis.fetch = providerFetch
+      expect(response.ok).toBe(true)
+      return Response.json({ success: false }, { status: 502 })
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow()
+  const off = readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "previews-off")
+  expect(off.map(e => e.event)).toEqual(["authorized", "intent", "failed"])
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_RESTORE_PREVIEWS_UNCERTAIN" })
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews" && e.event === "intent")).toEqual([])
+})
+
+test("a lost preview-enable response is recovered only while the verified setting remains enabled", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  const providerFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      const response = await providerFetch(input, init)
+      globalThis.fetch = providerFetch
+      expect(response.ok).toBe(true)
+      return Response.json({ success: false }, { status: 502 })
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  const first = await restoreAll(root, planSHA256)
+  expect(first.find(r => r.worker === worker)?.outcome).toBe("refused")
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(true)
+  const pending = readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews")
+  expect(pending.some(e => e.event === "intent")).toBe(true)
+  expect(pending.some(e => e.event === "restored")).toBe(false)
+  const afterLostResponse = fake.mutations.length
+  const recovered = await restoreAll(root, planSHA256)
+  expect(recovered.find(r => r.worker === worker)?.outcome).toBe("already-original")
+  expect(fake.mutations.slice(afterLostResponse)).not.toContain(`subdomain ${worker}`)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews" && e.event === "restored")).toHaveLength(1)
+  fake.workers.get(worker)!.subdomain.previews_enabled = false
+  const afterRecovery = fake.mutations.length
+  await restoreAll(root, planSHA256)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(fake.mutations.slice(afterRecovery)).not.toContain(`subdomain ${worker}`)
+})
+
+test("a lost preview-enable response followed by an independent disable is uncertain", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  const providerFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      const response = await providerFetch(input, init)
+      globalThis.fetch = providerFetch
+      expect(response.ok).toBe(true)
+      return Response.json({ success: false }, { status: 502 })
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  await restoreAll(root, planSHA256)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(true)
+  fake.workers.get(worker)!.subdomain.previews_enabled = false
+  const priorMutations = fake.mutations.length
+  const results = await restoreAll(root, planSHA256)
+  expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_RESTORE_PREVIEWS_UNCERTAIN" })
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+})
+
+test("a failed preview-enable write with previews still disabled cannot be retried automatically", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  const providerFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      globalThis.fetch = providerFetch
+      return Response.json({ success: false }, { status: 502 }) // response does not establish whether provider wrote
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  const first = await restoreAll(root, planSHA256)
+  expect(first.find(r => r.worker === worker)?.outcome).toBe("refused")
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews").map(e => e.event)).toEqual(["authorized", "intent"])
+  const priorMutations = fake.mutations.length
+  const retry = await restoreAll(root, planSHA256)
+  expect(retry.find(r => r.worker === worker)).toEqual({ worker, outcome: "refused", code: "CF_RESTORE_PREVIEWS_UNCERTAIN" })
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+  expect(fake.mutations.slice(priorMutations)).not.toContain(`subdomain ${worker}`)
+})
+
 test("partial fence is journaled and restore rolls back only owned versions, never a foreign one", async () => {
   const { root, planSHA256, plan, originals, fake } = await setup()
   hook(root)
@@ -129,7 +379,7 @@ test("partial fence is journaled and restore rolls back only owned versions, nev
   const results = await restoreAll(root, planSHA256)
   expect(results.find(r => r.worker === fences[1])).toEqual({ worker: fences[1]!, outcome: "refused", code: "CF_RESTORE_FOREIGN_VERSION" })
   expect(fake.live(fences[1]!).id).toBe(foreign)
-  expect(results.find(r => r.worker === fences[4])!.outcome).toBe("already-original")
+  expect(results.find(r => r.worker === fences[4])!.outcome).toBe("restored") // preview-only rollback
   for (const w of [fences[0]!, fences[2]!, fences[3]!, "smithers-cloud-billing", "smithers-cloud-chat-canary"]) expect(fake.live(w).id).toBe(originals[w]!)
   expect(fake.mutations.filter(m => m === `rollback ${fences[1]}`)).toEqual([])
 })
