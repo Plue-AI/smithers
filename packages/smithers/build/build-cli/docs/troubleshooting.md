@@ -277,6 +277,12 @@ The scripts in the directory returned by `git rev-parse --git-path hooks`
 do not match what the workspace declaration renders.
 `smithers-build git-hooks --write` installs the rendered scripts.
 
+Handwritten hooks are backed up to `<hook>.bak` before replacement. The backup
+is published by an atomic rename, replacing an existing backup or symlink
+without writing through it. If backup publication fails, installation reports
+`write_failed` and leaves the handwritten hook in place. Move a directory at
+`<hook>.bak` out of the way before retrying.
+
 ## The scaffold refused
 
 See [Scaffold an app](./guides/scaffold-an-app.md) for the `create-app`

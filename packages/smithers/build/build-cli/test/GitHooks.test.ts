@@ -376,6 +376,62 @@ describe("check and install", () => {
     await expect(Fs.stat(`${hook}.bak`)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it.each(["symlink", "dangling symlink", "hardlink"] as const)(
+    "replaces a preexisting %s backup without changing its external target",
+    async (kind) => {
+      const root = await temporaryRoot()
+      const repository = NodePath.join(root, "repository")
+      NodeChildProcess.execFileSync("git", ["init", "-q", repository])
+      const hooksDirectory = NodePath.join(repository, ".git", "hooks")
+      const hook = NodePath.join(hooksDirectory, "pre-commit")
+      const backup = `${hook}.bak`
+      const external = NodePath.join(root, "external-hook")
+      const handwritten = Buffer.from("#!/bin/sh\necho handwritten\n")
+      const externalBytes = Buffer.from("external bytes must remain intact\n")
+      await Fs.writeFile(hook, handwritten, { mode: 0o755 })
+      if (kind !== "dangling symlink") await Fs.writeFile(external, externalBytes)
+      if (kind === "hardlink") await Fs.link(external, backup)
+      else await Fs.symlink(external, backup)
+
+      const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+      expect((await GitHooks.install(repository, rendered)).wrote).toEqual(["pre-commit"])
+      expect((await Fs.lstat(backup)).isFile()).toBe(true)
+      expect(await Fs.readFile(backup)).toEqual(handwritten)
+      expect(await Fs.readFile(hook, "utf8")).toBe(rendered[0]!.content)
+      if (kind === "dangling symlink") {
+        await expect(Fs.lstat(external)).rejects.toMatchObject({ code: "ENOENT" })
+      } else {
+        expect(await Fs.readFile(external)).toEqual(externalBytes)
+        if (kind === "hardlink") {
+          expect((await Fs.stat(backup)).ino).not.toBe((await Fs.stat(external)).ino)
+        }
+      }
+      expect(
+        (await Fs.readdir(hooksDirectory)).filter((entry) =>
+          entry.startsWith("pre-commit") && (entry.includes(".tmp-") || entry.includes(".backup-"))
+        )
+      )
+        .toEqual([])
+    }
+  )
+
+  it("preserves the handwritten hook when its backup destination is a directory", async () => {
+    const root = await temporaryRoot()
+    NodeChildProcess.execFileSync("git", ["init", "-q", root])
+    const hooksDirectory = NodePath.join(root, ".git", "hooks")
+    const hook = NodePath.join(hooksDirectory, "pre-commit")
+    const handwritten = Buffer.from("#!/bin/sh\necho handwritten\n")
+    await Fs.writeFile(hook, handwritten, { mode: 0o755 })
+    await Fs.mkdir(`${hook}.bak`)
+    const beforeEntries = await Fs.readdir(hooksDirectory)
+
+    await expect(GitHooks.install(root, GitHooks.render({ preCommit: "//:preCommit" })))
+      .rejects.toMatchObject({ code: "write_failed" })
+    expect(await Fs.readFile(hook)).toEqual(handwritten)
+    expect((await Fs.lstat(`${hook}.bak`)).isDirectory()).toBe(true)
+    expect(await Fs.readdir(hooksDirectory)).toEqual(beforeEntries)
+  })
+
   it("falls back to .git/hooks only when git is unavailable", async () => {
     const root = await temporaryRoot()
     await Fs.mkdir(NodePath.join(root, ".git"))

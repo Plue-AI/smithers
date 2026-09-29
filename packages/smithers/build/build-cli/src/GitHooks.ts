@@ -307,7 +307,8 @@ export const check = async (
  * Each script lands executable via a same-directory temporary name and
  * rename. A root that is not a git repository, or whose hooks directory lies
  * outside the repository, is a typed refusal. An existing hook this module
- * did not generate is copied to `<hook>.bak` before it is replaced.
+ * did not generate is copied privately and atomically renamed to `<hook>.bak`
+ * before it is replaced, without following an existing backup link.
  *
  * @category writing
  * @since 0.1.0
@@ -325,7 +326,14 @@ export const install = async (
       await Fs.mkdir(hooksDirectory, { recursive: true })
       const existing = await Fs.readFile(absolute, "utf8").catch(() => undefined)
       if (existing !== undefined && existing.split("\n")[1] !== generatedHeader) {
-        await Fs.copyFile(absolute, `${absolute}.bak`)
+        const backupDirectory = await Fs.mkdtemp(`${absolute}.backup-`)
+        try {
+          const backup = NodePath.join(backupDirectory, "hook")
+          await Fs.copyFile(absolute, backup, Fs.constants.COPYFILE_EXCL)
+          await Fs.rename(backup, `${absolute}.bak`)
+        } finally {
+          await Fs.rm(backupDirectory, { recursive: true, force: true })
+        }
       }
       await Fs.writeFile(temporary, hook.content, { encoding: "utf8", mode: 0o755 })
       await Fs.rename(temporary, absolute)
