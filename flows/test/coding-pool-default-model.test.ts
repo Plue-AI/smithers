@@ -79,10 +79,10 @@ test("chooses a coding model from the pool routes when none is pinned", async (t
   assert.equal(seat.modelId, "gpt-6-luna")
 })
 
-test("uses the anthropic pool route when chatgpt has no connected account", async (t) => {
+test("ignores an anthropic pool route when chatgpt has no connected account", async (t) => {
   const connected = await pool(t, { status: 200, body: "{\"routes\":[\"anthropic\"]}" })
   const options = await optionsFromEnv(connected.environment)
-  assert.equal(options.implementationModel, "anthropic:claude-sonnet-4-6")
+  assert.equal(options.implementationModel, "")
   assert.deepEqual(connected.requests.map((request) => request.url), ["/provider-pool/routes"])
 })
 
@@ -96,12 +96,12 @@ test("keeps an explicit coding model pin without asking the pool", async (t) => 
   assert.deepEqual(connected.requests, [])
 })
 
-test("chooses a live pool route before a platform fallback in either provider direction", async (t) => {
+test("chooses the chatgpt pool route or the platform fallback", async (t) => {
   const connected = await pool(t)
   for (
     const { routes, fallback, expected } of [
       { routes: "[\"chatgpt\"]", fallback: "anthropic:claude-sonnet-4-6", expected: "openai:gpt-6-luna" },
-      { routes: "[\"anthropic\"]", fallback: "openai:gpt-6-luna", expected: "anthropic:claude-sonnet-4-6" }
+      { routes: "[\"anthropic\"]", fallback: "openai:gpt-6-luna", expected: "openai:gpt-6-luna" }
     ]
   ) {
     connected.answer({ status: 200, body: `{"routes":${routes}}` })
@@ -129,7 +129,7 @@ test("uses the platform fallback after pool accounts disappear or lookup fails",
   assert.ok(connected.requests.every((request) => request.url === "/provider-pool/routes"))
 })
 
-test("resolves only the named platform fallback when the offered pool has no accounts", async (t) => {
+test("resolves direct API keys or the model proxy when pool accounts are absent", async (t) => {
   const connected = await pool(t, { status: 200, body: JSON.stringify({ routes: [] }) })
   for (
     const [provider, model, key, path] of [
@@ -165,16 +165,25 @@ test("resolves only the named platform fallback when the offered pool has no acc
         ))
       )
     assert.equal((await resolve(environment)).url, `http://127.0.0.1:9911/model-proxy/${provider}${path}`)
-    for (
-      const override of [
-        { SMITHERS_MODEL_PROXY_URL: undefined },
-        { SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras" },
-        { SMITHERS_CODING_FALLBACK_MODEL: `${provider}:different-model` }
-      ]
-    ) {
-      await assert.rejects(resolve({ ...environment, ...override }), {
-        _tag: "@smthrs/agent/Seat/SeatUnresolved"
-      })
+    const overrides = [
+      { SMITHERS_MODEL_PROXY_URL: undefined },
+      { SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras" },
+      { SMITHERS_CODING_FALLBACK_MODEL: `${provider}:different-model` }
+    ]
+    if (provider === "anthropic") {
+      const directUrl = `https://api.${provider}.com${path}`
+      assert.equal((await resolve({ ...environment, ...overrides[0] })).url, directUrl)
+      assert.equal((await resolve({ ...environment, ...overrides[1] })).url, directUrl)
+      assert.equal(
+        (await resolve({ ...environment, ...overrides[2] })).url,
+        `http://127.0.0.1:9911/model-proxy/${provider}${path}`
+      )
+    } else {
+      for (const override of overrides) {
+        await assert.rejects(resolve({ ...environment, ...override }), {
+          _tag: "@smthrs/agent/Seat/SeatUnresolved"
+        })
+      }
     }
   }
 })
@@ -232,7 +241,7 @@ test("does not invent a model for empty, unoffered, or failed pool routes", asyn
   }
 })
 
-test("prefers chatgpt deterministically and respects the host route allowlist", async (t) => {
+test("uses chatgpt only when the host allowlist permits it", async (t) => {
   const connected = await pool(t, { status: 200, body: "{\"routes\":[\"anthropic\",\"chatgpt\"]}" })
   assert.equal((await optionsFromEnv(connected.environment)).implementationModel, "openai:gpt-6-luna")
   assert.equal(
@@ -240,7 +249,7 @@ test("prefers chatgpt deterministically and respects the host route allowlist", 
       ...connected.environment,
       SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic"
     })).implementationModel,
-    "anthropic:claude-sonnet-4-6"
+    ""
   )
   connected.answer({ status: 200, body: "{\"routes\":[\"chatgpt\"]}" })
   assert.equal(
