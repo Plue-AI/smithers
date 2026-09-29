@@ -317,6 +317,40 @@ export const MythicalTodoSchema = z.object({
 export type MythicalTodo = z.infer<typeof MythicalTodoSchema>
 
 /**
+ * How Jev routed a TODO (`as`) and, once it settled, the route its outcome
+ * took (`landed`): `change` when it landed, `close` when the planner declined
+ * it.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalTodoRouteSchema = z.object({
+  as: z.enum(["implement", "bug", "feature", "close"]),
+  landed: z.enum(["change", "close"]).optional()
+})
+
+/**
+ * The decoded value accepted by {@link MythicalTodoRouteSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalTodoRoute = z.infer<typeof MythicalTodoRouteSchema>
+
+/**
+ * Whether a settled TODO was misrouted: routed `close` but landed a change,
+ * or routed `implement` or `bug` but closed. A `feature` that closed asked
+ * its author questions, as routed.
+ *
+ * @since 1.0.0
+ * @category predicates
+ */
+export const isMythicalMisroute = (route: MythicalTodoRoute): boolean =>
+  route.landed === "change"
+    ? route.as === "close"
+    : route.landed === "close" && route.as !== "close" && route.as !== "feature"
+
+/**
  * The GitHub pull request that carries an item.
  *
  * @since 1.0.0
@@ -362,6 +396,12 @@ export const MythicalItemSchema = z.object({
   checks: MythicalChecksSchema.optional(),
   /** Present when the item is a TODO. */
   todo: MythicalTodoSchema.optional(),
+  /** Present when Jev routed the item as a TODO. */
+  route: MythicalTodoRouteSchema.optional(),
+  /** Whether a person took over one of the item's runs. */
+  humanEdited: z.boolean().optional(),
+  /** The settled platform-key model cost of the item's lanes, in USD nanos; pending and pooled subscription calls carry none. */
+  costNanos: z.number().int().nonnegative().optional(),
   pullRequest: MythicalPullRequestSchema.optional(),
   dependsOn: z.array(z.string()),
   updatedAt: z.string(),

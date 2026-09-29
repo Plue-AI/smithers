@@ -1243,6 +1243,84 @@ func TestMythicalSnapshotShowsATodosProgressOnly(t *testing.T) {
 	}
 }
 
+// requestOf is the latest request launched for an issue's item.
+func (o *mythicalOrchestration) requestOf(number int64) flowdispatch.LaunchRequest {
+	o.t.Helper()
+	id := uuidString(o.item(number).ID)
+	o.launcher.mu.Lock()
+	defer o.launcher.mu.Unlock()
+	for i := len(o.launcher.requests) - 1; i >= 0; i-- {
+		if request := o.launcher.requests[i]; request.FlowID == "coding/request" && strings.Contains(string(request.Projection), id) {
+			return request
+		}
+	}
+	require.FailNow(o.t, "no request launched", "#%d", number)
+	return flowdispatch.LaunchRequest{}
+}
+
+// The snapshot carries each TODO's metrics: the route Jev gave it and the
+// one its outcome took, whether a person took it over, and what its lanes
+// cost (the History and /smithers metrics read them).
+func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	observe := func(number int64) {
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Metrics", State: "open",
+			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+		o.wake()
+	}
+	observe(384)
+	o.fail(o.requestOf(384), "run-384", "user", "coding/Error/declined",
+		`{"_tag":"coding/Error","code":"declined","message":"Already done.","route":"implement"}`)
+	o.wake()
+	observe(383)
+	o.project(o.requestOf(383), jobs.StateCompleted, "run-383",
+		strings.Replace(validatedRequest, `"outcome":`, `"route":"close","outcome":`, 1))
+	assert.Equal(t, "close", mythicalChecksOf(o.item(383)).Route, "the result's route is kept")
+	assert.Equal(t, "declined", o.item(384).State)
+	assert.Equal(t, "implement", mythicalChecksOf(o.item(384)).Route, "a decline keeps its route too")
+
+	// #383's two lanes cost 2 cents settled; a call still pending and a call
+	// on no lane count for nothing.
+	landed := o.item(383)
+	require.NotEmpty(t, landed.WorkspaceID)
+	review := uuid.NewString()
+	_, err := o.pool.Exec(ctx, `INSERT INTO mythical_lanes (workspace_id, repository_id, item_id, name) VALUES ($1, $2, $3, 'review')`,
+		review, o.repoID, landed.ID)
+	require.NoError(t, err)
+	priced := func(workspaceID string, nanos int64) {
+		o.spend(workspaceID, 10)
+		_, err := o.pool.Exec(ctx, `UPDATE model_usage SET cost_nanos = $1, outcome = 'succeeded', settled_at = NOW()
+			WHERE id = (SELECT MAX(id) FROM model_usage)`, nanos)
+		require.NoError(t, err)
+	}
+	priced(landed.WorkspaceID, 7_500_000)
+	priced(landed.WorkspaceID, 7_500_000)
+	priced(review, 5_000_000)
+	priced("", 7_500_000)
+	o.spend(landed.WorkspaceID, 10) // pending: no price yet
+	checks := mythicalChecksOf(landed)
+	checks.Drivers = []mythicalDriver{{By: "will", Run: "run-383", From: "2026-09-29T08:00:00Z", Messages: 2}}
+	landed.State, landed.Checks = "landed", checks.encode()
+	_, err = o.service.queries().SaveMythicalItem(ctx, landed)
+	require.NoError(t, err)
+
+	view, err := o.service.Snapshot(ctx, o.repoID, "o/smithers", "", MythicalViewer{UserID: o.userID})
+	require.NoError(t, err)
+	wire := map[int64]string{}
+	for _, item := range view.Items {
+		encoded, err := json.Marshal(item)
+		require.NoError(t, err)
+		wire[item.Issue.Number] = string(encoded)
+	}
+	assert.Contains(t, wire[383], `"route":{"as":"close","landed":"change"},"humanEdited":true,"costNanos":20000000`,
+		"a close that landed a change is a misroute")
+	assert.Contains(t, wire[384], `"route":{"as":"implement","landed":"close"}`, "an implement that closed is a misroute")
+	assert.NotContains(t, wire[384], `humanEdited`)
+	assert.NotContains(t, wire[384], `costNanos`)
+	assert.NotContains(t, wire[383], `drivers`, "the drivers stay in the note and the service")
+}
+
 // pullsDown answers no pull request: GitHub is down for the follow.
 type pullsDown struct{ *fakeMythicalGitHub }
 

@@ -395,6 +395,30 @@ func (q *Queries) MythicalRepositoryTokensSince(ctx context.Context, repositoryI
 	return tokens, err
 }
 
+// MythicalItemCosts is the settled platform-key model cost, in USD nanos,
+// each listed item recorded on its lane workspaces (mythical_lanes binds
+// every one to its item). A call still pending has no price yet, and a call
+// on a pooled subscription is never metered here; neither counts.
+func (q *Queries) MythicalItemCosts(ctx context.Context, repositoryID int64, items []pgtype.UUID) (map[[16]byte]int64, error) {
+	rows, err := q.db.Query(ctx, `SELECT l.item_id, COALESCE(SUM(u.cost_nanos), 0)::bigint
+		FROM mythical_lanes l JOIN model_usage u ON u.workspace_id = l.workspace_id AND u.repository_id = l.repository_id
+		WHERE l.repository_id = $1 AND l.item_id = ANY($2) GROUP BY l.item_id`, repositoryID, items)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	costs := map[[16]byte]int64{}
+	for rows.Next() {
+		var item pgtype.UUID
+		var cost int64
+		if err := rows.Scan(&item, &cost); err != nil {
+			return nil, err
+		}
+		costs[item.Bytes] = cost
+	}
+	return costs, rows.Err()
+}
+
 // SaveMythicalItem writes every mutable field of item when its version is
 // still item.Version, and answers the saved row (version + 1). A concurrent
 // writer makes it answer pgx.ErrNoRows; the caller rereads and decides again.

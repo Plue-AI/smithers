@@ -598,6 +598,10 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				if plan := mythicalPlanSummary(update); plan != nil {
 					next.Plan = plan
 				}
+				// A request that failed before Jev routed it carries none.
+				checks := mythicalChecksOf(item)
+				checks.Route = mythicalRoute(update)
+				next.Checks = checks.encode()
 			}
 		case "vibe":
 			if runID != "" {
@@ -770,6 +774,23 @@ func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 	default:
 		return mythicalOutage + "infra: an unregistered failure"
 	}
+}
+
+// mythicalRoute reads the route a TODO request answers on its result and on
+// its failure alike; "" when it carries none.
+func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
+	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
+		return ""
+	}
+	var result struct {
+		Route string `json:"route"`
+	}
+	_ = json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result)
+	switch result.Route {
+	case "implement", "bug", "feature", "close":
+		return result.Route
+	}
+	return ""
 }
 
 // mythicalPlanSummary projects the request's plan placement for the UI and
@@ -2798,6 +2819,9 @@ type mythicalChecks struct {
 	Drivers []mythicalDriver `json:"drivers,omitempty"`
 	// CIWait is when the stack began waiting for CI on an approved head.
 	CIWait *mythicalCIWait `json:"ciWait,omitempty"`
+	// Route is the route Jev gave the TODO (factory/Todo) on its latest
+	// request, from the request's result or failure; each replan asks again.
+	Route string `json:"route,omitempty"`
 }
 
 // mythicalCIWait is the approved head whose CI the stack waits for, since

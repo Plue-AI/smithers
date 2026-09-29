@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import {
+  isMythicalMisroute,
   isSettledItemState,
   MYTHICAL_ROUTES,
   MythicalEventSchema,
@@ -144,6 +145,34 @@ describe("the mythical stack contract", () => {
     const unknown = { ...snapshot.items[2], todo: { replans: 0, fault: { class: "network", tag: "x" } } }
     expect(MythicalItemSchema.safeParse(unknown).success).toBe(false)
     expect(MythicalItemSchema.safeParse({ ...snapshot.items[2], todo: { replans: -1 } }).success).toBe(false)
+  })
+
+  test("a TODO's metrics decode: its route, a person's take-over and its cost", () => {
+    const measured = {
+      ...snapshot.items[2],
+      route: { as: "close", landed: "change" },
+      humanEdited: true,
+      costNanos: 15_000_000
+    }
+    const item = MythicalItemSchema.parse(measured)
+    expect([item.route, item.humanEdited, item.costNanos]).toEqual([
+      { as: "close", landed: "change" },
+      true,
+      15_000_000
+    ])
+    expect(MythicalItemSchema.safeParse({ ...measured, route: { as: "refactor" } }).success).toBe(false)
+    expect(MythicalItemSchema.safeParse({ ...measured, costNanos: -1 }).success).toBe(false)
+  })
+
+  test("a misroute is a close that landed a change or an implement or bug that closed, never an unsettled one", () => {
+    expect(isMythicalMisroute({ as: "close", landed: "change" })).toBe(true)
+    expect(isMythicalMisroute({ as: "implement", landed: "close" })).toBe(true)
+    expect(isMythicalMisroute({ as: "bug", landed: "close" })).toBe(true)
+    expect(isMythicalMisroute({ as: "feature", landed: "close" })).toBe(false)
+    expect(isMythicalMisroute({ as: "feature", landed: "change" })).toBe(false)
+    expect(isMythicalMisroute({ as: "close", landed: "close" })).toBe(false)
+    expect(isMythicalMisroute({ as: "bug", landed: "change" })).toBe(false)
+    expect(isMythicalMisroute({ as: "close" })).toBe(false)
   })
 
   test("an unknown item state is refused rather than rendered as something else", () => {

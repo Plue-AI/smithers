@@ -9,7 +9,7 @@ import { CodingError, Plan, PlanningInput, RequestInput, RequestResult } from ".
 import { AdmitSource } from "../source-admission.ts"
 import { admitStackBase } from "../stack.ts"
 import { FeedbackReceipt, ReceiveFeedback } from "../steering.ts"
-import { Todo } from "../todo.ts"
+import { StampRoute, Todo } from "../todo.ts"
 
 export const maximumPlanningPasses = 8
 /** Private durable cursor. Notification bodies and provenance stay in the
@@ -34,32 +34,45 @@ export const RefusePlan = Action.make("coding/refuse-plan-approval", {
 
 const approve = (plan: Plan | Planned.Planned<Plan>, policy: typeof RequestInput.Type.planApproval) => {
   if (policy === undefined || policy === "never") return Node.succeed(true)
-  const prompt = (value: Plan) => [
-    "Approve this predicted Change plan before coding?",
-    ...value.changes.map((change) => [
-      `Change: ${change.title} (${change.id})`,
-      `Rationale: ${change.intent}`,
-      ...change.atoms.map((atom) =>
-        `  ${atom.intent}\n  Reads: ${atom.reads.join(", ") || "(none)"}\n  Writes: ${atom.writes.join(", ") || "(none)"}`)
-    ].join("\n"))
-  ].join("\n\n")
+  const prompt = (value: Plan) =>
+    [
+      "Approve this predicted Change plan before coding?",
+      ...value.changes.map((change) =>
+        [
+          `Change: ${change.title} (${change.id})`,
+          `Rationale: ${change.intent}`,
+          ...change.atoms.map((atom) =>
+            `  ${atom.intent}\n  Reads: ${atom.reads.join(", ") || "(none)"}\n  Writes: ${
+              atom.writes.join(", ") || "(none)"
+            }`
+          )
+        ].join("\n")
+      )
+    ].join("\n\n")
   const timeoutMs = policy === "always" ? undefined : Number(policy.slice("timeout:".length, -1)) * 1000
   return Node.succeed(plan).pipe(
     Node.map(prompt),
-    Node.bindPlanned((prompt) => HumanTask.action.call({
-      name: "coding-plan-approval", kind: "confirm", prompt, maxAttempts: 1,
-      ...(timeoutMs === undefined ? {} : { timeoutMs })
-    })),
+    Node.bindPlanned((prompt) =>
+      HumanTask.action.call({
+        name: "coding-plan-approval",
+        kind: "confirm",
+        prompt,
+        maxAttempts: 1,
+        ...(timeoutMs === undefined ? {} : { timeoutMs })
+      })
+    ),
     Node.catch({
       error: HumanTask.HumanTaskFailed,
-      onFailure: (error) => Node.branch(Node.succeed(error), {
-        if: (failure) => failure.code === "timeout" && timeoutMs !== undefined,
-        then: () => Node.succeed(true),
-        else: (failure) => Node.succeed(failure).pipe(
-          Node.map((value) => `Plan approval failed: ${value.message}`),
-          Node.bindPlanned((message) => RefusePlan.call({ message }))
-        )
-      })
+      onFailure: (error) =>
+        Node.branch(Node.succeed(error), {
+          if: (failure) => failure.code === "timeout" && timeoutMs !== undefined,
+          then: () => Node.succeed(true),
+          else: (failure) =>
+            Node.succeed(failure).pipe(
+              Node.map((value) => `Plan approval failed: ${value.message}`),
+              Node.bindPlanned((message) => RefusePlan.call({ message }))
+            )
+        })
     })
   )
 }
@@ -166,10 +179,16 @@ export default Flow.make("coding/Request", {
         )
       )
     // A stack request is a TODO: it stands on a fresh working change on the
-    // tip, and factory/Todo routes it before it is planned.
+    // tip, and factory/Todo routes it before it is planned. Its result and
+    // its failure both carry the route, which the stack keeps.
     return input.base === undefined ? implement(input.feedback ?? "") : admitStackBase(input.base).pipe(
       Node.andThen(Todo.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
-      Node.bindPlanned((routed) => implement(routed.feedback))
+      Node.bindPlanned((routed) =>
+        Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback) }).pipe(
+          Node.map(({ result, routed }) => ({ ...result, route: routed.route })),
+          Node.catch({ error: CodingError, onFailure: (error) => StampRoute.call({ error, route: routed.route }) })
+        )
+      )
     )
   }
 })

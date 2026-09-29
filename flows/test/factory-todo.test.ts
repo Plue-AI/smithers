@@ -2,7 +2,7 @@ import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, FlowRuntime } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { CorrectPlan } from "../coding/correction.ts"
@@ -79,16 +79,17 @@ const revision = (name: string): Revision => ({
 
 /** The real engine runs coding/Request, factory/Todo and its Jev route over a
  * scripted evaluator; planning, source and correction are scripted children. */
-const fixture = (route: Route | "down") => {
+const fixture = (route: Route | "down", decline = false) => {
   const events: Array<string> = [], planned: Array<string> = []
   let head = revision("initial")
   const children = Layer.effectDiscard(Effect.gen(function*() {
     const runtime = yield* FlowRuntime.FlowRuntime
     yield* runtime.register(PrepareRequest, (value) =>
-      Effect.sync((): Plan => {
+      Effect.suspend(() => {
         events.push("plan")
         planned.push(value.feedback)
-        return {
+        if (decline) return Effect.fail(new CodingError({ code: "declined", message: "already done in a.ts" }))
+        return Effect.succeed<Plan>({
           prompt: value.prompt,
           memoryRevision: "memory",
           base: head,
@@ -108,7 +109,7 @@ const fixture = (route: Route | "down") => {
               writes: ["a.ts"]
             }]
           }]
-        }
+        })
       }))
     yield* runtime.register(CorrectPlan, () =>
       Effect.sync(() => {
@@ -175,6 +176,7 @@ test(
     const input = { prompt, feedback: "Keep the verifier", base }
     const result = await f.host.runPromise(Request.execute(input, { executionId: "todo-bug" }))
     assert.equal(result.outcome.status, "validated")
+    assert.equal(result.route, "bug", "the result says how the TODO was routed")
     assert.deepEqual(f.events, ["base", "jev", "plan", "implement"])
     assert.equal(f.planned[0], leafFeedback("bug", "Keep the verifier"), "the bug leaf plans a reproduction first")
     // A completed replay routes and plans nothing again.
@@ -196,11 +198,33 @@ test(
   }
 )
 
+test("a declined TODO fails with the planner's decline and the route Jev gave it", { timeout: 60_000 }, async (t) => {
+  for (const route of ["close", "implement"] as const) {
+    const f = fixture(route, true)
+    t.after(() => f.host.dispose())
+    const result = await f.host.runPromise(
+      Effect.result(Request.execute({ prompt, base }, { executionId: `todo-declined-${route}` }))
+    )
+    const failure = result._tag === "Failure" ? result.failure : undefined
+    assert.ok(failure instanceof CodingError, `expected a CodingError, got ${String(failure)}`)
+    // The run's final output is the encoded error; the stack reads route there
+    // (mythical_todo_test.go TestMythicalSnapshotShowsATodosMetrics).
+    assert.deepEqual(Schema.encodeSync(CodingError)(failure), {
+      _tag: "coding/Error",
+      code: "declined",
+      message: "already done in a.ts",
+      route
+    })
+    assert.deepEqual(f.events, ["base", "jev", "plan"])
+  }
+})
+
 test("a request without a stack base is not a TODO and is never routed", { timeout: 60_000 }, async (t) => {
   const f = fixture("close")
   t.after(() => f.host.dispose())
-  await f.host.runPromise(Request.execute({ prompt, feedback: "as written" }, { executionId: "chat" }))
+  const result = await f.host.runPromise(Request.execute({ prompt, feedback: "as written" }, { executionId: "chat" }))
   assert.deepEqual(f.events, ["plan", "implement"])
+  assert.equal(result.route, undefined)
   assert.equal(f.planned[0], "as written")
 })
 

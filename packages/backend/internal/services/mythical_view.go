@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -80,7 +81,14 @@ type MythicalItemView struct {
 	// runs, passed, or failed with the failed checks' ids.
 	Checks *MythicalChecksView `json:"checks,omitempty"`
 	// Todo is how far a TODO's plan got; absent for an item that is none.
-	Todo        *MythicalTodoView        `json:"todo,omitempty"`
+	Todo *MythicalTodoView `json:"todo,omitempty"`
+	// Route is how Jev routed a TODO, and how its outcome went once settled.
+	Route *MythicalRouteView `json:"route,omitempty"`
+	// HumanEdited is whether a person took over one of the item's runs.
+	HumanEdited bool `json:"humanEdited,omitempty"`
+	// CostNanos is the settled platform-key model cost of the item's lanes,
+	// in USD nanos; pending calls and pooled subscription calls count for none.
+	CostNanos   int64                    `json:"costNanos,omitempty"`
 	PullRequest *MythicalPullRequestView `json:"pullRequest,omitempty"`
 	DependsOn   []string                 `json:"dependsOn"`
 	UpdatedAt   string                   `json:"updatedAt"`
@@ -136,6 +144,31 @@ func mythicalTodoView(item db.MythicalItem) *MythicalTodoView {
 	view := &MythicalTodoView{Replans: checks.Replans, VeryHard: checks.VeryHard}
 	if checks.Fault != nil {
 		view.Fault = &MythicalFaultView{Class: checks.Fault.Class, Tag: checks.Fault.Tag}
+	}
+	return view
+}
+
+// MythicalRouteView is the route Jev gave a TODO (as) and the one its
+// outcome took (landed): "change" when it landed, "close" when the planner
+// declined it. A misroute is a close that landed a change, or an implement
+// or bug that closed; a feature that closed asked its author questions, as
+// routed.
+type MythicalRouteView struct {
+	As     string `json:"as"`
+	Landed string `json:"landed,omitempty"`
+}
+
+func mythicalRouteView(item db.MythicalItem) *MythicalRouteView {
+	route := mythicalChecksOf(item).Route
+	if route == "" {
+		return nil
+	}
+	view := &MythicalRouteView{As: route}
+	switch item.State {
+	case "landed":
+		view.Landed = "change"
+	case "declined":
+		view.Landed = "close"
 	}
 	return view
 }
@@ -216,10 +249,19 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	if err != nil {
 		return view, err
 	}
+	ids := make([]pgtype.UUID, len(items))
+	for i, item := range items {
+		ids[i] = item.ID
+	}
+	costs, err := q.MythicalItemCosts(ctx, repositoryID, ids)
+	if err != nil {
+		return view, err
+	}
 	lanes := map[int32]MythicalLaneView{}
 	var workspaces []string
 	for _, item := range items {
 		row := mythicalItemView(item)
+		row.CostNanos = costs[item.ID.Bytes]
 		view.Items = append(view.Items, row)
 		if row.Lane != nil && !mythicalSettled(item.State) {
 			lane := MythicalLaneView{Index: *row.Lane, WorkspaceID: item.WorkspaceID, ItemID: row.ID, State: "busy"}
@@ -335,7 +377,8 @@ func mythicalSettled(state string) bool {
 func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	row := MythicalItemView{ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
-		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), DependsOn: []string{}}
+		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
+		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, DependsOn: []string{}}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
 	}

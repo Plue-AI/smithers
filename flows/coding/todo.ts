@@ -18,11 +18,9 @@ import * as Classifier from "@smthrs/model/Classifier"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
-import { CodingError, PlanningInput } from "./schema.ts"
+import { CodingError, PlanningInput, Route } from "./schema.ts"
 
-/** The leaves a TODO routes to. */
-export const Route = Schema.Literals(["implement", "bug", "feature", "close"])
-export type Route = typeof Route.Type
+export { Route } from "./schema.ts"
 
 /** One question: which leaf this TODO takes. */
 export const todoRouter = Classifier.make("factory/route", {
@@ -49,6 +47,17 @@ export const RouteTodo = Action.make("factory/route-todo", {
   success: Schema.Struct({ route: Route, confidence: Schema.Number }),
   error: CodingError,
   nondeterministic: true
+})
+
+/**
+ * Fails with a TODO's failure stamped with its route, so a declined TODO still
+ * says how it was routed. (A `Node.fail` of the stamped value is refused: the
+ * engine will not settle an inert failure against the flow's CodingError.)
+ */
+export const StampRoute = Action.make("factory/stamp-route", {
+  payload: { error: CodingError, route: Route },
+  success: Schema.Never,
+  error: CodingError
 })
 
 /** What each leaf tells the planner, after any feedback already given. */
@@ -99,5 +108,8 @@ export const routeTodo = ({ prompt }: { readonly prompt: string }) =>
 export const todoLayers = (evaluator: Layer.Layer<Evaluator.Evaluator>) =>
   Layer.mergeAll(
     Interpreter.layer(Todo),
-    RouteTodo.toLayer((payload) => routeTodo(payload).pipe(Effect.provide(evaluator)))
+    RouteTodo.toLayer((payload) => routeTodo(payload).pipe(Effect.provide(evaluator))),
+    StampRoute.toLayer(({ error, route }) =>
+      Effect.fail(new CodingError({ code: error.code, message: error.message, route }))
+    )
   )

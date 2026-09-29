@@ -149,7 +149,11 @@ export const CorrectionResult = Schema.Struct({
   // Present when the stall breaker ended the correction (Stall in @smthrs/flow).
   stalled: Schema.optionalKey(Stall.Stalled)
 })
-export const RequestResult = Schema.Struct({ plan: Plan, outcome: CorrectionResult })
+/** The leaves Jev routes a TODO to (`factory/Todo`). */
+export const Route = Schema.Literals(["implement", "bug", "feature", "close"])
+export type Route = typeof Route.Type
+/** A TODO request also answers the route Jev gave it, on its result and on its failure. */
+export const RequestResult = Schema.Struct({ plan: Plan, outcome: CorrectionResult, route: Schema.optionalKey(Route) })
 export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error", {
   code: Schema.Literals([
     "invalid_plan",
@@ -166,7 +170,8 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "declined",
     "stalled"
   ]),
-  message: Text
+  message: Text,
+  route: Schema.optionalKey(Route)
 }) {}
 Fault.register(
   "coding/Error",
