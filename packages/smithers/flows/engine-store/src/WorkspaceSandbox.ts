@@ -1283,7 +1283,8 @@ const foldPath = (path: string): string => path.normalize("NFKC").toUpperCase().
 // three.
 const shortNameAlias = /^[^.~]{0,7}~\d{1,7}(\.[^.]{0,3})?$/u
 const isShortNameAlias = (segment: string): boolean => {
-  const base = segment.split(".")[0] ?? ""
+  // `split` always yields a first element, possibly empty.
+  const base = segment.split(".")[0]!
   return base.length <= 8 && shortNameAlias.test(segment)
 }
 
@@ -1355,7 +1356,8 @@ export const makeFileSystem = (
     const exact = within.find((entry) => entry.segments.every((segment, index) => segments[index] === segment))
     if (exact !== undefined) return `the workspace path ${exact.name} is reserved`
     const alias = within.find((entry) =>
-      entry.segments.every((segment, index) => segments[index] === segment || isShortNameAlias(segments[index] ?? ""))
+      // `within` holds only entries no longer than the path, so every index is present.
+      entry.segments.every((segment, index) => segments[index] === segment || isShortNameAlias(segments[index]!))
     )
     if (alias === undefined) return undefined
     const spelling = path.split("/").slice(0, alias.segments.length).join("/")

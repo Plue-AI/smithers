@@ -782,6 +782,38 @@ describe("a durable lineage", () => {
       expect(observed.root.status).toBe("cancelled")
     }))
 
+  it.effect.each(
+    [
+      ["the max-round", "budget-fence-race", 1, undefined],
+      ["an invalid-round", "invalid-round-fence-race", 99, "invalid"]
+    ] as const
+  )(
+    "leaves %s terminal transition that lost ownership to its new owner",
+    ([_name, executionId, rounds, malformed]) =>
+      Effect.gen(function*() {
+        const Limited = counter(`trampoline/fence-${executionId}`, rounds)
+        const observed = yield* durable(Effect.gen(function*() {
+          const store = yield* RunStore.RunStore
+          const fenceLost = RunStore.makeNoop({
+            ...store,
+            transitionOwned: (runId, claimant, status, stateJson, guard) =>
+              runId === executionId && status === "failed"
+                ? store.transitionOwned(runId, { hostId: "other", pid: 1, nonce: "other" }, status, stateJson, guard)
+                : store.transitionOwned(runId, claimant, status, stateJson, guard)
+          })
+          const racing = malformed === undefined ? fenceLost : invalidRoundStore(fenceLost, executionId)
+          const { calls, wiring } = yield* incarnation(`${executionId}-host`, [Interpreter.layer(Limited)], racing)
+          yield* Limited.execute({ value: 0, target: 2 }, { executionId, discard: true }).pipe(Effect.provide(wiring))
+          return { calls, root: yield* store.get(executionId) }
+        }))
+
+        expect(observed.calls).toEqual([0])
+        // The refused transition wrote nothing: the row is still the running
+        // round the lost owner held, not a failure it could not commit.
+        expect(observed.root.status).toBe("running")
+      })
+  )
+
   it.effect("persists the origin flow's budget across a handoff to another flow", () =>
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
