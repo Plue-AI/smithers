@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -146,27 +146,42 @@ func TestMirrorSyncRemoteRejectionLeavesValidRefUnchanged(t *testing.T) {
 
 func TestMirrorSyncPushLeasesTargetAfterRemoteInspection(t *testing.T) {
 	r := newRealMirrorRepos(t)
-	r.commit("base")
+	base := r.commit("base")
 	r.push(r.source, "HEAD:refs/heads/main")
 	r.push(r.target, "HEAD:refs/heads/main")
 	intermediate := r.commit("target intermediate")
 	sourceTip := r.commit("source tip")
 	r.push(r.source, "HEAD:refs/heads/main")
 
-	hooks := t.TempDir()
-	marker := filepath.Join(hooks, "pre-push-ran")
+	gitBinary, err := exec.LookPath("git")
+	require.NoError(t, err)
+	wrapperDir := t.TempDir()
+	marker := filepath.Join(wrapperDir, "target-moved")
 	targetDir := strings.TrimPrefix(r.target, "file://")
 	r.git(targetDir, "fetch", r.source, sourceTip)
-	script := fmt.Sprintf("#!/bin/sh\ngit --git-dir=%q update-ref refs/heads/main %s || exit 1\nprintf ran > %q\n", targetDir, intermediate, marker)
-	require.NoError(t, os.WriteFile(filepath.Join(hooks, "pre-push"), []byte(script), 0o755))
-	config := filepath.Join(t.TempDir(), "gitconfig")
-	require.NoError(t, os.WriteFile(config, []byte(fmt.Sprintf("[core]\n\thooksPath = %s\n", hooks)), 0o600))
-	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	// Advance the target after the mirror's last inspection but before Git
+	// obtains the push advertisement. This remains a fast-forward, so only
+	// the explicit lease can reject the now-stale plan.
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = push ] && [ \"$2\" = --atomic ]; then\n" +
+		"  " + shellQuote(gitBinary) + " --git-dir=" + shellQuote(targetDir) + " update-ref refs/heads/main " + shellQuote(intermediate) + " " + shellQuote(base) + " || exit 1\n" +
+		"  printf moved > " + shellQuote(marker) + "\n" +
+		"fi\n" +
+		"exec " + shellQuote(gitBinary) + " \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(wrapperDir, "git"), []byte(script), 0o755))
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 	run := r.sync(r.service(newFakeGitMirrorSyncStore()))
-	_, err := os.Stat(marker)
-	require.NoError(t, err, "the hook must move the target after Git has inspected the remote")
+	moved, err := os.ReadFile(marker)
+	require.NoError(t, err, "the push wrapper must move the target after mirror inspection; run: %+v", run)
+	assert.Equal(t, "moved", string(moved))
 	assert.Equal(t, gitMirrorRunFailed, run.State)
+	require.Len(t, run.Refs, 1)
+	assert.Equal(t, gitMirrorRefFailed, run.Refs[0].Status)
+	assert.Equal(t, base, run.Refs[0].From)
+	assert.Equal(t, sourceTip, run.Refs[0].To)
 	assert.Equal(t, sourceTip, r.refs(r.source)["refs/heads/main"])
 	assert.Equal(t, intermediate, r.refs(r.target)["refs/heads/main"], "the push must honor its planned target revision after remote inspection")
 }
