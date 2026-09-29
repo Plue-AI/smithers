@@ -474,6 +474,7 @@ const canonicalize = (value: unknown, path = "$", ancestors = new Set<object>(),
   try {
     const array = Array.isArray(value)
     const prototype = Object.getPrototypeOf(value)
+    if (array && prototype !== Array.prototype) return invalid(path, "non-plain-object")
     if (!array && prototype !== Object.prototype && prototype !== null) return invalid(path, "non-plain-object")
     if (Object.getOwnPropertySymbols(value).length > 0) return invalid(path, "symbol-key")
     const descriptors = Object.getOwnPropertyDescriptors(value)
@@ -483,6 +484,15 @@ const canonicalize = (value: unknown, path = "$", ancestors = new Set<object>(),
       return canonicalize(descriptor.value, memberPath, ancestors, depth + 1)
     }
     if (array) {
+      // JSON.stringify turns holes into null and drops every non-index member.
+      // Reject both before encoding so the fixture key describes the same array
+      // shape accepted by the model boundary.
+      for (let index = 0; index < descriptors.length!.value; index++) {
+        if (!Object.hasOwn(value, index)) return invalid(`${path}[${index}]`, "unsupported-type")
+      }
+      if (Object.getOwnPropertyNames(value).length !== descriptors.length!.value + 1) {
+        return invalid(path, "unsupported-type")
+      }
       const result: Array<unknown> = []
       for (let index = 0; index < descriptors.length!.value; index++) {
         result.push(field(String(index), `${path}[${index}]`))

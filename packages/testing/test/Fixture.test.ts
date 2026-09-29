@@ -81,6 +81,65 @@ describe("Fixture", () => {
     expect(failure).toMatchObject({ reason: "unsupported-type", path })
   })
 
+  it("rejects arrays which JSON.stringify would reshape", () => {
+    const rejects = (items: unknown, path: string, reason = "unsupported-type") => {
+      const input = request({ tools: [{ name: "schema", description: "schema", parameters: { items } }] })
+      let failure: unknown
+      try {
+        canonicalRequestDigest(input)
+      } catch (error) {
+        failure = error
+      }
+      expect(failure).toBeInstanceOf(FixtureEncodingError)
+      expect(failure).toMatchObject({ reason, path })
+    }
+
+    rejects(Array(1), "$.tools[0].parameters.items[0]")
+    rejects([1, , 3], "$.tools[0].parameters.items[1]")
+    rejects(Object.assign([1], { [Symbol("hidden")]: 2 }), "$.tools[0].parameters.items", "symbol-key")
+    rejects(Object.assign([1], { extra: 2 }), "$.tools[0].parameters.items")
+    rejects(Object.defineProperty([1], "extra", { value: 2, enumerable: false }), "$.tools[0].parameters.items")
+
+    const valid = request({ tools: [{ name: "schema", description: "schema", parameters: { items: [null] } }] })
+    expect(JSON.parse(canonicalRequestDigest(valid)).tools[0].parameters.items).toEqual([null])
+    rejects([undefined], "$.tools[0].parameters.items[0]")
+  })
+
+  it("rejects Array subclass instances", () => {
+    const rejects = (items: unknown) => {
+      const input = request({ tools: [{ name: "schema", description: "schema", parameters: { items } }] })
+      let failure: unknown
+      try {
+        canonicalRequestDigest(input)
+      } catch (error) {
+        failure = error
+      }
+      expect(failure).toBeInstanceOf(FixtureEncodingError)
+      expect(failure).toMatchObject({
+        reason: "non-plain-object",
+        path: "$.tools[0].parameters.items"
+      })
+    }
+
+    class Wrapped extends Array<unknown> {}
+    rejects(Wrapped.from([1, 2]))
+
+    class Reshaped extends Array<unknown> {
+      toJSON() {
+        return "x"
+      }
+    }
+    rejects(Reshaped.of(1))
+
+    const speciesProto = Object.create(Array.prototype)
+    Object.defineProperty(speciesProto, "constructor", {
+      value: { [Symbol.species]: class extends Array<unknown> {} }
+    })
+    const speciesArray = Object.setPrototypeOf([1], speciesProto)
+    expect(Array.isArray(speciesArray)).toBe(true)
+    rejects(speciesArray)
+  })
+
   it.effect("round-trips an own __proto__ tool parameter through snapshot, digest, and decode", () =>
     Effect.gen(function*() {
       const parameters = JSON.parse("{\"type\":\"object\",\"__proto__\":{\"type\":\"string\"}}")

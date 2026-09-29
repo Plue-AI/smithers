@@ -236,6 +236,7 @@ const copy = (value: unknown, ancestors: Set<object>, depth: number): unknown =>
     const array = Array.isArray(value)
     const prototype: unknown = Object.getPrototypeOf(value)
     // Leave unsupported values for the fixture encoder to reject at their path.
+    if (array && prototype !== Array.prototype) return value
     if (!array && prototype !== Object.prototype && prototype !== null) return value
     const result = array ? [] : {}
     const descriptors = Object.getOwnPropertyDescriptors(value)
