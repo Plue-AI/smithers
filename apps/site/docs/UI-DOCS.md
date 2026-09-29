@@ -67,6 +67,20 @@ as a live capture. `captures.json` records provenance, dimensions, and capture
 dates for both kinds of image. The `AppScreenshot` component uses those
 dimensions and provides a keyboard-accessible full-size image link.
 
+## Signed-in replacement captures (#2284)
+
+The fixture screenshots labeled “example data” cannot be relabeled as signed-in
+captures. Replacing them requires a running local team backend, a throwaway
+repository with completed work to show, and an authenticated browser session.
+Neither `capture:learn` (scripted replies and fixture routes) nor the current
+`capture-ui-docs.mjs` (public, signed-out UI) supplies that evidence. This
+workspace has no configured capture session or running local backend; do not
+invent a capture date, source, revision, or result in either `captures.json`.
+Before replacing any image, capture the actual signed-in UI, inspect and redact
+private data, record its true source and revision in the image manifest, then
+update captions, dimensions, and generated exports together. Never commit
+credentials or browser session state.
+
 Review every image before publishing it. Keep real account details, private
 source, credentials, and nonpublic project activity out of screenshots. Do not
 replace product screenshots with generated mockups.
