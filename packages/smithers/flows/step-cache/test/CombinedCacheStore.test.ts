@@ -12,11 +12,15 @@ import * as Fiber from "effect/Fiber"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import { TestClock } from "effect/testing"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import * as CacheStore from "../src/CacheStore.ts"
 import * as CacheStoreMetrics from "../src/CacheStoreMetrics.ts"
 import * as CombinedCacheStore from "../src/CombinedCacheStore.ts"
 import * as Migrations from "../src/Migrations.ts"
+import * as RemoteCacheStore from "../src/RemoteCacheStore.ts"
 
 const count = (metric: Metric.Metric<number, Metric.CounterState<number>>) =>
   Effect.map(Metric.value(metric), (state) => state.count)
@@ -402,6 +406,147 @@ describe("age-bounded SQL composition", () => {
       expect(yield* combined.get(entry.keyDigest, options)).toEqual(Option.none())
       expect(Option.getOrThrow(yield* local.get(entry.keyDigest, { recordedBy }))).toEqual(expired)
     })))
+})
+
+describe("selector detachment", () => {
+  const recordedBy = { runId: entry.recordedRunId, eventSeq: entry.recordedEventSeq }
+  const expired = { ...entry, createdAtMs: 0 }
+  const fresh = { ...entry, result: "fresh remote result", createdAtMs: 5000, recordedRunId: "remote-run" }
+
+  /** A real loopback shared tier that always serves `fresh` and logs every request URL. */
+  const loopback = Effect.acquireRelease(
+    Effect.callback<{ readonly urls: Array<string>; readonly close: () => Promise<void>; readonly port: number }>(
+      (resume) => {
+        const urls: Array<string> = []
+        const server = createServer((request, response) => {
+          urls.push(request.url ?? "")
+          response.writeHead(200, { "content-type": "application/json" })
+          response.end(JSON.stringify(fresh))
+        })
+        server.listen(0, "127.0.0.1", () =>
+          resume(Effect.succeed({
+            urls,
+            port: (server.address() as AddressInfo).port,
+            close: () => new Promise<void>((done) => server.close(() => done()))
+          })))
+      }
+    ),
+    (server) => Effect.promise(server.close)
+  )
+
+  const expiredLedger = (options: () => CacheStore.GetOptions) =>
+    withSqlStore(Effect.scoped(Effect.gen(function*() {
+      const local = yield* CacheStore.CacheStore
+      yield* local.put(expired)
+      yield* local.evict(entry.keyDigest)
+      yield* TestClock.adjust("5 seconds")
+      const server = yield* loopback
+      const remote = yield* RemoteCacheStore.make({ endpoint: `http://127.0.0.1:${server.port}` }).pipe(
+        Effect.provide(FetchHttpClient.layer)
+      )
+      const combined = CombinedCacheStore.make({ local, remote })
+      expect(yield* combined.get(entry.keyDigest, options())).toEqual(Option.none())
+      expect(server.urls).toEqual([])
+      expect(Option.getOrThrow(yield* local.get(entry.keyDigest, { recordedBy }))).toEqual(expired)
+    })))
+
+  it.effect("reads an accessor-backed fence once and keeps it through the expired-ledger refusal", () => {
+    let reads = 0
+    return expiredLedger(() =>
+      Object.defineProperty({ maxAgeMs: 1000 }, "recordedBy", {
+        enumerable: true,
+        get() {
+          return ++reads === 1 ? recordedBy : undefined
+        }
+      })
+    ).pipe(Effect.tap(() => Effect.sync(() => expect(reads).toBe(1))))
+  })
+
+  it.effect("reads an accessor-backed age bound once", () => {
+    let reads = 0
+    return expiredLedger(() =>
+      Object.defineProperty({ recordedBy }, "maxAgeMs", {
+        enumerable: true,
+        get() {
+          return ++reads === 1 ? 1000 : undefined
+        }
+      })
+    ).pipe(Effect.tap(() => Effect.sync(() => expect(reads).toBe(1))))
+  })
+
+  it.effect("reads inner provenance accessors once", () => {
+    let reads = 0
+    return expiredLedger(() => ({
+      maxAgeMs: 1000,
+      recordedBy: Object.defineProperty({ eventSeq: recordedBy.eventSeq }, "runId", {
+        enumerable: true,
+        get() {
+          return ++reads === 1 ? recordedBy.runId : "other-run"
+        }
+      }) as CacheStore.RecordedBy
+    })).pipe(Effect.tap(() => Effect.sync(() => expect(reads).toBe(1))))
+  })
+
+  it.effect("hands every tier the selector the caller held when the lookup began", () =>
+    Effect.gen(function*() {
+      const caller: { maxAgeMs?: number; recordedBy?: { runId: string; eventSeq: number } } = {
+        maxAgeMs: 1000,
+        recordedBy: { ...recordedBy }
+      }
+      const seen: Array<CacheStore.GetOptions | undefined> = []
+      const local = CacheStore.makeNoop({
+        get: (_key, options) =>
+          Effect.sync(() => {
+            seen.push(options)
+            caller.recordedBy!.runId = "mutated-run"
+            delete caller.maxAgeMs
+            return Option.none()
+          })
+      })
+      const remote = tier()
+      const combined = CombinedCacheStore.make({ local, remote: remote.store })
+      yield* combined.get(entry.keyDigest, caller)
+      const expected = { maxAgeMs: 1000, recordedBy }
+      expect(seen).toEqual([expected, { recordedBy }])
+      expect(remote.getOptions).toEqual([expected])
+      expect(Object.isFrozen(remote.getOptions[0])).toBe(true)
+      expect(Object.isFrozen(remote.getOptions[0]!.recordedBy)).toBe(true)
+    }))
+
+  it.effect("rereads the local winner after a lost write-back with the selector taken at entry", () =>
+    Effect.gen(function*() {
+      const caller: { maxAgeMs?: number; recordedBy?: { runId: string; eventSeq: number } } = {
+        maxAgeMs: 1000,
+        recordedBy: { ...recordedBy }
+      }
+      const local = tier({ putOutcome: { _tag: "Conflict" } })
+      const remote = CacheStore.makeNoop({
+        get: () =>
+          Effect.sync(() => {
+            caller.recordedBy!.runId = "mutated-run"
+            delete caller.maxAgeMs
+            return Option.some(fresh)
+          })
+      })
+      const combined = CombinedCacheStore.make({ local: local.store, remote })
+      expect(Option.getOrThrow(yield* combined.get(entry.keyDigest, caller))).toEqual(fresh)
+      const expected = { maxAgeMs: 1000, recordedBy }
+      expect(local.calls).toEqual(["get", "get", "put", "get", "get"])
+      expect(local.getOptions).toEqual([expected, { recordedBy }, expected, { recordedBy }])
+    }))
+
+  it.effect("refuses a malformed selector before either tier is read", () =>
+    Effect.gen(function*() {
+      const local = tier()
+      const remote = tier()
+      const combined = CombinedCacheStore.make({ local: local.store, remote: remote.store })
+      for (const options of [{ maxAgeMs: -1 }, { recordedBy: { runId: "", eventSeq: 1 } }]) {
+        const exit = yield* Effect.exit(combined.get(entry.keyDigest, options))
+        expect(Exit.isFailure(exit)).toBe(true)
+      }
+      expect(local.calls).toEqual([])
+      expect(remote.calls).toEqual([])
+    }))
 })
 
 describe("publications", () => {

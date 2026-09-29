@@ -77,10 +77,10 @@ export const make = (options: Options): CacheStore.Service => {
   // Resolve that distinction before either fallback to a shared entry. An
   // unbounded read can itself fall back to the head, so both provenance fields
   // must match before the miss is treated as a refusal.
-  const refusedLocally = (keyDigest: string, options: CacheStore.GetOptions | undefined) =>
+  const refusedLocally = (keyDigest: string, options: CacheStore.GetOptions) =>
     Effect.gen(function*() {
-      if (options?.recordedBy === undefined || options.maxAgeMs === undefined) return false
-      const { recordedBy } = options
+      const { recordedBy, maxAgeMs } = options
+      if (recordedBy === undefined || maxAgeMs === undefined) return false
       const recorded = yield* local.get(keyDigest, { recordedBy })
       return Option.isSome(recorded) &&
         recorded.value.recordedRunId === recordedBy.runId &&
@@ -91,14 +91,24 @@ export const make = (options: Options): CacheStore.Service => {
     Effect.gen(function*() {
       yield* CacheAdmission.validateKey(keyDigest)
       yield* Effect.annotateCurrentSpan({ keyDigest })
+      // One decode for the whole operation. Every tier and guard below reads
+      // this detached, frozen selector, never the caller's object: an accessor
+      // or a mutation during an asynchronous tier must not drop the fence
+      // after the local tier refused an expired exact record.
+      const maxAgeMs = yield* CacheAdmission.validateAge("maxAgeMs", options?.maxAgeMs)
+      const recordedBy = yield* CacheAdmission.validateRecordedBy(options?.recordedBy)
+      const selector: CacheStore.GetOptions = Object.freeze({
+        ...(maxAgeMs === undefined ? {} : { maxAgeMs }),
+        ...(recordedBy === undefined ? {} : { recordedBy: Object.freeze({ ...recordedBy }) })
+      })
       // The provenance fence travels with the lookup: each tier answers with
       // its recorded version when it holds one and its head otherwise.
-      const cached = yield* local.get(keyDigest, options)
+      const cached = yield* local.get(keyDigest, selector)
       if (Option.isSome(cached)) return cached
-      if (yield* refusedLocally(keyDigest, options)) return cached
+      if (yield* refusedLocally(keyDigest, selector)) return cached
       // A shared cache is an accelerator. Its refusal is observable, but it
       // cannot replace the executable miss path with a failed run.
-      const shared = yield* remote.get(keyDigest, options).pipe(
+      const shared = yield* remote.get(keyDigest, selector).pipe(
         Effect.catch(() =>
           Metric.update(CacheStoreMetrics.remoteFailure.get, 1).pipe(
             Effect.as(Option.none<CacheStore.CacheEntry>())
@@ -120,9 +130,9 @@ export const make = (options: Options): CacheStore.Service => {
       // over a local `Conflict` would be a cache collision the caller cannot
       // detect. If the winner is already gone again, the remote entry is the
       // only row anyone holds and stands.
-      const durable = yield* local.get(keyDigest, options)
+      const durable = yield* local.get(keyDigest, selector)
       if (Option.isSome(durable)) return durable
-      if (yield* refusedLocally(keyDigest, options)) return durable
+      if (yield* refusedLocally(keyDigest, selector)) return durable
       return shared
     })
   )
