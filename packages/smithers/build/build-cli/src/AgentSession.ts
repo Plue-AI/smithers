@@ -717,17 +717,69 @@ const matchesAny = (path: string, patterns: ReadonlyArray<string>): boolean =>
 
 const nulPaths = (output: string): ReadonlyArray<string> => output.split("\0").filter((path) => path !== "")
 
+/** Decode the pathname in a Git +++ header (C-quoted bytes or a raw UTF-8 path). */
+const patchPath = (header: string): string | undefined => {
+  if (header === "/dev/null") return undefined
+  let name: string
+  if (header.startsWith('"')) {
+    if (!header.endsWith('"')) throw new Error("unterminated quoted Git patch path")
+    const quoted = header.slice(1, -1)
+    const bytes: Array<number> = []
+    for (let index = 0; index < quoted.length;) {
+      if (quoted[index] !== "\\") {
+        const next = quoted.indexOf("\\", index)
+        const end = next < 0 ? quoted.length : next
+        bytes.push(...Buffer.from(quoted.slice(index, end), "utf8"))
+        index = end
+        continue
+      }
+      const escape = quoted[index + 1]
+      if (escape === undefined) throw new Error("incomplete Git patch path escape")
+      if (/[0-7]/.test(escape)) {
+        const octal = quoted.slice(index + 1, index + 4)
+        if (!/^[0-7]{3}$/.test(octal)) throw new Error("invalid Git patch path octal escape")
+        bytes.push(Number.parseInt(octal, 8))
+        index += 4
+      } else {
+        const escapes: Record<string, number> = {
+          a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92
+        }
+        const byte = escapes[escape]
+        if (byte === undefined) throw new Error("invalid Git patch path escape")
+        bytes.push(byte)
+        index += 2
+      }
+    }
+    name = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes))
+  } else {
+    // Git separates an unquoted path containing spaces from the header with a tab.
+    name = header.endsWith("\t") ? header.slice(0, -1) : header
+  }
+  if (!name.startsWith("b/")) throw new Error("invalid Git patch path prefix")
+  return name.slice(2)
+}
+
 /** Files of one diff whose added lines match a pattern, from `-U0` output. */
-const filesWithMatchingAddedLines = (patch: string, pattern: RegExp): ReadonlySet<string> => {
+const filesWithMatchingAddedLines = (
+  patch: string,
+  pattern: RegExp,
+  paths: ReadonlySet<string>
+): ReadonlySet<string> => {
   const matched = new Set<string>()
   let current: string | undefined
+  let inHunk = false
   for (const line of patch.split("\n")) {
-    if (line.startsWith("+++ ")) {
-      const name = line.slice(4)
-      current = name.startsWith("b/") ? name.slice(2) : name === "/dev/null" ? undefined : name
-      continue
-    }
-    if (current !== undefined && line.startsWith("+") && !line.startsWith("+++") && pattern.test(line.slice(1))) {
+    if (line.startsWith("diff --git ")) {
+      current = undefined
+      inHunk = false
+    } else if (!inHunk && line.startsWith("+++ ")) {
+      current = patchPath(line.slice(4))
+      if (current !== undefined && !paths.has(current)) {
+        throw new Error(`Git patch path is not a listed file: ${current}`)
+      }
+    } else if (line.startsWith("@@ ")) {
+      inHunk = true
+    } else if (inHunk && current !== undefined && line.startsWith("+") && pattern.test(line.slice(1))) {
       matched.add(current)
     }
   }
@@ -789,7 +841,10 @@ export const expandDiffSlice = (
           files,
           timeoutMs
         )
-        const matched = filesWithMatchingAddedLines(zero, pattern)
+        const matched = yield* Effect.try({
+          try: () => filesWithMatchingAddedLines(zero, pattern, new Set(files)),
+          catch: (cause) => sessionError("diff", new Error(`cannot parse Git patch path: ${messageOf(cause)}`))
+        })
         files = files.filter((path) => matched.has(path))
       }
       for (const path of files) union.set(path, diff.base)

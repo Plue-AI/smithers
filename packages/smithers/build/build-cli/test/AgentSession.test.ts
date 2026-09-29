@@ -121,6 +121,32 @@ describe("expandDiffSlice", () => {
     )
     expect(slice.files).toEqual(["src/a.ts"])
   })
+
+  it.each([
+    ["src/ascii.ts", "true"],
+    ["src/space file.ts", "true"],
+    ["src/révision.ts", "true"],
+    ["src/révision.ts", "false"],
+    ["src/tab\tfile.ts", "true"],
+    ["src/quote\"file.ts", "true"],
+    ["src/back\\slash.ts", "true"]
+  ])("reviews added TODO in %s with core.quotePath=%s", async (path, quotePath) => {
+    await write(path, "export const value = 1\n")
+    git("add", "--", path)
+    git("commit", "-qm", "track unusual path")
+    git("config", "core.quotePath", quotePath)
+    await write(path, "export const value = 1\n// TODO review me\n")
+    const diffs = [Input.gitDiff({ base: "HEAD", paths: [path.includes("\\") ? "src/**" : path], addedLines: "TODO" })]
+    const slice = await Effect.runPromise(AgentSession.expandDiffSlice(root, diffs))
+    expect(slice.files).toEqual([path])
+    const factory = scripted([{ findings: [] }])
+    const report = await Effect.runPromise(
+      AgentSession.runAgentLint(runtimeOf({ sessions: factory }), lintPayload({ diffs }))
+    )
+    expect(report.vacuous).toBe(false)
+    expect(factory.spawns()).toBe(1)
+    expect(factory.requests()).toHaveLength(1)
+  })
 })
 
 describe("diff slice path and byte boundaries", () => {
