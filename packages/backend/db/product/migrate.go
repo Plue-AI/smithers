@@ -115,6 +115,7 @@ var migrationRegistry = []migrationSpec{
 	{77, "migrations/0077_repository_transfer_requests.sql"},
 	{78, "migrations/0078_operator_grants.sql"},
 	{79, "migrations/0079_revocation_events_browser_session_revoked.sql"},
+	{80, "migrations/0080_landing_review_comment_create_keys.sql"},
 }
 
 type migration struct {
