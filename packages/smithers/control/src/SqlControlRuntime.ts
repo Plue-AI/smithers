@@ -1339,7 +1339,13 @@ const makeRuntime = (
       if (filters?.since !== undefined) conditions.push(sql`runs.created_at_ms >= ${filters.since}`)
       if (filters?.until !== undefined) conditions.push(sql`runs.created_at_ms < ${filters.until}`)
       if (filters?.runIds !== undefined) {
-        conditions.push(filters.runIds.length === 0 ? sql`1 = 0` : sql`${sql.in("runs.run_id", [...filters.runIds])}`)
+        // One JSON parameter, so a trigger's whole ledger never meets the bind-variable limit.
+        const ids = JSON.stringify([...new Set(filters.runIds)])
+        conditions.push(
+          Dialect.isPostgres(sql)
+            ? sql`runs.run_id IN (SELECT jsonb_array_elements_text(${ids}::jsonb))`
+            : sql`runs.run_id IN (SELECT value FROM json_each(${ids}))`
+        )
       }
       if (after !== undefined) {
         conditions.push(

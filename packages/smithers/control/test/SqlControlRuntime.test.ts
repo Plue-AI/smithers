@@ -304,6 +304,9 @@ it("selects SQL runs by creation window and run ids, and pages them oldest or ne
       expect(yield* walk({ order: "oldest", filters: { since: 30, until: 30 } })).toEqual([])
       expect(yield* walk({ order: "newest", filters: { runIds: ["a", "b", "missing"] } })).toEqual(["b", "a"])
       expect(yield* walk({ filters: { runIds: [] } })).toEqual([])
+      // Far past SQLite's bind-variable limit, with duplicates.
+      const many = [...Array.from({ length: 40_000 }, (_, index) => `absent-${index}`), "d", "d", "z"]
+      expect(yield* walk({ order: "oldest", filters: { runIds: many } })).toEqual(["z", "d"])
     }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
   )
 })
