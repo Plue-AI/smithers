@@ -23,7 +23,7 @@ describe("core rule contract boundary", () => {
         "Foundry.Test",
         "Foundry.Fmt"
       ]],
-      ["container", ["Docker.Build", "Docker.Bake", "Docker.Push"]]
+      ["container", ["Docker.Build", "Docker.Bake"]]
     ] as const
   )("requires resolved argv for %s rules", (family, rules) => {
     for (const rule of rules) {
@@ -47,6 +47,7 @@ describe("core rule contract boundary", () => {
     "Shell.Serve",
     "Docker.Serve",
     "Docker.Service",
+    "Docker.Push",
     "Anvil.Fork",
     "ImportClosure",
     "Test",

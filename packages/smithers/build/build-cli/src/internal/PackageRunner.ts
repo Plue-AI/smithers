@@ -2471,8 +2471,12 @@ export const executeEffect = (
               )
             }
             case "Docker.Push": {
-              const spawned = yield* spawnNode(node, root)
-              return spawned.ok ? green("ran") : fail(spawned.error ?? "docker push failed")
+              if (node.lane?.kind !== "docker-push") return fail("docker push planned no commands")
+              for (const command of node.lane.commands) {
+                const spawned = yield* spawnNode(node, root, command)
+                if (!spawned.ok) return fail(spawned.error ?? "docker push failed")
+              }
+              return green("ran")
             }
             case "ImportClosure": {
               if (node.lane?.kind !== "closure") return fail("import closure planned no entries")

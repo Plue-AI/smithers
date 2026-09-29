@@ -76,6 +76,7 @@ export type LaneData =
     readonly stop?: ServiceSupervisor.Stop | undefined
   }
   | { readonly kind: "docker-service"; readonly attrs: (typeof Docker.ServeAttrs)["Type"] }
+  | { readonly kind: "docker-push"; readonly commands: ReadonlyArray<ReadonlyArray<string>> }
   | { readonly kind: "anvil-fork"; readonly attrs: (typeof Anvil.ForkAttrs)["Type"] }
   | { readonly kind: "closure"; readonly entries: ReadonlyArray<Compose.AnchoredSource> }
   | { readonly kind: "files-test"; readonly left: TestOperandPlan; readonly right: TestOperandPlan }
@@ -304,7 +305,8 @@ export type Selection =
     >
     & { readonly argv: Argv }
   )
-  | (Variant<"container", "Docker.Build" | "Docker.Bake" | "Docker.Push", undefined> & { readonly argv: Argv })
+  | (Variant<"container", "Docker.Build" | "Docker.Bake", undefined> & { readonly argv: Argv })
+  | Variant<"container", "Docker.Push", Lane<"docker-push">>
   | Variant<"generated", "Generate" | "Owners.Codeowners" | "Owners.Tree", undefined>
   | Variant<
     "value",

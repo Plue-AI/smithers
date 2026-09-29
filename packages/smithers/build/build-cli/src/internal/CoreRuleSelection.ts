@@ -12,6 +12,7 @@ const nativeLanes = {
   "Shell.Serve": true,
   "Docker.Serve": true,
   "Docker.Service": true,
+  "Docker.Push": true,
   "Anvil.Fork": true,
   "ImportClosure": true,
   "Test": true,
@@ -91,7 +92,6 @@ export const select = (rule: string, command: ReadonlyArray<string> | undefined)
       return argv === undefined ? undefined : { family: "language", rule, lane: undefined, argv }
     case "Docker.Build":
     case "Docker.Bake":
-    case "Docker.Push":
       return argv === undefined ? undefined : { family: "container", rule, lane: undefined, argv }
     case "Generate":
     case "Owners.Codeowners":

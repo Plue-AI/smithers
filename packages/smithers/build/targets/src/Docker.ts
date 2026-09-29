@@ -80,7 +80,7 @@ export const PushAttrs = Schema.Struct({
   image: Target.Target,
   registry: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
-  tags: Schema.Array(Schema.Unknown),
+  tags: Schema.NonEmptyArray(Schema.Unknown),
   gates: Schema.optional(Attr.Gates),
   secrets: Schema.optional(Attr.Secrets),
   sandbox: Schema.optional(Attr.Sandbox),

@@ -1921,6 +1921,9 @@ const visit = async (
     toolchain.push(planned.toolchain)
     outDirs.push(...planned.outDirs)
     argv = planned.argv === undefined ? undefined : [...planned.argv]
+    if (rule === "Docker.Push" && planned.commands !== undefined) {
+      selection = { family: "container", rule, lane: { kind: "docker-push", commands: planned.commands } }
+    }
     if (sandbox === undefined) sandbox = "none"
     if (planned.refusal !== undefined) noteRefusal(planned.refusal)
   }

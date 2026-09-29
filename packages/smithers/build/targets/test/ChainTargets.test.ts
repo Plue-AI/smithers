@@ -108,6 +108,15 @@ describe("Anvil and Docker targets", () => {
       tags: ["latest"],
       approval: "required"
     })
+    expect(() =>
+      Docker.Push({
+        image: build,
+        registry: "registry.example.invalid",
+        name: "api",
+        tags: [],
+        approval: "required"
+      })
+    ).toThrow(/tags/)
     expect(Target.metadata(service).target).toBe("Docker.Serve")
     expect(Target.metadata(build)).toMatchObject({ target: "Docker.Build", cacheable: true })
     // The declared output name carries a digest of the exact declaration, so a

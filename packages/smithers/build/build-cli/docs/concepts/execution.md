@@ -262,6 +262,10 @@ hard-killed command may require manual cleanup; a later command cannot assume
 it is abandoned. A service captures a
 bounded tail of its output, which is what a failure reports.
 
+`Docker.Push` requires at least one tag. The executor pushes each tag in
+declaration order and stops when a push fails; it reports success only after
+every tag succeeds.
+
 Services live at most as long as the command's scope, and the supervisor holds
 an orphan backstop on the process signals. That backstop is why the process
 entry registers persistent signal listeners rather than one-shot ones; see

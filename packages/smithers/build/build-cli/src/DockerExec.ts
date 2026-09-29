@@ -113,6 +113,7 @@ const scalar = (value: unknown): string | undefined => {
  */
 export interface Plan {
   readonly argv?: ReadonlyArray<string> | undefined
+  readonly commands?: ReadonlyArray<ReadonlyArray<string>> | undefined
   readonly outDirs: ReadonlyArray<string>
   readonly toolchain: unknown
   readonly refusal?: string | undefined
@@ -138,6 +139,9 @@ export const plan = async (options: {
   if (!tool.ok) return { outDirs: [], toolchain: tool.identity, refusal: tool.refusal }
   if (options.rule === "Docker.Push") {
     const attrs = options.attrs as (typeof Docker.PushAttrs)["Type"]
+    if (attrs.tags.length === 0) {
+      return { outDirs: [], toolchain: tool.identity, refusal: "Docker.Push requires at least one tag" }
+    }
     const tags = attrs.tags.map(scalar)
     if (tags.some((tag) => tag === undefined)) {
       return {
@@ -146,8 +150,10 @@ export const plan = async (options: {
         refusal: "Docker.Push tags must resolve to strings before execution"
       }
     }
+    const commands = tags.map((tag) => [tool.path, "push", `${attrs.registry}/${attrs.name}:${tag}`])
     return {
-      argv: [tool.path, "push", ...tags.map((tag) => `${attrs.registry}/${attrs.name}:${tag}`)],
+      argv: commands[0],
+      commands,
       outDirs: [],
       toolchain: tool.identity
     }

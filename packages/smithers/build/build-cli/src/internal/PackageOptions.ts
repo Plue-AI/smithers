@@ -70,7 +70,7 @@ export interface PlanReport {
     readonly dependencies: ReadonlyArray<string>
     readonly argv?: ReadonlyArray<string> | undefined
     readonly shards?: number | undefined
-    /** A cargo target's per-crate commands, when it renders more than one. */
+    /** Commands run in order for a Cargo crate set or Docker push. */
     readonly commands?: ReadonlyArray<ReadonlyArray<string>> | undefined
     readonly sandbox?: PackageNode["sandbox"]
     /**

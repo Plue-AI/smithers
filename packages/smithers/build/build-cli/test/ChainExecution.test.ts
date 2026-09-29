@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as NodeNet from "node:net"
@@ -596,7 +596,7 @@ describe("Docker build, bake, and push plans", () => {
     })
   })
 
-  it("plans one push argument per tag and refuses a tag that never resolves", async () => {
+  it("plans one Docker push command per tag and refuses a tag that never resolves", async () => {
     await withDockerStub({}, async (docker) => {
       const planned = await DockerExec.plan({
         rule: "Docker.Push",
@@ -604,13 +604,10 @@ describe("Docker build, bake, and push plans", () => {
         attrs: { registry: "registry.example.invalid", name: "fixture", tags: ["latest", 7] } as never
       })
       expect(planned.outDirs).toEqual([])
-      expect(planned.argv).toEqual([
-        docker,
-        "push",
-        "registry.example.invalid/fixture:latest",
-        "registry.example.invalid/fixture:7"
+      expect(planned.commands).toEqual([
+        [docker, "push", "registry.example.invalid/fixture:latest"],
+        [docker, "push", "registry.example.invalid/fixture:7"]
       ])
-
       const refused = await DockerExec.plan({
         rule: "Docker.Push",
         packagePath: "apps/img",
@@ -618,8 +615,41 @@ describe("Docker build, bake, and push plans", () => {
       })
       expect(refused.argv).toBeUndefined()
       expect(refused.refusal).toBe("Docker.Push tags must resolve to strings before execution")
+
+      const empty = await DockerExec.plan({
+        rule: "Docker.Push",
+        packagePath: "apps/img",
+        attrs: { registry: "registry.example.invalid", name: "fixture", tags: [] } as never
+      })
+      expect(empty.commands).toBeUndefined()
+      expect(empty.refusal).toBe("Docker.Push requires at least one tag")
     })
   })
+
+  it.skipIf(PackageTree.findOnPath("docker") === undefined)(
+    "passes each planned push through Docker argument parsing",
+    async () => {
+      const docker = PackageTree.findOnPath("docker")!
+      const directory = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-2577-"))
+      temporaryDirectories.push(directory)
+      await withDockerStub({}, async () => {
+        const planned = await DockerExec.plan({
+          rule: "Docker.Push",
+          packagePath: "apps/img",
+          attrs: { registry: "127.0.0.1:1", name: "fixture", tags: ["one", "two"] } as never
+        })
+        expect(planned.commands).toHaveLength(2)
+        for (const command of planned.commands ?? []) {
+          const result = spawnSync(docker, command.slice(1), {
+            encoding: "utf8",
+            env: { ...process.env, DOCKER_HOST: `unix://${NodePath.join(directory, "missing.sock")}` }
+          })
+          expect(result.status).toBe(1)
+          expect(`${result.stdout}${result.stderr}`).toContain("missing.sock")
+        }
+      })
+    }
+  )
 
   /**
    * The refusal `macos-latest` produces. Every entry point has to name the

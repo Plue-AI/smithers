@@ -65,7 +65,9 @@ export async function run(options: RunOptions): Promise<Executor.Summary | PlanR
         dependencies: node.dependencies,
         ...(node.argv === undefined ? {} : { argv: node.argv }),
         ...(node.shards === 1 ? {} : { shards: node.shards }),
-        ...(node.lane?.kind === "cargo" && node.argv === undefined ? { commands: node.lane.commands } : {}),
+        ...(node.lane?.kind === "docker-push" || (node.lane?.kind === "cargo" && node.argv === undefined)
+          ? { commands: node.lane.commands }
+          : {}),
         // Every tool-running node reports its confinement: the declared policy
         // (the default confinement when none is declared) and whether this
         // host enforces it. Execution fails a confined node the host cannot
