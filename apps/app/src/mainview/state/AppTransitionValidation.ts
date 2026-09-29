@@ -3,6 +3,7 @@ import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingP
 import { ConfiguredModelSchema,ModelRecordIdSchema,ModelTestRecordSchema,SeatIdSchema } from "@smthrs/rpc/ConfiguredModel"
 import { SignupSchema } from "./Signup"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
+import { AgentTurnUsageSchema } from "@smthrs/rpc/NativeAgent"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { z } from "zod"
@@ -82,6 +83,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "message.submitted": z.object({ "type": z.literal("message.submitted"), "actor": z.enum(["user", "smithers"]), "turnId": z.string(), "text": z.string(), preserveDraft: z.boolean().optional() }).strict(),
   "message.response.delta": z.object({ "type": z.literal("message.response.delta"), "actor": z.literal("smithers"), "turnId": z.string(), "channel": z.enum(["text", "reasoning"]), "delta": z.string() }).strict(),
   "message.response.completed": z.object({ "type": z.literal("message.response.completed"), "actor": z.literal("smithers"), "turnId": z.string() }).strict(),
+  "chat.usage.recorded": z.object({ "type": z.literal("chat.usage.recorded"), "actor": z.literal("smithers"), "turnId": z.string(), "usage": AgentTurnUsageSchema.strict() }).strict(),
   "message.response.failed": z.object({ "type": z.literal("message.response.failed"), "actor": z.literal("system"), "turnId": z.string(), "message": z.string() }).strict(),
   "message.retried": z.object({ "type": z.literal("message.retried"), "actor": z.literal("user"), "turnId": z.string() }).strict(),
   "message.response.cancelled": z.object({ "type": z.literal("message.response.cancelled"), "actor": z.enum(["user", "system"]), "turnId": z.string(), "detail": z.string().optional() }).strict(),

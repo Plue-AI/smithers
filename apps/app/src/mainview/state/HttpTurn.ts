@@ -122,6 +122,7 @@ export const projectHttpFrame = (prior: HttpTurn, priorLeg: HttpTurnLeg, frame: 
   else if (frame.type === "gate.rejected") act("Smithers adjusted its approach")
   else if (frame.type === "steering.drained") act("Smithers picked up your note")
   else if (frame.type === "done") {
+    if (frame.usage !== undefined) transitions.push({ type: "chat.usage.recorded", actor: "smithers", turnId: turn.turnId, usage: frame.usage })
     if (frame.error === undefined && frame.reason !== "cancelled" && frame.reason !== "tool_limit" && leg.call !== undefined && view.executedLegs < HTTP_MAX_TOOL_LEGS) {
       leg.status = "tool-ready"
     } else {

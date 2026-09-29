@@ -134,6 +134,8 @@
 /* The home alone carries no strip; a chosen Vim mode keeps only its indicator (App.tsx homeOnly). */
 .app-chat-controls[hidden] { display: none; }
 .app-chat-controls .chat-filter-control { order: -1; }
+/* The conversation's context and cache meter (ChatMeter.tsx): quiet until a level warns. */
+.app-chat-controls .chat-meter { font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; }
 /* Signup buttons stay uncovered by Chat guidance on a phone. */
 @media (max-width: 600px) {
 	.app-shell:has(.signup) .app-chat-controls .help-bubble { display: none; }

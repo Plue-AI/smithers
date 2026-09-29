@@ -26,6 +26,7 @@ import { SignupCards } from "./cards/SignupCards"
 import { signupOpening } from "./state/Signup"
 import { CardView } from "./ChatCards"
 import { ChatFilterMenu } from "./ChatFilterMenu"
+import { ChatMeter } from "./ChatMeter"
 import { Composer } from "./Composer"
 import { ConnectorsSurface } from "./ConnectorsSurface"
 import { useController } from "./ControllerContext"
@@ -41,7 +42,7 @@ import { GUIDE_KEYS,GuideButton } from "./onboarding/GuideButton"
 import { PluginsSurface } from "./plugins/PluginsSurface"
 import { pathRepo } from "./RepoLink"
 import type { Card,Message,Suggestion as SuggestionBinding } from "./state/AppState"
-import { conversationTabIdOf,inConversation,MAIN_TAB_ID } from "./state/AppState"
+import { conversationTabIdOf,DEFAULT_BRANCH_ID,inConversation,MAIN_TAB_ID } from "./state/AppState"
 import { catalogRepositoryOf } from "./state/RepoContext"
 import { useCardRows,useFileCardRows,useFlowDurationRows,useTriggerListRows,useWorkflowCatalogRows } from "./state/useCardRows"
 import { ConfirmDialog } from "./SurfaceChrome"
@@ -111,7 +112,8 @@ function AppContent() {
       resetConfirmOpen: session.resetConfirmOpen,
       verbose: session.verbose,
       activeRepoKey: session.activeRepoKey,
-      repositoryEntry: session.repositoryEntry
+      repositoryEntry: session.repositoryEntry,
+      chatUsage: session.chatUsage
     }))
   )
   const { data: worldDocumentRows } = useLiveQuery(collections.worldDocuments)
@@ -632,6 +634,7 @@ function AppContent() {
         }}>Chat</GuideButton></FirstSightHint>}
         {homeOnly && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
         {homeOnly ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
+        {homeOnly ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
       </footer>
       </div>
 

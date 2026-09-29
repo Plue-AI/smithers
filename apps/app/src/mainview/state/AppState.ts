@@ -18,6 +18,7 @@ WorkspaceServiceSchema
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
+import type { AgentTurnUsage } from "@smthrs/rpc/NativeAgent"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
@@ -743,6 +744,17 @@ export type RunOpenRequest = z.infer<typeof RunOpenRequestSchema>
 
 export const QueuedPromptSchema = z.object({ id: z.string(), text: z.string(), scope: z.string() })
 
+/** One conversation's chat meter (`Session.chatUsage`), folded from `chat.usage.recorded`. */
+export const ChatUsageSchema = z.object({
+  branchId: z.string(),
+  input: z.number().int().nonnegative(),
+  output: z.number().int().nonnegative(),
+  cached: z.number().int().nonnegative().optional(),
+  context: z.number().int().nonnegative(),
+  modelId: z.string().optional()
+})
+export type ChatUsage = z.infer<typeof ChatUsageSchema>
+
 export const SessionSchema = z.object({
   queuedPrompts: z.array(QueuedPromptSchema).optional(),
   promptQueuePaused: z.boolean().optional(),
@@ -924,6 +936,13 @@ export const SessionSchema = z.object({
    */
   workspaceName: z.string().optional(),
   workspaceRenameOpen: z.boolean().optional(),
+  /*
+   * The chat agent's token meter for one conversation (branch): totals over
+   * every model call its turns made, and `context` = the latest call's input.
+   * `modelId` is the chat seat's model when the call settled, for the window.
+   * Absent until a call reports usage; optional so persisted sessions parse.
+   */
+  chatUsage: ChatUsageSchema.optional(),
   revision: z.number().int().nonnegative()
 })
 export type Session = z.infer<typeof SessionSchema>
@@ -1150,6 +1169,8 @@ export type AppTransition =
     actor: "smithers"
     turnId: string
   }
+  /* One model call of a chat turn settled with this usage (the `done` frame's). */
+  | { type: "chat.usage.recorded"; actor: "smithers"; turnId: string; usage: AgentTurnUsage }
   | {
     type: "message.response.failed"
     actor: "system"

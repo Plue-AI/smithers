@@ -18,7 +18,7 @@ import {
 import type { JsonObject, Message as ModelMessage, ModelRequest as Request } from "@smthrs/model/ModelRequest"
 import { composeAgentInstructions } from "@smthrs/rpc/AgentContext"
 import { cutModelCredential } from "@smthrs/rpc/ConfiguredModel"
-import type { AgentChatMessage, AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import type { AgentChatMessage, AgentTurnFrame, AgentTurnUsage, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect, Stream } from "effect"
 
 /**
@@ -120,16 +120,36 @@ interface PendingToolCall {
   name: string
   arguments: string
 }
-const doneFrame = (runId: string, event: ModelEvent.Settle): AgentTurnFrame => {
-  if (event.stopReason === "tool-calls") return { runId, type: "done", reason: "tool_call" }
-  if (event.stopReason === "aborted") return { runId, type: "done", reason: "cancelled" }
+const usageCount = (value: number | undefined): number | undefined =>
+  value === undefined || !Number.isFinite(value) || value < 0 ? undefined : Math.round(value)
+
+/**
+ * Folds one `usage` event into the call's running counts. A provider may
+ * report input and output in separate events, so a later event overrides only
+ * the counters it carries.
+ */
+const mergeUsage = (current: AgentTurnUsage | undefined, event: ModelEvent.UsageEvent): AgentTurnUsage | undefined => {
+  const next: AgentTurnUsage = { ...current }
+  const inputTokens = usageCount(event.inputTokens)
+  const outputTokens = usageCount(event.outputTokens)
+  const cachedInputTokens = usageCount(event.cachedInputTokens)
+  if (inputTokens !== undefined) next.inputTokens = inputTokens
+  if (outputTokens !== undefined) next.outputTokens = outputTokens
+  if (cachedInputTokens !== undefined) next.cachedInputTokens = cachedInputTokens
+  return Object.keys(next).length === 0 ? undefined : next
+}
+
+const doneFrame = (runId: string, event: ModelEvent.Settle, usage: AgentTurnUsage | undefined): AgentTurnFrame => {
+  const counted = usage === undefined ? {} : { usage }
+  if (event.stopReason === "tool-calls") return { runId, type: "done", reason: "tool_call", ...counted }
+  if (event.stopReason === "aborted") return { runId, type: "done", reason: "cancelled", ...counted }
   // A reply cut off at the output token limit is not a finished reply. The
   // error keeps the truncation visible to the reader instead of passing it
   // off as a normal stop.
   if (["error", "content-filter", "unknown", "length"].includes(event.stopReason)) {
-    return { runId, type: "done", reason: "stop", error: `model stopped: ${event.stopReason}` }
+    return { runId, type: "done", reason: "stop", error: `model stopped: ${event.stopReason}`, ...counted }
   }
-  return { runId, type: "done", reason: "stop" }
+  return { runId, type: "done", reason: "stop", ...counted }
 }
 
 /**
@@ -148,6 +168,7 @@ export const runModelTurn = <E>(
   const reasoning = new StreamingCredentialCutter(options.credential)
   const tools = new Map<string, PendingToolCall>()
   let settled = false
+  let usage: AgentTurnUsage | undefined
   const emit = (frame: AgentTurnFrame): Effect.Effect<void, E> => write(frame)
   const emitDelta = (kind: "text" | "reasoning", value: string): Effect.Effect<void, E> =>
     value === "" ? Effect.void : emit({ runId: turn.runId, type: "delta", kind, text: value })
@@ -194,8 +215,15 @@ export const runModelTurn = <E>(
         return Effect.gen(function*() {
           yield* emitDelta("reasoning", reasoning.finish())
           yield* emitDelta("text", text.finish())
-          yield* emit(doneFrame(turn.runId, event))
+          yield* emit(doneFrame(turn.runId, event, usage))
         })
+      case "usage":
+        usage = mergeUsage(usage, event)
+        return Effect.void
+      case "retry":
+        // A retried call starts over; the abandoned attempt's counts are not this call's.
+        usage = undefined
+        return Effect.void
       default:
         return Effect.void
     }

@@ -939,6 +939,10 @@ export const createTurnController = (
       }
       if (frame.type !== "done") return
       const turn = ctx.activeTurn
+      // Every done ends one model call, tool-call legs included: its usage feeds the chat meter.
+      if (frame.usage !== undefined) {
+        store.dispatch({ type: "chat.usage.recorded", actor: "smithers", turnId: turn.id, usage: frame.usage })
+      }
       // A kill outranks a pending tool call: the terminal frame the Worker
       // injects for a server-side kill can land between the model's
       // `tool_call` frame and the upstream's own `done`. Continuing there

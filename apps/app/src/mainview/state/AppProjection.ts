@@ -181,6 +181,7 @@ export const APP_TRANSITION_TYPES = {
   "message.submitted": true,
   "message.response.delta": true,
   "message.response.completed": true,
+  "chat.usage.recorded": true,
   "message.response.failed": true,
   "message.retried": true,
   "message.response.cancelled": true,
@@ -442,6 +443,8 @@ export const VERBOSE_OFF_TEXT = "Verbose off"
 const UNTRACED_TRANSITIONS: ReadonlySet<string> = new Set([
   "composer.changed",
   "message.response.delta",
+  // Once per model call; the chat meter already shows it.
+  "chat.usage.recorded",
   "http.turn.batch.received",
   "gateway.run.observed",
   "gateway.run.observer.changed",
@@ -1459,6 +1462,31 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           })
           break
 
+        case "chat.usage.recorded": {
+          /*
+           * One model call's counts fold into the conversation's meter, as
+           * RunMeter folds a run's calls: a call without input or output is
+           * not a call, and a new conversation (branch) starts from zero.
+           */
+          const { inputTokens, outputTokens, cachedInputTokens } = transition.usage
+          if (inputTokens === undefined && outputTokens === undefined) return
+          const prior = current.chatUsage?.branchId === activeBranchId ? current.chatUsage : undefined
+          const recordId = collections.seats.get("chat")?.recordId
+          const modelId = recordId === undefined || recordId === null ? undefined : collections.models.get(recordId)?.modelId
+          const cached = cachedInputTokens === undefined ? prior?.cached : (prior?.cached ?? 0) + cachedInputTokens
+          collections.sessions.update(SESSION_ID, (draft) => {
+            draft.chatUsage = {
+              branchId: activeBranchId,
+              input: (prior?.input ?? 0) + (inputTokens ?? 0),
+              output: (prior?.output ?? 0) + (outputTokens ?? 0),
+              ...(cached === undefined ? {} : { cached }),
+              context: inputTokens ?? prior?.context ?? 0,
+              ...(modelId === undefined ? {} : { modelId })
+            }
+          })
+          break
+        }
+
         case "message.response.failed": {
           if (current.phase !== "responding" || current.turnId !== transition.turnId) return
           const messageId = `message-${transition.turnId}-smithers`
@@ -1618,6 +1646,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.draft = ""
             draft.phase = "idle"
             if (draft.queuedPrompts?.length) draft.promptQueuePaused = true
+            // A reset conversation starts its meter over.
+            draft.chatUsage = undefined
             draft.composerOwner = "user"
             draft.maximizedCardId = null
             draft.activeFrameId = rootFrameId(activeBranchId)

@@ -300,6 +300,28 @@ export const ChainCallVerdictSchema = z.enum(["run", "hit", "replay"])
  */
 export const ChainLinkOutcomeSchema = z.enum(["done", "to", "park"])
 
+/**
+ * Token counts of the one model call a `done` frame ends. `inputTokens`
+ * includes cached input, so `cachedInputTokens / inputTokens` is the cache hit
+ * rate and `inputTokens` is the context the call consumed.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AgentTurnUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  cachedInputTokens: z.number().int().nonnegative().optional()
+})
+
+/**
+ * Token counts of one model call, as carried by a `done` frame.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type AgentTurnUsage = z.infer<typeof AgentTurnUsageSchema>
+
 /*
  * One frame of a streamed agent turn — the single contract the native Electrobun
  * bridge, the pure-web `/api/agent` boundary, and the Cloudflare Worker all speak.
@@ -330,7 +352,8 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("done"),
     reason: AgentTurnDoneReasonSchema.optional(),
     code: z.literal("credential_missing").optional(),
-    error: z.string().optional()
+    error: z.string().optional(),
+    usage: AgentTurnUsageSchema.optional()
   }),
   z.object({
     runId: z.string(),

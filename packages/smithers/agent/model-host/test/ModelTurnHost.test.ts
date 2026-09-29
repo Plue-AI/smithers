@@ -135,6 +135,38 @@ test.each(["aborted", "error", "content-filter", "unknown", "stop", "length"] as
   }
 )
 
+test("reports the call's merged usage on every done frame, tool calls included", async () => {
+  expect(
+    await collect([
+      { type: "usage", inputTokens: 1_000, cachedInputTokens: 900 },
+      { type: "usage", outputTokens: 40, reasoningTokens: 7 },
+      { type: "settle", stopReason: "tool-calls" }
+    ])
+  ).toEqual([{
+    runId: turn.runId,
+    type: "done",
+    reason: "tool_call",
+    usage: { inputTokens: 1_000, cachedInputTokens: 900, outputTokens: 40 }
+  }])
+  expect(
+    await collect([
+      { type: "usage", inputTokens: 5, outputTokens: 1 },
+      { type: "retry", attempt: 1, code: "overloaded", delayMillis: 0 },
+      { type: "usage", outputTokens: 2 },
+      { type: "settle", stopReason: "stop" }
+    ])
+  ).toEqual([{ runId: turn.runId, type: "done", reason: "stop", usage: { outputTokens: 2 } }])
+})
+
+test("omits usage when the provider reports none or only invalid counts", async () => {
+  expect(
+    await collect([{ type: "usage", inputTokens: -1, outputTokens: Number.NaN }, {
+      type: "settle",
+      stopReason: "stop"
+    }])
+  ).toEqual([{ runId: turn.runId, type: "done", reason: "stop" }])
+})
+
 test("flushes held text and reasoning at settlement and uses accumulated tool arguments", async () => {
   expect(
     await collect([
