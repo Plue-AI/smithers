@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -679,20 +678,6 @@ func (s *GitHubMainPullService) bookmarkCommit(ctx context.Context, owner, repo,
 func gitHubMainPullCommand(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := mirrorCommand(ctx, "git", args...)
 	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-	// Cancellation kills the whole process group, including transport
-	// helpers, and pipe waits are bounded.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
-		return err
-	}
-	cmd.WaitDelay = 5 * time.Second
 	return cmd
 }
 

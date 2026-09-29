@@ -35,3 +35,17 @@ git push --prune <smithers-remote> 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs
 ```
 
 The stack service rebuilds the stack (`history.bootstrap`); workspace refs are recreated by their workspaces.
+
+## Interrupted GitHub reconciliation
+
+Reconciliation and individual ref retries have ten minutes from acceptance to
+finish. After another minute for cancellation, interrupted runs become failed
+and release the repository for a new request. Recovery runs when workers start,
+every minute, and when a caller polls or retries. Existing active runs use the
+same deadline.
+
+Pending ref results become failed; verified results and the last verified GitHub
+head remain available. A late worker cannot overwrite the interrupted receipt or
+newer mirror health. Retry reconciliation to read the current refs and obtain
+fresh credentials. Recovery does not replay Git pushes: an interrupted push may
+have reached GitHub before its verification was recorded.

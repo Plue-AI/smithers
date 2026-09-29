@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -42,12 +43,13 @@ const (
 // mirror sync service. The repository-scoped lookup prevents a run ID from
 // being read through a different repository URL.
 type GitMirrorSyncQuerier interface {
+	ExpireGithubMirrorSyncRuns(context.Context, int64) (int64, error)
 	CreateGithubMirrorSyncRun(context.Context, db.CreateGithubMirrorSyncRunParams) (db.GithubMirrorSyncRun, error)
 	GetGithubMirrorSyncRun(context.Context, db.GetGithubMirrorSyncRunParams) (db.GithubMirrorSyncRun, error)
 	MarkGithubMirrorSyncRunRunning(context.Context, int64) (int64, error)
 	FinishGithubMirrorSyncRun(context.Context, db.FinishGithubMirrorSyncRunParams) error
 	FinishSuccessfulGithubMirrorSyncRun(context.Context, db.FinishSuccessfulGithubMirrorSyncRunParams) (int64, error)
-	UpsertGithubMirrorSyncRefResult(context.Context, db.UpsertGithubMirrorSyncRefResultParams) error
+	UpsertGithubMirrorSyncRefResult(context.Context, db.UpsertGithubMirrorSyncRefResultParams) (int64, error)
 	ListGithubMirrorSyncRefResults(context.Context, int64) ([]db.GithubMirrorSyncRefResult, error)
 	GetLatestGithubMirrorSyncRefResult(context.Context, db.GetLatestGithubMirrorSyncRefResultParams) (db.GithubMirrorSyncRefResult, error)
 	GetLatestSucceededGithubMirrorSyncRefResult(context.Context, db.GetLatestSucceededGithubMirrorSyncRefResultParams) (db.GithubMirrorSyncRefResult, error)
@@ -177,11 +179,17 @@ func (s *GitMirrorSyncService) startMirrorSync(ctx context.Context, userID, repo
 	if err := s.refusePullPolicy(ctx, repositoryID); err != nil {
 		return db.GithubMirrorSyncRun{}, err
 	}
+	if err := s.recoverMirrorSyncRuns(ctx, repositoryID); err != nil {
+		return db.GithubMirrorSyncRun{}, err
+	}
 	remotes, err := s.resolveRemotes(ctx, userID, repositoryID, normalizedOwner, normalizedRepo)
 	if err != nil {
 		return db.GithubMirrorSyncRun{}, err
 	}
 
+	// Start the local monotonic deadline before admission SQL. Database clock
+	// skew must never extend the worker beyond its persisted admission window.
+	deadline := time.Now().Add(gitMirrorSyncTimeout)
 	run, err := s.queries.CreateGithubMirrorSyncRun(ctx, db.CreateGithubMirrorSyncRunParams{
 		RepositoryID: repositoryID,
 		RequestedBy:  pgtype.Int8{Int64: userID, Valid: true},
@@ -196,7 +204,7 @@ func (s *GitMirrorSyncService) startMirrorSync(ctx context.Context, userID, repo
 
 	s.launch("git-mirror-sync", func() {
 		defer remotes.close()
-		s.runMirrorSyncDetached(run.ID, repositoryID, remotes.sourceURL, remotes.targetURL)
+		s.runMirrorSyncDetached(run.ID, repositoryID, deadline, remotes.sourceURL, remotes.targetURL)
 	})
 	return run, nil
 }
@@ -212,6 +220,9 @@ func (s *GitMirrorSyncService) GetMirrorSyncRun(ctx context.Context, repositoryI
 		return GitMirrorSyncRunResult{}, pkgerrors.Internal("git mirror sync store not configured")
 	}
 
+	if err := s.recoverMirrorSyncRuns(ctx, repositoryID); err != nil {
+		return GitMirrorSyncRunResult{}, err
+	}
 	run, err := s.queries.GetGithubMirrorSyncRun(ctx, db.GetGithubMirrorSyncRunParams{
 		ID:           runID,
 		RepositoryID: repositoryID,
@@ -298,6 +309,9 @@ func (s *GitMirrorSyncService) RetryMirrorRef(ctx context.Context, userID, repos
 	if err := s.refusePullPolicy(ctx, repositoryID); err != nil {
 		return 0, err
 	}
+	if err := s.recoverMirrorSyncRuns(ctx, repositoryID); err != nil {
+		return 0, err
+	}
 	latest, err := s.queries.GetLatestGithubMirrorSyncRefResult(ctx, db.GetLatestGithubMirrorSyncRefResultParams{
 		RepositoryID: repositoryID,
 		Name:         ref,
@@ -315,23 +329,29 @@ func (s *GitMirrorSyncService) RetryMirrorRef(ctx context.Context, userID, repos
 	if err != nil {
 		return 0, err
 	}
+	// Start the local monotonic deadline before admission SQL. Database clock
+	// skew must never extend the worker beyond its persisted admission window.
+	deadline := time.Now().Add(gitMirrorSyncTimeout)
 	run, err := s.queries.CreateGithubMirrorSyncRun(ctx, db.CreateGithubMirrorSyncRunParams{
 		RepositoryID: repositoryID,
 		RequestedBy:  pgtype.Int8{Int64: userID, Valid: true},
 	})
 	if err != nil {
 		remotes.close()
+		if isGitMirrorActiveRunConflict(err) {
+			return 0, pkgerrors.Conflict("git mirror sync already running")
+		}
 		return 0, pkgerrors.Internal("failed to create git mirror sync run").WithCause(err)
 	}
 	s.launch("git-mirror-ref-retry", func() {
 		defer remotes.close()
-		s.runMirrorRefRetryDetached(run.ID, repositoryID, ref, latest, remotes.sourceURL, remotes.targetURL)
+		s.runMirrorRefRetryDetached(run.ID, repositoryID, deadline, ref, latest, remotes.sourceURL, remotes.targetURL)
 	})
 	return run.ID, nil
 }
 
-func (s *GitMirrorSyncService) runMirrorRefRetryDetached(runID, repositoryID int64, ref string, prior db.GithubMirrorSyncRefResult, sourceURL, targetURL string) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitMirrorSyncTimeout)
+func (s *GitMirrorSyncService) runMirrorRefRetryDetached(runID, repositoryID int64, deadline time.Time, ref string, prior db.GithubMirrorSyncRefResult, sourceURL, targetURL string) {
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	finished := false
 	finish := func(state string) {
@@ -435,8 +455,8 @@ type gitMirrorRefChange struct {
 	to   string
 }
 
-func (s *GitMirrorSyncService) runMirrorSyncDetached(runID, repositoryID int64, sourceURL, targetURL string) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitMirrorSyncTimeout)
+func (s *GitMirrorSyncService) runMirrorSyncDetached(runID, repositoryID int64, deadline time.Time, sourceURL, targetURL string) {
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
 	var verifiedRefs map[string]string
@@ -561,7 +581,7 @@ func (s *GitMirrorSyncService) runMirrorSyncDetached(runID, repositoryID int64, 
 }
 
 func (s *GitMirrorSyncService) storeMirrorRefResult(ctx context.Context, runID int64, change gitMirrorRefChange, status, message string) error {
-	return s.queries.UpsertGithubMirrorSyncRefResult(ctx, db.UpsertGithubMirrorSyncRefResultParams{
+	rows, err := s.queries.UpsertGithubMirrorSyncRefResult(ctx, db.UpsertGithubMirrorSyncRefResultParams{
 		RunID:        runID,
 		Name:         change.name,
 		FromRevision: change.from,
@@ -569,6 +589,13 @@ func (s *GitMirrorSyncService) storeMirrorRefResult(ctx context.Context, runID i
 		Status:       status,
 		Error:        message,
 	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("git mirror sync run is no longer active")
+	}
+	return nil
 }
 
 // Keep transfer/pruning and verification/retry on the same namespace boundary.
@@ -671,6 +698,20 @@ func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd
 		count++
 	}
 	cmd := exec.CommandContext(ctx, binary, safeArgs...)
+	// Cancellation kills the whole process group, including transport
+	// helpers, and pipe waits are bounded.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	cmd.WaitDelay = 5 * time.Second
 	for _, entry := range os.Environ() {
 		if strings.HasPrefix(entry, "GIT_CONFIG_COUNT=") || strings.HasPrefix(entry, "GIT_CONFIG_KEY_") || strings.HasPrefix(entry, "GIT_CONFIG_VALUE_") || strings.HasPrefix(entry, "GIT_TERMINAL_PROMPT=") {
 			continue

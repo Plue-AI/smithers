@@ -13,16 +13,8 @@ import (
 )
 
 const createGithubMirrorSyncRun = `-- name: CreateGithubMirrorSyncRun :one
-WITH expired AS (
-    UPDATE github_mirror_sync_runs AS sync_run
-    SET state = 'failed', finished_at = NOW(), updated_at = NOW()
-    WHERE sync_run.repository_id = $1
-      AND sync_run.state IN ('queued', 'running')
-      AND sync_run.updated_at < NOW() - INTERVAL '11 minutes'
-    RETURNING sync_run.id
-)
 INSERT INTO github_mirror_sync_runs (repository_id, requested_by)
-SELECT $1, $2 FROM (SELECT COUNT(*) FROM expired) AS expiry
+VALUES ($1, $2)
 RETURNING id, repository_id, requested_by, state, started_at, finished_at, created_at, updated_at
 `
 
@@ -31,9 +23,6 @@ type CreateGithubMirrorSyncRunParams struct {
 	RequestedBy  pgtype.Int8 `json:"requested_by"`
 }
 
-// Recover abandoned slots after the ten-minute worker deadline plus a minute
-// for cancellation. The INSERT depends on expiry; the active-run unique index
-// still serializes competing admissions for this repository.
 func (q *Queries) CreateGithubMirrorSyncRun(ctx context.Context, arg CreateGithubMirrorSyncRunParams) (GithubMirrorSyncRun, error) {
 	row := q.db.QueryRow(ctx, createGithubMirrorSyncRun, arg.RepositoryID, arg.RequestedBy)
 	var i GithubMirrorSyncRun
@@ -50,12 +39,58 @@ func (q *Queries) CreateGithubMirrorSyncRun(ctx context.Context, arg CreateGithu
 	return i, err
 }
 
+const expireGithubMirrorSyncRuns = `-- name: ExpireGithubMirrorSyncRuns :execrows
+WITH expired AS (
+    UPDATE github_mirror_sync_runs
+    SET state = 'failed', finished_at = NOW(), updated_at = NOW()
+    WHERE id IN (
+        SELECT id FROM github_mirror_sync_runs
+        WHERE ($1::bigint = 0 OR repository_id = $1)
+          AND state IN ('queued', 'running')
+          AND created_at <= NOW() - INTERVAL '11 minutes'
+        ORDER BY id
+        LIMIT 1000
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, repository_id, created_at
+), interrupted_refs AS (
+    UPDATE github_mirror_sync_ref_results rr
+    SET status = 'failed', error = 'Git mirror sync interrupted; retry reconciliation', updated_at = NOW()
+    FROM expired
+    WHERE rr.run_id = expired.id AND rr.status = 'pending'
+    RETURNING rr.run_id
+)
+UPDATE repositories r
+SET mirror_status = 'failed',
+    mirror_behind_refs = (SELECT COUNT(*)::integer FROM github_mirror_sync_ref_results rr
+                         WHERE rr.run_id = expired.id AND rr.status <> 'succeeded'),
+    mirror_failed_refs = (SELECT COUNT(*)::integer FROM github_mirror_sync_ref_results rr
+                         WHERE rr.run_id = expired.id AND rr.status <> 'succeeded'),
+    last_mirror_error = 'Git mirror sync interrupted; retry reconciliation'
+FROM expired
+WHERE r.id = expired.repository_id
+  AND (r.last_mirror_at IS NULL OR r.last_mirror_at <= expired.created_at)
+`
+
+// A fixed admission deadline also covers legacy rows and lost queued launches.
+// Lock each run before its refs so late writers serialize with interruption.
+// The result counts repository health updates, not interrupted runs: newer
+// independently verified health is preserved even when its old run expires.
+func (q *Queries) ExpireGithubMirrorSyncRuns(ctx context.Context, repositoryID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, expireGithubMirrorSyncRuns, repositoryID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const finishGithubMirrorSyncRun = `-- name: FinishGithubMirrorSyncRun :exec
 WITH finished AS (
     UPDATE github_mirror_sync_runs AS sync_run
     SET state = $1::text, finished_at = NOW(), updated_at = NOW()
     WHERE sync_run.id = $2 AND sync_run.state IN ('queued', 'running')
-    RETURNING sync_run.id, sync_run.repository_id, sync_run.state
+      AND sync_run.created_at > NOW() - INTERVAL '11 minutes'
+    RETURNING sync_run.id, sync_run.repository_id, sync_run.state, sync_run.created_at
 )
 UPDATE repositories r
 SET mirror_status = 'failed',
@@ -74,6 +109,7 @@ SET mirror_status = 'failed',
     ), 'Git mirror sync failed')
 FROM finished
 WHERE r.id = finished.repository_id AND finished.state = 'failed'
+  AND (r.last_mirror_at IS NULL OR r.last_mirror_at <= finished.created_at)
 `
 
 type FinishGithubMirrorSyncRunParams struct {
@@ -93,6 +129,7 @@ WITH finished AS (
     UPDATE github_mirror_sync_runs AS sync_run
     SET state = 'succeeded', finished_at = NOW(), updated_at = NOW()
     WHERE sync_run.id = $2 AND sync_run.state = 'running'
+      AND sync_run.created_at > NOW() - INTERVAL '11 minutes'
     RETURNING sync_run.repository_id
 )
 UPDATE repositories r
@@ -257,6 +294,7 @@ UPDATE github_mirror_sync_runs
 SET state = 'running', started_at = NOW(), updated_at = NOW()
 WHERE id = $1
   AND state = 'queued'
+  AND created_at > NOW() - INTERVAL '10 minutes'
 `
 
 func (q *Queries) MarkGithubMirrorSyncRunRunning(ctx context.Context, id int64) (int64, error) {
@@ -267,15 +305,20 @@ func (q *Queries) MarkGithubMirrorSyncRunRunning(ctx context.Context, id int64) 
 	return result.RowsAffected(), nil
 }
 
-const upsertGithubMirrorSyncRefResult = `-- name: UpsertGithubMirrorSyncRefResult :exec
+const upsertGithubMirrorSyncRefResult = `-- name: UpsertGithubMirrorSyncRefResult :execrows
+WITH active AS (
+    SELECT sync_run.id FROM github_mirror_sync_runs sync_run
+    WHERE sync_run.id = $6 AND sync_run.state = 'running'
+      AND sync_run.created_at > NOW() - INTERVAL '11 minutes'
+    FOR UPDATE
+)
 INSERT INTO github_mirror_sync_ref_results (
     run_id, name, from_revision, to_revision, status, error
 )
-VALUES (
-    $1, $2::text,
-    $3::text, $4::text,
-    $5::text, $6::text
-)
+SELECT active.id, $1::text,
+    $2::text, $3::text,
+    $4::text, $5::text
+FROM active
 ON CONFLICT (run_id, name) DO UPDATE
 SET from_revision = EXCLUDED.from_revision,
     to_revision = EXCLUDED.to_revision,
@@ -285,22 +328,25 @@ SET from_revision = EXCLUDED.from_revision,
 `
 
 type UpsertGithubMirrorSyncRefResultParams struct {
-	RunID        int64  `json:"run_id"`
 	Name         string `json:"name"`
 	FromRevision string `json:"from_revision"`
 	ToRevision   string `json:"to_revision"`
 	Status       string `json:"status"`
 	Error        string `json:"error"`
+	RunID        int64  `json:"run_id"`
 }
 
-func (q *Queries) UpsertGithubMirrorSyncRefResult(ctx context.Context, arg UpsertGithubMirrorSyncRefResultParams) error {
-	_, err := q.db.Exec(ctx, upsertGithubMirrorSyncRefResult,
-		arg.RunID,
+func (q *Queries) UpsertGithubMirrorSyncRefResult(ctx context.Context, arg UpsertGithubMirrorSyncRefResultParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertGithubMirrorSyncRefResult,
 		arg.Name,
 		arg.FromRevision,
 		arg.ToRevision,
 		arg.Status,
 		arg.Error,
+		arg.RunID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

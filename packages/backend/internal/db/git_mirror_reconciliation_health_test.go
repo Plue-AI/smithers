@@ -30,11 +30,11 @@ func TestGitMirrorFailedRunReplacesEarlierSyncedHealth(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.MarkGithubMirrorSyncRunRunning(ctx, failure.ID)
 	require.NoError(t, err)
-	require.NoError(t, q.UpsertGithubMirrorSyncRefResult(ctx, UpsertGithubMirrorSyncRefResultParams{
+	require.Equal(t, int64(1), upsertMirrorRefResult(t, q, UpsertGithubMirrorSyncRefResultParams{
 		RunID: failure.ID, Name: "refs/heads/main", FromRevision: "old-head", ToRevision: "source-head",
 		Status: "failed", Error: "non-fast-forward target",
 	}))
-	require.NoError(t, q.UpsertGithubMirrorSyncRefResult(ctx, UpsertGithubMirrorSyncRefResultParams{
+	require.Equal(t, int64(1), upsertMirrorRefResult(t, q, UpsertGithubMirrorSyncRefResultParams{
 		RunID: failure.ID, Name: "refs/heads/feature", ToRevision: "new-feature", Status: "pending",
 	}))
 	require.NoError(t, q.FinishGithubMirrorSyncRun(ctx, FinishGithubMirrorSyncRunParams{ID: failure.ID, State: "failed"}))
@@ -65,7 +65,7 @@ func TestGitMirrorNoOpResultDoesNotGrantPruneOwnership(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.MarkGithubMirrorSyncRunRunning(ctx, run.ID)
 	require.NoError(t, err)
-	require.NoError(t, q.UpsertGithubMirrorSyncRefResult(ctx, UpsertGithubMirrorSyncRefResultParams{
+	require.Equal(t, int64(1), upsertMirrorRefResult(t, q, UpsertGithubMirrorSyncRefResultParams{
 		RunID: run.ID, Name: "refs/heads/feature", FromRevision: "github-head", ToRevision: "github-head", Status: "succeeded",
 	}))
 	_, err = q.FinishSuccessfulGithubMirrorSyncRun(ctx, FinishSuccessfulGithubMirrorSyncRunParams{ID: run.ID, VerifiedRefs: []byte(`{"refs/heads/feature":"github-head"}`)})
@@ -77,7 +77,7 @@ func TestGitMirrorNoOpResultDoesNotGrantPruneOwnership(t *testing.T) {
 	require.ErrorIs(t, err, pgx.ErrNoRows, "an observed no-op must not authorize deletion of a GitHub-owned ref")
 }
 
-func TestGitMirrorRunAdmissionExpiresOnlyStaleRunForRepository(t *testing.T) {
+func TestGitMirrorRecoveryExpiresOnlyStaleRunForRepository(t *testing.T) {
 	for _, oldState := range []string{"queued", "running"} {
 		t.Run(oldState, func(t *testing.T) {
 			ctx := context.Background()
@@ -109,6 +109,9 @@ func TestGitMirrorRunAdmissionExpiresOnlyStaleRunForRepository(t *testing.T) {
 				WHERE id IN ($1, $2)`, old.ID, unrelated.ID)
 			require.NoError(t, err)
 
+			recovered, err := q.ExpireGithubMirrorSyncRuns(ctx, repo)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), recovered)
 			fresh, err := q.CreateGithubMirrorSyncRun(ctx, CreateGithubMirrorSyncRunParams{RepositoryID: repo, RequestedBy: requester})
 			require.NoError(t, err, "a worker older than its deadline must not block the repository forever")
 			var oldAfter, unrelatedAfter string

@@ -58,7 +58,7 @@ func (f *fakeGitMirrorSyncStore) CreateGithubMirrorSyncRun(_ context.Context, ar
 	if f.run.ID != 0 {
 		id = f.run.ID + 1
 	}
-	f.run = db.GithubMirrorSyncRun{ID: id, RepositoryID: arg.RepositoryID, RequestedBy: arg.RequestedBy, State: "queued"}
+	f.run = db.GithubMirrorSyncRun{ID: id, RepositoryID: arg.RepositoryID, RequestedBy: arg.RequestedBy, State: "queued", CreatedAt: time.Now()}
 	return f.run, nil
 }
 
@@ -111,11 +111,11 @@ func (f *fakeGitMirrorSyncStore) FinishSuccessfulGithubMirrorSyncRun(ctx context
 	return 1, nil
 }
 
-func (f *fakeGitMirrorSyncStore) UpsertGithubMirrorSyncRefResult(_ context.Context, arg db.UpsertGithubMirrorSyncRefResultParams) error {
+func (f *fakeGitMirrorSyncStore) UpsertGithubMirrorSyncRefResult(_ context.Context, arg db.UpsertGithubMirrorSyncRefResultParams) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.upsertErr != nil {
-		return f.upsertErr
+		return 0, f.upsertErr
 	}
 	result := db.GithubMirrorSyncRefResult{
 		RunID: arg.RunID, Name: arg.Name, FromRevision: arg.FromRevision,
@@ -127,7 +127,7 @@ func (f *fakeGitMirrorSyncStore) UpsertGithubMirrorSyncRefResult(_ context.Conte
 	} else if f.succeeded[arg.Name].RunID == arg.RunID {
 		delete(f.succeeded, arg.Name)
 	}
-	return nil
+	return 1, nil
 }
 
 func (f *fakeGitMirrorSyncStore) ListGithubMirrorSyncRefResults(_ context.Context, runID int64) ([]db.GithubMirrorSyncRefResult, error) {
@@ -441,7 +441,7 @@ func TestGitMirrorSyncService_ValidationAndStoreErrors(t *testing.T) {
 
 func TestGitMirrorSyncService_GetRunErrorsAndEmptyRefs(t *testing.T) {
 	store := newFakeGitMirrorSyncStore()
-	store.run = db.GithubMirrorSyncRun{ID: 9, RepositoryID: 3, State: "queued"}
+	store.run = db.GithubMirrorSyncRun{ID: 9, RepositoryID: 3, State: "queued", CreatedAt: time.Now()}
 	svc := NewGitMirrorSyncService(store)
 
 	run, err := svc.GetMirrorSyncRun(context.Background(), 3, 9)

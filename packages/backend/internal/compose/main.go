@@ -1655,6 +1655,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() {
 		// The poll catches missed webhooks even where workflows are off.
 		launchWorker(func() { gitHubMainPullService.Start(workerCtx) })
+		launchWorker(func() { gitMirrorSyncService.StartRecovery(workerCtx) })
 		launchWorker(func() { mythicalService.Start(workerCtx) })
 	}
 	if options.topology.workers() && cfg.FeatureFlags.Workflows {

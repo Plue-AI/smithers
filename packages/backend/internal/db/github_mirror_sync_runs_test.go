@@ -54,9 +54,9 @@ func TestGithubMirrorSyncRunQueries_RoundTrip(t *testing.T) {
 	ref := UpsertGithubMirrorSyncRefResultParams{
 		RunID: run.ID, Name: "refs/heads/main", FromRevision: "old", ToRevision: "new", Status: "pending",
 	}
-	require.NoError(t, q.UpsertGithubMirrorSyncRefResult(ctx, ref))
+	require.Equal(t, int64(1), upsertMirrorRefResult(t, q, ref))
 	ref.Status = "succeeded"
-	require.NoError(t, q.UpsertGithubMirrorSyncRefResult(ctx, ref))
+	require.Equal(t, int64(1), upsertMirrorRefResult(t, q, ref))
 	refs, err := q.ListGithubMirrorSyncRefResults(ctx, run.ID)
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
@@ -76,11 +76,13 @@ func TestGithubMirrorSyncRunQueries_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err, "a settled run releases the repository active-run slot")
 
-	_ = mustExpectQueryError(t, tx, func(spQ *Queries) error {
-		return spQ.UpsertGithubMirrorSyncRefResult(ctx, UpsertGithubMirrorSyncRefResultParams{
-			RunID: run.ID, Name: "refs/heads/empty", Status: "pending",
-		})
-	})
+	// A completed run cannot acquire new ref receipts.
+	require.Equal(t, int64(0), upsertMirrorRefResult(t, q, UpsertGithubMirrorSyncRefResultParams{
+		RunID: run.ID, Name: "refs/heads/empty", Status: "pending",
+	}))
+	refs, err = q.ListGithubMirrorSyncRefResults(ctx, run.ID)
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
 }
 
 func TestGithubMirrorSyncSuccessUpdatesRepositoryHealth(t *testing.T) {
@@ -113,4 +115,11 @@ func TestGithubMirrorSyncSuccessUpdatesRepositoryHealth(t *testing.T) {
 	rows, err = q.FinishSuccessfulGithubMirrorSyncRun(ctx, FinishSuccessfulGithubMirrorSyncRunParams{ID: run.ID, VerifiedRefs: []byte(`{}`)})
 	require.NoError(t, err)
 	assert.Zero(t, rows, "a completed receipt cannot overwrite newer health")
+}
+
+func upsertMirrorRefResult(t *testing.T, q *Queries, arg UpsertGithubMirrorSyncRefResultParams) int64 {
+	t.Helper()
+	rows, err := q.UpsertGithubMirrorSyncRefResult(context.Background(), arg)
+	require.NoError(t, err)
+	return rows
 }
