@@ -1,5 +1,5 @@
 /** The repository's prompt entry composes existing planning and correction flows. */
-import { Action, Flow } from "@smthrs/flow"
+import { Action, Flow, HumanTask } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
@@ -16,6 +16,7 @@ export const maximumPlanningPasses = 8
  * existing action receipts; the planner receives their bounded rendered text. */
 export const Cursor = Schema.Struct({
   ...PlanningInput.fields,
+  planApproval: RequestInput.fields.planApproval,
   preparedPlan: Schema.optionalKey(Plan),
   maxRounds: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(8)),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThan(maximumPlanningPasses))
@@ -25,13 +26,50 @@ export const MergeFeedback = Action.make("coding/merge-request-feedback", {
   success: Cursor,
   error: CodingError
 })
+export const RefusePlan = Action.make("coding/refuse-plan-approval", {
+  payload: { message: Schema.String },
+  success: Schema.Never,
+  error: CodingError
+})
+
+const approve = (plan: Plan | Planned.Planned<Plan>, policy: typeof RequestInput.Type.planApproval) => {
+  if (policy === undefined || policy === "never") return Node.succeed(true)
+  const prompt = (value: Plan) => [
+    "Approve this predicted Change plan before coding?",
+    ...value.changes.map((change) => [
+      `Change: ${change.title} (${change.id})`,
+      `Rationale: ${change.intent}`,
+      ...change.atoms.map((atom) =>
+        `  ${atom.intent}\n  Reads: ${atom.reads.join(", ") || "(none)"}\n  Writes: ${atom.writes.join(", ") || "(none)"}`)
+    ].join("\n"))
+  ].join("\n\n")
+  const timeoutMs = policy === "always" ? undefined : Number(policy.slice("timeout:".length, -1)) * 1000
+  return Node.succeed(plan).pipe(
+    Node.map(prompt),
+    Node.bindPlanned((prompt) => HumanTask.action.call({
+      name: "coding-plan-approval", kind: "confirm", prompt, maxAttempts: 1,
+      ...(timeoutMs === undefined ? {} : { timeoutMs })
+    })),
+    Node.catch({
+      error: HumanTask.HumanTaskFailed,
+      onFailure: (error) => Node.branch(Node.succeed(error), {
+        if: (failure) => failure.code === "timeout" && timeoutMs !== undefined,
+        then: () => Node.succeed(true),
+        else: (failure) => Node.succeed(failure).pipe(
+          Node.map((value) => `Plan approval failed: ${value.message}`),
+          Node.bindPlanned((message) => RefusePlan.call({ message }))
+        )
+      })
+    })
+  )
+}
 
 type CoordinateFlow = Flow.Flow<
   "coding/CoordinateRequest",
   typeof Cursor,
   typeof RequestResult,
   typeof PrepareRequest.errorSchema,
-  Action.Requirement<(typeof MergeFeedback | typeof ReceiveFeedback | typeof AdmitSource)["name"]>
+  Action.Requirement<(typeof MergeFeedback | typeof ReceiveFeedback | typeof AdmitSource | typeof RefusePlan)["name"]>
 >
 
 /** Each trampoline pass gathers current source evidence before planning. A
@@ -64,7 +102,11 @@ export const Coordinate: CoordinateFlow = Flow.make("coding/CoordinateRequest", 
                       Node.bindPlanned((next) => Coordinate.to(next))
                     ),
                   else: () =>
-                    AdmitSource.call({ plan }).pipe(
+                    Node.branch(approve(plan, cursor.planApproval), {
+                      if: (approved) => approved === true,
+                      then: () => AdmitSource.call({ plan }),
+                      else: () => RefusePlan.call({ message: "The predicted Change plan was denied." })
+                    }).pipe(
                       Node.bindPlanned((plan) =>
                         CorrectPlan.child({ plan, maxRounds: cursor.maxRounds }).pipe(
                           Node.bindPlanned((outcome) =>
@@ -116,6 +158,7 @@ export default Flow.make("coding/Request", {
             prompt: input.prompt,
             feedback,
             ...wiki,
+            ...(input.planApproval === undefined ? {} : { planApproval: input.planApproval }),
             maxRounds: input.maxRounds ?? 3,
             revision: 0,
             preparedPlan

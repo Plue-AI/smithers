@@ -2,8 +2,17 @@
 
 `coding/request` is a private repository declaration whose module IS the
 `coding/Request` flow, so it names no delegate. It accepts
-`{ prompt, feedback?, maxRounds? }`; the correction limit defaults to three and
-admits one through eight passes. The first implementation counts as a pass.
+`{ prompt, feedback?, maxRounds?, planApproval? }`; the correction limit
+defaults to three and admits one through eight passes. The first implementation
+counts as a pass.
+
+Optional `planApproval` is `"never"` (default), `"always"`, or `"timeout:Ns"`
+for a positive integer number of seconds. After the last pre-implementation
+feedback drain, the latter two modes ask a `coding-plan-approval` HumanTask
+showing each predicted Change's rationale and atom reads/writes. Approval
+unblocks implementation, denial produces a typed `declined` refusal, and
+an unanswered timed question auto-proceeds. Replanning after feedback asks
+about the newly predicted plan.
 
 ```ts
 import { Request } from "./request.ts"

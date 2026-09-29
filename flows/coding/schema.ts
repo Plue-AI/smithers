@@ -88,6 +88,11 @@ export const StackBase = Schema.Struct({
 export type StackBase = typeof StackBase.Type
 export const RequestInput = Schema.Struct({
   prompt: PlanningInput.fields.prompt,
+  // An explicit review of the predicted changes before any implementation.
+  planApproval: Schema.optionalKey(Schema.Union([
+    Schema.Literals(["always", "never"]),
+    Schema.String.check(Schema.isPattern(/^timeout:[1-9][0-9]*s$/))
+  ])),
   feedback: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32_768))),
   maxRounds: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(8))),
   // Start on the mythical stack: import this tip and plan on a fresh working

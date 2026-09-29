@@ -1,6 +1,6 @@
 import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, FlowRuntime } from "@smthrs/flow"
+import { Action, FlowRuntime, HumanTask } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
@@ -38,7 +38,8 @@ const input = { prompt: "Keep the requested behavior", feedback: "Keep the verif
 const fixture = (
   arrivals: (boundary: string, revision: number) => ReadonlyArray<string>,
   stale = false,
-  pocMutates = false
+  pocMutates = false,
+  approval?: { prompts: string[]; decision: Promise<boolean> }
 ) => {
   const events: string[] = [], feedback: string[] = []
   let plans = 0, implementations = 0, prototypes = 0
@@ -104,6 +105,13 @@ const fixture = (
   }))
   const layer = Layer.mergeAll(
     requestRegistration,
+    approval === undefined ? HumanTask.layer : HumanTask.action.toLayer(({ name, prompt }) =>
+      Effect.promise(() => {
+        assert.equal(name, "coding-plan-approval")
+        approval.prompts.push(prompt)
+        return approval.decision
+      })
+    ),
     todoLayers(Evaluator.layerScripted(() => ({ route: { choice: "implement" } }))),
     prototypeRegistration,
     registration,
@@ -243,6 +251,42 @@ test("a changed prepared source refuses before implementation", { timeout: 60_00
     /fixture source moved/
   )
   assert.deepEqual(f.counts(), { plans: 1, implementations: 0, prototypes: 0 })
+})
+
+test("planApproval always parks before implementation; approval resumes and denial refuses", { timeout: 60_000 }, async (t) => {
+  for (const decision of [true, false]) {
+    let answer!: (decision: boolean) => void
+    const prompts: string[] = []
+    const gate = new Promise<boolean>((resolve) => { answer = resolve })
+    const f = fixture(() => [], false, false, { prompts, decision: gate })
+    t.after(() => f.host.dispose())
+    const executionId = `plan-approval-${decision}`
+    const approvedInput = { ...input, planApproval: "always" as const }
+    const execution = f.host.runPromise(Request.execute(approvedInput, { executionId }))
+    for (let i = 0; i < 100 && prompts.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(prompts.length, 1)
+    assert.match(prompts[0]!, /Rationale: Apply request[\s\S]*Reads: \(none\)[\s\S]*Writes: hello.txt/)
+    assert.equal(f.counts().implementations, 0)
+    answer(decision)
+    if (decision) {
+      const result = await execution
+      assert.equal(result.outcome.status, "validated")
+      assert.equal(f.counts().implementations, 1)
+    } else {
+      await assert.rejects(execution, /predicted Change plan was denied/)
+      assert.equal(f.counts().implementations, 0)
+    }
+  }
+})
+
+test("planApproval timeout auto-proceeds without human answer", { timeout: 60_000 }, async (t) => {
+  const f = fixture(() => [])
+  t.after(() => f.host.dispose())
+  const result = await f.host.runPromise(Request.execute(
+    { ...input, planApproval: "timeout:1s" }, { executionId: "plan-approval-timeout" }
+  ))
+  assert.equal(result.outcome.status, "validated")
+  assert.equal(f.counts().implementations, 1)
 })
 
 test(

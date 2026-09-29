@@ -2,7 +2,9 @@
 
 `PreparePlan` is a private repository recipe composed from ordinary `Flow`,
 `Action`, `AgentAction`, and `HumanTask`. It returns the existing coding `Plan`;
-it does not execute that plan or create another storage service. The supplied
+it does not execute that plan or create another storage service. Optional plan
+approval belongs to `coding/Request` after its last pre-implementation feedback
+drain, not to preparation; see [request.md](request.md). The supplied
 runtime persists its observations, model results, question, answer, and final
 plan in the existing flow journal and database.
 
