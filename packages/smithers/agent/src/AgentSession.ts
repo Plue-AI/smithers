@@ -1048,6 +1048,7 @@ export const trace = (
           overclaims: event.overclaims,
           invented: event.invented,
           latencyMs: event.latencyMs,
+          usage: event.usage,
           demanded: event.demanded,
           currentDigest: event.currentDigest,
           nextFrame: event.nextFrame

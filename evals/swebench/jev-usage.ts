@@ -102,7 +102,9 @@ export const jevUsageOf = (eventType: string, payload: Record<string, unknown>):
   if (caller === undefined) return undefined
   if (caller === "cell") {
     if (payload.outcome !== "success") return undefined
-    const usage = record(record(payload.value)?.usage)
+    const value = record(payload.value)
+    if (value?.truncated === true) return undefined
+    const usage = record(value?.usage)
     return { inputTokens: count(usage?.inputTokens), outputTokens: count(usage?.outputTokens) }
   }
   const usage = record(payload.usage)

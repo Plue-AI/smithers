@@ -735,6 +735,17 @@ const textOf = (request: ModelRequest.ModelRequest): string =>
     .join("\n")
 
 describe("AgentSession", () => {
+  it("claim-demanded journal row carries usage", () => {
+    const usage = { inputTokens: 321, outputTokens: 17 }
+    const event = {
+      _tag: "claim-demanded", complete: 0.8, overclaims: 0.1, invented: 0.2,
+      latencyMs: 12, usage, demanded: true, currentDigest: "digest", nextFrame: 2
+    } as Parameters<typeof AgentSession.trace>[0]
+    expect(AgentSession.trace(event)).toMatchObject({
+      eventType: "control.agent.claim-demanded", payload: { usage }
+    })
+  })
+
   it.each([false, true])("settles a bounded run with markdown child=%s", async (child) => {
     const rendered: Array<string> = []
     const childDescriptor = new Descriptor.FlowDescriptor({
@@ -1347,6 +1358,7 @@ describe("AgentSession", () => {
     // One completion, judged once and replayed from its record thereafter.
     const decisions = typed("control.agent.decision-settled").map((entry) => entry.payload as Record<string, unknown>)
     expect(decisions).toHaveLength(typed("control.agent.claim-demanded").length)
+    expect((typed("control.agent.claim-demanded")[0]!.payload as { usage?: unknown }).usage).toBeUndefined()
     expect(decisions).toHaveLength(1)
     expect(decisions[0]).toMatchObject({ scope: runId, frame: 1, classifier: "completion/claim", decidedBy: "jev" })
     expect(new Set(trail.map((entry) => entry.sourceSeq)).size).toBe(trail.length)

@@ -340,10 +340,12 @@ const runNumbers = (workspace: string): RunNumbers | undefined => {
       const caller = jevCaller(row.event_type, payload)
       if (caller === "cell") cellCalledJev = true
       const metered = jevUsageOf(row.event_type, payload)
-      if (caller === undefined || metered === undefined) continue
+      if (caller === undefined || (metered === undefined && !(caller === "cell" && payload.outcome === "success"))) continue
       readings[caller] += 1
-      jevInputTokens += metered.inputTokens
-      jevOutputTokens += metered.outputTokens
+      if (metered !== undefined) {
+        jevInputTokens += metered.inputTokens
+        jevOutputTokens += metered.outputTokens
+      }
       if (caller === "cell") {
         const questions = jevCellQuestionsOf(payload)
         if (questions === undefined) jevCellQuestionsUnknown += 1

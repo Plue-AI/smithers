@@ -68,6 +68,9 @@ check("classifier-less decision caller", jevCaller("control.agent.decision-settl
 // A result the journal bounded to a marker has an unknown question count, never zero.
 const marker = { truncated: true, bytes: 70_000, digest: "sha256:marker" }
 check("marker questions", jevCellQuestionsOf({ flowName: "jev", outcome: "success", value: marker }), undefined)
+check("marker usage", jevUsageOf("control.agent.cell-call-settled", {
+  flowName: "jev", outcome: "success", value: marker
+}), undefined)
 
 const ddl = `CREATE TABLE flows_journal_events (
   run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, source_id TEXT NOT NULL,
@@ -152,6 +155,11 @@ try {
     check("run-cost jev calls", cost.jevCalls, 4)
     check("run-cost jev input tokens", cost.jevInputTokens, 12_000)
     check("run-cost jev usd", cost.jevUsd, jevUsd)
+    const boundedCost = readCost(join(temporary, "work", ids[1], ".flows", "engine.db"))
+    check("bounded run-cost jev calls", boundedCost.jevCalls, 4)
+    check("bounded run-cost unknown", boundedCost.unknown, true)
+    check("bounded run-cost jev usd", boundedCost.jevUsd, null)
+    check("bounded run-cost total usd", boundedCost.totalUsd, null)
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true })
