@@ -205,9 +205,10 @@ func (s *GitHubSyncedRepoService) SetPushAccess(access GitHubRepoPushProver) {
 	}
 }
 
-// SetPullMirror withholds repositories that follow GitHub (`mirror: "pull"`)
-// from the ref-push feed: GitHub writes their main, and a Smithers -> GitHub
-// ref mirror would overwrite it and prune smithers/landing-<n> branches.
+// SetPullMirror stops every sync feed advertising ref sync for repositories
+// that follow GitHub (`mirror: "pull"`): GitHub writes their refs, and a
+// Smithers -> GitHub ref mirror would overwrite main and prune GitHub-only
+// branches. The ref-push feed omits them; the full feed keeps their metadata.
 func (s *GitHubSyncedRepoService) SetPullMirror(pullMirror func(ctx context.Context, owner, repo string) (bool, error)) {
 	if s != nil {
 		s.pullMirror = pullMirror
@@ -335,10 +336,11 @@ func (s *GitHubSyncedRepoService) ListSyncedRepos(ctx context.Context, refsOnly 
 			if refsOnly {
 				continue
 			}
+			// Suspended rows name no Smithers side, so nothing can push them.
 			summaries = append(summaries, GitHubSyncedRepoSummary{
 				GitHubOwner:     row.OwnerLogin,
 				GitHubRepo:      row.RepoName,
-				SyncRefs:        row.SyncRefs,
+				SyncRefs:        false,
 				SyncMetadata:    row.SyncMetadata,
 				SyncState:       row.SyncState,
 				EnrolledVia:     row.EnrolledVia,
@@ -347,21 +349,29 @@ func (s *GitHubSyncedRepoService) ListSyncedRepos(ctx context.Context, refsOnly 
 			})
 			continue
 		}
-		if refsOnly && s.pullMirror != nil && row.MirrorOwner.Valid && row.MirrorRepo.Valid {
-			pull, err := s.pullMirror(ctx, row.MirrorOwner.String, row.MirrorRepo.String)
-			if err != nil {
-				return nil, pkgerrors.Internal("failed to read the repository's GitHub policy").WithCause(err)
+		// GitHub is the only writer of a `mirror: "pull"` repository's refs,
+		// so no feed advertises ref sync for it: combined-mode github-sync
+		// reads the full feed and mirrors refs per row, and a clean outbound
+		// pass would prune every GitHub-only branch. Metadata sync continues.
+		// A policy read that fails withholds ref sync for that row only (fail
+		// closed); the rest of the feed and this row's metadata still flow.
+		pull := false
+		if s.pullMirror != nil && row.MirrorOwner.Valid && row.MirrorRepo.Valid {
+			if pull, err = s.pullMirror(ctx, row.MirrorOwner.String, row.MirrorRepo.String); err != nil {
+				slog.WarnContext(ctx, "github sync registry could not read a repository's GitHub policy; withholding ref sync",
+					"repository", row.MirrorOwner.String+"/"+row.MirrorRepo.String, "error", err)
+				pull = true
 			}
-			if pull {
-				continue
-			}
+		}
+		if refsOnly && pull {
+			continue
 		}
 		summary := GitHubSyncedRepoSummary{
 			GitHubOwner:   row.OwnerLogin,
 			GitHubRepo:    row.RepoName,
 			SmithersOwner: row.MirrorOwner.String,
 			SmithersRepo:  row.MirrorRepo.String,
-			SyncRefs:      row.SyncRefs,
+			SyncRefs:      row.SyncRefs && !pull,
 			SyncMetadata:  row.SyncMetadata,
 			SyncState:     row.SyncState,
 			EnrolledVia:   row.EnrolledVia,

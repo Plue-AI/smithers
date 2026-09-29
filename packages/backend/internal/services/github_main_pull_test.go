@@ -821,7 +821,7 @@ func TestGitHubMainPullLeaseOutlivesTheRunDeadline(t *testing.T) {
 		"a claim must not be re-leased while its run can still push")
 }
 
-func TestSyncedReposWithholdsPullRepositoriesFromTheRefPushFeed(t *testing.T) {
+func TestSyncedReposNeverAdvertiseRefSyncForPullRepositories(t *testing.T) {
 	store := newFakeSyncedRepoStore()
 	service := NewGitHubSyncedRepoService(store)
 	refs, err := service.EnrollGitHubRepo(context.Background(), EnrollGitHubRepoInput{Owner: "octo", Repo: "widget"})
@@ -842,11 +842,33 @@ func TestSyncedReposWithholdsPullRepositoriesFromTheRefPushFeed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 1, "metadata and issue sync continue")
 	assert.Equal(t, "alice", all[0].SmithersOwner)
+	// Combined-mode github-sync reads this full feed and mirrors refs per row,
+	// so a pull repository must not advertise ref sync here either: a clean
+	// outbound pass would prune every GitHub-only branch.
+	require.Len(t, all, 1)
+	assert.False(t, all[0].SyncRefs, "GitHub writes this repository's refs")
+	assert.True(t, all[0].SyncMetadata)
 
 	pull = false
 	refsOnly, err = service.ListSyncedRepos(context.Background(), true)
 	require.NoError(t, err)
 	assert.Len(t, refsOnly, 1)
+	all, err = service.ListSyncedRepos(context.Background(), false)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.True(t, all[0].SyncRefs)
+
+	// A policy that cannot be read withholds ref sync for that row only; the
+	// feed and the row's metadata still flow.
+	service.SetPullMirror(func(context.Context, string, string) (bool, error) { return false, errors.New("database unavailable") })
+	all, err = service.ListSyncedRepos(context.Background(), false)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.False(t, all[0].SyncRefs)
+	assert.True(t, all[0].SyncMetadata)
+	refsOnly, err = service.ListSyncedRepos(context.Background(), true)
+	require.NoError(t, err)
+	assert.Empty(t, refsOnly)
 }
 
 func TestGitHubMainPullRefusesAReusedRepositoryName(t *testing.T) {

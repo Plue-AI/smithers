@@ -248,7 +248,7 @@ func (s *GitHubMainPullService) PullsBranch(ctx context.Context, repositoryID in
 }
 
 // PullMirror reports whether the Smithers repository owner/repo follows
-// GitHub; the external ref-push mirror feed withholds such repositories.
+// GitHub; no sync feed advertises ref sync for such repositories.
 func (s *GitHubMainPullService) PullMirror(ctx context.Context, owner, repo string) (bool, error) {
 	if s == nil || s.store == nil {
 		return false, nil
