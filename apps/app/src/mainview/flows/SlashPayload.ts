@@ -387,7 +387,7 @@ const numberedTarget = (name: string, args: string | undefined): Parsed => {
   const [first, repo, ...rest] = tokensOf(args)
   if (first === undefined) return NONE
   const number = Number(first)
-  if (!Number.isInteger(number) || number <= 0) return no(`${name} needs a thread number`)
+  if (!Number.isInteger(number) || number <= 0) return no(`${name} needs an issue number`)
   if (rest.length > 0) return no(`${name} takes a number and one owner/repo`)
   return ok(repo === undefined ? { number } : { number, repo })
 }

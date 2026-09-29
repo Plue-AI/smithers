@@ -12,6 +12,16 @@ import { flowPlanParts, hasGrammar, payloadFor } from "./SlashPayload"
  */
 
 describe("slash payload argument counts", () => {
+  test("issue actions accept an issue number and use product words for invalid numbers", () => {
+    for (const name of ["issues.fix", "issues.verify"] as const) {
+      expect(payloadFor(name, "42")).toEqual({ payload: { number: 42 } })
+      expect(payloadFor(name, "42 will/flows")).toEqual({ payload: { number: 42, repo: "will/flows" } })
+      for (const input of ["zero", "0", "-1", "1.5"]) {
+        expect(payloadFor(name, input)).toEqual({ error: `${name} needs an issue number` })
+      }
+    }
+  })
+
   test("chat.clear is local by default and summarization requires its exact flag", () => {
     expect(payloadFor("chat.clear", "")).toEqual({ payload: {} })
     expect(payloadFor("chat.clear", "--summarize")).toEqual({ payload: { summarize: true } })

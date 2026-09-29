@@ -829,7 +829,8 @@ describe("the change card", () => {
     )
     const text = host.textContent ?? ""
     expect(text).toContain("reviews not read (the change DTO carried no reviews[])")
-    expect(text).toContain("threads not read (the landing list wasn't read: 502)")
+    expect(text).toContain("review comments not read (the landing list wasn't read: 502)")
+    expect(text).not.toContain("threads not read")
     expect(text).not.toContain("No review is recorded")
     host.remove()
 

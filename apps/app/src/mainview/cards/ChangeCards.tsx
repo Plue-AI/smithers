@@ -560,7 +560,7 @@ const ChangeReviewFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
         <Unread field="reviews" reason={payload.unread?.reviews} /> :
         null}
       {payload.threads === null ?
-        <Unread field="threads" reason={payload.unread?.threads} /> :
+        <Unread field="review comments" reason={payload.unread?.threads} /> :
         null}
       {reviews.length === 0 ? null : (
         <ul className="world-card-list" aria-label="Verdicts">
