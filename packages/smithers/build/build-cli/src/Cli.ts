@@ -1347,6 +1347,7 @@ const makeCommands = (config: RuntimeConfig) =>
             ...(policyFor(context, config).progress === "silent" ? ["--silent"] : []),
             ...(context.options.verbose ? ["--verbose"] : []),
             ...(context.options.plan ? ["--plan"] : []),
+            ...(context.options.includeExclusive ? ["--include-exclusive"] : []),
             ...(context.options.jobs === undefined ? [] : ["--jobs", String(context.options.jobs)]),
             ...(context.options.cache ? [] : ["--no-cache"]),
             ...(context.options.cacheDir === undefined ? [] : ["--cache-dir", context.options.cacheDir])

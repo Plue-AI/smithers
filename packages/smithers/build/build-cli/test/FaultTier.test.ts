@@ -15,6 +15,7 @@ import * as PackageDiscovery from "../src/PackageDiscovery.ts"
 import * as PackageExec from "../src/PackageExec.ts"
 import { PackageIndex } from "../src/PackageIndex.ts"
 import * as PackageLoader from "../src/PackageLoader.ts"
+import { serve } from "./helpers/ServeCli.ts"
 
 const executeFile = promisify(execFile)
 let root: string
@@ -99,6 +100,22 @@ describe("fault tier", () => {
     expect(selected.roots).toHaveLength(6)
     expect(selected.roots).toContain("//packages/a:chaos")
     expect(selected.roots).toContain("//packages/b:faults")
+  })
+
+  it.each(["ci", "test"])("%s watch preserves wildcard exclusive opt-in in its real child", async (verb) => {
+    const direct = await cliPlan(verb, "//...", "--include-exclusive")
+    expect(direct.roots).toContain("//packages/a:faults")
+
+    const watched = async (pattern: string, ...flags: ReadonlyArray<string>) => {
+      const result = await serve(root, ["watch", verb, pattern, "--once", "--plan", "--audience", "human", ...flags])
+      expect(result.exitCode, result.logs).toBe(0)
+      expect(result.logs).toContain("Watch cycle 1 complete")
+      return result.logs
+    }
+
+    expect(await watched("//packages/a:faults")).toContain("//packages/a:faults")
+    const wildcard = await watched("//...", "--include-exclusive")
+    for (const label of direct.roots) expect(wildcard).toContain(label)
   })
 
   it("merges explicit faults with wildcard work and runs their real processes alone after ordinary work", async () => {
