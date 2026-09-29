@@ -172,7 +172,8 @@ describe("a flow body failure outside the declared error schema", () => {
           ?.annotations.error
       expect(annotation(cyclic)).toContain("[circular]")
       expect(annotation(bounded)).toContain("[object]")
-      expect(annotation(refused)).toBe("[unrenderable]")
+      // The proxy is named without its trap running.
+      expect(annotation(refused)).toBe("[proxy]")
       for (const captured of [cyclic, bounded, refused]) {
         expect(Exit.isFailure(captured.exit) && Cause.hasDies(captured.exit.cause)).toBe(true)
       }

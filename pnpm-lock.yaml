@@ -3216,6 +3216,9 @@ importers:
       '@smthrs/flow':
         specifier: 1.0.0-rc.1
         version: link:../../flows/flow
+      '@smthrs/journal':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/journal
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../../flows/kernel
@@ -4730,6 +4733,9 @@ importers:
       '@smthrs/flow':
         specifier: 1.0.0-rc.1
         version: link:../flow
+      '@smthrs/journal':
+        specifier: 1.0.0-rc.1
+        version: link:../journal
       '@smthrs/keys':
         specifier: 1.0.0-rc.1
         version: link:../keys
@@ -4779,6 +4785,9 @@ importers:
       eslint-plugin-unicorn:
         specifier: 65.0.0
         version: 65.0.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))
+      fast-check:
+        specifier: 4.9.0
+        version: 4.9.0
       knip:
         specifier: 6.34.0
         version: 6.34.0

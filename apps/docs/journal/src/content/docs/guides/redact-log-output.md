@@ -13,7 +13,8 @@ the fiber's `Console`, so an action that hands a token to `Effect.logInfo`
 writes it to stderr in full, and it reaches whatever collects that stream.
 
 `RedactedLogger` closes that half with the same rules rather than a second rule
-set.
+set. A log line is a diagnostic, so it takes `Redaction.diagnosticRules`: the
+default rules plus the spellings too broad for a durable row.
 
 ## Install the layer
 
@@ -29,7 +30,7 @@ choosing one, so an operator keeps the format they had: their own logger, their
 own layout. A host that installed its own logger keeps it too.
 
 Pass `Redaction.Options` to extend or replace the rules, exactly as you would
-for the journal write path.
+for the journal write path. Spread `Redaction.diagnosticRules` to add to them.
 
 ## What it covers
 
@@ -50,8 +51,8 @@ Two halves carry load, and both are necessary:
   itself, a pretty line or a JSON document, passes through the rules on its way
   to the stream.
 
-Cost is bounded by the rules: each default rule is a single unanchored scan,
-linear in the length of the line, with no catastrophic backtracking.
+Cost is bounded by the rules: each rule is linear in the length of the line,
+with no catastrophic backtracking.
 
 ## Two differences from the write path
 

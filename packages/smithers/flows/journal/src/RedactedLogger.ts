@@ -26,10 +26,10 @@
  * credential on stderr and export it in clear to whatever OTLP collector is
  * configured.
  *
- * Cost is bounded by the rules themselves: `Redaction.defaultRules` are three
- * unanchored character-class scans with no nested quantifier and no
- * alternation inside a repetition, so each one is linear in the length of the
- * line and no input backtracks catastrophically.
+ * Cost is bounded by the rules themselves: every alternation inside a
+ * repetition in `Redaction.diagnosticRules` starts its branches with disjoint
+ * characters, so each rule is linear in the length of the line and no input
+ * backtracks catastrophically.
  *
  * One deliberate difference from the journal write path. `Redaction.redact`
  * rebuilds an object from its own enumerable entries, which is right for a row
@@ -427,8 +427,9 @@ export const wrap = <Message, Output>(
   if (isRedacted(logger)) return logger
   // A logger NAMES a too-deep value rather than throwing: a throw is caught one
   // frame up and costs the operator every argument on the line, not just the
-  // deep one. A caller passing its own `onTooDeep` still wins.
-  const redactor = Redaction.make({ onTooDeep: "name", ...options })
+  // deep one. A log line is a diagnostic, so it takes the diagnostic rules. A
+  // caller passing its own `onTooDeep` or `rules` still wins.
+  const redactor = Redaction.make({ onTooDeep: "name", rules: Redaction.diagnosticRules, ...options })
   const wrapped = Logger.make<Message, Output>((logOptions) =>
     logger.log({
       ...logOptions,

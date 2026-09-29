@@ -52,7 +52,31 @@ const credentialFragment = FastCheck.constantFrom(
   "Bearer [REDACTED_TOKEN]",
   "\n",
   "x-api-key",
-  "ANTHROPIC_API_KEY=shhh"
+  "ANTHROPIC_API_KEY=shhh",
+  // util.inspect and argv spellings: each opens a value the grammar reads
+  // across quotes, lines, containers or argv elements.
+  "`",
+  "\\\"",
+  " +\n  '",
+  "<ref *1> ",
+  "<Buffer 73 6b>",
+  "{ ",
+  " }",
+  "[ ",
+  " ]",
+  "Uint8Array(2) ",
+  "private key: ",
+  "API key = ",
+  "key=",
+  "--password ",
+  "\", \"",
+  "-p ",
+  "-p",
+  "-----BEGIN RSA PRIVATE KEY-----",
+  "-----END RSA PRIVATE KEY-----",
+  "Authorization: Token ",
+  "https://tok@host/",
+  "?sig="
 )
 
 const credentialText = FastCheck.array(credentialFragment, { maxLength: 12 }).map((parts) => parts.join(""))
@@ -72,6 +96,12 @@ const toJsonBearingValue = FastCheck.tuple(
   const value = Object.assign(Object.create(prototype) as Record<string, unknown>, { ignored: true })
   return shape === "prototype" ? value : { nested: value }
 })
+
+/**
+ * Inputs fuzzing once found to break a property, kept so every run replays
+ * them whatever the seed.
+ */
+const diagnosticCounterexamples: ReadonlyArray<string> = []
 
 describe("Redaction properties", () => {
   it("redacting a string twice yields the first result", () => {
@@ -98,9 +128,26 @@ describe("Redaction properties", () => {
           ["xoxb-123456789012-123456789012-abcdefghijkl"],
           ["AIzaSyA1234567890abcdefghijklmnopqrstuvw"],
           ["postgres://admin:hunter2@db.internal/app"],
-          [`log line: {"apiToken":"abcd1234efgh5678"}`]
+          [`log line: {"apiToken":"abcd1234efgh5678"}`],
+          // Fuzz counterexample: a key block inside URL userinfo, once
+          // replaced, turned into userinfo the URL rule rewrote on pass two.
+          ["postgres://admin:sk------BEGIN RSA PRIVATE KEY----------END RSA PRIVATE KEY-----@db.internal/app"],
+          // Fuzz counterexamples: an assignment value with a space, redacted
+          // inside URL userinfo, left userinfo the URL rule matched on pass two.
+          ["postgres://admin:key=\", \"@db.internal/app"],
+          ["postgres://admin:TOKEN=<Buffer 73 6b>@db.internal/app"]
         ]
       }
+    )
+  })
+
+  it("diagnostic redaction of a string twice yields the first result", () => {
+    FastCheck.assert(
+      FastCheck.property(hostileString, (text) => {
+        const once = Redaction.redactDiagnostic(text)
+        expect(Redaction.redactDiagnostic(once)).toBe(once)
+      }),
+      { ...params, examples: diagnosticCounterexamples.map((text) => [text] as [string]) }
     )
   })
 

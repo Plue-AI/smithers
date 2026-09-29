@@ -232,9 +232,14 @@ The scrub applied to every `payload` and `meta` before persistence.
 | `redactJsonString` | `(json: string, redactor: Redactor) => string`   | scrubs an already-encoded column at a display surface                   |
 | `isSensitiveKey`   | `(key: string) => boolean`                       | whether a field name names a credential                                 |
 | `Redactor`         | `(value: unknown) => unknown`                    | the function type the journal consumes                                  |
-| `Rule`             | `{ id, pattern, replace? }`                      | one textual rule                                                        |
+| `Rule`             | `{ id, pattern, replace?, rewrite? }`            | one textual rule; `rewrite` for a value a regex cannot bound            |
 | `Options`          | `{ rules?, onTooDeep? }`                         | `onTooDeep` is `"throw"` (default) or `"name"`                          |
 | `defaultRules`     | `ReadonlyArray<Rule>`                            | the built-in credential shapes                                          |
+| `diagnosticRules`  | `ReadonlyArray<Rule>`                            | `defaultRules` plus the spellings too broad for a durable row           |
+| `redactDiagnostic` | `(value: unknown) => unknown`                    | `redact` with `diagnosticRules`, naming a too-deep value                |
+| `lineRedactor`     | `(rules?: ReadonlyArray<Rule>) => LineRedactor`  | redacts a stream line by line, holding a value open across lines        |
+| `LineRedactor`     | `{ line, flush }`                                | `line` returns the lines safe to emit; `flush` ends the stream          |
+| `maxHeldLines`     | `256`                                            | lines a `LineRedactor` holds for one open value before withholding      |
 | `placeholder`      | `"[REDACTED]"`                                   | the substitution                                                        |
 | `maxDepth`         | `256`                                            | container edges traversed before a payload is refused                   |
 | `binaryWalkLimit`  | `65_536`                                         | bytes, and own members, before a binary view is named instead of walked |
@@ -243,9 +248,11 @@ The scrub applied to every `payload` and `meta` before persistence.
 | `symbolMarker`     | `"[Symbol]"`                                     | a named symbol                                                          |
 | `depthMarker`      | `"[Deep]"`                                       | a value past `maxDepth`, under `onTooDeep: "name"`                      |
 
-Built-in text rules cover credential assignments with optional whitespace
-around `:` or `=`, Basic and Bearer authorization, bare JWTs, private-key PEM
-blocks (including OpenSSH), and cookie/session assignments. Structured
+Built-in text rules cover credential assignments around `:`, `=` or `=>`, in
+every value shape `util.inspect` and escaped JSON write, credential flags such
+as `--password value`, Basic and Bearer authorization, bare JWTs, private-key
+PEM and PGP blocks (including OpenSSH, and a block with no footer), and
+cookie/session assignments. Structured
 credential suffixes also include `secretAccessKey`, `passphrase`, `sshKey`,
 `session`, `signature`, and `auth`. See the full
 [redaction rules](/concepts/redaction/).

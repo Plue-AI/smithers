@@ -161,7 +161,8 @@ describe("a handler defect whose message spells a credential another way", () =>
 
         const refusal = defectOf(exit) as FlowProxyServer.FlowHandlerDefect
         expect(refusal).toBeInstanceOf(FlowProxyServer.FlowHandlerDefect)
-        expect(refusal.diagnostic).toContain("[REDACTED]")
+        // `[REDACTED]`, or a typed marker such as `[REDACTED_TOKEN]`.
+        expect(refusal.diagnostic).toContain("[REDACTED")
         expect(refusal.diagnostic).not.toContain(leaked)
         expect(wireForm(refusal)).not.toContain(leaked)
         for (const line of proxyLines) {

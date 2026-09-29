@@ -228,8 +228,8 @@ describe("Redaction", () => {
       `log line: {"apiToken":"abcd1234efgh5678"}`,
       `log line: {"apiToken":"${Redaction.placeholder}"}`
     ],
-    ["double-quoted assignment", `PASSWORD="dummy secret"`, `PASSWORD=${Redaction.placeholder}`],
-    ["single-quoted assignment", `TOKEN='dummy secret'`, `TOKEN=${Redaction.placeholder}`],
+    ["double-quoted assignment", `PASSWORD="dummy secret"`, `PASSWORD="${Redaction.placeholder}"`],
+    ["single-quoted assignment", `TOKEN='dummy secret'`, `TOKEN='${Redaction.placeholder}'`],
     ["Bearer token with plus and padding", "Bearer abcdefgh+SENSITIVE==", "Bearer [REDACTED_TOKEN]"],
     ["Bearer token with the full b64token alphabet", "Bearer ab/cd+ef~gh=", "Bearer [REDACTED_TOKEN]"]
   ])("redacts a %s", (_name, source, expected) => {
@@ -783,11 +783,12 @@ describe("Redaction", () => {
   it("scans repeated private-key headers in linear time", () => {
     // An unterminated header must stop scanning at the next header. Otherwise
     // each one rescans the tail and a truncated key dump stalls journal writes.
+    // Each truncated block is still a key, so each one is redacted.
     const line = "-----BEGIN OPENSSH PRIVATE KEY-----\n".repeat(48_000)
     expect(line.length).toBeGreaterThan(1_000_000)
     const redact = Redaction.make()
     const started = Date.now()
-    expect(String(redact(line))).toBe(line)
+    expect(String(redact(line))).toBe(Redaction.placeholder.repeat(48_000))
     expect(Date.now() - started).toBeLessThan(2_000)
   })
 

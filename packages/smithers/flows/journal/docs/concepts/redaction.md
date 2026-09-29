@@ -39,8 +39,33 @@ bearer material.
 shapes seen in real bug reports: provider keys, bearer tokens, GitHub, AWS,
 Slack, and Google credentials, URL passwords, Basic authorization, bare JWTs,
 PEM private-key blocks, INI/YAML credential assignments such as
-`SECRET = value` and `password: value`, cookie and session assignments, and
-embedded JSON credential members.
+`SECRET = value` and `password: value`, credential flags such as
+`--password value`, cookie and session assignments, and embedded JSON
+credential members.
+
+An assignment's value is read by a scanner rather than a regular expression,
+because where a value ends depends on quotes, escapes, and brackets. Each shape
+below once leaked the part a simpler rule stopped short of:
+
+| Shape                                      | Example                                           |
+| ------------------------------------------ | ------------------------------------------------- |
+| Quoted, in any quote `util.inspect` writes | `` password: `it's "a b"` ``                      |
+| Split by `util.inspect` over several lines | `privateKey: '…\n' +` then `'…'`                  |
+| Escaped JSON, at any depth                 | `\"password\":\"a b\"`                            |
+| A buffer, a cycle, a null prototype        | `token: <Buffer 73 65>`, `apiKey: <ref *1> { … }` |
+| A container, brackets in its strings too   | `apiKey: { note: '} ', v: '…' }`                  |
+| A `,` or `;` inside the value              | `DB_PASSWORD=Zq7;Syn,thetic`                      |
+
+A quoted value keeps its quotes around the placeholder
+(`PASSWORD="[REDACTED]"`). A name ending in `key` counts only where
+`isSensitiveKey` agrees, so `sortKey` and `idempotencyKey` keep their values,
+and a count under a plural `tokens` name (`max_tokens: 4096`) is kept.
+
+In a journal row a bare value is one token, and a string or container the text
+never closes stops at the end of its line: a stray backtick in an agent's
+Markdown must not erase the rest of a permanent row. A PEM or PGP private-key
+block with no footer is redacted to the next header or to the end of the text.
+In an argv array, the element after a credential flag is redacted.
 
 The rule set is a best-effort net, not a proof. A value that must never persist
 belongs in a `Redacted` field of the caller's own schema, where the type
@@ -48,8 +73,44 @@ system, rather than a name-suffix guess made at the storage seam, keeps it out.
 
 Objects and arrays are rebuilt, a cycle collapses to `"[Circular]"` so the
 result always encodes, and a number, a boolean, `null`, or `undefined` is
-returned untouched. Every replacement reaches a fixed point, so replaying or
-exporting an entry cannot mutate it again.
+returned untouched. The rules are re-applied to a string until it stops
+changing, so replaying or exporting an entry cannot mutate it again; a string
+that has not settled after eight passes is replaced whole.
+
+## Diagnostics
+
+A log line, a stderr message, and an error handed to a remote caller are read
+once, so a false positive there costs a word of context rather than data in a
+permanent row. `Redaction.diagnosticRules` reads further than the journal: a
+bare value runs over several words to the end of its line
+(`password=correct horse battery`), an unclosed string or container runs to the
+end of the text (a value cut by a bound), and a value may sit on the line after
+its name. It adds an authorization or cookie header in any scheme, bare URL
+userinfo, a signed query parameter, `curl -u user:pass`, and a `-p` flag's
+value, a password to `mysql` and `sshpass`. A path after `-p` and the
+single-dash words that are not passwords (`-print`, `-pthread`) are kept.
+`Redaction.redactDiagnostic` applies them, and every diagnostic path in
+Smithers shares it: `RedactedLogger`, the engine's failure rendering, and the
+CLI's error output.
+
+Redact a diagnostic before rendering or bounding it. Redacting a rendering line
+by line, or after a bound, is how a key's body escaped. A stream that must be
+emitted line by line uses `Redaction.lineRedactor()`: it holds lines while the
+rules say a value is still open and redacts the block whole once it closes. A
+value still open after `Redaction.maxHeldLines` lines or 64 KiB withholds the
+rest of the stream, and `flush` emits one placeholder for it.
+
+```ts
+import { Redaction } from "@smthrs/journal"
+
+const redactor = Redaction.lineRedactor()
+const emit = (line: string) => redactor.line(line).forEach((safe) => process.stderr.write(`${safe}\n`))
+// at the end of the stream
+redactor.flush().forEach((safe) => process.stderr.write(`${safe}\n`))
+```
+
+A custom rule whose extent is not regular sets `rewrite: (text) => string`
+instead of `replace`; `pattern` then names what it looks for.
 
 ## Where redaction stops
 
@@ -109,9 +170,9 @@ than trusted to terminate:
   one carrying that many own members, is named rather than walked. The size is
   read from the value's own internal slot, where nothing a caller writes can
   answer for it.
-- **Rule cost.** The default rules are unanchored character-class scans with no
-  nested quantifier and no alternation inside a repetition, so each is linear
-  in the length of the value and no input backtracks catastrophically.
+- **Rule cost.** Every alternation inside a repetition starts its branches
+  with disjoint characters, so each rule is linear in the length of the value
+  and no input backtracks catastrophically.
 
 A redaction that throws, from the redactor itself or from a getter or proxy
 trap on the value, fails the write as `invalid_event` with no `cause`. The

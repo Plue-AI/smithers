@@ -37,6 +37,12 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown)
  * `replace` is the substitution for a matched span; when omitted the whole
  * match is replaced by the placeholder.
  *
+ * `rewrite`, when set, rewrites the text itself instead. It is for a rule
+ * whose extent is not regular: where a credential's value ends depends on
+ * quotes, escapes and brackets a regular expression cannot count. `pattern`
+ * then names what the rule looks for, and text `pattern` does not match is
+ * left unchanged without calling `rewrite`.
+ *
  * @since 0.1.0
  * @category models
  */
@@ -44,6 +50,7 @@ export interface Rule {
   readonly id: string
   readonly pattern: RegExp
   readonly replace?: string | undefined
+  readonly rewrite?: ((text: string) => string) | undefined
 }
 
 /**
@@ -54,6 +61,572 @@ export interface Rule {
  */
 export const placeholder = "[REDACTED]"
 
+const isQuote = (char: string | undefined): boolean => char === "\"" || char === "'" || char === "`"
+
+const closers: Readonly<Record<string, string>> = { "{": "}", "[": "]", "(": ")" }
+
+/**
+ * Whether the last {@link skipQuoted} or {@link skipContainer} found its
+ * closer. Both return the end of the text for a value that never closes, and
+ * for one that closes on the text's last character, so the end alone cannot
+ * say which.
+ */
+let lastClosed = false
+
+/**
+ * The index just past the quote that closes the string opened at `open`. A
+ * quote nested n strings deep sits behind `depth` = 2^n - 1 backslashes, and
+ * the quote that closes it has that count modulo 2^(n+1). A string that is
+ * never closed, cut by a bound or by its producer, runs to the end of the
+ * text. A caller that knows the backslashes were doubled again passes a larger
+ * `modulus`.
+ */
+const skipQuoted = (
+  text: string,
+  open: number,
+  depth: number,
+  modulus = 2 * (depth + 1),
+  limit = text.length
+): number => {
+  let end = open + 1
+  while (end < limit) {
+    if (text[end] === text[open]) {
+      let slashes = 0
+      for (let i = end - 1; i > open && text[i] === "\\"; i--) slashes++
+      if (slashes % modulus === depth) {
+        lastClosed = true
+        return end + 1
+      }
+    }
+    end++
+  }
+  lastClosed = false
+  return end
+}
+
+/**
+ * The index just past the bracket that balances the one at `open`, skipping
+ * quoted strings at any escape depth. An unbalanced container runs to the end
+ * of the text.
+ */
+const skipContainer = (text: string, open: number, limit = text.length): number => {
+  const pending: Array<string> = []
+  let end = open
+  while (end < limit) {
+    const char = text[end]!
+    if (isQuote(char)) {
+      let depth = 0
+      while (text[end - 1 - depth] === "\\") depth++
+      end = skipQuoted(text, end, depth, 2 * (depth + 1), limit)
+      if (!lastClosed) return end
+      continue
+    }
+    const closer = closers[char]
+    if (closer !== undefined) pending.push(closer)
+    else if (char === pending.at(-1)) {
+      pending.pop()
+      if (pending.length === 0) {
+        lastClosed = true
+        return end + 1
+      }
+    }
+    end++
+  }
+  lastClosed = false
+  return end
+}
+
+/** A bracket or string still open at some point of the text: a bracket by its closer, a string by its quote and escape depth. */
+interface Open {
+  readonly close: string
+  readonly depth?: number
+}
+
+/**
+ * The escape depth of a quote behind `slashes` backslashes: 2^k - 1 for its k
+ * trailing escaped levels, so `\\"` (an escaped backslash, then a quote) is
+ * depth 0 and `\\\"` is depth 1.
+ */
+const escapeDepth = (slashes: number): number => (slashes ^ (slashes + 1)) >> 1
+
+// `Array.prototype.findLastIndex` is ES2023; consumers compile this source
+// against ES2022 declarations.
+const lastIndex = (stack: ReadonlyArray<Open>, matches: (open: Open) => boolean): number => {
+  for (let index = stack.length - 1; index >= 0; index--) if (matches(stack[index]!)) return index
+  return -1
+}
+
+const innermostString = (stack: ReadonlyArray<Open>): number => lastIndex(stack, (open) => open.depth !== undefined)
+
+/**
+ * Updates `stack` with the brackets and strings that `text[from, to)` opens
+ * and closes. A quote closes the innermost open string it can close at that
+ * string's escape depth, and otherwise opens a string at its own depth. The
+ * other quote characters inside a string are content (`"don't"`).
+ */
+const track = (stack: Array<Open>, text: string, from: number, to: number): void => {
+  for (let i = from; i < to; i++) {
+    const char = text[i]!
+    if (isQuote(char)) {
+      let slashes = 0
+      while (text[i - 1 - slashes] === "\\") slashes++
+      const inner = innermostString(stack)
+      if (inner === -1) {
+        stack.push({ close: char, depth: escapeDepth(slashes) })
+        continue
+      }
+      if (stack[inner]!.close !== char) continue
+      const closes = lastIndex(
+        stack,
+        (open) => open.depth !== undefined && slashes % (2 * (open.depth + 1)) === open.depth
+      )
+      if (closes === -1) stack.push({ close: char, depth: escapeDepth(slashes) })
+      else stack.length = closes
+      continue
+    }
+    const closer = closers[char]
+    if (closer !== undefined) stack.push({ close: closer })
+    else if (stack.at(-1)?.depth === undefined && char === stack.at(-1)?.close) stack.pop()
+  }
+}
+
+/**
+ * Whether the closer at `end` closes the bracket open before the name: it and
+ * any closers right after it balance the enclosing brackets, and a separator
+ * or the end of the text follows (`[{token:abc}]`, not `Tr0ub4dor)]&3`).
+ */
+const closesEnclosing = (text: string, end: number, stack: ReadonlyArray<Open>): boolean => {
+  let at = end
+  for (let k = stack.length - 1; k >= 0 && stack[k]!.depth === undefined && text[at] === stack[k]!.close; k--) at++
+  return at > end && /^(?:[\s,;"'`]|\\+["'`]|$)/.test(text.slice(at, at + 2))
+}
+
+/** Credential words a name ends in. */
+const credentialWord = "(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL)S?"
+
+/**
+ * A name's separator: `=`, `:` or `=>`, after any quote that closes the name.
+ * In a durable row it stays on the name's line; a diagnostic also reads a
+ * value on the next line (`password:` then the value), which is how a stream
+ * redactor sees it arrive.
+ */
+const separator = (space: string): string => String.raw`(?:\\*["'\x60])?${space}(?:=>|[=:])${space}`
+
+/**
+ * A credential name and its separator. Start once per identifier, including
+ * leading underscores, so a name containing many underscores cannot force
+ * repeated scans of its suffix. The name may close a quote of its own
+ * (`'password':`, `\"token\":`), so a key in a Python repr, an inspected
+ * `Map` or escaped JSON meets the rule too.
+ */
+const credentialName = String.raw`(?<![A-Za-z0-9_-])([A-Za-z0-9_-]*${credentialWord})`
+
+const credentialNames = new RegExp(credentialName + separator("[ \\t]*"), "gi")
+
+const diagnosticNames = new RegExp(credentialName + separator(String.raw`\s*`), "gi")
+
+/** Header names whose whole value is a credential whatever its scheme. */
+const headerNames = new RegExp(
+  String.raw`((?:proxy-)?authorization|(?:set-)?cookies?)${separator(String.raw`\s*`)}`,
+  "gi"
+)
+
+/** Any credential or header name, to stop a bare value before the next pair. */
+const anyName = new RegExp(`${credentialNames.source}|${headerNames.source}`, "gi")
+
+/** A credential or header name and its separator ending the text before a quote. */
+const nameBefore = new RegExp(`(?:${credentialNames.source}|${headerNames.source})$`, "i")
+
+/**
+ * The index of the next credential or header name at or after `from`; with
+ * `quoted`, only a name written right after a quote.
+ */
+const nextName = (text: string, from: number, quoted: boolean): number => {
+  // No name starts between a search's start and what it found, so a later
+  // search from inside that span has the same answer. Values are read left to
+  // right, so this keeps every search over one text linear in total.
+  const cached = nameSearches[quoted ? 1 : 0]!
+  if (cached.text === text && from >= cached.from && from <= cached.found) return cached.found
+  let found = text.length
+  anyName.lastIndex = from
+  for (let match = anyName.exec(text); match !== null; match = anyName.exec(text)) {
+    if (!quoted || isQuote(text[match.index - 1])) {
+      found = match.index
+      break
+    }
+  }
+  nameSearches[quoted ? 1 : 0] = { text, from, found }
+  return found
+}
+
+/** The last search for any name and for a quoted name. */
+const nameSearches = [{ text: "", from: 0, found: 0 }, { text: "", from: 0, found: 0 }]
+
+/**
+ * How far a value may run.
+ *
+ * A diagnostic is read once, so it errs toward hiding: a bare value runs over
+ * several words to the end of its line, and a string or container the text
+ * never closes runs to the end of the text, which is how a value cut by a
+ * bound still ends redacted. A journal row is permanent, so there a bare value
+ * is one token, `Foo {`, `[Object: null prototype] {` and `new X(` included,
+ * and an unclosed string or container stops at the end of its line: a stray
+ * backtick in an agent's Markdown must not erase the rest of the row.
+ */
+interface Scope {
+  readonly header: boolean
+  readonly diagnostic: boolean
+}
+
+/** The end of the line `index` is on. */
+const lineEnd = (text: string, index: number): number => {
+  // Every index up to a line's end shares that end, so the last answer serves
+  // each later value on the same line.
+  if (lastLine.text === text && index >= lastLine.from && index <= lastLine.end) return lastLine.end
+  newline.lastIndex = index
+  const end = newline.exec(text)?.index ?? text.length
+  lastLine = { text, from: index, end }
+  return end
+}
+
+const newline = /[\r\n]/g
+
+let lastLine = { text: "", from: 0, end: 0 }
+
+/**
+ * Whether the whitespace at `end` continues the one-token value that began at
+ * `start`: `util.inspect` separates a constructor or a marker from its
+ * contents (`Foo {`, `Map(1) {`, `[Object: null prototype] {`, `<ref *1> {`,
+ * `new Password(`).
+ */
+const continuesAcrossSpace = (text: string, start: number, end: number): number | undefined => {
+  const run = text.slice(start, end)
+  let next = end
+  while (text[next] === " " || text[next] === "\t") next++
+  if (run === "new") return next
+  const prefix = /^[\w$.]+$/.test(run) || /[)\]>]$/.test(run)
+  return prefix && closers[text[next] ?? ""] !== undefined ? next : undefined
+}
+
+/**
+ * Whether the `,`, `;` or `&` at `end` separates pairs rather than sitting
+ * inside a value (`Zq7;Syn,thetic`, `Tr0ub(4dor)&3`): a space or another name
+ * follows it, and for `&`, a query parameter (`&page=2`).
+ */
+const separatesPairs = (text: string, end: number): boolean =>
+  text[end] === "&"
+    ? /^&[A-Za-z_][\w.-]*=/.test(text.slice(end, end + 64))
+    : /^[,;](?:\s|$|\s*\\*["'`]?[A-Za-z_][\w.-]*\\*["'`]?\s*(?:=>|[=:]))/.test(text.slice(end, end + 64))
+
+/**
+ * The end of the bare value at `start`, read as a run of tokens: words,
+ * balanced containers anywhere in it (`{bcrypt}$2a$...`, `Tr0ub(4dor)&3`,
+ * `Some("x")`), inspect markers (`<Buffer 73 65>`, `<ref *1>`), and quoted
+ * parts. `stack` is what is open before the name: the value stops at a quote
+ * that closes the enclosing string, at a closer that closes the enclosing
+ * bracket, and before the next credential name.
+ */
+const bareValueEnd = (
+  text: string,
+  start: number,
+  scope: Scope,
+  stack: ReadonlyArray<Open>
+): number => {
+  const inner = stack[innermostString(stack)]
+  // A durable value never reads an unclosed quote past its line, nor a
+  // bracket past a 4 KiB window, and one it cannot close stops at its line:
+  // each unbalanced bracket costs a bounded scan, not the rest of the text.
+  const bound = scope.diagnostic ? text.length : lineEnd(text, start)
+  const window = scope.diagnostic ? text.length : Math.min(text.length, start + 4096)
+  // Never before the opener: a closed container may already have carried the
+  // value past its first line.
+  const unclosed = (open: number, end: number): number => Math.max(open, Math.min(end, bound))
+  // A durable container first reads its own line. A pretty-printer only
+  // continues one on the next line after the opener or a member's comma
+  // (`apiKey: {`, `credentials: { a: 1,`), so only then does the scan read on
+  // through the window.
+  const container = (open: number): number => {
+    if (scope.diagnostic) return skipContainer(text, open, window)
+    const end = skipContainer(text, open, bound)
+    return lastClosed || !/[[{(,]\s*$/.test(text.slice(open, bound)) ? end : skipContainer(text, open, window)
+  }
+  let end = start
+  // The value's own first token is never the next name: in
+  // `api_key=lowercase-secret:end` the value only looks like a `name:` pair.
+  let limit = nextName(text, start + 1, scope.header)
+  // A header value that is one container ends with it: `"cookie":["sid=a"],`.
+  if (scope.header && closers[text[start]!] !== undefined) {
+    end = container(start)
+    if (!/^[^\s,;"'`\\)\]}]/.test(text[end] ?? " ")) return lastClosed ? end : unclosed(start, end)
+  }
+  while (end < text.length) {
+    if (end >= limit) {
+      if (end === limit) break
+      limit = nextName(text, end, scope.header)
+      continue
+    }
+    const char = text[end]!
+    if (closers[char] !== undefined) {
+      const open = end
+      end = container(open)
+      // An unbalanced container runs on, spaces included.
+      if (!lastClosed) return unclosed(open, end)
+      continue
+    }
+    if (char === "<") {
+      angleClose.lastIndex = end
+      const close = angleClose.exec(text)?.index
+      if (close !== undefined && text[close] === ">") {
+        end = close + 1
+        continue
+      }
+    }
+    let depth = 0
+    while (text[end + depth] === "\\") depth++
+    const quote = text[end + depth]
+    if (isQuote(quote)) {
+      // A quote at the enclosing string's depth or shallower closes it,
+      // whatever precedes it (`Basic abc=`), unless a credential name and
+      // separator precede it (`credential:"`). Inside a bracket, a field's
+      // value ends at a quote (`{\"token\":abc\"}`). Any other quote opens a
+      // quoted part of the value (`username="admin"`, `it's`).
+      const closesString = inner !== undefined && quote === inner.close &&
+        depth % (2 * (inner.depth! + 1)) <= inner.depth! &&
+        !nameBefore.test(text.slice(Math.max(start, end - 256), end))
+      if (closesString || (!scope.header && inner === undefined && stack.length > 0)) break
+      // A quote between two word characters is an apostrophe (`it's`).
+      if (depth === 0 && /\w/.test(text[end - 1] ?? "") && /\w/.test(text[end + 1] ?? "")) {
+        end++
+        continue
+      }
+      const open = end
+      end = skipQuoted(text, end + depth, depth, 2 * (depth + 1), bound)
+      if (!lastClosed) return unclosed(open, end)
+      continue
+    }
+    if (char === "\r" || char === "\n") break
+    // Inside a bracket a `,` or `;` separates members; in raw text it does
+    // when a space or another name follows.
+    if (
+      !scope.header &&
+      ((char === "&" && separatesPairs(text, end)) ||
+        ((char === "," || char === ";") && (stack.length > 0 || separatesPairs(text, end))))
+    ) break
+    if (!scope.header && !scope.diagnostic && (char === " " || char === "\t")) {
+      const next = continuesAcrossSpace(text, start, end)
+      if (next === undefined) break
+      end = next
+      continue
+    }
+    if (closesEnclosing(text, end, stack)) break
+    end++
+  }
+  while (end > start && /\s/.test(text[end - 1]!)) end--
+  return end
+}
+
+/**
+ * Whether a name ending in `key` or `keys` is not a credential's: it counts
+ * only where {@link isSensitiveKey} agrees, as it does for the same name as an
+ * object key (`apiKeys` counts; `keys`, `sortKeys`, `idempotencyKey` and
+ * `monkey` do not).
+ */
+const plainKeyName = (name: string): boolean => /keys?$/i.test(name) && !isSensitiveKey(name)
+
+/**
+ * Whether a name that matched a credential word names a credential: not a
+ * {@link plainKeyName}, and not a count under a plural `tokens` name
+ * (`max_tokens: 4096`), which is accounting.
+ */
+const namesCredential = (name: string, value: string): boolean =>
+  !plainKeyName(name) &&
+  !(/tokens$/i.test(name) && /^["'`]?\d+(?![\w.])/.test(value))
+
+/** The `>` that closes an inspect marker, or the line end that means there is none. */
+const angleClose = /[>\r\n]/g
+
+/** The `+` with which `util.inspect` continues a long string on the next line. */
+const continuation = /\s*\+\s*/y
+
+/** A value an earlier pass already replaced. */
+const alreadyRedacted = /^\[REDACTED\]$/
+
+/**
+ * Redacts the value after each name `names` matches. A quoted value is
+ * consumed whole at any string-escape depth, with the pieces `util.inspect`
+ * joins with `+` across lines, and its quotes are kept around the
+ * placeholder; a bare value is consumed as a run of tokens. A name that ends
+ * in `key` counts only where {@link isSensitiveKey} agrees, so `sortKey` and
+ * `idempotencyKey` keep their values, and a count under a plural `tokens`
+ * name, `max_tokens: 4096`, is accounting and is kept too.
+ */
+const redactValues = (text: string, names: RegExp, scope: Scope): string => {
+  const keys = new RegExp(names.source, names.flags)
+  let output = ""
+  let position = 0
+  // What is open before the current value. Values are skipped, so a bracket
+  // or quote inside a credential never counts.
+  const stack: Array<Open> = []
+  let scanned = 0
+  for (let match = keys.exec(text); match !== null; match = keys.exec(text)) {
+    const name = match[1]!
+    if (!scope.header && plainKeyName(name)) continue
+    track(stack, text, scanned, keys.lastIndex)
+    scanned = keys.lastIndex
+    let start = keys.lastIndex
+    let depth = 0
+    while (text[start + depth] === "\\") depth++
+    const opener = text[start + depth]
+    const quote = isQuote(opener) ? opener! : undefined
+    let end: number
+    if (quote !== undefined) {
+      start += depth
+      const inner = stack[innermostString(stack)]
+      if (inner !== undefined) {
+        // Inside a string written with another quote character, every
+        // backslash is doubled again: `inspect` renders `"a\"b"` as
+        // `'"a\\"b"'`.
+        end = skipQuoted(text, start, depth, (inner.close === quote ? 1 : 2 * (inner.depth! + 1)) * 2 * (depth + 1))
+      } else {
+        // No enclosing string is visible: raw text, or a string `track` cannot
+        // see. Close no earlier than a doubled string would, but never past the
+        // next credential name: at the undoubled close when only separators
+        // precede that name (`"abc\\", password=`), else at the name.
+        const undoubled = skipQuoted(text, start, depth)
+        end = skipQuoted(text, start, depth, Math.max(4, 2 * (depth + 1)))
+        const next = nextName(text, undoubled, false)
+        if (next < end) end = /^[\s,;&]*$/.test(text.slice(undoubled, next)) ? undoubled : next
+      }
+      const closed = end - start > 1 && text[end - 1] === quote
+      if (!closed && !scope.diagnostic) end = Math.min(end, lineEnd(text, start))
+      // `util.inspect` continues a long string on the next line with `+`.
+      if (depth === 0) {
+        for (continuation.lastIndex = end; continuation.test(text); continuation.lastIndex = end) {
+          const piece = continuation.lastIndex
+          if (!isQuote(text[piece])) break
+          end = skipQuoted(text, piece, 0)
+        }
+      }
+      if (alreadyRedacted.test(text.slice(start + 1, end - (text[end - 1] === quote ? 1 + depth : 0)))) continue
+    } else {
+      end = bareValueEnd(text, start, scope, stack)
+      // A placeholder then a space is a value an earlier pass already bounded:
+      // what follows it is the next part of the line, `{"statusCode":401}`.
+      const bounded = text.startsWith(placeholder, start) && /\s/.test(text[start + placeholder.length] ?? "")
+      const kept = end === start || bounded || alreadyRedacted.test(text.slice(start, end)) ||
+        (/tokens$/i.test(name) && /^\d+(?![\w.])/.test(text.slice(start, end))) ||
+        // A Bearer or Basic value the default rules already replaced keeps its scheme.
+        (scope.header && /^(?:bearer|basic)\s+\[REDACTED/i.test(text.slice(start, start + 24)))
+      if (kept) continue
+    }
+    const escape = quote === undefined ? "" : "\\".repeat(depth)
+    const closed = quote !== undefined && end - start > 1 && text[end - 1] === quote
+    output += text.slice(position, keys.lastIndex) + escape + (quote ?? "") + placeholder +
+      (closed ? escape + quote : "")
+    position = end
+    scanned = end
+    keys.lastIndex = end
+  }
+  return output + text.slice(position)
+}
+
+/**
+ * What separates a flag from its value: whitespace on a command line, or
+ * `", "` between two elements of a JSON or inspected array.
+ */
+const argumentSeparator = String.raw`(?:\s+|["'\x60]\s*,\s*["'\x60])`
+
+/** A credential flag and the separator before its value. */
+const credentialFlag = new RegExp(
+  String.raw`(?<![A-Za-z0-9_-])(--?[A-Za-z0-9_-]*${credentialWord})${argumentSeparator}`,
+  "gi"
+)
+
+/** `-p` and the separator before its value, unless the value is a path or a long option. */
+const shortPasswordFlag = new RegExp(
+  String.raw`(?<![^\s"'\x60,[(])-p${argumentSeparator}(?!(?:\.{0,2}|~)\/|--)`,
+  "g"
+)
+
+/**
+ * A flag that always takes a password, and the separator before it: `plink
+ * -pw`, openssl's `-pass`, `-passin` and `-passout` (`pass:secret`), `-passwd`.
+ */
+const passwordFlag = new RegExp(
+  String.raw`(?<![^\s"'\x60,[(])-p(?:w|ass(?:in|out|wd)?)${argumentSeparator}`,
+  "g"
+)
+
+/** `-p` with a value attached, unless the word is a known single-dash option. */
+const attachedPasswordFlag = new RegExp(
+  String
+    .raw`(?<![^\s"'\x60,[(])-p(?!(?:rint\w*|rune|erm|ath|threads?|edantic[\w-]*|ipe|ie|g|retty|lain|rogress|rofile|arents|reserve|ass(?:in|out|wd)?|w)(?![^\s"'\x60,\]]))(?=[^\s,\]])`,
+  "g"
+)
+
+/** `-u` or `--user` and the separator before its value. */
+const userFlag = new RegExp(String.raw`(?<![^\s"'\x60,[(])(?:-u|--user)(?:=|${argumentSeparator})`, "g")
+
+/** The placeholder alone, bare, quoted or escaped: a second pass leaves it alone. */
+const redactedArgument = /^(?:\\*(["'`]))?\[REDACTED\](?:\\*\1)?$/
+
+/**
+ * The end of the unquoted argument at `start`. It runs to whitespace or a
+ * quote, and on through a quoted part written against it (`abc'def'`, which a
+ * shell reads as one argument) when that part closes before any whitespace
+ * and holds none of `,:{}[]`. Any other quote ends it: the close of a string
+ * the command line sits in (`{"cmd":"mysql -p abc","next":1}`).
+ */
+const wordEnd = (text: string, start: number): number => {
+  let end = start
+  while (end < text.length && !/\s/.test(text[end]!)) {
+    const quote = text[end]!
+    if (!isQuote(quote)) {
+      end++
+      continue
+    }
+    let close = end + 1
+    while (close < text.length && !/[\s"'`,:{}[\]]/.test(text[close]!)) close++
+    if (close === end + 1 || text[close] !== quote) break
+    end = close + 1
+  }
+  return end
+}
+
+/**
+ * Redacts the value after each flag `flags` matches: a quoted value, or one
+ * argv word, which ends at whitespace or a quote, so the same rule reads a
+ * command line joined by spaces, a JSON array and an inspected array. A comma
+ * or a `]` is part of a password on a command line (`-p abc,def`); in an
+ * array the element's closing quote ends it first.
+ */
+const redactArguments = (
+  text: string,
+  flags: RegExp,
+  /** Whether this flag and value are a credential at all. */
+  accept?: (match: RegExpExecArray, value: string) => boolean
+): string => {
+  const pattern = new RegExp(flags.source, flags.flags)
+  let output = ""
+  let position = 0
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    const start = pattern.lastIndex
+    let depth = 0
+    while (text[start + depth] === "\\") depth++
+    let end = start
+    if (isQuote(text[start + depth])) end = skipQuoted(text, start + depth, depth)
+    else end = wordEnd(text, start)
+    const value = text.slice(start, end)
+    if (end === start || redactedArgument.test(value) || accept?.(match, value) === false) continue
+    output += text.slice(position, start) + placeholder
+    position = end
+    pattern.lastIndex = end
+  }
+  return output + text.slice(position)
+}
+
+const durable: Scope = { header: false, diagnostic: false }
+
 /**
  * Best-effort textual rules for credential shapes observed in real reports.
  * Every replacement reaches a fixed point so replaying or exporting an entry
@@ -63,6 +636,18 @@ export const placeholder = "[REDACTED]"
  * @category constants
  */
 export const defaultRules: ReadonlyArray<Rule> = [
+  {
+    id: "private-key-block",
+    // Stop an unterminated block at the next header so repeated headers cannot
+    // each rescan the remaining input. A valid PEM body contains no headers.
+    // A block with no footer is a key a bound or a producer truncated, and its
+    // body is as secret as a whole one's, so it runs to the next header or to
+    // the end of the text. It runs first: a block inside URL userinfo, once
+    // replaced, is userinfo the URL rule then reads whole, so a second pass
+    // finds nothing left to change.
+    pattern:
+      /-----BEGIN[^-]*PRIVATE KEY(?: BLOCK)?-----(?:(?!-----BEGIN)[\s\S])*?(?:-----END[^-]*-----|(?=-----BEGIN)|$)/g
+  },
   {
     id: "url-credentials",
     // The scheme is bounded rather than open. `-` is not a word character, so
@@ -92,12 +677,6 @@ export const defaultRules: ReadonlyArray<Rule> = [
     pattern:
       /(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-])([A-Za-z0-9_-]*?)\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
     replace: "$1[REDACTED_TOKEN]"
-  },
-  {
-    id: "private-key-block",
-    // Stop an unterminated block at the next header so repeated headers cannot
-    // each rescan the remaining input. A valid PEM body contains no headers.
-    pattern: /-----BEGIN[^-]*PRIVATE KEY-----(?:(?!-----BEGIN)[\s\S])*?-----END[^-]*-----/g
   },
   {
     id: "api-key",
@@ -136,27 +715,131 @@ export const defaultRules: ReadonlyArray<Rule> = [
   },
   {
     id: "assignment",
-    // The output drops quotes consistently. Excluding that exact output keeps
-    // repeated journal and export passes at a fixed point.
-    // Start once per identifier, including leading underscores, so a name
-    // containing many underscores cannot force repeated scans of its suffix.
-    pattern:
-      /(?<![A-Za-z0-9_-])([A-Za-z0-9_-]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)S?)(\s*[:=]\s*)(?!\[REDACTED\])("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?!["'])\S+)/gi,
-    replace: "$1$2[REDACTED]"
+    // A credential name, `:`, `=` or `=>`, and its whole value: quoted at any
+    // escape depth, a container, or several bare words. See `redactValues`.
+    pattern: credentialNames,
+    rewrite: (text) => redactValues(text, credentialNames, durable)
+  },
+  {
+    id: "credential-flag",
+    // `--password hunter2`, `--api-key "a b"`, or the same pair as two argv
+    // elements. `--token=x` is an assignment above; this is the spelling a
+    // command line separates with a space. The next word is the value even
+    // when it starts with `-`: a credential flag always takes one.
+    pattern: credentialFlag,
+    rewrite: (text) =>
+      redactArguments(text, credentialFlag, (match, value) => namesCredential(match[1]!.replace(/^-+/, ""), value))
   },
   {
     id: "cookie-session-assignment",
     pattern:
       /(?<![A-Za-z0-9-])((?:COOKIE|SESSION)S?)(\s*=\s*)(?!\[REDACTED\])("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?!["'])[^\s;,]+)/gi,
     replace: "$1$2[REDACTED]"
-  },
-  {
-    id: "embedded-json-credential",
-    pattern:
-      /"([A-Za-z0-9_-]*(?:key|token|secret|password|credential)[A-Za-z0-9_-]*)"(\s*:\s*)"(?!\[REDACTED\]")(?:[^"\\]|\\.)*"/gi,
-    replace: "\"$1\"$2\"[REDACTED]\""
   }
 ]
+
+/**
+ * The rules for a diagnostic: {@link defaultRules} and the spellings too broad
+ * for a durable row.
+ *
+ * A log line, a stderr message, and an error handed to a remote caller are
+ * read once, so a false positive costs a word of context. A journal row is
+ * permanent, so the same false positive destroys data. These rules sit on the
+ * diagnostic side of that line: an authorization header in any scheme, bare
+ * URL userinfo (`https://token@host`), a signed query parameter, and the value
+ * of a `-p` flag, which is a password to `mysql` and `sshpass` and a path to
+ * `mkdir`. A path, a port and a lowercase word attached to `-p` (`-print`,
+ * `-path`) are left alone.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const diagnosticRules: ReadonlyArray<Rule> = [
+  ...defaultRules.map((rule): Rule =>
+    rule.id === "assignment"
+      ? {
+        id: "assignment",
+        pattern: diagnosticNames,
+        rewrite: (text) => redactValues(text, diagnosticNames, { header: false, diagnostic: true })
+      }
+      : rule
+  ),
+  {
+    id: "authorization-header",
+    // The header value is a credential whatever its scheme (`Token`, a cookie
+    // list, `Digest` with quoted parameters), so the value runs to the end of
+    // its line or the close of the string it was written in.
+    pattern: headerNames,
+    rewrite: (text) => redactValues(text, headerNames, { header: true, diagnostic: true })
+  },
+  {
+    id: "bearer-or-basic",
+    // A token shorter than the default rules' minimum. A lowercase `basic` is
+    // prose ("a basic example"), so only the scheme's own spellings count.
+    pattern: /(\b(?:[Bb]earer|BEARER|Basic|BASIC)\s+)(?!\[REDACTED)[^\s,;"'\\]+/g,
+    replace: "$1[REDACTED]"
+  },
+  {
+    id: "password-flag",
+    // The whole next argument, a path or a leading `-` included.
+    pattern: passwordFlag,
+    rewrite: (text) => redactArguments(text, passwordFlag)
+  },
+  {
+    id: "sshpass-password",
+    // `sshpass -p` always takes a value, even one that starts with `--`,
+    // which `mysql -p --database x` reads as the next option.
+    pattern: /(\bsshpass(?:\s+-[^\sp]\S*){0,8}\s+-p\s+)--(?!\[REDACTED\])[^\s"'`]*/g,
+    replace: "$1[REDACTED]"
+  },
+  {
+    id: "user-flag",
+    // `curl -u user:pass`, `--user=user:pass`, quoted or not: the whole
+    // argument, commas included, when it carries a `:`.
+    pattern: userFlag,
+    rewrite: (text) => redactArguments(text, userFlag, (_match, value) => value.includes(":"))
+  },
+  {
+    id: "url-userinfo",
+    pattern: /(\/\/)(?!\[REDACTED\]@)[^/@\s"'\\]+@/g,
+    replace: "$1[REDACTED]@"
+  },
+  {
+    id: "signed-query",
+    pattern: /([?&][\w.-]*(?:key|sig|signature|auth|credential)=)(?!\[REDACTED\])[^&#\s"'\\]+/gi,
+    replace: "$1[REDACTED]"
+  },
+  {
+    id: "short-password-flag",
+    // A path is kept, and so is a flag: `mysql -p --database x` prompts for
+    // the password rather than taking one.
+    pattern: shortPasswordFlag,
+    rewrite: (text) => redactArguments(text, shortPasswordFlag)
+  },
+  {
+    id: "attached-password-flag",
+    // `-psecret`. The single-dash words that start with `p` and are not a
+    // password, `find -print` and the compilers' `-pthread` among them, are kept.
+    pattern: attachedPasswordFlag,
+    rewrite: (text) => redactArguments(text, attachedPasswordFlag)
+  }
+]
+
+/**
+ * Redacts one diagnostic value with {@link diagnosticRules}: a log line, a
+ * stderr message, an error handed back to a caller.
+ *
+ * Every diagnostic path shares this one function, and it runs on the value
+ * before anything renders or bounds it. Redacting a rendering line by line, or
+ * after a bound, is how a secret escaped: `util.inspect` splits a long string
+ * over several lines, and a bound cuts a quoted value before its closing
+ * quote. A value past {@link maxDepth} is named rather than thrown.
+ *
+ * @since 1.0.0
+ * @category redaction
+ */
+export const redactDiagnostic = (value: unknown): unknown =>
+  redact(value, { rules: diagnosticRules, onTooDeep: "name" })
 
 /**
  * Credential names this module refuses to persist, matched as suffixes of the
@@ -292,8 +975,62 @@ const redactKey = (key: string, rules: ReadonlyArray<Rule>): string => {
   return redacted === key ? key : placeholder
 }
 
-const redactString = (value: string, rules: ReadonlyArray<Rule>): string =>
-  rules.reduce((text, rule) => text.replace(rule.pattern, rule.replace ?? placeholder), value)
+/**
+ * How many times {@link redactString} re-applies the rules to reach a fixed
+ * point. Rules feed each other: an assignment redacted inside URL userinfo
+ * leaves userinfo the URL rule only then matches. Text no rule touches costs
+ * one pass, and the default rules settle within three. Text that has not
+ * settled after the last pass is replaced whole.
+ */
+const fixedPointPasses = 8
+
+/**
+ * A copy of `pattern` that matches wherever `pattern` does, with no
+ * lookbehind, or `null`. JavaScriptCore runs a pattern that has a lookbehind
+ * in its interpreter, 30 to 70 times slower than compiled: 40 kB of prose cost
+ * a Bun process 300 ms per diagnostic, where Node took 1 ms. Text the copy
+ * never matches is text the rule cannot change, so the rule is skipped.
+ *
+ * Only a one-character negative lookbehind that starts the pattern is
+ * rewritten, as a character the copy consumes, which keeps a name scan
+ * starting once per identifier. Anywhere else, after `\b` or inside a
+ * repeated group, the consumed character would make the copy stricter than
+ * the rule, so any other lookbehind or a backreference leaves the rule
+ * unfiltered.
+ */
+const candidate = (pattern: RegExp): RegExp | null => {
+  const cached = candidates.get(pattern)
+  if (cached !== undefined) return cached
+  const leading = /^\(\?<!\[(\^?)((?:\\.|[^\]\\])*)\]\)/.exec(pattern.source)
+  const rest = leading === null ? pattern.source : pattern.source.slice(leading[0].length)
+  const compiled = /\(\?<[!=]|\\(?:[1-9]|k<)/.test(rest)
+    ? null
+    : new RegExp(
+      leading === null ? rest : `(?:^|[${leading[1] === "" ? "^" : ""}${leading[2]}])${rest}`,
+      pattern.flags.replace(/[gy]/g, "")
+    )
+  candidates.set(pattern, compiled)
+  return compiled
+}
+
+const candidates = new WeakMap<RegExp, RegExp | null>()
+
+const applyRule = (text: string, rule: Rule): string => {
+  if (candidate(rule.pattern)?.test(text) === false) return text
+  return rule.rewrite === undefined ? text.replace(rule.pattern, rule.replace ?? placeholder) : rule.rewrite(text)
+}
+
+const redactString = (value: string, rules: ReadonlyArray<Rule>): string => {
+  let text = value
+  for (let pass = 0; pass < fixedPointPasses; pass++) {
+    const next = rules.reduce(applyRule, text)
+    if (next === text) return text
+    text = next
+  }
+  // Rules that never settle would let an exported row keep changing, and
+  // what they left may still hold a credential. Fail closed.
+  return placeholder
+}
 
 /**
  * Maximum number of container edges traversed from a redaction root.
@@ -480,11 +1217,7 @@ export const depthMarker = "[Deep]"
  */
 export const redact = (value: unknown, options?: Options): unknown => {
   const onTooDeep = options?.onTooDeep ?? "throw"
-  const rules = (options?.rules ?? defaultRules).map((rule) =>
-    rule.pattern.flags.includes("g")
-      ? rule
-      : { ...rule, pattern: new RegExp(rule.pattern.source, `${rule.pattern.flags}g`) }
-  )
+  const rules = globalRules(options?.rules ?? defaultRules)
   /**
    * A binary view named by its type and size, with its own properties walked.
    *
@@ -559,8 +1292,31 @@ export const redact = (value: unknown, options?: Options): unknown => {
         // Rebuild a plain array, preserving the original length and holes.
         const length = node.length
         const result = new Array<unknown>(length)
+        const elements = new Array<unknown>(length)
         for (let index = 0; index < length; index++) {
-          if (index in node) result[index] = walk(node[index], ancestors, depth + 1, String(index))
+          if (!(index in node)) continue
+          elements[index] = node[index]
+          result[index] = walk(elements[index], ancestors, depth + 1, String(index))
+        }
+        // An argv keeps a flag and its value in two elements, so no rule sees
+        // `--password hunter2` whole. The element after a flag is a credential
+        // when its name says so (`--token=x` carries its own, and a count under
+        // `--max-tokens` is kept), or when the active rules redact it read
+        // after the flag and the elements before it (`-p`, `-pw`, `-passin`,
+        // `sshpass -p`) differently than alone.
+        for (let index = 0; index + 1 < length; index++) {
+          // The values the first loop read, never a second read: a proxy may
+          // answer a second `get` differently.
+          const flag = elements[index]
+          const value = elements[index + 1]
+          if (typeof flag !== "string" || typeof value !== "string" || !/^-[^=\s]+$/.test(flag)) continue
+          const name = flag.replace(/^-+/, "")
+          const before = elements.slice(Math.max(0, index - 3), index + 1).filter((element) =>
+            typeof element === "string"
+          ).join(" ")
+          const consumes = (isSensitiveKey(name) && namesCredential(name, value)) ||
+            redactString(`${before} ${value}`, rules) !== `${redactString(before, rules)} ${redactString(value, rules)}`
+          if (consumes) result[index + 1] = placeholder
         }
         return result
       }
@@ -624,6 +1380,205 @@ export const redactJsonString = (json: string, redactor: Redactor): string => {
   const attempted = Result.try(() => Schema.encodeUnknownResult(UnknownFromJsonString)(redactor(decoded.success)))
   if (Result.isFailure(attempted)) return JSON.stringify(placeholder)
   return Result.isSuccess(attempted.success) ? attempted.success.success : JSON.stringify(placeholder)
+}
+
+/**
+ * Redacts a stream one line at a time.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface LineRedactor {
+  /**
+   * Takes the rest of the current line, without its newline, and returns the
+   * lines now safe to emit: none while a value is still open.
+   */
+  readonly line: (line: string) => ReadonlyArray<string>
+  /**
+   * Takes part of a line whose newline has not arrived. A line longer than
+   * {@link maxPartialLine} is never emitted: {@link omittedLine} stands for it.
+   */
+  readonly part: (text: string) => void
+  /** What {@link LineRedactor.flush} would emit now, without ending the stream: for a rendered snapshot. */
+  readonly peek: () => ReadonlyArray<string>
+  /** Ends the stream and returns whatever is still held, redacted as one block. */
+  readonly flush: () => ReadonlyArray<string>
+}
+
+/**
+ * Lines a {@link lineRedactor} holds for one open value. Past this, or past
+ * 64 KiB, it stops holding: it emits what it held, redacted, and withholds
+ * every later line until the stream ends, when one placeholder stands for
+ * them. Dropping lines from the middle instead changed which brackets and
+ * quotes were open, and released a later secret in clear.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const maxHeldLines = 256
+
+const maxHeldBytes = 64 * 1024
+
+/**
+ * The longest line a {@link lineRedactor} reads whole. A longer line keeps
+ * its first and last 16 KiB; its middle is scanned for what it leaves open
+ * and dropped.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const maxPartialLine = 32 * 1024
+
+/**
+ * What a {@link lineRedactor} emits in place of a line longer than
+ * {@link maxPartialLine}.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const omittedLine = "[overlong line omitted]"
+
+/**
+ * A next line no rule redacts alone, which an open value swallows. The value
+ * is open when the redacted text no longer ENDS with it: text before it may
+ * contain the same word.
+ */
+const continuationProbe = "\n'probe'"
+
+/** Rules with the global flag each rule needs to replace every match. */
+const globalRules = (rules: ReadonlyArray<Rule>): ReadonlyArray<Rule> =>
+  rules.map((rule) =>
+    rule.pattern.flags.includes("g")
+      ? rule
+      : { ...rule, pattern: new RegExp(rule.pattern.source, `${rule.pattern.flags}g`) }
+  )
+
+/**
+ * A redactor for a stream that must be emitted line by line: a live build
+ * log, a child's stderr.
+ *
+ * Redacting each line alone is the flaw that leaked a private key's body, and
+ * the tail of every string `util.inspect` split over several lines: only the
+ * line holding the name was redacted. This one asks the rules themselves
+ * whether a line leaves a value open, by checking whether the value swallows
+ * a probe placed on the next line, and holds lines until it closes. The held
+ * block is then redacted whole, exactly as {@link redact} redacts a string.
+ *
+ * A line longer than {@link maxPartialLine} is read as its first and last
+ * 16 KiB. Its middle is dropped, but a bracket, quote or key block the middle
+ * leaves open would have opened a value the kept ends cannot show, so then
+ * the rest of the stream is withheld. Such a line is never emitted, only
+ * {@link omittedLine}, and neither is any block it was held in.
+ *
+ * `rules` defaults to {@link diagnosticRules}. The array is read on every
+ * line, so a caller may add a rule, a session secret, as the stream runs.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): LineRedactor => {
+  const held: Array<string> = []
+  let heldBytes = 0
+  let heldOverlong = false
+  let withheld = false
+  // The line still arriving: whole up to the bound, then a head, a rolling
+  // tail, and what the dropped middle leaves open.
+  const edge = maxPartialLine / 2
+  let head = ""
+  let tail = ""
+  let overlong = false
+  let middle: Array<Open> = []
+  let middleKey = false
+  let carry = ""
+  const resetPartial = () => {
+    head = ""
+    tail = ""
+    overlong = false
+    middle = []
+    middleKey = false
+    carry = ""
+  }
+  const scanDropped = (dropped: string) => {
+    track(middle, dropped, 0, dropped.length)
+    const seen = carry + dropped
+    const begin = seen.search(/-----BEGIN[^-]*PRIVATE KEY/)
+    const lastBegin = seen.lastIndexOf("-----BEGIN")
+    const lastEnd = seen.lastIndexOf("-----END")
+    if (begin !== -1 || lastEnd !== -1) middleKey = lastBegin > lastEnd
+    carry = seen.slice(-64)
+  }
+  const redacted = (text: string) => redactString(text, globalRules(rules))
+  const release = (): ReadonlyArray<string> => {
+    const text = redacted(held.join("\n"))
+    const overlongBlock = heldOverlong
+    held.length = 0
+    heldBytes = 0
+    heldOverlong = false
+    return overlongBlock ? [omittedLine] : text.split("\n")
+  }
+  const part = (text: string): void => {
+    if (withheld) return
+    if (!overlong) {
+      head += text
+      if (head.length <= maxPartialLine) return
+      overlong = true
+      tail = head.slice(edge)
+      head = head.slice(0, edge)
+    } else tail += text
+    if (tail.length > edge) {
+      scanDropped(tail.slice(0, tail.length - edge))
+      tail = tail.slice(-edge)
+    }
+  }
+  const line = (rest: string): ReadonlyArray<string> => {
+    if (withheld) {
+      resetPartial()
+      return []
+    }
+    part(rest)
+    let text = head
+    if (overlong) {
+      const risky = middle.length > 0 || middleKey
+      text = `${head} ${tail}`
+      resetPartial()
+      if (risky) {
+        const before = held.length === 0 ? [] : [placeholder]
+        held.length = 0
+        heldBytes = 0
+        heldOverlong = false
+        withheld = true
+        return [...before, omittedLine]
+      }
+      heldOverlong = true
+    } else resetPartial()
+    held.push(text)
+    heldBytes += text.length + 1
+    if (redacted(held.join("\n") + continuationProbe).endsWith(continuationProbe)) return release()
+    if (held.length <= maxHeldLines && heldBytes <= maxHeldBytes) return []
+    withheld = true
+    return release()
+  }
+  const peek = (): ReadonlyArray<string> => {
+    if (withheld) return [placeholder]
+    const pending = overlong ? [omittedLine] : head === "" ? [] : [head]
+    if (heldOverlong) return [omittedLine]
+    const text = [...held, ...(overlong ? [] : pending)]
+    const out = text.length === 0 ? [] : redacted(text.join("\n")).split("\n")
+    return overlong ? [...out, omittedLine] : out
+  }
+  return {
+    line,
+    part,
+    peek,
+    flush: () => {
+      const out = head !== "" || overlong ? [...line("")] : []
+      if (withheld) {
+        withheld = false
+        return [...out, placeholder]
+      }
+      return held.length === 0 ? out : [...out, ...release()]
+    }
+  }
 }
 
 /**

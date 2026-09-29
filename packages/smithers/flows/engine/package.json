@@ -152,6 +152,7 @@
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/crypto": "1.0.0-rc.1",
     "@smthrs/flow": "1.0.0-rc.1",
+    "@smthrs/journal": "1.0.0-rc.1",
     "@smthrs/keys": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
     "@smthrs/capability": "1.0.0-rc.1"
@@ -171,6 +172,7 @@
     "eslint-plugin-import": "2.32.0",
     "eslint-plugin-jsdoc": "64.3.4",
     "eslint-plugin-unicorn": "65.0.0",
+    "fast-check": "4.9.0",
     "knip": "6.34.0",
     "madge": "8.0.0",
     "typescript": "5.9.3",

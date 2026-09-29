@@ -106,8 +106,8 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "A proxy handler path that is not wrapped in guardDefects, so Schema.Defect encodes the raw defect object to the caller.",
         "A log or error message that interpolates the raw defect, cause, or payload instead of renderDiagnostic output.",
-        "A secret spelling sanitizeDiagnosticText misses that a realistic HTTP client error embeds in message: `Authorization: Basic <b64>`, `cookie: session=<v>`, URL userinfo `https://user:pass@host`, and a `?key=<v>` query parameter all pass through unredacted today.",
-        "A secret split across the 512-character slice boundary, or placed in a field outside diagnosticKeys that a nested cause re-exposes through message."
+        "A secret spelling Redaction.diagnosticRules (@smthrs/journal) misses that a realistic error embeds in message, such as a value shape util.inspect writes that the credential value grammar does not read.",
+        "Redaction applied to a bounded or line-split rendering instead of the whole projected value, or a secret placed in a field outside diagnosticKeys that a nested cause re-exposes through message."
       ],
       paths: [
         "src/FlowProxyServer.ts",
@@ -124,7 +124,7 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "A property read in projectDiagnostic that uses normal access (value[key], toString, JSON.stringify of the raw object) instead of Object.getOwnPropertyDescriptor data values.",
         "A depth, array length, or output length bound that is removed or applied after unbounded work.",
-        "A redaction regex applied before slicing to diagnosticTextLimit or with catastrophic backtracking on long input."
+        "Redaction applied after slicing to diagnosticTextLimit, or a rule with catastrophic backtracking on the 64 KiB redaction window."
       ],
       paths: ["src/internal/Diagnostic.ts"]
     },
