@@ -108,6 +108,40 @@ it.skipIf(process.platform === "win32")(
 )
 
 it.skipIf(process.platform === "win32")(
+  "admits a declared cache above the ignored entry ceiling and refuses it when undeclared",
+  async () => {
+    const root = await fixture()
+    // The existing cache file and docs/private.tmp bring this to 50,001 ignored files.
+    const directory = NodePath.join(root, "go-cache", "entries")
+    await Fs.mkdir(directory, { recursive: true })
+    await Fs.truncate(NodePath.join(root, "go-cache/pkg/mod/cache.bin"), 0)
+    let next = 0
+    await Promise.all(Array.from({ length: 64 }, async () => {
+      while (next < 49_999) {
+        const index = next++
+        await Fs.writeFile(NodePath.join(directory, `${index}.bin`), "")
+      }
+    }))
+
+    const admitted = await serve(root, ["//:generated", "--write"])
+    expect(admitted.exitCode, admitted.output + admitted.logs).toBe(0)
+    expect(await Fs.readFile(NodePath.join(root, "docs/generated.md"), "utf8")).toBe("generated\n")
+
+    await write(root, "docs/generated.md", "keep\n")
+    const workspace = await Fs.readFile(NodePath.join(root, "WORKSPACE.ts"), "utf8")
+    expect(workspace).toContain(", hostDirectories: [\"go-cache\"]")
+    await write(root, "WORKSPACE.ts", workspace.replace(", hostDirectories: [\"go-cache\"]", ""))
+    const refused = await serve(root, ["//:generated", "--write"])
+    expect(refused.exitCode).toBe(1)
+    expect(refused.output + refused.logs).toContain(
+      "the write-set guard cannot restore the gitignored tree: more than 50000 entries"
+    )
+    expect(await Fs.readFile(NodePath.join(root, "docs/generated.md"), "utf8")).toBe("keep\n")
+  },
+  180_000
+)
+
+it.skipIf(process.platform === "win32")(
   "restores an ignored out-of-set file in an admitted directory and rolls back a failed command",
   async () => {
     const root = await fixture()
