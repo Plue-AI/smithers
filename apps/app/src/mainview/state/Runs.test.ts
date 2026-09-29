@@ -474,6 +474,28 @@ describe("runs.list — the run inbox", () => {
     expect(runListCard(store)?.payload.runs.map((run) => run.runId)).toEqual(["run-new"])
     expect(runListCard(store)?.payload.status).toBe("parked")
   })
+  test("runs.list does not revive a quiet or stopped run card", async () => {
+    const store = await webStore()
+    const double = relay({ runs: [{ runId: "run-1", flowId: "review-pr", status: "running" }] })
+    const controller = createAppController(store, silentAgent, double.services)
+    await signIn(store)
+    const scope = { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" }
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: boxRunCard("run-1"), kind: "run-trace", title: "Run", status: "active", createdAt: 1, ordinal: 1,
+      payload: { ...scope, workflow: "review-pr", phase: "running", steps: [], result: null, lastSeq: 0, events: [] }
+    } }).isPersisted.promise
+    for (const observer of [{ state: "quiet" as const, quietForMs: 25 }, { state: "stopped" as const, error: "Watch stopped" }]) {
+      await store.dispatch({ type: "gateway.run.observer.changed", actor: "system", scope, observer }).isPersisted.promise
+      expect(runCardInScope(store, scope)?.payload.phase).toBe(observer.state)
+      await listInventory(controller, store, "runs.list")
+      const card = runCardInScope(store, scope)
+      expect(store.collections.runtimeRuns.get(runtimeRunKey(scope))?.observer).toEqual(observer)
+      expect(card?.payload.phase).toBe(observer.state)
+      if (observer.state === "quiet") expect(card?.payload.quietForMs).toBe(25)
+      else expect(card?.payload.observationError).toBe("Watch stopped")
+    }
+  })
+
 
   test("by= refuses honestly — the wire records no launcher — and asks nothing", async () => {
     const store = await webStore()

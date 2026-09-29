@@ -145,7 +145,9 @@ export const observeRuntimeRun = (previous: RuntimeRun | undefined, observation:
     ...(journal === undefined ? {} : { events, cursor: eventCursor(scope.runId, events) }),
     ...(observation.journalComplete === undefined ? {} : { journalPending: !observation.journalComplete }),
     steps: words === undefined || steps.includes(words) ? steps : [...steps, words].slice(-8),
-    observer: { state: "connected" }, observedAt: at, revision
+    // A summary read is not a watch restart; only the pump or retry can re-arm a stopped observer.
+    observer: previous?.observer?.state === "quiet" || previous?.observer?.state === "stopped"
+      ? previous.observer : { state: "connected" }, observedAt: at, revision
   }
   // Time alone is not movement. Record the instant when the same health
   // evidence changes its derived freshness, once, so replay sees that boundary.
