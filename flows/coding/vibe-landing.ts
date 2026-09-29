@@ -19,7 +19,7 @@ const observationIntervalMs = 10_000, observationAttempts = 90
 const Unobserved = Schema.Struct({ status: Schema.Literal("unobserved"), reason: Schema.String })
 const Observed = Schema.Union([AppendObservation, Unobserved])
 
-/** Recorded once: a repository with an active mythical stack takes the result, not main. */
+/** Only send-upstream repositories hand results to an active mythical stack. */
 const ReadStack = Action.make("coding/read-vibe-stack", {
   payload: { cleanup: VibeCleanup },
   success: Schema.Boolean,
@@ -106,8 +106,8 @@ export const LandVibe = Flow.make("coding/LandVibe", {
     PublishVibeSource.child({ source: cleanup.head, phase: "cleaned" }).pipe(
       Node.bindPlanned((cleanedSource) =>
         Node.succeed(cleanedSource).pipe(
-          // A repository with an active mythical stack takes the result instead
-          // of main; the stack service integrates and proposes it.
+          // A send-upstream repository with an active stack delegates proposal
+          // to that stack; native repositories use the landing append policy.
           Node.andThen(ReadStack.call({ cleanup })),
           Node.branch({
             if: (stacked) => stacked,
@@ -150,7 +150,11 @@ const atomsOf = (cleanup: VibeCleanup) => cleanup.result.changes.flatMap((change
 export const landingLayers = Layer.mergeAll(
   Interpreter.layer(LandVibe),
   Interpreter.layer(AwaitAppend),
-  ReadStack.toLayer(() => Effect.flatMap(Landing, (landing) => landing.readStack ?? Effect.succeed(false))),
+  ReadStack.toLayer(() => Effect.flatMap(Landing, (landing) =>
+    Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
+      stacked ? Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request") : Effect.succeed(false)
+    )
+  )),
   SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
     Effect.gen(function*() {
       const landing = yield* Landing, instance = yield* FlowRuntime.FlowInstance

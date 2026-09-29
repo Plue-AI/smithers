@@ -120,6 +120,7 @@ const landed = (status: AppendObservation["status"]) =>
   }) as AppendObservation
 const modes = [
   "valid",
+  "native-stack",
   "pending-then-landed",
   "policy-failed",
   "foreign-tail",
@@ -135,6 +136,11 @@ for (const mode of modes) {
     let observations = 0
     const fake: Landing["Service"] = {
       binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
+      readStack: Effect.sync(() => {
+        if (mode === "native-stack") calls.push("stack")
+        return mode === "native-stack"
+      }),
+      submitLane: () => Effect.die("native stack must open a landing instead of submitting a lane"),
       readMain: Effect.die("a coding run pins its base"),
       pinMain: Effect.sync(() => {
         calls.push("main")
@@ -257,7 +263,7 @@ for (const mode of modes) {
       const count = calls.length
       assert.deepEqual(await host.runPromise(execute), value)
       assert.equal(calls.length, count, "replay uses receipts; no second pull request")
-    } else if (mode === "valid" || mode === "pending-then-landed") {
+    } else if (mode === "valid" || mode === "native-stack" || mode === "pending-then-landed") {
       // The pending case waits two real durable rounds (10 s each); nothing re-queues.
       const value = await host.runPromise(execute)
       assert.ok("mainCommitId" in value)
@@ -265,18 +271,19 @@ for (const mode of modes) {
       assert.equal(value.landedCount, 3)
       assert.equal(value.taskId, 12)
       assert.equal(value.cleanedSource.source.commitId, last.commitId)
-      const rest = calls.filter((call) => call !== "delivery")
+      const rest = calls.filter((call) => call !== "delivery" && call !== "stack")
+      if (mode === "native-stack") assert.deepEqual(calls.slice(0, 3), [`retain:${last.commitId}`, "stack", "delivery"])
       const expected = [
         `retain:${last.commitId}`,
         "main",
         "prepare",
         rest[3]!,
         "queue",
-        ...Array<string>(mode === "valid" ? 1 : 3).fill("observe")
+        ...Array<string>(mode === "pending-then-landed" ? 3 : 1).fill("observe")
       ]
       assert.deepEqual(rest, expected)
       assert.match(rest[3]!, /^create:[0-9a-f-]{36}$/)
-      assert.equal(calls.filter((call) => call === "delivery").length, 1)
+      assert.equal(calls.filter((call) => call === "delivery").length, mode === "native-stack" ? 2 : 1)
       const count = calls.length
       assert.deepEqual(await host.runPromise(execute), value)
       assert.equal(calls.length, count, "replay uses receipts; nothing is re-queued")
@@ -305,7 +312,10 @@ test(
       binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
       readMain: unused(),
       pinMain: unused(),
-      readDelivery: unused(),
+      readDelivery: Effect.sync(() => {
+        calls.push("delivery")
+        return "pull-request" as const
+      }),
       openPull: unused,
       prepare: unused,
       create: unused,
@@ -361,7 +371,7 @@ test(
     assert.ok("lane" in value)
     assert.equal(value.lane.itemId, "item-1")
     // The base is the stack tip the request started from: the original source's parent.
-    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", `submit:${tip}:${last.commitId}`])
+    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "delivery", `submit:${tip}:${last.commitId}`])
     const count = calls.length
     assert.deepEqual(await host.runPromise(execute), value)
     assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
