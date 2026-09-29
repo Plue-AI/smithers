@@ -272,3 +272,33 @@ describe("BoundedJson descriptor and snapshot contracts", () => {
     }
   }
 })
+
+describe("BoundedJson strict native leaves", () => {
+  const stamp = new Date(0)
+  const native = (bytes: number) => (value: object) =>
+    value instanceof Date ? { value: new Date(value.getTime()), bytes } : undefined
+
+  it("admits a leaf the native hook detaches, and charges its declared size", () => {
+    const result = BoundedJson.admitStrict({ at: stamp }, limits, { native: native(26) })
+    if (!result.ok) throw new Error(result.complaint)
+    const at = record(result.value)["at"] as unknown
+    expect(at).toEqual(stamp)
+    expect(at).not.toBe(stamp)
+  })
+
+  it("still refuses a non-ordinary object the native hook declines", () => {
+    expect(BoundedJson.admitStrict({ at: new Map() }, limits, { native: native(26) }))
+      .toEqual({ ok: false, path: "$.at", complaint: "must be an ordinary record" })
+  })
+
+  it.each([-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])("refuses a native size of %s", (bytes) => {
+    expect(BoundedJson.admitStrict({ at: stamp }, limits, { native: native(bytes) }))
+      .toEqual({ ok: false, path: "$.at", complaint: "has an invalid native size" })
+  })
+
+  it("refuses a native leaf whose size overruns the byte budget", () => {
+    expect(BoundedJson.admitStrict({ at: stamp }, limits, { native: native(limits.maxBytes) }))
+      .toEqual({ ok: false, path: "$.at", complaint: `exceeds the ${limits.maxBytes}-byte limit` })
+    expect(BoundedJson.admitStrict({ at: stamp }, limits, { native: native(limits.maxBytes - 16) }).ok).toBe(true)
+  })
+})
