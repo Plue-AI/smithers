@@ -13,6 +13,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs"
 import { constants } from "node:os"
 import { delimiter, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import * as Failures from "./failures.ts"
 
 /** Where the workspace keeps its home, its `claude`, and its login. */
 export const home = "/home/developer"
@@ -86,7 +87,7 @@ export const run = async (
   try {
     argv = await prefix()
   } catch (error) {
-    process.stderr.write(`${name} could not be reached: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`${name} could not be reached. ${Failures.detailsIn(error)}\n`)
     return 255
   }
   const [program, ...rest] = argv
@@ -95,7 +96,7 @@ export const run = async (
   process.on("SIGINT", forward).on("SIGTERM", forward)
   return new Promise((resolve) => {
     child.on("error", (error) => {
-      process.stderr.write(`${name} could not be reached: ${error.message}\n`)
+      process.stderr.write(`${name} could not be reached. ${Failures.detailsIn(error)}\n`)
       resolve(255)
     })
     child.on("exit", (code, signal) => {

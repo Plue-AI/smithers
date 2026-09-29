@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto"
 import { accessSync, appendFileSync, constants, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
+import * as Log from "./log.ts"
 import * as Output from "./shell-output.ts"
 import { stopGroup } from "./subprocess.ts"
 
@@ -176,8 +177,9 @@ export const run = (options: {
       })
     }
     child.on("close", (code) => settle(code))
-    child.on("error", (error) => {
-      receive(redactor.write(clean(`${error.message}\n`)))
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      Log.write("shell.spawn", error)
+      receive(redactor.write(clean(`${error.code === "ENOENT" ? `${shell} not found` : `${shell} could not start`}\n`)))
       settle(127)
     })
   })
@@ -188,7 +190,8 @@ export const run = (options: {
       cancelled = true
       if (child.pid !== undefined) {
         stopping = stopGroup(child.pid, cancelGraceMs).catch((error) => {
-          receive(redactor.write(clean(`Could not stop process group: ${String(error)}\n`)))
+          Log.write("shell.stop", error)
+          receive(redactor.write(clean("Could not stop the command.\n")))
         })
       }
     }

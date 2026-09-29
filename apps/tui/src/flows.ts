@@ -10,12 +10,14 @@ import * as Log from "./log.ts"
 import * as NodeOutput from "@smthrs/cli/NodeOutput"
 import type { ControlSchema } from "@smthrs/control"
 import * as Form from "@smthrs/ui/flow-form"
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import * as Extension from "./extension.ts"
+import * as Failures from "./failures.ts"
 import * as Lifecycle from "./lifecycle.ts"
 import type * as Panels from "./panels.ts"
 import type * as Session from "./session.ts"
 import * as Summary from "./summary.ts"
+import { TabError } from "./tab-error.ts"
 
 type ControlEvent = ControlSchema.ControlEvent
 
@@ -76,19 +78,41 @@ export interface Port {
   readonly dispose: () => Promise<void>
 }
 /** Registry infrastructure failed; the last successful catalog remains available. */
-export class FlowDiscoveryFailed extends Error {
-  readonly _tag = "FlowDiscoveryFailed"
-  constructor(readonly cause: unknown) {
-    super("Flow discovery unavailable")
+export class FlowDiscoveryFailed extends Data.TaggedError("FlowDiscoveryFailed")<{
+  readonly cause: unknown
+  readonly message: string
+}> {
+  constructor(cause: unknown) {
+    super({ cause, message: "Flow discovery unavailable" })
   }
 }
-export class FlowError extends Error {
-  constructor(
-    readonly code: "unknown_flow" | "refused" | "invalid_input" | "launch" | "control",
-    message: string,
-    options?: ErrorOptions
-  ) {
-    super(message, options)
+/**
+ * A flow refusal or failure. The message is for the model and the log; a
+ * person sees the sentence `Failures` builds from `code` and `subject`.
+ * `stopped` is a person's own stop, never shown as a failure.
+ */
+export type FlowErrorCode =
+  | "unknown_flow"
+  | "refused"
+  | "person_only"
+  | "denied"
+  | "stopped"
+  | "invalid_input"
+  | "launch"
+  | "control"
+export class FlowError extends Data.TaggedError("FlowError")<{
+  readonly code: FlowErrorCode
+  readonly message: string
+  readonly cause?: unknown
+  readonly subject?: string
+}> {
+  constructor(code: FlowErrorCode, message: string, options?: ErrorOptions & { readonly subject?: string }) {
+    super({
+      code,
+      message,
+      ...(options?.cause === undefined ? {} : { cause: options.cause }),
+      ...(options?.subject === undefined ? {} : { subject: options.subject })
+    })
   }
 }
 
@@ -299,17 +323,13 @@ export class FlowRuns {
   }
   private fail(id: string, attempt: number, error: unknown) {
     if (
-      this.runs.get(id)?.stopRequested && error instanceof FlowError && error.code === "refused" &&
-      error.message === "Stopped"
+      this.runs.get(id)?.stopRequested && error instanceof FlowError && error.code === "stopped"
     ) {
       this.update(id, attempt, { endedAt: Date.now(), message: undefined }, "cancel")
       return
     }
     Log.write("flow.run", error)
-    this.update(id, attempt, {
-      endedAt: Date.now(),
-      message: error instanceof Error ? error.message : String(error)
-    }, "fail")
+    this.update(id, attempt, { endedAt: Date.now(), message: Failures.present("flow", error).sentence }, "fail")
   }
   private attempt(id: string): number {
     const next = (this.attempts.get(id) ?? 0) + 1
@@ -317,10 +337,10 @@ export class FlowRuns {
     return next
   }
   request = (request: Request): { id: string; status: Run["status"] } => {
-    if (this.closed) throw new Error("Session closed")
-    if (this.options.port === undefined) throw new Error("Flows unavailable")
+    if (this.closed) throw new TabError("closed", "Session closed")
+    if (this.options.port === undefined) throw new TabError("flows_unavailable", "Flows unavailable")
     if (request.by === "agent" && this.cache.find((each) => each.name === request.flow)?.modelInvocable === false) {
-      throw new Error(`${request.flow} is not for a model to start`)
+      throw new FlowError("person_only", `${request.flow} is not for a model to start`, { subject: request.flow })
     }
     const requested = JSON.stringify(request.input)
     const existing = request.id === undefined ? undefined : this.runs.get(request.id)
@@ -357,9 +377,9 @@ export class FlowRuns {
       const run = this.runs.get(id)
       if (run === undefined || this.attempts.get(id) !== attempt || this.closed) return
       const found = listed.find((each) => each.name === run.flow)
-      if (found === undefined) throw new FlowError("unknown_flow", `Unknown flow ${run.flow}`)
+      if (found === undefined) throw new FlowError("unknown_flow", `Unknown flow ${run.flow}`, { subject: run.flow })
       if (run.by === "agent" && !found.modelInvocable) {
-        throw new FlowError("refused", `${run.flow} is not for a model to start`)
+        throw new FlowError("person_only", `${run.flow} is not for a model to start`, { subject: run.flow })
       }
       const schema = await port.input(run.flow)
       this.inputs.set(run.flow, schema)
@@ -445,7 +465,7 @@ export class FlowRuns {
     } catch (error) {
       const current = this.runs.get(id)
       if (current !== undefined && (active(current) || current.status === "parked" || this.closed)) {
-        this.runs.put({ ...current, message: error instanceof Error ? error.message : String(error) })
+        this.runs.put({ ...current, message: Failures.present("stop", error).sentence })
       }
     }
   }
@@ -522,12 +542,16 @@ export class FlowRuns {
   /** Runs a failed or stopped run again; the receipt says whether it waits for a seat. */
   retry = (id: string): { id: string; status: Run["status"] } => {
     const run = this.runs.get(id)
-    if (run === undefined) throw new Error("Unknown tab")
+    if (run === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
     if (!actions(run).retry) {
-      throw new Error(`Only a failed, stopped, or parked run can be retried; ${id} is ${run.status}`)
+      throw new TabError(
+        "not_retryable",
+        `Only a failed, stopped, or parked run can be retried; ${id} is ${run.status}`,
+        id
+      )
     }
-    if (this.closed) throw new Error("Session closed")
-    if (this.options.port === undefined) throw new Error("Flows unavailable")
+    if (this.closed) throw new TabError("closed", "Session closed")
+    if (this.options.port === undefined) throw new TabError("flows_unavailable", "Flows unavailable")
     const { endedAt: _ended, answer: _answer, launchedAt: _launched, ...previous } = run
     // Each retry is new work with its own clock, so it is estimated and scored on its own.
     const resume = run.runId !== undefined &&
@@ -638,7 +662,7 @@ export class FlowRuns {
   }
   read = (id: string) => {
     const run = this.runs.get(id)
-    if (run === undefined) throw new Error("Unknown tab")
+    if (run === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
     const panel = this.panel(id)
     return {
       id: run.id,

@@ -12,7 +12,8 @@
  */
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
+import * as Failures from "./failures.ts"
 import type * as Session from "./session.ts"
 
 export type Source =
@@ -36,13 +37,19 @@ export type Failure =
   | { readonly _tag: "Refused"; readonly message: string }
 
 /** Tagged like its failure, so a flow call that throws it reads as that failure. */
-export class MonitorError extends Error {
+export class MonitorError extends Data.Error<{
   readonly _tag: Failure["_tag"]
   readonly code: string | undefined
-  constructor(readonly failure: Failure) {
-    super(failure.message)
-    this._tag = failure._tag
-    this.code = failure._tag === "JevFailed" ? failure.code : undefined
+  readonly failure: Failure
+  readonly message: string
+}> {
+  constructor(failure: Failure) {
+    super({
+      _tag: failure._tag,
+      code: failure._tag === "JevFailed" ? failure.code : undefined,
+      failure,
+      message: failure.message
+    })
   }
 }
 
@@ -319,7 +326,9 @@ export class Monitors {
     this.disarm(id)
     const at = Date.now()
     this.save({ ...monitor, status: "failed", failure, endedAt: at })
-    this.ports.persist({ type: "monitor-update", at, id, title: monitor.title, text: message(failure), failed: true })
+    // The record replays on screen, so it keeps the sentence; the model reads `message` through `context`.
+    const text = Failures.present("monitor", failure).sentence
+    this.ports.persist({ type: "monitor-update", at, id, title: monitor.title, text, failed: true })
     this.ports.deliver({ _tag: "failed", id, title: monitor.title, failure, at })
   }
   stop = (id: string): { id: string; status: Monitor["status"] } => {

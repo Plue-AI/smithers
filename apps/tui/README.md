@@ -519,6 +519,7 @@ Every refusal is a code and one line:
 | `unreadable`     | The body could not be read                                 | Tab `failed`, retryable                                             |
 | `unknown_seat`   | `model:` names no alias or known provider                  | Tab `failed`                                                        |
 | `unknown_effort` | `effort:` is not a reasoning effort                        | Tab `failed`                                                        |
+| `unavailable`    | This session has no agent registry                         | Refused at once                                                     |
 
 `examples/custom-agent` is a directory with one agent; run
 `bun run tui apps/tui/examples/custom-agent` and type `/agent review`.

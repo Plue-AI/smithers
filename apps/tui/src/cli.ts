@@ -28,24 +28,47 @@ export const sameWorkspace = (left: string, right: string): boolean => {
   return id(left) === id(right)
 }
 
+const options = {
+  model: { type: "string", short: "m" },
+  continue: { type: "boolean", short: "c" },
+  resume: { type: "boolean", short: "r" },
+  print: { type: "string", short: "p" },
+  approve: { type: "string" },
+  "budget-tokens": { type: "string" },
+  "budget-daily-tokens": { type: "string" },
+  box: { type: "string" },
+  harness: { type: "string" },
+  help: { type: "boolean", short: "h" }
+} as const
+
+const optionOf = (arg: string) => {
+  const name = arg.split("=")[0]!
+  return Object.entries(options).find(([long, option]) =>
+    name === `--${long}` || ("short" in option && name === `-${option.short}`)
+  )?.[1]
+}
+const known = (arg: string): boolean => optionOf(arg) !== undefined
+
+/** A `parseArgs` refusal as one sentence naming the argument, by its error code. */
+const refusal = (args: ReadonlyArray<string>, error: unknown): string => {
+  const code = (error as { readonly code?: unknown } | null)?.code
+  if (code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+    const option = args.find((arg) => arg.startsWith("-") && arg !== "--" && !known(arg))
+    return option === undefined ? "Unknown option" : `Unknown option ${option.split("=")[0]}`
+  }
+  if (code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
+    const flag = args.find((arg) => arg.includes("=") && optionOf(arg)?.type === "boolean")
+    if (flag !== undefined) return `${flag.split("=")[0]} takes no value`
+    const last = args.at(-1)
+    return last !== undefined && known(last) ? `${last} needs a value` : "An option is missing its value"
+  }
+  if (code === "ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL") return "Expected one directory"
+  return "Could not read the arguments"
+}
+
 export const parse = (args: ReadonlyArray<string>, cwd: string) => {
   try {
-    const { values, positionals } = parseArgs({
-      args: [...args],
-      options: {
-        model: { type: "string", short: "m" },
-        continue: { type: "boolean", short: "c" },
-        resume: { type: "boolean", short: "r" },
-        print: { type: "string", short: "p" },
-        approve: { type: "string" },
-        "budget-tokens": { type: "string" },
-        "budget-daily-tokens": { type: "string" },
-        box: { type: "string" },
-        harness: { type: "string" },
-        help: { type: "boolean", short: "h" }
-      },
-      allowPositionals: true
-    })
+    const { values, positionals } = parseArgs({ args: [...args], options, allowPositionals: true })
     if (values.help === true) return { help: true } as const
     if (positionals.length > 1) return { error: "Expected one directory" } as const
     if (values.continue && values.resume) return { error: "Choose --continue or --resume" } as const
@@ -68,6 +91,6 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
     }
     return { values, cwd: directory } as const
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) } as const
+    return { error: refusal(args, error) } as const
   }
 }

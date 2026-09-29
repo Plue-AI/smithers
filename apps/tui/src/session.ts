@@ -10,6 +10,7 @@
 import * as Redaction from "@smthrs/journal/Redaction"
 import type * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
+import { Data } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import {
   appendFileSync,
@@ -36,6 +37,7 @@ import type * as Activity from "./activity.ts"
 import type * as Changes from "./changes.ts"
 import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
+import * as Failures from "./failures.ts"
 import type * as Flows from "./flows.ts"
 import type * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
@@ -380,9 +382,13 @@ export const guarded = (writer: Writer, report: (failure: WriteFailed) => void):
 }
 
 /** Thrown for a record damaged before the file's last line; a torn last line (a crash mid-append) is dropped. */
-export class Corrupt extends Error {
-  constructor(readonly file: string, readonly line: number) {
-    super(`Conversation ${basename(file)} is damaged at line ${line}`)
+export class Corrupt extends Data.TaggedError("SessionCorrupt")<{
+  readonly file: string
+  readonly line: number
+  readonly message: string
+}> {
+  constructor(file: string, line: number) {
+    super({ file, line, message: `Conversation ${basename(file)} is damaged at line ${line}` })
   }
 }
 
@@ -405,12 +411,12 @@ export const load = (file: string): ReadonlyArray<Record> => parse(file, readFil
 
 /** Moves a file that failed to load out of the listing, beside it as `.damaged`, and says so. */
 export const quarantine = (file: string, error: unknown): string => {
-  const reason = error instanceof Error ? error.message : String(error)
+  const reason = Failures.present("resume", error).sentence
   try {
     renameSync(file, `${file}.damaged`)
-    return `${reason}; moved to ${basename(file)}.damaged`
+    return `${reason} Moved to ${basename(file)}.damaged.`
   } catch {
-    return reason
+    return `${reason} ${Failures.inTerminal}`
   }
 }
 

@@ -77,13 +77,16 @@ test("passes stdin, stdout and the exit code through the workspace transport", a
   const result = spawnSync("bun", [script], { input: "stream-json line\n", encoding: "utf8" })
   expect(result.stdout).toBe("stream-json line\n")
   expect(result.status).toBe(7)
+  const logs = scratch()
   const lost = spawnSync("bun", [
     "-e",
     `import { run } from ${JSON.stringify(join(import.meta.dir, "../src/harness.ts"))}
-process.exit(await run([], {}, () => Promise.reject(new Error("503")), "box"))`
-  ], { encoding: "utf8" })
+process.exit(await run([], {}, () => Promise.reject(new Error("503 from the workspace API")), "box"))`
+  ], { encoding: "utf8", env: { ...process.env, SMITHERS_TUI_SESSION_DIR: logs } })
   expect(lost.status).toBe(255)
-  expect(lost.stderr).toContain("box could not be reached: 503")
+  // One sentence and where the detail is; the raw cause goes only to the log.
+  expect(lost.stderr).toBe(`box could not be reached. Details: ${join(logs, "tui.log")}\n`)
+  expect(readFileSync(join(logs, "tui.log"), "utf8")).toContain("503 from the workspace API")
 })
 
 test("sends a SIGTERM it receives to the transport and exits 143", async () => {

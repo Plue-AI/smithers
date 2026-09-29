@@ -220,7 +220,7 @@ for (const mode of ["ask", "deny", "all"] as const) {
         expect(runs.get(request.id)?.status).toBe(mode === "deny" ? "failed" : "done")
         if (mode === "deny") {
           expect(runs.get(request.id)?.runId).toBeUndefined()
-          expect(runs.get(request.id)?.message).toContain("Denied:")
+          expect(runs.get(request.id)?.message).toBe("consequential was not approved.")
         }
         expect(await host.approvals!.pending()).toEqual([])
       } finally {

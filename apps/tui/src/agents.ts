@@ -10,7 +10,7 @@
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { FlowBodyPrompt } from "@smthrs/registry/Descriptor"
 import * as MarkdownFlow from "@smthrs/registry/MarkdownFlow"
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import * as Extension from "./extension.ts"
 import type * as Flows from "./flows.ts"
 
@@ -22,11 +22,20 @@ export type Code =
   | "unreadable"
   | "unknown_seat"
   | "unknown_effort"
+  | "unavailable"
 
-/** A refusal or launch failure: a code and one line of text. */
-export class AgentError extends Error {
-  constructor(readonly code: Code, message: string) {
-    super(message.split("\n")[0]!.trim())
+/**
+ * A refusal or launch failure: a code and one line of text for the model.
+ * `subject` is the agent, model or effort the refusal names; a person sees the
+ * sentence `Failures` builds from the code and subject, never the message.
+ */
+export class AgentError extends Data.TaggedError("AgentError")<{
+  readonly code: Code
+  readonly message: string
+  readonly subject?: string
+}> {
+  constructor(code: Code, message: string, subject?: string) {
+    super({ code, message: message.split("\n")[0]!.trim(), ...(subject === undefined ? {} : { subject }) })
   }
 }
 
@@ -50,11 +59,13 @@ export const find = (
   by: "user" | "agent"
 ): Extension.Descriptor => {
   const found = listed.find((each) => each.name === name)
-  if (found === undefined) throw new AgentError("unknown_agent", `No agent named ${name}`)
+  if (found === undefined) throw new AgentError("unknown_agent", `No agent named ${name}`, name)
   if (!Extension.isAgent(found)) {
-    throw new AgentError("not_an_agent", `${name} is a module flow; run it with smithers.run or /flow`)
+    throw new AgentError("not_an_agent", `${name} is a module flow; run it with smithers.run or /flow`, name)
   }
-  if (by === "agent" && !found.modelInvocable) throw new AgentError("not_invocable", `${name} is for a person to start`)
+  if (by === "agent" && !found.modelInvocable) {
+    throw new AgentError("not_invocable", `${name} is for a person to start`, name)
+  }
   return found
 }
 
@@ -67,15 +78,15 @@ export const profile = (
 ): Profile => {
   const seat = descriptor.seat === undefined ? undefined : seatOf(descriptor.seat)
   if (descriptor.seat !== undefined && seat === undefined) {
-    throw new AgentError("unknown_seat", `Unknown model ${descriptor.seat}`)
+    throw new AgentError("unknown_seat", `Unknown model ${descriptor.seat}`, descriptor.seat)
   }
   const fallbackSeats = descriptor.fallbackSeats?.map((declared) => {
     const seat = seatOf(declared)
-    if (seat === undefined) throw new AgentError("unknown_seat", `Unknown model ${declared}`)
+    if (seat === undefined) throw new AgentError("unknown_seat", `Unknown model ${declared}`, declared)
     return seat
   })
   if (descriptor.effort !== undefined && !isEffort(descriptor.effort)) {
-    throw new AgentError("unknown_effort", `Unknown effort ${descriptor.effort}`)
+    throw new AgentError("unknown_effort", `Unknown effort ${descriptor.effort}`, String(descriptor.effort))
   }
   // The file's own list: the registry widens a body that declares `flows:` to `*`, but the
   // worker enforces this envelope per call, so the declared narrowing still holds.
@@ -96,11 +107,11 @@ export const profile = (
   }
 }
 
-/** A failed body read, as the tab's typed failure. */
-export const unreadable = (error: unknown): AgentError =>
+/** A failed body read, as the tab's typed failure; the message stays for the model and the log. */
+export const unreadable = (error: unknown, name?: string): AgentError =>
   error instanceof AgentError
     ? error
-    : new AgentError("unreadable", error instanceof Error ? error.message : String(error))
+    : new AgentError("unreadable", error instanceof Error ? error.message : String(error), name)
 
 /** The coordinator's `Agents:` context: model-invocable agents, at most 20. */
 export const context = (listed: ReadonlyArray<Extension.Descriptor>): string =>

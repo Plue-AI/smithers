@@ -13,6 +13,7 @@
  */
 import { spawn } from "node:child_process"
 import { createInterface } from "node:readline"
+import * as Log from "./log.ts"
 import { stopGroup } from "./subprocess.ts"
 
 export type Vendor = "claude" | "codex"
@@ -303,7 +304,13 @@ export const run = (launch: Launch, onFolded: (folded: Folded) => void): Handle 
     }).on("close", resolve)
   })
   const done = new Promise<Outcome>((resolve) => {
-    child.once("error", (cause) => resolve({ _tag: "failed", message: `${command} unavailable: ${cause.message}` }))
+    child.once("error", (cause: NodeJS.ErrnoException) => {
+      Log.write("wrapped.spawn", cause)
+      resolve({
+        _tag: "failed",
+        message: cause.code === "ENOENT" ? `${command} is not installed` : `${command} could not start`
+      })
+    })
     child.once("close", (code) => {
       void reading.then(() => {
         if (stopped) return resolve({ _tag: "stopped" })

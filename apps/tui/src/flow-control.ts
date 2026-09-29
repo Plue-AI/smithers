@@ -133,13 +133,17 @@ export const make = (options: {
           const each = yield* Registry.Registry
           const descriptor = yield* each.getOption(flow)
           if (descriptor._tag === "None") {
-            return yield* Effect.fail(new FlowError("unknown_flow", `Unknown flow ${flow}`))
+            return yield* Effect.fail(new FlowError("unknown_flow", `Unknown flow ${flow}`, { subject: flow }))
           }
           if (descriptor.value.body._tag !== "Markdown") {
-            return yield* Effect.fail(new FlowError("refused", `${flow} is a module flow; run it with /flow`))
+            return yield* Effect.fail(
+              new FlowError("refused", `${flow} is a module flow; run it with /flow`, { subject: flow })
+            )
           }
           const body = yield* each.loadBody(flow)
-          if (body._tag !== "Prompt") return yield* Effect.fail(new FlowError("refused", `${flow} has no prompt body`))
+          if (body._tag !== "Prompt") {
+            return yield* Effect.fail(new FlowError("refused", `${flow} has no prompt body`, { subject: flow }))
+          }
           const declared = descriptor.value.frontmatter["capabilities"]
           return {
             text: body.text,
@@ -170,9 +174,12 @@ export const make = (options: {
           ? refused.cause
           : undefined
         const reason = cause?.split("\n")[0]
-        throw new FlowError("refused", reason ? `${refused.message}: ${reason}` : refused.message, { cause: refused })
+        throw new FlowError("refused", reason ? `${refused.message}: ${reason}` : refused.message, {
+          cause: refused,
+          subject: flow
+        })
       }
-      throw new FlowError("unknown_flow", `Unknown flow ${flow}`)
+      throw new FlowError("unknown_flow", `Unknown flow ${flow}`, { subject: flow })
     },
     plan: (flow, input) =>
       control((service) => service.plan({ flowId: flow, input: input })).then((card) => ({
@@ -186,9 +193,15 @@ export const make = (options: {
           Approvals.project(raw.flowId, raw.envelope.capabilities, options.cwd, source),
           signal
         )
-        if (signal?.aborted) throw new FlowError("refused", "Stopped")
+        if (signal?.aborted) throw new FlowError("stopped", "Stopped")
       } catch (error) {
-        throw new FlowError("refused", signal?.aborted ? "Stopped" : typed(error).message)
+        if (signal?.aborted || (error instanceof FlowError && error.code === "stopped")) {
+          throw new FlowError("stopped", "Stopped")
+        }
+        const wrapped = typed(error)
+        // The approval row's own denial, or a store that could not ask.
+        const denied = wrapped.message.startsWith(Approvals.deniedPrefix)
+        throw new FlowError(denied ? "denied" : "refused", wrapped.message, { cause: error, subject: raw.flowId })
       }
       return control((service) =>
         Effect.gen(function*() {

@@ -11,15 +11,19 @@
  * Runtime panels stay in the workspace, which persists them; this store holds
  * the rest. Publishing never runs an action; only a person or an agent does.
  */
+import { Data } from "effect"
 import * as Extension from "./extension.ts"
 import type * as Panels from "./panels.ts"
 
 export const limits = { keysPerOwner: 8, status: 24, shownStatus: 3 } as const
 
 /** A typed, one-line refusal: the cell that published gets exactly this text. */
-export class Refusal extends Error {
-  constructor(readonly code: "invalid" | "limit" | "collision", message: string) {
-    super(message)
+export class Refusal extends Data.TaggedError("ContributionRefused")<{
+  readonly code: "invalid" | "limit" | "collision"
+  readonly message: string
+}> {
+  constructor(code: "invalid" | "limit" | "collision", message: string) {
+    super({ code, message })
   }
 }
 

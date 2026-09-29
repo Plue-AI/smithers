@@ -9,6 +9,7 @@ import { chmod, mkdir, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { real } from "./approvals.ts"
 import * as Changes from "./changes.ts"
+import * as Log from "./log.ts"
 import type * as Transcript from "./transcript.ts"
 
 export type Failure =
@@ -240,7 +241,7 @@ export const commit = async (
       return {
         _tag: "WriteFailed",
         path: file.path,
-        message: (error as NodeJS.ErrnoException).code ?? String(error),
+        message: errno(error),
         restored: true
       }
     }
@@ -269,12 +270,30 @@ export const commit = async (
       return {
         _tag: "WriteFailed",
         path: file.path,
-        message: (error as NodeJS.ErrnoException).code ?? String(error),
+        message: errno(error),
         restored
       }
     }
   }
   return undefined
+}
+
+/** The failed write's errno code, the one fact `message` words; the rest goes to the log. */
+const errno = (error: unknown): string => {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  if (typeof code === "string") return code
+  Log.write("undo.write", error)
+  return ""
+}
+
+const because: Readonly<Record<string, string>> = {
+  EACCES: "no permission",
+  EPERM: "no permission",
+  ENOSPC: "disk full",
+  EROFS: "read-only disk",
+  ENOENT: "missing",
+  EISDIR: "is a directory",
+  EBUSY: "in use"
 }
 
 /** Toast text. */
@@ -295,7 +314,9 @@ export const message = (failure: Failure): string => {
     case "Conflict":
       return `Not undone · changed since: ${failure.paths.join(", ")}`
     case "WriteFailed":
-      return `Undo failed · ${failure.path}: ${failure.message}${failure.restored ? "" : " · files partly changed"}`
+      return `Undo failed${failure.path === "" ? "" : ` · ${failure.path}`}: ${
+        because[failure.message] ?? "could not write"
+      }${failure.restored ? "" : " · files partly changed"}`
   }
 }
 

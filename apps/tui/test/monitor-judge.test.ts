@@ -177,7 +177,7 @@ test.each([-1, 2])(
         title: "Build",
         at: expect.any(Number),
         failed: true,
-        text: expect.stringContaining("Jev failed (invalid_answer)")
+        text: "Jev gave an unusable answer."
       }])
     } finally {
       await monitors.dispose()

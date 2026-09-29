@@ -374,7 +374,11 @@ describe("flow runs", () => {
     f.starts[0]!.resolve("run-1")
     await tick()
     await tick()
-    expect(f.runs.get("r1")).toMatchObject({ status: "running", runId: "run-1", message: "Cancel refused" })
+    expect(f.runs.get("r1")).toMatchObject({
+      status: "running",
+      runId: "run-1",
+      message: "The stop was not sent; press x again."
+    })
     expect(f.runs.busy).toBe(true)
     expect(f.calls).toContain("watch:run-1")
     f.runs.cancel("r1")
@@ -394,7 +398,7 @@ describe("flow runs", () => {
     expect(f.calls).toContain("cancel:run-1")
     expect(f.records.at(-1)).toMatchObject({
       type: "flow",
-      run: { status: "failed", runId: "run-1", message: "Cancel refused" }
+      run: { status: "failed", runId: "run-1", message: "The stop was not sent; press x again." }
     })
     const restored = setup({ restored: f.runs.snapshot() })
     restored.runs.retry("r1")
@@ -419,7 +423,11 @@ describe("flow runs", () => {
     f.starts[0]!.resolve("run-1")
     await disposal
     expect(f.calls).toContain("cancel:run-1")
-    expect(f.runs.get("r1")).toMatchObject({ status: "failed", runId: "run-1", message: "Cancel refused" })
+    expect(f.runs.get("r1")).toMatchObject({
+      status: "failed",
+      runId: "run-1",
+      message: "The stop was not sent; press x again."
+    })
   })
 
   it("the coordinator context bounds a run's message", async () => {
@@ -465,7 +473,7 @@ describe("flow runs", () => {
     f.runs.request({ id: "r1", flow: "deploy", input: {}, by: "agent" })
     await tick()
     expect(f.runs.get("r1")).toMatchObject({ status: "failed" })
-    expect(f.runs.get("r1")?.message).toContain("not for a model to start")
+    expect(f.runs.get("r1")?.message).toBe("deploy starts only from /flow.")
     expect(f.calls.some((each) => each.startsWith("plan"))).toBe(false)
     // Once discovery is cached, the binding refuses at once.
     expect(() => f.runs.request({ id: "r2", flow: "deploy", input: {}, by: "agent" })).toThrow(
@@ -499,7 +507,7 @@ describe("flow runs", () => {
     const f = setup()
     f.runs.request({ id: "r1", flow: "nope", input: {}, by: "user" })
     await tick()
-    expect(f.runs.get("r1")).toMatchObject({ status: "failed", message: "Unknown flow nope" })
+    expect(f.runs.get("r1")).toMatchObject({ status: "failed", message: "No flow named nope; /flows lists them." })
   })
 
   it("queues a fourth run instead of refusing it, and starts it when a seat frees", async () => {
@@ -706,7 +714,7 @@ it("settles a stopped authorization as cancelled without a failure message", asy
       ...f.port,
       start: (_card, _source, signal) =>
         new Promise((_resolve, reject) => {
-          signal!.addEventListener("abort", () => reject(new FlowError("refused", "Stopped")), { once: true })
+          signal!.addEventListener("abort", () => reject(new FlowError("stopped", "Stopped")), { once: true })
         })
     },
     persist: () => {}

@@ -6,9 +6,11 @@
  * instead of a boxed border, and a selected row filled with the brand color.
  */
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core"
+import type { UserFailure } from "@smthrs/rpc/UserFailure"
 import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
 import type * as Extension from "./extension.ts"
+import * as Failures from "./failures.ts"
 import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
@@ -513,10 +515,35 @@ function CellView(props: {
         : <text fg={color.faint}>printed {printedRows} {printedRows === 1 ? "line" : "lines"} · ctrl+o</text>}
       {cell.error === undefined
         ? null
-        : <text fg={cell.status === "rejected" ? color.warning : color.danger}>{cell.error}</text>}
+        : (
+          <FailureLine
+            failure={Failures.cellFailure(cell.status === "rejected" ? "rejected" : "failed", cell.error)}
+            tone={cell.status === "rejected" ? color.warning : color.danger}
+            expanded={props.expanded}
+          />
+        )}
       {step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved")).map((note) => (
         <Callout key={note.seq} note={note} expanded={props.expanded} />
       ))}
+    </box>
+  )
+}
+
+/** A failure's sentence; its raw text shows only while Ctrl+O expands the transcript. */
+function FailureLine(
+  props: { readonly failure: UserFailure; readonly tone: string; readonly expanded: boolean; readonly indent?: boolean }
+) {
+  const { failure } = props
+  const lead = props.indent === true ? "  " : ""
+  const hidden = failure.fault !== "user" && failure.detail !== ""
+  return (
+    <box>
+      <text fg={props.tone}>
+        {lead}
+        {failure.sentence}
+        {hidden && !props.expanded ? <span fg={color.faint}>{" "}· ctrl+o</span> : null}
+      </text>
+      {hidden && props.expanded ? <text fg={color.faint}>{lead}{failure.detail}</text> : null}
     </box>
   )
 }
@@ -564,7 +591,16 @@ function CallView(
           {Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}
         </text>
       </box>
-      {call.message === undefined ? null : <text fg={color.danger}>{"  "}{call.message.split("\n")[0]}</text>}
+      {call.message === undefined
+        ? null
+        : (
+          <FailureLine
+            failure={Failures.callFailure({ ...call, message: call.message })}
+            tone={color.danger}
+            expanded={props.expanded}
+            indent
+          />
+        )}
       {diff === undefined ? null : (
         <box style={{ marginTop: 1, marginBottom: 1, marginLeft: 2 }}>
           <diff

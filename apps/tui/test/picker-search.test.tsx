@@ -216,7 +216,7 @@ test("a real non-directory session location fails visibly and saves an empty lis
   await mount(palette("conversation:First"))
   await waitFor(() => statuses.length === 1)
   expect(statuses[0]?.[1]).toBe("danger")
-  expect(statuses[0]?.[0]).toContain("ENOTDIR")
+  expect(statuses[0]?.[0]).toBe("Saved conversations could not be listed. Details: /conversation")
   expect(pickerState?.kind === "palette" ? pickerState.sessions : undefined).toEqual([])
   await act(async () => {
     await setImmediate()

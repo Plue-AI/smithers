@@ -172,7 +172,7 @@ test.each([new Error("Denied"), "Denied"])(
           at: expect.any(Number),
           id: "log",
           title: "Build",
-          text: "Refused: Denied",
+          text: "The watch command was not approved.",
           failed: true
         }
       ])

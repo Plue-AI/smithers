@@ -791,7 +791,14 @@ describe("undo", () => {
       "Not undone · changed since: math.js, b.ts"
     )
     expect(Undo.message({ _tag: "WriteFailed", path: "math.js", message: "EACCES", restored: false })).toBe(
-      "Undo failed · math.js: EACCES · files partly changed"
+      "Undo failed · math.js: no permission · files partly changed"
+    )
+    // An unfamiliar code or an uncoded failure never reaches the toast as raw text.
+    expect(Undo.message({ _tag: "WriteFailed", path: "a.ts", message: "EWEIRD", restored: true })).toBe(
+      "Undo failed · a.ts: could not write"
+    )
+    expect(Undo.message({ _tag: "WriteFailed", path: "", message: "", restored: false })).toBe(
+      "Undo failed: could not write · files partly changed"
     )
   })
 })

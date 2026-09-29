@@ -1,5 +1,6 @@
 import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
 import * as Fault from "@smthrs/flow/Fault"
+import { Data } from "effect"
 import { randomUUID } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import * as Log from "./log.ts"
@@ -13,6 +14,7 @@ import * as Asks from "./asks.ts"
 import * as Budget from "./budget.ts"
 import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
+import * as Failures from "./failures.ts"
 import type * as Host from "./host.ts"
 import * as Lifecycle from "./lifecycle.ts"
 import { type DelegateModel, delegateModels, delegateSeat, seatOf as modelSeatOf } from "./models.ts"
@@ -20,6 +22,7 @@ import * as Panels from "./panels.ts"
 import * as Session from "./session.ts"
 import * as Steering from "./steering.ts"
 import * as Summary from "./summary.ts"
+import { TabError } from "./tab-error.ts"
 import * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
 import * as Wrapped from "./wrapped.ts"
@@ -127,11 +130,12 @@ interface Entry {
   readonly resume?: () => void
 }
 /** Refusal returned by agent.delegate at the maximum supported depth. */
-export class AgentDepthExceeded extends Error {
-  readonly _tag = "AgentDepthExceeded"
-  readonly code = "depth_exceeded"
+export class AgentDepthExceeded extends Data.TaggedError("AgentDepthExceeded")<{
+  readonly code: "depth_exceeded"
+  readonly message: string
+}> {
   constructor() {
-    super("Maximum delegation depth is 3")
+    super({ code: "depth_exceeded", message: "Maximum delegation depth is 3" })
   }
 }
 const resetAt = (error: unknown): number | undefined => {
@@ -468,14 +472,16 @@ export class Workspace {
       )
     }
     // `auto` is the router's seat, never an agent: refused before any listing, which can take minutes.
-    if (request.agent === Seat.auto) throw new Agents.AgentError("seat_as_agent", "auto is the routed seat; omit agent")
+    if (request.agent === Seat.auto) {
+      throw new Agents.AgentError("seat_as_agent", "auto is the routed seat; omit agent", Seat.auto)
+    }
     // Refuses now when the listing is known; otherwise the launch re-lists and fails the tab.
     const listed = request.agent === undefined ? undefined : this.agents().listed()
     if (
       request.agent !== undefined && listed !== undefined &&
       !listed.some((each) => each.name === request.agent) &&
       this.modelNamed(request.agent)
-    ) throw new Agents.AgentError("seat_as_agent", `${request.agent} is a model seat; pass it as model`)
+    ) throw new Agents.AgentError("seat_as_agent", `${request.agent} is a model seat; pass it as model`, request.agent)
     const agent = request.agent === undefined || listed === undefined
       ? undefined
       : Agents.find(listed, request.agent, request.by ?? "agent")
@@ -604,11 +610,12 @@ export class Workspace {
       )
     } catch (error) {
       // A request this build refuses, such as an older session's `agent: "auto"`, fails its tab, not the process.
-      const failure = Agents.unreadable(error)
+      const failure = Agents.unreadable(error, tab.agent?.name)
       const at = Date.now()
+      const shown = Failures.present("retry", failure)
       const presentation: FailureCopy.Description = {
-        headline: failure.message,
-        fault: "user",
+        headline: shown.sentence,
+        fault: shown.fault,
         line: "",
         actions: ["resume", "details"]
       }
@@ -637,7 +644,7 @@ export class Workspace {
     else void this.prepare(tab, writer, history, by)
   }
   private agents(): Agents.Port {
-    if (this.options.agents === undefined) throw new Agents.AgentError("unknown_agent", "Agents unavailable here")
+    if (this.options.agents === undefined) throw new Agents.AgentError("unavailable", "Agents unavailable here")
     return this.options.agents
   }
   private modelNamed(name: string): boolean {
@@ -659,14 +666,19 @@ export class Workspace {
     } catch (error) {
       const failure = error instanceof Agents.AgentError && error.code === "unknown_agent" &&
           this.modelNamed(tab.agent!.name)
-        ? new Agents.AgentError("seat_as_agent", `${tab.agent!.name} is a model seat; pass it as model`)
-        : Agents.unreadable(error)
+        ? new Agents.AgentError(
+          "seat_as_agent",
+          `${tab.agent!.name} is a model seat; pass it as model`,
+          tab.agent!.name
+        )
+        : Agents.unreadable(error, tab.agent!.name)
       const now = current()
       if (now !== undefined) {
         const at = Date.now()
+        const shown = Failures.present("worker", failure)
         const presentation: FailureCopy.Description = {
-          headline: failure.message,
-          fault: "user",
+          headline: shown.sentence,
+          fault: shown.fault,
           line: "",
           actions: ["resume", "details"]
         }
@@ -941,7 +953,7 @@ export class Workspace {
       else {
         const memory = this.options.host.memory
         const recalled = memory === undefined ? undefined : await memory(tab.prompt).catch((error: unknown) => {
-          note(`→ memory failed: ${error instanceof Error ? error.message : String(error)}`)
+          note(`→ ${Failures.line("memory", error)}`)
           return undefined
         })
         note(
@@ -1265,7 +1277,7 @@ export class Workspace {
   /** Records an undo of a tab's calls in its own file and transcript. */
   undone = (id: string, calls: ReadonlyArray<string>, paths: ReadonlyArray<string>, at: number): void => {
     const tab = this.tabs.get(id)
-    if (tab === undefined) throw new Error("Unknown tab")
+    if (tab === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
     Session.reopen(tab.file).append({ type: "undo", at, calls, paths })
     this.transcripts.set(id, Transcript.undone(this.transcript(id), calls, paths, at))
     this.changed()
@@ -1274,7 +1286,7 @@ export class Workspace {
   transcript = (id: string): Transcript.Transcript => this.transcripts.get(id) ?? Transcript.empty
   read = (id: string) => {
     const tab = this.tabs.get(id)
-    if (tab === undefined) throw new Error("Unknown tab")
+    if (tab === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
     const panel = this.panel(id)
     return {
       id: tab.id,
@@ -1367,9 +1379,9 @@ export class Workspace {
   /** Runs a failed or stopped tab's task again, on the seat it asked for. */
   retry = (id: string, seat?: string): { id: string; status: Tab["status"] } => {
     const tab = this.tabs.get(id)
-    if (tab === undefined) throw new Error("Unknown tab")
+    if (tab === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
     if (tab.status !== "failed" && tab.status !== "cancelled" && tab.status !== "parked") {
-      throw new Error(`Only a failed or stopped tab can be retried; ${id} is ${tab.status}`)
+      throw new TabError("not_retryable", `Only a failed or stopped tab can be retried; ${id} is ${tab.status}`, id)
     }
     if (tab.status === "parked" && this.handles.has(id)) {
       this.cancelRequested.add(id)
@@ -1395,7 +1407,11 @@ export class Workspace {
   raiseCap = (id: string, caps: Host.Caps): { id: string; status: Tab["status"] } => {
     const tab = this.tabs.get(id)
     if (tab?.status !== "failed" || !Budget.capped(tab.failure)) {
-      throw new Error(`Only a worker stopped at its run cap can be resumed with a new one; ${id} is not`)
+      throw new TabError(
+        "not_capped",
+        `Only a worker stopped at its run cap can be resumed with a new one; ${id} is not`,
+        id
+      )
     }
     this.tabs.put({ ...tab, caps })
     try {
@@ -1408,7 +1424,7 @@ export class Workspace {
   /** Parks a failed worker until its known reset, then continues the same task. */
   waitForReset = (id: string): void => {
     const tab = this.tabs.get(id)
-    if (tab?.status !== "failed") throw new Error("Only a failed tab can wait")
+    if (tab?.status !== "failed") throw new TabError("not_failed", "Only a failed tab can wait", id)
     const wakeAt = Math.max(Date.now(), tab.wakeAt ?? Date.now() + 15 * 60_000)
     // The user chose this wait, so the resumed run gets a fresh park budget.
     const waiting = this.tabs.move({ ...tab, wakeAt, endedAt: undefined, parks: undefined }, "sleep")!

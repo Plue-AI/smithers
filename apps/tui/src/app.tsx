@@ -2,6 +2,7 @@ import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { useClock } from "@smthrs/ui/clock"
 import { parseArgs } from "@smthrs/ui/flow-arguments"
 import { NOTICE_SETTLE_MS } from "@smthrs/ui/notification-policy"
+import * as Failures from "./failures.ts"
 import * as Log from "./log.ts"
 import * as TabCommand from "./tab-command.ts"
 /**
@@ -155,7 +156,7 @@ export function App(props: AppProps) {
   const entries = useRef<Array<Context.Entry>>(restored.current?.entries ?? [])
   // A record the disk refused never stops the screen: the row says what went unsaved.
   const unsaved = useCallback((failure: Session.WriteFailed) => {
-    const text = `Conversation not saved: ${failure.message}`
+    const text = Failures.line("session", failure)
     setStatus(text, "danger")
     setTranscript((current) => Transcript.alert(current, text, Date.now()))
   }, [])
@@ -263,14 +264,12 @@ export function App(props: AppProps) {
   const [estimator] = useState(() =>
     new Estimate.Estimator({
       ledger: new Improve.Ledger(Estimate.ledgerFile(props.host.cwd), {
-        onWriteError: (error) =>
-          estimateProblem.current(`Estimates not saved: ${error instanceof Error ? error.message : String(error)}`)
+        onWriteError: (error) => estimateProblem.current(Failures.line("estimates", error))
       }),
       model: props.host.complete === undefined
         ? undefined
         : (request) => props.host.complete!({ ...request, seat: Models.delegateModels.luna }),
-      onFailure: (failure) =>
-        estimateProblem.current(`Estimate model failed: ${failure.message.split("\n")[0]!.slice(0, 80)}`)
+      onFailure: (failure) => estimateProblem.current(Failures.line("estimate", failure))
     })
   )
   runsRef.current = runs
@@ -701,7 +700,7 @@ export function App(props: AppProps) {
         }
       })
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error), "warning")
+      setStatus(Failures.line("command", error), "warning")
     } finally {
       workspace.release(id)
     }
@@ -715,7 +714,7 @@ export function App(props: AppProps) {
           workspace.retry(tab.id)
           return
         } catch (error) {
-          return setStatus(error instanceof Error ? error.message : String(error), "warning")
+          return setStatus(Failures.line("retry", error), "warning")
         }
       case "model":
         return flushSync(() => setPicker({ kind: "worker-model", id: tab.id, query: "", selected: 0 }))
@@ -723,7 +722,7 @@ export function App(props: AppProps) {
         try {
           return workspace.waitForReset(tab.id)
         } catch (error) {
-          return setStatus(error instanceof Error ? error.message : String(error), "warning")
+          return setStatus(Failures.line("wait", error), "warning")
         }
       case "steer":
         // From a card or a toast, steering opens the worker's tab first.
@@ -855,10 +854,12 @@ export function App(props: AppProps) {
   }, [revision, workspace, setStatus])
   const discoveryFailure = runs.failure()
   useEffect(() => {
-    if (discoveryFailure !== undefined) setStatus(discoveryFailure.message, "danger")
+    if (discoveryFailure !== undefined) setStatus(Failures.sentence("flow", discoveryFailure), "danger")
   }, [discoveryFailure, setStatus])
   deliver.current = (delivery) => {
-    const text = `${delivery.title}: ${delivery._tag === "update" ? delivery.text : Monitors.message(delivery.failure)}`
+    const text = `${delivery.title}: ${
+      delivery._tag === "update" ? delivery.text : Failures.sentence("monitor", delivery.failure)
+    }`
     setStatus(text, delivery._tag === "update" ? "info" : "danger")
     setTranscript((current) =>
       delivery._tag === "update"
@@ -974,7 +975,7 @@ export function App(props: AppProps) {
               : next
           )
         },
-        (error) => setStatus(String(error), "danger")
+        (error) => setStatus(Failures.line("approvals", error), "danger")
       )
     )
     return () => {
@@ -1100,7 +1101,7 @@ export function App(props: AppProps) {
       let headline: string | undefined
       if (outcome._tag === "failed") {
         const failure = FailureCopy.describe(outcome.error)
-        headline = outcome.message === failure.headline ? `${outcome.message}\n${failure.line}` : outcome.message
+        headline = `${failure.headline}\n${failure.line}`
       }
       writer.current.append({
         type: "outcome",
@@ -1166,7 +1167,10 @@ export function App(props: AppProps) {
     const cwd = props.host.cwd
     void Undo.plan(cwd, target)
       .then((plan) => ("_tag" in plan ? plan : Undo.commit(cwd, plan).then((failure) => failure ?? plan)))
-      .catch((error): Undo.Failure => ({ _tag: "WriteFailed", path: "", message: String(error), restored: false }))
+      .catch((error): Undo.Failure => {
+        Log.write("undo", error)
+        return { _tag: "WriteFailed", path: "", message: "", restored: false }
+      })
       .then((settled) => {
         if ("_tag" in settled) {
           setStatus(
@@ -1190,7 +1194,7 @@ export function App(props: AppProps) {
             setStatus(Undo.done(settled))
           } catch (error) {
             setStatus(
-              `${Undo.done(settled)} · not recorded: ${error instanceof Error ? error.message : String(error)}`,
+              `${Undo.done(settled)} · ${Failures.line("undo", error)}`,
               "danger"
             )
           }
@@ -1278,7 +1282,7 @@ export function App(props: AppProps) {
     try {
       result = Session.fork(writer.current.file, props.host.cwd, turn)
     } catch (error) {
-      return setStatus(`Fork failed: ${error instanceof Error ? error.message : String(error)}`, "danger")
+      return setStatus(Failures.line("fork", error), "danger")
     }
     if (result._tag === "Stale") return setStatus("Session changed; fork again", "warning")
     adopt(result.writer, result.records)
@@ -1353,7 +1357,7 @@ export function App(props: AppProps) {
         try {
           userRuns.current.add(runs.request({ flow, input: parsed.input, by: "user" }).id)
         } catch (error) {
-          setStatus(error instanceof Error ? error.message : String(error), "warning")
+          setStatus(Failures.line("flow", error), "warning")
         }
         return true
       }
@@ -1374,7 +1378,7 @@ export function App(props: AppProps) {
             by: "user"
           })
         } catch (error) {
-          setStatus(error instanceof Error ? error.message : String(error), "warning")
+          setStatus(Failures.line("worker", error), "warning")
         }
         return true
       }
@@ -1401,7 +1405,7 @@ export function App(props: AppProps) {
             by: "user"
           })
         } catch (error) {
-          setStatus(error instanceof Error ? error.message : String(error), "warning")
+          setStatus(Failures.line("worker", error), "warning")
         }
         return true
       }
@@ -1447,7 +1451,7 @@ export function App(props: AppProps) {
         try {
           turns = existsSync(writer.current.file) ? Session.turns(Session.load(writer.current.file)) : []
         } catch (error) {
-          setStatus(`Fork failed: ${error instanceof Error ? error.message : String(error)}`, "danger")
+          setStatus(Failures.line("fork", error), "danger")
           return true
         }
         if (turns.length === 0) setStatus("No messages to fork from")
@@ -1583,7 +1587,7 @@ export function App(props: AppProps) {
         try {
           userRuns.current.add(runs.request({ flow: action.flow, input: action.input ?? {}, by: "user" }).id)
         } catch (error) {
-          setStatus(error instanceof Error ? error.message : String(error), "warning")
+          setStatus(Failures.line("flow", error), "warning")
         }
         return
       case "agent":
@@ -1857,7 +1861,7 @@ export function App(props: AppProps) {
             try {
               workspace.raiseCap(offer.tab.id, { times: chosen })
             } catch (error) {
-              setStatus(error instanceof Error ? error.message : String(error), "warning")
+              setStatus(Failures.line("cap", error), "warning")
             }
           }
         })
@@ -1956,14 +1960,14 @@ export function App(props: AppProps) {
       live.current.approvals = rest
       setApprovals(rest)
       // A refused answer leaves the call waiting: show its row again.
-      const retry = (code: string) => {
+      const retry = (failure: unknown) => {
         answered.current.delete(requestId)
         arming.current = Approvals.failed(arming.current, requestId)
-        setStatus(`Approval failed: ${code}`, "warning")
+        setStatus(Failures.line("approval", failure), "warning")
       }
       props.host.approvals.reply(first!, choice).then(
-        (code) => code === undefined ? undefined : retry(code),
-        (error) => retry(String(error))
+        (code) => code === undefined ? undefined : retry(Failures.grantRefusal(code)),
+        (error) => retry(error)
       )
       return
     }
@@ -2049,7 +2053,7 @@ export function App(props: AppProps) {
           try {
             runs.retry(id)
           } catch (error) {
-            setStatus(error instanceof Error ? error.message : String(error), "warning")
+            setStatus(Failures.line("retry", error), "warning")
           }
         },
         cancelRun: runs.cancel,
@@ -2620,7 +2624,14 @@ export function App(props: AppProps) {
           selected={picker.selected}
           empty={Pickers.empty(
             picker,
-            () => runs.failure()?.message ?? (runs.opening ? "Opening flows" : "No flows"),
+            () => {
+              const discovery = runs.failure()
+              return discovery !== undefined
+                ? Failures.sentence("flow", discovery)
+                : runs.opening
+                ? "Opening flows"
+                : "No flows"
+            },
             search?.status === "running"
           )}
           width={Math.min(72, dimensions.width - 4)}

@@ -1,3 +1,4 @@
+import * as Failures from "./failures.ts"
 import * as Log from "./log.ts"
 /**
  * smithers-tui [directory] [--model provider:id] [-c | -r] [-p "prompt"] [--approve ask|all|deny] [--budget-tokens n]
@@ -127,7 +128,7 @@ if (values.print !== undefined) {
   }
   if (outcome._tag === "failed") {
     const failure = FailureCopy.describe(outcome.error, seat)
-    console.error(outcome.message === failure.headline ? `${outcome.message}\n${failure.line}` : outcome.message)
+    console.error(`${failure.headline}\n${failure.line}`)
   } else {
     console.error("Stopped")
   }
@@ -164,9 +165,8 @@ try {
     })
   )
 } catch (error) {
-  Log.write("terminal.startup", error)
   await flows?.dispose()
   await host.dispose()
-  console.error(`Terminal unavailable: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`)
+  console.error(Failures.line("startup", error, `Details: ${Log.path()}`))
   process.exit(1)
 }

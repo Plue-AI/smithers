@@ -227,7 +227,7 @@ describe("custom agents", () => {
     expect(f.workspace.snapshot().tabs[0]?.code).toBe("unreadable")
     expect(f.inputs).toHaveLength(0)
     expect(f.workspace.snapshot().tabs[0]?.failure).toMatchObject({
-      headline: "body for flow \"review\" is unavailable"
+      headline: "Agent review could not be read; press r."
     })
     const file = f.workspace.snapshot().tabs[0]!.file
     expect(JSON.stringify(f.workspace.snapshot().tabs[0])).not.toContain("at stack")
@@ -485,7 +485,7 @@ describe("routed workers", () => {
       id: legacy.id,
       status: "failed",
       code: "seat_as_agent",
-      failure: { headline: "auto is the routed seat; omit agent" }
+      failure: { headline: "auto is a model; choose it with /model." }
     }])
     expect(second.workspace.transcript(legacy.id).activity?.status).toBe("failed")
     expect(second.inputs).toHaveLength(0)
