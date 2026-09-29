@@ -296,3 +296,28 @@ func queryOperation(ctx context.Context, q rowQuerier, scope Scope, operationID 
 	operation.CancellationRequestedAt = cancelledAt
 	return operation, nil
 }
+
+// HasActiveWithReceipt reports whether an unsettled operation of this kind in
+// scope has an external receipt that contains fragment (JSON containment). A
+// caller finds the work still pinned to an external owner this way.
+func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, operation string, fragment json.RawMessage) (bool, error) {
+	if err := scope.validate(); err != nil {
+		return false, err
+	}
+	if operation == "" {
+		return false, errors.New("jobs: operation is required")
+	}
+	canonical, err := canonicalJSON(fragment, true)
+	if err != nil {
+		return false, err
+	}
+	var active bool
+	err = store.pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM product_job_requests request
+		JOIN product_job_dispatches dispatch ON dispatch.operation_id=request.id
+		WHERE request.tenant_id=$1 AND request.principal_id=$2 AND request.operation=$3
+		  AND request.state IN ('accepted', 'dispatching', 'running', 'waiting')
+		  AND dispatch.external_receipt @> $4::jsonb)`,
+		scope.TenantID, scope.PrincipalID, operation, canonical).Scan(&active)
+	return active, err
+}

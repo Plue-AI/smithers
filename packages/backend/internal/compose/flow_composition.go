@@ -113,13 +113,18 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if !ok {
 		return nil, errors.New("Flow workspace launcher cannot stop retired hosts")
 	}
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs})
-	if err != nil {
-		return nil, fmt.Errorf("Flow host resolver: %w", err)
-	}
 	store, err := jobs.NewStore(pool)
 	if err != nil {
 		return nil, fmt.Errorf("Flow jobs: %w", err)
+	}
+	// A host upgrade waits for the runs pinned to the old host (plue#538).
+	activeRuns := flowhost.ActiveRunsFunc(func(ctx context.Context, host flowhost.Binding) (bool, error) {
+		return flowdispatch.HasPinnedLaunches(ctx, store, jobs.Scope{TenantID: host.TenantID, PrincipalID: host.PrincipalID},
+			flowruntime.Identity{RuntimeArtifactDigest: host.RuntimeArtifactDigest, SourceRevision: host.SourceRevision})
+	})
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns})
+	if err != nil {
+		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...)})
 	if err != nil {

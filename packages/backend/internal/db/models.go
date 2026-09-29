@@ -711,6 +711,7 @@ type FlowRuntimeHostBinding struct {
 	LastErrorCode         string    `json:"last_error_code"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+	ServiceIdentity       string    `json:"service_identity"`
 }
 
 type GithubAppInstallation struct {

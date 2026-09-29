@@ -200,7 +200,7 @@ func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catal
 
 const bindingSelect = `SELECT id::text, tenant_id, principal_id, binding_kind, binding_id,
 		repository_id, user_id, workspace_id, catalog_key, service_name,
-		runtime_artifact_digest, source_revision, owner_generation, state,
+		runtime_artifact_digest, source_revision, owner_generation, state, service_identity,
 		credential_ciphertext, credential_hash
 	FROM flow_runtime_host_bindings`
 
@@ -211,7 +211,7 @@ func scanBinding(row pgx.Row) (Binding, string, []byte, error) {
 	err := row.Scan(&binding.ID, &binding.TenantID, &binding.PrincipalID, &binding.BindingKind, &binding.BindingID,
 		&binding.RepositoryID, &binding.UserID, &binding.WorkspaceID, &binding.CatalogKey, &binding.ServiceName,
 		&binding.RuntimeArtifactDigest, &binding.SourceRevision, &binding.OwnerGeneration, &binding.State,
-		&encrypted, &credentialHash)
+		&binding.ServiceIdentity, &encrypted, &credentialHash)
 	return binding, encrypted, credentialHash, err
 }
 
@@ -283,7 +283,8 @@ func (value *lease) Rebind(ctx context.Context) (Binding, error) {
 	var generation int64
 	err := value.connection.QueryRow(ctx, `UPDATE flow_runtime_host_bindings
 		SET runtime_artifact_digest=$3, service_name=$4, source_revision=$5,
-			owner_generation=owner_generation+1, state='pending', last_error_code='', updated_at=clock_timestamp()
+			owner_generation=owner_generation+1, state='pending', last_error_code='', service_identity='',
+			updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'
 		RETURNING owner_generation`, value.binding.ID, value.binding.OwnerGeneration,
 		target.RuntimeArtifactDigest, target.ServiceName, target.SourceRevision).Scan(&generation)
@@ -298,6 +299,7 @@ func (value *lease) Rebind(ctx context.Context) (Binding, error) {
 	}
 	target.OwnerGeneration = generation
 	target.State = "pending"
+	target.ServiceIdentity = ""
 	value.binding = target
 	value.supersedes = nil
 	return value.binding, nil
@@ -328,7 +330,7 @@ func (value *lease) PrepareStart(ctx context.Context, replaceOwner bool) (Bindin
 	var generation int64
 	err = value.connection.QueryRow(ctx, `UPDATE flow_runtime_host_bindings
 		SET owner_generation=$2, state='starting', last_error_code='', credential_ciphertext=$3, credential_hash=$4,
-			updated_at=clock_timestamp()
+			service_identity='', updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation <= $2 AND state <> 'retired'
 		RETURNING owner_generation`, value.binding.ID, value.binding.OwnerGeneration, encrypted, digest[:]).Scan(&generation)
 	if err != nil {
@@ -338,17 +340,18 @@ func (value *lease) PrepareStart(ctx context.Context, replaceOwner bool) (Bindin
 		return Binding{}, errors.New("flow host owner fence was not committed")
 	}
 	value.binding.State = "starting"
+	value.binding.ServiceIdentity = ""
 	value.credential = credential
 	return value.binding, nil
 }
 
-func (value *lease) MarkRunning(ctx context.Context) error {
+func (value *lease) MarkRunning(ctx context.Context, serviceIdentity string) error {
 	if value == nil || value.closed || value.connection == nil {
 		return errors.New("flow host binding lease is closed")
 	}
 	tag, err := value.connection.Exec(ctx, `UPDATE flow_runtime_host_bindings
-		SET state='running', last_error_code='', updated_at=clock_timestamp()
-		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'`, value.binding.ID, value.binding.OwnerGeneration)
+		SET state='running', last_error_code='', service_identity=$3, updated_at=clock_timestamp()
+		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'`, value.binding.ID, value.binding.OwnerGeneration, serviceIdentity)
 	if err != nil {
 		return err
 	}
@@ -356,6 +359,7 @@ func (value *lease) MarkRunning(ctx context.Context) error {
 		return errors.New("flow host running checkpoint lost its owner fence")
 	}
 	value.binding.State = "running"
+	value.binding.ServiceIdentity = serviceIdentity
 	return nil
 }
 

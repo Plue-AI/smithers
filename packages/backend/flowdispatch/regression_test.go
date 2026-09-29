@@ -323,8 +323,9 @@ func TestResolverPreservesFailureClassification(t *testing.T) {
 	}
 }
 
-// A host-bundle upgrade rebinds the workspace host to a new artifact. A run
-// whose checkpoint pins the old artifact must fail terminal, never re-poll.
+// A host upgrade waits for runs pinned to the old host (plue#538), so the
+// resolver answers a pinned run with another artifact only when the old host
+// was already gone. That run must fail terminal, never re-poll.
 func TestResolveFailsRunPinnedToSupersededHostIdentity(t *testing.T) {
 	upgraded := newRecordingRuntime()
 	upgraded.identity.RuntimeArtifactDigest = strings.Repeat("c", 64)
@@ -531,4 +532,76 @@ func TestObservedJournalPagesReachTheProjectionBeforeTheirCursorIsSaved(t *testi
 	}
 	require.Equal(t, []string{"->1", "1->2"}, pages, "the refused first page is delivered again from the same cursor")
 	require.Equal(t, []string{"node.started", "node.output", "node.finished"}, kinds)
+}
+
+// heldRuntime keeps an accepted run running until done is set.
+type heldRuntime struct {
+	*recordingRuntime
+	done atomic.Bool
+}
+
+func (runtime *heldRuntime) Observe(ctx context.Context, runID, cursor string, limit int) (flowruntime.Observation, error) {
+	observation, err := runtime.recordingRuntime.Observe(ctx, runID, cursor, limit)
+	if err == nil && !runtime.done.Load() {
+		observation.Run.Status, observation.Terminal = "running", false
+		for index := range observation.Events {
+			observation.Events[index].Kind = "control.run.running"
+		}
+	}
+	return observation, err
+}
+
+// The resolver defers a host upgrade while HasPinnedLaunches finds work on
+// the old host: an accepted run, or a plan parked on approval (plue#538).
+func TestHasPinnedLaunchesFindsAcceptedAndParkedRunsUntilTheySettle(t *testing.T) {
+	for _, parked := range []bool{false, true} {
+		name := map[bool]string{false: "accepted", true: "parked"}[parked]
+		t.Run(name, func(t *testing.T) {
+			store, _ := newFlowDispatchStore(t)
+			runtime := &heldRuntime{recordingRuntime: newRecordingRuntime()}
+			runtime.requireApproval = parked
+			service, err := New(Config{
+				Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+					return runtime, nil
+				}),
+				ObservationDelay: 10 * time.Millisecond, MaxObservationDelay: 50 * time.Millisecond,
+			})
+			require.NoError(t, err)
+			startTestWorker(t, service, "pinned-worker")
+			request := testLaunchRequest("pinned-"+name, ApprovalManual)
+			host := runtime.identity
+			other := host
+			other.RuntimeArtifactDigest = strings.Repeat("c", 64)
+			pinned := func(scope jobs.Scope, identity flowruntime.Identity) bool {
+				t.Helper()
+				active, err := HasPinnedLaunches(context.Background(), store, scope, identity)
+				require.NoError(t, err)
+				return active
+			}
+
+			receipt, err := service.Admit(context.Background(), request)
+			require.NoError(t, err)
+			waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+				return operation.State == jobs.StateWaiting && len(operation.ExternalReceipt) > 0
+			})
+			require.True(t, pinned(request.Scope, host))
+			require.False(t, pinned(request.Scope, other), "another host identity has no pinned work")
+			require.False(t, pinned(jobs.Scope{TenantID: "repository:6", PrincipalID: "user:9"}, host), "another scope has no pinned work")
+
+			if parked {
+				_, err = service.Approve(context.Background(), request.Scope, receipt.OperationID, "pinned-approval", request.AuthorizationContext)
+				require.NoError(t, err)
+				waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+					checkpoint, err := decodeCheckpoint(operation.ExternalReceipt)
+					return err == nil && checkpoint.RunID == "run-1"
+				})
+				require.True(t, pinned(request.Scope, host), "an approved run is still pinned")
+			}
+			runtime.done.Store(true)
+			waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+				return operation.State == jobs.StateCompleted
+			})
+			require.False(t, pinned(request.Scope, host), "a settled run releases its host")
+		})
+	}
 }

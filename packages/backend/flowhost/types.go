@@ -23,6 +23,10 @@ var ErrHostNotRunning = errors.New("flow host is not running")
 // lock, as it does for the whole of a host start.
 var ErrHostBusy = errors.New("flow host is starting")
 
+// ErrHostIdentityConflict answers an inspection whose expected service
+// identity does not name the live process.
+var ErrHostIdentityConflict = errors.New("flow host service identity conflict")
+
 // ErrSourceRevisionRequired asks the resolver to capture a workspace snapshot
 // only when there is no durable binding to reconnect to.
 var ErrSourceRevisionRequired = errors.New("flow host creation requires a workspace source revision")
@@ -132,6 +136,10 @@ type Binding struct {
 	SourceRevision        string
 	OwnerGeneration       int64
 	State                 string
+	// ServiceIdentity is the configuration fingerprint of the host last
+	// verified running for this owner. A deferred upgrade reaches the host
+	// by it once the catalog that started the host is gone.
+	ServiceIdentity string
 }
 
 // HostLaunch contains the exact, server-held inputs required to start one
@@ -148,6 +156,10 @@ type HostLaunch struct {
 	// not part of the host's service identity, and it never replaces a
 	// reserved name.
 	Environment map[string]string
+	// Superseded asks only to inspect a live host the catalog has replaced,
+	// by Binding.ServiceIdentity, while a run still depends on it. Such a
+	// host is never started.
+	Superseded bool
 }
 
 // Connection is a private bridge transport. Isolated adapters use HTTPClient
@@ -181,13 +193,15 @@ type BindingLease interface {
 	Credential() string
 	// Supersedes reports a durable owner whose artifact digest, service name,
 	// or source revision no longer matches the catalog/authority. Acquire
-	// succeeds for such a row; the resolver stops that owner and calls Rebind.
+	// succeeds for such a row; once no run depends on that owner, the
+	// resolver stops it and calls Rebind.
 	Supersedes() (Binding, bool)
 	// Rebind installs the current identity on the same row with a new owner
 	// generation, fencing any late host of the superseded identity.
 	Rebind(context.Context) (Binding, error)
 	PrepareStart(context.Context, bool) (Binding, error)
-	MarkRunning(context.Context) error
+	// MarkRunning records the verified host and its service identity.
+	MarkRunning(ctx context.Context, serviceIdentity string) error
 	// MarkFailed records a failed start so the next start fences a new owner.
 	MarkFailed(ctx context.Context, code string) error
 	Close() error
@@ -201,9 +215,25 @@ type ExistingBindingStore interface {
 	AcquireExisting(context.Context, Authority, Catalog) (BindingLease, error)
 }
 
+// ActiveRuns reports whether durable work still depends on a host: an
+// accepted run or an approval-parked plan pinned to its artifact and source.
+// An over-approximation only delays an upgrade; a miss stops a live run.
+type ActiveRuns interface {
+	ActiveFlowRuns(context.Context, Binding) (bool, error)
+}
+
+type ActiveRunsFunc func(context.Context, Binding) (bool, error)
+
+func (active ActiveRunsFunc) ActiveFlowRuns(ctx context.Context, host Binding) (bool, error) {
+	return active(ctx, host)
+}
+
 type Config struct {
 	Store    BindingStore
 	Targets  TargetResolver
 	Launcher Launcher
 	Catalogs []Catalog
+	// ActiveRuns defers a host upgrade while work depends on the superseded
+	// host. Without it, an upgrade replaces the host at once.
+	ActiveRuns ActiveRuns
 }

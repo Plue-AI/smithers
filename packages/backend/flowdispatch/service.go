@@ -274,9 +274,8 @@ func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, 
 // this is the one call that does without planning or running anything.
 //
 // A host whose catalog identity changed (runtime_upgrade_required) is
-// started too, which rebinds it: its in-flight runs already fail with
-// runtime_identity_changed at the worker's next observation, which rebinds
-// the same way.
+// started too, which rebinds it. The resolver answers that only once no run
+// depends on the old host; until then a read reaches the old host.
 func (service *Service) StartHost(ctx context.Context, target flowruntime.Target) (bool, error) {
 	if err := service.hostStarts.Failed(target); err != nil {
 		return false, err
@@ -297,8 +296,9 @@ func (service *Service) StartHost(ctx context.Context, target flowruntime.Target
 		return false, err
 	}
 	switch failure.FlowRuntimeCode() {
-	case "runtime_host_starting":
-		// Another caller (a worker, another API replica) is starting it.
+	case "runtime_host_starting", "runtime_upgrade_pending":
+		// Another caller (a worker, another API replica) is starting it, or
+		// its upgrade waits for the runs on the old host.
 		return false, nil
 	case "runtime_host_not_running", "runtime_upgrade_required":
 	default:
@@ -362,4 +362,22 @@ func decodeCheckpoint(value json.RawMessage) (RuntimeCheckpoint, error) {
 		return RuntimeCheckpoint{}, errors.New("flow dispatch: unsupported durable runtime checkpoint")
 	}
 	return checkpoint, nil
+}
+
+// HasPinnedLaunches reports whether an unsettled launch in scope pinned a
+// host with this artifact and source: an accepted run or an approval-parked
+// plan. A host upgrade waits for it (plue#538). The check spans the scope's
+// workspaces, so a sibling workspace pinned to the same host identity can
+// delay an upgrade; it never lets one stop a run.
+func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope, host flowruntime.Identity) (bool, error) {
+	if store == nil {
+		return false, errors.New("flow dispatch: jobs store is required")
+	}
+	if !lowerHex(host.RuntimeArtifactDigest, 64) || !lowerHex(host.SourceRevision, 40) {
+		return false, errors.New("flow dispatch: host identity is invalid")
+	}
+	fragment := mustJSON(map[string]any{"identity": map[string]string{
+		"runtimeArtifactDigest": host.RuntimeArtifactDigest, "sourceRevision": host.SourceRevision,
+	}})
+	return store.HasActiveWithReceipt(ctx, scope, OperationLaunch, fragment)
 }

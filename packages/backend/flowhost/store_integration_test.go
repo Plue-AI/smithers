@@ -96,7 +96,7 @@ func TestPostgresHostBindingConcurrencyAuthorityAndRestart(t *testing.T) {
 	_, err = first.PrepareStart(ctx, false)
 	require.NoError(t, err)
 	bearer := first.Credential()
-	require.NoError(t, first.MarkRunning(ctx))
+	require.NoError(t, first.MarkRunning(ctx, "flow-host:test"))
 	require.NoError(t, first.Close())
 	restarted, err := NewStore(pool, testCodec{})
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestPostgresHostBindingRebindsOnIdentityDrift(t *testing.T) {
 	require.False(t, superseded)
 	_, err = first.PrepareStart(ctx, false)
 	require.NoError(t, err)
-	require.NoError(t, first.MarkRunning(ctx))
+	require.NoError(t, first.MarkRunning(ctx, "flow-host:test"))
 	original, bearer := first.Binding(), first.Credential()
 	require.NoError(t, first.Close())
 
@@ -176,12 +176,14 @@ func TestPostgresHostBindingRebindsOnIdentityDrift(t *testing.T) {
 	old, superseded := held.Supersedes()
 	require.True(t, superseded)
 	require.Equal(t, original, old)
+	require.Equal(t, "flow-host:test", old.ServiceIdentity, "a deferred upgrade reaches the old host by its recorded identity")
 	require.Equal(t, original, held.Binding(), "the lease hands out the old owner until Rebind")
 	rebound, err := held.Rebind(ctx)
 	require.NoError(t, err)
 	require.Equal(t, original.ID, rebound.ID)
 	require.EqualValues(t, 2, rebound.OwnerGeneration)
 	require.Equal(t, "pending", rebound.State)
+	require.Empty(t, rebound.ServiceIdentity, "the new owner has no verified host yet")
 	require.Equal(t, upgraded.ArtifactDigest, rebound.RuntimeArtifactDigest)
 	require.Equal(t, authority.SourceRevision, rebound.SourceRevision, "an empty authority revision keeps the pinned one")
 	require.Equal(t, bearer, held.Credential())
@@ -232,7 +234,7 @@ func TestPostgresHostRebindFencesSupersededOwner(t *testing.T) {
 	require.NoError(t, err)
 	_, err = first.PrepareStart(ctx, false)
 	require.NoError(t, err)
-	require.NoError(t, first.MarkRunning(ctx))
+	require.NoError(t, first.MarkRunning(ctx, "flow-host:test"))
 	require.NoError(t, first.Close())
 
 	upgraded := catalog
@@ -245,7 +247,7 @@ func TestPostgresHostRebindFencesSupersededOwner(t *testing.T) {
 	require.NoError(t, err)
 	_, err = held.Rebind(ctx)
 	require.Error(t, err, "a rebind from a stale generation must lose its fence")
-	require.Error(t, held.MarkRunning(ctx), "the superseded generation can no longer checkpoint")
+	require.Error(t, held.MarkRunning(ctx, "flow-host:test"), "the superseded generation can no longer checkpoint")
 	require.NoError(t, held.Close())
 }
 
@@ -281,7 +283,7 @@ func TestPostgresHostRetirementSurvivesDeleteAndStopFailure(t *testing.T) {
 				_, err = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, authority.UserID)
 			}
 			require.NoError(t, err)
-			require.Error(t, held.MarkRunning(ctx))
+			require.Error(t, held.MarkRunning(ctx, "flow-host:test"))
 			require.NoError(t, held.Close())
 			_, err = store.Acquire(ctx, authority, catalog)
 			require.Error(t, err)
@@ -409,7 +411,7 @@ func TestPostgresHostCredentialAuthorizesOnlyTheLiveBinding(t *testing.T) {
 	require.NoError(t, err)
 	credential := held.Credential()
 	require.NotEqual(t, pending, credential, "every start has its own credential")
-	require.NoError(t, held.MarkRunning(ctx))
+	require.NoError(t, held.MarkRunning(ctx, "flow-host:test"))
 	require.NoError(t, held.Close())
 	_, err = VerifyHostCredential(ctx, pool, id, pending)
 	require.ErrorIs(t, err, ErrHostCredentialInvalid, "an earlier start's process is fenced")
@@ -431,4 +433,26 @@ func TestPostgresHostCredentialAuthorizesOnlyTheLiveBinding(t *testing.T) {
 	require.NoError(t, err)
 	_, err = VerifyHostCredential(ctx, pool, id, credential)
 	require.ErrorIs(t, err, ErrHostCredentialInvalid)
+}
+
+// A start replaces the host, so the recorded identity of the previous one is
+// cleared until the new one is verified.
+func TestPostgresHostStartClearsRecordedServiceIdentity(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := context.Background()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	held, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	defer held.Close()
+	_, err = held.PrepareStart(ctx, false)
+	require.NoError(t, err)
+	require.NoError(t, held.MarkRunning(ctx, "flow-host:first"))
+	restarted, err := held.PrepareStart(ctx, true)
+	require.NoError(t, err)
+	require.Empty(t, restarted.ServiceIdentity)
+	var recorded string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT service_identity FROM flow_runtime_host_bindings WHERE id=$1`, restarted.ID).Scan(&recorded))
+	require.Empty(t, recorded)
 }

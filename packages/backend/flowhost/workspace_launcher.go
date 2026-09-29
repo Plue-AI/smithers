@@ -45,10 +45,16 @@ func (launcher *workspaceLauncher) InspectFlowHost(ctx context.Context, launch H
 	if errors.Is(err, workspaceapi.ErrManagedHostNotRunning) {
 		return Connection{}, ErrHostNotRunning
 	}
+	if errors.Is(err, workspaceapi.ErrManagedHostIdentityConflict) {
+		return Connection{}, fmt.Errorf("%w: %w", ErrHostIdentityConflict, err)
+	}
 	return Connection{Endpoint: connection.Endpoint, HTTPClient: connection.HTTPClient}, err
 }
 
 func (launcher *workspaceLauncher) StartFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
+	if launch.Superseded {
+		return Connection{}, errors.New("a superseded flow host is never started")
+	}
 	spec, err := workspaceHostSpec(launch)
 	if err != nil {
 		return Connection{}, err
@@ -100,14 +106,25 @@ func workspaceHostSpec(launch HostLaunch) (workspaceapi.ManagedHostSpec, error) 
 	if err = validateAuthority(launch.Authority.Target, launch.Authority); err != nil {
 		return workspaceapi.ManagedHostSpec{}, err
 	}
-	if err = bindingMatches(launch.Binding, launch.Authority, catalog); err != nil {
+	identity := hostServiceIdentity(launch)
+	if launch.Superseded {
+		// The current catalog did not start this host; its recorded
+		// fingerprint names it, and the authenticated probe still checks it.
+		if err = authorityMatches(launch.Binding, launch.Authority, catalog); err != nil {
+			return workspaceapi.ManagedHostSpec{}, err
+		}
+		if launch.Binding.ServiceIdentity == "" {
+			return workspaceapi.ManagedHostSpec{}, errors.New("superseded flow host has no recorded service identity")
+		}
+		identity = launch.Binding.ServiceIdentity
+	} else if err = bindingMatches(launch.Binding, launch.Authority, catalog); err != nil {
 		return workspaceapi.ManagedHostSpec{}, err
 	}
 	if strings.TrimSpace(launch.Credential) == "" {
 		return workspaceapi.ManagedHostSpec{}, errors.New("flow host credential is required")
 	}
 	return workspaceapi.ManagedHostSpec{
-		ID: launch.Binding.ID, Name: launch.Binding.ServiceName, Identity: hostServiceIdentity(launch), ReadyTimeout: catalog.ReadyTimeout,
+		ID: launch.Binding.ID, Name: launch.Binding.ServiceName, Identity: identity, ReadyTimeout: catalog.ReadyTimeout,
 		Expected: workspaceapi.ManagedHostIdentity{Protocol: flowruntime.Protocol, ArtifactDigest: launch.Binding.RuntimeArtifactDigest, SourceRevision: launch.Binding.SourceRevision, OwnerGeneration: launch.Binding.OwnerGeneration},
 		Builder: workspaceapi.ManagedHostBuilderFunc(func(_ context.Context, placement workspaceapi.ManagedHostPlacement) (workspaceapi.Command, error) {
 			if placement.Workspace.ID != launch.Binding.WorkspaceID {

@@ -47,7 +47,7 @@ func TestFlowHostCallbacksAuthorizeTheBoxHost(t *testing.T) {
 	require.NoError(t, err)
 	_, err = lease.PrepareStart(ctx, false)
 	require.NoError(t, err)
-	require.NoError(t, lease.MarkRunning(ctx))
+	require.NoError(t, lease.MarkRunning(ctx, "flow-host:test"))
 	id, credential := lease.Binding().ID, lease.Credential()
 	require.NoError(t, lease.Close())
 

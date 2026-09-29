@@ -55,10 +55,11 @@ func providerCredentialName(name string) bool {
 }
 
 type Resolver struct {
-	store    BindingStore
-	targets  TargetResolver
-	launcher Launcher
-	catalogs map[string]Catalog
+	store      BindingStore
+	targets    TargetResolver
+	launcher   Launcher
+	catalogs   map[string]Catalog
+	activeRuns ActiveRuns
 }
 
 func New(config Config) (*Resolver, error) {
@@ -79,7 +80,8 @@ func New(config Config) (*Resolver, error) {
 	if len(catalogs) == 0 {
 		return nil, errors.New("flow host resolver requires at least one catalog")
 	}
-	return &Resolver{store: config.Store, targets: config.Targets, launcher: config.Launcher, catalogs: catalogs}, nil
+	return &Resolver{store: config.Store, targets: config.Targets, launcher: config.Launcher, catalogs: catalogs,
+		activeRuns: config.ActiveRuns}, nil
 }
 
 func validateCatalog(catalog Catalog) (Catalog, error) {
@@ -232,6 +234,10 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 
 	binding := lease.Binding()
 	if superseded, ok := lease.Supersedes(); ok {
+		client, kept, err := resolver.keepSuperseded(ctx, lease, superseded, authority, catalog)
+		if kept || err != nil {
+			return client, err
+		}
 		if existingOnly {
 			return nil, failure{code: "runtime_upgrade_required"}
 		}
@@ -240,7 +246,8 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 			return nil, err
 		}
 	}
-	connection, inspectErr := resolver.launcher.InspectFlowHost(ctx, HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential()})
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential()}
+	connection, inspectErr := resolver.launcher.InspectFlowHost(ctx, launch)
 	if inspectErr == nil {
 		client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), binding)
 		if err != nil {
@@ -249,7 +256,7 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 			return nil, err
 		}
 		if !existingOnly {
-			if err := lease.MarkRunning(ctx); err != nil {
+			if err := lease.MarkRunning(ctx, hostServiceIdentity(launch)); err != nil {
 				return nil, failure{code: "runtime_binding_checkpoint_failed", retryable: true}
 			}
 		}
@@ -267,9 +274,8 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 	if err != nil {
 		return nil, refuse(ctx, "runtime_owner_fence_failed", err, binding)
 	}
-	connection, err = resolver.launcher.StartFlowHost(ctx, HostLaunch{
-		Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential(),
-	})
+	launch = HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential()}
+	connection, err = resolver.launcher.StartFlowHost(ctx, launch)
 	if err != nil {
 		return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_start_failed", err, binding))
 	}
@@ -278,7 +284,7 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 		resolver.abandon(ctx, binding)
 		return nil, startFailed(ctx, lease, binding, err)
 	}
-	if err := lease.MarkRunning(ctx); err != nil {
+	if err := lease.MarkRunning(ctx, hostServiceIdentity(launch)); err != nil {
 		resolver.abandon(ctx, binding)
 		return nil, failure{code: "runtime_binding_checkpoint_failed", retryable: true}
 	}
@@ -297,10 +303,59 @@ func (resolver *Resolver) abandon(ctx context.Context, binding Binding) {
 	}
 }
 
+// keepSuperseded serves a superseded host while a run or an approval-parked
+// plan depends on it (plue#538), so an upgrade never stops live work. It
+// reports kept=false when the host may be replaced now: no work depends on
+// it, it is already gone, or it predates recorded service identities.
+// Work for another source revision cannot use the old host, so it waits,
+// retryably, until the dependent work settles.
+func (resolver *Resolver) keepSuperseded(ctx context.Context, lease BindingLease, superseded Binding, authority Authority, catalog Catalog) (flowruntime.Runtime, bool, error) {
+	if resolver.activeRuns == nil {
+		return nil, false, nil
+	}
+	active, err := resolver.activeRuns.ActiveFlowRuns(ctx, superseded)
+	if err != nil {
+		return nil, false, refuse(ctx, "runtime_activity_unavailable", err, superseded)
+	}
+	if !active {
+		return nil, false, nil
+	}
+	if superseded.ServiceIdentity == "" {
+		slog.WarnContext(ctx, "flow host upgrade replaces a host with active runs; it has no recorded service identity",
+			"binding_id", superseded.ID, "workspace_id", superseded.WorkspaceID)
+		return nil, false, nil
+	}
+	connection, err := resolver.launcher.InspectFlowHost(ctx, HostLaunch{
+		Binding: superseded, Authority: authority, Catalog: catalog, Credential: lease.Credential(), Superseded: true,
+	})
+	if errors.Is(err, ErrHostNotRunning) {
+		return nil, false, nil
+	}
+	if errors.Is(err, ErrHostIdentityConflict) {
+		// The recorded identity does not name the live process, so it can
+		// never be reached; waiting would wedge the run that depends on it.
+		slog.WarnContext(ctx, "flow host upgrade replaces a host with active runs; its recorded service identity is stale",
+			"binding_id", superseded.ID, "workspace_id", superseded.WorkspaceID)
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, refuse(ctx, "runtime_inspection_failed", err, superseded)
+	}
+	if authority.SourceRevision != "" && authority.SourceRevision != superseded.SourceRevision {
+		return nil, false, failure{code: "runtime_upgrade_pending", retryable: true}
+	}
+	client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), superseded)
+	if err != nil {
+		return nil, false, err
+	}
+	return client, true, nil
+}
+
 // rebind replaces a host whose pinned identity drifted from the catalog (for
-// example a host-bundle upgrade). The superseded service is stopped before the
-// row moves, so the new owner never meets a live process under its name with
-// an older fingerprint. Runs pinned to the old identity fail typed in dispatch.
+// example a host-bundle upgrade) once no run depends on it. The superseded
+// service is stopped before the row moves, so the new owner never meets a live
+// process under its name with an older fingerprint. A run pinned to a host
+// that was already gone fails typed in dispatch.
 func (resolver *Resolver) rebind(ctx context.Context, lease BindingLease, superseded Binding) (Binding, error) {
 	stopper, ok := resolver.launcher.(RetirementStopper)
 	if !ok {

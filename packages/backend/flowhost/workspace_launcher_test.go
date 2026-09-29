@@ -122,6 +122,24 @@ func TestWorkspaceLauncherUsesRealManagedProcessSourceAndRetirement(t *testing.T
 	inspected, err := launcher.InspectFlowHost(ctx, launch)
 	require.NoError(t, err)
 	require.Equal(t, first.Endpoint, inspected.Endpoint)
+	// After a host-bundle deploy the catalog that started this host is gone.
+	// Only its recorded identity still reaches it (plue#538), and never starts it.
+	upgraded := catalog
+	upgraded.ArtifactDigest = strings.Repeat("c", 64)
+	superseded := HostLaunch{Binding: binding, Authority: authority, Catalog: upgraded, Credential: launch.Credential, Superseded: true}
+	_, err = launcher.InspectFlowHost(ctx, HostLaunch{Binding: binding, Authority: authority, Catalog: upgraded, Credential: launch.Credential})
+	require.Error(t, err, "the current catalog does not name the live host")
+	_, err = launcher.InspectFlowHost(ctx, superseded)
+	require.Error(t, err, "a superseded host without a recorded identity is unreachable")
+	superseded.Binding.ServiceIdentity = "flow-host:stale"
+	_, err = launcher.InspectFlowHost(ctx, superseded)
+	require.ErrorIs(t, err, ErrHostIdentityConflict, "a stale recorded identity never names the live host")
+	superseded.Binding.ServiceIdentity = hostServiceIdentity(launch)
+	kept, err := launcher.InspectFlowHost(ctx, superseded)
+	require.NoError(t, err)
+	require.Equal(t, first.Endpoint, kept.Endpoint)
+	_, err = launcher.StartFlowHost(ctx, superseded)
+	require.Error(t, err)
 	var receipt map[string]string
 	data, err := os.ReadFile(marker)
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package flowhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -156,10 +157,11 @@ func (lease *memoryBindingLease) PrepareStart(_ context.Context, replace bool) (
 	lease.store.binding = lease.binding
 	return lease.binding, nil
 }
-func (lease *memoryBindingLease) MarkRunning(context.Context) error {
+func (lease *memoryBindingLease) MarkRunning(_ context.Context, serviceIdentity string) error {
 	lease.store.mu.Lock()
 	defer lease.store.mu.Unlock()
 	lease.binding.State = "running"
+	lease.binding.ServiceIdentity = serviceIdentity
 	lease.store.binding = lease.binding
 	return nil
 }
@@ -207,6 +209,9 @@ type memoryLauncher struct {
 	stopErr   error
 	stops     []Binding
 	calls     []string
+	// fingerprint is the live service's configuration identity, as a
+	// workspace runtime records it at start and compares on inspect.
+	fingerprint string
 }
 
 func (launcher *memoryLauncher) StopFlowHost(_ context.Context, binding Binding) error {
@@ -231,12 +236,19 @@ func (launcher *memoryLauncher) connection(binding Binding, credential string) C
 	return Connection{Endpoint: "http://127.0.0.1:7331", HTTPClient: &http.Client{Transport: launcher.transport}}
 }
 
-func (launcher *memoryLauncher) InspectFlowHost(_ context.Context, _ HostLaunch) (Connection, error) {
+func (launcher *memoryLauncher) InspectFlowHost(_ context.Context, request HostLaunch) (Connection, error) {
 	launcher.mu.Lock()
 	defer launcher.mu.Unlock()
 	launcher.calls = append(launcher.calls, "inspect")
 	if !launcher.running {
 		return Connection{}, ErrHostNotRunning
+	}
+	want := hostServiceIdentity(request)
+	if request.Superseded {
+		want = request.Binding.ServiceIdentity
+	}
+	if launcher.fingerprint != "" && launcher.fingerprint != want {
+		return Connection{}, fmt.Errorf("%w: live service configuration differs", ErrHostIdentityConflict)
 	}
 	return launcher.connection(launcher.binding, launcher.transport.credential), nil
 }
@@ -251,6 +263,7 @@ func (launcher *memoryLauncher) StartFlowHost(_ context.Context, request HostLau
 	}
 	launcher.running = true
 	launcher.binding = request.Binding
+	launcher.fingerprint = hostServiceIdentity(request)
 	return launcher.connection(request.Binding, request.Credential), nil
 }
 
@@ -558,4 +571,180 @@ func TestResolverAbandonsAStartItRefuses(t *testing.T) {
 	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
 	require.ErrorContains(t, err, "runtime_identity_conflict")
 	require.Len(t, launcher.abandoned, 1)
+}
+
+// memoryRuns is durable work pinned to a host identity; state is "accepted",
+// "parked" (waiting on approval), or "completed".
+type memoryRuns struct {
+	mu      sync.Mutex
+	runs    map[string]memoryRun
+	queries int
+	err     error
+}
+
+type memoryRun struct{ digest, source, state string }
+
+func (runs *memoryRuns) set(id string, host Binding, state string) {
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+	if runs.runs == nil {
+		runs.runs = map[string]memoryRun{}
+	}
+	runs.runs[id] = memoryRun{digest: host.RuntimeArtifactDigest, source: host.SourceRevision, state: state}
+}
+
+func (runs *memoryRuns) ActiveFlowRuns(_ context.Context, host Binding) (bool, error) {
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+	runs.queries++
+	if runs.err != nil {
+		return false, runs.err
+	}
+	for _, run := range runs.runs {
+		if run.state != "completed" && run.digest == host.RuntimeArtifactDigest && run.source == host.SourceRevision {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func resolvedIdentity(t *testing.T, resolve func(context.Context, flowruntime.Target) (flowruntime.Runtime, error), target flowruntime.Target) flowruntime.Identity {
+	t.Helper()
+	runtime, err := resolve(context.Background(), target)
+	require.NoError(t, err)
+	identity, err := runtime.Identity(context.Background())
+	require.NoError(t, err)
+	return identity
+}
+
+// A host-bundle upgrade must not stop the host an accepted run or an
+// approval-parked plan depends on (plue#538). Resolves keep serving that
+// owner until the work settles; the next resolve then rebinds with a new
+// owner generation.
+func TestResolverDefersHostBundleUpgradeWhileRunIsActive(t *testing.T) {
+	for _, state := range []string{"accepted", "parked"} {
+		t.Run(state, func(t *testing.T) {
+			resolver, store, launcher, target := testResolver(t)
+			runs := &memoryRuns{}
+			resolver.activeRuns = runs
+			digestA, digestB := strings.Repeat("a", 64), strings.Repeat("c", 64)
+
+			first := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+			require.Equal(t, digestA, first.RuntimeArtifactDigest)
+			old := store.binding
+			runs.set("run-1", old, state)
+
+			upgradeCatalog(resolver, digestB)
+			for range 2 { // the run's own poll and any other resolve of the workspace
+				identity := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+				require.Equal(t, first, identity, "an active run keeps its host")
+			}
+			require.Equal(t, first, resolvedIdentity(t, resolver.ResolveExistingFlowRuntime, target),
+				"a read sees the live host, not an upgrade to start")
+			require.Empty(t, launcher.stops, "a host with an active run must not stop")
+			require.Len(t, launcher.starts, 1)
+			require.Equal(t, 0, store.rebinds)
+			require.Equal(t, old, store.binding)
+
+			if state == "parked" {
+				runs.set("run-1", old, "accepted") // approved on A
+				require.Equal(t, first, resolvedIdentity(t, resolver.ResolveFlowRuntime, target))
+				require.Empty(t, launcher.stops)
+			}
+			runs.set("run-1", old, "completed")
+
+			upgraded := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+			require.Equal(t, digestB, upgraded.RuntimeArtifactDigest)
+			require.Equal(t, old.OwnerGeneration+1, upgraded.OwnerGeneration)
+			require.Equal(t, []Binding{old}, launcher.stops)
+			require.Len(t, launcher.starts, 2)
+			require.Equal(t, 1, store.rebinds)
+		})
+	}
+}
+
+// A new source revision cannot be served by a host pinned to the old one, so
+// while a run holds that host the new work waits, retryably.
+func TestResolverRefusesNewSourceRetryablyWhileRunIsActive(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	runs := &memoryRuns{}
+	resolver.activeRuns = runs
+	resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	old := store.binding
+	runs.set("run-1", old, "accepted")
+	original := resolver.targets
+	resolver.targets = TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (Authority, error) {
+		authority, err := original.ResolveFlowHostTarget(ctx, target)
+		authority.SourceRevision = strings.Repeat("e", 40)
+		return authority, err
+	})
+
+	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+	var bridgeFailure flowruntime.Failure
+	require.ErrorAs(t, err, &bridgeFailure)
+	require.Equal(t, "runtime_upgrade_pending", bridgeFailure.FlowRuntimeCode())
+	require.True(t, bridgeFailure.FlowRuntimeRetryable())
+	require.Empty(t, launcher.stops)
+	require.Equal(t, old, store.binding)
+
+	runs.set("run-1", old, "completed")
+	identity := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, strings.Repeat("e", 40), identity.SourceRevision)
+	require.Len(t, launcher.stops, 1)
+}
+
+// Deferral keeps a live host; a host already gone cannot be kept, so the
+// upgrade proceeds (lost-host recovery is smithers#1868).
+func TestResolverUpgradesAGoneHostEvenWithAnActiveRun(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	runs := &memoryRuns{}
+	resolver.activeRuns = runs
+	resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	runs.set("run-1", store.binding, "accepted")
+	launcher.running = false
+	upgradeCatalog(resolver, strings.Repeat("c", 64))
+
+	identity := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, strings.Repeat("c", 64), identity.RuntimeArtifactDigest)
+	require.Equal(t, int64(2), identity.OwnerGeneration)
+	require.Equal(t, 1, store.rebinds)
+}
+
+// A host the resolver cannot reach under any recorded identity (started
+// before identities were recorded, or recorded by an older replica) cannot be
+// kept; waiting would wedge its run, so the upgrade proceeds as before.
+func TestResolverUpgradesAnUnreachableHostEvenWithAnActiveRun(t *testing.T) {
+	for _, recorded := range []string{"", "flow-host:stale"} {
+		t.Run(map[string]string{"": "unrecorded", "flow-host:stale": "stale"}[recorded], func(t *testing.T) {
+			resolver, store, launcher, target := testResolver(t)
+			runs := &memoryRuns{}
+			resolver.activeRuns = runs
+			resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+			store.binding.ServiceIdentity = recorded
+			old := store.binding
+			runs.set("run-1", old, "accepted")
+			upgradeCatalog(resolver, strings.Repeat("c", 64))
+
+			identity := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+			require.Equal(t, strings.Repeat("c", 64), identity.RuntimeArtifactDigest)
+			require.Equal(t, []Binding{old}, launcher.stops)
+		})
+	}
+}
+
+// An unanswerable activity check never stops a host.
+func TestResolverActiveRunCheckFailureIsRetryableAndStopsNothing(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	runs := &memoryRuns{err: errors.New("jobs table unavailable")}
+	resolver.activeRuns = runs
+	resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	old := store.binding
+	upgradeCatalog(resolver, strings.Repeat("c", 64))
+
+	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+	var bridgeFailure flowruntime.Failure
+	require.ErrorAs(t, err, &bridgeFailure)
+	require.True(t, bridgeFailure.FlowRuntimeRetryable())
+	require.Empty(t, launcher.stops)
+	require.Equal(t, old, store.binding)
 }
