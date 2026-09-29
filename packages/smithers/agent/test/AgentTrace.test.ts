@@ -567,6 +567,25 @@ describe("trace", () => {
         }
       ],
       [
+        "model-settled by a wrapped CLI seat",
+        new AgentEvent.ModelSettled({
+          eventType: "flows.harness.model-settled.v1",
+          message: assistant,
+          usage: ModelEvent.Usage.make({ inputTokens: 12, outputTokens: 3 }),
+          durationMillis: 1_250,
+          sessionId: "5f3c-claude-session"
+        }),
+        {
+          eventType: "control.agent.model-settled",
+          payload: {
+            text: "First line.\nSecond line.",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            durationMillis: 1_250,
+            sessionId: "5f3c-claude-session"
+          }
+        }
+      ],
+      [
         "cell-produced",
         new AgentEvent.CellProduced({ eventType: "flows.harness.cell-produced.v1", cell }),
         {

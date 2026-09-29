@@ -808,7 +808,9 @@ export const trace = (
           // Wall-clock for this one sealed call. A run's total time was
           // already derivable from event stamps; per-call latency was not,
           // and it is the number a speed comparison actually needs.
-          durationMillis: event.durationMillis
+          durationMillis: event.durationMillis,
+          // A wrapped CLI seat's vendor session, so a take-over can resume it.
+          ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId })
         }
       }
     case "cell-produced":
