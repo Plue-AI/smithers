@@ -435,6 +435,81 @@ export const writeGeneratedFile = (
   })
 
 /**
+ * Publishes a generated symlink without traversing symlinked parent directories.
+ * The link target is stored as text and is never opened.
+ *
+ * @category effects
+ * @since 1.0.0
+ */
+export const writeGeneratedSymlink = (
+  workspaceRoot: string,
+  payload: { readonly path: string; readonly target: string }
+): Effect.Effect<void, WriteFileError> =>
+  Effect.tryPromise({
+    try: async (signal) => {
+      const validated = validatePayload({ path: payload.path, contents: payload.target })
+      const root = await SafeFs.canonicalRoot(workspaceRoot)
+      const parent = await prepareParent(root, validated.path, true, signal)
+      if (parent === undefined) throw new Error("generated output parent could not be created")
+      const absolute = NodePath.join(parent.path, NodePath.basename(validated.path))
+      const temporary = NodePath.join(parent.path, `.${NodePath.basename(absolute)}.${randomUUID()}.tmp`)
+      await checkParent(root, parent, signal)
+      await Fs.symlink(payload.target, temporary)
+      try {
+        await checkParent(root, parent, signal)
+        await Fs.rename(temporary, absolute)
+        await SafeFs.syncDirectory(parent.path)
+      } finally {
+        // Cleanup must not follow a parent replaced while publication ran.
+        await checkParent(root, parent, new AbortController().signal)
+        await Fs.rm(temporary, { force: true })
+      }
+    },
+    catch: (cause) => new WriteFileError({ path: payload.path, message: failureMessage(cause) })
+  })
+
+/**
+ * Checks the link itself after proving its parents; never reads its target.
+ *
+ * @category effects
+ * @since 1.0.0
+ */
+export const checkGeneratedSymlink = (
+  workspaceRoot: string,
+  payload: { readonly path: string; readonly target: string }
+): Effect.Effect<void, DriftError> =>
+  Effect.flatMap(
+    Effect.tryPromise({
+      try: async (signal) => {
+        const validated = validatePayload({ path: payload.path, contents: payload.target })
+        const root = await SafeFs.canonicalRoot(workspaceRoot)
+        const parent = await prepareParent(root, validated.path, false, signal)
+        if (parent === undefined) return undefined
+        await checkParent(root, parent, signal)
+        const absolute = NodePath.join(parent.path, NodePath.basename(validated.path))
+        try {
+          const stats = await Fs.lstat(absolute)
+          return stats.isSymbolicLink() ? await Fs.readlink(absolute) : null
+        } catch (cause) {
+          if (SafeFs.errorCode(cause) === "ENOENT") return undefined
+          throw cause
+        }
+      },
+      catch: (cause) => new DriftError({ path: payload.path, reason: "unreadable", message: failureMessage(cause) })
+    }),
+    (actual) =>
+      actual === payload.target
+        ? Effect.void
+        : Effect.fail(
+          new DriftError({
+            path: payload.path,
+            reason: actual === undefined ? "missing" : "drifted",
+            message: actual === undefined ? "the generated link is missing" : "the generated link drifted"
+          })
+        )
+  )
+
+/**
  * Fails with {@link DriftError} unless the checked-in file matches.
  *
  * The failure carries a `reason`: `missing` and `drifted` are answered by

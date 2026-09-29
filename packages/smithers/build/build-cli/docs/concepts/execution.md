@@ -11,6 +11,16 @@ allowed to touch, and puts the tree back when it oversteps.
 The [rule contract architecture](./rule-contracts.md) maps the shared services
 and the family planners and executors that use them.
 
+## Generated outputs
+
+`S.Generate({ emit: ... })` checks output parents before writing or checking.
+Symlinked parent directories are refused, including when the output does not
+exist yet. Text uses the shared generated-file writer; declared symlinks are
+published as links without opening their targets. Use ordinary workspace
+directories for both forms. A refused parent leaves external files and
+missing external directories untouched. Text outputs also refuse a symlink at
+the destination; remove that link before changing an emitted link to text.
+
 ## Write-set confinement
 
 A target that mutates the tree declares what it may write. Every such run is

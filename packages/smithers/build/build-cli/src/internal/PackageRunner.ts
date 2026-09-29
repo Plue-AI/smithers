@@ -10,6 +10,7 @@ import type * as Compose from "@smthrs/targets/Compose"
 import * as CronTarget from "@smthrs/targets/CronTarget"
 import * as Exec from "@smthrs/targets/Exec"
 import * as ExecSandbox from "@smthrs/targets/ExecSandbox"
+import * as GeneratedFile from "@smthrs/targets/GeneratedFile"
 import * as GithubTarget from "@smthrs/targets/GithubTarget"
 import * as Input from "@smthrs/targets/Input"
 import type * as Reference from "@smthrs/targets/Reference"
@@ -1018,8 +1019,8 @@ export const executeEffect = (
      * removes is first copied to a quarantine under `<cache>/reverted/` that
      * the failure names. Shared by tool runs
      * (`runWriteEnforced`), agent candidate application, and CI-file
-     * publishing. Declarative `runEmit` writes use their resolved output paths
-     * directly and do not pass through this snapshot-and-revert guard.
+     * publishing. Declarative `runEmit` outputs use the confined generated-file
+     * publishers instead of this snapshot-and-revert guard.
      */
     const enforceWriteSet = (
       label: string,
@@ -1333,26 +1334,24 @@ export const executeEffect = (
         const entries = node.emit ?? []
         if (node.mode === "write") {
           for (const entry of entries) {
-            const absolute = NodePath.join(root, ...entry.path.split("/"))
-            yield* joined(() => Fs.mkdir(NodePath.dirname(absolute), { recursive: true }))
-            yield* joined(() => Fs.rm(absolute, { force: true }))
-            const value = entry.value
-            if (value.kind === "link") yield* joined(() => Fs.symlink(value.target, absolute))
-            else yield* joined(() => Fs.writeFile(absolute, value.text, "utf8"))
+            if (entry.value.kind === "link") {
+              yield* GeneratedFile.writeGeneratedSymlink(root, { path: entry.path, target: entry.value.target })
+            } else {
+              yield* GeneratedFile.writeGeneratedFile(root, { path: entry.path, contents: entry.value.text })
+            }
           }
           return { ok: true }
         }
         const wrong: Array<string> = []
         for (const entry of entries) {
-          const state = yield* joined(() => PackageTree.pathState(NodePath.join(root, ...entry.path.split("/"))))
-          if (entry.value.kind === "link") {
-            if (state.kind !== "link" || state.target !== entry.value.target) wrong.push(entry.path)
-          } else if (
-            state.kind !== "file" ||
-            state.digest !== PackageTree.digestBytes(Buffer.from(entry.value.text, "utf8"))
-          ) {
+          const checked = entry.value.kind === "link"
+            ? GeneratedFile.checkGeneratedSymlink(root, { path: entry.path, target: entry.value.target })
+            : GeneratedFile.checkGeneratedFile(root, { path: entry.path, contents: entry.value.text })
+          yield* checked.pipe(Effect.catch((error) => {
+            if (error.reason === "unreadable") return Effect.fail(error)
             wrong.push(entry.path)
-          }
+            return Effect.void
+          }))
         }
         if (wrong.length > 0) {
           return { ok: false, error: `drift in declared emit outputs (run with --write to apply): ${wrong.join(", ")}` }
@@ -2620,7 +2619,6 @@ export const executeEffect = (
               if (node.emit !== undefined) {
                 const outcome = yield* runEmit(node)
                 if (!outcome.ok) return fail(outcome.error ?? "generate failed")
-                if (node.mode === "check") yield* cachePut(node, { kind: "generate-check" })
                 return green("ran")
               }
               if (node.mode === "check") {

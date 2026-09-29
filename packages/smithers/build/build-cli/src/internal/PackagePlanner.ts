@@ -2633,37 +2633,31 @@ const visit = async (
     toolchain.push({ tag: "NodeModule", package: packageName, version: await moduleVersion(context.root, packageName) })
   }
 
-  // Current write-set state keys the check verdict: a hand-edited generated
-  // file or a removed emitted symlink must re-key the check.
+  // Process generators key their cached checks by the current write set.
+  // Declarative emit always checks through the confined generated-file readers;
+  // fingerprinting it here would read outputs before their parent admission.
   let writeSetState: unknown = null
   if (
-    rule === "Generate" || rule === "Shell.Diff" || rule === "Changesets.Version" ||
-    rule === "Owners.Codeowners" || rule === "Owners.Tree"
+    emit === undefined && (
+      rule === "Generate" || rule === "Shell.Diff" || rule === "Changesets.Version" ||
+      rule === "Owners.Codeowners" || rule === "Owners.Tree"
+    )
   ) {
-    if (emit !== undefined) {
-      const states: Array<unknown> = []
-      for (const entry of emit) {
-        const state = await PackageTree.pathState(NodePath.join(context.root, ...entry.path.split("/")))
-        states.push({ path: entry.path, state })
-      }
-      writeSetState = states
-    } else {
-      const states: Array<unknown> = []
-      for (const pattern of writeSet) {
-        // A write set is not an input glob over the declaring package: its
-        // paths are the generator's own wherever they live, so a nested
-        // package's PACKAGE.ts must not bound the expansion to nothing.
-        const matches = await Input.expandGlob(context.root, "", pattern, {
-          cacheDirectory: context.cacheDirectory,
-          packageScoped: false,
-          repositoryBoundaries: Object.values(context.index.workspace.repos ?? {}).map((repo) => repo.path),
-          signal: context.signal
-        })
-        const files = await Input.digestFiles(context.root, matches, { signal: context.signal })
-        states.push({ pattern, digest: Input.digestText(JSON.stringify(files)) })
-      }
-      writeSetState = states
+    const states: Array<unknown> = []
+    for (const pattern of writeSet) {
+      // A write set is not an input glob over the declaring package: its
+      // paths are the generator's own wherever they live, so a nested
+      // package's PACKAGE.ts must not bound the expansion to nothing.
+      const matches = await Input.expandGlob(context.root, "", pattern, {
+        cacheDirectory: context.cacheDirectory,
+        packageScoped: false,
+        repositoryBoundaries: Object.values(context.index.workspace.repos ?? {}).map((repo) => repo.path),
+        signal: context.signal
+      })
+      const files = await Input.digestFiles(context.root, matches, { signal: context.signal })
+      states.push({ pattern, digest: Input.digestText(JSON.stringify(files)) })
     }
+    writeSetState = states
   }
 
   const declaredGates = attrTargets(attrs, "gates").map((gate) => depLabels.get(gate) ?? labelOf(context, gate))
