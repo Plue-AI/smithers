@@ -200,6 +200,16 @@ describe("StructuredOutput.decode", () => {
     expect(short._tag).toBe("Failure")
   })
 
+  it("reports a raw string the schema refused on its merits, not the JSON parse", () => {
+    const result = decode(Schema.String.check(Schema.isMinLength(3)), "x")
+    const failure = result._tag === "Failure" ? result.failure : undefined
+    expect(failure?.code).toBe("schema_mismatch")
+    expect(failure?.issues[0]).toMatchObject({
+      code: "constraint",
+      message: "Expected a value with a length of at least 3"
+    })
+  })
+
   it("never offers a raw answer to a schema that refuses strings", () => {
     const result = decode(Review, "Looks fine to me.")
     const failure = result._tag === "Failure" ? result.failure : undefined

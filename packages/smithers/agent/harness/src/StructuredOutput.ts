@@ -436,6 +436,14 @@ export const decode = <S extends Schema.Top>(
     if (!quoted(offered[0]!)) {
       const result = yield* Effect.result(decoder(raw))
       if (result._tag === "Success") return result.success
+      // A string the schema read and refused on its merits (too short, not
+      // one of the literals) is the issue to correct, not the JSON parse. A
+      // schema that wanted no string at all keeps the JSON diagnosis.
+      const rawIssues = schemaIssuesOf(result.failure)
+      if (code === "invalid_json" && rawIssues[0]?.code !== "invalid_type") {
+        code = "schema_mismatch"
+        issues = rawIssues
+      }
     }
     return yield* new StructuredOutputFailure({
       // Once the budget is spent, exhaustion is the actionable classification;

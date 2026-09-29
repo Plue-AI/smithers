@@ -412,6 +412,9 @@ const checkCorrections = (corrections: number, subject: string): void => {
  */
 export const structuredOutputRejectedEvent = "flows.agent.structured-output-rejected.v1"
 
+/** The recorded steps that count structured-output refusals once; suffixed by what they count. */
+const structuredOutputCountActivityName = "agent/structured-output-count"
+
 /** The recorded step that decides one park, so a replay waits the same deadline; suffixed by the session. */
 const quotaParkActivityName = "agent/quota-park"
 
@@ -861,7 +864,7 @@ export const make = <
               }).pipe(Effect.provideService(FlowEngineLike.Correction, correction))
             )
 
-          /** Journals and counts one answer the declared schema refused. */
+          /** Journals one answer the declared schema refused. */
           const rejected = (failure: StructuredOutput.StructuredOutputFailure, attempt: number) =>
             record(structuredOutputRejectedEvent, instance.executionId, {
               action: tag,
@@ -870,7 +873,21 @@ export const make = <
               schema: failure.schema,
               candidate: failure.candidate,
               issuesDigest: StructuredOutput.issuesDigest(failure)
-            }).pipe(Effect.andThen(Metric.update(ObservabilityMetric.structuredOutputRejections, 1)))
+            })
+
+          /**
+           * Advances `metric` once per `name`: a sealed step, so a body that
+           * re-enters after a resume replays the count instead of adding it
+           * again. The same-session verdict needs none; it is recorded by the
+           * harness and only runs live.
+           */
+          const countOnce = (name: string, metric: Metric.Counter<number>) =>
+            Action.make({
+              name: `${structuredOutputCountActivityName}/${name}`,
+              success: Schema.Null,
+              tier: "sealed",
+              execute: Metric.update(metric, 1).pipe(Effect.as(null))
+            }).pipe(Effect.asVoid)
 
           /**
            * The same-session correction for an ask opened with `spent`
@@ -885,7 +902,10 @@ export const make = <
                 StructuredOutput.decode(options.output, answer, { corrections: spent + corrected, limit }).pipe(
                   Effect.as(undefined),
                   Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
-                    rejected(failure, spent + corrected).pipe(Effect.as(StructuredOutput.correction(failure)))),
+                    rejected(failure, spent + corrected).pipe(
+                      Effect.andThen(Metric.update(ObservabilityMetric.structuredOutputRejections, 1)),
+                      Effect.as(StructuredOutput.correction(failure))
+                    )),
                   Effect.provideContext(decoding)
                 )
             }
@@ -936,7 +956,13 @@ export const make = <
               Effect.flatMap(({ output }) =>
                 StructuredOutput.decode(options.output, output, { corrections: limit, limit }).pipe(
                   Effect.tapError((failure) =>
-                    failure._tag === "/harness/StructuredOutputFailure" ? rejected(failure, limit) : Effect.void
+                    failure._tag === "/harness/StructuredOutputFailure"
+                      ? rejected(failure, limit).pipe(
+                        Effect.andThen(
+                          countOnce(`rejected/${root}#repair`, ObservabilityMetric.structuredOutputRejections)
+                        )
+                      )
+                      : Effect.void
                   )
                 )
               )
@@ -973,11 +999,14 @@ export const make = <
                   Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
                     rejected(failure, used).pipe(
                       Effect.andThen(
+                        countOnce(`rejected/${root}#${used}`, ObservabilityMetric.structuredOutputRejections)
+                      ),
+                      Effect.andThen(
                         used >= limit
                           ? repair(failure).pipe(
                             Effect.tapError((last) =>
                               last._tag === "/harness/StructuredOutputFailure"
-                                ? Metric.update(ObservabilityMetric.structuredOutputExhausted, 1)
+                                ? countOnce(`exhausted/${root}`, ObservabilityMetric.structuredOutputExhausted)
                                 : Effect.void
                             )
                           )
@@ -999,9 +1028,7 @@ export const make = <
       const solved = panel === undefined ? solve(sessionRoot, task, ids) : Effect.gen(function*() {
         const results = yield* Effect.forEach(panel.seats, (member, index) =>
           solve(`${sessionRoot}/panel/${index}`, task, [member.seat, ...member.backups]).pipe(
-            Effect.flatMap((answer) =>
-              Schema.encodeUnknownEffect(options.output)(answer)
-            ),
+            Effect.flatMap((answer) => Schema.encodeUnknownEffect(options.output)(answer)),
             Effect.mapError((failure) =>
               Schema.isSchemaError(failure)
                 ? new HarnessError({
@@ -1018,9 +1045,7 @@ export const make = <
         })
         const failed = panel.seats.filter((_, index) =>
           Result.isFailure(results[index]!)
-        ).map(({ seat }) =>
-          seat
-        )
+        ).map(({ seat }) => seat)
         if (answered.length === 0) {
           return yield* Effect.fail((results[0] as Result.Failure<never, AgentFailure>).failure)
         }

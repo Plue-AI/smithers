@@ -31,10 +31,11 @@ import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
+import * as ObservabilityMetric from "@smthrs/observability/Metric"
 import * as Registry from "@smthrs/registry/Registry"
 import { RunStore } from "@smthrs/run-store"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
-import { Cause, Effect, Exit, Fiber, Layer, Option, Schedule, Schema, Stream } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Metric, Option, Schedule, Schema, Stream } from "effect"
 import type * as Crypto from "effect/Crypto"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
@@ -769,6 +770,8 @@ describe("a correction ladder interrupted mid-flight", () => {
     // retry, and the correction budget is one so the ladder is exactly two
     // asks long. One frame per run makes the correction a fresh session.
     const composition = host({ defaultCorrections: 1, maxFrames: 1, modelRetryPolicy: Schedule.recurs(0) })
+    const rejections = Metric.value(ObservabilityMetric.structuredOutputRejections)
+    const counted = (await Effect.runPromise(rejections)).count
 
     const observed = await onTestClock(
       Effect.gen(function*() {
@@ -836,6 +839,9 @@ describe("a correction ladder interrupted mid-flight", () => {
     expect(observed.before.rejections.map((record) => (record as { readonly attempt: number }).attempt))
       .toEqual([0])
     expect(observed.after.rejections.length).toBeGreaterThan(observed.before.rejections.length)
+    // The counter is a decision, unlike the record: the resumed body replays
+    // the sealed count of the ask's rejection instead of adding it again.
+    expect((await Effect.runPromise(rejections)).count - counted).toBe(1)
     expect(
       observed.after.rejections.every((record) =>
         (record as { readonly attempt: number; readonly limit: number }).attempt === 0 &&
