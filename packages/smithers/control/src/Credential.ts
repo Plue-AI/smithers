@@ -35,6 +35,21 @@ import {
 import * as CredentialCipher from "./CredentialCipher.ts"
 import * as CredentialStore from "./CredentialStore.ts"
 
+// String.prototype.isWellFormed without the ES2024 lib, which every package
+// compiling this source would also need. A loop, not a regex: a match would
+// leave the rejected secret in the legacy RegExp.input static.
+const wellFormed = (value: string): boolean => {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index)
+    if (unit >= 0xdc00 && unit <= 0xdfff) return false
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = value.charCodeAt(++index)
+      if (!(low >= 0xdc00 && low <= 0xdfff)) return false
+    }
+  }
+  return true
+}
+
 /**
  * A journal-safe name for a stored connection credential.
  *
@@ -183,7 +198,7 @@ export const make = (options: Options): Credential => {
     secret: Redacted.Redacted<string>
   ): Effect.Effect<CredentialRef, Unavailable | CredentialConflict | InvalidInput> =>
     Effect.gen(function*() {
-      if (!Redacted.value(secret).isWellFormed()) {
+      if (!wellFormed(Redacted.value(secret))) {
         return yield* Effect.fail(new InvalidInput({ issue: "Credential secret must be well-formed Unicode" }))
       }
       // The metadata written beside this blob is also its authenticated data;

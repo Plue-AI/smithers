@@ -99,11 +99,13 @@ describe("Credential", () => {
   })
 
   it.each([
-    ["high", "\uD800"],
-    ["low", "\uDC00"]
-  ])("refuses a lone %s surrogate on create without storing it", async (_kind, surrogate) => {
+    ["trailing high", "key-\uD800"],
+    ["trailing low", "key-\uDC00"],
+    ["leading high", "\uD800key"],
+    ["leading low", "\uDC00key"]
+  ])("refuses a %s lone surrogate on create without storing it", async (_kind, secret) => {
     const { credentials, store } = await Effect.runPromise(boundary())
-    const error = await failureOf(created(credentials, `key-${surrogate}`))
+    const error = await failureOf(created(credentials, secret))
 
     expect(error._tag).toBe("/control/InvalidInput")
     expect(error.code).toBe("invalid_input")
@@ -189,14 +191,16 @@ describe("Credential", () => {
   })
 
   it.each([
-    ["high", "\uD800"],
-    ["low", "\uDC00"]
-  ])("refuses a lone %s surrogate on rotate without changing the record", async (_kind, surrogate) => {
+    ["trailing high", "key-\uD800"],
+    ["trailing low", "key-\uDC00"],
+    ["leading high", "\uD800key"],
+    ["leading low", "\uDC00key"]
+  ])("refuses a %s lone surrogate on rotate without changing the record", async (_kind, secret) => {
     const { credentials, store } = await Effect.runPromise(boundary())
     const reference = await Effect.runPromise(created(credentials, "original-🔐"))
     const before = Option.getOrThrow(await Effect.runPromise(store.read("exa")))
 
-    const error = await failureOf(credentials.rotate(reference, Redacted.make(`key-${surrogate}`)))
+    const error = await failureOf(credentials.rotate(reference, Redacted.make(secret)))
 
     expect(error._tag).toBe("/control/InvalidInput")
     expect(error.code).toBe("invalid_input")
