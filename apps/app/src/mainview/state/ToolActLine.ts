@@ -1,4 +1,5 @@
 import { FLOW_AUTHORING_ENTRY } from "@smthrs/rpc/FlowAuthoring"
+import { canonicalCommandName } from "@smthrs/ui/command-line"
 import type { PendingToolCall } from "./controller/context"
 import { runLaunchCommandOf, toolResultLaunchedRun } from "./RunClaims"
 
@@ -9,10 +10,9 @@ export const toolActLine = (call: PendingToolCall, result: string): string => {
   try {
     const parsed: unknown = JSON.parse(call.args)
     if (typeof parsed === "object" && parsed !== null) {
-      // The model may spell the name "/browser" (the catalog's own
-      // dialect, normalized at the agent boundary too) — stripped here
-      // so the label renders /browser, never //browser.
-      if ("name" in parsed && typeof parsed.name === "string") inner = parsed.name.replace(/^\/+/, "")
+      // Match the agent boundary so padded and slashed names render
+      // the same receipt as the command that executed.
+      if ("name" in parsed && typeof parsed.name === "string") inner = canonicalCommandName(parsed.name)
       if ("action" in parsed && typeof parsed.action === "string") action = parsed.action
       if ("args" in parsed && typeof parsed.args === "string") args = parsed.args
     }
