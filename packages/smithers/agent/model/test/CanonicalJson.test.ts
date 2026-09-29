@@ -75,6 +75,70 @@ describe("CanonicalJson", () => {
     expect(() => CanonicalJson.stringify(undefined)).toThrow("Value at $ is not valid JSON")
   })
 
+  it("rejects Array subclass instances", () => {
+    class Wrapped extends Array<unknown> {}
+    expect(() => CanonicalJson.stringify({ items: Wrapped.from([1, 2]) })).toThrow("Value at $.items is not valid JSON")
+
+    class Reshaped extends Array<unknown> {
+      toJSON() {
+        return "x"
+      }
+    }
+    expect(() => CanonicalJson.stringify({ items: Reshaped.of(1) })).toThrow("Value at $.items is not valid JSON")
+
+    const speciesProto = Object.create(Array.prototype)
+    Object.defineProperty(speciesProto, "constructor", {
+      value: { [Symbol.species]: class extends Array<unknown> {} }
+    })
+    const speciesArray = Object.setPrototypeOf([1], speciesProto)
+    expect(Array.isArray(speciesArray)).toBe(true)
+    expect(() => CanonicalJson.stringify({ items: speciesArray })).toThrow("Value at $.items is not valid JSON")
+  })
+
+  it("builds plain arrays without consulting Symbol.species", () => {
+    const original = Object.getOwnPropertyDescriptor(Array, Symbol.species)!
+    Object.defineProperty(Array, Symbol.species, {
+      configurable: true,
+      get: () => {
+        throw new Error("species consulted")
+      }
+    })
+    let encoded: string
+    try {
+      encoded = CanonicalJson.stringify({ items: [1, [2]] })
+    } finally {
+      Object.defineProperty(Array, Symbol.species, original)
+    }
+    expect(encoded).toBe("{\"items\":[1,[2]]}")
+  })
+
+  it("accepts plain arrays however they were constructed", () => {
+    expect(CanonicalJson.stringify({ items: Array(3).fill(0) })).toBe("{\"items\":[0,0,0]}")
+    expect(CanonicalJson.stringify({ items: Array.from({ length: 2 }, (_, index) => index) })).toBe("{\"items\":[0,1]}")
+    expect(CanonicalJson.stringify({ items: Object.freeze([1, 2, 3]) })).toBe("{\"items\":[1,2,3]}")
+  })
+
+  it("rejects arrays which JSON.stringify would reshape", () => {
+    // `JSON.stringify` writes a hole as `null` and drops every non-index
+    // member, so the key and the wire body would describe different arrays.
+    expect(() => CanonicalJson.stringify({ items: Array(1) })).toThrow("Value at $.items[0] is not valid JSON")
+    expect(() => CanonicalJson.stringify({ items: [1, , 3] })).toThrow("Value at $.items[1] is not valid JSON")
+
+    const symbolMember = Object.assign([1], { [Symbol("hidden")]: 2 })
+    expect(() => CanonicalJson.stringify({ items: symbolMember })).toThrow("Value at $.items is not valid JSON")
+
+    const namedMember = Object.assign([1], { extra: 2 })
+    expect(() => CanonicalJson.stringify({ items: namedMember })).toThrow("Value at $.items is not valid JSON")
+
+    const hiddenMember = [1]
+    Object.defineProperty(hiddenMember, "extra", { value: 2, enumerable: false })
+    expect(() => CanonicalJson.stringify({ items: hiddenMember })).toThrow("Value at $.items is not valid JSON")
+
+    // Controls: an explicit `null` is JSON, an explicit `undefined` is not.
+    expect(CanonicalJson.stringify({ items: [null] })).toBe("{\"items\":[null]}")
+    expect(() => CanonicalJson.stringify({ items: [undefined] })).toThrow("Value at $.items[0] is not valid JSON")
+  })
+
   it("encodes the empty, single-member, and primitive boundaries", () => {
     expect(CanonicalJson.stringify({})).toBe("{}")
     expect(CanonicalJson.stringify([])).toBe("[]")

@@ -56,8 +56,10 @@ member.
 **`Model request could not be encoded as canonical JSON`.** A value in the
 lowered body is not valid JSON: `undefined`, a function, a symbol, a
 non-finite number, a class instance such as `Date` or `Map`, a symbol-keyed
-member, or a cycle. `CanonicalJson` rejects these rather than dropping them;
-find the member in `path`.
+member, a cycle, or an array that is sparse, carries named or symbol-keyed
+members (such as a `RegExp` match result), or is an Array subclass or from
+another realm. `CanonicalJson` rejects these rather than dropping or
+reshaping them; find the member in `path`.
 
 **`Route header <name> must be applied through Auth`.** A `headers` entry
 has a credential-shaped name. Move the secret into an `Auth` constructor;

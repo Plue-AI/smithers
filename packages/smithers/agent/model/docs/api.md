@@ -720,7 +720,9 @@ Deterministic JSON encoding for model-step inputs.
 `stringify` is stricter than `JSON.stringify` on purpose. A value
 `JSON.stringify` would drop or reshape (`undefined`, a function, a symbol, a
 non-finite number, a class instance such as `Date` or `Map`, a symbol-keyed
-member, or a cycle) is rejected with `TypeError: Value at <path> is not valid
+member, a cycle, or an array that is sparse, carries named or symbol-keyed
+members (such as a `RegExp` match result), or is an Array subclass or from
+another realm) is rejected with `TypeError: Value at <path> is not valid
 JSON`, because a model request body is sealed-step key material and the key
 must describe the bytes sent. Everything both encoders accept they encode
 identically, including an own member literally named `__proto__`. The

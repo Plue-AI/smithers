@@ -22,9 +22,22 @@ const canonicalize = (value: unknown, path = "$", ancestors = new Set<object>())
     return Number.isFinite(value) ? value : invalid(path)
   }
   if (Array.isArray(value)) {
+    // A subclass may override `toJSON` or `Symbol.species`, so only plain arrays pass.
+    if (Object.getPrototypeOf(value) !== Array.prototype) return invalid(path)
     if (ancestors.has(value)) return invalid(path)
+    // `JSON.stringify` writes a hole as `null` and drops every non-index
+    // member, so such an array would key differently from the body sent.
+    if (Object.getOwnPropertySymbols(value).length > 0) return invalid(path)
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index)) return invalid(`${path}[${index}]`)
+    }
+    // Every index plus `length`; anything more is a named member.
+    if (Object.getOwnPropertyNames(value).length !== value.length + 1) return invalid(path)
     ancestors.add(value)
-    const result = value.map((item, index) => canonicalize(item, `${path}[${index}]`, ancestors))
+    const result: Array<unknown> = []
+    for (let index = 0; index < value.length; index++) {
+      result.push(canonicalize(value[index], `${path}[${index}]`, ancestors))
+    }
     ancestors.delete(value)
     return result
   }

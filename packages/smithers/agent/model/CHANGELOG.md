@@ -18,6 +18,12 @@
 
 ### Fixed
 
+- `CanonicalJson` rejects arrays `JSON.stringify` would reshape: a sparse
+  array (a hole became `null`), an array with named or symbol-keyed members
+  (they were dropped), and an Array subclass (its `toJSON` or species could
+  change the output). Arrays are now built with a plain loop rather than `map`
+  (#2695).
+
 - Anthropic Messages requests now carry prompt-cache breakpoints: one on the
   last system block (or last immediate tool) and one on the last stable
   message, set by the new optional `ModelRequest.cacheBoundary`. Requests

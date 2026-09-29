@@ -295,6 +295,39 @@ describe("Route.prepare", () => {
     expect(encoded.path).toBeUndefined()
   })
 
+  it("rejects a provider body array which JSON.stringify would reshape", async () => {
+    const prepareBody = (body: unknown) =>
+      Effect.runPromise(
+        Route.prepare(
+          Route.make({
+            id: "reshaped-array",
+            protocol: Protocol.make({
+              ...protocol,
+              body: { schema: Schema.Unknown, from: () => Effect.succeed(body) }
+            }),
+            endpoint: endpoint({ url: "https://example.test" }),
+            auth: Auth.bearer(Redacted.make("secret")),
+            framing: Framing.sse
+          }),
+          request
+        ).pipe(Effect.flip)
+      )
+
+    await expect(prepareBody({ items: Array(1) })).resolves.toMatchObject({
+      code: "invalid_request",
+      message: "Model request could not be encoded as canonical JSON",
+      path: "$.items[0]"
+    })
+    await expect(prepareBody({ items: Object.assign([1], { [Symbol("hidden")]: 2 }) })).resolves.toMatchObject({
+      code: "invalid_request",
+      path: "$.items"
+    })
+    await expect(prepareBody({ items: Object.assign([1], { extra: 2 }) })).resolves.toMatchObject({
+      code: "invalid_request",
+      path: "$.items"
+    })
+  })
+
   it("omits the path when schema encoding fails without an issue", async () => {
     const schemaWithoutIssue = Schema.declareConstructor<unknown>()(
       [],
