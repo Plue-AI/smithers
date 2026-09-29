@@ -65,6 +65,7 @@ type Action =
   | "fs:write"
   | "net:get"
   | "net:post"
+  | "net:private"
   | "model:call"
   | "memory:read"
   | "memory:write"
@@ -88,6 +89,11 @@ selector at an RPC, config, or persistence boundary instead of copying the
 list. The set grows by addition and an existing action does not change meaning,
 so a stored payload naming an action outside it fails to decode rather than
 being read as something adjacent.
+
+`net:private` permits private HTTP destinations for the standard web tools.
+Its resource is a normalized URL origin, such as `http://127.0.0.1:8080`, and
+it supplements the ordinary request permission. Only an exact `net:private`
+action can allow it; wildcard action denies still apply.
 
 ### Capability.PatternAction
 
@@ -398,6 +404,9 @@ Matching rules are last-match-wins across all rulesets, and the default is
 the same last-match rule, and its effective denial is then a hard veto, so a
 configured `deny` superseded by a later configured `allow` or `ask` is not a
 veto.
+
+`net:private` requires an allow rule naming that exact action. Wildcard action
+allows are skipped for it; wildcard denies retain the normal precedence.
 
 A rule the matcher cannot decide within `Capability.maxMatchWork` vetoes the
 decision and `evaluate` returns `deny`, because skipping it could let an

@@ -29,10 +29,10 @@ and capabilities in one table, see
 | `shell_command` | `ShellCommand` | `ChildProcessSpawner`                                     |
 | `apply_patch`   | `ApplyPatch`   | `FileSystem`, `Path`                                      |
 | `update_plan`   | `UpdatePlan`   | none                                                      |
-| `fetch`         | `Fetch`        | `HttpClient`                                              |
-| `http-post`     | `HttpPost`     | `HttpClient`                                              |
+| `fetch`         | `Fetch`        | `HttpClient`, `GrantStore`                                |
+| `http-post`     | `HttpPost`     | `HttpClient`, `GrantStore`                                |
 | `explore`       | `Explore`      | no handler                                                |
-| `webfetch`      | `WebFetch`     | `HttpClient`                                              |
+| `webfetch`      | `WebFetch`     | `HttpClient`, `GrantStore`                                |
 | `websearch`     | `WebSearch`    | `WebSearch`                                               |
 | `lsp`           | `Lsp`          | `LanguageServer`                                          |
 
@@ -353,6 +353,30 @@ a host calling it directly never decodes.
 | `output` | string | Always `"Plan updated"`. |
 
 Fails with `invalid_input`.
+
+## HTTP destination permissions
+
+`fetch`, `http-post`, and `webfetch` resolve every destination before sending,
+including redirect destinations, after checking the ordinary request grant. Loopback, private, link-local, shared,
+multicast, and reserved addresses require a `net:private` grant. Mixed public
+and private DNS answers also require it. Resolution failure refuses the request.
+
+The grant resource is the normalized URL origin, including the scheme and any
+non-default port, for example `net:private:http://127.0.0.1:8080`. It supplements
+the ordinary `net:get` or `net:post` permission; those grants alone never allow
+private destinations. Wildcard action grants (`net:*` or `*`) do not grant
+private access; wildcard denies still apply. An authority ceiling must also
+permit the private capability.
+
+Without a grant, the tools return `permission_denied` before transport. The
+host must expose its `GrantStore` to every web tool, alongside `HttpClient`. DNS checks,
+grant waits, redirects, and body reads share the request deadline. Model
+transports are unaffected.
+
+The host client must honor manual redirects. DNS validation is a preflight
+check; the host transport must also constrain connection-time resolution or
+use an egress policy to prevent DNS rebinding. Connection pinning is tracked
+in [#2844](https://github.com/smithersai/smithers/issues/2844).
 
 ## fetch
 

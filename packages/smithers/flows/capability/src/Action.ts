@@ -19,6 +19,7 @@ export const Action = Schema.Literals(
     "fs:write",
     "net:get",
     "net:post",
+    "net:private",
     "model:call",
     "memory:read",
     "memory:write",

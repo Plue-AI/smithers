@@ -1,12 +1,30 @@
+import { CapabilityPattern } from "@smthrs/capability/Capability"
+import { Rule } from "@smthrs/capability/Permission"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
+import * as Workspace from "@smthrs/kernel/Workspace"
 import { Cause, Effect, Exit, Fiber, Layer, Schema, Tracer } from "effect"
 import { TestClock } from "effect/testing"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { toMarkdown, toText } from "../src/internal/Html.ts"
-import * as WebFetch from "../src/WebFetch.ts"
+import { ResolveHost } from "../src/internal/HttpNetwork.ts"
+import * as WebFetchModule from "../src/WebFetch.ts"
+
+const WebFetch = {
+  ...WebFetchModule,
+  run: (input: WebFetchModule.Input) =>
+    WebFetchModule.run(input).pipe(
+      Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"])),
+      Effect.provide(
+        GrantStore.layer({
+          attended: false,
+          rules: [new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "net:get", resource: "*" }) })]
+        }).pipe(Layer.provide(Workspace.layer("/workspace")))
+      )
+    )
+}
 
 const responseLayer = (
   body: BodyInit | null,
@@ -249,10 +267,11 @@ describe("WebFetch", () => {
       grantEnvelope: () => Effect.void
     })
     const result = await Effect.runPromise(
-      WebFetch.run({ url: "https://first.test/start", format: "text" }).pipe(
+      WebFetchModule.run({ url: "https://first.test/start", format: "text" }).pipe(
         Effect.provide(HttpClient.layer),
         Effect.provideService(HttpClient.HttpClient, raw),
-        Effect.provideService(GrantStore.GrantStore, grants)
+        Effect.provideService(GrantStore.GrantStore, grants),
+        Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )
     )
     expect(requests).toEqual(["https://first.test/start", "https://second.test/final"])
@@ -289,10 +308,11 @@ describe("WebFetch", () => {
       grantEnvelope: () => Effect.void
     })
     const failure = await Effect.runPromise(Effect.flip(
-      WebFetch.run({ url: "https://first.test/start" }).pipe(
+      WebFetchModule.run({ url: "https://first.test/start" }).pipe(
         Effect.provide(HttpClient.layer),
         Effect.provideService(HttpClient.HttpClient, raw),
-        Effect.provideService(GrantStore.GrantStore, grants)
+        Effect.provideService(GrantStore.GrantStore, grants),
+        Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )
     ))
     expect(failure).toMatchObject({ code: "request_failed", message: "Web fetch exceeded the redirect limit" })
@@ -327,10 +347,11 @@ describe("WebFetch", () => {
       grantEnvelope: () => Effect.void
     })
     const result = await Effect.runPromise(
-      WebFetch.run({ url: "https://first.test/start" }).pipe(
+      WebFetchModule.run({ url: "https://first.test/start" }).pipe(
         Effect.provide(HttpClient.layer),
         Effect.provideService(HttpClient.HttpClient, raw),
-        Effect.provideService(GrantStore.GrantStore, grants)
+        Effect.provideService(GrantStore.GrantStore, grants),
+        Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )
     )
     expect(requests).toEqual([
@@ -532,7 +553,7 @@ describe("WebFetch", () => {
   it.each([
     ["http", "http://example.test/resource"],
     ["https", "https://example.test/resource"],
-    ["IPv6", "http://[::1]/resource"]
+    ["IPv6", "http://[2606:4700:4700::1111]/resource"]
   ])("fetches ordinary %s URLs", async (_kind, url) => {
     const output = await Effect.runPromise(
       WebFetch.run({ url }).pipe(Effect.provide(responseLayer("ok", { "content-type": "text/plain" })))

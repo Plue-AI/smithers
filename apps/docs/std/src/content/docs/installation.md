@@ -82,7 +82,7 @@ Smithers CLI does.
 | `Bash.run`                                  | `ChildProcessSpawner`, `Path`, and `Container` when a call names one           |
 | `TestRun.run`                               | `ChildProcessSpawner`, `TestRunner`, and `Container` when the runner names one |
 | `ShellCommand.run`                          | `ChildProcessSpawner`                                                          |
-| `Fetch.run`, `HttpPost.run`, `WebFetch.run` | `HttpClient`                                                                   |
+| `Fetch.run`, `HttpPost.run`, `WebFetch.run` | `HttpClient`, `GrantStore`                                                     |
 | `WebSearch.run`                             | `WebSearch`                                                                    |
 | `Lsp.run`                                   | `LanguageServer`                                                               |
 | `UpdatePlan.run`                            | none                                                                           |

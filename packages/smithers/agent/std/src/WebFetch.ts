@@ -10,15 +10,15 @@
  */
 
 import * as Flow from "@smthrs/core/Flow"
+import type { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { capability, envelope } from "./internal/Declaration.ts"
 import { toMarkdown, toText } from "./internal/Html.ts"
 import { capOutput, header, MAX_RESPONSE_BYTES, readBounded, Timeout, withDeadline } from "./internal/Http.ts"
+import { guarded, refusal } from "./internal/HttpNetwork.ts"
 import { parseHttpUrl } from "./internal/Url.ts"
 import * as StdError from "./StdError.ts"
 
@@ -120,14 +120,14 @@ const error = (code: StdError.Code, message: string, path?: string): StdError.St
  */
 export const run = Effect.fn("WebFetch.run")(function*(
   input: typeof Input.Type
-): Effect.fn.Return<typeof Output.Type, StdError.StdError, HttpClient.HttpClient> {
+): Effect.fn.Return<typeof Output.Type, StdError.StdError, HttpClient.HttpClient | GrantStore> {
   let url = parseHttpUrl(input.url)
   if (url === undefined) {
     return yield* Effect.fail(
       error("invalid_input", "URL must use http or https without user information", input.url)
     )
   }
-  const client = yield* HttpClient.HttpClient
+  const client = guarded(yield* HttpClient.HttpClient, false)
   let headers: Readonly<Record<string, string>> = {
     accept: input.format === "html" ? "text/html, text/plain;q=0.8" : "text/markdown, text/plain, text/html;q=0.8"
   }
@@ -135,7 +135,7 @@ export const run = Effect.fn("WebFetch.run")(function*(
     const response = yield* client.execute(
       HttpClientRequest.setHeaders(HttpClientRequest.get(url.toString()), headers)
     ).pipe(
-      Effect.mapError(() => error("request_failed", `Web fetch request failed: ${url}`))
+      Effect.mapError((cause) => refusal(cause) ?? error("request_failed", `Web fetch request failed: ${url}`))
     )
     const location = header(response.headers, "location")
     if (response.status >= 300 && response.status < 400 && location !== undefined) {
@@ -192,12 +192,4 @@ export const run = Effect.fn("WebFetch.run")(function*(
 }, (effect, input) =>
   // Keep the shared deadline outside the redirect loop and error mapping.
   withDeadline(effect, input.url, input.timeout, (seconds) =>
-    error("timeout", `Web fetch timed out after ${seconds} seconds`)).pipe(
-      // This loop owns the redirect budget, even over the guarded client.
-      Effect.updateContext((context: Context.Context<HttpClient.HttpClient>) =>
-        Context.add(context, FetchHttpClient.RequestInit, {
-          ...Context.getOrUndefined(context, FetchHttpClient.RequestInit),
-          redirect: "manual"
-        })
-      )
-    ))
+    error("timeout", `Web fetch timed out after ${seconds} seconds`)))

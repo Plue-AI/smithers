@@ -4,12 +4,14 @@
  * @since 1.0.0
  */
 
+import type { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as StdError from "../StdError.ts"
+import { guarded, refusal } from "./HttpNetwork.ts"
 import { MAX_OUTPUT_BYTES, notice, truncateBytes } from "./Text.ts"
 import { parseHttpUrl } from "./Url.ts"
 
@@ -73,7 +75,7 @@ export const readBounded = <E, R>(
  * @since 1.0.0
  */
 export const requestError = (url: string, error: unknown): StdError.StdError =>
-  error instanceof StdError.StdError ? error : new StdError.StdError({
+  error instanceof StdError.StdError ? error : refusal(error) ?? new StdError.StdError({
     code: "request_failed",
     message: `Request failed: ${url}${error instanceof Error ? ` (${error.message})` : ""}`
   })
@@ -178,7 +180,7 @@ export const execute = Effect.fn("Http.execute")(function*(
     readonly timeout?: number | undefined
   },
   makeRequest: (url: string) => HttpClientRequest.HttpClientRequest
-): Effect.fn.Return<typeof Response.Type, StdError.StdError, HttpClient.HttpClient> {
+): Effect.fn.Return<typeof Response.Type, StdError.StdError, HttpClient.HttpClient | GrantStore> {
   const url = parseHttpUrl(input.url)
   if (url === undefined) {
     return yield* Effect.fail(
@@ -189,7 +191,7 @@ export const execute = Effect.fn("Http.execute")(function*(
       })
     )
   }
-  const client = yield* HttpClient.HttpClient
+  const client = guarded(yield* HttpClient.HttpClient)
   const request = makeRequest(url.toString())
   const { status, bytes } = yield* withDeadline(
     Effect.gen(function*() {

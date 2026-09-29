@@ -95,6 +95,7 @@ export const tierOf = (capability: Capability, options: TierOptions): EffectTier
       return "compensable"
     case "memory:write":
     case "net:post":
+    case "net:private":
     case "proc:spawn":
       return "irreversible"
   }

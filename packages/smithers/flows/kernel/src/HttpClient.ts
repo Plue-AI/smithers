@@ -51,7 +51,7 @@ import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as UrlParams from "effect/unstable/http/UrlParams"
-import { GrantStore } from "./GrantStore.ts"
+import { GrantStore, type Service as GrantService } from "./GrantStore.ts"
 import { makeCapability } from "./internal/makeCapability.ts"
 
 const snapshotRawBody = (value: unknown): unknown => {
@@ -261,6 +261,38 @@ const capabilityFor = (
   return makeCapability(action, modelId === undefined ? resource : `${resource}/${modelId}`)
 }
 
+interface PreflightAdmission {
+  readonly store: GrantService
+  readonly capability: Capability
+  consumed: boolean
+}
+
+const Admission = Context.Reference<PreflightAdmission | undefined>("@smthrs/kernel/HttpClient/Admission", {
+  defaultValue: () => undefined
+})
+
+/**
+ * Authorizes a request before a caller performs network preflight work such as
+ * DNS. The guarded transport consumes the same admission once, so a one-shot
+ * grant is not spent twice. Admissions match both store identity and the exact
+ * capability; redirects and retries require their own authorization.
+ *
+ * @category authorization
+ * @since 1.0.0
+ */
+export const authorizePreflight = <A, E, R>(
+  request: HttpClientRequest.HttpClientRequest,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | HttpClientError.HttpClientError, R | GrantStore> =>
+  Effect.gen(function*() {
+    const store = yield* GrantStore
+    const capability = yield* Effect.withFiber((fiber) => capabilityFor(request, fiber.getRef(ModelCall))).pipe(
+      Effect.tap((capability) => store.check(capability)),
+      Effect.mapError((error) => toHttpClientError({ request, error }))
+    )
+    return yield* Effect.provideService(effect, Admission, { store, capability, consumed: false })
+  })
+
 /**
  * Forces `redirect: "manual"` on the fetch options a fetch-backed client reads
  * at execute time, keeping every other ambient field.
@@ -306,7 +338,18 @@ export const layer: Layer.Layer<
       (execute, request) =>
         Effect.withFiber((fiber) =>
           capabilityFor(request, fiber.getRef(ModelCall)).pipe(
-            Effect.flatMap((capability) => grants.check(capability)),
+            Effect.flatMap((capability) => {
+              const admission = fiber.getRef(Admission)
+              if (
+                admission !== undefined && !admission.consumed && admission.store === grants
+                && admission.capability.action === capability.action &&
+                admission.capability.resource === capability.resource
+              ) {
+                admission.consumed = true
+                return Effect.void
+              }
+              return grants.check(capability)
+            }),
             Effect.mapError((error: PermissionError) => toHttpClientError({ request, error })),
             Effect.andThen(Effect.updateContext(execute, manualRedirects))
           )
@@ -325,3 +368,25 @@ export const layer: Layer.Layer<
     )
   })
 )
+
+/**
+ * Address snapshot authorized for one web request. Host transports must reject
+ * a different origin and use only these addresses for every connection attempt.
+ * Ordinary model traffic leaves this reference unset.
+ * @category references
+ * @since 1.0.0
+ */
+export const Destination = Context.Reference<{
+  readonly origin: string
+  readonly addresses: ReadonlyArray<string>
+} | undefined>("@smthrs/kernel/HttpClient/Destination", { defaultValue: () => undefined })
+
+/**
+ * Host assertion that its ordinary HttpClient enforces Destination. Custom
+ * transports must implement the contract before enabling this reference.
+ * @category references
+ * @since 1.0.0
+ */
+export const DestinationPinning = Context.Reference<boolean>("@smthrs/kernel/HttpClient/DestinationPinning", {
+  defaultValue: () => false
+})

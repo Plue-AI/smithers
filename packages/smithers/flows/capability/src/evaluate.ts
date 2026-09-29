@@ -18,6 +18,9 @@ import type { RuleEffect } from "./RuleEffect.ts"
  * denial as a hard veto. A configured deny superseded by a later configured
  * allow or ask in that ruleset is therefore not a veto.
  *
+ * `net:private` allows require that exact action; wildcard action denies still
+ * apply. Existing broad grants never silently acquire private network access.
+ *
  * A rule the matcher cannot decide within `Capability.maxMatchWork` vetoes the
  * decision and `evaluate` returns `deny`. Skipping it could let an undecidable
  * deny fall through to a later allow. The kernel turns that `deny` into a
@@ -49,6 +52,11 @@ export const evaluate = (
     for (const rule of ruleset) {
       if (!withinMatchBudget(rule.pattern, capability)) {
         return "deny"
+      }
+      // Private network access is opt-in; old namespace/whole-authority grants
+      // must not silently acquire it. Wildcard denies still apply normally.
+      if (capability.action === "net:private" && rule.effect === "allow" && rule.pattern.action !== "net:private") {
+        continue
       }
       if (matches(rule.pattern, capability)) {
         effect = rule.effect

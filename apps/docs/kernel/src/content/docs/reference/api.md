@@ -1162,6 +1162,14 @@ export { HttpClient, make } from "effect/unstable/http/HttpClient"
 
 Effect's tag and constructor, unchanged.
 
+### HttpClient.authorizePreflight
+
+`authorizePreflight(request, effect)` checks the ordinary HTTP capability before
+running network preflight work such as DNS resolution. The guarded client can
+consume that admission once for the same capability and grant store. Redirects,
+retries, and different stores require fresh authorization. The effect requires
+the host's `GrantStore`, including when the underlying client captures it.
+
 ### HttpClient.ModelCall and withModelCall
 
 ```ts
