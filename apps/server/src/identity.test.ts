@@ -103,7 +103,7 @@ describe("validateSession", () => {
     }
   })
 
-  test("an unreachable seam is a 502 and a deadline a 504 naming its milliseconds, never a false sign-in", async () => {
+  test("an unreachable seam is a 502 and a deadline a 504, never a false sign-in", async () => {
     const down = await run(
       validateSession(session("smithers_session=abc")),
       wire(() => Promise.reject(new Error("connection reset"))).layer,
@@ -112,7 +112,7 @@ describe("validateSession", () => {
     expect(down.status).toBe("unavailable")
     if (down.status === "unavailable") {
       expect(down.response.status).toBe(502)
-      expect(await down.response.json()).toEqual({ status: "error", code: "upstream_unreachable", message: "The identity service is unreachable." })
+      expect(await down.response.json()).toEqual({ status: "error", code: "upstream_unreachable", message: "The identity service can't be reached right now. Try again in a moment." })
     }
     const stalled = wire((request) =>
       new Promise<Response>((_resolve, reject) => {
@@ -123,7 +123,7 @@ describe("validateSession", () => {
     expect(slow.status).toBe("unavailable")
     if (slow.status === "unavailable") {
       expect(slow.response.status).toBe(504)
-      expect(await slow.response.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service did not answer within 20ms." })
+      expect(await slow.response.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service took too long to answer. Try again in a moment." })
     }
   })
 
@@ -162,7 +162,7 @@ describe("requireTurnSession", () => {
     expect((unseamed as Response).status).toBe(501)
     const body = (await (unseamed as Response).json()) as { code: string; message: string }
     expect(body.code).toBe("deployment_not_configured")
-    expect(body.message).toContain("IDENTITY_UPSTREAM_URL")
+    expect(body.message).toBe("Sign-in isn't set up on this deployment.")
     expect(seen).toEqual([])
   })
   test("refuses 401 signed out and 403 off the allowlist, and admits a member", async () => {
@@ -265,7 +265,7 @@ describe("proxyToIdentity", () => {
     expect(seen).toEqual([])
     const unset = await run(proxyToIdentity(new Request("https://mvp.test/api/auth/session")), layer, testConfigLayer())
     expect(unset.status).toBe(501)
-    expect(((await unset.json()) as { message: string }).message).toContain("IDENTITY_UPSTREAM_URL")
+    expect(((await unset.json()) as { message: string }).message).toBe("Sign-in isn't set up on this deployment.")
   })
 
   test("an unreachable seam is a 502 envelope and a deadline a 504, never a thrown error", async () => {
@@ -275,7 +275,7 @@ describe("proxyToIdentity", () => {
       config()
     )
     expect(down.status).toBe(502)
-    expect(((await down.json()) as { message: string }).message).toContain("The identity service is unreachable right now")
+    expect(((await down.json()) as { message: string }).message).toBe("The identity service can't be reached right now. Try again in a moment.")
     const slow = await run(
       proxyToIdentity(new Request("https://mvp.test/api/auth/session")),
       wire((request) =>
@@ -286,7 +286,7 @@ describe("proxyToIdentity", () => {
       config({ upstreamTimeoutMs: 20 })
     )
     expect(slow.status).toBe(504)
-    expect(await slow.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service did not answer within 20ms. Try again in a moment." })
+    expect(await slow.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service took too long to answer. Try again in a moment." })
   })
 })
 
@@ -344,7 +344,7 @@ describe("probeAuthSession and the OAuth navigations", () => {
     )
     expect(machine.status).toBe(502)
     // The proxy's own envelope, untouched: no second prefix.
-    expect(await machine.json()).toEqual({ status: "error", code: "upstream_unreachable", message: "The identity service is unreachable right now: connection refused" })
+    expect(await machine.json()).toEqual({ status: "error", code: "upstream_unreachable", message: "The identity service can't be reached right now. Try again in a moment." })
   })
 
   test("an identity deadline on a navigation is the 504 page for a browser and the proxy's 504 envelope, verbatim, for a machine", async () => {
@@ -369,7 +369,7 @@ describe("probeAuthSession and the OAuth navigations", () => {
       config({ upstreamTimeoutMs: 20 })
     )
     expect(machine.status).toBe(504)
-    expect(await machine.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service did not answer within 20ms. Try again in a moment." })
+    expect(await machine.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service took too long to answer. Try again in a moment." })
   })
 
   test("normalized API return paths cannot restart OAuth from start or callback", async () => {

@@ -254,11 +254,12 @@ describe("handleTurn over the registry", () => {
       expect(await response.json()).toEqual({
         status: "error",
         code: "upstream_unreachable",
-        message:
-          "The turn registry is unreachable right now: Registry register returned 500: {\"status\":\"error\",\"code\":\"storage_failed\",\"message\":\"storage is sealed\"}"
+        message: "The turn registry can't be reached right now. Try again in a moment."
       })
       expect(upstreamCalls).toBe(0)
-      expect(logged[0]?.[0]).toBe("turn registry register failed:")
+      expect(JSON.parse(String(logged[0]?.[0]))).toMatchObject({ event: "worker_seam_failure", seam: "turn cancel registry" })
+      expect(String(logged[0]?.[0])).toContain("storage is sealed")
+      expect(logged[1]?.[0]).toBe("turn registry register failed:")
     } finally {
       console.error = original
     }

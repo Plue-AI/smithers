@@ -151,25 +151,25 @@ describe("POST /api/jev relays one evaluation", () => {
     expect(sent.providerOptions.gateway.zeroDataRetention).toBe(true)
   })
 
-  test("an unset AI_GATEWAY_API_KEY is seam_not_configured naming the variable, and nothing is asked", async () => {
+  test("an unset AI_GATEWAY_API_KEY is seam_not_configured without naming the variable, and nothing is asked", async () => {
     const { response, calls } = await relay(post(goodBody), { config: { aiGatewayApiKey: undefined } })
     expect(response.status).toBe(503)
     const body = await refusalBody(response)
     expect(body.code).toBe("seam_not_configured")
-    expect(body.message).toContain("AI_GATEWAY_API_KEY")
+    expect(body.message).toBe("Decisions aren't available on this deployment.")
     expect(calls.length).toBe(0)
   })
 
-  test("a gateway that refuses is service_temporarily_unavailable naming the reason, never an invented answer", async () => {
+  test("a gateway that refuses is service_temporarily_unavailable in plain words, never an invented answer", async () => {
     const { response } = await relay(post(goodBody), { jev: async () => new Response("no", { status: 502 }) })
     expect(response.status).toBe(503)
     const body = await refusalBody(response)
     expect(body.code).toBe("service_temporarily_unavailable")
-    expect(body.message).toBe("Jev answered HTTP 502.")
+    expect(body.message).toBe("Smithers' decision model refused that just now. Try again in a moment.")
 
     const unreadable = await relay(post(goodBody), { jev: async () => answered("not a map") })
     expect(unreadable.response.status).toBe(503)
-    expect((await refusalBody(unreadable.response)).message).toBe("Jev did not answer with a decision.")
+    expect((await refusalBody(unreadable.response)).message).toBe("Smithers' decision model sent no decision. Try again.")
 
     const dead = await relay(post(goodBody), {
       jev: async () => {
@@ -177,7 +177,7 @@ describe("POST /api/jev relays one evaluation", () => {
       }
     })
     expect(dead.response.status).toBe(503)
-    expect((await refusalBody(dead.response)).message).toContain("Jev is unreachable")
+    expect((await refusalBody(dead.response)).message).toBe("Smithers' decision model can't be reached right now. Try again in a moment.")
   })
 
   test("a redirect is a refusal: the deployment's key never follows a Location to another host", async () => {
@@ -186,10 +186,10 @@ describe("POST /api/jev relays one evaluation", () => {
     })
     expect(calls.map((call) => [new URL(call.url).hostname, call.redirect])).toEqual([["ai-gateway.vercel.sh", "manual"]])
     expect(response.status).toBe(503)
-    expect((await refusalBody(response)).message).toBe("Jev answered HTTP 302.")
+    expect((await refusalBody(response)).message).toBe("Smithers' decision model refused that just now. Try again in a moment.")
   })
 
-  test("the deadline is the recommender's, so a timeout message names the number it waited", () => {
+  test("the deadline is the recommender's", () => {
     expect(JEV_TIMEOUT_MS).toBe(1500)
   })
 })

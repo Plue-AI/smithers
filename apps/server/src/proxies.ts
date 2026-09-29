@@ -15,13 +15,13 @@ import { exportClientError } from "./clientErrorTelemetry"
 import { ServerConfig } from "./Config"
 import { BrowserEgress } from "./Environment"
 import type { DeploymentBindings, ExecutionContext } from "./Environment"
-import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
+import { cloudTokenResponse, fetchCloudToken } from "./cloudToken"
 import type { CloudTokenOutcome } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readBoundedBytes, readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"
 import { isVisitorRefusal, requireTurnSession, validateSession } from "./identity"
 import { cloudReadPath, isPublicRepositoryRead, readPublicRepository } from "./publicRepositoryReads"
-import { json, notFound, readBody, refuse, upstreamProse, upstreamUnreachable, withIsolationHeaders } from "./Responses"
+import { json, notFound, operatorRefusal, readBody, refuse, upstreamProse, upstreamUnreachable, withIsolationHeaders } from "./Responses"
 import { anonymousBucketAddress } from "./turnLimit"
 
 /*
@@ -298,8 +298,7 @@ export const forwardToCloud = (
   })
 
 const tokenRefusal = (token: Exclude<CloudTokenOutcome, { readonly status: "ok" }>): Response => {
-  const refusal = cloudTokenRefusal(token, `Smithers Cloud isn't reachable for your account right now (${token.status}).`)
-  return refuse(refusal.code, refusal.message)
+  return cloudTokenResponse(token)
 }
 
 /*
@@ -395,7 +394,7 @@ export const handleBrowserFetch = (request: Request): Effect.Effect<Response, ne
     const outcome = yield* egress.value.read(url.trim()).pipe(Effect.result)
     // The egress binding itself failed: the page was never reached, so a dependency is at fault.
     if (Result.isFailure(outcome)) {
-      return refuse("upstream_unreachable", `Reading the page failed: ${outcome.failure.message}`)
+      return operatorRefusal("upstream_unreachable", "That page can't be read right now. Try again in a moment.", "browser egress", outcome.failure)
     }
     if (!outcome.success.ok) return refuse(browserFetchWorkerCode(outcome.success.code), outcome.success.message)
     return json(200, browserFetchResponseBody(outcome.success))

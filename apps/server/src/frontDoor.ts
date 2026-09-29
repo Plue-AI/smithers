@@ -1,8 +1,7 @@
 import * as Effect from "effect/Effect"
 import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
 import type { AgentChatMessage, AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
-import { routeRefusalStatus } from "./Responses"
-import type { RouteRefusalCode } from "./Responses"
+import { routeRefusal } from "./Responses"
 import type { TurnRequest } from "./cloudRoleTurn"
 import { modelRefusal, planDecisionModel } from "./configuredModel"
 import { ServerConfig } from "./Config"
@@ -70,6 +69,8 @@ import {
   jevCommandChunks,
   RECOMMEND_JEV_COMMANDS_MAX,
   RECOMMEND_JEV_TIMEOUT_MS,
+  jevFailureDetail,
+  jevFailureMessage,
   RECOMMEND_REPO_PATTERN,
   RECOMMEND_TAIL_MAX_CHARS,
   RECOMMEND_TAIL_MAX_ENTRIES,
@@ -427,11 +428,7 @@ const ndjson = (frames: ReadonlyArray<AgentTurnFrame>, headers: Record<string, s
   })
 
 /* This route's own refusal: the code names the status, and the caller's headers ride along. */
-const refusal = (code: RouteRefusalCode, message: string, headers: Record<string, string>): Response =>
-  new Response(JSON.stringify({ status: "error", code, message }), {
-    status: routeRefusalStatus(code),
-    headers: { "content-type": "application/json", ...headers }
-  })
+const refusal = routeRefusal
 
 /**
  * A Jev that did not answer, as the turn route reports it. The mapping is the
@@ -445,20 +442,16 @@ export const frontDoorRefusal = (
   failure: Exclude<JevAnswer, { readonly ok: true }>,
   headers: Record<string, string>
 ): Response => {
-  switch (failure.reason) {
-    case "http":
-      return failure.status === 429
-        ? refusal("model_rate_limited", "Jev's gateway answered HTTP 429.", headers)
-        : refusal("upstream_refused", `Jev's gateway answered HTTP ${failure.status}.`, headers)
-    case "empty":
-      return refusal("model_no_answer", "Jev sent no decision this client can read.", headers)
-    case "timeout":
-      return refusal("upstream_timeout", `Jev did not answer within ${RECOMMEND_JEV_TIMEOUT_MS}ms.`, headers)
-    case "unreachable":
-      return refusal("upstream_unreachable", `Jev is unreachable: ${failure.message}`, headers)
-    case "out_of_credit":
-      return refusal("out_of_credit", "Out of credit.", headers)
-  }
+  const code = failure.reason === "http"
+    ? failure.status === 429 ? "model_rate_limited" : "upstream_refused"
+    : failure.reason === "empty"
+    ? "model_no_answer"
+    : failure.reason === "timeout"
+    ? "upstream_timeout"
+    : failure.reason === "unreachable"
+    ? "upstream_unreachable"
+    : "out_of_credit"
+  return refusal(code, jevFailureMessage(failure), headers, jevFailureDetail(failure))
 }
 
 /** The arguments of the one tool call a routed turn emits: execute, by name, with no args. */
@@ -569,11 +562,10 @@ export const handleFrontDoor = (
       case "skipped":
         return undefined
       case "unconfigured":
-        return refusal(
-          "seam_not_configured",
-          "AI_GATEWAY_API_KEY is unset. Smithers cannot read this turn on this deployment.",
-          headers
-        )
+        return refusal("seam_not_configured", "Smithers can't read this turn on this deployment.", headers, {
+          seam: "front door",
+          cause: "AI_GATEWAY_API_KEY is unset"
+        })
       case "failed":
         return frontDoorRefusal(read.failure, headers)
       case "decided": {

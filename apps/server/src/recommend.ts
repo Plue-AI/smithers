@@ -10,8 +10,7 @@ import { answeredJson, namespaceCall } from "./DurableStorage"
 import type { NativeNamespace } from "./DurableStorage"
 import { StorageFailure } from "./Failures"
 import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
-import { routeRefusalStatus } from "./Responses"
-import type { RouteRefusalCode } from "./Responses"
+import { routeRefusal, storageFailureAnswer } from "./Responses"
 import type { BodyFailure } from "./Failures"
 import { discardBody, fetchWithDeadline, readBoundedJson, readJsonOrUndefined } from "./Http"
 import type { Transport } from "./Http"
@@ -365,7 +364,7 @@ export const recommendLogRequest = (
   }).pipe(
     Effect.catchTag(
       "StorageFailure",
-      (failure) => Effect.succeed(answer(500, { status: "error", code: "storage_failed", message: failure.message }))
+      (failure) => Effect.succeed(storageFailureAnswer("recommend log", failure))
     )
   )
 
@@ -742,19 +741,33 @@ export const cerebrasChat = (
 
 type ModelAnswer =
   | { readonly ok: true; readonly commands: ReadonlyArray<string>; readonly model: string }
-  | { readonly ok: false; readonly message: string; readonly outOfCredit?: true }
+  | { readonly ok: false; readonly message: string; readonly outOfCredit?: true; readonly cause: JevFailure }
 
-/** Why Jev did not decide, in words a 503 body can carry. */
+type JevFailure = Exclude<JevAnswer, { readonly ok: true }>
+
+/** The operator evidence for a Jev failure: its reason, status or native cause. */
+export const jevFailureDetail = (answer: JevFailure): { readonly seam: string; readonly cause: unknown } => ({
+  seam: "jev",
+  cause: answer.reason === "http" ? `http ${answer.status}` : answer.reason === "unreachable" ? answer.message : answer.reason
+})
+
+/**
+ * Why Jev did not decide, in product words a 503 body can carry. The HTTP
+ * status and the native cause are operator evidence: `jevFailureDetail` puts
+ * them on the refusal log line, never in the body.
+ */
 export const jevFailureMessage = (answer: Exclude<JevAnswer, { readonly ok: true }>): string => {
   switch (answer.reason) {
     case "http":
-      return `Jev answered HTTP ${answer.status}.`
+      return answer.status === 429
+        ? "Smithers' decision model is busy right now. Try again in a minute."
+        : "Smithers' decision model refused that just now. Try again in a moment."
     case "empty":
-      return "Jev did not answer with a decision."
+      return "Smithers' decision model sent no decision. Try again."
     case "timeout":
-      return `Jev did not answer within ${RECOMMEND_JEV_TIMEOUT_MS}ms.`
+      return "Smithers' decision model took too long to answer. Try again in a moment."
     case "unreachable":
-      return `Jev is unreachable: ${answer.message}`
+      return "Smithers' decision model can't be reached right now. Try again in a moment."
     case "out_of_credit":
       return "Out of credit."
   }
@@ -778,9 +791,9 @@ const askJev = (body: RecommendRequest, model: string): Effect.Effect<ModelAnswe
       },
       questions
     }, RECOMMEND_JEV_TIMEOUT_MS)
-    if (!answer.ok) return { ok: false, message: jevFailureMessage(answer), ...(answer.reason === "out_of_credit" ? { outOfCredit: true } : {}) } as const
+    if (!answer.ok) return { ok: false, message: jevFailureMessage(answer), cause: answer, ...(answer.reason === "out_of_credit" ? { outOfCredit: true } : {}) } as const
     const ranked = rankJevAnswers(answer.answers, Object.keys(questions))
-    if (ranked === undefined) return { ok: false, message: jevFailureMessage({ ok: false, reason: "empty" }) } as const
+    if (ranked === undefined) return { ok: false, message: jevFailureMessage({ ok: false, reason: "empty" }), cause: { ok: false, reason: "empty" } } as const
     return { ok: true, commands: filterAnswer(ranked, body.commands), model: answer.model } as const
   })
 
@@ -802,8 +815,7 @@ const jsonWith = (status: number, body: unknown, headers: Record<string, string>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
 
 /* This route's own refusal: the code names the status, and the caller's headers ride along. */
-const refusal = (code: RouteRefusalCode, message: string, headers: Record<string, string>): Response =>
-  jsonWith(routeRefusalStatus(code), { status: "error", code, message }, headers)
+const refusal = routeRefusal
 
 /**
  * POST /api/recommend. `login` is the validated session's login when the
@@ -826,11 +838,10 @@ export const handleRecommend = (
     const armed = planDecisionModel(parsed.body.model, config)
     if (!armed.ok) return modelRefusal(armed.failure, headers)
     if (config.aiGatewayApiKey === undefined) {
-      return refusal(
-        "seam_not_configured",
-        "AI_GATEWAY_API_KEY is unset. Command suggestions are unavailable on this deployment.",
-        headers
-      )
+      return refusal("seam_not_configured", "Command suggestions aren't available on this deployment.", headers, {
+        seam: "recommend",
+        cause: "AI_GATEWAY_API_KEY is unset"
+      })
     }
     const limits = yield* TurnLimits
     const salt = config.anonymousTurnSalt === undefined ? undefined : Redacted.value(config.anonymousTurnSalt)
@@ -841,7 +852,9 @@ export const handleRecommend = (
     if (!shared.allowed) return turnLimitResponse(shared, headers, RECOMMEND_ALL_CEILING)
     // A login's Jev call is metered against its own credit (modelPayer.ts).
     const answer = yield* askJev(parsed.body, armed.modelId).pipe(paidBy(login))
-    if (!answer.ok) return refusal(answer.outOfCredit ? "out_of_credit" : "service_temporarily_unavailable", answer.message, headers)
+    if (!answer.ok) {
+      return refusal(answer.outOfCredit ? "out_of_credit" : "service_temporarily_unavailable", answer.message, headers, jevFailureDetail(answer.cause))
+    }
     const digest = yield* sha256Hex(tailText(parsed.body.tail))
     const store = yield* RecommendLogStore
     const id = yield* store.append({

@@ -29,7 +29,7 @@ const IDENTITY_SEAM = "The identity service"
 
 /** A deployment with no identity seam: an infra fault, never an open door. */
 const identityNotConfigured = (): Response =>
-  notConfigured("The identity seam", "IDENTITY_UPSTREAM_URL is unset. Sign-in is unavailable")
+  notConfigured("Sign-in", "IDENTITY_UPSTREAM_URL is unset. Sign-in is unavailable")
 
 /** Forward one already-built request under the seam's deadline, never failing. */
 export const forwardUnderDeadline = (
@@ -123,9 +123,7 @@ export const validateSession = (request: Request): Effect.Effect<SessionValidati
       const failure = fetched.failure
       return {
         status: "unavailable",
-        response: failure._tag === "UpstreamTimeout"
-          ? refuse("upstream_timeout", failure.message)
-          : refuse("upstream_unreachable", "The identity service is unreachable.")
+        response: upstreamUnreachable(IDENTITY_SEAM, failure)
       } as const
     }
     const response = fetched.success

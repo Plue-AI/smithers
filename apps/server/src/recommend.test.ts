@@ -304,28 +304,28 @@ describe("a Jev that does not answer is a refusal, never another model", () => {
     const body = (await response.json()) as { status: string; code: string; message: string }
     expect(body.status).toBe("error")
     expect(body.code).toBe("service_temporarily_unavailable")
-    expect(body.message).toBe("Jev answered HTTP 403.")
+    expect(body.message).toBe("Smithers' decision model refused that just now. Try again in a moment.")
     expect(calls.map((call) => new URL(call.url).hostname)).toEqual(["ai-gateway.vercel.sh"])
     expect(calls.map((call) => call.url)).not.toContain(CEREBRAS_CHAT_COMPLETIONS_URL)
   })
 
-  test("every other gateway failure is the same typed 503, each naming what went wrong", async () => {
+  test("every other gateway failure is the same typed 503, each in plain words", async () => {
     const cases: ReadonlyArray<{ readonly jev: () => Promise<Response>; readonly message: string }> = [
-      { jev: async () => new Response("overloaded", { status: 529 }), message: "Jev answered HTTP 529." },
-      { jev: async () => new Response("{}", { status: 200 }), message: "Jev did not answer with a decision." },
+      { jev: async () => new Response("overloaded", { status: 529 }), message: "Smithers' decision model refused that just now. Try again in a moment." },
+      { jev: async () => new Response("{}", { status: 200 }), message: "Smithers' decision model sent no decision. Try again." },
       {
         jev: async () =>
           new Response(JSON.stringify({ answers: { command1: { type: "score", score: 2 } } }), {
             status: 200,
             headers: { "content-type": "application/json" }
           }),
-        message: "Jev did not answer with a decision."
+        message: "Smithers' decision model sent no decision. Try again."
       },
       {
         jev: async () => {
           throw new TypeError("fetch failed")
         },
-        message: "Jev is unreachable: fetch failed"
+        message: "Smithers' decision model can't be reached right now. Try again in a moment."
       }
     ]
     for (const { jev, message } of cases) {
@@ -370,12 +370,12 @@ describe("a Jev that does not answer is a refusal, never another model", () => {
     expect(response.status).toBe(503)
     const body = (await response.json()) as { code: string; message: string }
     expect(body.code).toBe("service_temporarily_unavailable")
-    expect(body.message).toBe(`Jev did not answer within ${RECOMMEND_JEV_TIMEOUT_MS}ms.`)
+    expect(body.message).toBe("Smithers' decision model took too long to answer. Try again in a moment.")
     expect(aborted).toBe(true)
     expect(net.calls.length).toBe(1)
   })
 
-  test("without AI_GATEWAY_API_KEY the route is seam_not_configured, names the key, and spends no ceiling", async () => {
+  test("without AI_GATEWAY_API_KEY the route is seam_not_configured, never names the key, and spends no ceiling", async () => {
     const limits = memoryLimits()
     const { response, calls } = await recommend(post("/api/recommend", goodBody), {
       config: { aiGatewayApiKey: undefined },
@@ -385,7 +385,7 @@ describe("a Jev that does not answer is a refusal, never another model", () => {
     const body = (await response.json()) as { status: string; code: string; message: string }
     expect(body.status).toBe("error")
     expect(body.code).toBe("seam_not_configured")
-    expect(body.message).toContain("AI_GATEWAY_API_KEY")
+    expect(body.message).toBe("Command suggestions aren't available on this deployment.")
     expect(limits.keys()).toEqual([])
     expect(calls.length).toBe(0)
   })

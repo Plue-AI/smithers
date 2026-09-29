@@ -1,4 +1,4 @@
-import { copyRefusalMark, markRefusal } from "./RefusalLog"
+import { copyRefusalMark, logSeamFailure, markCause, markRefusal } from "./RefusalLog"
 import * as Effect from "effect/Effect"
 import { upstreamProse } from "@smthrs/rpc/UpstreamProse"
 import { workerRefusalEnvelope } from "@smthrs/rpc/Refusal"
@@ -7,7 +7,7 @@ import { PLUE_FAILURES } from "@smthrs/rpc/PlueFailureCodes"
 import type { PlueFailureCode } from "@smthrs/rpc/PlueFailureCodes"
 import { WORKER_FAILURES } from "@smthrs/rpc/WorkerFailureCodes"
 import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
-import type { BodyFailure, UpstreamFailure } from "./Failures"
+import type { BodyFailure, StorageFailure, UpstreamFailure } from "./Failures"
 import { readBoundedJson } from "./Http"
 
 /*
@@ -100,6 +100,26 @@ export type RouteRefusalCode = WorkerFailureCode | "out_of_credit"
 export const routeRefusalStatus = (code: RouteRefusalCode): number =>
   code === "out_of_credit" ? PLUE_FAILURES[code].status : WORKER_FAILURES[code].status
 
+/**
+ * A refusal on a route that answers with its own headers (the model relays),
+ * in the same envelope. `detail`, when given, is operator evidence (an unset
+ * variable, a native cause) and goes only to the `worker_refusal` log line.
+ */
+export const routeRefusal = (
+  code: RouteRefusalCode,
+  message: string,
+  headers: Record<string, string>,
+  detail?: { readonly seam: string; readonly cause: unknown }
+): Response => {
+  const response = new Response(JSON.stringify({ status: "error", code, message }), {
+    status: routeRefusalStatus(code),
+    headers: { "content-type": "application/json", ...headers }
+  })
+  if (code === "out_of_credit") return response
+  markRefusal(response, code)
+  return detail === undefined ? response : markCause(response, detail.seam, detail.cause)
+}
+
 export const relayPlue = (code: PlueFailureCode, message: string): Response =>
   json(PLUE_FAILURES[code].status, { status: "error", code, message })
 
@@ -118,8 +138,36 @@ export const methodNotAllowed = (): Response => refuse("method_not_allowed", "Me
  * and deliberately not the infra the capacity line describes: nothing is full,
  * a value was never set, and the fix belongs to whoever deployed this.
  */
-export const notConfigured = (name: string, detail: string): Response =>
-  refuse("deployment_not_configured", `${name} is not configured on this deployment (${detail}).`)
+export const notConfigured = (feature: string, detail: string): Response =>
+  operatorRefusal("deployment_not_configured", `${feature} isn't set up on this deployment.`, feature, detail)
+
+/**
+ * A refusal whose cause is for the operator, not the reader: the body carries
+ * one plain `sentence`, and `detail` (an unset variable, a native cause, a
+ * storage operation) goes only to the `worker_refusal` log line.
+ */
+export const operatorRefusal = (
+  code: WorkerFailureCode,
+  sentence: string,
+  seam: string,
+  detail: unknown
+): Response => markCause(refuse(code, sentence), seam, detail)
+
+/** Durable Object storage failed under a route: one fixed sentence, the operation and cause in the log. */
+export const STORAGE_FAILED = "Smithers couldn't save or read that just now."
+
+export const storageRefusal = (failure: StorageFailure): Response =>
+  operatorRefusal("storage_failed", STORAGE_FAILED, failure.operation, failure)
+
+/**
+ * A Durable Object's own answer when its storage failed. No request log line
+ * covers the object's fetch, so the cause is written as a seam failure line
+ * and the body carries only the fixed sentence.
+ */
+export const storageFailureAnswer = (seam: string, failure: unknown): Response => {
+  logSeamFailure(seam, failure)
+  return Response.json({ status: "error", code: "storage_failed" satisfies WorkerFailureCode, message: STORAGE_FAILED }, { status: 500 })
+}
 
 /**
  * Cap for a single turn request body. Every turn replays the whole transcript,
@@ -145,6 +193,8 @@ export const TRANSCRIPT_TOO_LARGE =
 
 export const BODY_TOO_LARGE = "Request body is too large."
 
+export const BODY_UNREADABLE = "The request broke off before it ended. Try again."
+
 /** The refusal a request body earns: the ceiling, non-JSON, or a stream that failed. */
 export const bodyRefusal = (failure: BodyFailure, tooLarge: string = BODY_TOO_LARGE): Response => {
   switch (failure._tag) {
@@ -153,10 +203,7 @@ export const bodyRefusal = (failure: BodyFailure, tooLarge: string = BODY_TOO_LA
     case "BodyNotJson":
       return refuse("request_body_not_json", "Request body must be valid JSON.")
     case "BodyUnreadable":
-      return refuse(
-        "request_body_unreadable",
-        failure.cause instanceof Error ? failure.cause.message : "Invalid request."
-      )
+      return operatorRefusal("request_body_unreadable", BODY_UNREADABLE, "request body", failure)
   }
 }
 
@@ -173,8 +220,8 @@ export const readBody = (request: Request, tooLarge: string = BODY_TOO_LARGE): E
  */
 export const upstreamUnreachable = (seam: string, failure: UpstreamFailure): Response =>
   failure._tag === "UpstreamTimeout"
-    ? refuse("upstream_timeout", `${failure.message} Try again in a moment.`)
-    : refuse("upstream_unreachable", `${seam} is unreachable right now: ${causeMessage(failure.cause)}`)
+    ? operatorRefusal("upstream_timeout", `${seam} took too long to answer. Try again in a moment.`, seam, failure)
+    : operatorRefusal("upstream_unreachable", `${seam} can't be reached right now. Try again in a moment.`, seam, failure)
 
 /** The prose of a native cause, or the seam's placeholder. */
 export const causeMessage = (cause: unknown): string => (cause instanceof Error ? cause.message : "unknown error")

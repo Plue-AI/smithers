@@ -431,7 +431,7 @@ describe("a Jev that does not answer refuses the turn", () => {
     const { status, code, message, calls } = await refused(() => new Response("no", { status: 403 }))
     expect(status).toBe(502)
     expect(code).toBe("upstream_refused")
-    expect(message).toBe("Jev's gateway answered HTTP 403.")
+    expect(message).toBe("Smithers' decision model refused that just now. Try again in a moment.")
     expect(calls.gateway.length).toBe(1)
     expect(calls.upstream).toEqual([])
   })
@@ -466,7 +466,7 @@ describe("a Jev that does not answer refuses the turn", () => {
     const { status, code, message, calls } = await refused(() => slow)
     expect(status).toBe(504)
     expect(code).toBe("upstream_timeout")
-    expect(message).toBe(`Jev did not answer within ${RECOMMEND_JEV_TIMEOUT_MS}ms.`)
+    expect(message).toBe("Smithers' decision model took too long to answer. Try again in a moment.")
     expect(calls.gateway.length).toBe(1)
     expect(calls.upstream).toEqual([])
   }, 10_000)
@@ -477,16 +477,16 @@ describe("a Jev that does not answer refuses the turn", () => {
     })
     expect(status).toBe(502)
     expect(code).toBe("upstream_unreachable")
-    expect(message).toContain("fetch failed")
+    expect(message).toBe("Smithers' decision model can't be reached right now. Try again in a moment.")
     expect(calls.upstream).toEqual([])
   })
 
-  test("with no AI_GATEWAY_API_KEY the turn is seam_not_configured naming the key, and the upstream is never asked", async () => {
+  test("with no AI_GATEWAY_API_KEY the turn is seam_not_configured without naming the key, and the upstream is never asked", async () => {
     const { response, calls } = await turn(turnBody(), { config: { aiGatewayApiKey: undefined } })
     expect(response.status).toBe(503)
     const body = (await response.json()) as { code: string; message: string }
     expect(body.code).toBe("seam_not_configured")
-    expect(body.message).toContain("AI_GATEWAY_API_KEY")
+    expect(body.message).toBe("Smithers can't read this turn on this deployment.")
     expect(calls.gateway).toEqual([])
     expect(calls.upstream).toEqual([])
   })

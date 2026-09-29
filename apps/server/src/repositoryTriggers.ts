@@ -18,11 +18,11 @@
 import { BudgetTokensSchema, SetupDraftSchema } from "@smthrs/rpc/RepositorySetup"
 import { plueFailureCode } from "@smthrs/rpc/Refusal"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
-import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 import { Data, Effect, Result } from "effect"
 import { z } from "zod"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken, isRelayRepoName } from "./cloudToken"
+import { cloudTokenResponse, fetchCloudToken, isRelayRepoName } from "./cloudToken"
+import type { CloudTokenOutcome } from "./cloudToken"
 import type { UpstreamFailure } from "./Failures"
 import { discardBody, fetchWithDeadline, readBoundedJson, readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"
@@ -52,11 +52,11 @@ class MalformedTriggerAnswer extends Data.TaggedError("MalformedTriggerAnswer")<
 
 /**
  * This deployment never got as far as asking, and the reason is a fact about
- * the ACCOUNT rather than about Smithers Cloud: `cloudTokenRefusal` classifies
+ * the ACCOUNT rather than about Smithers Cloud: `cloudTokenResponse` classifies
  * it once, beside every other Cloud-token consumer, so a waitlisted user reads
  * a closed-alpha refusal instead of an outage.
  */
-class TokenError extends Data.TaggedError("TokenError")<{ readonly code: WorkerFailureCode; readonly message: string }> {}
+class TokenError extends Data.TaggedError("TokenError")<{ readonly outcome: Exclude<CloudTokenOutcome, { readonly status: "ok" }> }> {}
 
 /** Either Smithers Cloud refused with a status, or this account has no token, or nothing answered at all. */
 type TriggerFailure = TriggerError | TokenError | UpstreamFailure | MalformedTriggerAnswer
@@ -123,12 +123,12 @@ const cloud = (
         ...(init.body === undefined ? {} : { body: init.body })
       }, config.upstreamTimeoutMs)
     let token = yield* fetchCloudToken(login)
-    if (token.status !== "ok") return yield* Effect.fail(new TokenError(cloudTokenRefusal(token, token.detail)))
+    if (token.status !== "ok") return yield* Effect.fail(new TokenError({ outcome: token }))
     let response = yield* call(token.token)
     if (response.status === 401) {
       yield* discardBody(response)
       token = yield* fetchCloudToken(login)
-      if (token.status !== "ok") return yield* Effect.fail(new TokenError(cloudTokenRefusal(token, token.detail)))
+      if (token.status !== "ok") return yield* Effect.fail(new TokenError({ outcome: token }))
       response = yield* call(token.token)
     }
     if (response.ok) return yield* readBoundedJson(response, limit).pipe(
@@ -147,7 +147,7 @@ const cloud = (
  * approving the preview again and waiting never clears.
  */
 const cloudRefusal = (failure: TriggerFailure): Response => {
-  if (failure._tag === "TokenError") return refuse(failure.code, failure.message)
+  if (failure._tag === "TokenError") return cloudTokenResponse(failure.outcome)
   if (failure._tag === "MalformedTriggerAnswer") return malformedTriggerAnswer()
   if (failure._tag !== "TriggerError") return upstreamUnreachable("Smithers Cloud", failure)
   const message = upstreamRefusalMessage("Smithers Cloud", failure.status, failure.detail)

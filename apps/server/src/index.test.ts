@@ -508,7 +508,7 @@ describe("smithers mvp worker", () => {
         expect(`${path} → ${response.status}`).toBe(`${path} → 502`)
         const body = (await response.json()) as { status: string; message: string }
         expect(body.status).toBe("error")
-        expect(body.message).toContain("unreachable")
+        expect(body.message).toContain("can't be reached right now")
       }
     } finally {
       globalThis.fetch = original
@@ -672,7 +672,8 @@ describe("identity seam", () => {
       const response = await worker.fetch(new Request(`https://mvp.test${path}`), assetsEnv())
       expect(response.status).toBe(501)
       const body = (await response.json()) as { message: string }
-      expect(body.message).toContain("IDENTITY_UPSTREAM_URL")
+      expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+      expect(body.message).not.toContain("IDENTITY_UPSTREAM_URL")
     }
   })
 
@@ -1199,7 +1200,7 @@ describe("turn seam session gate", () => {
       async () => {
         const response = await worker.fetch(post("/api/agent/turn", turnBody, SESSION), identityEnv)
         expect(response.status).toBe(502)
-        expect(((await response.json()) as { message: string }).message).toContain("unreachable")
+        expect(((await response.json()) as { message: string }).message).toContain("can't be reached right now")
       }
     )
   })
@@ -1353,7 +1354,8 @@ describe("turn seam session gate", () => {
           const response = await worker.fetch(request, keyed)
           const body = (await response.json()) as { code: string; message: string }
           expect({ path, status: response.status, code: body.code }).toEqual({ path, status: 501, code: "deployment_not_configured" })
-          expect(body.message).toContain("IDENTITY_UPSTREAM_URL")
+          expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+          expect(body.message).not.toContain("IDENTITY_UPSTREAM_URL")
         }
       }
     )
@@ -1669,7 +1671,8 @@ describe("billing seam", () => {
     const response = await worker.fetch(new Request("https://mvp.test/api/billing/balance"), assetsEnv())
     expect(response.status).toBe(501)
     const body = (await response.json()) as { message: string }
-    expect(body.message).toContain("BILLING_UPSTREAM_URL")
+    expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+    expect(body.message).not.toContain("BILLING_UPSTREAM_URL")
   })
 
 
@@ -1765,7 +1768,8 @@ describe("billing seam", () => {
         )
         expect(response.status).toBe(501)
         const body = (await response.json()) as { message: string }
-        expect(body.message).toContain("BILLING_PRODUCT_SERVICE_TOKEN")
+        expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+        expect(body.message).not.toContain("BILLING_PRODUCT_SERVICE_TOKEN")
       }
     )
     expect(billingCalls).toBe(0)
@@ -1806,7 +1810,8 @@ describe("billing seam", () => {
           )
           expect(response.status).toBe(501)
           const body = (await response.json()) as { message: string }
-          expect(body.message).toContain("IDENTITY_UPSTREAM_URL")
+          expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+          expect(body.message).not.toContain("IDENTITY_UPSTREAM_URL")
           expect(JSON.stringify(body)).not.toContain("cloud-bearer-123")
         }
       }
@@ -2372,7 +2377,8 @@ describe("the admin surface (non-enumerable)", () => {
       const response = await worker.fetch(new Request("https://mvp.test/api/admin/requests", { headers: SESSION }), env)
       expect(response.status).toBe(501)
       const body = (await response.json()) as { message: string }
-      expect(body.message).toContain("IDENTITY_ADMIN_TOKEN")
+      expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
+      expect(body.message).not.toContain("IDENTITY_ADMIN_TOKEN")
     })
   })
 })
@@ -4008,7 +4014,9 @@ describe("cloud roles on Cerebras", () => {
     await withMockedFetch(wire.handler, async () => {
       const response = await admitted(post("/api/agent/turn", librarian), { ...env, CEREBRAS_API_KEY: undefined })
       expect(response.status).toBe(503)
-      expect(((await response.json()) as { message: string }).message).toContain("CEREBRAS_API_KEY is unset")
+      const { message } = (await response.json()) as { message: string }
+      expect(message).toMatch(/isn't (set up|available) on this deployment\./)
+      expect(message).not.toContain("CEREBRAS_API_KEY")
     })
     expect(wire.calls.cerebras.length).toBe(0)
     expect(wire.calls.upstream.length).toBe(0)
@@ -4276,7 +4284,7 @@ describe("configured upstream headers deadlines", () => {
     ["/api/admin/allowlist", { login: "octocat", action: "add" }],
     ["/api/admin/grant", { login: "octocat", amountUsd: 1, operationKey: "grant-deadline-0001" }],
     ["/api/admin/requests", undefined]
-  ] as const)("%s returns 504 naming its configured 20 ms deadline", async (path, body) => {
+  ] as const)("%s returns 504 at its configured 20 ms deadline without naming it", async (path, body) => {
     const aborted: string[] = []
     const cancels = memoryCancels()
     await withMockedFetch(
@@ -4290,7 +4298,7 @@ describe("configured upstream headers deadlines", () => {
         expect(await response.json()).toEqual({
           status: "error",
           code: "upstream_timeout",
-          message: expect.stringContaining("20ms")
+          message: expect.stringContaining("took too long to answer")
         })
         expect(aborted).toHaveLength(1)
         if (path === "/api/agent/turn") {

@@ -38,10 +38,21 @@ share `fetchWithDeadline` in `src/Http.ts`, read through
 headers only: a streaming body continues past it, and caller cancellation
 (fiber interruption) remains effective and aborts the upstream fetch.
 
-Model and admin forward deadlines return HTTP 504 with `status: "error"`
-and a `message` naming the effective duration in milliseconds:
-`${seam} did not answer within ${timeoutMs}ms.` (`UpstreamTimeout` in
-`src/Failures.ts`). Turn deadlines also settle the cancellation registry.
+Model and admin forward deadlines return HTTP 504 `upstream_timeout` with
+`status: "error"` and the fixed `message`
+`${seam} took too long to answer. Try again in a moment.`
+(`upstreamUnreachable` in `src/Responses.ts`). The effective duration is
+operator evidence: the `worker_refusal` log line's `cause` names it
+(`UpstreamTimeout` in `src/Failures.ts`). Turn deadlines also settle the
+cancellation registry.
+
+A refusal body never carries operator evidence. The app renders `message`
+verbatim, so an unset variable name, a native cause, a storage operation or
+an upstream's HTTP status goes to the log line through `operatorRefusal`,
+`routeRefusal`'s `detail`, `storageRefusal` or `cloudTokenResponse`, and the
+body holds one fixed sentence. A Durable Object's own storage failure
+answers `storageFailureAnswer`: a `worker_seam_failure` line and the fixed
+`storage_failed` sentence.
 Client disconnects on model routes remain HTTP 499 (`src/Boundary.ts`).
 `/api/workflow/{provision,rpc}` wait `WORKFLOW_UPSTREAM_DEADLINE_MS`
 (255,000 ms, `src/workflows.ts`) instead: the backend answers a Plan or Run

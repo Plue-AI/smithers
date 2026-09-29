@@ -1,4 +1,5 @@
 import * as Clock from "effect/Clock"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import {
   AgentTurnBatchSchema, AgentTurnJournalCommandSchema,
@@ -34,11 +35,13 @@ export interface TurnJournalAudit { verifiedHeadHash?: string }
 
 type Saved = AgentTurnJournalHead | AgentTurnRetirement
 type Reason = "not-found" | "forbidden" | "retired" | "conflict" | "cursor" | "terminal" | "limit" | "corrupt"
-class JournalRefusal extends Error {
-  readonly _tag = "JournalRefusal"
-  constructor(readonly reason: Reason) { super(`Turn journal ${reason}.`) }
+/** A journal command the object refuses; `reason` is the wire code the Worker maps to a status. */
+export class JournalRefusal extends Data.TaggedError("JournalRefusal")<{ readonly reason: Reason }> {
+  override get message(): string {
+    return `Turn journal ${this.reason}.`
+  }
 }
-const refuse = (reason: Reason): Effect.Effect<never, JournalRefusal> => Effect.fail(new JournalRefusal(reason))
+const refuse = (reason: Reason): Effect.Effect<never, JournalRefusal> => Effect.fail(new JournalRefusal({ reason }))
 const retired = (value: Saved): value is AgentTurnRetirement => "retired" in value
 const unsigned = <T extends { readonly hash: string }>(value: T): Omit<T, "hash"> => {
   const { hash: _hash, ...body } = value
@@ -118,7 +121,7 @@ const rebuild = (storage: DurableStorageShape, saved: AgentTurnJournalHead) => E
   for (let number = 1; number <= saved.cursor.batch; number++) {
     const batch = yield* loadBatch(storage, saved, number)
     const next = yield* Effect.try({
-      try: () => projectAgentTurnBatch(replay, batch), catch: () => new JournalRefusal("corrupt")
+      try: () => projectAgentTurnBatch(replay, batch), catch: () => new JournalRefusal({ reason: "corrupt" })
     })
     replay = yield* seal("head", next)
   }
@@ -246,7 +249,7 @@ export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: Tur
     if (current.terminal) return yield* refuse("terminal")
     const projection = yield* Effect.try({
       try: () => projectAgentTurnBatch(current, batch),
-      catch: () => new JournalRefusal("conflict")
+      catch: () => new JournalRefusal({ reason: "conflict" })
     })
     const bytes = projection.bytes - current.bytes
     // Reserve one small terminal failure batch even after ordinary retention

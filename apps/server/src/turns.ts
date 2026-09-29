@@ -38,8 +38,8 @@ import type { ValidatedIdentity } from "./identity"
 import { paidBy } from "./modelPayer"
 import { anonymousTurnKey } from "./turnLimit"
 import {
-  causeMessage,
   ISOLATION_HEADERS,
+  storageFailureAnswer,
   json,
   readBody,
   refuse,
@@ -206,9 +206,7 @@ export const turnCancelRequest = (request: Request): Effect.Effect<Response, nev
         return new Response("not found", { status: 404 })
     }
   }).pipe(
-    Effect.catch((failure) =>
-      Effect.succeed(Response.json({ status: "error", code: "storage_failed", message: failure.message }, { status: 500 }))
-    )
+    Effect.catch((failure) => Effect.succeed(storageFailureAnswer("turn cancel registry", failure)))
   )
 
 export class TurnCancelRegistry {
@@ -808,8 +806,7 @@ const handleTransientTurn = (
       if (Result.isFailure(fetched)) {
         yield* settle
         const failure = fetched.failure
-        if (failure._tag === "UpstreamTimeout") return upstreamUnreachable(MODEL_SEAM, failure)
-        return refuse("upstream_unreachable", `Smithers Cloud chat is unreachable: ${causeMessage(failure.cause)}`)
+        return failure._tag === "UpstreamTimeout" ? upstreamUnreachable(MODEL_SEAM, failure) : upstreamUnreachable("Smithers Cloud chat", failure)
       }
       const response = fetched.success
       if (!response.ok || response.body === null) {
@@ -962,8 +959,7 @@ export const handleModelStream = (
     )
     if (Result.isFailure(fetched)) {
       const failure = fetched.failure
-      if (failure._tag === "UpstreamTimeout") return upstreamUnreachable(MODEL_SEAM, failure)
-      return refuse("upstream_unreachable", `The model service is unreachable: ${causeMessage(failure.cause)}`)
+      return upstreamUnreachable(MODEL_SEAM, failure)
     }
     const response = fetched.success
     if (!response.ok || response.body === null) {

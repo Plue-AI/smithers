@@ -244,7 +244,7 @@ const readAdminGrant = (
   Effect.gen(function* () {
     if (config.billingProductServiceToken === undefined) {
       return notConfigured(
-        "The billing seam",
+        "Credit grants",
         "BILLING_PRODUCT_SERVICE_TOKEN is unset. A grant is checked against the recipient's ledger before it posts, and that read needs the trusted-caller token"
       )
     }
@@ -317,10 +317,10 @@ export const handleAdmin = (
 
     if (url.pathname === ADMIN_ALLOWLIST_PATH && request.method === "POST") {
       if (config.identityUpstreamUrl === undefined) {
-        return notConfigured("The identity seam", "IDENTITY_UPSTREAM_URL is unset. The allowlist is unavailable")
+        return notConfigured("The allowlist", "IDENTITY_UPSTREAM_URL is unset. The allowlist is unavailable")
       }
       if (config.identityAdminToken === undefined) {
-        return adminTokenNotConfigured("The identity admin surface", "IDENTITY_ADMIN_TOKEN")
+        return adminTokenNotConfigured("The identity admin page", "IDENTITY_ADMIN_TOKEN")
       }
       const body = yield* parseAdminBody(request)
       if (body instanceof Response) return body
@@ -358,7 +358,7 @@ export const handleAdmin = (
 
     if (url.pathname === ADMIN_GRANT_PATH && request.method === "GET") {
       if (config.billingUpstreamUrl === undefined) {
-        return notConfigured("The billing seam", "BILLING_UPSTREAM_URL is unset. Grants are unavailable")
+        return notConfigured("Credit grants", "BILLING_UPSTREAM_URL is unset. Grants are unavailable")
       }
       const login = url.searchParams.get("login")?.trim() ?? ""
       const operationKey = url.searchParams.get("operationKey") ?? ""
@@ -375,10 +375,10 @@ export const handleAdmin = (
 
     if (url.pathname === ADMIN_GRANT_PATH && request.method === "POST") {
       if (config.billingUpstreamUrl === undefined) {
-        return notConfigured("The billing seam", "BILLING_UPSTREAM_URL is unset. Grants are unavailable")
+        return notConfigured("Credit grants", "BILLING_UPSTREAM_URL is unset. Grants are unavailable")
       }
       if (config.billingAdminToken === undefined) {
-        return adminTokenNotConfigured("The billing admin surface", "BILLING_ADMIN_TOKEN")
+        return adminTokenNotConfigured("The billing admin page", "BILLING_ADMIN_TOKEN")
       }
       const body = yield* parseAdminBody(request)
       if (body instanceof Response) return body
@@ -445,10 +445,10 @@ export const handleAdmin = (
 
     if (url.pathname === ADMIN_REQUESTS_PATH && request.method === "GET") {
       if (config.identityUpstreamUrl === undefined) {
-        return notConfigured("The identity seam", "IDENTITY_UPSTREAM_URL is unset. The request queue is unavailable")
+        return notConfigured("The request queue", "IDENTITY_UPSTREAM_URL is unset. The request queue is unavailable")
       }
       if (config.identityAdminToken === undefined) {
-        return adminTokenNotConfigured("The identity admin surface", "IDENTITY_ADMIN_TOKEN")
+        return adminTokenNotConfigured("The identity admin page", "IDENTITY_ADMIN_TOKEN")
       }
       return yield* forwardAdminCall(
         config.identityUpstreamUrl,

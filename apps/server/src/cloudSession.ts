@@ -4,7 +4,7 @@ import { machineReadableRefusal, upstreamProse } from "@smthrs/rpc/UpstreamProse
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
+import { cloudTokenResponse, fetchCloudToken } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readRefusalDetail } from "./Http"
 import { validateSession } from "./identity"
 import { json, refuse } from "./Responses"
@@ -59,8 +59,7 @@ export const probeCloudSession = (request: Request) => Effect.gen(function* () {
   if (identity.status === "unavailable") return identity.response
   const token = yield* fetchCloudToken(identity.identity.login)
   if (token.status !== "ok") {
-    const refusal = cloudTokenRefusal(token, "Smithers Cloud isn't reachable for your account right now.")
-    return refuse(refusal.code, refusal.message)
+    return cloudTokenResponse(token)
   }
   const config = yield* ServerConfig
   const probe = yield* Effect.result(fetchWithDeadline(

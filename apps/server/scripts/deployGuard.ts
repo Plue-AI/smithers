@@ -25,6 +25,7 @@
  * exact built artifact. There is no override flag. Anything unrecognized refuses.
  */
 import { createHash } from "node:crypto"
+import * as Data from "effect/Data"
 import { z } from "zod"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { lstatSync } from "node:fs"
@@ -34,10 +35,13 @@ import { accountURL, api } from "./cutover/cloudflare"
 
 export type LocalIdentity = "legacy" | "edge"
 export type LiveIdentity = "legacy" | "edge" | "cutover-admission" | "cutover-fence" | "maintenance-export"
-export class DeployGuardRefusal extends Error {
-  constructor(readonly code: string, detail: string) { super(`${code}: ${detail}`) }
+/** The deploy interlock refused; `code` is the stable DEPLOY_GUARD_* id the operator log prints. */
+export class DeployGuardRefusal extends Data.TaggedError("DeployGuardRefusal")<{ readonly code: string; readonly detail: string }> {
+  override get message(): string {
+    return `${this.code}: ${this.detail}`
+  }
 }
-const refuse = (code: string, detail: string): never => { throw new DeployGuardRefusal(code, detail) }
+const refuse = (code: string, detail: string): never => { throw new DeployGuardRefusal({ code, detail }) }
 
 /** The checkout's own claim, which must agree with itself. */
 export const classifyLocal = (wranglerMain: string, identityEntry: string): LocalIdentity => {

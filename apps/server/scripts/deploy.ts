@@ -226,7 +226,7 @@ if (dryRun) {
   }
   // The live version the interlock judged must still be the one being replaced.
   try {
-    if ((await readLive(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion) throw new DeployGuardRefusal("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed after the interlock judged it")
+    if ((await readLive(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion) throw new DeployGuardRefusal({ code: "DEPLOY_GUARD_LIVE_CHANGED", detail: "the live version changed after the interlock judged it" })
   } catch (error) { guardRefused(error) }
   // Read the build stamp inside capture: even an unreadable baseline gets a receipt.
   rolloutReceipt = await rollout(workerRolloutHost({

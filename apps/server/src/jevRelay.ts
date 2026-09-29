@@ -2,8 +2,7 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import { ServerConfig } from "./Config"
 import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
-import { routeRefusalStatus } from "./Responses"
-import type { RouteRefusalCode } from "./Responses"
+import { routeRefusal } from "./Responses"
 import type { BodyFailure } from "./Failures"
 import { readBoundedJson } from "./Http"
 import type { Transport } from "./Http"
@@ -11,6 +10,7 @@ import { JEV_DEFAULT_MODEL, jevEvaluate } from "./jev"
 import type { JevQuestion } from "./jev"
 import { paidBy } from "./modelPayer"
 import {
+  jevFailureDetail,
   jevFailureMessage,
   RECOMMEND_ALL_CEILING,
   RECOMMEND_ALL_KEY,
@@ -189,8 +189,7 @@ export const parseJevRequest = (request: Request): Effect.Effect<ParsedJevReques
 const jsonWith = (status: number, body: unknown, headers: Record<string, string>): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
 
-const refusal = (code: RouteRefusalCode, message: string, headers: Record<string, string>): Response =>
-  jsonWith(routeRefusalStatus(code), { status: "error", code, message }, headers)
+const refusal = routeRefusal
 
 /**
  * POST /api/jev. `login` is the validated session's login when the caller has
@@ -207,7 +206,10 @@ export const handleJev = (
     if (!parsed.ok) return refusal(parsed.code, parsed.message, headers)
     const config = yield* ServerConfig
     if (config.aiGatewayApiKey === undefined) {
-      return refusal("seam_not_configured", "AI_GATEWAY_API_KEY is unset. Decisions are unavailable on this deployment.", headers)
+      return refusal("seam_not_configured", "Decisions aren't available on this deployment.", headers, {
+        seam: "jev",
+        cause: "AI_GATEWAY_API_KEY is unset"
+      })
     }
     const limits = yield* TurnLimits
     const salt = config.anonymousTurnSalt === undefined ? undefined : Redacted.value(config.anonymousTurnSalt)
@@ -222,7 +224,12 @@ export const handleJev = (
       JEV_TIMEOUT_MS
     ).pipe(paidBy(login))
     if (!answer.ok) {
-      return refusal(answer.reason === "out_of_credit" ? "out_of_credit" : "service_temporarily_unavailable", jevFailureMessage(answer), headers)
+      return refusal(
+        answer.reason === "out_of_credit" ? "out_of_credit" : "service_temporarily_unavailable",
+        jevFailureMessage(answer),
+        headers,
+        jevFailureDetail(answer)
+      )
     }
     return jsonWith(200, { answers: answer.answers, model: answer.model }, headers)
   })

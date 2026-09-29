@@ -192,11 +192,11 @@ describe("serving a cloud role turn", () => {
     expect(network.calls.length).toBe(1)
   })
 
-  test("no key is an honest 503 naming the variable, never a provider call", async () => {
+  test("no key is an honest 503 that never names the variable or calls a provider", async () => {
     const network = recording(() => completion("never"))
     const response = await serve(body, network, {})
     expect(response.status).toBe(503)
-    expect(((await response.json()) as { message: string }).message).toContain("CEREBRAS_API_KEY is unset")
+    expect(((await response.json()) as { message: string }).message).toBe("The Librarian isn't available on this deployment.")
     expect(network.calls.length).toBe(0)
   })
 
@@ -216,7 +216,7 @@ describe("serving a cloud role turn", () => {
     })
     const down = await serve(body, unreachable)
     expect(down.status).toBe(502)
-    expect(((await down.json()) as { message: string }).message).toContain("unreachable")
+    expect(((await down.json()) as { message: string }).message).toBe("The Librarian's model service can't be reached right now. Try again in a moment.")
 
     const wordless = recording(() => Response.json({ choices: [] }))
     const empty = await serve(body, wordless)

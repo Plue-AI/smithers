@@ -1,5 +1,4 @@
 import { WORKER_REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
-import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
@@ -7,6 +6,7 @@ import { ServerConfig } from "./Config"
 import type { UpstreamFailure } from "./Failures"
 import { fetchWithDeadline, readJsonOrUndefined, readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"
+import { operatorRefusal } from "./Responses"
 
 /*
  * The signed-in user's Smithers Cloud credential. The Worker mints it through
@@ -110,19 +110,20 @@ export const fetchCloudToken = (login: string): Effect.Effect<CloudTokenOutcome,
 /**
  * The one reading of a Cloud token outcome that is not a token. Eligibility is
  * a fact about the ACCOUNT and takes the allowlist code with its written copy;
- * everything else is the bridge, and the caller words that as it always has.
+ * everything else is the bridge. The outcome's own detail (an unset variable,
+ * a native cause, the door's HTTP status) is operator evidence, so it goes to
+ * the refusal log line and the body carries one fixed sentence.
  *
  * It lives beside `fetchCloudToken` because a consumer that reclassifies the
  * same fact for itself is how a closed-alpha refusal came to read as a setup
  * failure on two of these routes and as an outage on a third.
  */
-export const cloudTokenRefusal = (
-  outcome: Exclude<CloudTokenOutcome, { readonly status: "ok" }>,
-  unavailable: string
-): { readonly code: WorkerFailureCode; readonly message: string } =>
+export const CLOUD_TOKEN_UNAVAILABLE = "Smithers Cloud isn't reachable for your account right now."
+
+export const cloudTokenResponse = (outcome: Exclude<CloudTokenOutcome, { readonly status: "ok" }>): Response =>
   outcome.status === "not_eligible"
-    ? { code: "account_not_allowlisted", message: WORKER_REFUSAL_COPY.account_not_allowlisted.lead }
-    : { code: "cloud_token_unavailable", message: unavailable }
+    ? operatorRefusal("account_not_allowlisted", WORKER_REFUSAL_COPY.account_not_allowlisted.lead, "cloud token", outcome.detail)
+    : operatorRefusal("cloud_token_unavailable", CLOUD_TOKEN_UNAVAILABLE, "cloud token", `${outcome.status}: ${outcome.detail}`)
 
 /**
  * owner/repo, and nothing that could rewrite the upstream path. `.` and `..`

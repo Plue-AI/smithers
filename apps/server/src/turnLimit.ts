@@ -9,6 +9,7 @@ import type { NativeNamespace, NativeStorage } from "./DurableStorage"
 import { WORKER_FAILURES } from "@smthrs/rpc/WorkerFailureCodes"
 import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 import { CryptoFailure } from "./Failures"
+import { storageFailureAnswer } from "./Responses"
 /**
  * A per-login ceiling on model calls, because every one of them spends model
  * dollars.
@@ -218,12 +219,7 @@ export const turnRateLimiterRequest = (request: Request): Effect.Effect<Response
   }).pipe(
     Effect.catchTag(
       "StorageFailure",
-      (failure) =>
-        Effect.succeed(
-          Response.json({ status: "error", code: "storage_failed" satisfies WorkerFailureCode, message: failure.message }, {
-            status: 500
-          })
-        )
+      (failure) => Effect.succeed(storageFailureAnswer("turn limits", failure))
     )
   )
 

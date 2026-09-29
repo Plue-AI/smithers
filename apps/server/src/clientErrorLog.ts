@@ -8,6 +8,7 @@ import { runDurable } from "./Boundary"
 import { answeredJson, DurableStorage, namespaceCall, storageLayer } from "./DurableStorage"
 import type { NativeNamespace, NativeStorage } from "./DurableStorage"
 import { discardBody, readJsonOrUndefined } from "./Http"
+import { storageFailureAnswer } from "./Responses"
 /**
  * A readable record of what broke in a user's browser.
  *
@@ -297,7 +298,7 @@ export const clientErrorLogRequest = (
         return new Response("not found", { status: 404 })
     }
   }).pipe(
-    Effect.catchTag("StorageFailure", (failure) => Effect.succeed(new Response(failure.message, { status: 500 })))
+    Effect.catchTag("StorageFailure", (failure) => Effect.succeed(storageFailureAnswer("client error log", failure)))
   )
 
 export class ClientErrorLog {

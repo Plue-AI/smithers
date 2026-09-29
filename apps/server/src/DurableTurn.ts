@@ -1,4 +1,5 @@
 import { markCause } from "./RefusalLog"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
@@ -69,10 +70,29 @@ export const accessDurableTurn = (request: Request, owner: string | undefined, c
     return result.body.status === "error" ? publicRefusal(result.status, result.body) : json(200, result.body)
   }).pipe(Effect.catch(failure => Effect.succeed(markCause(refuseWithStatus(503, "storage_failed", "The recorded turn is temporarily unavailable."), "turn journal", failure))))
 
-class OutputFailure extends Error {
-  readonly _tag = "OutputFailure"
-  constructor(readonly message: string) { super(message) }
+/** The producer hit its append budget or the journal's output ceiling. */
+export class OutputLimitReached extends Data.TaggedError("OutputLimitReached")<{}> {}
+/** The journal stopped accepting this producer's writes. */
+export class OutputStorageLost extends Data.TaggedError("OutputStorageLost")<{ readonly cause?: unknown }> {}
+/** The model's response stream broke off. */
+export class OutputInterrupted extends Data.TaggedError("OutputInterrupted")<{ readonly cause?: unknown }> {}
+/** A model line that is not a frame of this turn. */
+export class OutputFrameInvalid extends Data.TaggedError("OutputFrameInvalid")<{ readonly cause?: unknown }> {}
+
+export type OutputFailure = OutputLimitReached | OutputStorageLost | OutputInterrupted | OutputFrameInvalid
+
+/** The one sentence a recorded turn ends with for each output failure. */
+export const OUTPUT_FAILURE_SENTENCE: { readonly [K in OutputFailure["_tag"]]: string } = {
+  OutputLimitReached: OUTPUT_LIMIT,
+  OutputStorageLost: STORAGE_LOST,
+  OutputInterrupted: INTERRUPTED,
+  OutputFrameInvalid: "The model response contained an invalid frame."
 }
+
+export const outputFailureSentence = (failure: unknown): string =>
+  typeof failure === "object" && failure !== null && "_tag" in failure && Object.hasOwn(OUTPUT_FAILURE_SENTENCE, failure._tag as string)
+    ? OUTPUT_FAILURE_SENTENCE[failure._tag as OutputFailure["_tag"]]
+    : STORAGE_LOST
 const encoded = (delivery: AgentTurnJournalDelivery): Uint8Array => new TextEncoder().encode(`${JSON.stringify(delivery)}\n`)
 
 /**
@@ -116,7 +136,7 @@ export const withDurableAgentTurn = <R, A>(
   const ctx = yield* ExecutionContext
 
   const write = (frames: AgentTurnFrame[]) => Effect.gen(function* () {
-    if (appendCalls >= MAX_PRODUCER_APPENDS) return yield* Effect.fail(new OutputFailure(OUTPUT_LIMIT))
+    if (appendCalls >= MAX_PRODUCER_APPENDS) return yield* Effect.fail(new OutputLimitReached())
     const command = { operation: "append" as const, writerHash, expected: cursor, frames }
     const invoke = Effect.suspend(() => {
       appendCalls++
@@ -124,11 +144,11 @@ export const withDurableAgentTurn = <R, A>(
     })
     // One exact retry repairs a lost receipt; it never repeats inference.
     const answer = yield* invoke.pipe(Effect.catch(() => Effect.gen(function* () {
-      if (appendCalls >= MAX_PRODUCER_APPENDS) return yield* Effect.fail(new OutputFailure(STORAGE_LOST))
+      if (appendCalls >= MAX_PRODUCER_APPENDS) return yield* Effect.fail(new OutputStorageLost({}))
       return yield* invoke
     })))
     if (answer.body.status !== "committed" && answer.body.status !== "duplicate") {
-      return yield* Effect.fail(new OutputFailure(answer.body.status === "error" && answer.body.code === "limit" ? OUTPUT_LIMIT : STORAGE_LOST))
+      return yield* Effect.fail(answer.body.status === "error" && answer.body.code === "limit" ? new OutputLimitReached() : new OutputStorageLost({ cause: answer.body }))
     }
     cursor = answer.body.cursor
     terminal = frames.at(-1)?.type === "done"
@@ -168,7 +188,7 @@ export const withDurableAgentTurn = <R, A>(
         ? raw.message.slice(0, 500) : "Smithers Cloud did not complete that turn."
       source = Stream.make({ runId: body.runId, type: "done", error: detail })
     } else {
-      source = Stream.fromReadableStream({ evaluate: () => response.body!, onError: () => new OutputFailure(INTERRUPTED) }).pipe(
+      source = Stream.fromReadableStream({ evaluate: () => response.body!, onError: (cause) => new OutputInterrupted({ cause }) }).pipe(
         Stream.decodeText(), Stream.splitLines,
         Stream.filter(line => line.trim() !== ""),
         Stream.mapEffect(line => Effect.try({
@@ -177,7 +197,7 @@ export const withDurableAgentTurn = <R, A>(
             if (frame === null || frame.runId !== body.runId) throw new Error("Invalid output")
             return frame
           },
-          catch: () => new OutputFailure("The model response contained an invalid frame.")
+          catch: (cause) => new OutputFrameInvalid({ cause })
         })),
         Stream.takeUntil(frame => frame.type === "done")
       )
@@ -186,7 +206,7 @@ export const withDurableAgentTurn = <R, A>(
     const output = source.pipe(
       Stream.groupedWithin(64, 250),
       Stream.mapEffect(write),
-      Stream.catch(failure => Stream.fromEffect(finish(failure instanceof OutputFailure ? failure.message : STORAGE_LOST)).pipe(
+      Stream.catch(failure => Stream.fromEffect(finish(outputFailureSentence(failure))).pipe(
         Stream.filter((value): value is AgentTurnJournalDelivery => value !== undefined)
       )),
       Stream.concat(Stream.fromEffect(finish(INTERRUPTED)).pipe(Stream.filter((value): value is AgentTurnJournalDelivery => value !== undefined))),

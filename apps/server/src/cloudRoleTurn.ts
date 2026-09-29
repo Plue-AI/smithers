@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect"
-import { routeRefusalStatus } from "./Responses"
-import type { RouteRefusalCode } from "./Responses"
+import { routeRefusal } from "./Responses"
 /**
  * The cloud roles: turns the Worker answers itself, on Cerebras.
  *
@@ -127,12 +126,8 @@ export const cloudRoleMessages = (body: TurnRequest): ReadonlyArray<CerebrasChat
   ]
 }
 
-const jsonWith = (status: number, body: unknown, headers: Record<string, string>): Response =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
-
 /* This route's own refusal: the code names the status, and the caller's headers ride along. */
-const refusal = (code: RouteRefusalCode, message: string, headers: Record<string, string>): Response =>
-  jsonWith(routeRefusalStatus(code), { status: "error", code, message }, headers)
+const refusal = routeRefusal
 
 const ndjson = (frames: ReadonlyArray<AgentTurnFrame>, headers: Record<string, string>): Response =>
   new Response(frames.map((frame) => `${JSON.stringify(frame)}\n`).join(""), {
@@ -175,11 +170,10 @@ export const handleCloudRoleTurn = (
     }
     const config = yield* ServerConfig
     if (config.cerebrasApiKey === undefined) {
-      return refusal(
-        "seam_not_configured",
-        `CEREBRAS_API_KEY is unset. The ${role.label} is unavailable on this deployment.`,
-        headers
-      )
+      return refusal("seam_not_configured", `The ${role.label} isn't available on this deployment.`, headers, {
+        seam: role.label,
+        cause: "CEREBRAS_API_KEY is unset"
+      })
     }
     const model = cloudRoleModel(role, config)
     const answer = yield* cerebrasChat({
@@ -206,8 +200,9 @@ export const handleCloudRoleTurn = (
         case "unreachable":
           return refusal(
             "upstream_unreachable",
-            `The ${role.label}'s model service is unreachable: ${answer.message}`,
-            headers
+            `The ${role.label}'s model service can't be reached right now. Try again in a moment.`,
+            headers,
+            { seam: role.label, cause: answer.message }
           )
         case "out_of_credit":
           return refusal("out_of_credit", "Out of credit.", headers)

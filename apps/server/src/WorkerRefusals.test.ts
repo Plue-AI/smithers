@@ -141,7 +141,7 @@ describe("the misconfigured deployment", () => {
     expect(refusal.code).toBe("deployment_not_configured")
     expect(refusal.fault).toBe("infra")
     expect(refusal.origin).toBe("worker")
-    expect(refusal.message).toBe("The chat seam is not configured on this deployment (SMITHERS_CHAT_URL).")
+    expect(refusal.message).toBe("The chat seam isn't set up on this deployment.")
     const lead = refusalLead(refusal)
     expect(lead).toBe(
       "This deployment of Smithers isn't fully set up. Not your fault — and not something you can fix from here; whoever deployed it has to finish wiring it."

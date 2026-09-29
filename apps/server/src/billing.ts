@@ -32,12 +32,12 @@ export const proxyToBilling = (request: Request): Effect.Effect<Response, never,
   Effect.gen(function* () {
     const config = yield* ServerConfig
     if (config.billingUpstreamUrl === undefined) {
-      return notConfigured("The billing seam", "BILLING_UPSTREAM_URL is unset. Balance is unavailable")
+      return notConfigured("Your balance", "BILLING_UPSTREAM_URL is unset. Balance is unavailable")
     }
     const url = new URL(request.url)
     if (config.identityUpstreamUrl === undefined) {
       return notConfigured(
-        "The billing seam",
+        "Your balance",
         "IDENTITY_UPSTREAM_URL is unset. Billing reads one signed-in user's account, and no identity service can validate a session"
       )
     }
@@ -56,7 +56,7 @@ export const proxyToBilling = (request: Request): Effect.Effect<Response, never,
     const session = validation.identity
     if (config.billingProductServiceToken === undefined) {
       return notConfigured(
-        "The billing seam",
+        "Your balance",
         "BILLING_PRODUCT_SERVICE_TOKEN is unset. A signed-in user's balance reads through the trusted-caller path; without it the seam could only bill the shared deployment account, so it says so instead"
       )
     }

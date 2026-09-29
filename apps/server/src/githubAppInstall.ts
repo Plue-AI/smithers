@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken, isRelayRepoName } from "./cloudToken"
+import { cloudTokenResponse, fetchCloudToken, isRelayRepoName } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readBoundedJson } from "./Http"
 import { requireTurnSession } from "./identity"
 import { json, refuse, upstreamUnreachable } from "./Responses"
@@ -25,8 +25,7 @@ export const handleGitHubAppInstall = (request: Request, installationId?: string
   if (gate instanceof Response) return gate
   const token = yield* fetchCloudToken(gate.login)
   if (token.status !== "ok") {
-    const refusal = cloudTokenRefusal(token, `Smithers Cloud isn't reachable for your account right now (${token.status}).`)
-    return refuse(refusal.code, refusal.message)
+    return cloudTokenResponse(token)
   }
   const headers = { authorization: `Bearer ${token.token}`, accept: "application/json" }
   const read = (path: string) => Effect.gen(function* () {

@@ -50,7 +50,7 @@ export const requireWorkflowSession = (request: Request): Effect.Effect<Validate
     const config = yield* ServerConfig
     if (config.identityUpstreamUrl === undefined) {
       return notConfigured(
-        "The workflow seam",
+        "Flows",
         "IDENTITY_UPSTREAM_URL is unset. Flows run as the signed-in user, and no identity service can say who that is"
       )
     }
