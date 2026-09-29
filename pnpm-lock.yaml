@@ -4690,6 +4690,9 @@ importers:
       '@smthrs/keys':
         specifier: 1.0.0-rc.1
         version: link:../keys
+      '@smthrs/plan':
+        specifier: 1.0.0-rc.1
+        version: link:../plan
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -4703,9 +4706,6 @@ importers:
       '@eslint/js':
         specifier: 9.39.5
         version: 9.39.5
-      '@smthrs/plan':
-        specifier: 1.0.0-rc.1
-        version: link:../plan
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1
