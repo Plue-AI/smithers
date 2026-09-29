@@ -108,6 +108,7 @@ var migrationRegistry = []migrationSpec{
 	{70, "migrations/0070_flow_host_service_identity.sql"},
 	{71, "migrations/0071_workspace_service_previews.sql"},
 	{72, "migrations/0072_email_recipient_rate_limits.sql"},
+	{73, "migrations/0073_workflow_log_retention.sql"},
 }
 
 type migration struct {
