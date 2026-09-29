@@ -7,6 +7,7 @@ import { memoryBucket } from "./helpers/memoryBucket.ts";
 function envWithoutDb(): ReviewWorkerEnv {
   return {
     WALKTHROUGHS: memoryBucket(),
+    PUBLIC_BASE_URL: "https://content.example",
     // Simulates a worker deployed without the D1 binding.
     DB: undefined as unknown as ReviewWorkerEnv["DB"],
     REVIEW_PUBLISH_TOKEN: "test-publish",
@@ -56,7 +57,7 @@ describe("worker without a walkthrough storage binding", () => {
     env.DB = {} as ReviewWorkerEnv["DB"];
     env.WALKTHROUGHS = undefined as unknown as ReviewWorkerEnv["WALKTHROUGHS"];
 
-    const response = await worker.fetch(new Request("https://review.test/w/abc12345"), env);
+    const response = await worker.fetch(new Request("https://content.example/w/abc12345"), env);
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "walkthrough storage unavailable" });

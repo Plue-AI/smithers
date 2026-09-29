@@ -1,3 +1,4 @@
+import { walkthroughOrigin } from "../walkthroughOrigin.ts";
 import { sameRepoName } from "../sameRepoName.ts";
 import type { ReviewWorkerEnv } from "../env.ts";
 import { jsonError } from "../jsonError.ts";
@@ -50,7 +51,7 @@ export async function handleWalkthroughs(
   now: number,
 ): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/api/walkthroughs") {
-    return handlePublish(request, env, url, now);
+    return handlePublish(request, env, now);
   }
   if (request.method === "GET" && url.pathname === "/api/walkthroughs") {
     return handleHistory(request, env, url, now);
@@ -61,7 +62,9 @@ export async function handleWalkthroughs(
   return jsonError(404, "not found");
 }
 
-async function handlePublish(request: Request, env: ReviewWorkerEnv, url: URL, now: number): Promise<Response> {
+async function handlePublish(request: Request, env: ReviewWorkerEnv, now: number): Promise<Response> {
+  const base = walkthroughOrigin(env);
+  if (!base) return jsonError(503, "walkthrough origin unavailable");
   const publishTokenOk = isPublishToken(request, env);
   let credential: ProxyAuth | null = null;
   if (!publishTokenOk) {
@@ -109,11 +112,12 @@ async function handlePublish(request: Request, env: ReviewWorkerEnv, url: URL, n
     await env.DB.prepare("DELETE FROM walkthroughs WHERE id = ?").bind(id).run();
     throw error;
   }
-  const base = walkthroughBase(env, url);
   return Response.json({ id, url: `${base}/w/${id}` }, { status: 201 });
 }
 
 async function handleHistory(request: Request, env: ReviewWorkerEnv, url: URL, now: number): Promise<Response> {
+  const base = walkthroughOrigin(env);
+  if (!base) return jsonError(503, "walkthrough origin unavailable");
   const credential = await authenticateProxyRequest(request, env, now);
   if (!credential) return jsonError(401, "unauthorized");
 
@@ -126,7 +130,6 @@ async function handleHistory(request: Request, env: ReviewWorkerEnv, url: URL, n
   )
     .bind(repo)
     .all<WalkthroughRow>();
-  const base = walkthroughBase(env, url);
   return Response.json({
     walkthroughs: rows.results.map((row) => ({
       id: row.id,
@@ -181,9 +184,6 @@ function isPublishToken(request: Request, env: ReviewWorkerEnv): boolean {
   return Boolean(publishToken && timingSafeStringEqual(auth, `Bearer ${publishToken}`));
 }
 
-function walkthroughBase(env: ReviewWorkerEnv, url: URL): string {
-  return (env.PUBLIC_BASE_URL ?? url.origin).replace(/\/$/, "");
-}
 
 
 /** Delete expired objects before their rows so failed R2 deletes remain retryable. */

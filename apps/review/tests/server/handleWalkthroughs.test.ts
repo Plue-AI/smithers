@@ -85,7 +85,7 @@ describe("walkthrough publish and serve", () => {
     const env = await buildTestEnv();
     const worker = makeWorker();
 
-    const served = await worker.fetch(new Request("https://review.test/w/abc12345"), env);
+    const served = await worker.fetch(new Request("https://content.example/w/abc12345"), env);
 
     expect(served.status).toBe(404);
     expect(served.headers.get("content-type")).toContain("text/html");

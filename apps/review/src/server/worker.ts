@@ -3,6 +3,7 @@ import { handleAdminRepos } from "./admin/handleAdminRepos.ts";
 import { handleAdminUsage } from "./admin/handleAdminUsage.ts";
 import type { ReviewWorkerEnv } from "./env.ts";
 import { jsonError } from "./jsonError.ts";
+import { walkthroughOrigin } from "./walkthroughOrigin.ts";
 import { landingPage } from "./landingPage.ts";
 import { handleMetrics } from "./metrics/handleMetrics.ts";
 import { handlePlan } from "./plan/handlePlan.ts";
@@ -80,14 +81,21 @@ export function createReviewWorker(overrides?: Partial<ReviewWorkerDeps>) {
     async fetch(request: Request, env: ReviewWorkerEnv, ctx?: ReviewWorkerCtx): Promise<Response> {
       const deps: ReviewWorkerDeps = { ...defaultDeps(ctx), ...overrides };
       const url = new URL(request.url);
-      const origin = (env.PUBLIC_BASE_URL ?? url.origin).replace(/\/$/, "");
+      const origin = url.origin;
+      const contentOrigin = walkthroughOrigin(env);
+      const isContentHost = contentOrigin !== null && new URL(contentOrigin).hostname === url.hostname.replace(/\.$/, "");
+      const isWalkthrough = request.method === "GET" && /^\/w\/[a-z0-9]{8,32}$/.test(url.pathname);
+      if (
+        (url.pathname.startsWith("/w/") && (!isWalkthrough || url.origin !== contentOrigin)) ||
+        (isContentHost && (!isWalkthrough || url.origin !== contentOrigin))
+      ) return new Response("Not found", { status: 404 });
 
       if (request.method === "GET" && url.pathname === "/") {
         return new Response(landingPage, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
 
       // Hosted artifacts do not need a database read.
-      if (request.method === "GET" && /^\/w\/[a-z0-9]{8,32}$/.test(url.pathname)) {
+      if (isWalkthrough) {
         if (!env.WALKTHROUGHS) return jsonError(503, "walkthrough storage unavailable");
         const id = url.pathname.slice("/w/".length);
         const object = await env.WALKTHROUGHS.get(`walkthroughs/${id}.html`);

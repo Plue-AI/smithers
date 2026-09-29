@@ -21,6 +21,6 @@ export async function buildTestEnv(overrides: TestEnvOverrides = {}): Promise<Re
     ADMIN_TOKEN: overrides.ADMIN_TOKEN ?? "test-admin",
     METRICS_TOKEN: overrides.METRICS_TOKEN ?? "test-metrics",
     ANTHROPIC_API_KEY: overrides.ANTHROPIC_API_KEY ?? "sk-ant-test",
-    PUBLIC_BASE_URL: overrides.PUBLIC_BASE_URL,
+    PUBLIC_BASE_URL: overrides.PUBLIC_BASE_URL ?? "https://content.example",
   };
 }
