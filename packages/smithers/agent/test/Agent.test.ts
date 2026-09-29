@@ -60,7 +60,8 @@ import {
   Schedule,
   Schema,
   Scope,
-  Stream
+  Stream,
+  Tracer
 } from "effect"
 import type * as Crypto from "effect/Crypto"
 import * as TestClock from "effect/testing/TestClock"
@@ -1651,6 +1652,54 @@ describe("Agent.run", () => {
     // its own end: durable evidence and a further frame, not a failed run.
     const settled = events.filter((event) => event._tag === "cell-settled")
     expect(settled.at(0)?._tag === "cell-settled" ? settled.at(0)?.outcome._tag : undefined).toBe("settled")
+  })
+
+  it.each([
+    [{ message: "disk full" }, Cell.defaultCallFailureCode, "disk full"],
+    [{ code: "timeout" as const }, "timeout", "timeout"]
+  ])("ends a failed flow call's execute_tool span as a failure and hands the envelope back (%j)", async (
+    failure,
+    errorType,
+    reported
+  ) => {
+    const spans: Array<Tracer.NativeSpan> = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      }
+    })
+    const failing = new Map(implementations([]))
+    failing.set("fs/write", () => Effect.succeed(new Cell.CallResult({ outcome: "failure", value: null, ...failure })))
+    const outcome = await drive(
+      collect({ registry: registryOf(flows), model: recorded([]), implementations: failing }).pipe(
+        Effect.provideService(Tracer.Tracer, tracer)
+      )
+    )
+
+    expect(outcome._tag).toBe("completed")
+    const agent = spans.find((span) => span.name === "invoke_agent")!
+    expect(Object.fromEntries(agent.attributes)).toEqual({
+      "gen_ai.operation.name": "invoke_agent",
+      "gen_ai.request.model": "test-model",
+      "gen_ai.conversation.id": "session-1"
+    })
+    const listed = spans.find((span) => span.name === "execute_tool fs/list")!
+    expect(listed.status._tag === "Ended" && listed.status.exit._tag).toBe("Success")
+    expect(listed.attributes.has("error.type")).toBe(false)
+    const refused = spans.find((span) => span.name === "execute_tool fs/write")!
+    expect(refused.attributes.get("gen_ai.tool.name")).toBe("fs/write")
+    expect(refused.attributes.get("error.type")).toBe(errorType)
+    expect(refused.status._tag === "Ended" && refused.status.exit._tag).toBe("Failure")
+    expect(
+      refused.status._tag === "Ended" && Cause.pretty((refused.status.exit as Exit.Failure<unknown, unknown>).cause)
+    )
+      .toContain(reported)
+    // The cell still received the envelope as a resolved failure.
+    const events = outcome._tag === "completed" ? outcome.value as ReadonlyArray<AgentEvent.AgentEvent> : []
+    const settledCall = events.find((event) => event._tag === "cell-call-settled" && event.result.outcome === "failure")
+    expect(settledCall).toBeDefined()
   })
 
   it("carries every declaration the host supplies through to the boundary", async () => {

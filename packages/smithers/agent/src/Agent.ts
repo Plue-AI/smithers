@@ -42,7 +42,7 @@
 import * as Capability from "@smthrs/capability/Capability"
 import { Action, DurableClock, Fault, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
-import type * as Cell from "@smthrs/harness/Cell"
+import * as Cell from "@smthrs/harness/Cell"
 import * as CellCalls from "@smthrs/harness/CellCalls"
 import * as CellTurn from "@smthrs/harness/CellTurn"
 import * as ContextWindow from "@smthrs/harness/ContextWindow"
@@ -973,19 +973,45 @@ const runProductionUnmeasured: Service["run"] = (options) =>
     })
   )
 
-/** One flow call from a cell, as an OpenTelemetry GenAI `execute_tool` span. */
+/** A call that resolved with a failure envelope, carried through its span as a failure. */
+class ToolCallFailed extends Error {
+  readonly result: Cell.CallResult
+  constructor(result: Cell.CallResult, code: Cell.CallFailureCode) {
+    super(result.message ?? code)
+    this.name = "ToolCallFailed"
+    this.result = result
+  }
+}
+
+/**
+ * One flow call from a cell, as an OpenTelemetry GenAI `execute_tool` span.
+ *
+ * A failed call resolves rather than fails, so the span is ended as a failure
+ * with `error.type` explicitly and the envelope is handed back unchanged.
+ */
 const executeTool = (
   run: FlowEngineLike.CallRunner["run"],
   call: Cell.Call
 ): Effect.Effect<Cell.CallResult, HarnessError> =>
   run(call).pipe(
+    Effect.flatMap((result) => {
+      if (result.outcome === "success") return Effect.succeed(result)
+      const code = result.code ?? Cell.defaultCallFailureCode
+      return Effect.annotateCurrentSpan("error.type", code).pipe(
+        Effect.andThen(Effect.fail(new ToolCallFailed(result, code)))
+      )
+    }),
     Effect.withSpan(`execute_tool ${call.flowName}`, {
       attributes: {
         "gen_ai.operation.name": "execute_tool",
         "gen_ai.tool.name": call.flowName,
         "gen_ai.tool.call.id": CallIdentity.callId(call.identity)
       }
-    })
+    }),
+    Effect.catchIf(
+      (error): error is ToolCallFailed => error instanceof ToolCallFailed,
+      (error) => Effect.succeed(error.result)
+    )
   )
 
 const runProduction: Service["run"] = (options) =>
