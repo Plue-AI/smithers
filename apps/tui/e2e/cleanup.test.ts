@@ -56,8 +56,9 @@ describe("test-run cleanup", () => {
     expect(orphaned.length).toBeGreaterThan(0)
     child.kill("SIGKILL")
     await new Promise((done) => child.once("exit", done))
-    // SIGKILL runs no hook: the daemon and the run's root outlive it.
-    expect(daemons(base)).toEqual(orphaned)
+    // SIGKILL runs no hook: the daemon and the run's root outlive it. The
+    // daemon's transient descendants may exit on their own meanwhile.
+    expect(daemons(base)).toContain(orphaned[0]!)
     expect(readdirSync(base)).toHaveLength(1)
 
     run(base, "./test/estimate.test.ts")
