@@ -31,10 +31,12 @@ const roots: Array<string> = []
 const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
 const fixture = async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "atomic-executable-")))
-  roots.push(root)
+  const stageBase = await realpath(await mkdtemp(join(tmpdir(), "atomic-stage-")))
+  roots.push(root, stageBase)
+  for (const name of ["TMPDIR", "TMP", "TEMP"] as const) vi.stubEnv(name, stageBase)
   const packageRoot = join(root, "packages/smithers/flows/platform-node")
   await mkdir(packageRoot, { recursive: true })
-  return { root, packageRoot }
+  return { root, stageBase, packageRoot }
 }
 const helper = async (path: string) => {
   await mkdir(dirname(path), { recursive: true })
@@ -43,6 +45,7 @@ const helper = async (path: string) => {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
@@ -62,14 +65,14 @@ describe("default atomic helper resolution", () => {
   it("pins a registered embedded asset through the same private staging path", async () => {
     vi.resetModules()
     const embedded = await import("../src/internal/AtomicFileSystemExecutable.ts")
-    const { root } = await fixture()
+    const { root, stageBase } = await fixture()
     const asset = join(root, "embedded-helper")
     await helper(asset)
     embedded.registerEmbeddedHelper(asset)
     embedded.stagePackaged(join(root, "missing-package"))
     await writeFile(asset, "changed after host construction")
     const executable = embedded.resolveDefaultExecutable(join(root, "missing-package"), root)
-    expect(executable.startsWith(`${root}${sep}`)).toBe(false)
+    expect(executable.startsWith(`${stageBase}${sep}`)).toBe(true)
     expect(await readFile(executable, "utf8")).toBe("#!/bin/sh\nexit 0\n")
   })
 
@@ -177,6 +180,33 @@ describe("default atomic helper resolution", () => {
     expect((await readdir(base)).sort()).toEqual(
       [basename(dirname(selected)), basename(recent), basename(notDirectory), "keep-me"].sort()
     )
+  })
+
+  it("removes stale helper temporary files and keeps recent or unrelated files", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    const directory = join(base, `.smthrs-atomic-helper-${digest}`)
+    const otherDirectory = join(base, `.smthrs-atomic-helper-${"0".repeat(64)}`)
+    await mkdir(directory)
+    await mkdir(otherDirectory)
+    const stale = join(directory, `.${helperName}.12345.a1b2c3d4e5f6`)
+    const otherStale = join(otherDirectory, `.${helperName}.67890.a1b2c3d4e5f6`)
+    const recent = join(directory, `.${helperName}.12345.abcdef123456`)
+    const unrelated = join(directory, `.${helperName}.invalid.a1b2c3d4e5f6`)
+    for (const path of [stale, otherStale, recent, unrelated]) await writeFile(path, "temporary")
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    await utimes(stale, old, old)
+    await utimes(otherStale, old, old)
+    await utimes(unrelated, old, old)
+
+    const selected = outsideWorkspace(source, undefined, [base])
+    expect(selected).toBe(join(directory, helperName))
+    expect((await readdir(directory)).sort()).toEqual([helperName, basename(recent), basename(unrelated)].sort())
+    expect(await readdir(otherDirectory)).toEqual([])
   })
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(

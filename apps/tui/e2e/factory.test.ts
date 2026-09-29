@@ -97,3 +97,49 @@ it("reads the repository's stack from Cloud and lists its issues by group under 
     rmSync(root, { recursive: true, force: true })
   }
 }, 60_000)
+
+for (const status of [401, 403]) {
+  it(`shows the sign-in row when Cloud returns HTTP ${status}`, async () => {
+    const seen: Array<string | null> = []
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization"))
+        return new Response("Unauthorized", { status })
+      }
+    })
+    const root = mkdtempSync(join(tmpdir(), "tui-factory-"))
+    let tui: Tui | undefined
+    try {
+      tui = await Tui.start({
+        cwd: root,
+        cols: 150,
+        rows: 30,
+        command: `bun ${join(app, "e2e", "tabs-fixture.tsx")}`,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: root,
+          XDG_CONFIG_HOME: root,
+          SMITHERS_TUI_SESSION_DIR: join(root, "s"),
+          SMITHERS_API_ORIGIN: `http://127.0.0.1:${server.port}`,
+          SMITHERS_TOKEN: "tok_e2e",
+          SMITHERS_REPO: "o/r"
+        }
+      })
+      await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
+      await tui.type("/smithers")
+      await tui.press(key.enter)
+      await tui.until(
+        (screen) => screen.includes("Sign in to see the factory: smthrs auth login"),
+        10_000,
+        "the sign-in row"
+      )
+      expect(seen).toContain("token tok_e2e")
+    } finally {
+      await tui?.stop()
+      server.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+}

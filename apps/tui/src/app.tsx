@@ -585,16 +585,15 @@ export function App(props: AppProps) {
       try {
         cloud ??= await CloudSession.signedIn(process.env)
         if (cloud === undefined) return setFactory("signed-out")
-        const stack = await Factory.load(cloud.get, factoryRepo, controller.signal).catch((error: unknown) => {
-          if (/HTTP 40[13]\b/.test(String(error))) cloud = undefined
-          throw error
-        })
+        const stack = await Factory.load(cloud.get, factoryRepo, controller.signal)
         if (!controller.signal.aborted) {
           setFactory({ metrics: Factory.metrics(stack), rows: Factory.rows(stack, Date.now()) })
         }
       } catch (error) {
         if (controller.signal.aborted) return
-        setFactory(undefined)
+        const refused = /HTTP 40[13]\b/.test(String(error))
+        if (refused) cloud = undefined
+        setFactory(refused ? "signed-out" : undefined)
         Log.write("factory.read", error)
       } finally {
         reading = false

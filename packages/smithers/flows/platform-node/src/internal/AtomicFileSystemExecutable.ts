@@ -128,8 +128,8 @@ const refresh = (copy: { readonly path: string; touchedAt: number }): void => {
 }
 
 /**
- * Removes this user's stale staging directories beside `keep`: other helper
- * builds and the per-process copies earlier versions left behind on a signal.
+ * Removes this user's stale staging directories beside `keep`, and incomplete
+ * temporary files left in live directories when a writer exited on a signal.
  */
 const prune = (base: string, keep: string): void => {
   const uid = process.getuid?.()
@@ -140,13 +140,31 @@ const prune = (base: string, keep: string): void => {
   } catch {
     return
   }
+  const temporaryPrefix = `.${helperName}.`
   for (const name of names) {
-    if (!name.startsWith(".smthrs-atomic-helper-") || name === keep) continue
+    if (!name.startsWith(".smthrs-atomic-helper-")) continue
     const directory = join(base, name)
     try {
       const info = lstatSync(directory)
       if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) continue
-      if (now - info.mtimeMs > staleMs) rmSync(directory, { recursive: true, force: true })
+      if (name !== keep && now - info.mtimeMs > staleMs) {
+        rmSync(directory, { recursive: true, force: true })
+        continue
+      }
+      for (const entry of readdirSync(directory)) {
+        if (!entry.startsWith(temporaryPrefix) || !/^\d+\.[0-9a-f]{12}$/.test(entry.slice(temporaryPrefix.length))) {
+          continue
+        }
+        const temporary = join(directory, entry)
+        try {
+          const file = lstatSync(temporary)
+          if (file.isFile() && (uid === undefined || file.uid === uid) && now - file.mtimeMs > staleMs) {
+            rmSync(temporary, { force: true })
+          }
+        } catch {
+          // A writer or another pruner removed this entry first.
+        }
+      }
     } catch {
       // Another process removed or replaced it first.
     }
