@@ -4,6 +4,7 @@ import { Action, DurableDeferred, Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import {
   Cause,
+  Context,
   Deferred,
   Effect,
   Exit,
@@ -637,6 +638,10 @@ const HttpTestServices = Layer.mergeAll(
   HttpPlatform.layer
 ).pipe(Layer.provideMerge(FileSystem.layerNoop({})))
 
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/flows-engine/FlowProxyServer/Unprovided"
+) {}
+
 class ProxyApi extends HttpApi.make("proxy").add(
   FlowProxy.toHttpApiGroup("flows", flows)
 ) {}
@@ -644,19 +649,17 @@ class ProxyApi extends HttpApi.make("proxy").add(
 describe("FlowProxyServer.layerHttpApi", () => {
   const client = HttpApiTest.groups(ProxyApi, ["flows"])
 
-  const provide = (
-    layer: Layer.Layer<any, never, never>,
+  const provide = <ROut>(
+    layer: Layer.Layer<ROut>,
     options?: { readonly executionId?: FlowProxyServer.ExecutionIdScope }
-  ) =>
-  <A, E>(self: Effect.Effect<A, E, any>): Effect.Effect<A, E, never> =>
-    self.pipe(
-      Effect.provide(
-        FlowProxyServer.layerHttpApi(ProxyApi, "flows", flows, options).pipe(
-          Layer.provideMerge(layer)
-        )
-      ),
-      Effect.provide(HttpTestServices)
-    ) as Effect.Effect<A, E, never>
+  ) => {
+    const served = FlowProxyServer.layerHttpApi(ProxyApi, "flows", flows, options).pipe(
+      Layer.provideMerge(layer),
+      Layer.provideMerge(HttpTestServices)
+    )
+    return <A, E>(self: Effect.Effect<A, E, NoInfer<Layer.Success<typeof served>> | Scope.Scope>) =>
+      Effect.scoped(Effect.provide(self, served))
+  }
 
   effect("routes the execute endpoint to the flow handler", () => {
     const { calls, layer } = makeLayer((value) => Effect.succeed(value + 1))
@@ -950,6 +953,19 @@ describe("FlowProxyServer.layerHttpApi", () => {
       expect(proxyErrors().length).toBe(2)
       expect(proxyErrors().every((entry) => String(entry.message).includes("proxy-handler-defect"))).toBe(true)
     }).pipe(Effect.provideService(Logger.CurrentLoggers, new Set([capture])))
+  })
+
+  /** Never called; tsc checks it (#2704). */
+  const unprovidedServiceProbe = () => {
+    const { layer } = makeLayer((value) => Effect.succeed(value))
+    // @ts-expect-error the proxy layer and HTTP test services do not provide Unprovided
+    provide(layer)(Effect.map(Unprovided, (service) => service.value))
+    provide(layer)(Effect.map(Path.Path, (path) => path.sep))
+  }
+
+  it("rejects a body that needs a service its layer does not provide (#2704)", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })
 

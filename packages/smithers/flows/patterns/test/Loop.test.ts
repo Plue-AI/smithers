@@ -13,6 +13,7 @@ import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Graph, Interpreter } from "@smthrs/flow"
 import * as Node from "@smthrs/plan/Node"
 import * as Glob from "@smthrs/std/Glob"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
@@ -111,7 +112,7 @@ const shallowUntil = Flow.make("loop/shallow-until", {
   body: ({ value }) => Node.map(Node.succeed(value), (settled) => Loop.done(settled))
 })
 
-const services = (loop: Loop.LoopFlow<any>) =>
+const services = <R>(loop: Loop.LoopFlow<R>) =>
   Layer.mergeAll(globLayer, Interpreter.layer(loop)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(FlowEngine.layerMemory),
@@ -120,7 +121,7 @@ const services = (loop: Loop.LoopFlow<any>) =>
 
 /** Runs one declared loop to settlement against the scripted glob. */
 const execute = (
-  loop: Loop.LoopFlow<any>,
+  loop: Loop.LoopFlow<Action.Requirement<string>>,
   input: unknown,
   executionId: string,
   script: (pattern: string) => ReadonlyArray<string>
@@ -128,11 +129,7 @@ const execute = (
   globbed.length = 0
   answers = script
   return Effect.runPromise(
-    loop.execute({ input }, { executionId }).pipe(Effect.provide(services(loop)), Effect.scoped) as Effect.Effect<
-      unknown,
-      unknown,
-      never
-    >
+    loop.execute({ input }, { executionId }).pipe(Effect.provide(services(loop)), Effect.scoped)
   )
 }
 
@@ -334,7 +331,7 @@ describe("Loop", () => {
         Effect.provide(services(loop)),
         Effect.scoped,
         Effect.flip
-      ) as Effect.Effect<unknown, never, never>
+      )
     )
 
     expect(failure).toMatchObject({
@@ -566,7 +563,7 @@ describe("Loop stall", () => {
         Effect.provide(services(escalating)),
         Effect.scoped,
         Effect.flip
-      ) as Effect.Effect<unknown, never, never>
+      )
     )
     expect(failure).toMatchObject({ code: "stalled" })
     expect(globbed).toHaveLength(3)
@@ -625,5 +622,23 @@ describe("Loop stall", () => {
     }))
     expect(output.stalled?.signal).toBe("output")
     expect(output.iterations).toBe(2)
+  })
+})
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/flows-patterns/Loop/Unprovided"
+) {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = (needsUnprovided: Loop.LoopFlow<Unprovided>) => {
+  // @ts-expect-error the loop test services do not provide Unprovided
+  execute(needsUnprovided, "seed", "probe", () => [])
+  execute(Loop.ralph({ body, maxIterations: 1 }), "seed", "probe", () => [])
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a loop that needs a service its layer does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })

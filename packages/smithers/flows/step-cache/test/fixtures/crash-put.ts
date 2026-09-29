@@ -58,5 +58,5 @@ await Effect.runPromise(
       const outcome = yield* store.put(entry)
       console.log(outcome._tag)
     }).pipe(Effect.provide(database))
-  ) as Effect.Effect<void>
+  )
 )

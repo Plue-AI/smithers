@@ -47,10 +47,10 @@ const sealed = (idempotencyKey: Action.IdempotencyKey) =>
 
 /** Dispatches `action` under `environment` and returns the step key. */
 const keyUnder = (
-  action: Action.Any,
+  action: Action.Action,
   environment?: Action.CacheEnvironment,
   executionId = "content-environment-run"
-): Effect.Effect<string> => {
+): Effect.Effect<string, never, Crypto.Crypto> => {
   let captured: string | undefined
   const engine = scriptedEngine({
     actionExecute: (input) =>
@@ -61,18 +61,19 @@ const keyUnder = (
   })
   return Effect.gen(function*() {
     const service = yield* FlowRuntime.FlowRuntime
-    yield* service.actionExecute(action as never, 1)
+    yield* service.actionExecute(action, 1)
     return captured!
   }).pipe(
-    environment === undefined
-      ? (self) => self
-      : Effect.provideService(Action.CurrentCacheEnvironment, environment),
+    (self) =>
+      environment === undefined
+        ? self
+        : Effect.provideService(self, Action.CurrentCacheEnvironment, environment),
     Effect.provideService(
       FlowRuntime.FlowInstance,
       FlowEngine.makeInstance(flow, executionId)
     ),
     Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine))
-  ) as Effect.Effect<string>
+  )
 }
 
 const sonnet: Action.CacheEnvironment = {

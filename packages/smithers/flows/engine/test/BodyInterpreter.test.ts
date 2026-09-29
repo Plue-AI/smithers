@@ -148,7 +148,7 @@ describe("bodied flow on the memory engine", () => {
           yield* Effect.yieldNow
           yield* Deferred.succeed(release, undefined)
           return [yield* Fiber.join(first), yield* Fiber.join(duplicate)]
-        }).pipe(Effect.provide(layer)) as Effect.Effect<ReadonlyArray<unknown>, unknown, Crypto.Crypto>)
+        }).pipe(Effect.provide(layer)))
       }))
 
       expect(results).toEqual([43, 43])

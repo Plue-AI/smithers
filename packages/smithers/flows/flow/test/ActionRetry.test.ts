@@ -38,7 +38,7 @@ const run = (
     // The literal payload above always satisfies the schema, so the typed
     // `SchemaError` on `execute` cannot occur here.
     Effect.orDie
-  ) as Effect.Effect<number, never, Crypto.Crypto>
+  )
 
 describe("Action.retry", () => {
   effect("increments CurrentAttempt for every attempt of the block", () =>

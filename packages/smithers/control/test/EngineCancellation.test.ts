@@ -16,7 +16,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
 import type { ListResponse, RunSummary } from "../src/ControlSchema.ts"
-import { controlPlane, type DurableStack } from "./DurableStack.ts"
+import { controlPlane } from "./DurableStack.ts"
 
 const parentRunId = "engine-cancel-parent"
 const childRunId = "engine-cancel-child"
@@ -75,13 +75,14 @@ const database = Layer.mergeAll(
 )
 
 const engine = Layer.mergeAll(
-  Hold.toLayer(() => Latch.open(running).pipe(Effect.andThen(Effect.never))),
   StartChild.toLayer(() =>
     Child.execute({}, { executionId: childRunId, discard: true }).pipe(Effect.orDie, Effect.as("started"))
   ),
   Interpreter.layer(Parent),
   Interpreter.layer(Child)
 ).pipe(
+  // `StartChild` runs `Child`, whose body calls `Hold`, so `Hold` goes under it.
+  Layer.provideMerge(Hold.toLayer(() => Latch.open(running).pipe(Effect.andThen(Effect.never)))),
   Layer.provideMerge(Action.layerImplementations),
   Layer.provideMerge(
     EngineStore.layer({
@@ -97,7 +98,7 @@ const engine = Layer.mergeAll(
 
 const stack = Layer.merge(controlPlane(), engine).pipe(
   Layer.provideMerge(database)
-) as unknown as Layer.Layer<DurableStack | FlowRuntime.FlowRuntime>
+)
 
 const summaries = (listed: ListResponse): ReadonlyArray<RunSummary> => listed._tag === "runs" ? listed.items : []
 
@@ -124,11 +125,7 @@ describe("cancellation attribution over an engine-performed interrupt", () => {
           // rather than in its own row. It has to reach the same answer.
           childAlone: yield* runtime.getRun(childRunId)
         }
-      }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie) as Effect.Effect<{
-        readonly parent: RunSummary | undefined
-        readonly child: RunSummary | undefined
-        readonly childAlone: RunSummary
-      }>
+      }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie)
     )
 
     // Nobody named this run on the control plane's journal, so there is no

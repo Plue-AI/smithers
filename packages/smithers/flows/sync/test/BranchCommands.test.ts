@@ -458,11 +458,7 @@ describe("BranchCommands", () => {
               name: BranchProtocol.SayCommand
             })
           })).status
-        }).pipe(Effect.provide(BranchCommands.layer)) as Effect.Effect<
-          string,
-          SyncError,
-          Journal.Journal | BranchShare.BranchShare
-        >
+        }).pipe(Effect.provide(BranchCommands.layer))
       )
 
       expect(status).toBe("admitted")

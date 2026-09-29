@@ -18,7 +18,7 @@ import type * as Crypto from "effect/Crypto"
 import { describe, expect, it } from "@effect/vitest"
 import { Action, Flow, FlowRuntime, StepIdentity } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Deferred, Effect, Exit, Layer, Schema } from "effect"
+import { Context, Deferred, Effect, Exit, Layer, Schema } from "effect"
 import { FlowEngine } from "../src/index.ts"
 import { withCrypto } from "./Crypto.ts"
 import { effect } from "./Harness.ts"
@@ -64,13 +64,13 @@ const scriptedEngine = (keys: Array<{ readonly name: string; readonly key: strin
 /** One drive of a run: dispatches `actions` in the given order. */
 const drive = (
   executionId: string,
-  actions: ReadonlyArray<Action.Any>
-): Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>> => {
+  actions: ReadonlyArray<Action.Action>
+): Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>, never, Crypto.Crypto> => {
   const keys: Array<{ readonly name: string; readonly key: string }> = []
   return Effect.gen(function*() {
     const engine = yield* FlowRuntime.FlowRuntime
     for (const action of actions) {
-      yield* engine.actionExecute(action as never, 1)
+      yield* engine.actionExecute(action, 1)
     }
   }).pipe(
     Effect.as(keys as ReadonlyArray<{ readonly name: string; readonly key: string }>),
@@ -79,7 +79,7 @@ const drive = (
       FlowEngine.makeInstance(flow, executionId)
     ),
     Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(scriptedEngine(keys)))
-  ) as Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>>
+  )
 }
 
 const keyOf = (
@@ -128,8 +128,10 @@ describe("invocation key stability under permuted scheduling (issue #73)", () =>
 /** One drive of a run executing an arbitrary program against the engine. */
 const driveProgram = (
   executionId: string,
-  program: (engine: FlowRuntime.FlowRuntime["Service"]) => Effect.Effect<unknown, unknown, any>
-): Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>> => {
+  program: (
+    engine: FlowRuntime.FlowRuntime["Service"]
+  ) => Effect.Effect<unknown, unknown, FlowRuntime.FlowInstance | FlowRuntime.FlowRuntime | Crypto.Crypto>
+): Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>, unknown, Crypto.Crypto> => {
   const keys: Array<{ readonly name: string; readonly key: string }> = []
   const engine = scriptedEngine(keys)
   return Effect.gen(function*() {
@@ -141,7 +143,7 @@ const driveProgram = (
       FlowEngine.makeInstance(flow, executionId)
     ),
     Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine))
-  ) as Effect.Effect<ReadonlyArray<{ readonly name: string; readonly key: string }>>
+  )
 }
 
 describe("ordinal slots inside Action.retry (issue #84)", () => {
@@ -154,12 +156,12 @@ describe("ordinal slots inside Action.retry (issue #84)", () => {
         Effect.gen(function*() {
           yield* Action.retry(
             Effect.gen(function*() {
-              yield* engine.actionExecute(chargeCard as never, 1)
-              yield* engine.actionExecute(sendEmail as never, 1)
+              yield* engine.actionExecute(chargeCard, 1)
+              yield* engine.actionExecute(sendEmail, 1)
             }),
             { times: 0 }
           )
-          yield* engine.actionExecute(sendEmail as never, 1)
+          yield* engine.actionExecute(sendEmail, 1)
         }))
       const emailKeys = keyOf(entries, sendEmail.name)
       expect(emailKeys).toHaveLength(2)
@@ -177,8 +179,8 @@ describe("ordinal slots inside Action.retry (issue #84)", () => {
         let attempt = 0
         return Action.retry(
           Effect.gen(function*() {
-            yield* engine.actionExecute(chargeCard as never, 1)
-            yield* engine.actionExecute(sendEmail as never, 1)
+            yield* engine.actionExecute(chargeCard, 1)
+            yield* engine.actionExecute(sendEmail, 1)
             attempt++
             if (attempt < 3) return yield* Effect.fail("again")
           }),
@@ -209,7 +211,7 @@ describe("nested Action.retry keeps inner pins across outer attempts (issue #108
         return Action.retry(
           Effect.gen(function*() {
             yield* Action.retry(
-              engine.actionExecute(chargeCard as never, 1),
+              engine.actionExecute(chargeCard, 1),
               { times: 0 }
             )
             outerAttempt++
@@ -234,10 +236,10 @@ describe("nested Action.retry keeps inner pins across outer attempts (issue #108
         let innerAttempt = 0
         return Action.retry(
           Effect.gen(function*() {
-            yield* engine.actionExecute(repeatedCharge as never, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
             yield* Action.retry(
               Effect.gen(function*() {
-                yield* engine.actionExecute(repeatedCharge as never, 1)
+                yield* engine.actionExecute(repeatedCharge, 1)
                 innerAttempt++
                 if (innerAttempt < 2) return yield* Effect.fail("again")
               }),
@@ -264,9 +266,9 @@ describe("nested Action.retry keeps inner pins across outer attempts (issue #108
       const entries = yield* driveProgram("ordinal-nested-untouched", (engine) =>
         Action.retry(
           Effect.gen(function*() {
-            yield* engine.actionExecute(repeatedCharge as never, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
             yield* Action.retry(Effect.void, { times: 0 })
-            yield* engine.actionExecute(repeatedCharge as never, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
           }),
           { times: 0 }
         ))
@@ -305,7 +307,7 @@ describe("concurrent sibling retry blocks inside one outer block (issue #116)", 
             Action.retry(
               Effect.gen(function*() {
                 const attempt = yield* Action.CurrentAttempt
-                yield* engine.actionExecute(siblingA as never, 1)
+                yield* engine.actionExecute(siblingA, 1)
                 if (attempt === 1) {
                   // Fail only after B's first dispatch is recorded, so A's
                   // attempt boundary fires while B is mid-flight between its
@@ -319,10 +321,10 @@ describe("concurrent sibling retry blocks inside one outer block (issue #116)", 
             ),
             Action.retry(
               Effect.gen(function*() {
-                yield* engine.actionExecute(siblingB as never, 1)
+                yield* engine.actionExecute(siblingB, 1)
                 yield* Deferred.done(bFirstDone, Exit.void)
                 yield* Deferred.await(aRetried)
-                yield* engine.actionExecute(siblingB as never, 1)
+                yield* engine.actionExecute(siblingB, 1)
               }),
               { times: 0 }
             )
@@ -420,8 +422,8 @@ describe("same identity dispatched twice inside Action.retry (issue #100)", () =
       const entries = yield* driveProgram("ordinal-same-identity-block", (engine) =>
         Action.retry(
           Effect.gen(function*() {
-            yield* engine.actionExecute(repeatedCharge as never, 1)
-            yield* engine.actionExecute(repeatedCharge as never, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
           }),
           { times: 0 }
         ))
@@ -437,8 +439,8 @@ describe("same identity dispatched twice inside Action.retry (issue #100)", () =
         let attempt = 0
         return Action.retry(
           Effect.gen(function*() {
-            yield* engine.actionExecute(repeatedCharge as never, 1)
-            yield* engine.actionExecute(repeatedCharge as never, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
+            yield* engine.actionExecute(repeatedCharge, 1)
             attempt++
             if (attempt < 3) return yield* Effect.fail("again")
           }),
@@ -481,5 +483,23 @@ describe("idempotency form refines the allocation scope (StepIdentity.ts:88-89)"
       expect(declared.startsWith(`${base}/s:`)).toBe(true)
       expect(callerOwned.startsWith(`${base}/c:`)).toBe(true)
     })
+  })
+})
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/flows-engine/InvocationKeyStability/Unprovided"
+) {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error driveProgram provides only the flow instance and runtime, not Unprovided
+  driveProgram("probe", () => Effect.map(Unprovided, (service) => service.value))
+  driveProgram("probe", (engine) => engine.actionExecute(chargeCard, 1))
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a body that needs a service its layer does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })

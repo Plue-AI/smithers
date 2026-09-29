@@ -90,7 +90,7 @@ describe("retry origin fallback when the durable hook yields none", () => {
       Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
       Effect.provide(Logger.layer([capture])),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<void>
+    )
   })
 
   const runWithOrigin = (
@@ -140,11 +140,7 @@ describe("retry origin fallback when the durable hook yields none", () => {
       Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
       Effect.provide(Logger.layer([capture])),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<{
-      readonly attempts: Array<number>
-      readonly logs: Array<{ readonly message: unknown; readonly logLevel: string }>
-      readonly result: Flow.Result<number, string>
-    }>
+    )
   }
 
   effect("clamps a future durable origin to the local clock and logs the skew", () =>

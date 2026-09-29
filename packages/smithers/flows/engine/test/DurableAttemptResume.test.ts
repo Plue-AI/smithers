@@ -9,7 +9,7 @@ import type * as Crypto from "effect/Crypto"
 import { describe, expect, it } from "@effect/vitest"
 import { Action, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Cause, Effect, Exit, Layer, Logger, Option, Schema } from "effect"
+import { Cause, Context, Effect, Exit, Layer, Logger, Option, Schema } from "effect"
 import { FlowEngine } from "../src/index.ts"
 import { withCrypto } from "./Crypto.ts"
 import { effect, liveEffect } from "./Harness.ts"
@@ -41,14 +41,17 @@ const scriptedWith = (options: {
     actionLatestAttempt: () => Effect.succeed(options.latestAttempt)
   })
 
-const provideInstance = <A, E>(self: Effect.Effect<A, E, any>, engine: FlowRuntime.FlowRuntime["Service"]) =>
+const provideInstance = <A, E>(
+  self: Effect.Effect<A, E, FlowRuntime.FlowInstance | FlowRuntime.FlowRuntime | Crypto.Crypto>,
+  engine: FlowRuntime.FlowRuntime["Service"]
+): Effect.Effect<A, E, Crypto.Crypto> =>
   self.pipe(
     Effect.provideService(
       FlowRuntime.FlowInstance,
       FlowEngine.makeInstance(flow, "attempt-resume-run")
     ),
     Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine))
-  ) as Effect.Effect<A, E>
+  )
 
 describe("durable attempt counter resume", () => {
   effect("starts the retry loop at the persisted highest attempt instead of 1", () => {
@@ -181,5 +184,23 @@ describe("durable attempt counter resume", () => {
         }
       }
     }).pipe((self) => provideInstance(self, engine))
+  })
+})
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/flows-engine/DurableAttemptResume/Unprovided"
+) {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error provideInstance provides only the flow instance and runtime, not Unprovided
+  provideInstance(Effect.map(Unprovided, (service) => service.value), scriptedWith({ latestAttempt: Option.none(), attempts: [] }))
+  provideInstance(Effect.map(FlowRuntime.FlowInstance, (instance) => instance), scriptedWith({ latestAttempt: Option.none(), attempts: [] }))
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a body that needs a service its layer does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })

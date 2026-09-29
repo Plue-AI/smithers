@@ -63,10 +63,7 @@ const projectInto = (
     Effect.provide(pagingJournal(fixtures, options.pageSize ?? 2)),
     Effect.provideService(TimeTravelStore.TimeTravelStore, store),
     Effect.map((state) => ({ state, snapshots: store.state().snapshots }))
-  ) as Effect.Effect<
-    { readonly state: SnapshotProjector.State; readonly snapshots: ReadonlyArray<TimeTravelStore.Snapshot> },
-    unknown
-  >
+  )
 }
 
 describe("the snapshot projector", () => {
@@ -329,7 +326,7 @@ describe("the snapshot projector", () => {
           Effect.andThen(SnapshotProjector.project("run")),
           Effect.provide(pagingJournal(fixtures, 10)),
           Effect.provideService(TimeTravelStore.TimeTravelStore, store)
-        ) as Effect.Effect<unknown, unknown>
+        )
       )
 
       expect(store.state().snapshots).toHaveLength(1)
@@ -399,7 +396,7 @@ describe("the snapshot projector", () => {
         SnapshotProjector.project("run", { pageSize: 3, ...options }).pipe(
           Effect.provide(journal.layer),
           Effect.provideService(TimeTravelStore.TimeTravelStore, counting)
-        ) as Effect.Effect<SnapshotProjector.State, unknown>
+        )
 
       const first = yield* run()
       expect(first.anchors).toBe(7)
@@ -444,7 +441,7 @@ describe("the snapshot projector", () => {
         SnapshotProjector.project("run", { pageSize: 2 }).pipe(
           Effect.provide(countingJournal(fixtures, 2).layer),
           Effect.provideService(TimeTravelStore.TimeTravelStore, counting)
-        ) as Effect.Effect<unknown, unknown>
+        )
       )
       expect(batches).toEqual([2, 2, 1])
       expect(store.state().snapshots).toHaveLength(5)
@@ -465,7 +462,7 @@ describe("the snapshot projector", () => {
         SnapshotProjector.project("run").pipe(
           Effect.provide(journal.layer),
           Effect.provideService(TimeTravelStore.TimeTravelStore, store)
-        ) as Effect.Effect<SnapshotProjector.State, unknown>
+        )
       yield* run()
       // Both plan records sit below the anchored high-water mark, one on a lineage with no anchor.
       fixtures.push(
@@ -695,7 +692,7 @@ describe("the projector's read failures", () => {
         Effect.flip(SnapshotProjector.project("run")).pipe(
           Effect.provide(Layer.succeed(Journal.Journal, Journal.makeNoop())),
           Effect.provideService(TimeTravelStore.TimeTravelStore, MemoryTimeTravelStore.make())
-        ) as unknown as Effect.Effect<{ readonly code: string; readonly message: string }, never>
+        )
       )
 
       expect(failure).toMatchObject({ code: "unknown", message: "could not read run for anchoring" })

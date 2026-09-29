@@ -62,7 +62,7 @@ describe("a recorded outcome that fails the action's exit schema", () => {
       ),
       Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
       Effect.provide(Logger.layer([capture]))
-    ) as Effect.Effect<void>
+    )
   })
 
   effect("bounds a circular recorded action failure while preserving the schema-mismatch defect", () => {
@@ -105,6 +105,6 @@ describe("a recorded outcome that fails the action's exit schema", () => {
       ),
       Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
       Effect.provide(Logger.layer([capture]))
-    ) as Effect.Effect<void>
+    )
   })
 })

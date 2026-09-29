@@ -150,9 +150,7 @@ const runFork = (options: {
       Effect.provide(Layer.succeed(CacheStore.CacheStore, CacheStore.makeNoop({ get: () => Effect.succeedNone }))),
       Effect.provide(EffectHandlerRegistry.layer(options.handlers ?? []))
     )
-  ) as unknown as Effect.Effect<
-    { readonly result: { readonly warnings: ReadonlyArray<string> }; readonly calls: Array<string> }
-  >
+  )
 }
 
 describe("fork boundary assessment", () => {
@@ -303,7 +301,7 @@ describe("fork boundary assessment", () => {
               Effect.provide(EffectHandlerRegistry.layerNoop)
             )
           )
-        ) as unknown as Effect.Effect<{ readonly message: string }>
+        )
       )
       const workspaceFailure = yield* (
         Effect.flip(
@@ -332,7 +330,7 @@ describe("fork boundary assessment", () => {
               Effect.provide(EffectHandlerRegistry.layerNoop)
             )
           )
-        ) as unknown as Effect.Effect<{ readonly message: string }>
+        )
       )
 
       expect(readFailure.message).toBe("could not read fork suffix for parent")
