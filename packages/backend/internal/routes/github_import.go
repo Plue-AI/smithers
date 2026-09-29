@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -151,12 +152,60 @@ func (h *GitHubImportHandler) streamImportJob(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	job, svcErr := h.getObservedImportJob(r.Context(), userID, id)
+	// Subscribe before fetching private status, then fence revocations that
+	// happened after authentication but before the subscription was installed.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	var revoked <-chan revocation.Event
+	var checker revocation.Checker
+	principal := requestPrincipal(r, revocation.Principal{UserID: userID})
+	if source := currentRevocationSource(); source != nil {
+		revoked = source.Watch(ctx, principal)
+		checker, _ = source.(revocation.Checker)
+	}
+	started := false
+	endRevoked := func(event revocation.Event) {
+		if !started {
+			pkgerrors.WriteError(w, pkgerrors.Forbidden("stream authorization revoked"))
+			return
+		}
+		writeImportStreamEvent(w, "revoked", event)
+		flusher.Flush()
+	}
+	checkRevoked := func() bool {
+		select {
+		case event := <-revoked:
+			endRevoked(event)
+			return true
+		default:
+		}
+		// The bus updates its cache before notifying watchers. Check both so
+		// delayed fan-out cannot let a completed fetch expose private status.
+		if checker != nil {
+			if checker.IsTokenRevoked(principal.TokenHash) {
+				endRevoked(revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: principal.TokenHash})
+				return true
+			}
+			if checker.IsUserDisabled(principal.UserID) {
+				endRevoked(revocation.Event{Kind: revocation.KindUserDisabled, UserID: principal.UserID})
+				return true
+			}
+		}
+		return false
+	}
+	if checkRevoked() {
+		return
+	}
+	job, svcErr := h.getObservedImportJob(ctx, userID, id)
+	if checkRevoked() {
+		return
+	}
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
 		return
 	}
 
+	started = true
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -176,16 +225,28 @@ func (h *GitHubImportHandler) streamImportJob(w http.ResponseWriter, r *http.Req
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
+			return
+		case event := <-revoked:
+			endRevoked(event)
 			return
 		case <-deadline.C:
+			if checkRevoked() {
+				return
+			}
 			writeImportStreamEvent(w, "timeout", map[string]string{
 				"message": "import status stream timed out before a terminal job state",
 			})
 			flusher.Flush()
 			return
 		case <-ticker.C:
-			job, svcErr = h.getObservedImportJob(r.Context(), userID, id)
+			if checkRevoked() {
+				return
+			}
+			job, svcErr = h.getObservedImportJob(ctx, userID, id)
+			if checkRevoked() {
+				return
+			}
 			if svcErr != nil {
 				writeImportStreamEvent(w, "error", map[string]string{
 					"message": "failed to fetch import job status",
