@@ -128,6 +128,11 @@ describe("source authorization", () => {
     expect(() => source({ allowedChatIds } as never)).toThrow(/allowedChatIds.*non-empty/)
     expect(fixture.requests).toHaveLength(0)
   })
+
+  it("refuses a zero request timeout when building its client", () => {
+    expect(() => make({ allowedChatIds: [-100], botToken: TOKEN, requestTimeout: 0 }, {}))
+      .toThrow(/finite, positive duration/)
+  })
 })
 
 describe("poll", () => {
@@ -262,6 +267,27 @@ describe("poll", () => {
     fixture = await startFixture((_request, response) => json(response, 200, { ok: true, result: [] }))
     await Effect.runPromise(make({ allowedChatIds: [-100], botToken: TOKEN, apiBaseUrl: fixture.origin }).poll(null))
     expect(fixture.requests[0]?.url).toBe(`/bot${TOKEN}/getUpdates`)
+  })
+
+  it("passes its request timeout to the client and allows for the long poll", async () => {
+    fixture = await startFixture(async (_request, response) => {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      json(response, 200, { ok: true, result: [] })
+    })
+    const options = {
+      allowedChatIds: [-100],
+      botToken: TOKEN,
+      apiBaseUrl: fixture.origin,
+      requestTimeout: "20 millis"
+    } as const
+
+    const failure = await Effect.runPromise(Effect.flip(make({ ...options, pollTimeoutSeconds: 0 }).poll(null)))
+    expect(failure.reason).toBe("poll-failed")
+    expect(failure.cause).toMatchObject({ details: { timedOut: true } })
+
+    const batch = await Effect.runPromise(make({ ...options, pollTimeoutSeconds: 1 }).poll(null))
+    expect(batch.events).toEqual([])
+    expect(fixture.requests).toHaveLength(2)
   })
 
   // Every doc names SMITHERS_TELEGRAM_BOT_TOKEN as the source a Telegram

@@ -287,7 +287,8 @@ export const make = (
     ...(options.botToken === undefined ? {} : { botToken: options.botToken }),
     apiBaseUrl: options.apiBaseUrl,
     maxRateLimitRetries: options.maxRateLimitRetries,
-    maxRetryAfterSeconds: options.maxRetryAfterSeconds
+    maxRetryAfterSeconds: options.maxRetryAfterSeconds,
+    requestTimeout: options.requestTimeout
   }, env)
 
   const pollRetrySchedule = Schedule.exponential(pollRetryBase).pipe(
