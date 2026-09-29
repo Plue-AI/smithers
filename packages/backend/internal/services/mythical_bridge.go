@@ -183,6 +183,13 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "malformed receive-pack request", http.StatusBadRequest)
 			return
 		}
+		// git's probe before a pack larger than http.postBuffer: a lone flush
+		// packet with no command. It writes nothing and consumes no allowance.
+		if len(commands) == 0 {
+			w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
+			w.Header().Set("Cache-Control", "no-cache")
+			return
+		}
 		meta, err := b.take(commands)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)

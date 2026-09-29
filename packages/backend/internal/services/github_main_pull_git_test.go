@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/http"
@@ -195,4 +196,51 @@ func mustLookPath(t *testing.T, name string) string {
 	path, err := exec.LookPath(name)
 	require.NoError(t, err)
 	return path
+}
+
+// TestGitHubMainPullPushesAPackLargerThanThePostBuffer pulls a GitHub commit
+// whose pack exceeds git's 1 MiB http.postBuffer. git then probes the
+// receive-pack endpoint with a lone flush packet before sending the pack; the
+// bridge refused that probe with 403, so smithersai/smithers never pulled
+// (github_main_pulls.last_error "RPC failed; HTTP 403", 201 attempts).
+func TestGitHubMainPullPushesAPackLargerThanThePostBuffer(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	root := t.TempDir()
+	f := &gitFixture{t: t, root: root, work: filepath.Join(root, "work")}
+	f.git(root, "init", "-q", "--initial-branch=main", f.work)
+	base := f.commit("base", "a.txt", "a")
+	large := make([]byte, 2<<20)
+	_, err := rand.Read(large)
+	require.NoError(t, err)
+	tip := f.commit("large", "large.bin", string(large))
+
+	github := f.bare("github.git")
+	f.git(f.work, "push", "-q", github, tip+":refs/heads/main")
+	smithers := f.bare("smithers.git")
+	f.git(f.work, "push", "-q", smithers, base+":refs/heads/main")
+
+	backend := &cgi.Handler{Path: mustLookPath(t, "git"), Args: []string{"http-backend"}, Dir: root,
+		Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/github.git/" + strings.TrimPrefix(r.URL.Path, "/smithersai/smithers.git/")
+		backend.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+
+	store := newFakeMainPullStore()
+	service := NewGitHubMainPullService(store, &gitBackedRepoHost{t: t, dir: smithers}, &fixtureTokens{}, nil)
+	service.gitHubGitBaseURL = func() string { return server.URL }
+	service.readPolicy = func(context.Context, string, string, string, string) (string, error) { return "pull", nil }
+
+	_, err = service.Request(context.Background(), 19)
+	require.NoError(t, err)
+	require.NoError(t, service.PollOnce(context.Background()))
+	row, err := store.GetGithubMainPull(context.Background(), 19)
+	require.NoError(t, err)
+	require.Equal(t, "synced", row.State, row.LastError)
+	assert.Equal(t, tip, f.git(smithers, "rev-parse", "refs/heads/main"))
 }

@@ -153,6 +153,14 @@ func (b *gitHubMainPullBridge) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "malformed receive-pack request", http.StatusBadRequest)
 			return
 		}
+		// A pack larger than http.postBuffer makes git probe first with a
+		// lone flush packet. It carries no command, so it writes nothing and
+		// is answered here without reaching the repo host.
+		if len(commands) == 0 {
+			w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
+			w.Header().Set("Cache-Control", "no-cache")
+			return
+		}
 		b.mu.Lock()
 		update := b.update
 		b.mu.Unlock()

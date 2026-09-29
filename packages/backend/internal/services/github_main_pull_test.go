@@ -593,6 +593,10 @@ func TestGitHubMainPullBridgeAcceptsOnlyTheObservedFastForward(t *testing.T) {
 	status, _, err := postReceivePack(ctx, bridge.URL(), "wrong-secret", []repohost.ReceivePackCommand{{OldOID: pullOld, NewOID: pullNew, RefName: "refs/heads/main"}})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, status)
+	// git's large-pack probe: a lone flush packet, answered without the host.
+	status, _, err = postReceivePack(ctx, bridge.URL(), "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
 	assert.Empty(t, host.received)
 
 	require.NoError(t, pushThroughBridge(ctx, bridge.URL(), "refs/heads/main", pullOld, pullNew))

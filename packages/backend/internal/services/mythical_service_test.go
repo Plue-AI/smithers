@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -395,4 +396,24 @@ func TestMythicalFactoryReconcilesLocalMainAndRetriesFailure(t *testing.T) {
 	require.Empty(t, row.LastError)
 	require.Equal(t, 2, calls)
 	require.Equal(t, main, f.hostRef("refs/heads/main"))
+}
+
+// git probes receive-pack with a lone flush packet before a pack larger than
+// http.postBuffer. The stack bridge answers it without the host, and the
+// prepared allowance survives the probe for the push that follows.
+func TestMythicalBridgeAnswersTheLargePackProbe(t *testing.T) {
+	ctx := context.Background()
+	host := &fakeMainPullHost{bookmarks: map[string]string{"main": pullOld}}
+	bridge, err := startMythicalBridge(ctx, host, "smithers-canary", "smithers")
+	require.NoError(t, err)
+	defer bridge.Close()
+	bridge.permit([]mythicalRefUpdate{{Ref: "refs/heads/main", Old: pullOld, New: pullNew}}, repohost.ReceivePackMetadata{})
+	status, _, err := postReceivePack(ctx, bridge.URL(), "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Empty(t, host.received, "the probe never reaches the host")
+	status, _, err = postReceivePack(ctx, bridge.URL(), "", []repohost.ReceivePackCommand{{OldOID: pullOld, NewOID: pullNew, RefName: "refs/heads/main"}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, pullNew, host.bookmarks["main"])
 }
