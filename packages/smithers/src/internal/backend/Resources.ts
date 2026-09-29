@@ -5,7 +5,20 @@
 
 import { mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, resolve } from "node:path"
-import { chunksOf, type Client, esc, list, object, pick, positive, query, str, type Values } from "./Client.ts"
+import { Refused, UsageError } from "../../CliError.ts"
+import {
+  chunksOf,
+  type Client,
+  esc,
+  list,
+  object,
+  pick,
+  positive,
+  query,
+  str,
+  type Values,
+  withCause
+} from "./Client.ts"
 
 /**
  * @private
@@ -25,7 +38,7 @@ const page = (o: Values) => ({ page: o.page ?? 1, per_page: o.limit ?? 30 })
 
 add("issue create", (c, a, o) => {
   const title = str(o.title || a.title)
-  if (!title.trim()) throw new Error("Issue title is required")
+  if (!title.trim()) throw new UsageError({ message: "Issue title is required" })
   return c.request("POST", repo(c, o, "/issues"), {
     title,
     body: str(o.body),
@@ -129,7 +142,7 @@ for (const kind of ["secret", "variable"]) {
   })
 }
 add("secret set", async (c, a, o) => {
-  if (!o["body-stdin"]) throw new Error("Secret values require --body-stdin")
+  if (!o["body-stdin"]) throw new UsageError({ message: "Secret values require --body-stdin" })
   const value = await c.stdin("Secret")
   return c.request("POST", repo(c, o, "/secrets"), {
     name: a.name,
@@ -165,7 +178,7 @@ add("notification read", async (c, a, o) => {
     await c.request("PUT", "/api/notifications/mark-read")
     return { status: "all_read" }
   }
-  if (!a.id) throw new Error("Provide a notification ID or --all")
+  if (!a.id) throw new UsageError({ message: "Provide a notification ID or --all" })
   return c.request("PATCH", `/api/notifications/${esc(a.id)}`, { read: true })
 })
 for (const action of ["list", "stats", "clear"]) {
@@ -255,10 +268,10 @@ for (const action of ["create", "get", "list", "land"]) {
     const members = list(o.member).flatMap((item) => str(item).split(",")).filter((item) => item.trim()).map((item) => {
       const equals = item.indexOf("=")
       const repo = item.slice(0, equals).trim(), change_id = item.slice(equals + 1).trim()
-      if (equals < 1 || !repo || !change_id) throw new Error("Member must be REPO=CHANGE_ID")
+      if (equals < 1 || !repo || !change_id) throw new UsageError({ message: "Member must be REPO=CHANGE_ID" })
       return { repo, change_id }
     })
-    if (!members.length) throw new Error("At least one --member is required")
+    if (!members.length) throw new UsageError({ message: "At least one --member is required" })
     return c.request("POST", path, {
       description: str(o.description),
       target_bookmark: o.target,
@@ -306,9 +319,18 @@ for (const action of ["list", "install", "remove", "sync"]) {
         path + (action === "list" ? "" : `/${positive(a.id)}${action === "sync" ? "/sync" : ""}`)
       )
     }
-    if (!o["credentials-stdin"]) throw new Error("Use --credentials-stdin for Linear OAuth credentials")
-    const credentials = object(JSON.parse(await c.stdin("Linear OAuth credentials")))
-    if (!credentials.access_token) throw new Error("OAuth access_token is required")
+    if (!o["credentials-stdin"]) {
+      throw new UsageError({ message: "Use --credentials-stdin for Linear OAuth credentials" })
+    }
+    const invalid = (message: string) => new Refused({ fault: "user", code: "invalid_input", message })
+    const raw = await c.stdin("Linear OAuth credentials")
+    let credentials: Values
+    try {
+      credentials = object(JSON.parse(raw))
+    } catch (error) {
+      throw withCause(invalid("Linear OAuth credentials must be JSON"), error)
+    }
+    if (!credentials.access_token) throw invalid("OAuth access_token is required")
     return c.request("POST", path, {
       linear_team_id: o["team-id"],
       linear_team_name: str(o["team-name"]),
@@ -328,12 +350,22 @@ add("artifact download", async (c, a, o) => {
   const record = object(
     await c.request("GET", repo(c, o, `/actions/runs/${positive(a.runId)}/artifacts/${esc(a.name)}/download`))
   )
-  if (!record.download_url) throw new Error("Artifact response omitted download_url")
+  if (!record.download_url) {
+    throw new Refused({ fault: "infra", code: "backend_protocol", message: "Artifact response omitted download_url" })
+  }
   const name = str(record.name || a.name), safeName = basename(name.replaceAll("\\", "/"))
-  if (!o.output && ["", ".", "..", "/"].includes(safeName)) throw new Error("Artifact has no safe name")
+  if (!o.output && ["", ".", "..", "/"].includes(safeName)) {
+    throw new UsageError({ message: "Artifact has no safe name" })
+  }
   const path = resolve(str(o.output) || safeName)
   const response = await fetch(str(record.download_url), { signal: AbortSignal.timeout(300_000) })
-  if (!response.ok) throw new Error(`Artifact download failed (${response.status})`)
+  if (!response.ok) {
+    throw new Refused({
+      fault: "infra",
+      code: "artifact_download_failed",
+      message: `Artifact download failed (${response.status})`
+    })
+  }
   await mkdir(dirname(path), { recursive: true })
   // writeFile accepts an async iterable without buffering the artifact in memory.
   let bytes = 0
@@ -341,7 +373,9 @@ add("artifact download", async (c, a, o) => {
     if (response.body) {
       for await (const chunk of chunksOf(response.body)) {
         bytes += chunk.length
-        if (bytes > 2 ** 31) throw new Error("Artifact exceeds 2 GiB")
+        if (bytes > 2 ** 31) {
+          throw new Refused({ fault: "policy", code: "artifact_too_large", message: "Artifact exceeds 2 GiB" })
+        }
         yield chunk
       }
     }

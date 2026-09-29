@@ -3,10 +3,14 @@
  * @since 1.0.0
  */
 
+import { Refused, UsageError } from "../../CliError.ts"
 import { APIError, type Client, esc, list, object, query, str, type Values } from "./Client.ts"
 import { stackChanges } from "./Local.ts"
 import type { Handler } from "./Resources.ts"
 
+const outOfDate = (message: string) => new Refused({ fault: "user", code: "stack_out_of_date", message })
+const notLandable = (message: string) => new Refused({ fault: "user", code: "not_landable", message })
+const mergeRefused = (message: string) => new Refused({ fault: "dependency", code: "merge_refused", message })
 const missing = (error: unknown, codes = [404]) => error instanceof APIError && codes.includes(error.status)
 const authSource = (c: Client) => c.env.GITHUB_TOKEN ? "github_token" : "server_github_app_installation"
 const branch = (change: Values) => str(change.branch_name) || `smithers/${str(change.change_id).slice(0, 8)}`
@@ -201,7 +205,9 @@ const restack = async (c: Client, o: Values, changes: Array<Values>) => {
   const local = new Map((await stackChanges(c, target(o))).map((change) => [change.change_id, change]))
   for (const [index, change] of changes.entries()) {
     const match = local.get(str(change.change_id))
-    if (!match) throw new Error(`Local stack is missing ${str(change.change_id)}; run smithers stack submit`)
+    if (!match) {
+      throw outOfDate(`Local stack is missing ${str(change.change_id)}; run smithers stack submit`)
+    }
     Object.assign(change, description(match))
     const [name, email] = (await c.exec("jj", [
       "--ignore-working-copy",
@@ -256,10 +262,18 @@ stacks["stack submit"] = async (c, _a, o) => {
       }
     }
     pull ??= await github(c, o, "POST", "/pulls", { ...payload, draft: o.draft === true, head: branch(change) })
-    if (!(Number(pull.number) > 0)) throw new Error("GitHub did not return a PR number")
+    if (!(Number(pull.number) > 0)) {
+      throw new Refused({ fault: "dependency", code: "github_protocol", message: "GitHub did not return a PR number" })
+    }
     changes.push({ ...entry, pr_number: pull.number, pr_state: pull.state || "open", pr_url: pull.html_url })
   }
-  if (!changes.length) throw new Error("No non-empty changes found between @ and target")
+  if (!changes.length) {
+    throw new Refused({
+      fault: "user",
+      code: "nothing_to_submit",
+      message: "No non-empty changes found between @ and target"
+    })
+  }
   for (const change of changes) {
     await github(c, o, "PATCH", `/pulls/${str(change.pr_number)}`, { body: body(changes, change) })
   }
@@ -359,7 +373,9 @@ stacks["stack sync"] = async (c, _a, o) => {
     }
   }
   for (const change of mapped(existing)) {
-    if (!change.pr_number) throw new Error("Stack mapping is missing pr_number; run smithers stack submit")
+    if (!change.pr_number) {
+      throw outOfDate("Stack mapping is missing pr_number; run smithers stack submit")
+    }
     const pull = await github(c, o, "GET", `/pulls/${str(change.pr_number)}`)
     if (pull.state === "closed" && pull.merged === true) {
       merged.push({ branch: branch(change), change_id: change.change_id, pr_number: change.pr_number })
@@ -373,7 +389,7 @@ stacks["stack sync"] = async (c, _a, o) => {
 }
 stacks["stack land"] = async (c, _a, o) => {
   if (o.change !== undefined && (!str(o.change).trim() || o.all)) {
-    throw new Error("Specify a non-empty --change or --all")
+    throw new UsageError({ message: "Specify a non-empty --change or --all" })
   }
   const existing = await load(c, o), landed: Array<Values> = []
   if (!existing.id) {
@@ -389,40 +405,46 @@ stacks["stack land"] = async (c, _a, o) => {
   }
   let remaining: Array<Values> = []
   for (const change of mapped(existing)) {
-    if (!change.pr_number) throw new Error("Stack mapping is missing pr_number")
+    if (!change.pr_number) throw outOfDate("Stack mapping is missing pr_number")
     remaining.push(await refresh(c, o, change, true))
   }
-  if (!remaining.length) throw new Error("Active stack has no changes to land")
+  if (!remaining.length) {
+    throw new Refused({ fault: "user", code: "nothing_to_land", message: "Active stack has no changes to land" })
+  }
   let count = 1
   if (o.change !== undefined) {
     const matches = remaining.map((change, index) => str(change.change_id).startsWith(str(o.change)) ? index : -1)
       .filter((index) => index >= 0)
-    if (matches.length !== 1) throw new Error("Change prefix is missing or ambiguous")
+    if (matches.length !== 1) throw new UsageError({ message: "Change prefix is missing or ambiguous" })
     count = matches[0]! + 1
   } else if (o.all) {
     count = remaining.findIndex((change) => refusal(change))
     if (count < 0) count = remaining.length
-    if (!count) throw new Error(refusal(remaining[0]!))
+    if (!count) throw notLandable(refusal(remaining[0]!))
   }
   for (const change of remaining.slice(0, count)) {
-    if (refusal(change)) throw new Error(`Refusing to land PR #${str(change.pr_number)}: ${refusal(change)}`)
+    if (refusal(change)) {
+      throw notLandable(`Refusing to land PR #${str(change.pr_number)}: ${refusal(change)}`)
+    }
   }
   let result: Values = {}
   for (let index = 0; index < count; index++) {
     const change = await refresh(c, o, remaining[0]!, true)
-    if (refusal(change)) throw new Error(`Refusing to land PR #${str(change.pr_number)}: ${refusal(change)}`)
+    if (refusal(change)) {
+      throw notLandable(`Refusing to land PR #${str(change.pr_number)}: ${refusal(change)}`)
+    }
     let merged = false
     for (const method of ["merge", "squash", "rebase"]) {
       try {
         const response = await github(c, o, "PUT", `/pulls/${str(change.pr_number)}/merge`, { merge_method: method })
-        if (response.merged === false) throw new Error("GitHub did not merge the PR")
+        if (response.merged === false) throw mergeRefused("GitHub did not merge the PR")
         merged = true
         break
       } catch (error) {
         if (!missing(error, [405])) throw error
       }
     }
-    if (!merged) throw new Error("GitHub rejected available merge methods")
+    if (!merged) throw mergeRefused("GitHub rejected available merge methods")
     landed.push(summary(c, [change])[0]!)
     remaining = remaining.slice(1)
     await c.exec("jj", ["--ignore-working-copy", "git", "fetch"])

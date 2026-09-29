@@ -5,6 +5,7 @@
 
 import { mkdir, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { UsageError } from "../../CliError.ts"
 import { chunksOf, esc, pick, query, str, type Values } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 import { observeOrigin } from "./Session.ts"
@@ -275,7 +276,7 @@ for (const op of operations) {
   admin[`admin ${op.name}`] = async (c, a, o) => {
     const target = op.arg ? str(a[op.arg]) : ""
     if (op.arg && (!target.trim() || [".", ".."].includes(target) || /[/\\\r\n]/.test(target))) {
-      throw new Error(`${op.arg} must be a single target`)
+      throw new UsageError({ message: `${op.arg} must be a single target` })
     }
     if (op.destructive) await c.confirm(o.yes, `${op.name} ${target}`)
     const path = op.path.replace("{target}", esc(target)) + query(pick(o, op.query ?? []))

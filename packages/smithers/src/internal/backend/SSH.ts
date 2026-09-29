@@ -8,6 +8,8 @@ import { mkdir, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 import { finished } from "node:stream/promises"
+import { Refused } from "../../CliError.ts"
+import * as Failure from "../Failure.ts"
 import type { Client } from "./Client.ts"
 import { spawn } from "./Process.ts"
 /**
@@ -27,6 +29,9 @@ export interface Endpoint {
   readonly hostKeys: ReadonlyArray<string>
 }
 const hostKeyAlias = "smithers-workspace"
+// The endpoint comes from the backend: a malformed one is the backend's
+// fault, and connecting anyway would trust it.
+const endpointRefused = (message: string) => new Refused({ fault: "infra", code: "ssh_endpoint_refused", message })
 /**
  * The advertised host keys of an API `/ssh` response, validated as
  * `algorithm base64` pairs.
@@ -40,7 +45,7 @@ export const hostKeys = (value: unknown): Array<string> =>
     const line = typeof key.known_hosts_line === "string" && key.known_hosts_line.trim()
       ? key.known_hosts_line.trim()
       : `${String(key.algorithm ?? "")} ${String(key.public_key ?? "")}`
-    if (!/^[a-z0-9@.-]+ [A-Za-z0-9+/]+={0,2}$/.test(line)) throw new Error("Invalid workspace SSH host key")
+    if (!/^[a-z0-9@.-]+ [A-Za-z0-9+/]+={0,2}$/.test(line)) throw endpointRefused("Invalid workspace SSH host key")
     return line
   })
 /**
@@ -50,7 +55,7 @@ export const hostKeys = (value: unknown): Array<string> =>
 export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promise<Array<string>> => {
   const command = endpoint.command
   // The gateway must prove a key the authenticated API advertised; never trust on first use.
-  if (endpoint.hostKeys.length === 0) throw new Error("Workspace SSH host keys unavailable; refusing to connect")
+  if (endpoint.hostKeys.length === 0) throw endpointRefused("Workspace SSH host keys unavailable; refusing to connect")
   const words: Array<string> = []
   let token = "", quoting = "", escaped = false
   for (const char of command) {
@@ -67,43 +72,43 @@ export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promi
       token = ""
     } else token += char
   }
-  if (quoting || escaped) throw new Error("Invalid SSH quoting")
+  if (quoting || escaped) throw endpointRefused("Invalid SSH quoting")
   if (token) words.push(token)
   if (!["ssh", "ssh.exe"].includes(words.shift()?.toLowerCase() || "")) {
-    throw new Error("Workspace SSH executable must be ssh")
+    throw endpointRefused("Workspace SSH executable must be ssh")
   }
   let destination = false
   for (let i = 0; i < words.length; i++) {
     const word = words[i]!
     if (word.startsWith("-o")) {
       const directive = word.slice(2) || words[++i] || "", [key, value, ...rest] = directive.trim().split(/[=\s]+/)
-      if (!key || !value || rest.length) throw new Error("Invalid workspace SSH option")
+      if (!key || !value || rest.length) throw endpointRefused("Invalid workspace SSH option")
       if (["serveraliveinterval", "serveralivecountmax", "connecttimeout"].includes(key.toLowerCase())) {
         if (!/^\d+$/.test(value)) {
-          throw new Error("Invalid SSH timeout")
+          throw endpointRefused("Invalid SSH timeout")
         }
       } else if (["batchmode", "identitiesonly", "tcpkeepalive", "compression"].includes(key.toLowerCase())) {
         if (!["yes", "no"].includes(value)) {
-          throw new Error("Invalid SSH boolean")
+          throw endpointRefused("Invalid SSH boolean")
         }
-      } else throw new Error(`Workspace SSH may not set ${key}`)
+      } else throw endpointRefused(`Workspace SSH may not set ${Failure.terminalSafe(key)}`)
     } else if (["-4", "-6", "-t", "-tt", "-T"].includes(word)) continue
     else if (word.startsWith("-")) {
-      if (!/^-[pil]/.test(word)) throw new Error("Unsupported SSH flag")
+      if (!/^-[pil]/.test(word)) throw endpointRefused("Unsupported SSH flag")
       const value = word.slice(2) || words[++i] || ""
-      if (!value || /[\r\n\0]/.test(value)) throw new Error("Invalid SSH argument")
+      if (!value || /[\r\n\0]/.test(value)) throw endpointRefused("Invalid SSH argument")
       if (word[1] === "p" && (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)) {
-        throw new Error("Invalid SSH port")
+        throw endpointRefused("Invalid SSH port")
       }
-      if (word[1] === "l" && !/^[\w.-]+$/.test(value)) throw new Error("Invalid SSH user")
+      if (word[1] === "l" && !/^[\w.-]+$/.test(value)) throw endpointRefused("Invalid SSH user")
     } else {
       if (destination || !/^[A-Za-z0-9._+@[\]:-]+$/.test(word)) {
-        throw new Error("SSH requires one destination and no remote command")
+        throw endpointRefused("SSH requires one destination and no remote command")
       }
       destination = true
     }
   }
-  if (!destination) throw new Error("SSH destination required")
+  if (!destination) throw endpointRefused("SSH destination required")
   const directory = join(c.env.XDG_STATE_HOME || join(c.home, ".local", "state"), "smithers")
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const lines = endpoint.hostKeys.map((key) => `${hostKeyAlias} ${key}\n`).join("")
@@ -188,7 +193,7 @@ export const remote = async (
     const [code] = await Promise.all([
       child.exited.catch((error: unknown) => {
         if (inputError !== undefined) throw inputError
-        if (expired) throw new Error("Workspace exec timed out")
+        if (expired) throw new Refused({ fault: "user", code: "timed_out", message: "Workspace exec timed out" })
         throw error
       }),
       child.stdout && finished(child.stdout),

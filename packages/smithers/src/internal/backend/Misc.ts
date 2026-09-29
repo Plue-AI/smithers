@@ -3,6 +3,7 @@
  * @since 0.1.0
  */
 
+import { Refused, UsageError } from "../../CliError.ts"
 import { esc, list, object, query, str } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 /**
@@ -12,12 +13,14 @@ import type { Handler } from "./Resources.ts"
 export const misc: Record<string, Handler> = {}
 misc.api = async (c, a, o) => {
   const method = str(o.method).toUpperCase() || "GET"
-  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) throw new Error("Invalid HTTP method")
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    throw new UsageError({ message: "Invalid HTTP method" })
+  }
   const pairs = (values: unknown, separator: string) =>
     Object.fromEntries(
       list(values).map(str).map((value) => {
         const index = value.indexOf(separator)
-        if (index < 0) throw new Error(`Expected key${separator}value`)
+        if (index < 0) throw new UsageError({ message: `Expected key${separator}value` })
         return [value.slice(0, index).trim(), value.slice(index + 1).trim()]
       })
     )
@@ -37,7 +40,7 @@ for (const action of ["get", "set", "list", "show"]) {
     delete config.token
     if (
       ["get", "set"].includes(action) && !["api_origin", "observe_url", "git_protocol"].includes(key)
-    ) throw new Error("Unknown config key")
+    ) throw new UsageError({ message: "Unknown config key" })
     if (action === "get") return { [str(a.key)]: config[key] }
     if (action === "set") {
       c.session.saveConfig({ [key]: a.value })
@@ -64,7 +67,9 @@ for (const action of ["list", "view", "run", "chat"]) {
     const session = action === "run"
       ? object(await c.request("POST", path, { title: o.title || str(a.prompt).slice(0, 60) }))
       : { id: a.id }
-    if (!session.id) throw new Error("Agent conversation response omitted id")
+    if (!session.id) {
+      throw new Refused({ fault: "infra", code: "backend_protocol", message: "Agent conversation response omitted id" })
+    }
     const message = await c.request("POST", path + `/${esc(session.id)}/messages`, {
       role: "user",
       parts: [{ type: "text", content: action === "run" ? a.prompt : a.message }],

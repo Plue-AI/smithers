@@ -9,12 +9,38 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
-import { APIError, type Client, esc, list, object, pick, positive, query, str, type Values } from "./Client.ts"
+import { Refused, UsageError } from "../../CliError.ts"
+import * as Failure from "../Failure.ts"
+import {
+  APIError,
+  type Client,
+  esc,
+  list,
+  object,
+  pick,
+  positive,
+  query,
+  str,
+  type Values,
+  withCause
+} from "./Client.ts"
 import { lines } from "./Local.ts"
 import type { Handler } from "./Resources.ts"
 import { type Endpoint, hostKeys, quote, remote } from "./SSH.ts"
 
 const base = (c: Client, o: Values) => c.repoPath(o.repo) + "/workspaces"
+const protocol = (message: string) => new Refused({ fault: "infra", code: "backend_protocol", message })
+// A command whose outcome this invocation could not confirm: the operator
+// reattaches by id, and the inner failure's own words are kept only as cause.
+const reattach = (c: Client, error: unknown, requestID: string): Refused => {
+  const known = c.failure(error), suffix = `; reattach with --exec-id ${requestID}`
+  return withCause(
+    known instanceof Refused
+      ? new Refused({ fault: known.fault, code: known.code, message: `${known.message}${suffix}` })
+      : new Refused({ fault: "infra", code: "exec_unconfirmed", message: `Lost contact with the command${suffix}` }),
+    error
+  )
+}
 /**
  * @private
  * @since 1.0.0
@@ -26,7 +52,7 @@ export const resolveID = async (c: Client, a: Values, o: Values) => {
     workspaces.find((ws) => ws.status === "running")?.id || workspaces[0]?.id ||
       object(await c.request("POST", base(c, o), { name: "" })).id
   )
-  if (!id) throw new Error("Workspace response omitted id")
+  if (!id) throw protocol("Workspace response omitted id")
   return id
 }
 const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint> => {
@@ -47,7 +73,7 @@ const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint
     }
     await delay(Number(c.env.SMITHERS_WORKSPACE_SSH_POLL_INTERVAL_MS) || 3000, undefined, { signal: c.runtime.signal })
   } while (Date.now() < deadline)
-  throw new Error("Workspace did not become SSH-ready")
+  throw new Refused({ fault: "infra", code: "workspace_not_ready", message: "Workspace did not become SSH-ready" })
 }
 /**
  * @private
@@ -65,12 +91,14 @@ export const workspaceBody = (o: Values) => {
   const mode = str(o.network || (allow.length ? "allowlist" : "")).toLowerCase()
   if (mode) {
     if (!["proxy", "allowlist", "none"].includes(mode) || (allow.length && mode !== "allowlist")) {
-      throw new Error("Invalid workspace network options")
+      throw new UsageError({ message: "Invalid workspace network options" })
     }
     body.network = { mode, ...(allow.length ? { allow } : {}) }
   }
   if (o.idleTimeout !== undefined) {
-    if (!Number.isInteger(o.idleTimeout) || Number(o.idleTimeout) < 0) throw new Error("Idle timeout must be >= 0")
+    if (!Number.isInteger(o.idleTimeout) || Number(o.idleTimeout) < 0) {
+      throw new UsageError({ message: "Idle timeout must be >= 0" })
+    }
     body.idle_timeout_seconds = o.idleTimeout
   }
   const seen = new Set<string>()
@@ -81,7 +109,7 @@ export const workspaceBody = (o: Values) => {
         name = raw.slice(0, index).trim(),
         command = raw.slice(index + 1).trim()
       if (index < 1 || !name || !command || /[ /\\]/.test(name) || seen.has(name)) {
-        throw new Error("Services must have unique NAME=COMMAND values")
+        throw new UsageError({ message: "Services must have unique NAME=COMMAND values" })
       }
       seen.add(name)
       return { name, mode: "service", exec: ["/bin/sh", "-lc", command] }
@@ -98,23 +126,27 @@ workspaces["workspace create"] = async (c, _a, o) => {
   const created = await c.request("POST", base(c, o), workspaceBody(o))
   if (!o.wait) return created
   const id = str(object(created).id)
-  if (!id) throw new Error("Workspace response omitted id")
+  if (!id) throw protocol("Workspace response omitted id")
   const deadline = Date.now() + Number(o.waitTimeout || 600) * 1000
   do {
     const ws = object(await c.request("GET", base(c, o) + `/${esc(id)}`))
     if (ws.status === "running") return ws
     if (["failed", "error"].includes(str(ws.status))) {
-      throw new Error(
-        `${str(ws.failure_code) || "workspace_failed"}: ${
-          str(ws.failure_message) || "Provisioning failed"
-        }; workspace ${id} remains`
-      )
+      throw new Refused({
+        fault: "infra",
+        code: "workspace_failed",
+        message: Failure.terminalSafe(
+          `${str(ws.failure_code) || "workspace_failed"}: ${
+            str(ws.failure_message) || "Provisioning failed"
+          }; workspace ${id} remains`
+        )
+      })
     }
     await delay(Number(c.env.SMITHERS_WORKSPACE_CREATE_POLL_INTERVAL_MS) || 3000, undefined, {
       signal: c.runtime.signal
     })
   } while (Date.now() < deadline)
-  throw new Error(`Workspace ${id} did not become running`)
+  throw new Refused({ fault: "infra", code: "workspace_not_ready", message: `Workspace ${id} did not become running` })
 }
 workspaces["workspace list"] = (c, _a, o) => c.request("GET", base(c, o))
 workspaces["workspace view"] = async (c, a, o) => {
@@ -172,43 +204,66 @@ const seed = async (c: Client, ssh: Endpoint, agents: Array<string>) => {
     let path: string, data: string
     if (agent === "codex") {
       path = "/home/developer/.codex/auth.json"
-      data = await readFile(join(c.env.CODEX_HOME || join(c.home, ".codex"), "auth.json"), "utf8")
-      const tokens = object(object(JSON.parse(data)).tokens)
-      if (!tokens.access_token || !tokens.refresh_token) throw new Error("Codex subscription login required")
+      const required = new Refused({
+        fault: "user",
+        code: "not_signed_in",
+        message: "Codex subscription login required"
+      })
+      let saved: Values
+      try {
+        data = await readFile(join(c.env.CODEX_HOME || join(c.home, ".codex"), "auth.json"), "utf8")
+        saved = object(JSON.parse(data))
+      } catch (error) {
+        throw withCause(required, error)
+      }
+      const tokens = object(saved.tokens)
+      if (!tokens.access_token || !tokens.refresh_token) throw required
       for (const value of Object.values(tokens)) if (typeof value === "string") c.protect(value)
     } else if (agent === "claude") {
       const key = c.env.ANTHROPIC_API_KEY ?? ""
       if (!key.startsWith("sk-ant-api")) {
-        throw new Error("ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace")
+        throw new Refused({
+          fault: "user",
+          code: "not_signed_in",
+          message: "ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace"
+        })
       }
       c.protect(key)
       path = "/home/developer/.smithers/claude-env.sh"
       data = `export ANTHROPIC_API_KEY=${quote(key)}\n`
-    } else throw new Error("seedAgentAuth accepts claude,codex")
+    } else throw new UsageError({ message: "seedAgentAuth accepts claude,codex" })
     const script = `set -e; umask 077; mkdir -p ${quote(path.slice(0, path.lastIndexOf("/")))}; printf %s ${
       quote(Buffer.from(data).toString("base64"))
     } | base64 -d > ${quote(path)}; chmod 600 ${
       quote(path)
     }; if [ "$(id -u)" = 0 ]; then chown -R developer:developer ${quote(path.slice(0, path.lastIndexOf("/")))}; fi`
     const result = await remote(c, ssh, "bash -s", 120_000, Readable.from([script]))
-    if (result.code) throw new Error("Agent credential seeding failed")
+    if (result.code) {
+      throw new Refused({ fault: "dependency", code: "seed_failed", message: "Agent credential seeding failed" })
+    }
   }
 }
+const interrupted = () =>
+  new Refused({ fault: "user", code: "interrupted", message: "Command interrupted; execution ended" })
 workspaces["workspace exec"] = async (c, a, o) => {
   const timeout = o.timeout === undefined ? 0 : Number(o.timeout)
   if (!str(o.command).trim() || !Number.isFinite(timeout) || timeout < 0) {
-    throw new Error("A command and non-negative timeout are required")
+    throw new UsageError({ message: "A command and non-negative timeout are required" })
   }
   if (o.stdin || (o.user && o.user !== "developer")) {
-    throw new Error("Use workspace ssh or workspace shell for interactive input or another guest user")
+    throw new UsageError({
+      message: "Use workspace ssh or workspace shell for interactive input or another guest user"
+    })
   }
   const entries = list(o.env).map(str)
-  if (entries.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value))) throw new Error("--env expects KEY=VALUE")
+  if (entries.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value))) {
+    throw new UsageError({ message: "--env expects KEY=VALUE" })
+  }
   const environment = Object.fromEntries(
     entries.map((value) => [value.slice(0, value.indexOf("=")), value.slice(value.indexOf("=") + 1)])
   )
   const requestID = str(o["exec-id"]) || randomUUID()
-  if (requestID.length > 128 || !requestID.trim()) throw new Error("Invalid exec id")
+  if (requestID.length > 128 || !requestID.trim()) throw new UsageError({ message: "Invalid exec id" })
   const id = await resolveID(c, a, o), path = base(c, o) + `/${esc(id)}/command-runs`
   if (o.seedAgentAuth) {
     const ssh = await sshInfo(c, base(c, o) + `/${esc(id)}`, "developer")
@@ -225,10 +280,10 @@ workspaces["workspace exec"] = async (c, a, o) => {
       })
     )
   } catch (error) {
-    throw new Error(`${error instanceof Error ? error.message : String(error)}; reattach with --exec-id ${requestID}`)
+    throw reattach(c, error, requestID)
   }
   if (typeof receipt.operationId !== "string" || !receipt.operationId) {
-    throw new Error(`Command response omitted operationId; reattach with --exec-id ${requestID}`)
+    throw protocol(`Command response omitted operationId; reattach with --exec-id ${requestID}`)
   }
   const runPath = `${path}/${esc(receipt.operationId)}`
   const deadline = timeout > 0 ? Date.now() + timeout * 1000 : Infinity
@@ -239,19 +294,23 @@ workspaces["workspace exec"] = async (c, a, o) => {
     const signal = AbortSignal.timeout(30_000)
     let run = object(await c.request("POST", runPath + "/cancel", undefined, { signal }))
     while (["accepted", "dispatching", "running", "waiting"].includes(str(run.state))) {
-      if (run.operationId !== receipt.operationId) throw new Error("Mismatched command receipt")
+      if (run.operationId !== receipt.operationId) throw protocol("Mismatched command receipt")
       await delay(interval, undefined, { signal })
       run = object(await c.request("GET", runPath, undefined, { signal }))
     }
     if (run.operationId !== receipt.operationId || !["cancelled", "completed", "failed"].includes(str(run.state))) {
-      throw new Error("Command cancellation could not be confirmed")
+      throw new Refused({
+        fault: "infra",
+        code: "cancel_unconfirmed",
+        message: "Command cancellation could not be confirmed"
+      })
     }
   }
   try {
     for (;;) {
       if (c.runtime.signal?.aborted || Date.now() >= deadline) {
         await cancel()
-        throw new Error("Command interrupted; execution ended")
+        throw interrupted()
       }
       const signal = timeout > 0
         ? AbortSignal.any([
@@ -260,14 +319,14 @@ workspaces["workspace exec"] = async (c, a, o) => {
         ])
         : c.runtime.signal
       const run = object(await c.request("GET", runPath, undefined, signal ? { signal } : undefined))
-      if (run.operationId !== receipt.operationId) throw new Error("Mismatched command receipt")
+      if (run.operationId !== receipt.operationId) throw protocol("Mismatched command receipt")
       if (run.state === "completed") {
         const result = object(run.result)
         if (
           !Number.isInteger(result.exit_code) || typeof result.stdout !== "string" ||
           typeof result.stderr !== "string" || typeof result.output_truncated !== "boolean"
         ) {
-          throw new Error("Invalid command result")
+          throw protocol("Invalid command result")
         }
         c.output(Buffer.from(result.stdout), Buffer.from(result.stderr))
         c.flushOutput()
@@ -280,10 +339,15 @@ workspaces["workspace exec"] = async (c, a, o) => {
         }
       }
       if (["failed", "uncertain", "cancelled"].includes(str(run.state))) {
-        throw new Error(str(run.error) || `Command ${str(run.state)}`)
+        const state = str(run.state)
+        throw new Refused({
+          fault: state === "cancelled" ? "user" : "infra",
+          code: `command_${state}`,
+          message: Failure.terminalSafe(str(c.redact(str(run.error)))).trim() || `Command ${state}`
+        })
       }
       if (!["accepted", "dispatching", "running", "waiting"].includes(str(run.state))) {
-        throw new Error("Invalid command state")
+        throw protocol("Invalid command state")
       }
       // Check abort in the loop so cancellation uses its own live request signal.
       await delay(Math.min(interval, Math.max(1, deadline - Date.now())))
@@ -295,22 +359,18 @@ workspaces["workspace exec"] = async (c, a, o) => {
       try {
         await cancel()
       } catch (cancelError) {
-        throw new Error(
-          `${
-            cancelError instanceof Error ? cancelError.message : String(cancelError)
-          }; reattach with --exec-id ${requestID}`
-        )
+        throw reattach(c, cancelError, requestID)
       }
-      throw new Error("Command interrupted; execution ended")
+      throw interrupted()
     }
-    throw new Error(`${error instanceof Error ? error.message : String(error)}; reattach with --exec-id ${requestID}`)
+    throw reattach(c, error, requestID)
   }
 }
 workspaces["workspace shell"] = async (c, a, o) => {
   const id = await resolveID(c, a, o), path = c.repoPath(o.repo) + "/workspace/sessions"
   const cols = Number(o.cols) || process.stdout.columns || 80, rows = Number(o.rows) || process.stdout.rows || 24
   const session = object(await c.request("POST", path, { cols, rows, workspace_id: id }))
-  if (!session.id) throw new Error("Terminal response omitted id")
+  if (!session.id) throw protocol("Terminal response omitted id")
   const auth = await c.session.require(),
     url = auth.api_url.replace(/^http/, "ws") + `${path}/${esc(session.id)}/terminal`
   const socket = new NodeWS.WebSocket(url, { headers: { Authorization: `token ${auth.token}`, Origin: auth.api_url } })
@@ -400,7 +460,7 @@ workspaces["workspace issue"] = async (c, a, o) => {
     repository = c.repoPath(o.repo),
     issue = object(await c.request("GET", `${repository}/issues/${number}`))
   const workspace = object(await c.request("POST", base(c, o), { name: `issue-${number}` })), id = str(workspace.id)
-  if (!id) throw new Error("Workspace response omitted id")
+  if (!id) throw protocol("Workspace response omitted id")
   const ssh = await sshInfo(c, base(c, o) + `/${esc(id)}`, "")
   try {
     await seed(c, ssh, ["claude"])
@@ -420,9 +480,13 @@ workspaces["workspace issue"] = async (c, a, o) => {
       ssh,
       "command -v node; command -v npm; command -v claude; tail -n 80 /home/developer/.smithers/claude-install.log 2>/dev/null || true"
     )
-    throw new Error(
-      `Claude Code failed; workspace ${id} remains.\nWorkspace diagnostics:\n${diagnostics.stdout.toString()}`
-    )
+    throw new Refused({
+      fault: "dependency",
+      code: "agent_failed",
+      message: `Claude Code failed; workspace ${id} remains.\nWorkspace diagnostics:\n${
+        Failure.terminalSafeLines(diagnostics.stdout.toString())
+      }`
+    })
   }
   const target = str(o.target) || "main",
     revset = `(::@ ~ ::present(bookmarks(exact:${JSON.stringify(target)}))) ~ empty()`
@@ -433,7 +497,9 @@ workspaces["workspace issue"] = async (c, a, o) => {
       quote("change_id ++ \"\\n\"")
     }`
   )
-  if (changes.code) throw new Error("Could not read workspace changes")
+  if (changes.code) {
+    throw new Refused({ fault: "dependency", code: "tool_failed", message: "Could not read workspace changes" })
+  }
   const change_ids = lines(changes.stdout.toString())
   if (!change_ids.length) return { workspace_id: id, issue: number, status: "completed", change_ids }
   const landing = object(

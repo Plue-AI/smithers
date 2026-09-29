@@ -7,6 +7,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { parse, stringify } from "yaml"
+import { Refused, UsageError } from "../../CliError.ts"
 import { NotFound, type Result, run } from "./Process.ts"
 
 type RecordValue = Record<string, unknown>
@@ -24,11 +25,20 @@ const read = (path: string): string | undefined => {
  * @since 1.0.0
  */
 export const normalizeOrigin = (raw: string): string => {
-  const url = new URL(raw.trim().replace(/\/api\/?$/i, ""))
+  const refusal = () =>
+    new UsageError({
+      message: "Smithers API origin must be an HTTP(S) origin without credentials, path, query or fragment"
+    })
+  let url: URL
+  try {
+    url = new URL(raw.trim().replace(/\/api\/?$/i, ""))
+  } catch {
+    throw refusal()
+  }
   if (
     !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
     url.pathname !== "/"
-  ) throw new Error("Smithers API origin must be an HTTP(S) origin without credentials, path, query or fragment")
+  ) throw refusal()
   return url.origin
 }
 /**
@@ -39,11 +49,23 @@ export const observeOrigin = (raw: string): string => {
   const origin = normalizeOrigin(raw)
   const url = new URL(origin)
   if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
-    throw new Error("observe_url requires HTTPS except on loopback")
+    throw new UsageError({ message: "observe_url requires HTTPS except on loopback" })
   }
   return origin
 }
 const tokenPattern = /^[A-Za-z0-9._~+/=-]+$/
+const storageFailed = (action: string) =>
+  new Refused({
+    fault: "dependency",
+    code: "credential_storage_failed",
+    message: `Secure credential storage ${action} failed`
+  })
+/**
+ * A login token that is empty or holds characters no token has.
+ * @private
+ * @since 1.0.0-rc.1
+ */
+export const invalidToken = () => new Refused({ fault: "user", code: "invalid_token", message: "Invalid login token" })
 /**
  * @private
  * @since 1.0.0
@@ -68,8 +90,14 @@ export class Session {
   }
   config(effective = true): RecordValue {
     const raw = read(this.configPath)
-    const parsed: unknown = raw === undefined ? {} : parse(raw)
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Smithers config")
+    const invalid = () => new Refused({ fault: "user", code: "invalid_config", message: "Invalid Smithers config" })
+    let parsed: unknown
+    try {
+      parsed = raw === undefined ? {} : parse(raw)
+    } catch {
+      throw invalid()
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw invalid()
     const config = parsed as RecordValue
     return {
       api_origin: text(config.api_origin || config.api_url),
@@ -85,7 +113,9 @@ export class Session {
     delete config.api_url
     if (config.api_origin) config.api_origin = normalizeOrigin(text(config.api_origin))
     if (config.observe_url) config.observe_url = observeOrigin(text(config.observe_url))
-    if (!["ssh", "https"].includes(text(config.git_protocol))) throw new Error("git_protocol must be ssh or https")
+    if (!["ssh", "https"].includes(text(config.git_protocol))) {
+      throw new UsageError({ message: "git_protocol must be ssh or https" })
+    }
     this.write(this.configPath, stringify(config), 0o644)
   }
   write(path: string, data: string, mode = 0o600) {
@@ -103,9 +133,12 @@ export class Session {
     const configured = text(this.config().api_origin)
     let origin = hostname || configured
     if (!origin) {
-      throw new Error(
-        "Smithers API origin is not configured. Set SMITHERS_API_ORIGIN or run smithers config set api_origin ORIGIN"
-      )
+      throw new Refused({
+        fault: "user",
+        code: "not_configured",
+        message:
+          "Smithers API origin is not configured. Set SMITHERS_API_ORIGIN or run smithers config set api_origin ORIGIN"
+      })
     }
     if (!origin.includes("://")) {
       if (configured && new URL(configured).hostname.replace(/^api\./, "") === origin) origin = configured
@@ -119,7 +152,12 @@ export class Session {
   record(origin: string): RecordValue | undefined {
     const raw = read(this.authPath)
     if (!raw?.trim()) return
-    const record = JSON.parse(raw) as RecordValue
+    let record: RecordValue
+    try {
+      record = JSON.parse(raw) as RecordValue
+    } catch {
+      throw new Refused({ fault: "user", code: "invalid_config", message: "Invalid Smithers login file" })
+    }
     if (record.api_url && normalizeOrigin(text(record.api_url)) !== normalizeOrigin(origin)) return
     if (record.host && record.host !== this.target(origin).host) return
     if (!record.api_url && !record.host) return
@@ -182,14 +220,14 @@ export class Session {
       )
     } catch (error) {
       if (error instanceof NotFound) return
-      throw new Error(`Secure credential storage ${action} failed`)
+      throw storageFailed(action)
     }
     if (result.code === 0) return result.stdout.trim() || ""
     if (
       result.code === 44 || /not found|could not be found|cannot find/i.test(result.stderr || "") ||
       (process.platform === "linux" && result.code === 1 && !result.stderr)
     ) return ""
-    throw new Error(`Secure credential storage ${action} failed`)
+    throw storageFailed(action)
   }
   async resolve(origin?: string) {
     const target = this.target(origin)
@@ -217,12 +255,18 @@ export class Session {
   }
   async require(origin?: string) {
     const resolved = await this.resolve(origin)
-    if (!resolved) throw new Error("No Smithers login. Run smithers auth login or set SMITHERS_TOKEN")
+    if (!resolved) {
+      throw new Refused({
+        fault: "user",
+        code: "not_signed_in",
+        message: "No Smithers login. Run smithers auth login or set SMITHERS_TOKEN"
+      })
+    }
     return resolved
   }
   async save(origin: string, token: string, metadata: RecordValue = {}) {
     // Tokens reach `security -i` and the auth file; admit only token characters, never quotes or whitespace.
-    if (!tokenPattern.test(token)) throw new Error("Invalid login token")
+    if (!tokenPattern.test(token)) throw invalidToken()
     const target = this.target(origin)
     const stored = await this.keyring("set", target.host, token)
     this.write(

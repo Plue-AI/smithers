@@ -9,8 +9,10 @@ import { homedir } from "node:os"
 import { createInterface } from "node:readline/promises"
 import { StringDecoder } from "node:string_decoder"
 import type { Runtime } from "../../cli/ControlBridge.ts"
+import { type Fault, Refused, UsageError } from "../../CliError.ts"
 import { processHost, repoFromRemote, resolveRepo } from "../../commands/Open.ts"
 import { packageVersion } from "../../Version.ts"
+import * as Failure from "../Failure.ts"
 import { run } from "./Process.ts"
 import { Session } from "./Session.ts"
 
@@ -65,7 +67,7 @@ export const pick = (values: Values, keys: Array<string>): Values =>
  */
 export const positive = (value: unknown, label = "id"): number => {
   const n = Number(value)
-  if (!Number.isSafeInteger(n) || n <= 0) throw new Error(`Invalid ${label}`)
+  if (!Number.isSafeInteger(n) || n <= 0) throw new UsageError({ message: `Invalid ${label}` })
   return n
 }
 /**
@@ -87,6 +89,51 @@ export class APIError extends Data.TaggedError("/backend/APIError")<{
     })
   }
 }
+// Whose problem each backend HTTP status is, and the sentence an operator
+// reads when the backend sent none of its own.
+const statusRefusal = (status: number): { fault: Fault; code: string; message: string } =>
+  status === 401
+    ? { fault: "user", code: "not_signed_in", message: "Not signed in. Run smithers auth login" }
+    : status === 403
+    ? { fault: "user", code: "forbidden", message: "Your login does not have access to this" }
+    : status === 404
+    ? { fault: "user", code: "not_found", message: "Not found" }
+    : status === 409
+    ? { fault: "wait", code: "conflict", message: "Another change is in progress; try again shortly" }
+    : status === 423
+    ? { fault: "wait", code: "locked", message: "This is locked by another operation; try again shortly" }
+    : status === 425
+    ? { fault: "wait", code: "too_early", message: "This is not ready yet; try again shortly" }
+    : status === 429
+    ? { fault: "infra", code: "rate_limited", message: "Smithers Cloud is busy. Not your fault; try again shortly" }
+    : status >= 500
+    ? { fault: "infra", code: "backend_unavailable", message: "Smithers Cloud did not answer. Not your fault" }
+    : { fault: "user", code: "request_refused", message: "Smithers Cloud refused the request" }
+
+/**
+ * Attaches the inner failure as `cause`, where only `--verbose` prints it.
+ * @private
+ * @since 1.0.0-rc.1
+ */
+export const withCause = <E extends Error>(error: E, cause: unknown): E => {
+  Object.defineProperty(error, "cause", { value: cause, configurable: true, writable: true, enumerable: false })
+  return error
+}
+
+/**
+ * The refusal an operator reads for one backend HTTP failure: the fault and
+ * code its status names, and the backend's own sentence, redacted and made
+ * inert for a terminal. The method, path, and request id stay on the
+ * `APIError`, which rides along as `cause`.
+ * @private
+ * @since 1.0.0-rc.1
+ */
+export const refusalOf = (error: APIError, redact: (value: unknown) => unknown = Redaction.redact): Refused => {
+  const refusal = statusRefusal(error.status)
+  const stated = Failure.terminalSafe(str(redact(str(error.detail.message)))).trim()
+  return withCause(new Refused({ ...refusal, message: stated || refusal.message }), error)
+}
+
 /**
  * @private
  * @since 1.0.0
@@ -162,6 +209,25 @@ export class Client {
     this.outputChunk("stdout")
     this.outputChunk("stderr")
   }
+  /**
+   * What a failed command reports: a backend HTTP failure as the `Refused`
+   * its status names, any other designed failure with its tag and its
+   * sentence redacted of this session's secrets, and anything else as it
+   * came, so the reporter prints the generic sentence.
+   */
+  failure(error: unknown): unknown {
+    if (error instanceof APIError) return refusalOf(error, (value) => this.redact(value))
+    if (!Failure.isDesigned(error)) return error
+    const message = str(this.redact(error.message))
+    if (message === error.message) return error
+    if (!Failure.isTagged(error)) return new Error(message)
+    try {
+      Object.defineProperty(error, "message", { value: message, configurable: true, writable: true })
+      return error
+    } catch {
+      return new Error(message)
+    }
+  }
   async exec(command: string, args: Array<string>, extra: NodeJS.ProcessEnv = {}, input?: string): Promise<string> {
     const result = await run(command, args, {
       env: { ...this.env, ...extra },
@@ -169,9 +235,17 @@ export class Client {
       timeoutMs: 120_000,
       signal: this.runtime.signal
     }).catch((error: Error) => {
-      throw new Error(error.message.endsWith("timed out") ? `${command} failed (timed out)` : `${command} failed`)
+      const timedOut = error.message.endsWith("timed out")
+      throw withCause(
+        new Refused({
+          fault: "dependency",
+          code: timedOut ? "tool_timed_out" : "tool_failed",
+          message: timedOut ? `${command} failed (timed out)` : `${command} failed`
+        }),
+        error
+      )
     })
-    if (result.code !== 0) throw new Error(`${command} failed`)
+    if (result.code !== 0) throw new Refused({ fault: "dependency", code: "tool_failed", message: `${command} failed` })
     return result.stdout.trim()
   }
   /**
@@ -190,7 +264,7 @@ export class Client {
     if (explicit) {
       const parsed = /^[\w.-]+\/[\w.-]+$/.test(explicit) ? explicit : repoFromRemote(explicit, hosts)
       if (!parsed || parsed.split("/").some((part) => part === "." || part === "..")) {
-        throw new Error("Expected OWNER/REPO or a clone URL")
+        throw new UsageError({ message: "Expected OWNER/REPO or a clone URL" })
       }
       return parsed.split("/").map(esc).join("/")
     }
@@ -209,11 +283,13 @@ export class Client {
   }
   async confirm(yes: unknown, description: string) {
     if (yes === true) return
-    if (!process.stdin.isTTY) throw new Error(`${description} requires --yes when stdin is not a TTY`)
+    if (!process.stdin.isTTY) {
+      throw new UsageError({ message: `${description} requires --yes when stdin is not a TTY` })
+    }
     const prompt = createInterface({ input: process.stdin, output: process.stderr })
     try {
       if (!/^(y|yes)$/i.test((await prompt.question(`Confirm ${description}? [y/N] `)).trim())) {
-        throw new Error("Operation cancelled")
+        throw new Refused({ fault: "user", code: "cancelled", message: "Operation cancelled" })
       }
     } finally {
       prompt.close()
@@ -223,9 +299,11 @@ export class Client {
     let text = ""
     for await (const chunk of process.stdin) {
       text += chunk
-      if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error(`${label} exceeds 4 MiB`)
+      if (Buffer.byteLength(text) > 4 * 1024 * 1024) {
+        throw new Refused({ fault: "user", code: "input_too_large", message: `${label} exceeds 4 MiB` })
+      }
     }
-    if (!allowEmpty && !text.trim()) throw new Error(`${label} is required on stdin`)
+    if (!allowEmpty && !text.trim()) throw new UsageError({ message: `${label} is required on stdin` })
     return text.trim()
   }
   async response(
@@ -241,7 +319,9 @@ export class Client {
       signal?: AbortSignal
     } = {}
   ): Promise<Response> {
-    if (!path.startsWith("/") || path.startsWith("//")) throw new Error("API path must start with /")
+    if (!path.startsWith("/") || path.startsWith("//")) {
+      throw new UsageError({ message: "API path must start with /" })
+    }
     const origin = options.origin ?? this.session.target().api_url
     const token = options.anonymous ? undefined : options.token ?? (await this.session.require(origin)).token
     if (token) this.protect(token)
@@ -291,7 +371,9 @@ export class Client {
     if (response.body) {
       for await (const chunk of chunksOf(response.body)) {
         size += chunk.length
-        if (size > maximum) throw new Error("API response exceeds maximum size")
+        if (size > maximum) {
+          throw new Refused({ fault: "infra", code: "backend_protocol", message: "API response exceeds maximum size" })
+        }
         chunks.push(chunk)
       }
     }
@@ -310,7 +392,9 @@ export class Client {
   async pages(path: (cursor: string) => string, cursor = "", all = false, key = "items"): Promise<unknown> {
     const items: Array<unknown> = [], seen = new Set<string>()
     do {
-      if (seen.has(cursor)) throw new Error("API repeated a pagination cursor")
+      if (seen.has(cursor)) {
+        throw new Refused({ fault: "infra", code: "backend_protocol", message: "API repeated a pagination cursor" })
+      }
       seen.add(cursor)
       const response = await this.response("GET", path(cursor))
       const data: unknown = JSON.parse(await this.text(response))
@@ -335,7 +419,9 @@ export class Client {
       while (true) {
         const chunk = await reader.read()
         buffer = (buffer + (chunk.done ? "\n\n" : chunk.value)).replaceAll("\r\n", "\n")
-        if (buffer.length > 4 * 1024 * 1024) throw new Error("Event exceeds maximum size")
+        if (buffer.length > 4 * 1024 * 1024) {
+          throw new Refused({ fault: "infra", code: "backend_protocol", message: "Event exceeds maximum size" })
+        }
         let end: number
         while ((end = buffer.indexOf("\n\n")) >= 0) {
           const lines = buffer.slice(0, end).split("\n")

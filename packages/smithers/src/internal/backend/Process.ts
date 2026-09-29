@@ -21,6 +21,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { once } from "node:events"
 import { hostname } from "node:os"
 import { PassThrough } from "node:stream"
+import { Refused } from "../../CliError.ts"
 
 type Environment = Readonly<Record<string, string | undefined>>
 
@@ -54,11 +55,15 @@ const settle = <A>(command: string, exit: Exit.Exit<A, unknown>, interrupted: st
   const error: unknown = failure?._tag === "Fail" ? failure.error : undefined
   if (error instanceof Error && !("reason" in error)) throw error
   if (error === undefined && cause.reasons.some((reason) => reason._tag === "Interrupt")) {
-    throw new Error(`${command} was ${interrupted}`)
+    throw new Refused({ fault: "user", code: "cancelled", message: `${command} was ${interrupted}` })
   }
   const reason = (error as { reason?: { _tag?: string } } | undefined)?.reason
   if (reason?._tag === "NotFound") throw new NotFound(command)
-  throw new Error(`${command} failed: ${error instanceof Error ? error.message : String(error ?? cause)}`)
+  // The platform's own text names the syscall and path; it is detail for
+  // --verbose, never the sentence.
+  const failed = new Refused({ fault: "dependency", code: "tool_failed", message: `${command} failed` })
+  Object.defineProperty(failed, "cause", { value: error ?? cause, configurable: true, writable: true })
+  throw failed
 }
 
 /**
@@ -74,9 +79,9 @@ export interface Result {
 /**
  * Runs one command to completion and buffers its output.
  *
- * Rejects with {@link NotFound} when the program is missing, and with a plain
- * error on timeout, cancellation, or output past `maxBytes`. The child's
- * environment is exactly `env`.
+ * Rejects with {@link NotFound} when the program is missing, and with a
+ * `Refused` on timeout, cancellation, output past `maxBytes`, or any other
+ * spawn failure. The child's environment is exactly `env`.
  * @private
  * @since 1.0.0
  */
@@ -99,7 +104,13 @@ export const run = (
       return state
     }).pipe(Effect.flatMap(({ bytes, chunks }) =>
       bytes > maxBytes
-        ? Effect.fail(new Error(`${command} output exceeded ${maxBytes} bytes`))
+        ? Effect.fail(
+          new Refused({
+            fault: "dependency",
+            code: "tool_output_too_large",
+            message: `${command} output exceeded ${maxBytes} bytes`
+          })
+        )
         : Effect.succeed(Buffer.concat(chunks).toString("utf8"))
     ))
   const program = Effect.gen(function*() {
@@ -119,7 +130,8 @@ export const run = (
     Effect.scoped,
     Effect.timeoutOrElse({
       duration: options.timeoutMs,
-      orElse: () => Effect.fail(new Error(`${command} timed out`))
+      orElse: () =>
+        Effect.fail(new Refused({ fault: "dependency", code: "tool_timed_out", message: `${command} timed out` }))
     }),
     Effect.provide(spawner)
   )

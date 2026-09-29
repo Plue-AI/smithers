@@ -149,7 +149,10 @@ describe("repository edge contracts", () => {
     const { c, home } = await fixture()
     process.chdir(home)
     await writeFile(".jj", "bad")
-    await expect(repositories["repo status"]!(c, {}, {})).rejects.toThrow("NOT_JJ_REPO")
+    await expect(repositories["repo status"]!(c, {}, {})).rejects.toMatchObject({
+      code: "not_jj_repo",
+      message: "Run this from the root of a jj checkout"
+    })
     await rm(".jj")
     await mkdir(".jj")
     await mkdir(".smithers")

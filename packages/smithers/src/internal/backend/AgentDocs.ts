@@ -5,8 +5,9 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import * as Failure from "../Failure.ts"
 import { auth } from "./Auth.ts"
-import { object, str, type Values } from "./Client.ts"
+import { APIError, object, refusalOf, str, type Values } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 /**
  * @private
@@ -18,7 +19,7 @@ export const ask: Handler = async (c, a, o) => {
     try {
       return { ok: true, output: await c.exec(command, args) }
     } catch (error) {
-      return { ok: false, error: str(error) }
+      return { ok: false, error: Failure.operatorSentence(error) }
     }
   }
   const root = await capture("jj", ["root"]),
@@ -43,7 +44,11 @@ export const ask: Handler = async (c, a, o) => {
       await c.request("GET", c.repoPath(repoSlug))
       remoteRepo = { checked: true, available: true }
     } catch (error) {
-      remoteRepo = { checked: true, available: false, message: String(error) }
+      remoteRepo = {
+        checked: true,
+        available: false,
+        message: Failure.operatorSentence(error instanceof APIError ? refusalOf(error, (v) => c.redact(v)) : error)
+      }
     }
   }
   const warnings = [
@@ -108,7 +113,7 @@ export const ask: Handler = async (c, a, o) => {
     if (response.status === 304 && text) {
       status = { url, status: "fresh", source: "cache", fetchedAt: metadata.fetchedAt }
     } else {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      if (!response.ok) throw new Error(`Docs server answered HTTP ${response.status}`)
       text = await c.text(response, 32 * 1024 * 1024)
       metadata = {
         url,
@@ -126,7 +131,9 @@ export const ask: Handler = async (c, a, o) => {
       url,
       status: text ? "stale" : "unavailable",
       source: text ? "cache" : "none",
-      warning: `Docs refresh failed: ${str(error)}`
+      warning: Failure.isDesigned(error)
+        ? `Docs refresh failed: ${Failure.operatorSentence(error)}`
+        : "Docs refresh failed"
     }
   }
   const chunks: Array<{ id: string; title: string; lineStart: number; lineEnd: number; text: string }> = []

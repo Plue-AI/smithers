@@ -6,6 +6,7 @@
 import { Cli, Completions, z } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
+import { Refused } from "../../CliError.ts"
 import { admin } from "./Admin.ts"
 import { ask } from "./AgentDocs.ts"
 import { auth } from "./Auth.ts"
@@ -123,11 +124,19 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
             // host configuration: a caller never aims the host's credential elsewhere.
             if (Presentation.current()?.transport === "mcp") {
               if (["api", "auth login", "config set"].includes(name)) {
-                throw new Error("Login and API destination configuration are host-owned over MCP")
+                throw new Refused({
+                  fault: "policy",
+                  code: "host_owned",
+                  message: "Login and API destination configuration are host-owned over MCP"
+                })
               }
               for (const flag of destinations) {
                 if (options[flag] !== undefined && options[flag] !== "") {
-                  throw new Error(`--${flag} is not accepted over MCP; the backend destination is host-owned`)
+                  throw new Refused({
+                    fault: "policy",
+                    code: "host_owned",
+                    message: `--${flag} is not accepted over MCP; the backend destination is host-owned`
+                  })
                 }
               }
             }
@@ -135,7 +144,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
             try {
               return client.redact(await handler(client, args, options))
             } catch (error) {
-              throw new Error(String(client.redact(error instanceof Error ? error.message : String(error))))
+              throw client.failure(error)
             } finally {
               client.flushOutput()
             }

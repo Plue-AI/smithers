@@ -3,6 +3,7 @@
  * @since 0.1.0
  */
 
+import { Refused } from "../../CliError.ts"
 import { type Client, esc, list, object, pick, positive, query, str } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 /**
@@ -23,7 +24,7 @@ export const revision = async (c: Client, rev: string) => {
     "-T",
     "change_id ++ \"\\t\" ++ commit_id ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
   ])).split("\t")
-  if (!change_id) throw new Error(`Unable to resolve revision ${rev}`)
+  if (!change_id) throw new Refused({ fault: "user", code: "not_found", message: `Unable to resolve revision ${rev}` })
   return { change_id, commit_id, description: description.join("\t") }
 }
 /**
@@ -95,7 +96,7 @@ local["bookmark create"] = async (c, a, o) => {
 }
 local["bookmark delete"] = async (c, a) => {
   if (!(await bookmarks(c, [str(a.name)])).some((bookmark) => bookmark.name === a.name)) {
-    throw new Error(`Bookmark ${str(a.name)} was not found`)
+    throw new Refused({ fault: "user", code: "not_found", message: `Bookmark ${str(a.name)} was not found` })
   }
   await c.exec("jj", ["bookmark", "delete", str(a.name)])
   return { status: "deleted", name: a.name }

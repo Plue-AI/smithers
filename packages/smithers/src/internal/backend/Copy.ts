@@ -8,6 +8,7 @@ import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises"
 import { basename, dirname, join, posix, resolve } from "node:path"
 import { pipeline } from "node:stream/promises"
 import * as tar from "tar"
+import { Refused, UsageError } from "../../CliError.ts"
 import { str } from "./Client.ts"
 import { spawn } from "./Process.ts"
 import type { Handler } from "./Resources.ts"
@@ -52,12 +53,20 @@ export const archiveFilter = (root: string) => (path: string, entry: tar.ReadEnt
   const within = (name: string) =>
     !posix.isAbsolute(name) && name !== ".." && !name.startsWith("../") &&
     (!root || name === root || name.startsWith(root + "/"))
-  if (!within(normalized.replace(/\/$/, ""))) throw new Error("Archive entry escapes the requested path")
+  if (!within(normalized.replace(/\/$/, ""))) {
+    throw new Refused({ fault: "policy", code: "archive_refused", message: "Archive entry escapes the requested path" })
+  }
   if (entry.type === "Link" && !within(posix.normalize(entry.linkpath || ""))) {
-    throw new Error("Archive hard link escapes the requested path")
+    throw new Refused({
+      fault: "policy",
+      code: "archive_refused",
+      message: "Archive hard link escapes the requested path"
+    })
   }
   return ["File", "Directory", "SymbolicLink", "Link", "OldFile"].includes(entry.type)
 }
+const symlinkRefused = () =>
+  new Refused({ fault: "policy", code: "symlink_refused", message: "Refusing to write through a symlink" })
 const exists = async (path: string) => {
   try {
     return await lstat(path)
@@ -68,7 +77,7 @@ const exists = async (path: string) => {
 }
 const merge = async (source: string, destination: string) => {
   const info = await lstat(source), old = await exists(destination)
-  if (old?.isSymbolicLink() && !info.isSymbolicLink()) throw new Error("Refusing to write through a symlink")
+  if (old?.isSymbolicLink() && !info.isSymbolicLink()) throw symlinkRefused()
   if (info.isDirectory() && old?.isDirectory()) {
     for (const child of await readdir(source)) await merge(join(source, child), join(destination, child))
   } else {
@@ -82,7 +91,7 @@ const merge = async (source: string, destination: string) => {
 export const copy: Handler = async (c, a, o) => {
   const from = copyEndpoint(str(a.src)), to = copyEndpoint(str(a.dst))
   if (from.remote === to.remote || !from.path.trim() || !to.path.trim()) {
-    throw new Error("Exactly one non-empty src or dst must be remote (<workspace-id>:<path>)")
+    throw new UsageError({ message: "Exactly one non-empty src or dst must be remote (<workspace-id>:<path>)" })
   }
   const endpoint = from.remote ? from : to,
     id = await resolveID(c, { id: endpoint.id }, o),
@@ -115,7 +124,7 @@ export const copy: Handler = async (c, a, o) => {
       stderr = (stderr + String(chunk)).slice(-8192)
     })
     const exited = child.exited.catch((error: unknown) => {
-      if (expired) throw new Error("Workspace copy timed out")
+      if (expired) throw new Refused({ fault: "user", code: "timed_out", message: "Workspace copy timed out" })
       throw error
     })
     // Every path below awaits `exited`; this keeps an early throw from
@@ -129,7 +138,7 @@ export const copy: Handler = async (c, a, o) => {
       let transferError: unknown
       if (upload) {
         const info = await lstat(source.path)
-        if (source.contents && !info.isDirectory()) throw new Error("/. requires a directory")
+        if (source.contents && !info.isDirectory()) throw new UsageError({ message: "/. requires a directory" })
         const packed = tar.c({
           cwd: source.contents ? source.path : dirname(resolve(source.path)),
           portable: true,
@@ -184,13 +193,13 @@ export const copy: Handler = async (c, a, o) => {
       const code = await exited
       if (code) {
         c.runtime.exit?.(code)
-        throw new Error(
-          code === 43
-            ? "Workspace image has no tar"
-            : code === 44
-            ? "Remote path not found"
-            : `Workspace copy failed (${code}): ${stderr}`
-        )
+        // The remote tool's own words go to stderr, never into the sentence.
+        if (code !== 43 && code !== 44 && stderr) c.write(stderr.endsWith("\n") ? stderr : `${stderr}\n`)
+        throw code === 43
+          ? new Refused({ fault: "dependency", code: "workspace_no_tar", message: "Workspace image has no tar" })
+          : code === 44
+          ? new Refused({ fault: "user", code: "not_found", message: "Remote path not found" })
+          : new Refused({ fault: "dependency", code: "copy_failed", message: `Workspace copy failed (${code})` })
       }
       if (transferError) throw transferError
     } finally {
@@ -201,7 +210,7 @@ export const copy: Handler = async (c, a, o) => {
       // Refuse symlink parents before merging. Tar never follows archive links.
       let current = resolve(destination)
       for (;;) {
-        if ((await lstat(current)).isSymbolicLink()) throw new Error("Refusing to write through a symlink")
+        if ((await lstat(current)).isSymbolicLink()) throw symlinkRefused()
         const parent = dirname(current)
         if (current === parent) break
         current = parent

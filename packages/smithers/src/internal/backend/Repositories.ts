@@ -6,7 +6,8 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { APIError, list, object, pick, query, str, type Values } from "./Client.ts"
+import { Refused, UsageError } from "../../CliError.ts"
+import { APIError, list, object, pick, query, str, type Values, withCause } from "./Client.ts"
 import { lines } from "./Local.ts"
 import type { Handler } from "./Resources.ts"
 
@@ -56,7 +57,7 @@ for (const action of ["archive", "unarchive", "delete"]) {
 }
 repositories["repo clone"] = async (c, a, o) => {
   const input = str(a.repo)
-  if (!input) throw new Error("Repository is required")
+  if (!input) throw new UsageError({ message: "Repository is required" })
   const protocol = str(o.protocol || c.session.config().git_protocol)
   const isSlug = /^[\w.-]+\/[\w.-]+$/.test(input)
   const slug = isSlug ? c.repo(input) : ""
@@ -94,7 +95,7 @@ repositories["repo push"] = async (c, _a, o) => {
     name.split("/").some((part) =>
       [".", ".."].includes(part) || part.startsWith(".") || part.endsWith(".") || part.endsWith(".lock")
     ) || name.includes("..")
-  ) throw new Error("Invalid ref name")
+  ) throw new UsageError({ message: "Invalid ref name" })
   const repository = c.repo(o.repo, githubOrigin), path = `/api/repos/${repository}`
   if (o.list) return c.request("GET", path + "/user-refs")
   const auth = await c.session.require(), env = gitAuth(auth.api_url, auth.token)
@@ -112,19 +113,27 @@ repositories["repo push"] = async (c, _a, o) => {
     const commits = lines(
       await c.exec("jj", ["log", "-r", o["working-copy"] ? "@" : "@-", "--no-graph", "-T", "commit_id ++ \"\\n\""])
     )
-    if (commits.length !== 1 || /^0+$/.test(commits[0]!)) throw new Error("Push exactly one non-root commit")
+    if (commits.length !== 1 || /^0+$/.test(commits[0]!)) {
+      throw new Refused({ fault: "user", code: "nothing_to_push", message: "Push exactly one non-root commit" })
+    }
     commit = commits[0]!
   } else {
-    if (o["working-copy"]) throw new Error("--working-copy requires a jj checkout")
+    if (o["working-copy"]) throw new UsageError({ message: "--working-copy requires a jj checkout" })
     gitDir = await c.exec("git", ["rev-parse", "--absolute-git-dir"])
     commit = await c.exec("git", ["rev-parse", "--verify", "HEAD^{commit}"])
     uncommitted = !!await c.exec("git", ["status", "--porcelain"])
   }
   if (o["working-copy"] && object(await c.request("GET", path)).is_public) {
-    throw new Error("--working-copy is refused on a public repository")
+    throw new Refused({
+      fault: "policy",
+      code: "public_repository",
+      message: "--working-copy is refused on a public repository"
+    })
   }
   const id = Number(object(await c.request("GET", "/api/user")).id)
-  if (!Number.isSafeInteger(id) || id <= 0) throw new Error("API returned no user id")
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new Refused({ fault: "infra", code: "backend_protocol", message: "API returned no user id" })
+  }
   const ref = `refs/smithers/users/${id}/${name}`, remote = `${auth.api_url}/${repository}.git`
   const advertised = await c.exec("git", ["--git-dir", gitDir, "ls-remote", remote, ref], env)
   const previous = lines(advertised).map((line) => line.split(/\s+/)).find((fields) => fields[1] === ref)?.[0] || ""
@@ -151,28 +160,42 @@ repositories["repo push"] = async (c, _a, o) => {
 }
 const configPath = () => resolve(".smithers/config.json")
 const readConfig = async (): Promise<Values> => {
+  const invalid = () => new Refused({ fault: "user", code: "invalid_config", message: "Invalid .smithers/config.json" })
+  let value: unknown
   try {
-    const value: unknown = JSON.parse(await readFile(configPath(), "utf8"))
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid .smithers/config.json")
-    return object(value)
+    value = JSON.parse(await readFile(configPath(), "utf8"))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}
+    if (error instanceof SyntaxError) throw withCause(invalid(), error)
     throw error
   }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid()
+  return object(value)
 }
 const saveConfig = async (value: Values) => {
   await mkdir(resolve(".smithers"), { recursive: true })
   await writeFile(configPath(), JSON.stringify(value, null, 2) + "\n")
 }
 const requireJj = async () => {
-  if (!(await stat(".jj")).isDirectory()) throw new Error("NOT_JJ_REPO")
+  const refusal = () =>
+    new Refused({ fault: "user", code: "not_jj_repo", message: "Run this from the root of a jj checkout" })
+  const info = await stat(".jj").catch((error: NodeJS.ErrnoException) => {
+    throw error.code === "ENOENT" || error.code === "ENOTDIR" ? withCause(refusal(), error) : error
+  })
+  if (!info.isDirectory()) throw refusal()
 }
+const licenseRefused = () =>
+  new Refused({
+    fault: "user",
+    code: "license_not_permitted",
+    message: "The repository license must be MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC or MPL-2.0"
+  })
 const permitted = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0"]
 const licenseOf = async (repository: Values) => {
   const spdx = str(object(repository.license).spdx_id)
   const canonical = permitted.find((id) => id.toLowerCase() === spdx.toLowerCase())
   if (canonical) return canonical
-  if (spdx && !["NOASSERTION", "NONE"].includes(spdx.toUpperCase())) throw new Error("LICENSE_NOT_PERMITTED")
+  if (spdx && !["NOASSERTION", "NONE"].includes(spdx.toUpperCase())) throw licenseRefused()
   for (const base of ["LICENSE", "COPYING", "license", "copying"]) {
     for (const extension of ["", ".md", ".txt"]) {
       let content = ""
@@ -201,7 +224,7 @@ const licenseOf = async (repository: Values) => {
       }
     }
   }
-  throw new Error("LICENSE_NOT_PERMITTED")
+  throw licenseRefused()
 }
 repositories["repo connect"] = async (c, a) => {
   await requireJj()
@@ -216,7 +239,13 @@ repositories["repo connect"] = async (c, a) => {
       }
     })
   )
-  if (github.private) throw new Error("REPO_NOT_PUBLIC")
+  if (github.private) {
+    throw new Refused({
+      fault: "user",
+      code: "repo_not_public",
+      message: "Only public GitHub repositories can connect"
+    })
+  }
   const license_spdx_id = await licenseOf(github)
   let status = object(await c.request("GET", `/api/repos/${slug}/github-app-status`))
   if (!status.github_app_installed) {
@@ -276,13 +305,15 @@ repositories["cache connect"] = async (c, _a, o) => {
     record = object(
       await c.request("POST", `/api/repos/${repository}/build-cache/tokens`, { name: "smithers cache connect" })
     )
-  if (!record.token) throw new Error("API returned no public read token")
+  if (!record.token) {
+    throw new Refused({ fault: "infra", code: "backend_protocol", message: "API returned no public read token" })
+  }
   const declaration = `export const remoteCache = Smithers.RemoteCache.smithersCloud({ repo: ${
     JSON.stringify(repository)
   }, publicReadToken: ${JSON.stringify(record.token)} })`
   if (o.write === false) return { build_file, declaration, changed: false }
   if (existing && !/import\s+\*\s+as\s+Smithers\s+from/.test(existing)) {
-    throw new Error("PACKAGE.ts must import Smithers")
+    throw new Refused({ fault: "user", code: "invalid_package", message: "PACKAGE.ts must import Smithers" })
   }
   const updated = existing
     ? `${existing.trimEnd()}\n\n${declaration}\n`

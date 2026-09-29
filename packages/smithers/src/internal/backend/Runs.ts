@@ -3,6 +3,7 @@
  * @since 0.1.0
  */
 
+import { Refused } from "../../CliError.ts"
 import { list, object, positive, str } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 /**
@@ -20,7 +21,7 @@ for (const action of ["dispatch", "run"]) {
       id = list(response.workflows).map(object).find((flow) =>
         str(flow.name).trim().toLowerCase() === str(a.workflow).trim().toLowerCase()
       )?.id
-      if (!id) throw new Error(`Flow ${str(a.workflow)} not found`)
+      if (!id) throw new Refused({ fault: "user", code: "not_found", message: `Flow ${str(a.workflow)} not found` })
     }
     const inputs = Object.fromEntries(
       list(o.input).map(str).filter((value) => value.includes("=")).map((value) => {

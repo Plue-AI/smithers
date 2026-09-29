@@ -8,9 +8,13 @@ import { randomBytes, timingSafeEqual } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer, type IncomingMessage } from "node:http"
 import { join } from "node:path"
-import { APIError, type Client, object, str, type Values } from "./Client.ts"
+import { Refused, UsageError } from "../../CliError.ts"
+import * as Failure from "../Failure.ts"
+import { APIError, type Client, object, str, type Values, withCause } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
-import { observeOrigin } from "./Session.ts"
+import { invalidToken, observeOrigin } from "./Session.ts"
+
+const refused = (fault: "user" | "infra", code: string, message: string) => new Refused({ fault, code, message })
 
 const equal = (a: string, b: string) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b))
@@ -29,7 +33,7 @@ const readJSON = async (req: IncomingMessage): Promise<Values> => {
   let data = ""
   for await (const chunk of req) {
     data += chunk
-    if (data.length > 1024 * 1024) throw new Error("Callback too large")
+    if (data.length > 1024 * 1024) throw refused("user", "invalid_callback", "Callback too large")
   }
   return object(JSON.parse(data))
 }
@@ -96,16 +100,16 @@ export const browserLogin = async (
         res.writeHead(409).end()
         return
       }
-      if (!str(value.token).trim() || /\s/.test(str(value.token).trim())) throw new Error("Invalid login token")
+      if (!str(value.token).trim() || /\s/.test(str(value.token).trim())) throw invalidToken()
       if (admin && !(Date.parse(str(value.expires_at)) > Date.now())) {
-        throw new Error("Admin login requires a future expiry")
+        throw refused("user", "invalid_callback", "Admin login requires a future expiry")
       }
       finished = true
       res.end("Logged in. You can close this tab.")
       finish(value)
     } catch (error) {
       res.writeHead(400).end("Invalid callback")
-      fail(error instanceof Error ? error : new Error("Invalid callback"))
+      fail(Failure.isTagged(error) ? error : withCause(refused("user", "invalid_callback", "Invalid callback"), error))
     }
   })
   server.requestTimeout = 10_000
@@ -121,8 +125,8 @@ export const browserLogin = async (
     callback_state: state,
     ...(admin ? { admin: "1", ttl: ttl || "1h" } : {})
   })}`
-  const timer = setTimeout(() => fail(new Error("Timed out waiting for browser login")), timeout)
-  const abort = () => fail(new Error("Login cancelled"))
+  const timer = setTimeout(() => fail(refused("user", "timed_out", "Timed out waiting for browser login")), timeout)
+  const abort = () => fail(refused("user", "cancelled", "Login cancelled"))
   c.runtime.signal?.addEventListener("abort", abort, { once: true })
   try {
     if (c.runtime.signal?.aborted) abort()
@@ -137,7 +141,7 @@ export const browserLogin = async (
 }
 const anthropicKey = (value: string) => {
   const key = value.match(/\bsk-ant-api[0-9a-z-]*-[A-Za-z0-9._-]+\b/)?.[0]
-  if (!key) throw new Error("Expected an Anthropic API key (sk-ant-api...)")
+  if (!key) throw new UsageError({ message: "Expected an Anthropic API key (sk-ant-api...)" })
   return key
 }
 const claims = (token: unknown): Values => {
@@ -149,14 +153,23 @@ const claims = (token: unknown): Values => {
 }
 const providerLogin = async (c: Client, provider: string, directory: string): Promise<Values> => {
   if (provider === "claude") {
-    throw new Error(
-      "A Claude subscription is never stored; it runs locally through Claude Code. Use --api-key for an Anthropic API key"
-    )
+    throw new UsageError({
+      message:
+        "A Claude subscription is never stored; it runs locally through Claude Code. Use --api-key for an Anthropic API key"
+    })
   }
-  if (provider !== "codex") throw new Error("Provider must be claude or codex")
+  if (provider !== "codex") throw new UsageError({ message: "Provider must be claude or codex" })
   const dir = directory || c.env.CODEX_HOME || join(c.home, ".codex")
-  const tokens = object(object(JSON.parse(await readFile(join(dir, "auth.json"), "utf8"))).tokens)
-  if (!tokens.access_token || !tokens.refresh_token) throw new Error("Codex login is not a ChatGPT subscription login")
+  let saved: Values
+  try {
+    saved = object(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")))
+  } catch (error) {
+    throw withCause(refused("user", "not_signed_in", "No Codex login found. Run codex login"), error)
+  }
+  const tokens = object(saved.tokens)
+  if (!tokens.access_token || !tokens.refresh_token) {
+    throw refused("user", "not_signed_in", "Codex login is not a ChatGPT subscription login")
+  }
   const id = claims(tokens.id_token),
     auth = object(id["https://api.openai.com/auth"]),
     access = claims(tokens.access_token)
@@ -178,13 +191,13 @@ const providerLogin = async (c: Client, provider: string, directory: string): Pr
 export const auth: Record<string, Handler> = {}
 auth["auth login"] = async (c, _a, o) => {
   const target = c.session.target(str(o.hostname || o.host)), admin = !!(o.admin || o.observe)
-  if (o.ttl && !admin) throw new Error("--ttl requires --admin")
-  if (admin && o["with-token"]) throw new Error("--admin requires browser consent")
+  if (o.ttl && !admin) throw new UsageError({ message: "--ttl requires --admin" })
+  if (admin && o["with-token"]) throw new UsageError({ message: "--admin requires browser consent" })
   if (o.ttl) {
     const raw = str(o.ttl), matches = [...raw.matchAll(/(\d+(?:\.\d+)?)(h|m|s)/g)]
     const duration = matches.reduce((sum, m) => sum + Number(m[1]) * ({ h: 3600, m: 60, s: 1 }[m[2]!] ?? 0), 0)
     if (matches.map((m) => m[0]).join("") !== raw || duration < 300 || duration > 43200) {
-      throw new Error("--ttl must be between 5m and 12h")
+      throw new UsageError({ message: "--ttl must be between 5m and 12h" })
     }
   }
   if (o.observe) observeOrigin(str(c.session.config().observe_url))
@@ -252,22 +265,24 @@ for (const action of ["status", "login", "bootstrap"]) {
     }
     const username = str(o.username || c.env.SMITHERS_AUTH_USERNAME)
     if (!username) {
-      throw new Error("--username or SMITHERS_AUTH_USERNAME is required")
+      throw new UsageError({ message: "--username or SMITHERS_AUTH_USERNAME is required" })
     }
     const secret = async (name: string, label: string) => {
       if (c.env[name]?.trim()) return c.env[name].trim()
       if (!process.stdin.isTTY) {
-        if (name !== "SMITHERS_AUTH_PASSWORD") throw new Error(`${name} is required when stdin is not a TTY`)
+        if (name !== "SMITHERS_AUTH_PASSWORD") {
+          throw new UsageError({ message: `${name} is required when stdin is not a TTY` })
+        }
         return c.stdin(label)
       }
       const value = await prompts.password({ message: label })
-      if (prompts.isCancel(value) || !value.trim()) throw new Error("Login cancelled")
+      if (prompts.isCancel(value) || !value.trim()) throw refused("user", "cancelled", "Login cancelled")
       return value.trim()
     }
     const password = await secret("SMITHERS_AUTH_PASSWORD", "Password")
     if (action === "bootstrap") {
       const token = await secret("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "Bootstrap token")
-      if (!token) throw new Error("SMITHERS_AUTH_BOOTSTRAP_TOKEN is required")
+      if (!token) throw new UsageError({ message: "SMITHERS_AUTH_BOOTSTRAP_TOKEN is required" })
       await c.request("POST", "/api/auth/local/bootstrap", { username, password }, {
         ...options,
         headers: { "X-Smithers-Bootstrap-Token": token }
@@ -282,7 +297,9 @@ for (const action of ["status", "login", "bootstrap"]) {
       }, options)
     )
     const user = object(response.user)
-    if (!response.token || !user.username) throw new Error("Owner token response was incomplete")
+    if (!response.token || !user.username) {
+      throw refused("infra", "backend_protocol", "Owner token response was incomplete")
+    }
     await c.session.save(target.api_url, str(response.token), {
       username: user.username,
       expires_at: response.expires_at
@@ -356,15 +373,17 @@ const openObserve = async (c: Client, token: string) => {
       const response = object(
         await c.request("POST", "/api/v1/auth/browser-handoff", { challenge: body.challenge }, { origin: base, token })
       )
-      if (!/^[A-Za-z0-9_-]{43}$/.test(str(response.ticket))) throw new Error("Invalid Observe ticket")
+      if (!/^[A-Za-z0-9_-]{43}$/.test(str(response.ticket))) {
+        throw refused("infra", "backend_protocol", "Invalid Observe ticket")
+      }
       res.setHeader("content-type", "application/json")
       res.end(
         JSON.stringify({ url: `${base}/login/cli#${new URLSearchParams({ state, ticket: str(response.ticket) })}` })
       )
       resolve()
-    } catch {
+    } catch (error) {
       res.writeHead(502).end()
-      reject(new Error("Observe sign-in failed"))
+      reject(withCause(refused("infra", "observe_failed", "Observe sign-in failed"), error))
     }
   })
   server.requestTimeout = 10_000
@@ -375,8 +394,8 @@ const openObserve = async (c: Client, token: string) => {
   })
   const port = (server.address() as { port: number }).port
   origin = `http://127.0.0.1:${port}`
-  const timer = setTimeout(() => reject(new Error("Timed out opening Observe")), 300_000)
-  const abort = () => reject(new Error("Observe sign-in cancelled"))
+  const timer = setTimeout(() => reject(refused("user", "timed_out", "Timed out opening Observe")), 300_000)
+  const abort = () => reject(refused("user", "cancelled", "Observe sign-in cancelled"))
   c.runtime.signal?.addEventListener("abort", abort, { once: true })
   try {
     if (c.runtime.signal?.aborted) abort()
