@@ -303,6 +303,15 @@ func buildRouter(
 		// per-run agent tokens handed to untrusted sandboxes, which could
 		// otherwise spoof any workspace's status.
 		sharedAgentToken := strings.TrimSpace(os.Getenv("SMITHERS_AGENT_TOKEN"))
+		// The preview gateway rechecks each viewer's grant here, with the
+		// relay token it already shares with the API (unset refuses all).
+		if workspaceHandler != nil && workspaceHandler.PreviewTickets != nil {
+			if authorizer, ok := workspaceHandler.Service.(routes.WorkspacePreviewAuthorizer); ok {
+				previewTickets := &routes.WorkspacePreviewTicketHandler{Service: authorizer, Tickets: workspaceHandler.PreviewTickets}
+				r.With(middleware.RequireSharedBearerToken(cfg.Sandbox.PreviewRelayToken)).
+					Post("/workspace-previews/authorize", previewTickets.Authorize)
+			}
+		}
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireSharedBearerToken(sharedAgentToken))
 			if workspaceInternalHandler != nil {

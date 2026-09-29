@@ -49,6 +49,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/operations"
 	"github.com/smithersai/smithers/packages/backend/ports"
+	"github.com/smithersai/smithers/packages/backend/previewgateway"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/webapp"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -1111,6 +1112,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Broker:      sseBroker,
 		Metrics:     smithersMetrics,
 		Desktop:     &routes.WorkspaceDesktopHandler{Service: workspaceService, RelayToken: cfg.Sandbox.PreviewRelayToken},
+		// User previews are private: hosted preview redirects carry a ticket
+		// signed with a key derived from the relay token the gateway holds.
+		PreviewTickets: previewgateway.NewTickets(cfg.Sandbox.PreviewRelayToken),
 	}
 	if environmentImageService != nil {
 		workspaceHandler.EnvironmentImages = &routes.SandboxEnvironmentImageHandler{Service: environmentImageService}

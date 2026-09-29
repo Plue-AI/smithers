@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
+	"github.com/smithersai/smithers/packages/backend/previewgateway"
 )
 
 // WorkspaceRouteService defines the interface expected by WorkspaceHandler.
@@ -78,6 +79,10 @@ type WorkspaceHandler struct {
 	// If nil, the SSE stream endpoints return a 500.
 	Broker  *sse.Broker
 	Metrics *SmithersMetrics
+	// PreviewTickets mints the ticket a hosted preview redirect carries: the
+	// preview gateway serves user previews only to a viewer holding one. Nil
+	// redirects without a ticket, which the gateway refuses.
+	PreviewTickets *previewgateway.Tickets
 }
 
 // RegisterWorkspaceRuntimeRoutes adds the execution endpoints beside the
@@ -249,7 +254,21 @@ func (h *WorkspaceHandler) ProxyWorkspacePreview(w http.ResponseWriter, r *http.
 	if !access.Proxy {
 		// The hosted gateway serves the whole preview: the asset, deep link
 		// or query the client asked for goes with it, under the routed base.
-		http.Redirect(w, r, previewRedirectURL(target, resource, r.URL).String(), http.StatusTemporaryRedirect)
+		redirect := previewRedirectURL(target, resource, r.URL)
+		if h.PreviewTickets != nil {
+			ticketed, ticketErr := withPreviewTicket(h.PreviewTickets, redirect, previewgateway.Grant{
+				WorkspaceID: workspaceID, RepositoryID: repoCtx.Repository.ID, UserID: user.ID,
+			})
+			if ticketErr != nil {
+				pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodePreviewUnavailable, "workspace preview unavailable"))
+				return
+			}
+			redirect = ticketed
+			// The Location carries a credential: never cache it.
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		}
+		http.Redirect(w, r, redirect.String(), http.StatusTemporaryRedirect)
 		return
 	}
 	if target.Scheme != "http" || !previewLoopbackHost(target.Hostname()) ||

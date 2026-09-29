@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
@@ -831,6 +832,54 @@ func (s *WorkspaceService) CheckWorkspaceDesktopAccess(ctx context.Context, work
 		return pkgerrors.Internal("workspace store unavailable")
 	}
 	_, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
+	return err
+}
+
+// workspacePreviewAuthorizationQuerier is what AuthorizeWorkspacePreview
+// reads beyond WorkspaceQuerier; the production store (db.Queries) has it.
+type workspacePreviewAuthorizationQuerier interface {
+	GetUserByID(ctx context.Context, id int64) (db.User, error)
+	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
+	middleware.RepoPermissionQuerier
+}
+
+// AuthorizeWorkspacePreview answers the preview gateway's recheck of a
+// viewer's grant: the account can still sign in, the repository is still
+// readable to it, and the workspace is still its own or shared with it. A
+// removed share or a suspended user fails here on the gateway's next check.
+func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
+	if s == nil || s.q == nil {
+		return pkgerrors.Internal("workspace store unavailable")
+	}
+	store, ok := s.q.(workspacePreviewAuthorizationQuerier)
+	if !ok {
+		return pkgerrors.Internal("workspace preview authorization unavailable")
+	}
+	user, err := store.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Forbidden("access denied")
+		}
+		return pkgerrors.Internal("load preview viewer: " + err.Error())
+	}
+	if !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid {
+		return pkgerrors.Forbidden("access denied")
+	}
+	repository, err := store.GetRepoByID(ctx, repositoryID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Forbidden("access denied")
+		}
+		return pkgerrors.Internal("load preview repository: " + err.Error())
+	}
+	permission, permErr := middleware.ResolveRepoPermission(ctx, store, repository, &user)
+	if permErr != nil {
+		return permErr
+	}
+	if !permission.Satisfies(middleware.PermissionRead) {
+		return pkgerrors.Forbidden("access denied")
+	}
+	_, err = s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead)
 	return err
 }
 
