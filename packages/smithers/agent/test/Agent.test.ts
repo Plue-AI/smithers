@@ -508,6 +508,10 @@ describe("capacity seat chain", () => {
   })
   it.each([
     new ModelError({ code: "context_overflow", message: "prompt too long" }),
+    new ModelError({ code: "authentication", message: "signed out" }),
+    ...(["no_route", "transport", "call_timeout", "invalid_provider_output", "unknown"] as const).map((code) =>
+      new ModelError({ code, message: "seat failed" })
+    ),
     ...[500, 502, 503, 504].map((httpStatus) =>
       new ModelError({ code: "provider_internal", message: "provider failed", httpStatus })
     )
@@ -538,6 +542,34 @@ describe("capacity seat chain", () => {
     }])
     expect(events.some((event) => event._tag === "model-parked")).toBe(false)
   })
+
+  it.each(["invalid_request", "content_policy"] as const)(
+    "does not fail over on %s: another seat gets the same request",
+    async (code) => {
+      const contacted: Array<string> = []
+      const first = Model.make({
+        stream: () => {
+          contacted.push("first")
+          return Stream.fail(new ModelError({ code, message: "refused" }))
+        }
+      })
+      const second = Model.make({
+        stream: (request) => {
+          contacted.push("second")
+          return recordedCells([], ["ctx.done('fallback')"]).stream(request)
+        }
+      })
+      const outcome = await drive(collect({
+        model: first,
+        seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+        fallbackSeats: [Seat.make({ id: "second", modelId: "second", model: second, route, contextWindowTokens: 0 })],
+        registry: registryOf([]),
+        modelRetryPolicy: Schedule.recurs(0)
+      }))
+      expect(outcome._tag).toBe("failed")
+      expect(contacted).toEqual(["first"])
+    }
+  )
 
   it("fails with the final provider error when every fallback fails, without an invented reset", async () => {
     const requests: Array<string> = []

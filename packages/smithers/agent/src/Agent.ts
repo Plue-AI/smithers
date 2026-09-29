@@ -41,7 +41,7 @@
 
 import * as Capability from "@smthrs/capability/Capability"
 import * as Digest from "@smthrs/core/Digest"
-import { Action, DurableClock, FlowRuntime } from "@smthrs/flow"
+import { Action, DurableClock, Fault, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as CellCalls from "@smthrs/harness/CellCalls"
@@ -683,9 +683,19 @@ const withCapacity = (
                 const classified = model === undefined
                   ? Option.none<QuotaPolicy.Park>()
                   : policy.classify(model, afterCall)
-                const canFailOver = model !== undefined && seats.length > 1 &&
-                  (model.code === "context_overflow" ||
-                    (model.httpStatus !== undefined && model.httpStatus >= 500 && model.httpStatus <= 599))
+                // The one ladder answers a wait or a dependency with the next seat
+                // while one is left. A seat signed in elsewhere may also answer,
+                // and so may one whose context window fits what overflowed this one.
+                const seatsLeft = seats.length - tried.size - 1
+                const backup = Fault.respond(Fault.of(error), {
+                  attempt: 1,
+                  seatsLeft,
+                  parksLeft: maxParks - parkCount,
+                  replans: 0,
+                  veryHard: false
+                }) === "backup"
+                const canFailOver = model !== undefined && seatsLeft > 0 &&
+                  (backup || model.code === "authentication" || model.code === "context_overflow")
                 if (Option.isNone(classified) && !canFailOver) return Stream.failCause(cause)
                 if (Option.isSome(classified)) {
                   const park = yield* Action.make({
