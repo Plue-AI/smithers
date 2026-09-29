@@ -19,6 +19,7 @@ export default defineConfig({
     testTimeout: 300000
   },
   resolve: {
+    alias: { "@smthrs/create-app/ui": new URL("../../src/ui.ts", import.meta.url).pathname },
     // Linked @smthrs/* packages carry their own node_modules. One `effect`
     // instance per run keeps Context tags identical across them.
     dedupe: ["effect"]
