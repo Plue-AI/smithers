@@ -1,3 +1,4 @@
+import * as AgentSession from "@smthrs/agent/AgentSession"
 import type { ControlSchema } from "@smthrs/control"
 import * as Diagnosis from "@smthrs/gateway/Diagnosis"
 import { execFileSync } from "node:child_process"
@@ -193,6 +194,8 @@ describe("Forensics.renderDiagnosis", () => {
     const card = Forensics.renderDiagnosis({ runId: "run-1", flowId: "fix" }, d)
     expect(card).toContain("Verdict   failed: TransportError: gone")
     expect(card).toContain("run-1 · fix")
+    expect(card).toContain(`Trace     ${AgentSession.traceId("run-1")}`)
+    expect(Forensics.renderDiagnosis(undefined, d)).not.toContain("Trace")
     expect(card).toContain("Next      smthrs runs logs run-1")
   })
 

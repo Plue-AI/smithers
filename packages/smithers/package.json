@@ -755,6 +755,7 @@
     "@smthrs/migrate": "1.0.0-rc.1",
     "@smthrs/model": "1.0.0-rc.1",
     "@smthrs/notifications": "1.0.0-rc.1",
+    "@smthrs/observability": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
     "@smthrs/platform-node": "1.0.0-rc.1",
     "@smthrs/registry": "1.0.0-rc.1",

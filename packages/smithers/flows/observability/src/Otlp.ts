@@ -342,6 +342,58 @@ export const layerFetch = (
   layer(options).pipe(Layer.provide(FetchHttpClient.layer))
 
 /**
+ * Why an OTLP layer refused to start.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export type LayerError = Resource.InvalidResourceConfiguration | Endpoint.InvalidExporterEndpoint
+
+/**
+ * Parses `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated `key=value` pairs whose
+ * values are percent-decoded, as the OpenTelemetry exporter specification
+ * defines. A pair without `=` or with an empty key is skipped.
+ *
+ * @category environment
+ * @since 1.0.0
+ */
+export const parseHeaders = (value: string | undefined): Record<string, string> => {
+  const headers: Record<string, string> = {}
+  for (const pair of (value ?? "").split(",")) {
+    const separator = pair.indexOf("=")
+    const key = pair.slice(0, separator).trim()
+    if (separator < 0 || key === "") continue
+    const raw = pair.slice(separator + 1).trim()
+    let decoded = raw
+    try {
+      decoded = decodeURIComponent(raw)
+    } catch { /* A malformed escape is kept verbatim. */ }
+    headers[key] = decoded
+  }
+  return headers
+}
+
+/**
+ * {@link layerFetch} when the environment names a collector, otherwise
+ * {@link layerNoop}.
+ *
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` is the collector base URL and
+ * `OTEL_EXPORTER_OTLP_HEADERS` the headers sent with every export. An unset or
+ * empty endpoint installs no exporter at all.
+ *
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerEnvironment = (
+  environment: Readonly<Record<string, string | undefined>>,
+  options: Omit<Options, "baseUrl" | "headers"> = {}
+): Layer.Layer<never, LayerError> => {
+  const endpoint = environment["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim()
+  if (endpoint === undefined || endpoint === "") return layerNoop
+  return layerFetch({ ...options, baseUrl: endpoint, headers: parseHeaders(environment["OTEL_EXPORTER_OTLP_HEADERS"]) })
+}
+
+/**
  * Exports nothing. The explicit stand-in for hosts with no collector, such as
  * a development shell, a test, or a browser deployment that has not opted in, so
  * wiring code can switch layers rather than branch.

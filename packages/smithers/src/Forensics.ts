@@ -19,6 +19,7 @@
  * @since 0.1.0
  */
 
+import * as AgentSession from "@smthrs/agent/AgentSession"
 import { ControlSchema } from "@smthrs/control"
 import {
   asNumber,
@@ -262,6 +263,7 @@ export const renderDiagnosis = (
       d.seat === undefined ? "" : ` · ${d.seat}`
     } · ${duration(d)}`
   )
+  if (run?.runId !== undefined) lines.push(`${label("Trace")}${AgentSession.traceId(run.runId)}`)
   lines.push(
     `${
       label("Activity")

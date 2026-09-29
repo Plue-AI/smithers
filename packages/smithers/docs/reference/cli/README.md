@@ -158,6 +158,18 @@ Recovery retries interrupted cancellation. An unresolved cancellation reports
 an error so the scheduler retains the active handle for recovery. Cancelling
 a waiting plan prevents its launch.
 
+## Telemetry
+
+With `OTEL_EXPORTER_OTLP_ENDPOINT` set, every `smthrs` process and `serve`
+export traces, logs and metrics over OTLP/HTTP to that collector as service
+`smthrs`, sending `OTEL_EXPORTER_OTLP_HEADERS` (comma-separated `key=value`,
+percent-encoded values) with each request. Without an endpoint nothing is
+exported. Spans follow the OpenTelemetry GenAI conventions: `invoke_agent`,
+`chat <model>` and `execute_tool <flow>` under a `smithers.run` root carrying
+`smithers.run_id`, `smithers.flow` and `gen_ai.conversation.id`. Every
+attempt of a run shares one trace id, derived from the run id; `status <run>`
+prints it as `Trace`.
+
 ## History and stored state
 
 Control, memory, credentials, and triggers share `.flows/control.db`.

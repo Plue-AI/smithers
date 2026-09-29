@@ -20,6 +20,7 @@ import { cli } from "../Command.ts"
 import * as ExecutionTarget from "../history/ExecutionTarget.ts"
 import * as History from "../history/History.ts"
 import * as Failure from "../internal/Failure.ts"
+import * as Telemetry from "../internal/Telemetry.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Ui from "../Ui.ts"
@@ -288,7 +289,10 @@ const main = Effect.gen(function*() {
  * pays the rules once.
  */
 NodeRuntime.runMain(
-  Effect.provideService(main, Logger.LogToStderr, true).pipe(Effect.provide(RedactedLogger.layer())),
+  Effect.provideService(main, Logger.LogToStderr, true).pipe(
+    Effect.provide(RedactedLogger.layer()),
+    Effect.provide(Telemetry.layer(process.env))
+  ),
   {
     teardown,
     disableErrorReporting: true

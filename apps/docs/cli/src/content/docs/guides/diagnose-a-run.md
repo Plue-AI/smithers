@@ -45,6 +45,7 @@ journal events alone. The rendered diagnosis card:
 ```text
 Verdict   failed: Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
 Run       run-1 · hello · 0s
+Trace     e83057ff72f0ed05c32463dd33e97d72
 Activity  0 turns · 0 calls (0 refused, 0 duplicate) · edits 0/0
 Tokens    0 in / 0 out
 Cause     Set OPENAI_API_KEY to run the openai:gpt-6-sol seat

@@ -465,4 +465,63 @@ describe("Otlp", () => {
       yield* runExporting(Metric.update(Metric.counter("observability_test_noop"), 1), Otlp.layerNoop, collector.fetch)
       expect(collector.requests).toEqual([])
     }))
+
+  it.effect.each(
+    [
+      ["unset", {}],
+      ["empty", { OTEL_EXPORTER_OTLP_ENDPOINT: "" }],
+      ["blank", { OTEL_EXPORTER_OTLP_ENDPOINT: "  ", OTEL_EXPORTER_OTLP_HEADERS: "x-key=value" }]
+    ] as const
+  )("layerEnvironment installs no exporter when the endpoint is %s", ([, environment]) =>
+    Effect.gen(function*() {
+      const collector = recordingFetch()
+      yield* runExporting(
+        Effect.void.pipe(Effect.withSpan("observability_environment_unset")),
+        Otlp.layerEnvironment(environment),
+        collector.fetch
+      )
+      expect(collector.requests).toEqual([])
+    }))
+
+  it.effect("layerEnvironment exports to the named endpoint with the environment's headers", () =>
+    Effect.gen(function*() {
+      const collector = recordingFetch()
+      yield* runExporting(
+        Effect.void.pipe(Effect.withSpan("observability_environment_span")),
+        Otlp.layerEnvironment({
+          OTEL_EXPORTER_OTLP_ENDPOINT: " http://127.0.0.1:4318/base ",
+          OTEL_EXPORTER_OTLP_HEADERS: "x-tenant=acme%20co, x-empty="
+        }, { serviceName: "smthrs" }),
+        collector.fetch
+      )
+      const traces = collector.requests.filter((request) => request.url === "http://127.0.0.1:4318/base/v1/traces")
+      expect(traces).toHaveLength(1)
+      expect(traces[0]!.headers.get("x-tenant")).toBe("acme co")
+      expect(traces[0]!.headers.get("x-empty")).toBe("")
+      expect(JSON.stringify(traces[0]!.body)).toContain("observability_environment_span")
+      expect(JSON.stringify(traces[0]!.body)).toContain("smthrs")
+    }))
+
+  it.effect("layerEnvironment refuses an invalid endpoint at acquisition", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(
+        runExporting(
+          Effect.void,
+          Otlp.layerEnvironment({ OTEL_EXPORTER_OTLP_ENDPOINT: "not a url" }),
+          recordingFetch().fetch
+        )
+      )
+      expect(error._tag).toBe("@smthrs/observability/InvalidExporterEndpoint")
+    }))
+
+  it("parseHeaders decodes percent escapes and skips malformed pairs", () => {
+    expect(Otlp.parseHeaders(undefined)).toEqual({})
+    expect(Otlp.parseHeaders("")).toEqual({})
+    expect(Otlp.parseHeaders("a=1,b = two%3Dthree , novalue,=orphan,c=%E0%A4%A,d=x=y")).toEqual({
+      a: "1",
+      b: "two=three",
+      c: "%E0%A4%A",
+      d: "x=y"
+    })
+  })
 })

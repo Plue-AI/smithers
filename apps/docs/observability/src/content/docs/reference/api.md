@@ -139,6 +139,30 @@ browser-safe by construction.
 const Telemetry = Otlp.layerFetch({ baseUrl: "http://localhost:4318" })
 ```
 
+### Otlp.layerEnvironment
+
+```ts
+const layerEnvironment: (
+  environment: Readonly<Record<string, string | undefined>>,
+  options?: Omit<Options, "baseUrl" | "headers">
+) => Layer.Layer<never, Otlp.LayerError>
+```
+
+`layerFetch` against `OTEL_EXPORTER_OTLP_ENDPOINT` with the headers
+`Otlp.parseHeaders` reads from `OTEL_EXPORTER_OTLP_HEADERS`. An unset or blank
+endpoint returns `layerNoop`, so no exporter is installed. `LayerError` is
+`Resource.InvalidResourceConfiguration | Endpoint.InvalidExporterEndpoint`.
+
+### Otlp.parseHeaders
+
+```ts
+const parseHeaders: (value: string | undefined) => Record<string, string>
+```
+
+Reads the OpenTelemetry `key=value,key=value` header list and percent-decodes
+each value. Pairs without `=` or with an empty key are skipped; a malformed
+escape is kept verbatim.
+
 ### Otlp.layerNoop
 
 ```ts

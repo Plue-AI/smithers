@@ -2439,6 +2439,9 @@ importers:
       '@smthrs/notifications':
         specifier: 1.0.0-rc.1
         version: link:notifications
+      '@smthrs/observability':
+        specifier: 1.0.0-rc.1
+        version: link:flows/observability
       '@smthrs/plan':
         specifier: 1.0.0-rc.1
         version: link:flows/plan

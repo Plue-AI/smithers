@@ -10,6 +10,7 @@ import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
 import { ApprovalAuthority, Control } from "@smthrs/control"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
 import type * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Otlp from "@smthrs/observability/Otlp"
 import type * as Registry from "@smthrs/registry/Registry"
 import { Cause, Console, Effect, Exit, Layer, Logger, References, Stream } from "effect"
 import { Command } from "effect/unstable/cli"
@@ -22,6 +23,7 @@ import * as ExecutionTarget from "../history/ExecutionTarget.ts"
 import * as HistoryWorkspace from "../history/History.ts"
 import * as CommandStatus from "../internal/CommandStatus.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
+import * as Telemetry from "../internal/Telemetry.ts"
 import * as NodeControl from "../NodeControl.ts"
 import { layerTriggerScheduler } from "../operator/Triggers.ts"
 import * as Project from "../Project.ts"
@@ -173,7 +175,7 @@ const provideServices = <A, E, R>(
   operation: Effect.Effect<A, E, R>,
   options: ConnectionOptions,
   runtime: Runtime
-): Effect.Effect<A, E, Exclude<R, Ui.Ui>> => {
+): Effect.Effect<A, E | Otlp.LayerError, Exclude<R, Ui.Ui>> => {
   const { logLevel, output, policy } = display(options, runtime)
   return operation.pipe(
     Effect.provideService(RunProgress.Configuration, { policy, output }),
@@ -183,7 +185,8 @@ const provideServices = <A, E, R>(
       Ui.make({ output, input: process.stdin, interactive: policy.interactive })
     ),
     Effect.provideService(Logger.LogToStderr, true),
-    Effect.provide(RedactedLogger.layer())
+    Effect.provide(RedactedLogger.layer()),
+    Effect.provide(Telemetry.layer(runtime.environment ?? process.env))
   )
 }
 
@@ -400,6 +403,7 @@ export const host = async (bind: Serve.Bind, options: ConnectionOptions, runtime
     Serve.host(servedBind, root).pipe(
       Effect.provide(host),
       Effect.provide(RedactedLogger.layer()),
+      Effect.provide(Telemetry.layer(runtime.environment ?? process.env)),
       Effect.provideService(Logger.LogToStderr, true)
     ),
     { signal: runtime.signal }
