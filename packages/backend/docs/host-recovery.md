@@ -23,7 +23,7 @@ microVM recovery, or approval replay.
 Run from the repository root with a disposable PostgreSQL server URL:
 
 ```bash
-SMITHERS_TEST_DATABASE_URL="$TEST_POSTGRES_URL" \
+SMITHERS_TEST_DATABASE_URL="$TEST_POSTGRES_URL" SMITHERS_REQUIRE_DATABASE_TESTS=1 \
   go test ./packages/backend/flowhost \
   -run '^TestWorkspaceResolverRecoversKilledHostWithoutReplacingBox$' -count=1 -v
 ```

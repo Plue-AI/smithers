@@ -111,6 +111,15 @@ func TestWorkspaceResolverRecoversKilledHostWithoutReplacingBox(t *testing.T) {
 	require.Equal(t, box.Root, current.Root)
 	require.Equal(t, box.StateDir, current.StateDir)
 	require.Equal(t, workspaceapi.WorkspaceRunning, current.State)
+	// Read-only reconnect reaches the healthy owner without changing the
+	// durable binding or starting another process.
+	readOnly, err := resolver.ResolveExistingFlowRuntime(ctx, authority.Target)
+	require.NoError(t, err)
+	readOnlyIdentity, err := readOnly.Identity(ctx)
+	require.NoError(t, err)
+	require.Equal(t, after, readOnlyIdentity)
+	require.Equal(t, recoveredBinding, readBinding())
+	require.Equal(t, restarted["pid"], readMarker()["pid"])
 	// A healthy reconnect must not perform another ownership transition.
 	again, err := resolver.ResolveFlowRuntime(ctx, authority.Target)
 	require.NoError(t, err)
