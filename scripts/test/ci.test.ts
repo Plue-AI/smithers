@@ -19,6 +19,7 @@ interface CiJob {
   readonly if?: string
   readonly environment?: string
   readonly steps: ReadonlyArray<CiStep>
+  readonly needs?: ReadonlyArray<string> | string
   readonly strategy?: unknown
   readonly "runs-on"?: string
   readonly "timeout-minutes"?: number
@@ -28,6 +29,42 @@ const readCi = (): { readonly on: Readonly<Record<string, unknown>>; readonly jo
   Yaml.parse(readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"))
 
 describe("ci conformance", () => {
+  it("workspace, script and docs gates can start independently", () => {
+    const ci = readCi()
+    const commands = [
+      "pnpm exec smthrs ci '//packages/...'",
+      "pnpm exec smthrs test '//scripts/...'",
+      "pnpm exec smthrs ci '//apps/docs/...'"
+    ]
+    const owners = commands.map((command) => {
+      const matches = Object.entries(ci.jobs).flatMap(([id, job]) =>
+        id === "cache-publish" ? [] : job.steps
+          .filter((step) => step.run?.startsWith(command))
+          .map((step) => ({ id, job, step }))
+      )
+      assert.equal(matches.length, 1, `${command} must run exactly once outside the publisher`)
+      const { id, job, step } = matches[0]!
+      assert.equal(job["runs-on"], "ubuntu-latest")
+      assert.equal(job.needs, undefined, `${id} must not wait behind another gate`)
+      assert.equal(job.if, undefined, `${id} must run on pushes and pull requests`)
+      assert.equal(job["continue-on-error"], undefined)
+      assert.equal(step.if, "${{ !cancelled() && steps.setup.conclusion == 'success' }}")
+      assert.equal((step as CiStep & { readonly "continue-on-error"?: boolean })["continue-on-error"], undefined)
+      return id
+    })
+    assert.equal(new Set(owners).size, 3, `gates are serialized in ${owners.join(", ")}`)
+    const declaration = readFileSync(new URL("../../PACKAGE.ts", import.meta.url), "utf8")
+    const ciDeclaration = declaration.slice(declaration.indexOf("const ci = Smithers.GithubCiGen("))
+    const required = [...(ciDeclaration.match(/requiredJobs: \[([^\]]+)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g)]
+      .map((match) => match[1])
+    for (const owner of owners) assert.ok(required.includes(owner), `${owner} must remain required`)
+    const evidence = Object.entries(ci.jobs).filter(([, job]) =>
+      job.steps
+        .some((step) => step.name === "Upload ci-test-tier-evidence")
+    )
+    assert.deepEqual(evidence.map(([id]) => id), [owners[1]], "script receipts must be uploaded by their producer job")
+  })
+
   it("keeps cache write credentials out of every pull-request job", () => {
     const ci = readCi()
     assert.doesNotMatch(JSON.stringify(ci), /secrets\.SMITHERS_CACHE_TOKEN\b/)

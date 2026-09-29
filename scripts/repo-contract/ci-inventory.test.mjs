@@ -188,12 +188,12 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
     ["//evals/review-seeded-bugs:suite", "test"], ["//evals/review-seeded-bugs:test", "test"],
     ["//evals/review-seeded-bugs:check", "test"],
     ["//evals/recommend:suite", "test"], ["//evals/recommend:test", "test"], ["//evals/recommend:check", "test"],
-    ["//scripts/repo-contract:ciInventory", "test"], ["//scripts:mutationGate", "test"], ["//scripts:benchmarkGate", "test"],
-    ["//scripts:tierContracts", "test"],
+    ["//scripts/repo-contract:ciInventory", "scripts"], ["//scripts:mutationGate", "scripts"], ["//scripts:benchmarkGate", "scripts"],
+    ["//scripts:tierContracts", "scripts"],
     ["//scripts:webBundleContract", "browser"],
     ["//packages/smithers/gateway:test", "test"], ["//packages/smithers/flows/jj:test", "packages"]
   ]) assert.ok(selected(label, job).length, `${label} must be a required root of ${job}`)
-  const inventoryRunner = selected("//scripts/repo-contract:ciInventory", "test")[0].runner
+  const inventoryRunner = selected("//scripts/repo-contract:ciInventory", "scripts")[0].runner
   assert.equal(basename(inventoryRunner[0]), "node")
   assert.deepEqual(inventoryRunner.slice(1), ["--test", "scripts/repo-contract/ci-inventory.test.mjs"])
   const uiUnits = inventory.rows.filter((row) => row.label === "//apps/app:unitTests" && row.required && row.selectedRoot)

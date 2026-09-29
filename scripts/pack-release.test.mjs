@@ -279,6 +279,8 @@ test("every gate in ci.yml also runs in release.yml", () => {
   assert.deepEqual(jobs, [
     "cache-publish",
     "test",
+    "scripts",
+    "docs",
     "apps-e2e",
     "rust",
     "rust-ffi",
@@ -290,7 +292,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "review-lints"
   ])
 
-  const mirrored = ["test", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
+  const mirrored = ["test", "scripts", "docs", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
   const isGate = (step) => graphCommands([step]).length > 0
   // ci.yml passes the known-red list; the release does not, so every target a
   // release mirrors must be green there, including those main tolerates.
@@ -319,10 +321,10 @@ test("every gate in ci.yml also runs in release.yml", () => {
 
   assert.ok(expected.length > 15, `${expected.length} gates is too few to be the required CI roster`)
   assert.deepEqual(actual.filter((step) => releaseOnly.includes(command(step))).map(command), releaseOnly)
-  // Whole blocks, in order: the same command with a different env, a gate
+  // Whole blocks across independent jobs: a different env, a gate
   // ci.yml dropped, or one it gained all fail here, not only a missing one.
-  assert.deepEqual(copied.map(command), expected.map(command))
-  assert.deepEqual(copied, expected)
+  assert.deepEqual(copied.map(command).sort(), expected.map(command).sort())
+  assert.deepEqual([...copied].sort(), [...expected].sort())
   assert.doesNotMatch(workflow("release.yml"), /--known-red/)
 })
 

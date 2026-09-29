@@ -231,7 +231,7 @@ test("all nine reviewer cases execute the same Bash argv and fail parity", () =>
 })
 
 test("CI exclusions cannot hide wrappers, expansions or new commands", () => {
-  for (const job of ["packages"]) {
+  for (const job of ["packages", "review-lints"]) {
     for (const command of [
       "pnpm exec smthrs test '//unlisted:required' --verbose",
       "env pnpm exec smthrs test '//unlisted:required' --verbose",
@@ -256,7 +256,7 @@ test("exception and exclusion drift checks use literal tokens and reject dynamic
 })
 
 /** Pin every job so a new one forces a release decision. `on.push` is a trigger, not a job. */
-const ciJobs = ["cache-publish", "test", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
+const ciJobs = ["cache-publish", "test", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend", "review-lints"]
 
 /** A copy of the release workflow with one more gate step ahead of the build. */
 const withUnlistedStep = (source, name, command) => {
@@ -442,7 +442,7 @@ test("the release proves every CI gate the exclusions do not name, and every exc
   assert.deepEqual(workflowJobs(ci), ciJobs)
   assert.deepEqual(ciGatesMissingFromInventory(releaseGates, ci, releaseGateExclusions), [], "these CI gates run in neither the release nor the exclusions")
   assert.deepEqual(staleExclusions(releaseGates, ci, releaseGateExclusions), [])
-  assert.deepEqual(releaseGateExclusions.map((exclusion) => exclusion.job), ["apps-e2e", "rust", "packages"])
+  assert.deepEqual(releaseGateExclusions.map((exclusion) => exclusion.job), ["apps-e2e", "rust", "packages", "review-lints"])
   for (const exclusion of releaseGateExclusions) assert.ok(exclusion.reason.length > 40, `${exclusion.job} carries a reason`)
   // Partial exclusions name only what the release omits: the rest of the job is mirrored.
   assert.deepEqual(releaseGateExclusions.find((exclusion) => exclusion.job === "apps-e2e").commands, ["pnpm exec smthrs test '//apps/app:browserE2e' --verbose"])
@@ -450,7 +450,7 @@ test("the release proves every CI gate the exclusions do not name, and every exc
     "pnpm exec smthrs lint '//crates/flows-jj/...' --verbose",
     "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose"
   ])
-  for (const job of ["test", "e2e-faults", "wasm-repro"]) {
+  for (const job of ["test", "scripts", "docs", "e2e-faults", "wasm-repro"]) {
     for (const step of workflowGateSteps(ci, job)) {
       assert.ok(mirrored.some((gate) => gate.name === step.name && releaseGateCommand(gate) === step.command), `${job}: ${step.name} is an inventory gate by name and command`)
     }

@@ -48,7 +48,7 @@ import { parse } from "yaml"
 /**
  * The publish job of release.yml, in its order, plus the two flow-only gates.
  *
- * The first block is the required CI `test` job, which release.yml copies out
+ * The first block combines required CI `test`, `scripts`, and `docs` gates copied out
  * of the generated ci.yml; then the `apps-e2e` gates the release runs without
  * the browser suite; then the `e2e-faults` matrix and the release-only
  * targets; then the `wasm-repro` pair. `pack-release.test.mjs` proves the
@@ -166,7 +166,7 @@ export const releaseGateSetForHost = (host = process) => {
  * here keeps each omission a decision rather than an oversight: the drift test
  * proves each is still a ci.yml gate, that the inventory does not run it (or
  * the reason would be false), and that every other CI gate is run by an
- * inventory gate. A job with no entry is mirrored whole: `test`, `e2e-faults`
+ * inventory gate. A job with no entry is mirrored whole: `test`, `scripts`, `docs`, `e2e-faults`
  * and `wasm-repro` step for step; `cache-publish` through the Workspace
  * targets gate it repeats; `browser` through `//scripts/...`, which selects
  * `//scripts:webBundleContract`, explicitly pinned in ciCommands. Even omitted
@@ -191,8 +191,7 @@ export const releaseGateExclusions = [
     job: "packages",
     commands: ["pnpm exec smthrs test '//packages/...' --jobs 2 --verbose"],
     reason: "test '//packages/...' repeats the Workspace targets gate's test targets on macOS and Windows; one release runner has no OS matrix, and ci '//packages/...' already runs them on Linux."
-  },
-
+  }
 ]
 
 /**

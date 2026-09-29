@@ -40,6 +40,10 @@ loosened to fit the graph.
 scripts. Whatever passes locally under one label passes in CI under the same
 label.
 
+Workspace, script, and package-documentation gates run in independent required
+Ubuntu jobs. They read the cache; only the isolated publisher writes it. Main
+keeps the newest pending full run per ref. Release retains all three gates.
+
 **The workflow file is generated.** `.github/workflows/ci.yml` is declared with
 [GithubCiGen](../reference/targets/github-ci-gen.md) in `mode: "check"`: one
 target regenerates it, and every other verb fails on drift. Nothing in the

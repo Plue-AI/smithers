@@ -50,9 +50,9 @@ the bearer-token and TLS/ingress protections described in the
 
 ### Advisory CI lanes
 
-The required release gate is the `test` job, `workspace graph (coverage gates
-enforced)`, whose steps run `pnpm exec smthrs ci '//packages/...'` and
-`pnpm exec smthrs test '//scripts/...'`. Three lanes are advisory. The macOS
+The required workspace, script, and package-documentation gates run independently
+in `test`, `scripts`, and `docs`. Release retains all three selections.
+Three lanes are advisory. The macOS
 and Windows legs of the one `package suites (${{ matrix.os }})` matrix carry
 `advisory: true` and inherit `continue-on-error: ${{ matrix.advisory }}`, while
 its `ubuntu-latest` leg is required; `model reviews (advisory)` is

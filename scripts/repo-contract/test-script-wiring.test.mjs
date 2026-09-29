@@ -113,11 +113,13 @@ describe("test-file ownership", () => {
     for (const path of unownedTests.keys()) assert.ok(suites.includes(path) && !declarations.includes(`//${path}"`), path)
   })
 
-  it("selects the owning targets in the required test job", () => {
+  it("selects script and factory targets in their required jobs", () => {
     const workflow = parseWorkflow(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"))
     assert.notEqual(workflow.jobs.test["continue-on-error"], true)
     const main = workflow.jobs.test.steps.flatMap((step) => step.run ? [step.run] : []).join("\n")
-    assert.match(main, /smthrs test '\/\/scripts\/\.\.\.'/)
+    assert.notEqual(workflow.jobs.scripts["continue-on-error"], true)
+    const scripts = workflow.jobs.scripts.steps.flatMap((step) => step.run ? [step.run] : []).join("\n")
+    assert.match(scripts, /smthrs test '\/\/scripts\/\.\.\.'/)
     assert.match(main, /smthrs test '\/\/:factoryHarness'/)
   })
 })

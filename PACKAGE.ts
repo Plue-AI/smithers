@@ -452,7 +452,19 @@ const ci = Smithers.GithubCiGen({
     { name: "native FFI compiler and tests", verb: Smithers.Verb.Build, pattern: "//:nativeFfi", job: "rust-ffi" },
     { name: "web bundle compatibility", verb: Smithers.Verb.Test, pattern: "//scripts:webBundleContract" }
   ],
-  requiredJobs: ["test", "apps-e2e", "rust", "wasm-repro", "browser", "e2e-faults", "packages", "go-backend", "rust-ffi"],
+  requiredJobs: [
+    "test",
+    "scripts",
+    "docs",
+    "apps-e2e",
+    "rust",
+    "wasm-repro",
+    "browser",
+    "e2e-faults",
+    "packages",
+    "go-backend",
+    "rust-ffi"
+  ],
   jobs: [
     {
       id: "cache-publish",
@@ -479,8 +491,8 @@ const ci = Smithers.GithubCiGen({
       id: "test",
       name: "workspace graph (coverage gates enforced)",
       runsOn: ubuntu,
-      // Uncached, the graph plus the gates after it ran 95-115 min and passed 120 in run 36319330660
-      // once twelve packages also ran on PostgreSQL; remote-cache hits are #2254.
+      // Run 36319330660 exceeded 120 min before this split; keep the workspace budget.
+      // Remote-cache hits and the remaining workspace budget are tracked in #2254.
       timeoutMinutes: 180,
       toolchain: Smithers.CiToolchain.Needs({
         cargoBinaries: nativeFilesystem,
@@ -492,16 +504,6 @@ const ci = Smithers.GithubCiGen({
         foundry,
         postgres,
         docker: dockerImageStore,
-        artifacts: Smithers.CiToolchain.Artifacts({
-          artifact: "ci-test-tier-evidence",
-          sources: [
-            { from: "/tmp/smithers-ci-inventory-*.json" },
-            { from: "/tmp/smithers-mutations-*" },
-            { from: "/tmp/smithers-benchmark-*" },
-            { from: "/tmp/smithers-runner-*.log" },
-            { from: "/tmp/smithers-runner-*.json" }
-          ]
-        }),
         workflowLint: Smithers.CiToolchain.Actionlint({
           release: "1.7.11",
           workflows: [
@@ -523,7 +525,6 @@ const ci = Smithers.GithubCiGen({
       steps: [
         { name: "Examples", verb: Smithers.Verb.Ci, pattern: "//examples/..." },
         { name: "Workspace targets", verb: Smithers.Verb.Ci, pattern: "//packages/...", parallelism: 2 },
-        { name: "Script gates", verb: Smithers.Verb.Test, pattern: "//scripts/..." },
         // The registry and migrate-detector checks over flows/. `//flows/...`
         // would also select the 45-minute codingNative/codingBundle gates.
         { name: "Repository flows", verb: Smithers.Verb.Test, pattern: "//flows:pack" },
@@ -584,16 +585,6 @@ const ci = Smithers.GithubCiGen({
         // smithers.sh: the landing page and the Starlight docs. `astro check`
         // and `astro build` over apps/site/src/content/docs.
         { name: "Site", verb: Smithers.Verb.Ci, pattern: "//apps/site/..." },
-        // The 53 per-package documentation sites (<slug>.smithers.sh). Each
-        // one's `contentSync` target restitches the site from its package's
-        // colocated `docs/`, so this step is what fails a change that edits a
-        // package's docs without regenerating the committed content tree. The
-        // committed tree is the cache, not the source: without this gate a
-        // stale copy deploys silently, which is exactly the drift the
-        // colocated-docs convention exists to prevent. `astro build` runs
-        // beside it, so a docs page that breaks its site fails here and not on
-        // the deploy.
-        { name: "Package docs sites", verb: Smithers.Verb.Ci, pattern: "//apps/docs/..." },
         {
           name: "Review eval suite (offline, baseline-gated)",
           verb: Smithers.Verb.Test,
@@ -635,6 +626,45 @@ const ci = Smithers.GithubCiGen({
         // public mirror, one row per labeled target, checked in.
         { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" }
       ]
+    },
+    {
+      id: "scripts",
+      name: "script gates",
+      runsOn: ubuntu,
+      // Run 36369423415: 13m18s; leave room for uncached work.
+      timeoutMinutes: 60,
+      toolchain: Smithers.CiToolchain.Needs({
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        go,
+        foundry,
+        postgres,
+        docker: dockerImageStore,
+        artifacts: Smithers.CiToolchain.Artifacts({
+          artifact: "ci-test-tier-evidence",
+          sources: [
+            { from: "/tmp/smithers-ci-inventory-*.json" },
+            { from: "/tmp/smithers-mutations-*" },
+            { from: "/tmp/smithers-benchmark-*" },
+            { from: "/tmp/smithers-runner-*.log" },
+            { from: "/tmp/smithers-runner-*.json" }
+          ]
+        })
+      }),
+      steps: [{ name: "Script gates", verb: Smithers.Verb.Test, pattern: "//scripts/..." }]
+    },
+    {
+      // Source parity and site builds stay together in the independent docs gate.
+      id: "docs",
+      name: "package documentation sites",
+      runsOn: ubuntu,
+      // Run 36369423415: 14m19s; leave room for uncached site builds.
+      timeoutMinutes: 45,
+      toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
+      steps: [{ name: "Package docs sites", verb: Smithers.Verb.Ci, pattern: "//apps/docs/..." }]
     },
     {
       id: "apps-e2e",
