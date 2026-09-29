@@ -27,6 +27,7 @@ import * as DiagnosticReporter from "./DiagnosticReporter.ts"
 import * as JsonLimits from "./JsonLimits.ts"
 import * as Limits from "./Limits.ts"
 import * as Rpc from "./Rpc.ts"
+import * as Transport from "./Transport.ts"
 
 /**
  * The retained stderr diagnostic: the line redactor, which owns every line
@@ -82,19 +83,6 @@ const renderStderr = (current: StderrTail, limit: number): string =>
   tailBytes(`${current.redacted}${current.redactor.peek().join("\n")}`.replace(/\s+/g, " ").trim(), limit)
 
 /**
- * One live connection to a spawned MCP server.
- *
- * @category models
- * @since 1.0.0-rc.0
- */
-export interface Transport {
-  /** Sends a request and resolves with its `result`, or fails with the server's `error`. */
-  readonly request: (method: string, params?: unknown, timeoutMs?: number) => Effect.Effect<unknown, McpError>
-  /** Sends a notification, bounding queue admission by the optional positive-integer deadline. */
-  readonly notify: (method: string, params?: unknown, timeoutMs?: number) => Effect.Effect<void, McpError>
-}
-
-/**
  * Options accepted by {@link connect}.
  *
  * @category models
@@ -108,25 +96,17 @@ export interface ConnectOptions {
   readonly cwd?: string | undefined
   /** Values merged into the bootstrap allowlist rather than the full host environment. */
   readonly env?: Record<string, string | undefined> | undefined
-  /** Default deadline for a request/reply exchange. See {@link defaultRequestTimeoutMs}. */
+  /** Default deadline for a request/reply exchange. See {@link Transport.defaultRequestTimeoutMs}. */
   readonly requestTimeoutMs?: number | undefined
   /** Maximum number of frames waiting to be written. See {@link defaultQueueCapacity}. */
   readonly queueCapacity?: number | undefined
-  /** Maximum UTF-8 bytes accepted in one inbound JSON-RPC frame. See {@link defaultMaxFrameBytes}. */
+  /** Maximum UTF-8 bytes accepted in one inbound JSON-RPC frame. See {@link Transport.defaultMaxFrameBytes}. */
   readonly maxFrameBytes?: number | undefined
-  /** Maximum UTF-8 bytes emitted in one JSON-RPC frame. See {@link defaultMaxOutboundFrameBytes}. */
+  /** Maximum UTF-8 bytes emitted in one JSON-RPC frame. See {@link Transport.defaultMaxOutboundFrameBytes}. */
   readonly maxOutboundFrameBytes?: number | undefined
   /** Maximum diagnostic stderr bytes retained in memory. See {@link defaultMaxStderrBytes}. */
   readonly maxStderrBytes?: number | undefined
 }
-
-/**
- * Default request deadline.
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const defaultRequestTimeoutMs = 120_000
 
 /**
  * Default number of outbound frames allowed to wait in memory.
@@ -137,22 +117,6 @@ export const defaultRequestTimeoutMs = 120_000
 export const defaultQueueCapacity = 64
 
 /**
- * Default maximum inbound JSON-RPC frame size (one MiB).
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const defaultMaxFrameBytes = 1024 * 1024
-
-/**
- * Default maximum outbound JSON-RPC frame size (one MiB).
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const defaultMaxOutboundFrameBytes = 1024 * 1024
-
-/**
  * Default maximum child-stderr tail retained for connection diagnostics.
  *
  * @category constants
@@ -160,18 +124,7 @@ export const defaultMaxOutboundFrameBytes = 1024 * 1024
  */
 export const defaultMaxStderrBytes = 2048
 
-const closed = (server: string, reason: string): McpError =>
-  new McpError({ code: "connection_closed", message: `MCP server "${server}" ${reason}`, server })
-
-const timeout = (server: string, method: string, timeoutMs: number): McpError =>
-  new McpError({
-    code: "timeout",
-    message: `MCP server "${server}" did not answer ${method} within ${timeoutMs}ms`,
-    server
-  })
-
 const diagnosticErrorCodes: ReadonlySet<string> = new Set(["spawn_failed", "timeout", "connection_closed"])
-const cancellationReason = "request no longer awaited"
 // Exit and stdout EOF can precede the parent's final stderr read. Await the
 // actual drainer, with a finite fallback for a child/descendant holding its
 // stderr pipe open. Caller interruption never has to wait out this budget.
@@ -199,78 +152,13 @@ type ConnectionState = {
   readonly error: Deferred.Deferred<McpError>
 }
 
-const replyError = (
-  server: string,
-  method: string,
-  reply: Extract<Rpc.Reply, { readonly _tag: "Error" }>
-): McpError => {
-  // Servers do not standardize unknown-tool prose, so this heuristic stays
-  // limited to the two MCP error codes and an explicit tool plus absence phrase.
-  const remoteUnknownTool = (reply.code === -32_601 || reply.code === -32_602) &&
-    /\btool\b/i.test(reply.message) &&
-    /\b(?:unknown|unrecognized|no such|not found)\b/i.test(reply.message)
-  return new McpError({
-    code: method === "tools/call"
-      ? remoteUnknownTool ? "tool_not_found" : "tool_failed"
-      : "protocol_error",
-    message: `MCP server "${server}" failed ${method} (${reply.code}); remote details withheld`,
-    server
-  })
-}
-
-/** Splits stdout in linear time, retaining one bounded partial frame plus an optional CR. */
+/** Stdout lines, without the blank lines servers commonly emit between frames. */
 const frames = (
   server: string,
   maxFrameBytes: number,
   stream: Stream.Stream<Uint8Array, unknown>
-): Stream.Stream<string, unknown | McpError> => {
-  type PartialFrame = { pieces: Array<Uint8Array>; bytes: number }
-  const decoder = new TextDecoder()
-  const decode = (partial: PartialFrame): string => {
-    const joined = new Uint8Array(partial.bytes)
-    let offset = 0
-    for (const piece of partial.pieces) {
-      joined.set(piece, offset)
-      offset += piece.byteLength
-    }
-    const end = joined[partial.bytes - 1] === 0x0d ? partial.bytes - 1 : partial.bytes
-    return decoder.decode(joined.subarray(0, end))
-  }
-  return stream.pipe(
-    Stream.mapAccumEffect(
-      (): PartialFrame => ({ pieces: [], bytes: 0 }),
-      (partial, chunk) => {
-        const complete: Array<string> = []
-        const append = (piece: Uint8Array): boolean => {
-          if (piece.byteLength === 0) return true
-          const bytes = partial.bytes + piece.byteLength
-          // A final CR may be the first half of CRLF. Allow that one byte
-          // beyond the cap, but count it if more frame content follows.
-          const contentBytes = bytes - (piece[piece.byteLength - 1] === 0x0d ? 1 : 0)
-          if (contentBytes > maxFrameBytes) return false
-          partial.pieces.push(piece)
-          partial.bytes = bytes
-          return true
-        }
-        let start = 0
-        for (let end = chunk.indexOf(0x0a); end !== -1; end = chunk.indexOf(0x0a, start)) {
-          if (!append(chunk.subarray(start, end))) {
-            return Effect.fail(Limits.protocolError(server, `MCP frame exceeded ${maxFrameBytes} bytes`))
-          }
-          complete.push(decode(partial))
-          partial = { pieces: [], bytes: 0 }
-          start = end + 1
-        }
-        if (!append(chunk.subarray(start))) {
-          return Effect.fail(Limits.protocolError(server, `MCP frame exceeded ${maxFrameBytes} bytes`))
-        }
-        return Effect.succeed([partial, complete] as const)
-      },
-      { onHalt: (partial) => partial.bytes === 0 ? [] : [decode(partial)] }
-    ),
-    Stream.filter((line) => line.trim() !== "")
-  )
-}
+): Stream.Stream<string, unknown | McpError> =>
+  Transport.lines(server, maxFrameBytes, stream).pipe(Stream.filter((line) => line.trim() !== ""))
 
 /**
  * Spawns an MCP server over stdio and returns a live {@link Transport}.
@@ -289,13 +177,13 @@ const frames = (
  */
 export const connect = (
   options: ConnectOptions
-): Effect.Effect<Transport, McpError, ChildProcessSpawner | Scope.Scope> =>
+): Effect.Effect<Transport.Transport, McpError, ChildProcessSpawner | Scope.Scope> =>
   Effect.gen(function*() {
     const diagnostic = yield* DiagnosticReporter.make(options.server)
-    const requestTimeoutMs = options.requestTimeoutMs ?? defaultRequestTimeoutMs
+    const requestTimeoutMs = options.requestTimeoutMs ?? Transport.defaultRequestTimeoutMs
     const queueCapacity = options.queueCapacity ?? defaultQueueCapacity
-    const maxFrameBytes = options.maxFrameBytes ?? defaultMaxFrameBytes
-    const maxOutboundFrameBytes = options.maxOutboundFrameBytes ?? defaultMaxOutboundFrameBytes
+    const maxFrameBytes = options.maxFrameBytes ?? Transport.defaultMaxFrameBytes
+    const maxOutboundFrameBytes = options.maxOutboundFrameBytes ?? Transport.defaultMaxOutboundFrameBytes
     const maxStderrBytes = options.maxStderrBytes ?? defaultMaxStderrBytes
     yield* Limits.checkPositiveIntegers(options.server, [
       ["requestTimeoutMs", requestTimeoutMs],
@@ -431,7 +319,7 @@ export const connect = (
       }),
       Stream.map((record) => record.frame),
       Stream.run(handle.stdin),
-      Effect.onExit((exit) => closeWith(closed(options.server, "stdin closed"), !Exit.hasInterrupts(exit))),
+      Effect.onExit((exit) => closeWith(Transport.closed(options.server, "stdin closed"), !Exit.hasInterrupts(exit))),
       Effect.forkScoped
     )
 
@@ -462,7 +350,8 @@ export const connect = (
               Effect.flatMap((frame) => enqueue({ frame })),
               Effect.timeoutOrElse({
                 duration: requestTimeoutMs,
-                orElse: () => Effect.fail(timeout(options.server, "server-response admission", requestTimeoutMs))
+                orElse: () =>
+                  Effect.fail(Transport.timeout(options.server, "server-response admission", requestTimeoutMs))
               })
             )
           }
@@ -490,7 +379,7 @@ export const connect = (
             diagnostic("remote-error", { code: reply.code, message: reply.message, data: reply.data })
             yield* Deferred.fail(
               pending.value.deferred,
-              replyError(options.server, pending.value.method, reply)
+              Transport.replyError(options.server, pending.value.method, reply)
             )
           } else {
             yield* Deferred.succeed(pending.value.deferred, reply.result)
@@ -500,11 +389,11 @@ export const connect = (
       Effect.matchEffect({
         onFailure: (error) =>
           closeWith(
-            error instanceof McpError ? error : closed(options.server, "stdout failed")
+            error instanceof McpError ? error : Transport.closed(options.server, "stdout failed")
           ),
         // A clean EOF is still a closed MCP connection. Node reports an
         // ordinary child exit by ending stdout successfully.
-        onSuccess: () => closeWith(closed(options.server, "stdout closed"))
+        onSuccess: () => closeWith(Transport.closed(options.server, "stdout closed"))
       }),
       Effect.forkScoped
     )
@@ -512,15 +401,15 @@ export const connect = (
     // Some process implementations expose exit before stdout observes EOF.
     // Treat either signal as the same terminal transition.
     yield* handle.exitCode.pipe(
-      Effect.flatMap((exitCode) => closeWith(closed(options.server, `exited with code ${exitCode}`))),
-      Effect.catch(() => closeWith(closed(options.server, "process exited"))),
+      Effect.flatMap((exitCode) => closeWith(Transport.closed(options.server, `exited with code ${exitCode}`))),
+      Effect.catch(() => closeWith(Transport.closed(options.server, "process exited"))),
       Effect.forkScoped
     )
 
     // Finalizers run in reverse order. Record scope closure before interrupting
     // the I/O fibers, whose cleanup must not replace it with "stdin closed".
     // Scope closure also tears down the child, so no cancellation is needed.
-    yield* Effect.addFinalizer(() => closeWith(closed(options.server, "connection scope closed"), false))
+    yield* Effect.addFinalizer(() => closeWith(Transport.closed(options.server, "connection scope closed"), false))
 
     const takePending = (id: number): Effect.Effect<boolean> =>
       Ref.modify(state, (current) => {
@@ -563,7 +452,7 @@ export const connect = (
             yield* frameOf("notifications/cancelled", {
               jsonrpc: "2.0",
               method: "notifications/cancelled",
-              params: { requestId: requestState.id, reason: cancellationReason }
+              params: { requestId: requestState.id, reason: Transport.cancellationReason }
             }).pipe(
               // Best-effort cancellation cannot delay the deadline it reports.
               Effect.flatMap((frame) => Effect.sync(() => Queue.offerUnsafe(outbound, { frame }))),
@@ -572,7 +461,7 @@ export const connect = (
           })),
           Effect.timeoutOrElse({
             duration: timeoutMs,
-            orElse: () => Effect.flatMap(withStderr(timeout(options.server, method, timeoutMs)), Effect.fail)
+            orElse: () => Effect.flatMap(withStderr(Transport.timeout(options.server, method, timeoutMs)), Effect.fail)
           })
         )
       })
@@ -593,7 +482,7 @@ export const connect = (
       }).pipe(
         Effect.timeoutOrElse({
           duration: timeoutMs,
-          orElse: () => Effect.flatMap(withStderr(timeout(options.server, method, timeoutMs)), Effect.fail)
+          orElse: () => Effect.flatMap(withStderr(Transport.timeout(options.server, method, timeoutMs)), Effect.fail)
         })
       )
     }

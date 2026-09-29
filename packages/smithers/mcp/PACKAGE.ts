@@ -8,7 +8,8 @@ const standard = BuildAndCheckTypeScriptPackage({ cwd })
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = standard
 
 /**
- * The MCP client spawns an untrusted server process, parses its stdout, and
+ * The MCP client spawns an untrusted server process or reaches a remote one
+ * over HTTP, parses what it sends, and
  * projects its catalog as flows a model can call. Each check below names one
  * boundary between that server and the host, the run, or the model.
  */
@@ -39,7 +40,13 @@ const securityReview = Smithers.SecurityReview({
         "A tools/list loop that is not bounded by maxCatalogPages, maxTools, and repeated-cursor detection.",
         "A stderr tail or pending-request map that grows without the configured cap."
       ],
-      paths: ["src/internal/StdioTransport.ts", "src/internal/JsonLimits.ts", "src/McpClient.ts"]
+      paths: [
+        "src/internal/StdioTransport.ts",
+        "src/internal/HttpTransport.ts",
+        "src/internal/Transport.ts",
+        "src/internal/JsonLimits.ts",
+        "src/McpClient.ts"
+      ]
     },
     {
       id: "reply-correlation",
@@ -51,7 +58,20 @@ const securityReview = Smithers.SecurityReview({
         "A non-canonical string id, float, or null id normalized onto a live numeric request id.",
         "A reply accepted after its request timed out or was cancelled, or after the connection closed."
       ],
-      paths: ["src/internal/Rpc.ts", "src/internal/StdioTransport.ts"]
+      paths: ["src/internal/Rpc.ts", "src/internal/StdioTransport.ts", "src/internal/HttpTransport.ts"]
+    },
+    {
+      id: "http-egress",
+      title: "A remote MCP server is reached only through the host's egress client",
+      threat:
+        "A remote MCP URL bypasses the egress proxy or grant policy, a credential leaks through the URL or an error message, or an ended session replays a tool call.",
+      lookFor: [
+        "A fetch, undici, or node:http call instead of the HttpClient taken from context.",
+        "A url with userinfo accepted, or the URL, token, status text, or response body interpolated into an McpError message.",
+        "A 404 for an established session answered by re-sending the request.",
+        "A JSON body or event-stream event buffered past maxFrameBytes before failing."
+      ],
+      paths: ["src/internal/HttpTransport.ts", "src/McpClient.ts"]
     },
     {
       id: "remote-text-withheld-from-errors",

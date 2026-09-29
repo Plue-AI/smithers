@@ -10,7 +10,7 @@ all Smithers packages share one Effect runtime.
 
 Model Context Protocol client and flow adapter for Smithers.
 
-`@smthrs/mcp` connects to an MCP server over stdio and projects the tools that
+`@smthrs/mcp` connects to an MCP server over stdio or Streamable HTTP and projects the tools that
 server offers as flows a Smithers agent can call. `McpClient` speaks the
 protocol: the `initialize` handshake, `tools/list`, and `tools/call`.
 `McpFlows` turns the resulting catalog into one `FlowBinding.Binding` per tool,

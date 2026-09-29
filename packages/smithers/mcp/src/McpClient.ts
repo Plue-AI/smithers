@@ -1,6 +1,6 @@
 /**
  * A minimal MCP client covering the `initialize` handshake, `tools/list`, and
- * `tools/call`, over {@link StdioTransport}.
+ * `tools/call`, over stdio or Streamable HTTP.
  *
  * This is deliberately not a general MCP SDK. Smithers has exactly one
  * consumer of an MCP session: {@link McpFlows}, which needs a tool catalog
@@ -13,11 +13,14 @@
 
 import { isRecord } from "@smthrs/canonical/Record"
 import { Effect, Exit, Result, Schema, Scope } from "effect"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as DiagnosticReporter from "./internal/DiagnosticReporter.ts"
+import * as HttpTransport from "./internal/HttpTransport.ts"
 import * as JsonLimits from "./internal/JsonLimits.ts"
 import * as Limits from "./internal/Limits.ts"
 import * as StdioTransport from "./internal/StdioTransport.ts"
+import * as Transport from "./internal/Transport.ts"
 import { McpError } from "./McpError.ts"
 
 /**
@@ -70,12 +73,12 @@ export interface McpClient {
 }
 
 /**
- * Options accepted by {@link connect}.
+ * Session and catalog limits shared by every transport.
  *
  * @category models
- * @since 1.0.0-rc.0
+ * @since 1.0.0-rc.1
  */
-export interface ConnectOptions extends StdioTransport.ConnectOptions {
+export interface ClientOptions {
   /** The name this server is known by, for flow naming and error messages. */
   readonly server: string
   /** Deadline for each initialize/catalog request. See {@link defaultHandshakeTimeoutMs}. */
@@ -98,10 +101,61 @@ export interface ConnectOptions extends StdioTransport.ConnectOptions {
   readonly maxCatalogPages?: number | undefined
 }
 
+/**
+ * A server spawned as a child process and spoken to over its stdio.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface StdioConnectOptions extends StdioTransport.ConnectOptions, ClientOptions {
+  readonly url?: never
+}
+
+/**
+ * Supplies the bearer credential for a Streamable HTTP server. `token` runs
+ * once per HTTP message, so a provider can rotate the credential; its failure
+ * fails that message unchanged.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export type AuthProvider = HttpTransport.AuthProvider
+
+/**
+ * A remote server reached over MCP Streamable HTTP through the `HttpClient`
+ * in context.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface HttpConnectOptions extends HttpTransport.ConnectOptions, ClientOptions {
+  readonly command?: never
+}
+
+/**
+ * Options accepted by {@link connect}: a stdio command or an HTTP `url`.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export type ConnectOptions = StdioConnectOptions | HttpConnectOptions
+
+/**
+ * The services {@link connect} needs for the given options: a process spawner
+ * for stdio, an `HttpClient` for a `url`.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export type Requirements<O extends ConnectOptions> = O extends { readonly url: string } ? HttpClient.HttpClient
+  : ChildProcessSpawner
+
+const isHttp = (options: ConnectOptions): options is HttpConnectOptions => options.url !== undefined
+
 const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0))
 
 /**
- * Authoritative decoder for a persisted MCP server entry.
+ * Authoritative decoder for a persisted stdio MCP server entry.
  *
  * The schema requires non-empty server and command names, string arguments,
  * a plain string-valued environment record, and positive-integer limits.
@@ -165,7 +219,7 @@ export const defaultHandshakeTimeoutMs = 10_000
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const defaultRequestTimeoutMs = StdioTransport.defaultRequestTimeoutMs
+export const defaultRequestTimeoutMs = Transport.defaultRequestTimeoutMs
 
 /**
  * Default number of outbound frames allowed to wait in memory.
@@ -181,7 +235,7 @@ export const defaultQueueCapacity = StdioTransport.defaultQueueCapacity
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const defaultMaxFrameBytes = StdioTransport.defaultMaxFrameBytes
+export const defaultMaxFrameBytes = Transport.defaultMaxFrameBytes
 
 /**
  * Default maximum outbound JSON-RPC frame size.
@@ -189,7 +243,7 @@ export const defaultMaxFrameBytes = StdioTransport.defaultMaxFrameBytes
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const defaultMaxOutboundFrameBytes = StdioTransport.defaultMaxOutboundFrameBytes
+export const defaultMaxOutboundFrameBytes = Transport.defaultMaxOutboundFrameBytes
 
 /**
  * Default maximum child-stderr tail retained for connection diagnostics.
@@ -758,10 +812,11 @@ const snapshotArguments = (
 }
 
 /**
- * Connects to an MCP server over stdio, completes the `initialize` handshake,
- * and fetches its tool catalog once, up front. Failed or interrupted setup
- * closes its subprocess and I/O fibers before returning to the caller; a
- * successful session stays open until the caller scope closes.
+ * Connects to an MCP server over stdio (`command`) or Streamable HTTP (`url`),
+ * completes the `initialize` handshake, and fetches its tool catalog once, up
+ * front. Failed or interrupted setup closes its subprocess, I/O fibers, or
+ * HTTP session before returning to the caller; a successful session stays
+ * open until the caller scope closes.
  *
  * The tool catalog is a snapshot: a server that changes its tools after
  * connecting (a `notifications/tools/list_changed` push) is not re-polled.
@@ -773,9 +828,9 @@ const snapshotArguments = (
  * @category constructors
  * @since 1.0.0-rc.0
  */
-export const connect = (
-  options: ConnectOptions
-): Effect.Effect<McpClient, McpError, ChildProcessSpawner | Scope.Scope> =>
+export const connect = <O extends ConnectOptions>(
+  options: O
+): Effect.Effect<McpClient, McpError, Requirements<O> | Scope.Scope> =>
   Effect.acquireUseRelease(
     Effect.flatMap(Effect.scope, Scope.fork),
     (scope) =>
@@ -799,7 +854,9 @@ export const connect = (
           ["maxCatalogPages", maxCatalogPages]
         ])
 
-        const transport = yield* StdioTransport.connect(options)
+        const transport: Transport.Transport = yield* (isHttp(options)
+          ? HttpTransport.connect(options)
+          : StdioTransport.connect(options))
 
         const initialized = yield* transport.request(
           "initialize",
@@ -891,4 +948,4 @@ export const connect = (
     // Closing a failed attempt also detaches it from the caller's scope.
     // Successful sessions remain owned by that scope until it closes.
     (scope, exit) => Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void
-  )
+  ) as Effect.Effect<McpClient, McpError, Requirements<O> | Scope.Scope>

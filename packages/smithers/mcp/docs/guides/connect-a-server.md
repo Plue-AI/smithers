@@ -1,14 +1,14 @@
 ---
 title: "Connect a server"
-description: "Spawn an MCP server over stdio: the command and arguments, the working directory, how env overlays a bootstrap allowlist, and which protocol revisions the handshake accepts."
+description: "Spawn an MCP server over stdio or reach a remote one over Streamable HTTP: the command or URL, credentials, the working directory, how env overlays a bootstrap allowlist, and which protocol revisions the handshake accepts."
 sidebar:
   order: 1
 ---
 
 Use `McpClient.connect` when you want the session itself, and
 `McpFlows.connected` when you want the session and its projected flows in one
-step. Both take the same connection options and both require
-`ChildProcessSpawner` and a `Scope`.
+step. Both take the same connection options and require a `Scope`, plus
+`ChildProcessSpawner` for a `command` or `HttpClient` for a `url`.
 
 Install a reviewed server version and its dependencies before supplying any
 credentials. This example pins the deprecated GitHub server to `2025.4.8`;
@@ -45,6 +45,38 @@ const program = Effect.scoped(Effect.gen(function*() {
 await Effect.runPromise(Effect.provide(program, NodeServices.layer))
 ```
 
+## Connect a remote server over HTTP
+
+Give `url` instead of `command` to reach a server that speaks MCP Streamable
+HTTP. Requests go through the `HttpClient` in context, so compose the host's
+egress client: its proxy and capability checks apply, and a URL the egress
+policy denies fails with `connection_closed` before any request is sent.
+
+```ts
+import * as McpClient from "@smthrs/mcp/McpClient"
+import { Effect, Redacted } from "effect"
+
+const program = Effect.scoped(Effect.gen(function*() {
+  const client = yield* McpClient.connect({
+    server: "linear",
+    url: "https://mcp.example.com/mcp",
+    authProvider: { token: Effect.sync(() => Redacted.make(process.env.LINEAR_TOKEN ?? "")) }
+  })
+  return client.tools.map((tool) => tool.name)
+}))
+```
+
+`authProvider.token` runs once per HTTP message and is sent as
+`Authorization: Bearer`, so a provider may refresh it between messages. The URL
+itself must not carry credentials.
+
+The session id the server issues at `initialize` is sent with every later
+message, and closing the scope ends the session with a `DELETE`. A server that
+answers `404` for an established session has ended it: the call fails with
+`connection_closed` and is not replayed, so reconnect to continue. This client
+does not open the optional server-initiated `GET` stream or resume a broken
+event stream.
+
 ## Name the server
 
 `server` is not cosmetic. It is the default flow-name prefix (`mcp/<server>`)
@@ -54,7 +86,7 @@ server offers.
 
 ## Scope the connection
 
-`connect` is a scoped effect because it owns a subprocess. Compose it once,
+`connect` is a scoped effect because it owns a subprocess or an HTTP session. Compose it once,
 where the host composes its other scoped services, and let the scope's lifetime
 be the session's lifetime.
 

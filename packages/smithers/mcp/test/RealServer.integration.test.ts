@@ -29,7 +29,7 @@ const execute = <A, E>(effect: Effect.Effect<A, E, never>) => Effect.runPromise(
 const connectNode = (
   mode = "normal",
   extraArgs: ReadonlyArray<string> = [],
-  overrides: Partial<McpClient.ConnectOptions> = {}
+  overrides: Partial<McpClient.StdioConnectOptions> = {}
 ) =>
   Effect.provide(
     McpClient.connect({

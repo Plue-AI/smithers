@@ -18,7 +18,7 @@ import type { Redacted } from "effect"
  */
 export interface Event {
   readonly server: string
-  readonly source: "spawn" | "stderr" | "remote-error" | "invalid-response" | "invalid-arguments"
+  readonly source: "spawn" | "stderr" | "transport" | "remote-error" | "invalid-response" | "invalid-arguments"
   /** At most 16 KiB of UTF-8 text; never the original unbounded value. */
   readonly detail: Redacted.Redacted<string>
   readonly truncated: boolean

@@ -16,7 +16,6 @@ import * as Capability from "@smthrs/capability/Capability"
 import * as Effects from "@smthrs/core/Effects"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Exit, Schema, Scope } from "effect"
-import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as McpClient from "./McpClient.ts"
 import { McpError } from "./McpError.ts"
 
@@ -174,9 +173,9 @@ export const mcp = (client: McpClient.McpClient, options: ProjectionOptions = {}
  * @category constructors
  * @since 1.0.0-rc.0
  */
-export const connected = (
-  options: McpClient.ConnectOptions & ProjectionOptions
-): Effect.Effect<FlowBinding.Source, McpError, ChildProcessSpawner | Scope.Scope> =>
+export const connected = <O extends McpClient.ConnectOptions>(
+  options: O & ProjectionOptions
+): Effect.Effect<FlowBinding.Source, McpError, McpClient.Requirements<O> | Scope.Scope> =>
   Effect.gen(function*() {
     if (options.namePrefix === "") {
       return yield* Effect.fail(

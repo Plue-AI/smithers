@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as Diagnostics from "../src/Diagnostics.ts"
 import * as Rpc from "../src/internal/Rpc.ts"
 import * as StdioTransport from "../src/internal/StdioTransport.ts"
+import * as Transport from "../src/internal/Transport.ts"
 import * as McpClient from "../src/McpClient.ts"
 import { McpError } from "../src/McpError.ts"
 import { fakeServer, respondToEcho, respondWithStructured, TOOLS, withFakeServer } from "./fixtures/FakeServer.ts"
@@ -111,10 +112,10 @@ describe("McpClient.connect", () => {
 
   it("exports every documented default from the public client module", () => {
     expect(McpClient.defaultHandshakeTimeoutMs).toBe(10_000)
-    expect(McpClient.defaultRequestTimeoutMs).toBe(StdioTransport.defaultRequestTimeoutMs)
+    expect(McpClient.defaultRequestTimeoutMs).toBe(Transport.defaultRequestTimeoutMs)
     expect(McpClient.defaultQueueCapacity).toBe(StdioTransport.defaultQueueCapacity)
-    expect(McpClient.defaultMaxFrameBytes).toBe(StdioTransport.defaultMaxFrameBytes)
-    expect(McpClient.defaultMaxOutboundFrameBytes).toBe(StdioTransport.defaultMaxOutboundFrameBytes)
+    expect(McpClient.defaultMaxFrameBytes).toBe(Transport.defaultMaxFrameBytes)
+    expect(McpClient.defaultMaxOutboundFrameBytes).toBe(Transport.defaultMaxOutboundFrameBytes)
     expect(McpClient.defaultMaxStderrBytes).toBe(StdioTransport.defaultMaxStderrBytes)
     expect(McpClient.defaultMaxTools).toBe(256)
     expect(McpClient.defaultMaxToolNameBytes).toBe(128)

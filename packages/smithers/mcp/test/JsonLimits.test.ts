@@ -5,7 +5,7 @@ import * as JsonLimits from "../src/internal/JsonLimits.ts"
 import * as McpClient from "../src/McpClient.ts"
 import * as FixtureServer from "./fixtures/FixtureServer.ts"
 
-const options = (mode: string, depth = 10_000): McpClient.ConnectOptions => ({
+const options = (mode: string, depth = 10_000): McpClient.StdioConnectOptions => ({
   server: "json-limits",
   command: process.execPath,
   args: ["-e", FixtureServer.source, `nested-${mode}`, "", String(depth)],
