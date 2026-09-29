@@ -221,7 +221,18 @@ func (h *WorkspaceDesktopHandler) Relay(w http.ResponseWriter, r *http.Request) 
 		Principal: revocation.Principal{
 			WorkspaceID:  target.WorkspaceID,
 			UserID:       target.UserID,
+			OwnerUserID:  target.OwnerUserID,
 			RepositoryID: target.RepositoryID,
+		},
+		Reauthorize: func(ctx context.Context) error {
+			fresh, err := h.Service.AuthorizeDesktopRelay(ctx, workspaceID, token)
+			if err != nil {
+				return err
+			}
+			if fresh != target {
+				return pkgerrors.Unauthorized("desktop session changed")
+			}
+			return nil
 		},
 		ResponseHeaders: desktopRelayResponseHeaders,
 	})

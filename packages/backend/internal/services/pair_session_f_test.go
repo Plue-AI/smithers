@@ -1073,12 +1073,26 @@ func TestPairSession_F_ShareVerifyAfterWriteDropsShareWhenMemberGone(t *testing.
 	s := newPairFSetup(t)
 
 	svc, fake := s.errSvc()
-	fake.getMemberFn = func(_ int, _ db.PairSessionMember, _ error) (db.PairSessionMember, error) {
-		// The verify re-read observes the member already revoked.
+	verifiedAfterWrite := false
+	fake.getMemberFn = func(_ int, member db.PairSessionMember, err error) (db.PairSessionMember, error) {
+		require.NoError(t, err)
+		if member.Role == PairRoleEditor {
+			// The editor exists when SetMemberRole reads the previous role.
+			return member, nil
+		}
+		require.Equal(t, PairRoleViewer, member.Role)
+		share, err := fake.Queries.GetWorkspaceShare(ctx, db.GetWorkspaceShareParams{
+			WorkspaceID: UUIDString(s.session.WorkspaceID), GranteeUserID: s.editor,
+		})
+		require.NoError(t, err, "the role change must recreate the share before the injected revoke")
+		require.Equal(t, "read", share.Level)
+		verifiedAfterWrite = true
+		// Only the verify-after-write read observes the member already revoked.
 		return db.PairSessionMember{}, pgx.ErrNoRows
 	}
 	_, err := svc.SetMemberRole(ctx, s.session.ID, s.owner, s.editor, PairRoleViewer)
 	assert.Equal(t, 403, httpStatus(err))
+	require.True(t, verifiedAfterWrite, "exercise membership verification after the share upsert")
 
 	var shares int
 	require.NoError(t, s.fx.pool.QueryRow(ctx,

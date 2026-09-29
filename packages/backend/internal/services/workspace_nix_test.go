@@ -280,8 +280,8 @@ func TestWorkspaceDesktopViewerPathEmbedsRelayAndCredentials(t *testing.T) {
 }
 
 func TestAuthorizeDesktopRelay(t *testing.T) {
-	token, hash := generateDesktopSessionToken()
 	workspace := sampleDBWorkspace("ws-desk")
+	token, hash := generateDesktopSessionToken(workspace.UserID)
 	workspace.Kind = "desktop"
 	workspace.DesktopSessionID = "dsk_1"
 	workspace.DesktopSessionTokenHash = hash

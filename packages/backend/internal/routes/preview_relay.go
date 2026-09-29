@@ -33,6 +33,9 @@ type previewRelayTarget struct {
 	Token string
 	// Principal tracks upstream connections for revocation.
 	Principal revocation.Principal
+	// Reauthorize runs after the revocation watch is registered, closing the
+	// gap between the initial authorization and subscription.
+	Reauthorize func(context.Context) error
 	// ResponseHeaders are added to every relayed response.
 	ResponseHeaders map[string]string
 }
@@ -80,10 +83,38 @@ func relayToPreviewGateway(w http.ResponseWriter, r *http.Request, relayServiceU
 	// a plain HTTP request additionally has its context cancelled.
 	principal := target.Principal
 	proxy.Transport = relayConns.transport(principal)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	r = r.WithContext(ctx)
+	var revoked <-chan revocation.Event
 	if source := currentRevocationSource(); source != nil {
-		ctx, cancel := context.WithCancel(r.Context())
-		defer cancel()
-		revoked := source.Watch(ctx, principal)
+		revoked = source.Watch(ctx, principal)
+	}
+	if target.Reauthorize != nil {
+		if err := target.Reauthorize(ctx); err != nil {
+			for key, value := range target.ResponseHeaders {
+				w.Header().Set(key, value)
+			}
+			writeRouteError(w, r, err)
+			return
+		}
+	}
+	// Consume an event already delivered during authorization before dialing.
+	// Start the asynchronous watcher only after this check so it cannot take
+	// the event without yet having cancelled the request.
+	select {
+	case <-revoked:
+		for key, value := range target.ResponseHeaders {
+			w.Header().Set(key, value)
+		}
+		writeRouteError(w, r, pkgerrors.Forbidden("desktop access revoked"))
+		return
+	default:
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if revoked != nil {
 		go func() {
 			select {
 			case <-revoked:
@@ -91,7 +122,6 @@ func relayToPreviewGateway(w http.ResponseWriter, r *http.Request, relayServiceU
 			case <-ctx.Done():
 			}
 		}()
-		r = r.WithContext(ctx)
 	}
 	request := r.Clone(r.Context())
 	request.Host = target.Domain

@@ -248,12 +248,50 @@ func (s *PairSessionService) withPairSessionMutation(ctx context.Context, sessio
 		txService.store = db.New(tx)
 	}
 	txService.txBeginner = nil
+	// Collect events while the mutation runs. Durable publication is a required
+	// transaction step, so neither insert nor NOTIFY failures can be swallowed
+	// by the mutation helpers' best-effort publication calls.
+	var pendingRevocations pairMutationRevocations
+	if s.revocations != nil {
+		txService.revocations = &pendingRevocations
+	}
 	if err := fn(&txService); err != nil {
 		return err
+	}
+	_, databasePublisher := s.revocations.(*revocation.DBPublisher)
+	if databasePublisher {
+		// PostgreSQL delivers NOTIFY at commit. No local bus is attached because
+		// it would announce authorization state that is not committed yet.
+		publisher := revocation.NewTransactionalDBPublisher(db.New(tx))
+		for _, event := range pendingRevocations.events {
+			if err := publisher.Publish(ctx, event); err != nil {
+				return pkgerrors.Internal("publish pair session revocation: " + err.Error()).WithCause(err)
+			}
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return pkgerrors.Internal("commit pair session mutation: " + err.Error())
 	}
+	if !databasePublisher && len(pendingRevocations.events) > 0 {
+		// A disconnect after commit cannot cancel the committed revocation.
+		// Keep custom publishers bounded even after detaching the request.
+		publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		for _, event := range pendingRevocations.events {
+			revocation.PublishBestEffort(publishCtx, s.revocations, event)
+		}
+	}
+	return nil
+}
+
+// Collect mutation events for transactional persistence or post-commit fan-out.
+// A failed mutation discards them without announcing an authorization change.
+type pairMutationRevocations struct {
+	events []revocation.Event
+}
+
+func (p *pairMutationRevocations) Publish(_ context.Context, event revocation.Event) error {
+	p.events = append(p.events, event)
 	return nil
 }
 
@@ -848,6 +886,13 @@ func (s *PairSessionService) setMemberRole(ctx context.Context, sessionID string
 		// owner as a viewer in the member list.
 		return db.PairSessionMember{}, pkgerrors.BadRequest("the session owner's role cannot be changed")
 	}
+	previous, err := s.store.GetLivePairSessionMember(ctx, db.GetLivePairSessionMemberParams{SessionID: sessionID, UserID: targetUserID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.PairSessionMember{}, pkgerrors.NotFound("member not found")
+		}
+		return db.PairSessionMember{}, pkgerrors.Internal("load member role: " + err.Error())
+	}
 	member, err := s.store.SetPairSessionMemberRole(ctx, db.SetPairSessionMemberRoleParams{SessionID: sessionID, UserID: targetUserID, Role: role})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -859,6 +904,11 @@ func (s *PairSessionService) setMemberRole(ctx context.Context, sessionID string
 	// viewer→read) so a demoted editor loses sandbox write access.
 	if err := s.ensureWorkspaceShare(ctx, res.Session, targetUserID, member.Role); err != nil {
 		return db.PairSessionMember{}, err
+	}
+	if previous.Role == PairRoleEditor && member.Role == PairRoleViewer && res.Session.WorkspaceID.Valid {
+		// Existing desktop and terminal connections were authorized for writing.
+		// End them when the member loses that grant; read access remains intact.
+		s.publishWorkspaceShareRevocation(ctx, UUIDString(res.Session.WorkspaceID), targetUserID, "workspace write access removed")
 	}
 	return member, nil
 }
@@ -1791,6 +1841,11 @@ func (s *PairSessionService) revokeWorkspaceShare(ctx context.Context, session d
 	}); err != nil {
 		return pkgerrors.Internal("revoke workspace share: " + err.Error())
 	}
+	s.publishWorkspaceShareRevocation(ctx, workspaceID, userID, "workspace share removed")
+	return nil
+}
+
+func (s *PairSessionService) publishWorkspaceShareRevocation(ctx context.Context, workspaceID string, userID int64, reason string) {
 	var sandboxIDs []string
 	if getter, ok := s.store.(workspaceGetter); ok {
 		if workspace, err := getter.GetWorkspace(ctx, workspaceID); err == nil && workspace.VmID != "" {
@@ -1802,9 +1857,8 @@ func (s *PairSessionService) revokeWorkspaceShare(ctx context.Context, session d
 		UserID:      userID,
 		WorkspaceID: workspaceID,
 		SandboxIDs:  sandboxIDs,
-		Reason:      "workspace share removed",
+		Reason:      reason,
 	})
-	return nil
 }
 
 // mintPairSessionID returns a >=128-bit unguessable base62 slug from crypto/rand.

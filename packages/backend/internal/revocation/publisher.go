@@ -31,8 +31,9 @@ type Store interface {
 // When Local is set the event is also applied in-process immediately, so the
 // pod that performed the revocation never waits on its own round trip.
 type DBPublisher struct {
-	store Store
-	local *Bus
+	store         Store
+	local         *Bus
+	transactional bool
 }
 
 // NewDBPublisher builds a publisher over the store. local may be nil.
@@ -40,8 +41,16 @@ func NewDBPublisher(store Store, local *Bus) *DBPublisher {
 	return &DBPublisher{store: store, local: local}
 }
 
-// Publish stores and announces the event. It fails only when the durable
-// insert fails; a NOTIFY failure is logged because the catch-up poll covers it.
+// NewTransactionalDBPublisher binds publication to a caller-owned transaction.
+// The store must use that transaction. No local event is delivered before commit,
+// and insert or NOTIFY errors are returned so the caller can roll back.
+func NewTransactionalDBPublisher(store Store) *DBPublisher {
+	return &DBPublisher{store: store, transactional: true}
+}
+
+// Publish stores and announces the event. A transactional publisher returns
+// insert and NOTIFY failures. Outside a transaction, a NOTIFY failure is logged
+// because the committed insert remains available to the catch-up poll.
 func (p *DBPublisher) Publish(ctx context.Context, event Event) error {
 	if p == nil || p.store == nil {
 		return ErrPublisherNotConfigured
@@ -62,6 +71,9 @@ func (p *DBPublisher) Publish(ctx context.Context, event Event) error {
 		return fmt.Errorf("revocation: encode %s: %w", event.Kind, err)
 	}
 	if err := p.store.NotifyRevocation(ctx, string(payload)); err != nil {
+		if p.transactional {
+			return fmt.Errorf("revocation: notify %s: %w", event.Kind, err)
+		}
 		slog.Warn("revocation notify failed; catch-up poll will deliver it", "kind", event.Kind, "id", stored.ID, "error", err)
 	}
 	return nil

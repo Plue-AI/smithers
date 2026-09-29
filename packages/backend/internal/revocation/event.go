@@ -47,7 +47,7 @@ const (
 	// KindCollaboratorRemoved: UserID lost access to RepositoryID. SandboxIDs
 	// lists that user's live workspace VMs in the repository when known.
 	KindCollaboratorRemoved Kind = "collaborator_removed"
-	// KindWorkspaceShareRemoved: UserID lost the share on WorkspaceID.
+	// KindWorkspaceShareRemoved: UserID lost the share or its write grant on WorkspaceID.
 	// SandboxIDs carries the workspace VM when known.
 	KindWorkspaceShareRemoved Kind = "workspace_share_removed"
 	// KindAgentSessionCancelled: SessionID ended before completion. SandboxIDs
@@ -84,7 +84,10 @@ type Event struct {
 // Principal describes what a live consumer is authorized as. A consumer fills
 // in what it knows; unknown fields stay zero and never match.
 type Principal struct {
-	UserID         int64
+	UserID int64
+	// OwnerUserID binds a shared desktop to its owner's account and repository
+	// access as well as its creator. Share changes still target UserID only.
+	OwnerUserID    int64
 	TokenHash      string
 	RepositoryID   int64
 	OrganizationID int64
@@ -102,9 +105,9 @@ func (e Event) Affects(p Principal) bool {
 	case KindTokenRevoked, KindTokenScopesNarrowed:
 		return e.TokenHash != "" && p.TokenHash == e.TokenHash
 	case KindUserDisabled:
-		return e.UserID != 0 && p.UserID == e.UserID
+		return e.UserID != 0 && (p.UserID == e.UserID || p.OwnerUserID == e.UserID)
 	case KindCollaboratorRemoved:
-		if e.UserID != 0 && p.UserID == e.UserID && e.RepositoryID != 0 && p.RepositoryID == e.RepositoryID {
+		if e.UserID != 0 && (p.UserID == e.UserID || p.OwnerUserID == e.UserID) && e.RepositoryID != 0 && p.RepositoryID == e.RepositoryID {
 			return true
 		}
 		return e.namesSandbox(p.SandboxID)

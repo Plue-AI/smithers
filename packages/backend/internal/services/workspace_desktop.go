@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,10 +143,34 @@ func randomDesktopPassword() string {
 	return string(out)
 }
 
-func generateDesktopSessionToken() (plaintext, hash string) {
-	plaintext = "smithers_desk_" + randomHex(24)
+// The stored hash covers both creator and entropy. The creator can be trusted
+// only after the complete presented token matches that hash.
+func generateDesktopSessionToken(userID int64) (plaintext, hash string) {
+	plaintext = "smithers_desk_v1_" + strconv.FormatInt(userID, 10) + "_" + randomHex(24)
 	sum := sha256.Sum256([]byte(plaintext))
 	return plaintext, hex.EncodeToString(sum[:])
+}
+
+// desktopSessionCreator accepts only the current canonical credential format.
+// Legacy credentials have no trustworthy creator and require a fresh mint.
+func desktopSessionCreator(token string) (int64, bool) {
+	payload, ok := strings.CutPrefix(token, "smithers_desk_v1_")
+	if !ok {
+		return 0, false
+	}
+	creator, entropy, ok := strings.Cut(payload, "_")
+	if !ok {
+		return 0, false
+	}
+	userID, err := strconv.ParseInt(creator, 10, 64)
+	if err != nil || userID <= 0 || strconv.FormatInt(userID, 10) != creator {
+		return 0, false
+	}
+	random, err := hex.DecodeString(entropy)
+	if err != nil || len(random) != 24 || hex.EncodeToString(random) != entropy {
+		return 0, false
+	}
+	return userID, true
 }
 
 // ensureWorkspaceDesktop publishes the desktop web port for a running
@@ -190,6 +215,9 @@ type WorkspaceDesktopSessionResponse struct {
 // workspace: rotates the VNC password inside the guest (tmpfs only), issues a
 // relay token (hash stored), publishes the port, and returns the viewer URL.
 func (s *WorkspaceService) CreateDesktopSession(ctx context.Context, workspaceID string, repositoryID, userID int64) (WorkspaceDesktopSessionResponse, error) {
+	if userID <= 0 {
+		return WorkspaceDesktopSessionResponse{}, pkgerrors.Unauthorized("invalid desktop session creator")
+	}
 	if s.q == nil {
 		return WorkspaceDesktopSessionResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
@@ -226,7 +254,7 @@ func (s *WorkspaceService) CreateDesktopSession(ctx context.Context, workspaceID
 		return WorkspaceDesktopSessionResponse{}, err
 	}
 
-	token, tokenHash := generateDesktopSessionToken()
+	token, tokenHash := generateDesktopSessionToken(userID)
 	sessionID := "dsk_" + randomHex(workspaceDesktopSessionIDLen)
 	expiresAt := time.Now().UTC().Add(workspaceDesktopSessionTTL)
 	if err := recorder.SetWorkspaceDesktopSession(ctx, db.SetWorkspaceDesktopSessionParams{
@@ -336,6 +364,7 @@ type WorkspaceDesktopRelayTarget struct {
 	Domain       string
 	WorkspaceID  string
 	UserID       int64
+	OwnerUserID  int64
 	RepositoryID int64
 }
 
@@ -366,6 +395,14 @@ func (s *WorkspaceService) AuthorizeDesktopRelay(ctx context.Context, workspaceI
 	if !workspace.DesktopSessionExpiresAt.Valid || time.Now().After(workspace.DesktopSessionExpiresAt.Time) {
 		return WorkspaceDesktopRelayTarget{}, pkgerrors.Unauthorized("desktop session expired")
 	}
+	// Verify the full token's stored hash above before trusting its creator.
+	creatorID, valid := desktopSessionCreator(token)
+	if !valid {
+		return WorkspaceDesktopRelayTarget{}, pkgerrors.Unauthorized("invalid desktop session")
+	}
+	if err := s.requireWorkspaceAccess(ctx, workspace.ID, workspace.UserID, creatorID, WorkspaceAccessWrite); err != nil {
+		return WorkspaceDesktopRelayTarget{}, err
+	}
 	if normalizeWorkspaceKind(workspace.Kind) != "desktop" || workspace.Status != "running" || strings.TrimSpace(workspace.VmID) == "" {
 		return WorkspaceDesktopRelayTarget{}, pkgerrors.Conflict("desktop workspace is not running")
 	}
@@ -373,7 +410,8 @@ func (s *WorkspaceService) AuthorizeDesktopRelay(ctx context.Context, workspaceI
 	return WorkspaceDesktopRelayTarget{
 		Domain:       workspaceDesktopDomain(workspace.VmID),
 		WorkspaceID:  workspace.ID,
-		UserID:       workspace.UserID,
+		UserID:       creatorID,
+		OwnerUserID:  workspace.UserID,
 		RepositoryID: workspace.RepositoryID,
 	}, nil
 }
