@@ -96,6 +96,25 @@ run fails the command and names the cause. A lock left by a killed deployment
 names its host and process id; delete that object only once that process is
 gone.
 
+Snapshot replacement supports well-formed Unicode filenames on local POSIX
+filesystems whose aliases are limited to case folding and canonical equivalence,
+using Unicode tables no newer than the running Node version's. This includes
+case-insensitive macOS APFS. Windows and filesystems with additional aliases
+(such as trailing-dot stripping or compatibility normalization) are unsupported.
+The working copy requires exclusive access throughout validation and replacement.
+
+Before deleting state, the writer checks the complete snapshot and retained
+local entries using a conservative path identity: NFD, lowercase, uppercase,
+lowercase, then NFD. It rejects malformed Unicode and ambiguous spellings even
+on case-sensitive filesystems, including aliases of shared remote or local
+directory names. A topology refusal throws `TypeError` and leaves the tree and
+file bytes unchanged. Non-state entries (including the ownership lock and
+temporary files) are kept. A remote file can replace a directory only when it
+contains state files or empty directories.
+Only displaced directories are removed. Single case/Unicode renames of state
+files remain valid. Replacement is not a transaction against later I/O failures
+or concurrent local modifications.
+
 The wrapper reaches R2 through its S3 API with credentials derived from
 `CLOUDFLARE_API_TOKEN` (the token id and the SHA-256 of its value), so it needs
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and no second secret.

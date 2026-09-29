@@ -289,26 +289,37 @@ export const remoteStateFromEnvironment = async (
   }
 }
 
-/** Every `.json` state file under `directory`, relative to it with `/` separators. */
-const stateFiles = async (directory: string, prefix = ""): Promise<Array<string>> => {
+interface StateTree {
+  readonly files: Array<string>
+  readonly directories: Array<string>
+  readonly kept: Array<string>
+}
+
+/** Inventory the entire tree before deciding which state entries can be replaced. */
+const stateTree = async (directory: string, prefix = ""): Promise<StateTree> => {
+  const tree: StateTree = { files: [], directories: [], kept: [] }
   let entries: Array<Dirent>
   try {
     entries = await Fs.readdir(NodePath.join(directory, prefix), { withFileTypes: true })
   } catch (error) {
     // A stack that has never been deployed has no state directory yet.
-    if (errorCode(error) === "ENOENT") return []
+    if (errorCode(error) === "ENOENT") return tree
     throw error
   }
-  const files: Array<string> = []
   for (const entry of entries) {
     const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`
     if (entry.isSymbolicLink()) {
       throw new TypeError(`Alchemy state contains a symbolic link, which a snapshot will not follow: ${relative}`)
     }
-    if (entry.isDirectory()) files.push(...(await stateFiles(directory, relative)))
-    else if (entry.isFile() && entry.name.endsWith(".json")) files.push(relative)
+    if (entry.isDirectory()) {
+      const child = await stateTree(directory, relative)
+      tree.directories.push(relative, ...child.directories)
+      tree.files.push(...child.files)
+      tree.kept.push(...child.kept)
+    } else if (entry.isFile() && entry.name.endsWith(".json")) tree.files.push(relative)
+    else tree.kept.push(relative)
   }
-  return files
+  return tree
 }
 
 const renderSnapshot = (files: Record<string, string>): string => {
@@ -328,16 +339,37 @@ const renderSnapshot = (files: Record<string, string>): string => {
  */
 export const readStateSnapshot = async (directory: string): Promise<string> => {
   const files: Record<string, string> = {}
-  for (const file of await stateFiles(directory)) {
+  for (const file of (await stateTree(directory)).files) {
     files[file] = await Fs.readFile(NodePath.join(directory, ...file.split("/")), "utf8")
   }
   return renderSnapshot(files)
 }
 
 const safeSegment = (segment: string): boolean =>
-  segment !== "" && segment !== "." && segment !== ".." && !/[\\\u0000-\u001f]/.test(segment)
+  segment !== "" && segment !== "." && segment !== ".." && segment.isWellFormed() && !/[\\\u0000-\u001f]/.test(segment)
 
-const parseSnapshot = (body: string): Record<string, string> => {
+// A conservative portable identity, independent of the host's case sensitivity.
+// Lowercase first joins ẞ/ß, then uppercase joins expansions such as ß/SS and ſ/S.
+const pathIdentity = (path: string): string =>
+  path.normalize("NFD").toLowerCase().toUpperCase().toLowerCase().normalize("NFD")
+
+const pathPrefixes = (path: string): Array<string> => {
+  const prefixes: Array<string> = []
+  for (let separator = path.indexOf("/"); separator !== -1; separator = path.indexOf("/", separator + 1)) {
+    prefixes.push(path.slice(0, separator))
+  }
+  return [...prefixes, path]
+}
+
+interface SnapshotPath {
+  readonly path: string
+  readonly kind: "file" | "directory"
+}
+
+const parseSnapshot = (body: string): {
+  readonly files: Record<string, string>
+  readonly paths: Map<string, SnapshotPath>
+} => {
   let parsed: unknown
   try {
     parsed = JSON.parse(body)
@@ -351,39 +383,74 @@ const parseSnapshot = (body: string): Record<string, string> => {
   if (typeof files !== "object" || files === null || Array.isArray(files)) {
     throw new TypeError("remote Alchemy state has no file map")
   }
+  const paths = new Map<string, SnapshotPath>()
   for (const [file, contents] of Object.entries(files)) {
     if (typeof contents !== "string") throw new TypeError(`remote Alchemy state file ${file} is not text`)
     if (!file.endsWith(".json") || !file.split("/").every(safeSegment)) {
       throw new TypeError(`remote Alchemy state names a path outside the stack: ${JSON.stringify(file)}`)
     }
-    for (let separator = file.indexOf("/"); separator !== -1; separator = file.indexOf("/", separator + 1)) {
-      const ancestor = file.slice(0, separator)
-      if (Object.prototype.hasOwnProperty.call(files, ancestor)) {
+    for (const path of pathPrefixes(file)) {
+      const identity = pathIdentity(path)
+      const kind = path === file ? "file" : "directory"
+      const existing = paths.get(identity)
+      if (existing !== undefined && (existing.path !== path || existing.kind !== kind)) {
         throw new TypeError(
-          `remote Alchemy state file ${JSON.stringify(ancestor)} is an ancestor of ${JSON.stringify(file)}`
+          `remote Alchemy state paths collide: ${JSON.stringify(existing.path)} and ${JSON.stringify(path)}`
         )
       }
+      paths.set(identity, { path, kind })
     }
   }
-  return files as Record<string, string>
+  return { files: files as Record<string, string>, paths }
 }
 
 /**
  * Replaces every Alchemy state file under `directory` with a snapshot's.
  *
- * The snapshot is validated in full before any local file changes, so a
- * refused snapshot leaves local state as it was. Files that are not state,
- * such as the ownership lock, are kept.
+ * Snapshot topology and retained local entries are validated before any local
+ * changes. Files that are not state, such as the ownership lock, are kept.
+ * Empty directories and directories containing only state can become files.
+ * Requires exclusive access to a local POSIX tree; see README.md for the
+ * supported filesystem policy. I/O failures during replacement are not atomic.
  *
- * @throws A `TypeError` when the snapshot is not one this module rendered, or
- * names a path outside the directory or a file that is another file's ancestor.
+ * @throws A `TypeError` for invalid snapshots, ambiguous case/Unicode names,
+ * file/directory collisions, or topology that would replace a kept local entry.
  * @category utilities
  * @since 0.1.0
  */
 export const writeStateSnapshot = async (directory: string, body: string): Promise<void> => {
-  const files = parseSnapshot(body)
-  for (const file of await stateFiles(directory)) {
+  const { files, paths } = parseSnapshot(body)
+  const local = await stateTree(directory)
+  for (const path of local.directories) {
+    const remote = paths.get(pathIdentity(path))
+    if (remote?.kind === "directory" && remote.path !== path) {
+      throw new TypeError(
+        `remote Alchemy state directory ${JSON.stringify(remote.path)} aliases local directory ${JSON.stringify(path)}`
+      )
+    }
+  }
+  for (const kept of local.kept) {
+    for (const prefix of pathPrefixes(kept)) {
+      const remote = paths.get(pathIdentity(prefix))
+      if (remote !== undefined && (prefix === kept || remote.kind === "file")) {
+        throw new TypeError(
+          `remote Alchemy state path ${JSON.stringify(remote.path)} conflicts with kept local entry ${
+            JSON.stringify(kept)
+          }`
+        )
+      }
+    }
+  }
+  const directories = local.directories.filter((path) =>
+    pathPrefixes(path).some((prefix) => paths.get(pathIdentity(prefix))?.kind === "file")
+  )
+  for (const file of local.files) {
     await Fs.rm(NodePath.join(directory, ...file.split("/")))
+  }
+  // Remove only directories displaced by incoming files, children first.
+  // rmdir refuses unexpected retained content rather than recursively deleting it.
+  for (const path of directories.sort((a, b) => b.length - a.length)) {
+    await Fs.rmdir(NodePath.join(directory, ...path.split("/")))
   }
   for (const [file, contents] of Object.entries(files)) {
     const target = NodePath.join(directory, ...file.split("/"))
