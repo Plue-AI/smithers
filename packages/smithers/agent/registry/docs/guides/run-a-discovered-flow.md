@@ -85,6 +85,67 @@ implementation table a bridged dispatch resolves through, and the `Crypto` the
 bridge derives a child execution id with. `Executable.Registration` is that
 requirement as one type.
 
+## Module action implementations
+
+A `flows/<name>/flow.ts` module default-exports its `@smthrs/flow` declaration
+and may also export `layer`, an Effect `Layer` containing its implementations:
+
+```ts
+import { Action, Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Schema } from "effect"
+
+const Greet = Action.make("greeting/Greet", {
+  payload: { name: Schema.String },
+  success: Schema.String
+})
+
+export const layer = Greet.toLayer(({ name }) => Effect.succeed(`Hello, ${name}.`))
+
+export default Flow.make("greeting", {
+  description: "Greet the caller.",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+  payload: { name: Schema.String },
+  success: Schema.String,
+  body: Node.capture({ action: Greet.name }, (payload) => Greet.call(payload))
+})
+```
+
+Use `Layer.mergeAll(...)` for multiple `Declared.toLayer(...)` and
+`AgentAction.layer` values. The host owns `Action.Implementations`; export the
+implementation layers directly. Providing `Action.layerImplementations` inside
+the module creates a second action table and is unsupported. An exported
+replacement table is refused at load as `invalid_layer`.
+Loading builds the exported layer once in a child
+scope of the host, with a module-local action implementation table. Action
+lookup selects the module's implementations before the host's; independently
+executed child flows retain their own registrations.
+Registering `executable.layer` supplies that context to both the module and
+its input adapter. Keep registration and execution inside the scoped host that
+loaded the executable. Rebuilding its registration does not close the shared
+module resources; the loading host owns them. Refresh replaces the implementation
+scope together with the flow.
+A module load with `layer` therefore needs a scoped host context with the
+runtime already available; metadata discovery needs neither.
+
+The local CLI and TUI provide the guarded `FileSystem`, `Path`,
+`ChildProcessSpawner`, `HttpClient`, and the `AgentAction.layer` services:
+`Agent`, `AgentAction.Host`, `SeatResolver`, `Sandbox`, `Steering.Source`,
+`Crypto`, `Budget`, `QuotaClassifier`, `Evaluator`, and `FlowRuntime`.
+Library hosts supply their own implementations of the services they support.
+Provide any additional dependencies inside the exported layer.
+
+A missing construction-time service produces `ExecutableError` code
+`missing_service`, naming the flow and service key. An invalid `layer` export
+produces `invalid_layer`; other construction failures produce `layer_failed`.
+They appear in `Catalog.refused` without taking down unrelated flows.
+
+Acquire handler dependencies during layer construction with `Layer.unwrap`
+or `Layer.effect` when they need load-time validation. Effect's erased types
+cannot expose services requested only inside a deferred handler without
+executing that handler. No action body runs during loading.
+
 ## Rebuild one entry while serving
 
 A flow written or edited after the host started is a descriptor with no

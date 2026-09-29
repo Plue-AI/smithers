@@ -55,11 +55,12 @@ import * as CorePlacement from "@smthrs/core/Placement"
 import * as Action from "@smthrs/flow/Action"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import * as RuntimeFlow from "@smthrs/flow/Flow"
-import { FlowInstance, type FlowRuntime } from "@smthrs/flow/FlowRuntime"
+import { FlowInstance, FlowRuntime } from "@smthrs/flow/FlowRuntime"
 import * as Graph from "@smthrs/flow/Graph"
 import * as Interpreter from "@smthrs/flow/Interpreter"
 import type * as FileSet from "@smthrs/plan/FileSet"
 import * as PlanNode from "@smthrs/plan/Node"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
@@ -228,7 +229,10 @@ export const ExecutableErrorCode = Schema.Literals([
   "missing_delegate",
   "ambiguous_delegate",
   "body_unavailable",
-  "invalid_module"
+  "invalid_module",
+  "invalid_layer",
+  "missing_service",
+  "layer_failed"
 ])
 
 /**
@@ -257,6 +261,7 @@ export class ExecutableError extends Schema.TaggedError<ExecutableError>()(
     flow: Schema.String,
     path: Schema.optional(Schema.String),
     delegate: Schema.optional(Schema.String),
+    service: Schema.optional(Schema.String),
     available: Schema.Array(Schema.String),
     message: Schema.String,
     cause: Schema.optional(Schema.Defect())
@@ -369,9 +374,18 @@ export interface Executable {
     Schema.Codec<unknown, unknown>,
     any
   >
-  /** Registers {@link Executable.flow} with the runtime. */
+  /**
+   * Registers {@link Executable.flow} with the runtime. May be provided more
+   * than once while the scoped host that loaded this executable remains alive;
+   * that loading host owns resources acquired by an exported implementation layer.
+   * Refresh releases replaced entries after registering the new one; active
+   * consumers of a retired entry must finish before the host requests refresh.
+   */
   readonly layer: Layer.Layer<never, never, Registration>
 }
+
+// Refresh retires resources owned by an executable's original loading scope.
+const moduleScopes = new WeakMap<Executable, Scope.Closeable>()
 
 /**
  * How a descriptor is loaded and what it may delegate to.
@@ -407,6 +421,7 @@ const refuse = (options: {
   readonly flow: string
   readonly path?: string | undefined
   readonly delegate?: string | undefined
+  readonly service?: string | undefined
   readonly available?: ReadonlyArray<string> | undefined
   readonly message: string
   readonly cause?: unknown
@@ -416,6 +431,7 @@ const refuse = (options: {
     flow: options.flow,
     path: options.path,
     delegate: options.delegate,
+    service: options.service,
     available: options.available ?? [],
     message: options.message,
     cause: options.cause
@@ -744,6 +760,7 @@ interface LoadedBody {
   readonly prompt: string
   readonly annotations: Context.Context<never>
   readonly flow: LoadedFlow | undefined
+  readonly layer?: Layer.Layer<unknown, unknown, unknown> | undefined
 }
 
 /**
@@ -894,7 +911,21 @@ const loadModule = (
     // declaration carries `annotations` and a `body` too, and guessing
     // structurally would run the wrong model's graph.
     if (RuntimeFlow.isFlow(exported)) {
-      return { prompt: "", annotations: exported.annotations, flow: exported as unknown as LoadedFlow }
+      const implementation = (loaded as { readonly layer?: unknown }).layer
+      if (implementation !== undefined && !Layer.isLayer(implementation)) {
+        return yield* Effect.fail(refuse({
+          code: "invalid_layer",
+          flow: descriptor.name,
+          path,
+          message: `flow "${descriptor.name}" exports "layer", which must be an Effect Layer`
+        }))
+      }
+      return {
+        prompt: "",
+        annotations: exported.annotations,
+        flow: exported as unknown as LoadedFlow,
+        layer: implementation
+      }
     }
     if (!CoreFlow.isFlow(exported)) {
       return yield* Effect.fail(
@@ -906,12 +937,135 @@ const loadModule = (
         })
       )
     }
+    if ((loaded as { readonly layer?: unknown }).layer !== undefined) {
+      return yield* Effect.fail(refuse({
+        code: "invalid_layer",
+        flow: descriptor.name,
+        path,
+        message: `flow "${descriptor.name}" exports "layer" but must default-export Flow.make from "@smthrs/flow"`
+      }))
+    }
     // Every flow carries an annotation bag; `Flow.Any` simply does not say so.
     return {
       prompt: "",
       annotations: (exported as unknown as CoreFlow.Flow<never, never, never>).annotations,
       flow: undefined
     }
+  })
+
+/**
+ * Builds a module's implementation layer once in its host's scoped context.
+ *
+ * Dynamic module types erase Layer requirements. Construction is the runtime
+ * check: missing Effect service lookups become a named refusal here. Deferred
+ * handler requirements cannot be reflected without executing user actions.
+ * Each module owns one ordinary Action implementation table, so another module
+ * or a refresh may use the same tags without replacing its handlers. Resources
+ * remain acquired until its loading host closes or refresh retires the entry.
+ */
+const moduleServices = (
+  descriptor: Descriptor.FlowDescriptor,
+  implementation: Layer.Layer<unknown, unknown, unknown>,
+  own: (scope: Scope.Closeable) => void
+): Effect.Effect<{ readonly layer: Layer.Layer<unknown>; readonly scope: Scope.Closeable }, ExecutableError> =>
+  Effect.gen(function*() {
+    const parent = yield* Effect.serviceOption(Scope.Scope)
+    if (Option.isNone(parent)) {
+      return yield* Effect.fail(refuse({
+        code: "missing_service",
+        flow: descriptor.name,
+        path: descriptor.body.path,
+        service: Scope.Scope.key,
+        message: `flow "${descriptor.name}" requires host service "${Scope.Scope.key}" to load its layer`
+      }))
+    }
+    const hostTable = yield* Effect.serviceOption(Action.Implementations)
+    const runtime = yield* Effect.serviceOption(FlowRuntime)
+    const hostServices = yield* Effect.context<never>()
+    // Hand ownership to the whole constructor atomically with the fork, so
+    // cancellation after the exported build also retires private registrations.
+    const scope = yield* Scope.fork(parent.value).pipe(
+      Effect.tap((scope) => Effect.sync(() => own(scope))),
+      Effect.uninterruptible
+    )
+    const local = yield* Layer.buildWithScope(Layer.fresh(Action.layerImplementations), scope)
+    const table = Context.get(local, Action.Implementations)
+    const fallback = (name: string) => Option.isSome(hostTable) ? hostTable.value.get(name) : Effect.succeedNone
+    // Bind registration before constructing the exported layer: its private
+    // interpreters belong to this module just as its default flow does.
+    const registrationRuntime = Option.map(runtime, (hostRuntime) =>
+      FlowRuntime.of({
+        ...hostRuntime,
+        register: (flow, execute) =>
+          hostRuntime.register(flow, (payload, executionId) => {
+            const implementations = Action.Implementations.of({
+              add: table.add,
+              get: (name) =>
+                Effect.flatMap(Effect.serviceOption(FlowInstance), (instance) =>
+                  Option.isSome(instance) && instance.value.executionId !== executionId
+                    ? fallback(name)
+                    : Effect.flatMap(
+                      table.get(name),
+                      (found) => Option.isSome(found) ? Effect.succeed(found) : fallback(name)
+                    ))
+            })
+            return execute(payload, executionId).pipe(Effect.provideService(Action.Implementations, implementations))
+          })
+      }))
+    const input = Context.merge(hostServices, local)
+    const built = yield* Layer.buildWithScope(Layer.fresh(implementation), scope).pipe(
+      // Dynamic module types erase requirements; this host closes them here.
+      Effect.provideContext(
+        Option.isSome(registrationRuntime) ? Context.add(input, FlowRuntime, registrationRuntime.value) : input
+      ),
+      Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+        const missing = cause.reasons.find((reason) =>
+          reason._tag === "Die" && reason.defect instanceof Error &&
+          reason.defect.message.startsWith("Service not found: ")
+        )
+        const service = missing?._tag === "Die"
+          ? (missing.defect as Error).message.slice("Service not found: ".length)
+          : undefined
+        return Effect.fail(refuse({
+          code: service === undefined ? "layer_failed" : "missing_service",
+          flow: descriptor.name,
+          path: descriptor.body.path,
+          service,
+          message: service === undefined
+            ? `the implementation layer of flow "${descriptor.name}" could not be built`
+            : `flow "${descriptor.name}" requires host service "${service}" to load its layer`,
+          cause
+        }))
+      })
+    ) as Effect.Effect<Context.Context<unknown>, ExecutableError>
+    const exportedTable = Context.getOption(built, Action.Implementations)
+    if (Option.isSome(exportedTable) && exportedTable.value !== table) {
+      yield* Scope.close(scope, Exit.void)
+      return yield* Effect.fail(refuse({
+        code: "invalid_layer",
+        flow: descriptor.name,
+        path: descriptor.body.path,
+        service: Action.Implementations.key,
+        message:
+          `flow "${descriptor.name}" must use its host-owned Action.Implementations table instead of providing a replacement`
+      }))
+    }
+    if (Option.isNone(registrationRuntime)) {
+      yield* Scope.close(scope, Exit.void)
+      return yield* Effect.fail(refuse({
+        code: "missing_service",
+        flow: descriptor.name,
+        path: descriptor.body.path,
+        service: FlowRuntime.key,
+        message: `flow "${descriptor.name}" requires host service "${FlowRuntime.key}" to register its layer`
+      }))
+    }
+    const services = Context.add(Context.merge(local, built), FlowRuntime, registrationRuntime.value)
+    // Consumers register independently; only the loading host or a catalog
+    // refresh that retires this entry releases the acquired module resources.
+    return { layer: Layer.succeedContext(services), scope }
   })
 
 /**
@@ -1030,159 +1184,180 @@ export const fromDescriptor = (
   descriptor: Descriptor.FlowDescriptor,
   options: Options
 ): Effect.Effect<Executable, ExecutableError, FileSystem.FileSystem | Path.Path> =>
-  Effect.gen(function*() {
-    // The delegate is resolved BEFORE the body is loaded, and the refusal for a
-    // missing one is raised after. Both refusals are real, but only one of them
-    // is about this host: a flow whose delegate nobody registered is not
-    // runnable here whatever its body says, and an operator reading "could not
-    // load" would go looking in the wrong place. The body is read first anyway
-    // because a module that default-exports a `@smthrs/flow` flow delegates to
-    // nothing, so its missing registration is not a refusal at all; a body that
-    // cannot be read keeps the missing registration as the refusal to report.
-    const name = yield* delegateOf(descriptor, options)
-    const registered = options.delegates.find((candidate) => candidate._tag === name)
-    const missing = refuse({
-      code: "missing_delegate",
-      flow: descriptor.name,
-      delegate: name,
-      available: options.delegates.map((candidate) => candidate._tag).sort(),
-      message: `flow "${descriptor.name}" delegates to "${name}", which no registered flow provides`
-    })
-    const load = descriptor.body._tag === "Markdown"
-      ? loadMarkdown(descriptor, descriptor.body.path, descriptor.body.baseDirectory)
-      : loadModule(descriptor, descriptor.body.path, descriptor.body.imports ?? [], options)
-    // Which refusal a failed load reports when no delegate is registered.
-    //
-    // A descriptor that NAMES a delegate is asking this host for a flow it does
-    // not have, and that is the refusal to report however the body fared: an
-    // operator reading "could not load" would go looking in the file when the
-    // registration is what is missing.
-    //
-    // A module that names none is the opposite case. `delegateOf` answers
-    // `agent` for it, and a self-contained flow never wanted an agent, so
-    // reporting `missing_delegate` would send the operator after a registration
-    // their flow does not need and hide the typo that actually stopped it. Its
-    // load failure is its own.
-    const masksLoadFailure = registered === undefined &&
-      !(descriptor.body._tag === "Module" && descriptor.flows.length === 0)
-    const body = yield* (masksLoadFailure ? Effect.catch(load, () => Effect.fail(missing)) : load)
-    if (body.flow === undefined && registered === undefined) return yield* Effect.fail(missing)
-    const delegate = body.flow === undefined ? registered! : selfDelegate(body.flow)
-    const lowered = lower(descriptor, body.annotations)
-    const invocation = (input: Schema.Json): Invocation => {
-      const placement = invocationPlacement(lowered.placement)
-      return Object.freeze({
+  Effect.suspend(() => {
+    let moduleScope: Scope.Closeable | undefined
+    return Effect.gen(function*() {
+      // The delegate is resolved BEFORE the body is loaded, and the refusal for a
+      // missing one is raised after. Both refusals are real, but only one of them
+      // is about this host: a flow whose delegate nobody registered is not
+      // runnable here whatever its body says, and an operator reading "could not
+      // load" would go looking in the wrong place. The body is read first anyway
+      // because a module that default-exports a `@smthrs/flow` flow delegates to
+      // nothing, so its missing registration is not a refusal at all; a body that
+      // cannot be read keeps the missing registration as the refusal to report.
+      const name = yield* delegateOf(descriptor, options)
+      const registered = options.delegates.find((candidate) => candidate._tag === name)
+      const missing = refuse({
+        code: "missing_delegate",
         flow: descriptor.name,
-        input: ownedJson(input),
-        prompt: body.prompt,
-        model: Option.getOrNull(descriptor.model),
-        placement: placement.placement,
-        placementOptions: placement.placementOptions,
-        capabilities: ownedStrings(descriptor.capabilities),
-        flows: ownedStrings(descriptor.flows)
+        delegate: name,
+        available: options.delegates.map((candidate) => candidate._tag).sort(),
+        message: `flow "${descriptor.name}" delegates to "${name}", which no registered flow provides`
       })
-    }
-    // WHAT THE BRIDGED FLOW DISPATCHES, AND WHY IT DEPENDS ON THE POLICY.
-    //
-    // Without a cache policy the delegation is a CALL: the delegate's node goes
-    // into the plan the engine builds for this flow, so its fan-out, its
-    // priorities, and its waits are the caller's plan and a host reading that
-    // plan sees the real work. That shape is not a step the engine can record —
-    // it is many steps — so there is nothing there for a policy to govern.
-    //
-    // A declared policy asks for exactly that: one recorded unit, served again
-    // when a later run asks the same question. A descriptor that declares one
-    // therefore dispatches `dispatchedAction` instead of calling the delegate,
-    // and the delegate runs underneath it as a child execution.
-    const bridge = lowered.cache === undefined ? undefined : dispatchedAction({
-      tag: `registry/${descriptor.name}`,
-      descriptor,
-      delegate,
-      cache: lowered.cache
-    })
-    // The policy travels three ways: as an annotation on the flow (the
-    // declaration surface a host reads back), as captured identity on the
-    // delegating node, so two descriptors declaring different policies are two
-    // declarations with two step keys, and — the half that reaches admission —
-    // onto the action the bridged flow dispatches, above.
-    const identity = PlanNode.capture(captured(lowered), (value: unknown) => value)
-    // The BODY's identity is captured too, and it has to be. A plan-time
-    // function JavaScript cannot inspect gets process-local identity, so a
-    // bridged flow built from one unchanged descriptor would key differently in
-    // every process — no replayed step would ever match, and no recorded result
-    // would ever be reused. Everything the body reads is inert descriptor data,
-    // so declaring it makes the flow's identity a function of the descriptor
-    // rather than of the process that loaded it.
-    const placement = invocationPlacement(lowered.placement)
-    const build = PlanNode.capture(
-      {
-        flow: descriptor.name,
-        delegate: delegate._tag,
-        prompt: body.prompt,
-        model: Option.getOrNull(descriptor.model),
-        placement: placement.placement,
-        placementOptions: placement.placementOptions,
-        capabilities: [...descriptor.capabilities],
-        flows: [...descriptor.flows],
-        priority: lowered.priority ?? null,
-        ...captured(lowered)
-      },
-      (payload: Payload) => {
-        const envelope = invocation(payload.input ?? null)
-        const carried = bridge === undefined
-          ? delegate.call(envelope)
-          : PlanNode.map(bridge.declaration.call(envelope), identity)
-        return lowered.priority === undefined ? carried : PlanNode.priority(carried, lowered.priority)
-      }
-    )
-    // A canonical declaration normally has the same tag as its registry name.
-    // Its payload codec is the user's schema; this admission adapter takes
-    // { input }. Registering both under that tag made whichever layer won
-    // decode the other's payload. Keep the declaration's tag and give only
-    // the private adapter a stable, source-qualified registration identity.
-    const adapterTag = body.flow?._tag === descriptor.name
-      ? `registry/entry/${Descriptor.executionDigest(descriptor)}/${descriptor.name}`
-      : descriptor.name
-    const flow = RuntimeFlow.make(adapterTag, {
-      payload: Payload,
-      // Preserve the delegate's codecs through the named bridge. Unknown loses
-      // transformations and cannot encode tagged Error instances as JSON.
-      success: delegate.successSchema ?? Schema.Unknown,
-      error: delegate.errorSchema ?? Schema.Unknown,
-      // A module that is its own flow keeps its own bag underneath the lowered
-      // one, so a `@smthrs/flow` placement or capability ceiling it declared
-      // reaches `Graph` instead of being dropped at the bridge. The lowered
-      // values win, because they are the descriptor's statement about this
-      // entry and the bag is the body's about itself.
-      annotations: body.flow === undefined
-        ? annotationsOf(lowered)
-        : Context.merge(body.annotations, annotationsOf(lowered)),
-      body: build
-    })
-    return {
-      descriptor,
-      declaredTag: body.flow?._tag,
-      delegate: body.flow === undefined ? name : undefined,
-      input: body.flow?.payloadSchema,
-      lowered,
-      invocation,
-      // The catalog cannot name services of a dynamically selected delegate.
-      // Keep its exact schema objects. Delegate.call/execute already erase
-      // services; the delegate's registrant also owns these codec services.
-      flow: flow as Executable["flow"],
-      // The cast erases the requirement `bridge` minted for itself. Its key is
-      // built from a tag this function computes, so no caller can spell the
-      // type, and nothing outside the bridged flow's own body asks for it.
+      const load = descriptor.body._tag === "Markdown"
+        ? loadMarkdown(descriptor, descriptor.body.path, descriptor.body.baseDirectory)
+        : loadModule(descriptor, descriptor.body.path, descriptor.body.imports ?? [], options)
+      // Which refusal a failed load reports when no delegate is registered.
       //
-      // A module that is its own flow registers that flow too: the bridged flow
-      // CALLS it, and a declared cache policy EXECUTES it as a child, which the
-      // runtime resolves by tag.
-      layer: Layer.mergeAll(
+      // A descriptor that NAMES a delegate is asking this host for a flow it does
+      // not have, and that is the refusal to report however the body fared: an
+      // operator reading "could not load" would go looking in the file when the
+      // registration is what is missing.
+      //
+      // A module that names none is the opposite case. `delegateOf` answers
+      // `agent` for it, and a self-contained flow never wanted an agent, so
+      // reporting `missing_delegate` would send the operator after a registration
+      // their flow does not need and hide the typo that actually stopped it. Its
+      // load failure is its own.
+      const masksLoadFailure = registered === undefined &&
+        !(descriptor.body._tag === "Module" && descriptor.flows.length === 0)
+      const body = yield* (masksLoadFailure ? Effect.catch(load, () => Effect.fail(missing)) : load)
+      if (body.flow === undefined && registered === undefined) return yield* Effect.fail(missing)
+      const delegate = body.flow === undefined ? registered! : selfDelegate(body.flow)
+      const lowered = lower(descriptor, body.annotations)
+      const invocation = (input: Schema.Json): Invocation => {
+        const placement = invocationPlacement(lowered.placement)
+        return Object.freeze({
+          flow: descriptor.name,
+          input: ownedJson(input),
+          prompt: body.prompt,
+          model: Option.getOrNull(descriptor.model),
+          placement: placement.placement,
+          placementOptions: placement.placementOptions,
+          capabilities: ownedStrings(descriptor.capabilities),
+          flows: ownedStrings(descriptor.flows)
+        })
+      }
+      // WHAT THE BRIDGED FLOW DISPATCHES, AND WHY IT DEPENDS ON THE POLICY.
+      //
+      // Without a cache policy the delegation is a CALL: the delegate's node goes
+      // into the plan the engine builds for this flow, so its fan-out, its
+      // priorities, and its waits are the caller's plan and a host reading that
+      // plan sees the real work. That shape is not a step the engine can record —
+      // it is many steps — so there is nothing there for a policy to govern.
+      //
+      // A declared policy asks for exactly that: one recorded unit, served again
+      // when a later run asks the same question. A descriptor that declares one
+      // therefore dispatches `dispatchedAction` instead of calling the delegate,
+      // and the delegate runs underneath it as a child execution.
+      const bridge = lowered.cache === undefined ? undefined : dispatchedAction({
+        tag: `registry/${descriptor.name}`,
+        descriptor,
+        delegate,
+        cache: lowered.cache
+      })
+      // The policy travels three ways: as an annotation on the flow (the
+      // declaration surface a host reads back), as captured identity on the
+      // delegating node, so two descriptors declaring different policies are two
+      // declarations with two step keys, and — the half that reaches admission —
+      // onto the action the bridged flow dispatches, above.
+      const identity = PlanNode.capture(captured(lowered), (value: unknown) => value)
+      // The BODY's identity is captured too, and it has to be. A plan-time
+      // function JavaScript cannot inspect gets process-local identity, so a
+      // bridged flow built from one unchanged descriptor would key differently in
+      // every process — no replayed step would ever match, and no recorded result
+      // would ever be reused. Everything the body reads is inert descriptor data,
+      // so declaring it makes the flow's identity a function of the descriptor
+      // rather than of the process that loaded it.
+      const placement = invocationPlacement(lowered.placement)
+      const build = PlanNode.capture(
+        {
+          flow: descriptor.name,
+          delegate: delegate._tag,
+          prompt: body.prompt,
+          model: Option.getOrNull(descriptor.model),
+          placement: placement.placement,
+          placementOptions: placement.placementOptions,
+          capabilities: [...descriptor.capabilities],
+          flows: [...descriptor.flows],
+          priority: lowered.priority ?? null,
+          ...captured(lowered)
+        },
+        (payload: Payload) => {
+          const envelope = invocation(payload.input ?? null)
+          const carried = bridge === undefined
+            ? delegate.call(envelope)
+            : PlanNode.map(bridge.declaration.call(envelope), identity)
+          return lowered.priority === undefined ? carried : PlanNode.priority(carried, lowered.priority)
+        }
+      )
+      // A canonical declaration normally has the same tag as its registry name.
+      // Its payload codec is the user's schema; this admission adapter takes
+      // { input }. Registering both under that tag made whichever layer won
+      // decode the other's payload. Keep the declaration's tag and give only
+      // the private adapter a stable, source-qualified registration identity.
+      const adapterTag = body.flow?._tag === descriptor.name
+        ? `registry/entry/${Descriptor.executionDigest(descriptor)}/${descriptor.name}`
+        : descriptor.name
+      const flow = RuntimeFlow.make(adapterTag, {
+        payload: Payload,
+        // Preserve the delegate's codecs through the named bridge. Unknown loses
+        // transformations and cannot encode tagged Error instances as JSON.
+        success: delegate.successSchema ?? Schema.Unknown,
+        error: delegate.errorSchema ?? Schema.Unknown,
+        // A module that is its own flow keeps its own bag underneath the lowered
+        // one, so a `@smthrs/flow` placement or capability ceiling it declared
+        // reaches `Graph` instead of being dropped at the bridge. The lowered
+        // values win, because they are the descriptor's statement about this
+        // entry and the bag is the body's about itself.
+        annotations: body.flow === undefined
+          ? annotationsOf(lowered)
+          : Context.merge(body.annotations, annotationsOf(lowered)),
+        body: build
+      })
+      const registrations = Layer.mergeAll(
         Interpreter.layer(flow),
         ...(bridge === undefined ? [] : [bridge.layer]),
         ...(body.flow === undefined ? [] : [Interpreter.layer(body.flow)])
-      ) as Layer.Layer<never, never, Registration>
-    }
+      )
+      const implementations = body.layer === undefined
+        ? undefined
+        : yield* moduleServices(descriptor, body.layer, (scope) => {
+          moduleScope = scope
+        })
+      const executable: Executable = {
+        descriptor,
+        declaredTag: body.flow?._tag,
+        delegate: body.flow === undefined ? name : undefined,
+        input: body.flow?.payloadSchema,
+        lowered,
+        invocation,
+        // The catalog cannot name services of a dynamically selected delegate.
+        // Keep its exact schema objects. Delegate.call/execute already erase
+        // services; the delegate's registrant also owns these codec services.
+        flow: flow as Executable["flow"],
+        // The cast erases the requirement `bridge` minted for itself. Its key is
+        // built from a tag this function computes, so no caller can spell the
+        // type, and nothing outside the bridged flow's own body asks for it.
+        //
+        // A module that is its own flow registers that flow too: the bridged flow
+        // CALLS it, and a declared cache policy EXECUTES it as a child, which the
+        // runtime resolves by tag.
+        layer: (implementations === undefined ? registrations : Layer.effectDiscard(Effect.gen(function*() {
+          // Consumers own their registration scope, but it is also a child of
+          // the module lifetime so refresh retires every original registration.
+          const scope = yield* Effect.acquireRelease(
+            Scope.fork(implementations.scope),
+            (scope, exit) => Scope.close(scope, exit)
+          )
+          yield* Layer.buildWithScope(registrations.pipe(Layer.provide(implementations.layer)), scope)
+        }))) as Layer.Layer<never, never, Registration>
+      }
+      if (implementations !== undefined) moduleScopes.set(executable, implementations.scope)
+      return executable
+    }).pipe(Effect.onExit((exit) =>
+      Exit.isFailure(exit) && moduleScope !== undefined ? Scope.close(moduleScope, exit) : Effect.void
+    ))
   })
 
 /**
@@ -1324,11 +1499,10 @@ export interface Refresh {
    * catalog. Serialized: two refreshes of the same host never interleave.
    *
    * `Removed` and `Refused` take the entry out of the catalog and close the
-   * scope of a body THIS seam registered. A body registered while the host
-   * started lives in the layer's own scope, which nothing here owns, so it
-   * stays registered with the runtime after its catalog entry is gone. The
-   * catalog is what planning and `ls` read, so the flow is no longer
-   * reachable; the runtime simply still answers its tag.
+   * scope of a body THIS seam registered. An exported implementation layer's
+   * lifetime also owns its original registrations, so retiring that entry
+   * unregisters them and closes its resources. Other startup registrations
+   * remain owned by their original provider scope until the host closes.
    */
   readonly flow: (name: string) => Effect.Effect<Refreshed, RegistryError | DiscoveryError>
 }
@@ -1479,6 +1653,10 @@ const makeRefresh = (
     >()
     const gate = yield* Semaphore.make(1)
     const held = new Map<string, Scope.Closeable>()
+    for (const executable of read().executables) {
+      const scope = moduleScopes.get(executable)
+      if (scope !== undefined) held.set(executable.descriptor.name, scope)
+    }
     const release = (name: string) => {
       const previous = held.get(name)
       held.delete(name)
@@ -1500,45 +1678,50 @@ const makeRefresh = (
         yield* registry.refresh()
         const found = yield* registry.getOption(name)
         if (Option.isNone(found)) {
-          put(name, undefined, undefined)
-          yield* release(name)
-          return { _tag: "Removed" } as const
+          return yield* Effect.uninterruptible(Effect.gen(function*() {
+            // Catalog publication and retirement share one ownership transfer.
+            // `release` mutates held before returning its scope-close effect.
+            put(name, undefined, undefined)
+            yield* release(name)
+            return { _tag: "Removed" } as const
+          }))
         }
         if (options.refreshable !== undefined && !options.refreshable(found.value)) {
           return { _tag: "Fixed" } as const
         }
-        const result = yield* Effect.result(fromDescriptor(found.value, options))
-        if (result._tag === "Failure") {
-          put(name, undefined, result.failure)
-          yield* release(name)
-          yield* Effect.logWarning("refreshed flow is not runnable on this host", {
-            flow: result.failure.flow,
-            path: result.failure.path,
-            code: result.failure.code,
-            delegate: result.failure.delegate,
-            available: result.failure.available,
-            reason: result.failure.message
+        // Own the generation from its fork through publication. Slow user
+        // construction remains interruptible; every uncommitted exit closes
+        // resources and registrations even at a scheduler boundary after build.
+        return yield* Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function*() {
+            const scope = yield* Scope.fork(host)
+            let committed = false
+            return yield* Effect.gen(function*() {
+              const result = yield* Effect.result(restore(
+                fromDescriptor(found.value, options).pipe(Effect.provideService(Scope.Scope, scope))
+              ))
+              if (result._tag === "Failure") {
+                put(name, undefined, result.failure)
+                yield* release(name)
+                yield* Effect.logWarning("refreshed flow is not runnable on this host", {
+                  flow: result.failure.flow,
+                  path: result.failure.path,
+                  code: result.failure.code,
+                  delegate: result.failure.delegate,
+                  available: result.failure.available,
+                  reason: result.failure.message
+                })
+                return { _tag: "Refused", error: result.failure } as const
+              }
+              yield* restore(Layer.build(result.success.layer).pipe(Effect.provideService(Scope.Scope, scope)))
+              put(name, result.success, undefined)
+              yield* release(name)
+              held.set(name, scope)
+              committed = true
+              return { _tag: "Registered", executable: result.success } as const
+            }).pipe(Effect.onExit((exit) => committed ? Effect.void : Scope.close(scope, exit)))
           })
-          return { _tag: "Refused", error: result.failure } as const
-        }
-        const scope = yield* Scope.fork(host)
-        // A registration that dies takes its scope with it. Without this the
-        // host keeps a forked scope nothing will ever close until it shuts
-        // down, one per failed refresh.
-        yield* Layer.build(result.success.layer).pipe(
-          Effect.provideService(Scope.Scope, scope),
-          Effect.onError(() => Scope.close(scope, Exit.void))
         )
-        // Uninterruptible as one step. An interrupt landing between the
-        // build and `held.set` — `release` is where one can — would leave a
-        // registered body in a scope nothing holds and nothing can close
-        // until the host shuts down.
-        yield* Effect.uninterruptible(Effect.gen(function*() {
-          put(name, result.success, undefined)
-          yield* release(name)
-          held.set(name, scope)
-        }))
-        return { _tag: "Registered", executable: result.success } as const
       })).pipe(Effect.provideContext(services))
     return Refresh.of({ flow })
   })

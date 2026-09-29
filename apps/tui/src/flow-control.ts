@@ -3,7 +3,6 @@
  * for the current runtime and opened in-process. Discovery reads the registry only; warming
  * imports the project's flow modules.
  */
-import { NodeServices } from "@effect/platform-node"
 import * as BunControl from "@smthrs/cli/BunControl"
 import * as NodeControl from "@smthrs/cli/NodeControl"
 import { Control, type ControlSchema } from "@smthrs/control"
@@ -12,7 +11,7 @@ import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { executionDigest } from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effect"
+import { Cause, Context, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -71,12 +70,14 @@ export const make = (options: {
 
   const open = (): Promise<Opened> => {
     opening ??= (async () => {
-      const catalog = await Effect.runPromise(
-        Executable.catalog({ delegates: [] }).pipe(Effect.provide(registry()), Effect.provide(NodeServices.layer))
-      )
-      const modules = Layer.mergeAll(
-        Executable.layerRefreshable(catalog, { delegates: [], refreshable: () => false }),
-        ...catalog.executables.map((entry) => entry.layer)
+      let catalog: Executable.Catalog | undefined
+      const modules = Executable.layer({ delegates: [], refreshable: () => false }).pipe(
+        Layer.orDie,
+        Layer.tap((services) =>
+          Effect.sync(() => {
+            catalog = Context.get(services, Executable.Catalog)
+          })
+        )
       )
       const runtime = ManagedRuntime.make(
         NativeControl.layerControl(
@@ -92,7 +93,13 @@ export const make = (options: {
           modules
         )
       )
-      return { runtime, catalog }
+      try {
+        await runtime.runPromise(Effect.void)
+        return { runtime, catalog: catalog! }
+      } catch (error) {
+        await runtime.dispose()
+        throw error
+      }
     })().catch((error) => {
       opening = undefined
       throw typed(error)

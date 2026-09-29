@@ -44,6 +44,7 @@ import * as Journal from "@smthrs/journal/Journal"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import type * as KernelJj from "@smthrs/kernel/Jj"
 import * as KernelPath from "@smthrs/kernel/Path"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
@@ -235,6 +236,9 @@ export interface Platform {
     filesystem: FileSystem.FileSystem,
     spawner: KernelChildProcessSpawner.ChildProcessSpawner["Service"]
   ) => Effect.Effect<FileSystem.FileSystem>
+  readonly httpClient: (
+    environment: Readonly<Record<string, string | undefined>>
+  ) => Layer.Layer<KernelHttpClient.HttpClient>
   readonly requestExecutor: Layer.Layer<RequestExecutor.RequestExecutor>
   /**
    * The judge this platform binds, when it is not the one its environment
@@ -512,8 +516,8 @@ export const make = (
    * Planning a discovered flow needs the Executable behind its descriptor,
    * and the catalog is constructed by the executor layer, after the control
    * runtime it must answer. A plain reference rather than an awaited
-   * `Deferred` is deliberate: a composition WITHOUT modules (a gateway host,
-   * a bare `engineDurable`) never builds a catalog at all, and a plan that
+   * `Deferred` is deliberate: a composition that only observes persisted runs (or a bare
+   * `engineDurable`) never builds a catalog at all, and a plan that
    * awaited one would hang the command instead of answering it.
    */
   let hostCatalog: Executable.Catalog | undefined
@@ -954,10 +958,15 @@ export const make = (
       environment,
       grants = layerGrantStore(root),
       mcpServers = [],
-      modules,
+      modules: suppliedModules,
       quotaPolicy = QuotaPolicy.layerDefault(),
       requestExecutor = native.requestExecutor
     } = options
+    // Observing commands keep discovery metadata-only. A run-capable local
+    // host registers file modules after its engine and agent services exist.
+    const modules = suppliedModules ?? (options.startsRuns === false
+      ? undefined
+      : Executable.layer({ delegates: [] }).pipe(Layer.orDie))
     // Same separation `engineDurable` makes for `control.db`: `engine.db` and
     // its WAL follow the state root, never the served checkout.
     const stateRoot = resolve(options.stateRoot ?? root)
@@ -1022,7 +1031,11 @@ export const make = (
     )
     // Commands and relative paths resolve in the checkout the run executes in,
     // never the process's own directory.
-    const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
+    const guarded = Layer.mergeAll(
+      KernelChildProcessSpawner.layer,
+      KernelPath.layer,
+      KernelHttpClient.layer.pipe(Layer.provide(native.httpClient(environment)))
+    ).pipe(
       Layer.provide([grants, Workspace.layer(workspaceRoot)]),
       Layer.provideMerge(contained)
     )
@@ -1149,29 +1162,27 @@ export const make = (
         // Select only Journal: an unmaterialized engine.journal layer can also
         // provide the control RunStore, which must not replace the native one.
         const controlJournal = yield* Journal.Journal.pipe(Effect.provide(engine.journal))
-        const authority = modules === undefined
-          ? undefined
-          : yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, {
+        const authority = modules === undefined ?
+          undefined :
+          yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, {
             controlJournal,
             parks: askPolicy(environment) !== "refuse",
             weights: native.agentLimits?.weights
           })
-        const registrations = modules === undefined ? undefined : (
-          yield* Layer.build(modules.pipe(
-            // No approved card exists at registration. ModuleAuthority installs
-            // the shared, journal-backed approved Budget at each handler entry.
-            // eslint-disable-next-line no-restricted-syntax -- construction-time dependency only
-            Layer.provide(Budget.layerUnbounded()),
-            Layer.provide(Action.layerImplementations),
-            Layer.provide(AgentAction.layerHost(actionHost)),
-            Layer.provide(evaluator),
-            // The same store the run's memory flows and `memory notes` use.
-            Layer.provide(Layer.succeedContext(memoryServices)),
-            Layer.provide(QuickJSSandbox.layer.pipe(Layer.orDie)),
-            Layer.provide(Layer.succeed(Steering.Source, authority!.steering)),
-            Layer.provide(Layer.succeed(FlowRuntime.FlowRuntime, authority!.runtime))
-          ))
-        )
+        const registrations = modules === undefined ? undefined : yield* Layer.build(modules.pipe(
+          // No approved card exists at registration. ModuleAuthority installs
+          // the shared, journal-backed approved Budget at each handler entry.
+          // eslint-disable-next-line no-restricted-syntax -- construction-time dependency only
+          Layer.provide(Budget.layerUnbounded()),
+          Layer.provide(Action.layerImplementations),
+          Layer.provide(AgentAction.layerHost(actionHost)),
+          Layer.provide(evaluator),
+          // The same store the run's memory flows and `memory notes` use.
+          Layer.provide(Layer.succeedContext(memoryServices)),
+          Layer.provide(QuickJSSandbox.layer.pipe(Layer.orDie)),
+          Layer.provide(Layer.succeed(Steering.Source, authority!.steering)),
+          Layer.provide(Layer.succeed(FlowRuntime.FlowRuntime, authority!.runtime))
+        ))
         const catalog = registrations === undefined ? undefined : Context.get(registrations, Executable.Catalog)
         // Product hosts must establish their pinned source before any run
         // admission or gateway readiness. Generic native/library compositions

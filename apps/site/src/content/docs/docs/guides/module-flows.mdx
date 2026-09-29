@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-Use a TypeScript flow when you need typed inputs, reusable action declarations, or composition beyond a prompt. A host program supplies the action implementations and engine that execute it.
+Use a TypeScript flow when you need typed inputs, reusable action declarations, or composition beyond a prompt. Export action implementations beside the flow for the CLI and TUI, or compose them in a library host.
 
 For a prompt-driven agent run, use [Markdown flows](/docs/guides/markdown-flows/). For a step-by-step introduction to library wiring, use [Build your first durable flow](/docs/tutorials/first-flow/).
 
@@ -81,17 +81,38 @@ The in-memory engine loses its state when the process exits. To resume after a r
 Put the same declaration in `flows/<name>/flow.ts` as the file's `export default`, and the project registry lists it and runs it. Discovery reads the metadata without executing the module, so `description`, `capabilities`, `effects`, `payload`, and `success` have to be literals in the declaration, and the tag is the name the path derives:
 
 ```ts title="flows/greeting/flow.ts"
+import { Action, Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Schema } from "effect"
+
+const Greet = Action.make("greeting/Greet", {
+  payload: { name: Schema.String },
+  success: Schema.String
+})
+
+export const layer = Greet.toLayer(({ name }) => Effect.succeed(`Hello, ${name}.`))
+
 export default Flow.make("greeting", {
   description: "Greets whoever the caller names.",
   capabilities: [],
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   payload: { name: Schema.String },
   success: Schema.String,
-  body: (payload) => Greet.call(payload)
+  body: Node.capture({ action: Greet.name }, (payload) => Greet.call(payload))
 })
 ```
 
-The default export is the flow that runs: `smthrs flow start greeting --data '{"name":"Ada"}'` executes this body. What discovery does not install is the code behind the actions the body names, so the host still provides `Greet.toLayer(...)`; without it the run fails with an unresolved-action failure rather than executing an empty step. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
+The default export is the flow that runs. The optional named `layer` export supplies its action implementations: one `Declared.toLayer(...)`, an `AgentAction.layer`, or their `Layer.mergeAll(...)` composition. The registry builds that layer once when loading the executable, provides its services to the flow, and closes it with the scoped host that loaded the executable. Discovery still reads metadata without importing the module.
+
+Export implementation layers directly; the host supplies `Action.Implementations`. Providing `Action.layerImplementations` inside a module creates a second table and is unsupported. An exported replacement table is refused as `invalid_layer`.
+
+```bash
+smthrs flow start greeting --data '{"name":"Ada"}'
+```
+
+The local CLI and TUI supply `FileSystem`, `Path`, `ChildProcessSpawner`, `HttpClient`, and the agent services required by `AgentAction.layer`, including the host's `SeatResolver`. Implementations use the host's guarded platform and existing engine. Supply other services inside the exported layer. A service required during layer construction that the host cannot supply is refused as `ExecutableError` with code `missing_service`, the flow name, and service key. An invalid export is `invalid_layer`; another construction failure is `layer_failed`.
+
+Acquire extra handler dependencies while constructing the layer, for example with `Layer.unwrap(Effect.map(MyService, service => Greet.toLayer(...)))`, so the loader can validate them. Effect erases the types of services requested only inside a deferred handler; those requests cannot be checked without executing the action. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
 
 ## Verify failures
 

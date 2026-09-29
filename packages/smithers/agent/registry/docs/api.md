@@ -397,6 +397,10 @@ reported this way rather than raised, and read back through
 | Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                    |
 | Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                               |
 
+`service` names a service missing during construction of a module's exported `layer`.
+The optional export is built once in a scoped host context; see
+[Module action implementations](./guides/run-a-discovered-flow.md#module-action-implementations).
+
 Each code, with its cause and its fix, is in
 [Diagnose a flow that did not appear](./guides/diagnose-a-missing-flow.md).
 
@@ -1178,10 +1182,18 @@ none, with nothing in the failure to say why.
 ```ts
 class ExecutableError {
   readonly _tag: "flows/registry/ExecutableError"
-  readonly code: "missing_delegate" | "ambiguous_delegate" | "body_unavailable" | "invalid_module"
+  readonly code:
+    | "missing_delegate"
+    | "ambiguous_delegate"
+    | "body_unavailable"
+    | "invalid_module"
+    | "invalid_layer"
+    | "missing_service"
+    | "layer_failed"
   readonly flow: string
   readonly path?: string
   readonly delegate?: string
+  readonly service?: string
   readonly available: ReadonlyArray<string>
   readonly message: string
   readonly cause?: unknown
@@ -1193,6 +1205,10 @@ present whenever the refusal is about one named flow, and `available` lists the
 delegates the host registered. That is the whole point of the type: the
 engine's own unresolved-call defect names nothing, so an operator reading it
 cannot tell which registration is missing.
+
+`service` names a service missing during construction of a module's exported `layer`.
+The optional export is built once in a scoped host context; see
+[Module action implementations](./guides/run-a-discovered-flow.md#module-action-implementations).
 
 Each code, with its cause and its fix, is in
 [Troubleshooting](./troubleshooting.md).

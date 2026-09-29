@@ -196,6 +196,26 @@ match the digest discovery recorded.
 **What to change.** The same as the registry code of that name: refresh the
 registry to adopt an edited body, or restore the file.
 
+### invalid_layer
+
+A module exports `layer`, but the value is not an Effect `Layer`, or it exports
+a replacement `Action.Implementations` table. Export
+`Declared.toLayer(...)`, `AgentAction.layer`, or their `Layer.mergeAll(...)`
+composition directly; the host supplies the action table.
+
+### missing_service
+
+The exported module layer asks for a service that this host does not provide.
+The refusal's `service` field names its Effect key. Provide that dependency
+inside the exported layer or select a host that supplies it. A direct
+`Executable.fromDescriptor` call with an exported layer also requires a scoped
+host context with `FlowRuntime` already provided.
+
+### layer_failed
+
+The exported module layer failed during construction. Read the cause and fix
+its initialization. No action handler is executed to validate the layer.
+
 ### invalid_module
 
 **What happened.** The module at the descriptor's path loaded and its default

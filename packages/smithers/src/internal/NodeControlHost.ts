@@ -107,6 +107,7 @@ export const platform: NativeControl.Platform = {
   database: (file) => ControlDatabase.layer(file).pipe(Layer.orDie),
   runtime: NodeFlowsRuntime.layer,
   jj: NodeJj.layerAt,
+  httpClient: layerEgressHttpClient,
   requestExecutor: layerRequestExecutor,
   gateway: NodeGateway.layer,
   bearerPrincipal: NodeGateway.bearerPrincipal
