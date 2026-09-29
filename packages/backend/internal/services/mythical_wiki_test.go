@@ -772,3 +772,56 @@ func TestMythicalWikiPruneKeepsAConcurrentEdit(t *testing.T) {
 	assert.Equal(t, "Runtime, as a person wrote it", store.body("generated-runtime"), "the concurrent edit survives the prune")
 	assert.Equal(t, "Flows v2", store.body("generated-flows"))
 }
+
+func TestMythicalWikiKeepsHumanTitleOnRefreshAndPrune(t *testing.T) {
+	for _, prune := range []bool{false, true} {
+		name := "refresh"
+		if prune {
+			name = "prune"
+		}
+		t.Run(name, func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+			o.service.SetWiki(store)
+			o.declareWiki()
+			stack := o.wake()
+			o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-run-1",
+				wikiResult(stack.TipCommit, `null`, "runtime", "Runtime v1", "flows", "Flows v1"))
+			o.wake()
+			require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+			store.takeWrites()
+
+			// A title-only save leaves the generated body unchanged.
+			page := store.pages["generated-runtime"]
+			title := "My personal title"
+			updated, err := store.UpdateWikiPage(context.Background(), nil, "", "", page.Slug,
+				UpdateWikiPageInput{ExpectedRevision: &page.Revision, Title: &title})
+			require.NoError(t, err)
+			assert.Equal(t, page.Body, updated.Body)
+			store.takeWrites()
+
+			o.commit("✨ feat: next", "extra.txt", "extra\n")
+			o.publish()
+			stack = o.wake()
+			pages := []string{"runtime", "Runtime v1", "flows", "Flows v1"}
+			if prune {
+				pages = []string{"flows", "Flows v1"}
+			}
+			o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-run-2",
+				wikiResult(stack.TipCommit, `null`, pages...))
+			o.wake()
+			require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+			got, ok := store.pages["generated-runtime"]
+			require.True(t, ok, "a title-edited page must survive pruning")
+			assert.Equal(t, "My personal title", got.Title)
+			assert.Equal(t, "Runtime v1", got.Body)
+			assert.Equal(t, updated.Revision, got.Revision, "refresh must not rewrite a title-edited page")
+			assert.Empty(t, store.takeWrites())
+			if !prune {
+				var published []mythicalWikiPage
+				require.NoError(t, json.Unmarshal(o.wiki().Pages, &published))
+				assert.True(t, published[0].Edited)
+			}
+		})
+	}
+}

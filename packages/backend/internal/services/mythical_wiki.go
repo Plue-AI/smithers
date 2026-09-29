@@ -543,7 +543,7 @@ func (s *MythicalService) publishWiki(ctx context.Context, r *mythicalRun, row d
 				return nil, err
 			}
 			entry.BodyDigest, entry.Revision, entry.Edited = digest, created.Revision, false
-		case !had || prev.Edited || mythicalWikiDigest(existing.Body) != prev.BodyDigest:
+		case !had || prev.Edited || mythicalWikiDigest(existing.Body) != prev.BodyDigest || existing.Title != prev.Title:
 			// A page this service never wrote, or one a person changed since.
 			entry.Edited = true
 		case prev.BodyDigest == digest && existing.Title == title:
@@ -570,7 +570,7 @@ func (s *MythicalService) publishWiki(ctx context.Context, r *mythicalRun, row d
 			}
 			return nil, err
 		}
-		if mythicalWikiDigest(existing.Body) == prev.BodyDigest {
+		if mythicalWikiDigest(existing.Body) == prev.BodyDigest && existing.Title == prev.Title {
 			// Only the revision just read is deleted: a person's save in
 			// between is kept as theirs.
 			err := s.wikiStore.DeleteWikiPageAtRevision(ctx, &actor, r.owner, r.repo, prev.Slug, existing.Revision)
