@@ -242,6 +242,27 @@ describe("the offline judge for every classifier", () => {
     expect((await route("Review the architecture change")).panel?.merger).toBe("fable")
   })
 
+  it("reads a task about an interface as UI work", async () => {
+    for (const task of ["Build the settings UI", "Polish the login interface"]) {
+      const decision = await route(task)
+      expect([decision.answers?.phase, decision.seat, decision.backups]).toEqual(["ui", "opus", ["kimi", "sol"]])
+    }
+  })
+
+  it("asks no system question when the catalog offers one variant, and runs on that variant", async () => {
+    const only = SeatRouter.defaultVariants.find((variant) => variant.id === "investigate")
+    const decision = await SeatRouter.route({
+      declared: Seat.auto,
+      state: { task: "Fix the parser", flow: "prompt", description: "", capabilities: [] }
+    }).pipe(
+      Effect.provide(SeatRouter.layer({ candidates: Effect.succeed(SeatRouter.seats), variants: [only!] })),
+      Effect.provide(ScriptedJudge.layerAll),
+      Effect.runPromise
+    )
+    // "Fix" reads as a change, but with one variant there is nothing to choose.
+    expect([decision.variant, decision.answers?.phase]).toEqual(["investigate", "implement"])
+  })
+
   it("leaves a pinned phase unasked", async () => {
     const decision = await route("Explain the build", "ui")
     expect([decision.seat, decision.backups, decision.answers?.phase]).toEqual(["opus", ["kimi", "sol"], "ui"])

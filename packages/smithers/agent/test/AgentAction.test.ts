@@ -24,7 +24,19 @@ import { make as makePlugin } from "@smthrs/plugin"
 import type { FlowsHooks } from "@smthrs/plugin"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
-import { Cause, Deferred, Effect, Fiber, Layer, ManagedRuntime, Option, Schedule, Schema, Stream } from "effect"
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Option,
+  Schedule,
+  Schema,
+  SchemaGetter,
+  Stream
+} from "effect"
 import { describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentAction from "../src/AgentAction.ts"
@@ -1584,7 +1596,30 @@ describe("AgentAction seat auto", () => {
       }
     }
 
-    const run = async (scripts: Readonly<Record<string, Script>>, executionId: string) => {
+    /** A review whose answers decode but refuse to encode, so no member answer can travel to the merger. */
+    const OneWay = Review.pipe(Schema.decodeTo(Schema.toType(Review), {
+      decode: SchemaGetter.passthrough(),
+      encode: SchemaGetter.forbidden(() => "a review answer is never re-encoded")
+    }))
+    const OneWayPaneled = AgentAction.make("agent/test/OneWayPaneled", {
+      payload: { diff: Schema.String },
+      output: OneWay,
+      seat: Seat.auto,
+      phase: "review",
+      prompt: ({ diff }) => `Review this diff:\n${diff}`
+    })
+    const OneWayFlow = Flow.make("agent/test/OneWayPaneledFlow", {
+      payload: { diff: Schema.String },
+      success: OneWay,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => OneWayPaneled.call({ diff })
+    })
+
+    const run = async (
+      scripts: Readonly<Record<string, Script>>,
+      executionId: string,
+      oneWay = false
+    ) => {
       const routed: Array<Evaluator.Request> = []
       const requests: Record<string, Array<string>> = {}
       const seen: Array<AgentEvent.AgentEvent> = []
@@ -1595,7 +1630,12 @@ describe("AgentAction seat auto", () => {
       })
       const runtime = ManagedRuntime.make(Layer.merge(
         routedStack(
-          Layer.mergeAll(Paneled.layer, Interpreter.layer(PaneledFlow)),
+          Layer.mergeAll(
+            Paneled.layer,
+            Interpreter.layer(PaneledFlow),
+            OneWayPaneled.layer,
+            Interpreter.layer(OneWayFlow)
+          ),
           seatModels(scripts, requests, 3),
           [],
           judge([toPanel], routed),
@@ -1605,9 +1645,10 @@ describe("AgentAction seat auto", () => {
         ),
         EventSink.layer({ emit: (event) => Effect.sync(() => void seen.push(event)) })
       ))
-      const exit = await runtime.runPromiseExit(PaneledFlow.execute({ diff: "diff" }, { executionId }))
+      const flow = oneWay ? OneWayFlow : PaneledFlow
+      const exit = await runtime.runPromiseExit(flow.execute({ diff: "diff" }, { executionId }))
       const answered = Object.values(requests).flat().length
-      const replayed = await runtime.runPromiseExit(PaneledFlow.execute({ diff: "diff" }, { executionId }))
+      const replayed = await runtime.runPromiseExit(flow.execute({ diff: "diff" }, { executionId }))
       await runtime.dispose()
       return { exit, replayed, replayCalls: Object.values(requests).flat().length - answered, routed, requests, seen }
     }
@@ -1684,6 +1725,24 @@ describe("AgentAction seat auto", () => {
 
       expect(exit._tag).toBe("Failure")
       expect(Object.values(requests).flat().some((prompt) => prompt.includes("Independent answers"))).toBe(false)
+    })
+
+    it("fails with a typed error naming the member when no member answer encodes", async () => {
+      const { exit, requests } = await run(
+        {
+          opus: { answer: review("opus") },
+          fable: { answer: review("fable"), merged: review("merged") },
+          astra: { answer: review("astra") }
+        },
+        "auto-panel-one-way",
+        true
+      )
+
+      // Every member answered and decoded; none could be handed on.
+      for (const seat of ["opus", "fable", "astra"]) expect(requests[seat]).toHaveLength(1)
+      expect(Object.values(requests).flat().some((prompt) => prompt.includes("Independent answers"))).toBe(false)
+      const failure = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined
+      expect(failure).toMatchObject({ code: "model_failed", message: "The panel answer of opus did not encode" })
     })
   })
 

@@ -418,6 +418,41 @@ describe("the ports when a store answers badly", () => {
     }))
   })
 
+  it.each([
+    { tree: ["event", "budget"], expected: "budget" },
+    { tree: ["event", "timer"], expected: "event" }
+  ])(
+    "reports a module root awaiting a child as $expected when its tree holds $tree",
+    async ({ expected, tree }) => {
+      // A module run's budget parks the native child that made the call; the
+      // root row only awaits that child on an `event` wait (#2739).
+      const observed = await run(Effect.gen(function*() {
+        const store = yield* RunStore.RunStore
+        yield* store.create("module-root", "{}")
+        const row = yield* store.get("module-root")
+        const waits = tree.map((reason, index) => ({
+          runId: index === 0 ? "module-root" : "native-child",
+          reason,
+          wakeAt: null,
+          token: `${reason}-token`
+        }))
+        return yield* AgentSession.readExecution(row.runId).pipe(
+          Effect.provideService(RunStore.RunStore, {
+            ...store,
+            latestRound: () => Effect.succeed({ ...row, status: "suspended" })
+          }),
+          Effect.provideService(DurableEngineState.DurableEngineState, {
+            ...DurableEngineState.makeMemory(),
+            waiting: () => Effect.succeedSome(waits[0]!),
+            waitingTree: () => Effect.succeed(waits)
+          } as DurableEngineState.Service)
+        )
+      }))
+
+      expect(observed).toMatchObject({ _tag: "Observed", status: "parked", waitingReason: expected })
+    }
+  )
+
   it("reports an engine that cannot record the cancellation as a typed failure", async () => {
     const failing = RunStore.layerNoop({
       requestCancelLineage: () =>

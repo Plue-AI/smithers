@@ -595,6 +595,54 @@ describe("capacity seat chain", () => {
     expect(events.some((event) => event._tag === "model-parked")).toBe(false)
   })
 
+  it("fails without parking when only some exhausted seats are cooling", async () => {
+    // The first seat fails for a reason with no reset; the second is cooling
+    // on its own route. A park would wait for the second and then retry a
+    // seat that never said it would recover, so the run fails instead.
+    const requests: Array<string> = []
+    const first = Model.make({
+      stream: () =>
+        Stream.suspend(() => {
+          requests.push("first")
+          return Stream.fail(new ModelError({ code: "transport", message: "socket closed" }))
+        })
+    })
+    const second = Model.make({
+      stream: () =>
+        Stream.suspend(() => {
+          requests.push("second")
+          return Stream.fail(
+            new ModelError({ code: "rate_limited", message: "second seat limited", retryAfterMillis: 60_000 })
+          )
+        })
+    })
+    const events: AgentEvent.AgentEvent[] = []
+    const outcome = await drive(collect({
+      model: first,
+      seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+      fallbackSeats: [Seat.make({
+        id: "second",
+        modelId: "second",
+        model: second,
+        route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+        contextWindowTokens: 0
+      })],
+      registry: registryOf([]),
+      sink: events,
+      capacity: { park: true },
+      modelRetryPolicy: Schedule.recurs(0)
+    }))
+    expect(outcome._tag).toBe("failed")
+    expect(JSON.stringify(outcome)).toContain("second seat limited")
+    expect(requests).toEqual(["first", "second"])
+    expect(events.filter((event) => event._tag === "seat-failed-over")).toMatchObject([{
+      from: "first",
+      to: "second",
+      code: "transport"
+    }])
+    expect(events.some((event) => event._tag === "model-parked")).toBe(false)
+  })
+
   it("cools every seat bound to the refused route", async () => {
     const contacted: Array<string> = []
     const refused = Model.make({

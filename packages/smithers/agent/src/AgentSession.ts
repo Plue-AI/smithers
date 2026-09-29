@@ -1532,20 +1532,17 @@ const timeoutParks = (journal: Journal.Service, runId: string) => {
     }
   }).pipe(
     Effect.map(() => {
-      const parks = new Map<string, TimeoutPark>()
-      for (const [requestId, fact] of facts) {
+      // Folded in ordinal order, so each subject's highest ordinal is its
+      // latest park whatever order the journal recorded the requests in.
+      const requests = [...facts].map(([requestId, fact]) => {
         const cut = requestId.lastIndexOf("/") + 1
-        const subject = requestId.slice(0, cut)
-        const ordinal = Number(requestId.slice(cut))
-        const decision = decisions.get(requestId) ?? "pending"
-        const previous = parks.get(subject)
-        const continued = (previous?.continued ?? 0) + (decision === "approved" ? 1 : 0)
-        parks.set(
-          subject,
-          previous === undefined || ordinal > previous.ordinal
-            ? { ordinal, fact, decision, continued }
-            : { ...previous, continued }
-        )
+        return { subject: requestId.slice(0, cut), ordinal: Number(requestId.slice(cut)), fact }
+      }).sort((left, right) => left.ordinal - right.ordinal)
+      const parks = new Map<string, TimeoutPark>()
+      for (const { fact, ordinal, subject } of requests) {
+        const decision = decisions.get(fact.requestId) ?? "pending"
+        const continued = (parks.get(subject)?.continued ?? 0) + (decision === "approved" ? 1 : 0)
+        parks.set(subject, { ordinal, fact, decision, continued })
       }
       return parks
     }),
@@ -1734,19 +1731,19 @@ export const budgetParking = (
       Effect.gen(function*() {
         decided ??= yield* timeoutParks(journal, runId)
         const latest = decided.get(timeoutPrefix(runId, subject))
-        if (latest === undefined) return { _tag: "proceed", continued: 0 } as const
-        if (latest.decision === "denied") {
+        // A subject that never timed out proceeds as one continued zero times.
+        if (latest?.decision === "denied") {
           return yield* RunawayGuard.stopped(
             latest.fact.incident ?? { classification: "Stuck", source: "tool-call", message: latest.fact.question }
           )
         }
-        if (latest.decision === "pending") {
+        if (latest?.decision === "pending") {
           return {
             _tag: "park",
             parked: parked(latest.fact.requestId, latest.fact.question, "timeout")
           } as const
         }
-        return { _tag: "proceed", continued: latest.continued } as const
+        return { _tag: "proceed", continued: latest?.continued ?? 0 } as const
       })
   }
 }

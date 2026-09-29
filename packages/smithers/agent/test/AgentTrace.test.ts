@@ -1795,6 +1795,43 @@ describe("Jev receipts", () => {
       }
     ],
     [
+      // A panel route: every member with its own failover, and the merger.
+      new AgentEvent.SeatRouted({
+        eventType: "flows.harness.seat-routed.v1",
+        scope: "run-1",
+        declared: "auto",
+        seat: "fable",
+        modelId: "model-c",
+        variant: "review",
+        candidates: ["opus", "fable", "astra"],
+        decidedBy: "jev",
+        latencyMs: 75,
+        backups: ["astra"],
+        panel: {
+          seats: [{ seat: "opus", backups: ["astra"] }, { seat: "fable", backups: [] }],
+          merger: "fable"
+        }
+      }),
+      {
+        eventType: "control.agent.seat-routed",
+        payload: {
+          scope: "run-1",
+          declared: "auto",
+          seat: "fable",
+          modelId: "model-c",
+          variant: "review",
+          candidates: ["opus", "fable", "astra"],
+          decidedBy: "jev",
+          latencyMs: 75,
+          backups: ["astra"],
+          panel: {
+            seats: [{ seat: "opus", backups: ["astra"] }, { seat: "fable", backups: [] }],
+            merger: "fable"
+          }
+        }
+      }
+    ],
+    [
       new AgentEvent.SeatRouted({
         eventType: "flows.harness.seat-routed.v1",
         scope: "run-1",

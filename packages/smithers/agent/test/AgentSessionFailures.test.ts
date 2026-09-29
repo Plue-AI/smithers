@@ -22,6 +22,7 @@ import { ClaimLost, LaunchFailed, PersistenceError } from "@smthrs/control/Contr
 import type * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import type { RunStatus } from "@smthrs/control/ControlSchema"
+import * as Digest from "@smthrs/core/Digest"
 import { FlowEngine } from "@smthrs/engine"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { type Flow, FlowRuntime } from "@smthrs/flow"
@@ -39,7 +40,21 @@ import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { RegistryError } from "@smthrs/registry/RegistryError"
 import { Ownership, RunStore } from "@smthrs/run-store"
-import { Clock, Deferred, Duration, Effect, Exit, Fiber, Layer, Option, PubSub, Schema, Scope, Stream } from "effect"
+import {
+  Clock,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  PubSub,
+  Schedule,
+  Schema,
+  Scope,
+  Stream
+} from "effect"
 import { describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentSession from "../src/AgentSession.ts"
@@ -750,6 +765,75 @@ describe("the executor's registry seam", () => {
       }
     })
     expect(result.status).toBe("completed")
+  })
+
+  /**
+   * A module run keys its durable child on the plan's digest, so a drifted
+   * resume continues the same child. A plan recorded with no execution
+   * identity has no digest to key on: its child is keyed on the code the run
+   * adopted, the one identity the body was admitted on (#1807).
+   */
+  it.each([
+    { planned: true, keyedOn: "plan" },
+    { planned: false, keyedOn: "adopted" }
+  ])("keys a module run's durable child on the $keyedOn digest", async ({ keyedOn, planned }) => {
+    const moduleOf = (contentDigest: string) =>
+      new Descriptor.FlowDescriptor({
+        ...seated,
+        flows: [],
+        body: new Descriptor.BodyRefModule({ path: "/flows/agents/notes/flow.ts", contentDigest })
+      })
+    const approvedDescriptor = moduleOf("b".repeat(64))
+    const editedDescriptor = moduleOf("e".repeat(64))
+    const plannedDigest = Descriptor.executionDigest(approvedDescriptor)
+    const adoptedDigest = Descriptor.executionDigest(editedDescriptor)
+    const children: Array<string | undefined> = []
+    const executable = {
+      descriptor: editedDescriptor,
+      delegate: undefined,
+      flow: {
+        execute: (_input: unknown, options: { readonly executionId?: string }) =>
+          Effect.sync(() => {
+            children.push(options.executionId)
+            return { value: "done" }
+          })
+      }
+    }
+    const record = recorder()
+    const result = await withExecutor(
+      record,
+      {
+        // The body enters the code on disk, which the operator adopted with
+        // --allow-code-drift; the plan it re-reads may predate that code.
+        registry: {
+          get: () => Effect.succeed(editedDescriptor),
+          getOption: () => Effect.succeed(Option.some(editedDescriptor)),
+          loadBody: () => Effect.succeed(moduleBody)
+        },
+        catalog: { executables: [executable as never], refused: [] },
+        runtime: {
+          getPlan: () =>
+            Effect.succeed({
+              ...launchInput.plan,
+              card: { ...launchInput.plan.card, executionDigest: planned ? plannedDigest : undefined }
+            }),
+          getRun: () => Effect.succeed({ ...launchInput.run, executionDigest: adoptedDigest })
+        }
+      },
+      (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch({
+            ...launchInput,
+            plan: { ...launchInput.plan, card: { ...launchInput.plan.card, executionDigest: adoptedDigest } }
+          })
+          return yield* Deferred.await(record.settled).pipe(Effect.timeout(Duration.seconds(10)))
+        })
+    )
+
+    expect(result).toBe("completed")
+    expect(children).toEqual([
+      Digest.digest(Digest.canonical(["control/module", runId, keyedOn === "plan" ? plannedDigest : adoptedDigest]))
+    ])
   })
 
   /**
@@ -1500,6 +1584,76 @@ describe("the executor's resume bridge", () => {
     // control store that cannot answer stops resumes, not launches.
     expect(result.acceptance).toBe("accepted")
     expect(result.status).toBe("completed")
+  })
+
+  /**
+   * An unrequested round re-declares the park it found from the run's journal
+   * when the engine's own waiting row is gone. A journal that cannot be read
+   * leaves nothing to re-declare, but the run is still a park nobody answered:
+   * the round suspends it again instead of failing or re-entering the body.
+   */
+  it("re-parks an unrequested round when the run's approval requests cannot be read", async () => {
+    const record = recorder()
+    let entered = false
+    let agentRuns = 0
+    const reads: Array<string> = []
+    let observe: ((flow: never, executionId: string) => Effect.Effect<Option.Option<unknown>, unknown>) | undefined
+    let driven: never | undefined
+    const outcome = await withExecutor(
+      record,
+      {
+        agent: Agent.makeNoop({
+          run: () => {
+            agentRuns++
+            return completed
+          }
+        }),
+        // Admitted as running; by the time the round reads the control row,
+        // the run is waiting on an approval and no resume was requested.
+        runtime: {
+          getRun: () =>
+            Effect.sync(() => (entered ? { ...launchInput.run, status: "waiting-approval" } : launchInput.run))
+        },
+        journal: {
+          entries: (query) =>
+            Effect.suspend(() => {
+              reads.push(query.runId)
+              return Effect.fail(
+                new Journal.JournalError({ code: "read_failed", message: "the journal is unreadable" })
+              )
+            })
+        },
+        engine: (engine) => {
+          observe = (flow, executionId) => engine.poll(flow, executionId) as never
+          return ({
+            ...engine,
+            execute: (flow: never, options: never) =>
+              Effect.suspend(() => {
+                entered = true
+                driven = flow
+                return engine.execute(flow, options)
+              })
+          }) as unknown as EngineService
+        }
+      },
+      (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch(launchInput)
+          // The round settles on its own fiber; follow the execution to rest.
+          return yield* Effect.suspend(() =>
+            driven === undefined ? Effect.succeed(Option.none()) : observe!(driven, runId)
+          )
+            .pipe(
+              Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced("10 millis") }),
+              Effect.timeout(Duration.seconds(10))
+            )
+        })
+    )
+
+    expect(outcome).toEqual(Option.some(expect.objectContaining({ _tag: "Suspended" })))
+    expect(reads).toContain(runId)
+    expect(agentRuns).toBe(0)
+    expect(record.statuses).toEqual([])
   })
 
   it("stops the bridge without stopping the executor when the journal subscription itself fails", async () => {

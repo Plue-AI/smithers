@@ -206,6 +206,15 @@ describe("SeatRouter.fit", () => {
       panel: { seats: [{ seat: "opus", backups: [] }, { seat: "astra", backups: ["kimi"] }], merger: "astra" }
     })
   })
+
+  it("routes a panel with no member available to the merger's chain alone", () => {
+    // A caller's pick whose panel does not seat its merger: with every member
+    // chain gone, the merger answers by itself rather than dropping the route.
+    const planned: SeatRouter.Planned = { seat: "opus", panel: { seats: ["fable"], merger: "opus" } }
+    expect(SeatRouter.fit(planned, "plan", ["opus", "sol"])).toEqual({ seat: "opus", backups: ["sol"] })
+    expect(SeatRouter.fit(planned, "plan", ["sol"])).toEqual({ seat: "sol", backups: [] })
+    expect(SeatRouter.fit(planned, "plan", ["kimi"])).toBeUndefined()
+  })
 })
 
 const state: SeatRouter.State = {

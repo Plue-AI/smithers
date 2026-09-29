@@ -48,6 +48,7 @@ import * as Agent from "../src/Agent.ts"
 import * as AgentSession from "../src/AgentSession.ts"
 import * as Budget from "../src/Budget.ts"
 import type * as FlowEngineLike from "../src/FlowEngineLike.ts"
+import * as RunawayGuard from "../src/RunawayGuard.ts"
 import { layer as scriptedCompletionJudge } from "../src/ScriptedJudge.ts"
 import * as Seat from "../src/Seat.ts"
 import * as SeatResolver from "../src/SeatResolver.ts"
@@ -661,4 +662,74 @@ describe("a run parked on a timeout", () => {
     expect(settled.kind).toBe("control.run.failed")
     expect(modelCalls).toEqual(["runaway-first"])
   }, 180_000)
+})
+
+describe("the incident a tripped guard parks on", () => {
+  const exceeded = (fields: Partial<ConstructorParameters<typeof Budget.BudgetExceeded>[0]>) =>
+    new Budget.BudgetExceeded({
+      scope: "latency",
+      onExceeded: "park",
+      used: 1_200,
+      max: 1_000,
+      next: 0,
+      message: "latency used 1200 of 1000",
+      ...fields
+    })
+
+  it("freezes a budget's numbers, the in-flight reservation, and the proposed raise", () => {
+    expect(RunawayGuard.incident(exceeded({ reserved: 300 }), 2_000)).toEqual({
+      classification: "Runaway",
+      source: "latency",
+      message: "latency used 1200 of 1000",
+      used: 1_200,
+      reserved: 300,
+      max: 1_000,
+      next: 0,
+      allowance: 2_000
+    })
+  })
+
+  it("omits a reservation an older error never carried and an allowance nobody proposed", () => {
+    const facts = RunawayGuard.incident(exceeded({ scope: "tokens", used: 900, next: 200, message: "tokens used 900" }))
+    expect(facts).toEqual({
+      classification: "Runaway",
+      source: "tokens",
+      message: "tokens used 900",
+      used: 900,
+      max: 1_000,
+      next: 200
+    })
+    expect(facts).not.toHaveProperty("reserved")
+    expect(facts).not.toHaveProperty("allowance")
+  })
+
+  it("reads a folded-in daily cap as a token incident, since the incident schema has no daily source", () => {
+    const facts = RunawayGuard.incident(exceeded({ scope: "daily", onExceeded: "fail" }))
+    expect(facts.source).toBe("tokens")
+    expect(Schema.is(ControlFacts.GuardIncident)(facts)).toBe(true)
+  })
+
+  it("offers one more run under the limit only when the timeout said its limit", () => {
+    const limited = new RunawayGuard.Timeout({
+      source: "cell",
+      subject: "cell-1",
+      limitMillis: 500,
+      message: "cell ran past 500 ms"
+    })
+    const unlimited = new RunawayGuard.Timeout({ source: "tool-call", subject: "bash-1", message: "bash timed out" })
+    expect(RunawayGuard.incident(limited)).toEqual({
+      classification: "Stuck",
+      source: "cell",
+      message: "cell ran past 500 ms",
+      subject: "cell-1",
+      max: 500,
+      allowance: 500
+    })
+    expect(RunawayGuard.incident(unlimited)).toEqual({
+      classification: "Stuck",
+      source: "tool-call",
+      message: "bash timed out",
+      subject: "bash-1"
+    })
+  })
 })

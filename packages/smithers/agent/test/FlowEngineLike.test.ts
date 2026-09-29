@@ -2111,3 +2111,141 @@ describe("FlowEngineLike.resolve", () => {
     expect(sealed._tag).toBe("failed")
   })
 })
+
+describe("FlowEngineLike timeout guard", () => {
+  const parked: Budget.Parked = {
+    waiting: { reason: "approval", token: "guard/run-1/timeout" },
+    failure: new HarnessError({ code: "engine_failed", message: "The run is parked on a timeout" })
+  }
+
+  /** A host guard that answers every subject with `answer` and records what it was asked. */
+  type Admitted =
+    | { readonly _tag: "proceed"; readonly continued: number }
+    | { readonly _tag: "park"; readonly parked: Budget.Parked }
+
+  const guardedBy = (
+    answer: Admitted,
+    asked: Array<string>
+  ): Budget.Parking["Service"] => ({
+    guardsTimeouts: true,
+    park: () => Effect.die("no budget park is expected"),
+    trip: () => Effect.die("no timeout trips here"),
+    admit: (subject) =>
+      Effect.sync(() => {
+        asked.push(subject)
+        return answer
+      })
+  })
+
+  it("parks a model call whose timeout question is open, without contacting the provider", async () => {
+    const calls: Array<string> = []
+    const asked: Array<string> = []
+    let declared: FlowRuntime.WaitingAnnotation | undefined
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const instance = yield* FlowRuntime.FlowInstance
+        const port = yield* FlowEngineLike.make({ model: countingModel(calls), route: staticRoute() })
+        const refused = yield* Effect.flip(Stream.runCollect(port.sealStep(step("hello"))))
+        expect(refused).toBe(parked.failure)
+        // The wait is declared when the frame suspends, not when the call is refused.
+        expect(instance.waiting).toBeUndefined()
+        return yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "parked" })).pipe(
+          Effect.ensuring(Effect.sync(() => {
+            declared = instance.waiting
+          }))
+        )
+      }).pipe(Effect.provideService(Budget.Parking, guardedBy({ _tag: "park", parked }, asked)))
+    )
+
+    expect(outcome._tag).toBe("suspended")
+    expect(calls).toEqual([])
+    // The guard was asked about the sealed call's own key.
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toMatch(/\S/)
+    expect(declared).toEqual(parked.waiting)
+  })
+
+  it("admits controller work through the port's guard: parks an open subject, proceeds otherwise", async () => {
+    const asked: Array<string> = []
+    let declared: FlowRuntime.WaitingAnnotation | undefined
+    const outcome = await drive(Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+      const guard = port.guard!
+      // No host guard: every subject proceeds and nobody is asked.
+      yield* guard.admit("cell/unguarded")
+      const proceeded = yield* guard.admit("cell/answered").pipe(
+        Effect.provideService(Budget.Parking, guardedBy({ _tag: "proceed", continued: 1 }, asked))
+      )
+      const refused = yield* Effect.flip(
+        guard.admit("cell/open").pipe(
+          Effect.provideService(Budget.Parking, guardedBy({ _tag: "park", parked }, asked))
+        )
+      )
+      expect(proceeded).toBeUndefined()
+      expect(refused).toBe(parked.failure)
+      return yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "parked" })).pipe(
+        Effect.ensuring(Effect.sync(() => {
+          declared = instance.waiting
+        }))
+      )
+    }))
+
+    expect(outcome._tag).toBe("suspended")
+    expect(asked).toEqual(["cell/answered", "cell/open"])
+    expect(declared).toEqual(parked.waiting)
+  })
+
+  it("ignores a host guard that does not guard timeouts", async () => {
+    const asked: Array<string> = []
+    const calls: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel(calls), route: staticRoute() })
+        yield* port.guard!.admit("cell/open")
+        return (yield* Stream.runCollect(port.sealStep(step("hello")))).length
+      }).pipe(
+        Effect.provideService(Budget.Parking, { ...guardedBy({ _tag: "park", parked }, asked), guardsTimeouts: false })
+      )
+    )
+
+    expect(completed(outcome)).toBe(3)
+    expect(asked).toEqual([])
+    expect(calls).toEqual(["test-model"])
+  })
+})
+
+describe("FlowEngineLike budget resume", () => {
+  it("records a resume that failed at construction before its first call, then does not ask again", async () => {
+    const resumes: Array<number | undefined> = []
+    const calls: Array<string> = []
+    const outcome = await drive(Effect.gen(function*() {
+      const port = yield* FlowEngineLike.make({ model: countingModel(calls), route: staticRoute() }).pipe(
+        Effect.provideService(Budget.Budget, {
+          ...Budget.makeUnbounded(),
+          resume: (at) =>
+            Effect.suspend(() => {
+              resumes.push(at)
+              return resumes.length === 1
+                ? Effect.fail(
+                  new Budget.AccountingUnavailable({ phase: "record", runId: "run-1", message: "ledger busy" })
+                )
+                : Effect.void
+            })
+        })
+      )
+      // Construction tried once and failed; the port has done no work yet.
+      expect(resumes).toHaveLength(1)
+      expect(calls).toEqual([])
+      yield* Stream.runDrain(port.sealStep(step("first")))
+      yield* Stream.runDrain(port.sealStep(step("second")))
+      return resumes
+    }))
+
+    const recorded = completed(outcome) as Array<number | undefined>
+    // One retry before the first call, at the instant the run resumed, and none after.
+    expect(recorded).toHaveLength(2)
+    expect(recorded[1]).toBe(recorded[0])
+    expect(calls).toEqual(["test-model", "test-model"])
+  })
+})

@@ -546,8 +546,11 @@ const withRequestPlugins = (
           Effect.flatten
         )
     })
+  // Every member the waterfall does not touch is the wrapped engine's own,
+  // forwarded whole, so an optional one such as `admit` or `guard` reaches
+  // the controller exactly when the port offers it.
   return EngineLike.make({
-    sealStep: engine.sealStep,
+    ...engine,
     sealStepWithEvents: (
       step: EngineLike.SealedModelStep,
       emit: (event: AgentEvent.AgentEvent) => Effect.Effect<void>
@@ -570,13 +573,6 @@ const withRequestPlugins = (
           )
         )
       ),
-    splice: engine.splice,
-    call: engine.call,
-    ...(engine.admit === undefined ? {} : { admit: engine.admit }),
-    ...(engine.guard === undefined ? {} : { guard: engine.guard }),
-    record: engine.record,
-    observe: engine.observe,
-    capture: engine.capture,
     // The request the provider is sent is the one the waterfall hands on, so
     // that is the one the record of the call has to hold. A waterfall that
     // fails has no request to hand on, so it resolves to none and the call
@@ -586,8 +582,7 @@ const withRequestPlugins = (
       rewrite(request).pipe(
         Effect.flatMap((next) => EngineLike.resolve(engine, next)),
         Effect.orElseSucceed(() => Option.none<EngineLike.Resolved>())
-      ),
-    suspend: engine.suspend
+      )
   })
 }
 
