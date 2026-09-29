@@ -435,7 +435,7 @@ const describeHolder = (body: string): string => {
  * A held lock refuses the caller with its holder. When no snapshot exists yet,
  * local state is left as it is and becomes the first snapshot on push, which
  * is how a stack's existing local state moves to R2. The lock is released if
- * the pull fails.
+ * initialization fails after taking the lock.
  *
  * @category constructors
  * @since 0.1.0
@@ -458,14 +458,19 @@ export const openRemoteState = async (
   }
   const release = (): Promise<void> => remote.bucket.delete(lockKey)
   let pulled: StateObject | undefined
+  let baseline: string
   try {
     pulled = await remote.bucket.get(remote.key)
     if (pulled !== undefined) await writeStateSnapshot(directory, pulled.body)
+    baseline = pulled === undefined ? renderSnapshot({}) : await readStateSnapshot(directory)
   } catch (error) {
-    await release()
+    try {
+      await release()
+    } catch {
+      // Preserve the initialization failure if lock cleanup also fails.
+    }
     throw error
   }
-  const baseline = pulled === undefined ? renderSnapshot({}) : await readStateSnapshot(directory)
   return {
     push: async () => {
       const snapshot = await readStateSnapshot(directory)

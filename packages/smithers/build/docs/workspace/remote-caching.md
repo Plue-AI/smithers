@@ -323,6 +323,9 @@ action-cache JSON in D1 and blobs in R2, served at `https://build.smithers.sh`.
 It is the `@smthrs/build-infra` workspace package, so the ordinary workspace
 install covers it and it has no lockfile of its own. Cloudflare authentication
 and the credential rollout order are in `infra/README.md`.
+The deployment wrapper releases its remote state lock if pulling or reading the
+local baseline fails. Resolve the read failure and retry; remove a lock by hand
+only after confirming that its named deployment process is gone.
 
 ```sh
 pnpm install --frozen-lockfile --offline

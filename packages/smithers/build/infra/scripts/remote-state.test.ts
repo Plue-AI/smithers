@@ -1,10 +1,25 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import type { readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
 import * as Effect from "effect/Effect"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const baselineReadFault = vi.hoisted(() => ({ path: "", enabled: false }))
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<{ readFile: typeof readFile }>()
+  return {
+    ...fs,
+    readFile: async (...args: Parameters<typeof fs.readFile>) => {
+      if (baselineReadFault.enabled && args[0] === baselineReadFault.path) {
+        throw Object.assign(new Error("baseline read denied"), { code: "EACCES" })
+      }
+      return fs.readFile(...args)
+    }
+  }
+})
 import { stackName } from "../deployment.ts"
 import {
   memoryStateBucket,
@@ -26,6 +41,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  baselineReadFault.enabled = false
   await rm(directory, { recursive: true, force: true })
 })
 
@@ -248,6 +264,42 @@ describe("remote state sessions", () => {
 
     await expect(openRemoteState({ bucket, key: "alchemy/Stack.json" }, directory, holder)).rejects.toThrow(TypeError)
     expect(bucket.objects.has("alchemy/Stack.json.lock")).toBe(false)
+  })
+
+  it("frees the lock after a pulled baseline read fails and permits a retry", async () => {
+    const bucket = memoryStateBucket()
+    const remote = { bucket, key: "alchemy/Stack.json" }
+    await bucket.put(remote.key, JSON.stringify({
+      format: "smithers-alchemy-state/1",
+      files: { "prod/A.json": "{}" }
+    }), { ifAbsent: true })
+    baselineReadFault.path = NodePath.join(directory, "prod/A.json")
+    baselineReadFault.enabled = true
+
+    await expect(openRemoteState(remote, directory, holder)).rejects.toThrow("baseline read denied")
+    expect(bucket.objects.has(`${remote.key}.lock`)).toBe(false)
+    baselineReadFault.enabled = false
+
+    const session = await openRemoteState(remote, directory, holder)
+    expect(await session.push()).toBe("unchanged")
+    await session.release()
+    expect(bucket.objects.has(`${remote.key}.lock`)).toBe(false)
+  })
+
+  it("keeps the baseline read failure when lock cleanup also fails", async () => {
+    const bucket = memoryStateBucket()
+    const key = "alchemy/Stack.json"
+    await bucket.put(key, JSON.stringify({
+      format: "smithers-alchemy-state/1",
+      files: { "prod/A.json": "{}" }
+    }), { ifAbsent: true })
+    baselineReadFault.path = NodePath.join(directory, "prod/A.json")
+    baselineReadFault.enabled = true
+
+    await expect(openRemoteState({
+      key,
+      bucket: { ...bucket, delete: async () => { throw new Error("cleanup failed") } }
+    }, directory, holder)).rejects.toThrow("baseline read denied")
   })
 
   it("refuses to overwrite remote state that changed during the run", async () => {
