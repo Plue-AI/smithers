@@ -97,6 +97,8 @@ describe("the event a declared rule waits for, in words", () => {
     expect(describeEvent("issue.opened")).toBe("On a new issue")
     expect(describeEvent("issue.labeled:smithers")).toBe("On an issue labeled smithers")
     expect(describeEvent("issue.closed")).toBe("On an issue closed")
+    expect(describeEvent("issue.assigned:@smithers")).toBe("On an issue assigned to @smithers")
+    expect(describeEvent("issue_comment.created:@smithers")).toBe("On a comment mentioning @smithers")
     expect(describeEvent("change.opened")).toBe("On a Change opened")
     expect(describeEvent("change.updated")).toBe("On a Change updated")
     expect(describeEvent("change.landed")).toBe("On a Change landed")
@@ -112,6 +114,9 @@ describe("the event a declared rule waits for, in words", () => {
   test("a key the vocabulary does not know is printed as itself, never guessed at", () => {
     expect(describeEvent("release.tagged")).toBe("release.tagged")
     expect(describeEvent("schedule:")).toBe("schedule:")
+    expect(describeEvent("issue.assigned:smithers")).toBe("issue.assigned:smithers")
+    expect(describeEvent("issue.assigned:@")).toBe("issue.assigned:@")
+    expect(describeEvent("issue_comment.created:@smi thers")).toBe("issue_comment.created:@smi thers")
     expect(describeEvent("  issue.opened ")).toBe("On a new issue")
   })
 })

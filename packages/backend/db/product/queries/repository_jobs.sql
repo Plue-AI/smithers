@@ -148,6 +148,14 @@ WHERE registration_id=$1 AND revision=$2 AND source=$3 AND issue_number=$4
   AND status='submitted' AND run_id<>''
 ORDER BY created_at DESC,id DESC LIMIT 1;
 
+-- name: RepositoryJobCommentAlreadyTaken :one
+-- A mention rule takes one comment text once per issue: a second comment
+-- with the same text proposes nothing new.
+SELECT EXISTS (SELECT 1 FROM repository_job_dispatches
+  WHERE registration_id=$1 AND source=$2 AND issue_number=$3
+    AND event_type='issue_comment' AND status<>'skipped'
+    AND btrim(payload->'comment'->>'body',E' \t\r\n')=btrim(sqlc.arg(body)::text,E' \t\r\n'));
+
 -- name: ListRepositoryJobDispatches :many
 SELECT d.* FROM repository_job_dispatches d
 JOIN repository_job_registrations r ON r.id=d.registration_id

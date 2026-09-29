@@ -45,6 +45,7 @@ type RepositoryJobStore interface {
 	RetryProjectedRepositoryJobSignal(context.Context, db.RetryProjectedRepositoryJobSignalParams) (int64, error)
 	RetryRepositoryJobSignal(context.Context, db.RetryRepositoryJobSignalParams) (int64, error)
 	LatestRepositoryJobIssueRun(context.Context, db.LatestRepositoryJobIssueRunParams) (db.RepositoryJobDispatch, error)
+	RepositoryJobCommentAlreadyTaken(context.Context, db.RepositoryJobCommentAlreadyTakenParams) (bool, error)
 	ListRepositoryJobDispatches(context.Context, db.ListRepositoryJobDispatchesParams) ([]db.RepositoryJobDispatch, error)
 	ListDueRepositoryJobSchedules(context.Context, int32) ([]db.RepositoryJobRegistration, error)
 	AdvanceRepositoryJobSchedule(context.Context, db.AdvanceRepositoryJobScheduleParams) (int64, error)
@@ -169,8 +170,12 @@ type RegisterRepositoryJobInput struct {
 	TrialSource      string                   `json:"trial_source,omitempty"`
 	Events           []RepositoryJobEventRule `json:"events"`
 	Label            string                   `json:"label,omitempty"`
-	Schedule         string                   `json:"schedule,omitempty"`
-	Input            json.RawMessage          `json:"input"`
+	// Mention is the login an issue assignment or a comment's @mention must
+	// name (issue.assigned:@login, issue_comment.created:@login). It selects
+	// events only; issue text still needs its approval.
+	Mention  string          `json:"mention,omitempty"`
+	Schedule string          `json:"schedule,omitempty"`
+	Input    json.RawMessage `json:"input"`
 	// A flow trigger names the plan a person approved; the five built-in jobs
 	// leave both empty and keep their existing wire body.
 	ApprovedPlanID     string `json:"approved_plan_id,omitempty"`
@@ -180,6 +185,17 @@ type RegisterRepositoryJobInput struct {
 var repositoryJobNames = map[string]bool{"issues": true, "review": true, "ci": true, "feature": true, "chores": true}
 var repositoryJobFlowName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,199}$`)
 var repositoryJobDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var repositoryJobMentionLogin = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,38}$`)
+
+// repositoryJobMentionRule reports whether mention (a lowercase login) may
+// select events: only issue.assigned or issue_comment.created name a login.
+func repositoryJobMentionRule(mention string, events []RepositoryJobEventRule) bool {
+	if !repositoryJobMentionLogin.MatchString(mention) || len(events) != 1 || len(events[0].Actions) != 1 {
+		return false
+	}
+	kind, action := NormalizeTriggerName(events[0].Type), strings.ToLower(strings.TrimSpace(events[0].Actions[0]))
+	return kind == "issue" && action == "assigned" || kind == "issue_comment" && action == "created"
+}
 
 // The five built-in names carry no colon, so the namespaces are disjoint and a
 // registered flow can never take a built-in job's row.
@@ -248,6 +264,9 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 	}
 	if len(input.Events) > 16 || len(input.Label) > 100 {
 		return bad("too many event rules or an invalid label")
+	}
+	if input.Mention != "" && !repositoryJobMentionRule(input.Mention, input.Events) {
+		return bad("a mention selects one issue assignment or comment creation")
 	}
 	for _, rule := range input.Events {
 		switch NormalizeTriggerName(rule.Type) {

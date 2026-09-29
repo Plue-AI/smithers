@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,7 +83,7 @@ func repositoryJobMatches(config RegisterRepositoryJobInput, event db.Repository
 			}
 		}
 	}
-	if !matched {
+	if !matched || config.Mention != "" && !repositoryJobEventNames(event, config.Mention) {
 		return false
 	}
 	// Every issue event, a trial's included, needs its text approved for
@@ -106,6 +107,45 @@ func repositoryJobMatches(config RegisterRepositoryJobInput, event db.Repository
 		return false
 	}
 	return issueCarriesLabel(issueLabelNames(payload.Issue.Labels), config.Label)
+}
+
+// repositoryJobEventNames reports whether an event names login: an issue
+// assigned to it (its GitHub App account is login[bot]), or a comment that
+// @mentions it outside code.
+func repositoryJobEventNames(event db.RepositoryJobEvent, login string) bool {
+	var payload struct {
+		Assignee *gitHubActor `json:"assignee"`
+		Comment  *struct {
+			Body string `json:"body"`
+		} `json:"comment"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return false
+	}
+	switch NormalizeTriggerName(event.EventType) {
+	case "issue":
+		if payload.Assignee == nil {
+			return false
+		}
+		assignee := strings.ToLower(payload.Assignee.Login)
+		return assignee == login || assignee == login+"[bot]"
+	case "issue_comment":
+		return payload.Comment != nil && slices.Contains(ExtractMentions(payload.Comment.Body), login)
+	}
+	return false
+}
+
+// repositoryJobCommentBody is an issue_comment event's comment text.
+func repositoryJobCommentBody(event db.RepositoryJobEvent) (string, bool) {
+	var payload struct {
+		Comment *struct {
+			Body string `json:"body"`
+		} `json:"comment"`
+	}
+	if NormalizeTriggerName(event.EventType) != "issue_comment" || json.Unmarshal(event.Payload, &payload) != nil || payload.Comment == nil {
+		return "", false
+	}
+	return payload.Comment.Body, true
 }
 
 func (s *RepositoryJobService) PollOnce(ctx context.Context) error {
@@ -138,6 +178,17 @@ func (s *RepositoryJobService) PollOnce(ctx context.Context) error {
 				sources[reg.RepositoryID] = allowed
 			}
 			matched = repositoryJobMatches(config, event, allowed)
+		}
+		// A mention proposes work once per text: the same comment again on
+		// the issue (a second post, not a redelivery) is not a new proposal.
+		if body, ok := repositoryJobCommentBody(event); matched && config.Mention != "" && ok {
+			taken, err := s.q.RepositoryJobCommentAlreadyTaken(ctx, db.RepositoryJobCommentAlreadyTakenParams{
+				RegistrationID: reg.ID, Source: event.Source, IssueNumber: event.IssueNumber, Body: body,
+			})
+			if err != nil {
+				return err
+			}
+			matched = !taken
 		}
 		status := "skipped"
 		if matched {

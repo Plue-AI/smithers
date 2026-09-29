@@ -59,6 +59,11 @@ export const factory = S.Factory({
     // merges it once the review approves a TODO a maintainer also labeled
     // automerge. Anyone else's todo or automerge label is taken off.
     "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
+    // Assigning an issue to Smithers or @smithers in a comment only proposes
+    // work: implementation still needs a maintainer's todo label. The same
+    // comment text proposes once per issue.
+    "issue.assigned:@smithers": { flow: "issue-triage", description: "Propose work when assigned" },
+    "issue_comment.created:@smithers": { flow: "issue-triage", description: "Propose work when mentioned" },
     "change.opened": { flow: "review/change", description: "Review every Change" },
     "change.updated": { flow: "review/change", description: "Review every Change" },
     // The stack service itself folds main into the mythical history after

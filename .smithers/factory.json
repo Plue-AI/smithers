@@ -1211,6 +1211,16 @@
       "description": "Implement every TODO"
     },
     {
+      "event": "issue.assigned:@smithers",
+      "flow": "issue-triage",
+      "description": "Propose work when assigned"
+    },
+    {
+      "event": "issue_comment.created:@smithers",
+      "flow": "issue-triage",
+      "description": "Propose work when mentioned"
+    },
+    {
       "event": "change.opened",
       "flow": "review/change",
       "description": "Review every Change"

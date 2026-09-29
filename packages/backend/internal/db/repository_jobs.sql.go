@@ -1523,6 +1523,34 @@ func (q *Queries) RegisterRepositoryJob(ctx context.Context, arg RegisterReposit
 	return i, err
 }
 
+const repositoryJobCommentAlreadyTaken = `-- name: RepositoryJobCommentAlreadyTaken :one
+SELECT EXISTS (SELECT 1 FROM repository_job_dispatches
+  WHERE registration_id=$1 AND source=$2 AND issue_number=$3
+    AND event_type='issue_comment' AND status<>'skipped'
+    AND btrim(payload->'comment'->>'body',E' \t\r\n')=btrim($4::text,E' \t\r\n'))
+`
+
+type RepositoryJobCommentAlreadyTakenParams struct {
+	RegistrationID string `json:"registration_id"`
+	Source         string `json:"source"`
+	IssueNumber    int64  `json:"issue_number"`
+	Body           string `json:"body"`
+}
+
+// A mention rule takes one comment text once per issue: a second comment
+// with the same text proposes nothing new.
+func (q *Queries) RepositoryJobCommentAlreadyTaken(ctx context.Context, arg RepositoryJobCommentAlreadyTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, repositoryJobCommentAlreadyTaken,
+		arg.RegistrationID,
+		arg.Source,
+		arg.IssueNumber,
+		arg.Body,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const retryProjectedRepositoryJobSignal = `-- name: RetryProjectedRepositoryJobSignal :execrows
 UPDATE repository_job_dispatches SET status='waiting',signal_attempt=signal_attempt+1,
   receipt=$2,error='Waiting for the issue flow to accept the reply',next_attempt_at=$3,

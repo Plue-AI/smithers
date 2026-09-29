@@ -8,7 +8,7 @@
  * is not printed, because the scheduler's default zone is the store's fact,
  * not this card's. A declared rule carries an `on` key of the factory's
  * event vocabulary (spec 08 §3: `issue.opened`, `issue.labeled:<label>`,
- * `change.landed`, `github.push:<branch>`, `schedule:<cron>`, ...); the card
+ * `issue.assigned:@<login>`, `issue_comment.created:@<login>`, `change.landed`, `github.push:<branch>`, `schedule:<cron>`, ...); the card
  * says each in words and prints an unknown key as itself.
  */
 
@@ -93,6 +93,7 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
  * The plain-English event for one declared rule's `on` key.
  *
  * @param event the key as projected: a fixed key, `issue.labeled:<label>`,
+ * `issue.assigned:@<login>`, `issue_comment.created:@<login>`,
  * `github.push:<branch>` or `schedule:<cron>`
  */
 export const describeEvent = (event: string): string => {
@@ -105,6 +106,9 @@ export const describeEvent = (event: string): string => {
     const argument = key.slice(colon + 1).trim()
     if (family === "schedule" && argument !== "") return describeSchedule(argument)
     if (family === "issue.labeled" && argument !== "") return `On an issue labeled ${argument}`
+    const login = /^@[A-Za-z0-9][A-Za-z0-9_-]*$/.test(argument) ? argument : undefined
+    if (family === "issue.assigned" && login !== undefined) return `On an issue assigned to ${login}`
+    if (family === "issue_comment.created" && login !== undefined) return `On a comment mentioning ${login}`
     if (family === "github.push" && argument !== "") return `GitHub push on ${argument}`
   }
   return key

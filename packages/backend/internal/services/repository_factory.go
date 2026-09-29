@@ -77,6 +77,14 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 						event.Actions = []string{action}
 					}
 					input.Events = []RepositoryJobEventRule{event}
+					// issue.assigned:@login and issue_comment.created:@login
+					// select by the login assigned or mentioned, never a label.
+					if mention, ok := strings.CutPrefix(input.Label, "@"); ok {
+						input.Label, input.Mention = "", strings.ToLower(mention)
+						if !repositoryJobMentionRule(input.Mention, input.Events) {
+							return nil, fmt.Errorf("factory rule %s: a mention applies only to issue.assigned or issue_comment.created", rule.Event)
+						}
+					}
 				}
 				input.Envelope, _ = json.Marshal(map[string]any{"capabilities": flow.Capabilities, "flows": flow.Flows, "budget": flow.Budget})
 				if err := validateRepositoryJobEnvelope(input.Envelope); err != nil {
