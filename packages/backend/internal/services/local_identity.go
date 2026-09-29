@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 )
 
 const (
@@ -48,7 +49,7 @@ type LocalIdentityQuerier interface {
 	GetSelfHostLocalCredential(ctx context.Context) (db.GetSelfHostLocalCredentialRow, error)
 	BootstrapSelfHostOwner(ctx context.Context, arg db.BootstrapSelfHostOwnerParams) (db.BootstrapSelfHostOwnerRow, error)
 	UpdateSelfHostOwnerPassword(ctx context.Context, arg db.UpdateSelfHostOwnerPasswordParams) (int64, error)
-	DeleteUserSessions(ctx context.Context, userID int64) error
+	DeleteUserSessions(ctx context.Context, userID int64) ([]string, error)
 }
 
 type LocalIdentityStatus struct {
@@ -205,15 +206,37 @@ func (s *AuthService) ChangeLocalOwnerPassword(ctx context.Context, userID int64
 	if err != nil {
 		return LocalLoginResult{}, err
 	}
+	// Password rotation invalidates every browser session, then issues one new
+	// session for the caller. Existing PATs deliberately remain valid: they are
+	// independently scoped credentials revoked through the existing token API.
+	// Record the current sessions' revocations before changing anything, so a
+	// failed record leaves the old password in place for a retry.
+	existing, err := s.queries.ListUserSessions(ctx, userID)
+	if err != nil {
+		return LocalLoginResult{}, pkgerrors.Internal("failed to revoke old sessions").WithCause(err)
+	}
+	announced := make(map[string]bool, len(existing))
+	for _, session := range existing {
+		hash := storedSessionHash(session.SessionKey)
+		if err := s.publishSessionRevoked(ctx, sessionRevokedEvent(hash, userID, "password changed")); err != nil {
+			return LocalLoginResult{}, err
+		}
+		announced[hash] = true
+	}
 	rows, err := queries.UpdateSelfHostOwnerPassword(ctx, db.UpdateSelfHostOwnerPasswordParams{UserID: userID, PasswordHash: passwordHash})
 	if err != nil || rows != 1 {
 		return LocalLoginResult{}, pkgerrors.Internal("failed to change owner password")
 	}
-	// Password rotation invalidates every browser session, then issues one new
-	// session for the caller. Existing PATs deliberately remain valid: they are
-	// independently scoped credentials revoked through the existing token API.
-	if err := queries.DeleteUserSessions(ctx, userID); err != nil {
+	deleted, err := queries.DeleteUserSessions(ctx, userID)
+	if err != nil {
 		return LocalLoginResult{}, pkgerrors.Internal("failed to revoke old sessions").WithCause(err)
+	}
+	// A session minted during rotation was not listed; the password change is
+	// committed, so announce it best effort.
+	for _, storedKey := range deleted {
+		if hash := storedSessionHash(storedKey); !announced[hash] {
+			revocation.PublishBestEffort(ctx, s.revocations, sessionRevokedEvent(hash, userID, "password changed"))
+		}
 	}
 	return s.issueLocalSession(ctx, userFromLocalCredential(credential))
 }

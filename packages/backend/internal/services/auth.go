@@ -927,13 +927,43 @@ func (s *AuthService) Logout(ctx context.Context, sessionKey string) error {
 	if !isValidUUID(sessionKey) {
 		return nil // Invalid session key format — treat as "session not found" (no-op)
 	}
+	// The browser has already dropped its cookie and cannot retry, so the
+	// session is deleted even when recording the revocation fails; that
+	// failure is still reported.
+	publishErr := s.publishSessionRevoked(ctx, sessionRevokedEvent(sessionStorageKey(sessionKey), 0, "logout"))
 	// Sessions minted after keys were hashed at rest are keyed by their
 	// digest; rows minted before stay raw-keyed until they expire. Delete
 	// both forms so logout is immediate for either generation.
 	if err := s.queries.DeleteAuthSession(ctx, sessionStorageKey(sessionKey)); err != nil {
 		return err
 	}
-	return s.queries.DeleteAuthSession(ctx, sessionKey)
+	if err := s.queries.DeleteAuthSession(ctx, sessionKey); err != nil {
+		return err
+	}
+	return publishErr
+}
+
+func sessionRevokedEvent(sessionHash string, userID int64, reason string) revocation.Event {
+	return revocation.Event{
+		Kind:      revocation.KindBrowserSessionRevoked,
+		UserID:    userID,
+		TokenHash: sessionHash,
+		Reason:    reason,
+		ActorID:   userID,
+	}
+}
+
+// publishSessionRevoked records the revocation before the session row is
+// deleted. Once recorded, the bus cache refuses the session on every new
+// stream while the deletion completes.
+func (s *AuthService) publishSessionRevoked(ctx context.Context, event revocation.Event) error {
+	if s.revocations == nil {
+		return nil
+	}
+	if err := s.revocations.Publish(ctx, event); err != nil {
+		return pkgerrors.Internal("failed to revoke session").WithCause(err)
+	}
+	return nil
 }
 
 // sessionStorageKey derives the value persisted in auth_sessions.session_key
@@ -976,10 +1006,23 @@ func (s *AuthService) RevokeUserSession(ctx context.Context, userID int64, sessi
 
 	for _, session := range sessions {
 		if SessionPublicID(session.SessionKey) == sessionID {
+			if err := s.publishSessionRevoked(ctx, sessionRevokedEvent(storedSessionHash(session.SessionKey), userID, "session deleted")); err != nil {
+				return err
+			}
 			return s.queries.DeleteAuthSession(ctx, session.SessionKey)
 		}
 	}
 	return pkgerrors.NotFound("session not found")
+}
+
+// storedSessionHash maps an auth_sessions.session_key to the SHA-256 of the
+// raw key: current rows already store that digest, legacy rows store the raw
+// UUID key.
+func storedSessionHash(storedKey string) string {
+	if isValidUUID(storedKey) {
+		return sessionStorageKey(storedKey)
+	}
+	return storedKey
 }
 
 // isValidUUID checks if a string is a valid UUID format (8-4-4-4-12 hex digits).

@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -97,9 +99,27 @@ func TestAuthSQL_H_EmailVerificationSessionTokenAndOAuthRoundTrip(t *testing.T) 
 		SessionKey: activeSessionKey, UserID: userID, Username: "auth-h-user", IsAdmin: false, ExpiresAt: time.Now().Add(time.Hour),
 	})
 	require.NoError(t, err)
-	require.NoError(t, q.DeleteUserSessions(ctx, userID))
+	legacyDigest := sha256.Sum256([]byte(activeSessionKey))
+	live, err := q.LegacyAuthSessionLive(ctx, hex.EncodeToString(legacyDigest[:]))
+	require.NoError(t, err)
+	require.True(t, live, "a raw-keyed legacy session is found by its digest")
+	hashedKey := hex.EncodeToString(legacyDigest[:])
+	_, err = q.CreateAuthSession(ctx, CreateAuthSessionParams{
+		SessionKey: hashedKey, UserID: userID, Username: "auth-h-user", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	doubleDigest := sha256.Sum256([]byte(hashedKey))
+	live, err = q.LegacyAuthSessionLive(ctx, hex.EncodeToString(doubleDigest[:]))
+	require.NoError(t, err)
+	require.False(t, live, "a digest-keyed row is never treated as a legacy raw key")
+	deletedKeys, err := q.DeleteUserSessions(ctx, userID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{activeSessionKey, hashedKey}, deletedKeys)
 	_, err = q.GetAuthSessionBySessionKey(ctx, activeSessionKey)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+	live, err = q.LegacyAuthSessionLive(ctx, hex.EncodeToString(legacyDigest[:]))
+	require.NoError(t, err)
+	require.False(t, live)
 
 	nonce := "nonce-" + randSlug(t)
 	_, err = q.CreateAuthNonce(ctx, CreateAuthNonceParams{Nonce: nonce, ExpiresAt: time.Now().Add(time.Hour)})
@@ -291,6 +311,7 @@ func TestAuthSQL_H_ManyErrorBranches(t *testing.T) {
 		{"ListUserAccessTokens", func(q *Queries) error { _, err := q.ListUserAccessTokens(context.Background(), 1); return err }},
 		{"ListUserEmails", func(q *Queries) error { _, err := q.ListUserEmails(context.Background(), 1); return err }},
 		{"ListUserOAuthAccounts", func(q *Queries) error { _, err := q.ListUserOAuthAccounts(context.Background(), 1); return err }},
+		{"DeleteUserSessions", func(q *Queries) error { _, err := q.DeleteUserSessions(context.Background(), 1); return err }},
 	}
 
 	for _, tc := range cases {
@@ -334,7 +355,7 @@ func TestAuthSQL_H_ExecErrorBranches(t *testing.T) {
 		{"DeleteExpiredOAuthStates", func() error { return q.DeleteExpiredOAuthStates(context.Background()) }},
 		{"DeleteExpiredSessions", func() error { return q.DeleteExpiredSessions(context.Background()) }},
 		{"DeleteExpiredVerificationTokens", func() error { return q.DeleteExpiredVerificationTokens(context.Background()) }},
-		{"DeleteUserSessions", func() error { return q.DeleteUserSessions(context.Background(), 1) }},
+
 		{"UpdateAccessTokenLastUsed", func() error { return q.UpdateAccessTokenLastUsed(context.Background(), 1) }},
 		{"UpdateSessionExpiry", func() error {
 			return q.UpdateSessionExpiry(context.Background(), UpdateSessionExpiryParams{ExpiresAt: time.Now(), SessionKey: uuid.Nil.String()})
@@ -353,6 +374,8 @@ func TestAuthSQL_H_QueryRowErrorBranches(t *testing.T) {
 	q := New(authSQLHDB{row: authSQLHRow{err: sentinel}})
 
 	_, err := q.CreateEmailVerificationToken(context.Background(), CreateEmailVerificationTokenParams{})
+	require.ErrorIs(t, err, sentinel)
+	_, err = q.LegacyAuthSessionLive(context.Background(), "digest")
 	require.ErrorIs(t, err, sentinel)
 	_, err = q.GetEmailByID(context.Background(), 1)
 	require.ErrorIs(t, err, sentinel)

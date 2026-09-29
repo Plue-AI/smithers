@@ -181,15 +181,9 @@ func (h *GitHubImportHandler) streamImportJob(w http.ResponseWriter, r *http.Req
 		}
 		// The bus updates its cache before notifying watchers. Check both so
 		// delayed fan-out cannot let a completed fetch expose private status.
-		if checker != nil {
-			if checker.IsTokenRevoked(principal.TokenHash) {
-				endRevoked(revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: principal.TokenHash})
-				return true
-			}
-			if checker.IsUserDisabled(principal.UserID) {
-				endRevoked(revocation.Event{Kind: revocation.KindUserDisabled, UserID: principal.UserID})
-				return true
-			}
+		if event, denied := revocation.Revoked(checker, principal); denied {
+			endRevoked(event)
+			return true
 		}
 		return false
 	}

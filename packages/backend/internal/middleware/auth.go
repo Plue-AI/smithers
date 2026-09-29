@@ -316,6 +316,7 @@ func loadSessionAuth(
 	return &AuthInfo{
 		User:        &user,
 		IsTokenAuth: false,
+		SessionHash: sessionStorageKey(sessionKey),
 		Scopes:      ScopeSet{},
 	}, &session, nil
 }

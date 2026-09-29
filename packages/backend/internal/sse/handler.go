@@ -111,12 +111,12 @@ func ServeBrokerSSE(w http.ResponseWriter, r *http.Request, cfg BrokerStreamConf
 			principal.UserID = cfg.UserID
 		}
 		rawRevoked := cfg.Revocations.Watch(streamCtx, principal)
-		// Check the token/user cache after subscribing to refuse admission
+		// Check the credential/user cache after subscribing to refuse admission
 		// before opening the stream, even when Watch already queued an event.
 		// Repository/organization authorization remains the route gate's
 		// responsibility; this cache does not retain their current permissions.
-		if checker, ok := cfg.Revocations.(revocation.Checker); ok &&
-			(checker.IsTokenRevoked(principal.TokenHash) || checker.IsUserDisabled(principal.UserID)) {
+		checker, _ := cfg.Revocations.(revocation.Checker)
+		if _, denied := revocation.Revoked(checker, principal); denied {
 			pkgerrors.WriteError(w, pkgerrors.Forbidden("stream authorization revoked"))
 			return
 		}

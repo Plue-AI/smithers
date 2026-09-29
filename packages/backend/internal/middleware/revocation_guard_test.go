@@ -9,9 +9,12 @@ import (
 )
 
 type fakeRevocationChecker struct {
-	tokens map[string]bool
-	users  map[int64]bool
+	tokens   map[string]bool
+	sessions map[string]bool
+	users    map[int64]bool
 }
+
+func (f fakeRevocationChecker) IsBrowserSessionRevoked(hash string) bool { return f.sessions[hash] }
 
 func (f fakeRevocationChecker) IsTokenRevoked(hash string) bool { return f.tokens[hash] }
 func (f fakeRevocationChecker) IsUserDisabled(id int64) bool    { return f.users[id] }
@@ -56,5 +59,15 @@ func TestRevocationGuard_PassesLiveCredentialsAndAnonymous(t *testing.T) {
 	}
 	if rec := serveGuard(t, nil, &AuthInfo{User: &db.User{ID: 9}}); rec.Code != http.StatusNoContent {
 		t.Fatalf("nil checker: status = %d", rec.Code)
+	}
+}
+
+func TestRevocationGuard_RefusesRevokedBrowserSessionOnly(t *testing.T) {
+	checker := fakeRevocationChecker{sessions: map[string]bool{"s1": true}}
+	if rec := serveGuard(t, checker, &AuthInfo{User: &db.User{ID: 3}, SessionHash: "s1"}); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked session: status = %d, want 401", rec.Code)
+	}
+	if rec := serveGuard(t, checker, &AuthInfo{User: &db.User{ID: 3}, SessionHash: "s2"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("other session of the same user: status = %d, want 204", rec.Code)
 	}
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -41,19 +43,34 @@ func TestIssue1793SSETicketRouterChecksRevocationAfterTicketAuth(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, liveRec.Code, liveRec.Body.String())
 	require.Contains(t, liveRec.Body.String(), "SSE not configured: broker is nil")
 
+	// A session-minted ticket names its session digest; the row must exist
+	// because redemption revalidates the session in the database.
+	newSession := func() string {
+		sum := sha256.Sum256([]byte(uuid.NewString()))
+		hash := hex.EncodeToString(sum[:])
+		_, createErr := queries.CreateAuthSession(context.Background(), db.CreateAuthSessionParams{
+			SessionKey: hash, UserID: principal.userID, Username: "sse-ticket-session", ExpiresAt: time.Now().Add(time.Hour),
+		})
+		require.NoError(t, createErr)
+		return hash
+	}
+	sessionHash, otherSessionHash := newSession(), newSession()
+
 	for _, tc := range []struct {
-		name      string
-		tokenAuth bool
-		event     revocation.Event
-		want      int
-		wantBody  string
+		name           string
+		tokenAuth      bool
+		credentialHash string
+		event          revocation.Event
+		want           int
+		wantBody       string
 	}{
-		{"revoked minting token", true, revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash}, http.StatusUnauthorized, "token revoked"},
-		{"disabled session user", false, revocation.Event{Kind: revocation.KindUserDisabled, UserID: principal.userID}, http.StatusForbidden, "account is suspended"},
+		{"revoked minting token", true, tokenHash, revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash}, http.StatusUnauthorized, "token revoked"},
+		{"revoked minting browser session", false, sessionHash, revocation.Event{Kind: revocation.KindBrowserSessionRevoked, TokenHash: sessionHash}, http.StatusUnauthorized, "session revoked"},
+		{"disabled session user", false, otherSessionHash, revocation.Event{Kind: revocation.KindUserDisabled, UserID: principal.userID}, http.StatusForbidden, "account is suspended"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bus.Deliver(tc.event)
-			ticket, err := service.CreateTicket(context.Background(), principal.userID, tc.tokenAuth, "read:user", tokenHash)
+			ticket, err := service.CreateTicket(context.Background(), principal.userID, tc.tokenAuth, "read:user", tc.credentialHash)
 			require.NoError(t, err)
 			req := httptest.NewRequest(http.MethodGet, "/api/notifications/events/stream?ticket="+url.QueryEscape(ticket.Ticket), nil)
 			rec := httptest.NewRecorder()

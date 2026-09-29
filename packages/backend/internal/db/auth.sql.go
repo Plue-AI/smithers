@@ -593,14 +593,30 @@ func (q *Queries) DeleteOAuthAccount(ctx context.Context, arg DeleteOAuthAccount
 	return err
 }
 
-const deleteUserSessions = `-- name: DeleteUserSessions :exec
+const deleteUserSessions = `-- name: DeleteUserSessions :many
 DELETE FROM auth_sessions
 WHERE user_id = $1
+RETURNING session_key
 `
 
-func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
-	_, err := q.db.Exec(ctx, deleteUserSessions, userID)
-	return err
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteUserSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var session_key string
+		if err := rows.Scan(&session_key); err != nil {
+			return nil, err
+		}
+		items = append(items, session_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAccessTokenByID = `-- name: GetAccessTokenByID :one
@@ -798,6 +814,25 @@ func (q *Queries) GetPrimaryEmail(ctx context.Context, userID int64) (EmailAddre
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const legacyAuthSessionLive = `-- name: LegacyAuthSessionLive :one
+SELECT EXISTS (
+    SELECT 1
+    FROM auth_sessions
+    WHERE length(session_key) = 36
+      AND encode(sha256(convert_to(session_key, 'UTF8')), 'hex') = $1::text
+      AND expires_at > NOW()
+) AS live
+`
+
+// Legacy rows store the raw UUID key; match them by the digest a caller
+// holds. Current rows are found through GetAuthSessionBySessionKey.
+func (q *Queries) LegacyAuthSessionLive(ctx context.Context, sessionDigest string) (bool, error) {
+	row := q.db.QueryRow(ctx, legacyAuthSessionLive, sessionDigest)
+	var live bool
+	err := row.Scan(&live)
+	return live, err
 }
 
 const listAccessTokensByUserID = `-- name: ListAccessTokensByUserID :many

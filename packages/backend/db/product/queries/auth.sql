@@ -91,9 +91,21 @@ ORDER BY created_at DESC;
 DELETE FROM auth_sessions
 WHERE expires_at < NOW();
 
--- name: DeleteUserSessions :exec
+-- name: DeleteUserSessions :many
 DELETE FROM auth_sessions
-WHERE user_id = $1;
+WHERE user_id = $1
+RETURNING session_key;
+
+-- name: LegacyAuthSessionLive :one
+-- Legacy rows store the raw UUID key; match them by the digest a caller
+-- holds. Current rows are found through GetAuthSessionBySessionKey.
+SELECT EXISTS (
+    SELECT 1
+    FROM auth_sessions
+    WHERE length(session_key) = 36
+      AND encode(sha256(convert_to(session_key, 'UTF8')), 'hex') = sqlc.arg(session_digest)::text
+      AND expires_at > NOW()
+) AS live;
 
 -- name: UpdateSessionExpiry :exec
 UPDATE auth_sessions

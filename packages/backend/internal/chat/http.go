@@ -259,8 +259,11 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	watchCtx, stopRevocations := context.WithCancel(r.Context())
 	defer stopRevocations()
 	principal := revocation.Principal{UserID: scope.UserID, RepositoryID: scope.RepositoryID}
-	if auth := middleware.AuthInfoFromContext(r.Context()); auth != nil && auth.IsTokenAuth {
-		principal.TokenHash = auth.TokenHash
+	if auth := middleware.AuthInfoFromContext(r.Context()); auth != nil {
+		if auth.IsTokenAuth {
+			principal.TokenHash = auth.TokenHash
+		}
+		principal.BrowserSessionHash = auth.SessionHash
 	}
 	if repo := middleware.RepoFromContext(r.Context()); repo != nil && repo.OrgID.Valid {
 		principal.OrganizationID = repo.OrgID.Int64
@@ -275,7 +278,11 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 			return true
 		default:
 		}
-		return h.Revocations != nil && (h.Revocations.IsTokenRevoked(principal.TokenHash) || h.Revocations.IsUserDisabled(principal.UserID))
+		if h.Revocations == nil {
+			return false
+		}
+		_, denied := revocation.Revoked(h.Revocations, principal)
+		return denied
 	}
 	if isRevoked() {
 		publicError(w, ErrForbidden)

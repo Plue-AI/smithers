@@ -214,3 +214,94 @@ func TestPublishBestEffort_NilPublisherIsANoop(t *testing.T) {
 	var svc *RepoService
 	svc.publishCollaboratorsRemoved(context.Background(), 1, nil, 0, "x")
 }
+
+func TestAuthService_LogoutPublishesBrowserSessionRevocationBeforeDeleting(t *testing.T) {
+	t.Parallel()
+	publisher := &recordingPublisher{}
+	var deleted []string
+	q := &mockAuthQuerier{deleteAuthSessionFn: func(_ context.Context, key string) error {
+		require.Len(t, publisher.all(), 1, "the revocation is recorded before the session row disappears")
+		deleted = append(deleted, key)
+		return nil
+	}}
+	svc := NewAuthService(q, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
+	raw := "123e4567-e89b-12d3-a456-426614174000"
+	require.NoError(t, svc.Logout(context.Background(), raw))
+	require.Equal(t, []string{sessionStorageKey(raw), raw}, deleted)
+	events := publisher.all()
+	require.Len(t, events, 1)
+	require.Equal(t, revocation.KindBrowserSessionRevoked, events[0].Kind)
+	require.Equal(t, sessionStorageKey(raw), events[0].TokenHash, "the event names the digest, never the raw key")
+}
+
+func TestAuthService_RevokeUserSessionKeepsSessionWhenRecordFails(t *testing.T) {
+	t.Parallel()
+	stored := sessionStorageKey("current-raw")
+	publisher := &failingPublisher{}
+	q := &mockAuthQuerier{
+		deleteAuthSessionFn: func(context.Context, string) error {
+			t.Fatal("an unrecorded revocation must leave the session for a retry")
+			return nil
+		},
+		listUserSessionsFn: func(context.Context, int64) ([]db.AuthSession, error) {
+			return []db.AuthSession{{SessionKey: stored}}, nil
+		},
+	}
+	svc := NewAuthService(q, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
+	require.Error(t, svc.RevokeUserSession(context.Background(), 42, SessionPublicID(stored)))
+	require.Equal(t, 1, publisher.calls)
+}
+
+func TestAuthService_LogoutDeletesSessionAndReportsFailedRecord(t *testing.T) {
+	t.Parallel()
+	raw := "123e4567-e89b-12d3-a456-426614174000"
+	var deleted []string
+	q := &mockAuthQuerier{deleteAuthSessionFn: func(_ context.Context, key string) error {
+		deleted = append(deleted, key)
+		return nil
+	}}
+	svc := NewAuthService(q, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(&failingPublisher{}))
+	require.Error(t, svc.Logout(context.Background(), raw), "the browser cannot retry, so the failure is reported")
+	require.Equal(t, []string{sessionStorageKey(raw), raw}, deleted, "the session still ends for fresh requests")
+}
+
+func TestAuthService_LogoutIgnoresMalformedKeys(t *testing.T) {
+	t.Parallel()
+	publisher := &recordingPublisher{}
+	svc := NewAuthService(&mockAuthQuerier{}, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
+	require.NoError(t, svc.Logout(context.Background(), "not-a-session"))
+	require.NoError(t, svc.Logout(context.Background(), " "))
+	require.Empty(t, publisher.all())
+}
+
+func TestAuthService_RevokeUserSessionPublishesItsDigest(t *testing.T) {
+	t.Parallel()
+	legacy := "123e4567-e89b-12d3-a456-426614174000"
+	current := sessionStorageKey("current-raw")
+	for _, tc := range []struct {
+		name, stored, want string
+	}{
+		{"hashed row", current, current},
+		{"legacy raw row", legacy, sessionStorageKey(legacy)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			publisher := &recordingPublisher{}
+			q := &mockAuthQuerier{
+				listUserSessionsFn: func(context.Context, int64) ([]db.AuthSession, error) {
+					return []db.AuthSession{{SessionKey: sessionStorageKey("other")}, {SessionKey: tc.stored}}, nil
+				},
+				deleteAuthSessionFn: func(_ context.Context, key string) error {
+					require.Equal(t, tc.stored, key)
+					return nil
+				},
+			}
+			svc := NewAuthService(q, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
+			require.NoError(t, svc.RevokeUserSession(context.Background(), 42, SessionPublicID(tc.stored)))
+			events := publisher.all()
+			require.Len(t, events, 1)
+			require.Equal(t, revocation.KindBrowserSessionRevoked, events[0].Kind)
+			require.Equal(t, tc.want, events[0].TokenHash)
+			require.Equal(t, int64(42), events[0].UserID)
+		})
+	}
+}

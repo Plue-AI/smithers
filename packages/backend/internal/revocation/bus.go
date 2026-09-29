@@ -34,6 +34,26 @@ type Lister interface {
 type Checker interface {
 	IsTokenRevoked(tokenHash string) bool
 	IsUserDisabled(userID int64) bool
+	IsBrowserSessionRevoked(sessionHash string) bool
+}
+
+// Revoked reports the retained credential or account revocation that denies
+// principal, if any. Long-lived handlers call it after Watch registers, so a
+// completed revocation cannot hide in delayed fan-out.
+func Revoked(checker Checker, principal Principal) (Event, bool) {
+	if checker == nil {
+		return Event{}, false
+	}
+	if principal.TokenHash != "" && checker.IsTokenRevoked(principal.TokenHash) {
+		return Event{Kind: KindTokenRevoked, TokenHash: principal.TokenHash}, true
+	}
+	if principal.BrowserSessionHash != "" && checker.IsBrowserSessionRevoked(principal.BrowserSessionHash) {
+		return Event{Kind: KindBrowserSessionRevoked, TokenHash: principal.BrowserSessionHash}, true
+	}
+	if principal.UserID != 0 && checker.IsUserDisabled(principal.UserID) {
+		return Event{Kind: KindUserDisabled, UserID: principal.UserID}, true
+	}
+	return Event{}, false
 }
 
 // Watcher hands a long-lived handler a channel that yields the first event
@@ -77,20 +97,21 @@ type Bus struct {
 	// Retention bounds the in-memory recently-revoked sets. Zero means 24h.
 	Retention time.Duration
 
-	mu            sync.Mutex
-	cursor        int64
-	seen          map[int64]time.Time
-	revokedTokens map[string]time.Time
-	disabledUsers map[int64]time.Time
-	userEvents    map[int64]int64
-	subs          map[int]func(Event)
-	nextSub       int
-	started       bool
-	positioned    bool
-	connected     bool
-	ready         chan struct{}
-	startErr      error // Written before ready closes; immutable afterwards.
-	done          chan struct{}
+	mu              sync.Mutex
+	cursor          int64
+	seen            map[int64]time.Time
+	revokedTokens   map[string]time.Time
+	revokedSessions map[string]time.Time
+	disabledUsers   map[int64]time.Time
+	userEvents      map[int64]int64
+	subs            map[int]func(Event)
+	nextSub         int
+	started         bool
+	positioned      bool
+	connected       bool
+	ready           chan struct{}
+	startErr        error // Written before ready closes; immutable afterwards.
+	done            chan struct{}
 
 	metrics busMetrics
 }
@@ -112,15 +133,16 @@ func NewBus(pool *pgxpool.Pool, lister Lister) *Bus {
 
 func newBus(lister Lister) *Bus {
 	return &Bus{
-		lister:        lister,
-		seen:          make(map[int64]time.Time),
-		revokedTokens: make(map[string]time.Time),
-		disabledUsers: make(map[int64]time.Time),
-		userEvents:    make(map[int64]int64),
-		subs:          make(map[int]func(Event)),
-		ready:         make(chan struct{}),
-		done:          make(chan struct{}),
-		metrics:       newBusMetrics(),
+		lister:          lister,
+		seen:            make(map[int64]time.Time),
+		revokedTokens:   make(map[string]time.Time),
+		revokedSessions: make(map[string]time.Time),
+		disabledUsers:   make(map[int64]time.Time),
+		userEvents:      make(map[int64]int64),
+		subs:            make(map[int]func(Event)),
+		ready:           make(chan struct{}),
+		done:            make(chan struct{}),
+		metrics:         newBusMetrics(),
 	}
 }
 
@@ -359,6 +381,10 @@ func (b *Bus) apply(event Event) {
 		if event.TokenHash != "" {
 			b.revokedTokens[event.TokenHash] = now
 		}
+	case KindBrowserSessionRevoked:
+		if event.TokenHash != "" {
+			b.revokedSessions[event.TokenHash] = now
+		}
 	case KindUserDisabled, KindUserEnabled:
 		if event.ID != 0 && event.ID < b.userEvents[event.UserID] {
 			b.mu.Unlock()
@@ -408,6 +434,11 @@ func (b *Bus) pruneLocked(now time.Time) {
 	for hash, at := range b.revokedTokens {
 		if at.Before(cutoff) {
 			delete(b.revokedTokens, hash)
+		}
+	}
+	for hash, at := range b.revokedSessions {
+		if at.Before(cutoff) {
+			delete(b.revokedSessions, hash)
 		}
 	}
 	for id, at := range b.disabledUsers {
@@ -468,11 +499,8 @@ func (b *Bus) Watch(ctx context.Context, principal Principal) <-chan Event {
 		})
 	}
 	unsubscribe := b.Subscribe(deliver)
-	if b.IsTokenRevoked(principal.TokenHash) {
-		deliver(Event{Kind: KindTokenRevoked, TokenHash: principal.TokenHash})
-	}
-	if b.IsUserDisabled(principal.UserID) {
-		deliver(Event{Kind: KindUserDisabled, UserID: principal.UserID})
+	if event, revoked := Revoked(b, principal); revoked {
+		deliver(event)
 	}
 	go func() {
 		select {
@@ -492,6 +520,18 @@ func (b *Bus) IsTokenRevoked(tokenHash string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	at, ok := b.revokedTokens[tokenHash]
+	return ok && time.Since(at) <= b.retention()
+}
+
+// IsBrowserSessionRevoked reports whether the browser session with this key
+// digest ended recently.
+func (b *Bus) IsBrowserSessionRevoked(sessionHash string) bool {
+	if b == nil || sessionHash == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	at, ok := b.revokedSessions[sessionHash]
 	return ok && time.Since(at) <= b.retention()
 }
 

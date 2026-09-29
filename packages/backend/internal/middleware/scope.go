@@ -51,11 +51,13 @@ type AuthInfo struct {
 	User              *db.User
 	TokenID           int64
 	TokenHash         string
-	OAuth2AppID       int64
-	RawScopes         string
-	Scopes            ScopeSet
-	IsTokenAuth       bool
-	TokenSource       TokenSource
+	// SessionHash is the SHA-256 of the browser session key for cookie auth.
+	SessionHash string
+	OAuth2AppID int64
+	RawScopes   string
+	Scopes      ScopeSet
+	IsTokenAuth bool
+	TokenSource TokenSource
 }
 
 // repositoryRestrictionScopePrefix marks a scopes-list entry that binds a token

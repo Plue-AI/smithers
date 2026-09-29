@@ -52,6 +52,7 @@ func requestPrincipal(r *http.Request, extra revocation.Principal) revocation.Pr
 		if authInfo.IsTokenAuth {
 			principal.TokenHash = authInfo.TokenHash
 		}
+		principal.BrowserSessionHash = authInfo.SessionHash
 	} else if user := middleware.UserFromContext(r.Context()); user != nil && principal.UserID == 0 {
 		principal.UserID = user.ID
 	}

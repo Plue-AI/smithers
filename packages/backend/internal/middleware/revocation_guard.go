@@ -11,6 +11,7 @@ import (
 type RevocationChecker interface {
 	IsTokenRevoked(tokenHash string) bool
 	IsUserDisabled(userID int64) bool
+	IsBrowserSessionRevoked(sessionHash string) bool
 }
 
 // RevocationGuard refuses a request whose credential was revoked after the
@@ -29,6 +30,10 @@ func RevocationGuard(checker RevocationChecker) func(http.Handler) http.Handler 
 			if authInfo != nil {
 				if authInfo.IsTokenAuth && authInfo.TokenHash != "" && checker.IsTokenRevoked(authInfo.TokenHash) {
 					errors.WriteError(w, errors.Unauthorized("token revoked"))
+					return
+				}
+				if authInfo.SessionHash != "" && checker.IsBrowserSessionRevoked(authInfo.SessionHash) {
+					errors.WriteError(w, errors.Unauthorized("session revoked"))
 					return
 				}
 				if authInfo.User != nil && checker.IsUserDisabled(authInfo.User.ID) {

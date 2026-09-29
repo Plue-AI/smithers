@@ -1291,6 +1291,8 @@ func (c *accessLogRevocationChecker) IsTokenRevoked(tokenHash string) bool {
 
 func (c *accessLogRevocationChecker) IsUserDisabled(int64) bool { return false }
 
+func (c *accessLogRevocationChecker) IsBrowserSessionRevoked(string) bool { return false }
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])

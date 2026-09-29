@@ -46,6 +46,23 @@ type mockSSETicketQuerier struct {
 	getUserByIDFn                func(ctx context.Context, id int64) (db.User, error)
 	getAuthInfoByTokenHashFn     func(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error)
 	getOAuth2AccessTokenByHashFn func(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
+	sessions                     map[string]db.AuthSession
+	legacySessions               map[string]bool
+	sessionErr                   error
+}
+
+func (m *mockSSETicketQuerier) GetAuthSessionBySessionKey(_ context.Context, key string) (db.AuthSession, error) {
+	if m.sessionErr != nil {
+		return db.AuthSession{}, m.sessionErr
+	}
+	if session, ok := m.sessions[key]; ok {
+		return session, nil
+	}
+	return db.AuthSession{}, pgx.ErrNoRows
+}
+
+func (m *mockSSETicketQuerier) LegacyAuthSessionLive(_ context.Context, digest string) (bool, error) {
+	return m.legacySessions[digest], nil
 }
 
 func (m *mockSSETicketQuerier) CreateSSETicket(ctx context.Context, arg db.CreateSSETicketParams) (db.SseTicket, error) {
@@ -283,7 +300,7 @@ func TestSSETicketService_TokenMintedTicketRoundTripsTokenHash(t *testing.T) {
 	assert.Equal(t, []string{"pat-hash"}, lookedUp, "redemption must re-check the minting credential")
 }
 
-func TestSSETicketService_SessionMintedTicketCarriesNoTokenHash(t *testing.T) {
+func TestSSETicketService_SessionMintedTicketCarriesOnlySessionHash(t *testing.T) {
 	t.Parallel()
 
 	q := newSSETicketRoundTripQuerier()
@@ -291,16 +308,29 @@ func TestSSETicketService_SessionMintedTicketCarriesNoTokenHash(t *testing.T) {
 		t.Fatal("session tickets must not look up a token")
 		return db.GetAuthInfoByTokenHashRow{}, nil
 	}
+	q.sessions = map[string]db.AuthSession{"session-hash": {SessionKey: "session-hash", UserID: 42, ExpiresAt: time.Now().Add(time.Hour)}}
 	svc := NewSSETicketService(q)
-	issued, err := svc.CreateTicket(context.Background(), 42, false, "", "ignored-session-hash")
+	issued, err := svc.CreateTicket(context.Background(), 42, false, "", " session-hash ")
 	require.NoError(t, err)
-	assert.NotContains(t, issued.Ticket, ".", "session tickets carry no grant")
 
 	principal, err := svc.ValidateTicket(context.Background(), issued.Ticket)
 	require.NoError(t, err)
 	assert.False(t, principal.IsTokenAuth)
-	assert.Empty(t, principal.TokenHash)
+	assert.Empty(t, principal.TokenHash, "a session ticket must not become token auth")
 	assert.Empty(t, principal.RawScopes)
+	assert.Equal(t, "session-hash", principal.SessionHash, "logout must be able to end the stream this ticket opens")
+}
+
+func TestSSETicketService_UnidentifiedSessionTicketCarriesNoGrant(t *testing.T) {
+	t.Parallel()
+
+	svc := NewSSETicketService(newSSETicketRoundTripQuerier())
+	issued, err := svc.CreateTicket(context.Background(), 42, false, "", "")
+	require.NoError(t, err)
+	assert.NotContains(t, issued.Ticket, ".")
+	principal, err := svc.ValidateTicket(context.Background(), issued.Ticket)
+	require.NoError(t, err)
+	assert.Empty(t, principal.SessionHash)
 }
 
 func TestSSETicketService_TamperedTokenHashRejected(t *testing.T) {
@@ -592,4 +622,41 @@ func TestSSETicketService_HashedAtRest(t *testing.T) {
 	// The stored hash must equal SHA-256(rawTicket).
 	expected := sha256.Sum256([]byte(rawTicket))
 	assert.Equal(t, hex.EncodeToString(expected[:]), storedHash)
+}
+
+func TestSSETicketService_SessionTicketRequiresLiveSourceSession(t *testing.T) {
+	t.Parallel()
+	live := time.Now().Add(time.Hour)
+	cases := []struct {
+		name     string
+		sessions map[string]db.AuthSession
+		legacy   map[string]bool
+		err      error
+		wantOK   bool
+	}{
+		{"current session", map[string]db.AuthSession{"h": {UserID: 42, ExpiresAt: live}}, nil, nil, true},
+		{"legacy raw-keyed session", nil, map[string]bool{"h": true}, nil, true},
+		{"logged out", nil, nil, nil, false},
+		{"expired", map[string]db.AuthSession{"h": {UserID: 42, ExpiresAt: time.Now().Add(-time.Minute)}}, nil, nil, false},
+		{"another user's session", map[string]db.AuthSession{"h": {UserID: 43, ExpiresAt: live}}, nil, nil, false},
+		{"store unavailable", nil, nil, errors.New("db down"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			q := newSSETicketRoundTripQuerier()
+			svc := NewSSETicketService(q)
+			issued, err := svc.CreateTicket(context.Background(), 42, false, "", "h")
+			require.NoError(t, err)
+			q.sessions, q.legacySessions, q.sessionErr = tc.sessions, tc.legacy, tc.err
+			principal, err := svc.ValidateTicket(context.Background(), issued.Ticket)
+			if tc.wantOK {
+				require.NoError(t, err)
+				assert.Equal(t, "h", principal.SessionHash)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, principal)
+		})
+	}
 }

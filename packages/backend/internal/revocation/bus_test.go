@@ -246,7 +246,7 @@ func TestBus_WatchUnsubscribesOnContextDone(t *testing.T) {
 
 func TestBus_NilIsSafe(t *testing.T) {
 	var bus *Bus
-	if bus.IsTokenRevoked("x") || bus.IsUserDisabled(1) {
+	if bus.IsTokenRevoked("x") || bus.IsUserDisabled(1) || bus.IsBrowserSessionRevoked("s") {
 		t.Fatal("nil bus reported a revocation")
 	}
 	ch := bus.Watch(context.Background(), Principal{UserID: 1})
@@ -283,6 +283,11 @@ func TestEvent_Affects(t *testing.T) {
 		{"ssh key fingerprint match", Event{Kind: KindSSHKeyRevoked, UserID: 3, KeyFingerprint: "SHA256:f"}, Principal{UserID: 3, KeyFingerprint: "SHA256:f"}, true},
 		{"ssh key same user other key keeps access", Event{Kind: KindSSHKeyRevoked, UserID: 3, KeyFingerprint: "SHA256:f"}, Principal{UserID: 3, KeyFingerprint: "SHA256:g"}, false},
 		{"ssh key empty never matches", Event{Kind: KindSSHKeyRevoked, UserID: 3}, Principal{UserID: 3}, false},
+		{"browser session match", Event{Kind: KindBrowserSessionRevoked, UserID: 3, TokenHash: "s"}, Principal{UserID: 3, BrowserSessionHash: "s"}, true},
+		{"browser session same user other session keeps access", Event{Kind: KindBrowserSessionRevoked, UserID: 3, TokenHash: "s"}, Principal{UserID: 3, BrowserSessionHash: "t"}, false},
+		{"browser session never matches a token", Event{Kind: KindBrowserSessionRevoked, TokenHash: "s"}, Principal{TokenHash: "s"}, false},
+		{"token revocation never matches a browser session", Event{Kind: KindTokenRevoked, TokenHash: "s"}, Principal{BrowserSessionHash: "s"}, false},
+		{"browser session empty never matches", Event{Kind: KindBrowserSessionRevoked, UserID: 3}, Principal{UserID: 3}, false},
 		{"unknown kind", Event{Kind: "nope", UserID: 3}, Principal{UserID: 3}, false},
 	}
 	for _, tc := range cases {
@@ -302,5 +307,90 @@ func TestEvent_RowRoundTrip(t *testing.T) {
 	}
 	if (Event{}).ToParams().SandboxIds == nil {
 		t.Fatal("nil sandbox ids must encode as an empty array")
+	}
+}
+
+func TestBus_BrowserSessionRevocationIsCachedAndWatched(t *testing.T) {
+	log := newFakeLog()
+	bus := newBus(log)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	revoked := bus.Watch(ctx, Principal{UserID: 3, BrowserSessionHash: "s1"})
+	other := bus.Watch(ctx, Principal{UserID: 3, BrowserSessionHash: "s2"})
+	if err := NewDBPublisher(log, bus).Publish(ctx, Event{Kind: KindBrowserSessionRevoked, UserID: 3, TokenHash: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-revoked:
+		if event.Kind != KindBrowserSessionRevoked {
+			t.Fatalf("kind = %q", event.Kind)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("revoked session watcher did not fire")
+	}
+	select {
+	case event := <-other:
+		t.Fatalf("other session watcher fired: %+v", event)
+	default:
+	}
+	if !bus.IsBrowserSessionRevoked("s1") || bus.IsBrowserSessionRevoked("s2") || bus.IsTokenRevoked("s1") || bus.IsUserDisabled(3) {
+		t.Fatal("session revocation must mark only that session")
+	}
+	// A watch registered after the revocation completed still fires.
+	late := bus.Watch(ctx, Principal{UserID: 3, BrowserSessionHash: "s1"})
+	select {
+	case <-late:
+	case <-time.After(time.Second):
+		t.Fatal("late watcher missed a retained session revocation")
+	}
+}
+
+func TestBus_BrowserSessionRevocationExpiresWithRetention(t *testing.T) {
+	bus := newBus(nil)
+	bus.Retention = time.Millisecond
+	bus.Deliver(Event{ID: 1, Kind: KindBrowserSessionRevoked, TokenHash: "s1"})
+	time.Sleep(5 * time.Millisecond)
+	if bus.IsBrowserSessionRevoked("s1") {
+		t.Fatal("retention must bound the session cache")
+	}
+	bus.Deliver(Event{ID: 2, Kind: KindTokenRevoked, TokenHash: "t"})
+	bus.mu.Lock()
+	_, retained := bus.revokedSessions["s1"]
+	bus.mu.Unlock()
+	if retained {
+		t.Fatal("prune must drop expired sessions")
+	}
+}
+
+type fakeChecker struct {
+	tokens, sessions map[string]bool
+	users            map[int64]bool
+}
+
+func (f fakeChecker) IsTokenRevoked(h string) bool          { return f.tokens[h] }
+func (f fakeChecker) IsBrowserSessionRevoked(h string) bool { return f.sessions[h] }
+func (f fakeChecker) IsUserDisabled(id int64) bool          { return f.users[id] }
+
+func TestRevoked(t *testing.T) {
+	checker := fakeChecker{tokens: map[string]bool{"t": true}, sessions: map[string]bool{"s": true}, users: map[int64]bool{7: true}}
+	cases := []struct {
+		name      string
+		principal Principal
+		want      Kind
+	}{
+		{"token", Principal{UserID: 1, TokenHash: "t"}, KindTokenRevoked},
+		{"session", Principal{UserID: 1, BrowserSessionHash: "s"}, KindBrowserSessionRevoked},
+		{"user", Principal{UserID: 7, BrowserSessionHash: "live"}, KindUserDisabled},
+		{"live", Principal{UserID: 1, TokenHash: "other", BrowserSessionHash: "other"}, ""},
+		{"empty", Principal{}, ""},
+	}
+	for _, tc := range cases {
+		event, denied := Revoked(checker, tc.principal)
+		if denied != (tc.want != "") || event.Kind != tc.want {
+			t.Errorf("%s: Revoked = %+v, %v; want %q", tc.name, event, denied, tc.want)
+		}
+	}
+	if _, denied := Revoked(nil, Principal{UserID: 7}); denied {
+		t.Fatal("nil checker must not deny")
 	}
 }

@@ -333,7 +333,7 @@ func TestSessionLifecycleQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, sessions, 1)
 
-	err = q.DeleteUserSessions(context.Background(), userID)
+	_, err = q.DeleteUserSessions(context.Background(), userID)
 	require.NoError(t, err)
 
 	sessions, err = q.ListUserSessions(context.Background(), userID)

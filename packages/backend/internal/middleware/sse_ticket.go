@@ -19,6 +19,8 @@ type SSETicketPrincipal struct {
 	IsTokenAuth bool
 	RawScopes   string
 	TokenHash   string
+	// SessionHash is the SHA-256 of the minting browser session key.
+	SessionHash string
 }
 
 // SSETicketValidator is the interface for validating SSE tickets.
@@ -96,6 +98,7 @@ func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boun
 				User:        principal.User,
 				IsTokenAuth: principal.IsTokenAuth,
 				TokenHash:   principal.TokenHash,
+				SessionHash: principal.SessionHash,
 				RawScopes:   principal.RawScopes,
 				Scopes:      ScopeSet{},
 			}

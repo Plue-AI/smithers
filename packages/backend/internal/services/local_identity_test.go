@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 )
 
 type localIdentityTestQueries struct {
@@ -21,6 +23,8 @@ type localIdentityTestQueries struct {
 	credential  *db.GetSelfHostLocalCredentialRow
 	bootstrapFn func(context.Context, db.BootstrapSelfHostOwnerParams) (db.BootstrapSelfHostOwnerRow, error)
 	deletedAll  int
+
+	deletedSessionKeys []string
 }
 
 func (q *localIdentityTestQueries) GetSelfHostOwner(context.Context) (db.User, error) {
@@ -49,9 +53,9 @@ func (q *localIdentityTestQueries) UpdateSelfHostOwnerPassword(_ context.Context
 	return 1, nil
 }
 
-func (q *localIdentityTestQueries) DeleteUserSessions(context.Context, int64) error {
+func (q *localIdentityTestQueries) DeleteUserSessions(context.Context, int64) ([]string, error) {
 	q.deletedAll++
-	return nil
+	return q.deletedSessionKeys, nil
 }
 
 func newLocalIdentityTestService(q *localIdentityTestQueries) *AuthService {
@@ -255,18 +259,32 @@ func TestLocalIdentityPasswordRotationRevokesBrowserSessions(t *testing.T) {
 	oldHash, err := hashLocalPassword("old strong password")
 	require.NoError(t, err)
 	user := db.User{ID: 11, Username: "owner", LowerUsername: "owner", IsActive: true, IsAdmin: true}
+	legacyKey := "123e4567-e89b-12d3-a456-426614174000"
 	q := &localIdentityTestQueries{mockAuthQuerier: &mockAuthQuerier{
 		createAuthSessionFn: func(_ context.Context, arg db.CreateAuthSessionParams) (db.AuthSession, error) {
 			return db.AuthSession{SessionKey: arg.SessionKey, UserID: arg.UserID, Username: arg.Username, ExpiresAt: arg.ExpiresAt}, nil
 		},
-	}, owner: &user}
+		listUserSessionsFn: func(_ context.Context, userID int64) ([]db.AuthSession, error) {
+			require.Equal(t, user.ID, userID)
+			return []db.AuthSession{{SessionKey: sessionStorageKey("current-raw")}, {SessionKey: legacyKey}}, nil
+		},
+	}, owner: &user, deletedSessionKeys: []string{sessionStorageKey("current-raw"), legacyKey, sessionStorageKey("minted-during-rotation")}}
 	credential := localCredentialRow(user, oldHash)
 	q.credential = &credential
+	publisher := &recordingPublisher{}
 	svc := newLocalIdentityTestService(q)
+	svc.SetRevocationPublisher(publisher)
 
 	_, err = svc.ChangeLocalOwnerPassword(context.Background(), user.ID, "old strong password", "new strong password")
 	require.NoError(t, err)
 	assert.Equal(t, 1, q.deletedAll)
+	events := publisher.all()
+	require.Len(t, events, 3, "every previous browser session ends its live deliveries exactly once")
+	for index, want := range []string{sessionStorageKey("current-raw"), sessionStorageKey(legacyKey), sessionStorageKey("minted-during-rotation")} {
+		assert.Equal(t, revocation.KindBrowserSessionRevoked, events[index].Kind)
+		assert.Equal(t, want, events[index].TokenHash)
+		assert.Equal(t, user.ID, events[index].UserID)
+	}
 	assert.True(t, verifyLocalPassword(q.credential.PasswordHash, "new strong password"))
 	assert.False(t, verifyLocalPassword(q.credential.PasswordHash, "old strong password"))
 }
@@ -315,4 +333,32 @@ func TestSelfHostedOAuthRejectsPreviouslyLinkedForeignUser(t *testing.T) {
 	_, err := newLocalIdentityTestService(q).resolveOAuthUser(context.Background(), exchangeMockGitHubClient(), "workos", "provider-token", "", 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not linked to the installation owner")
+}
+
+func TestLocalIdentityPasswordRotationKeepsOldPasswordWhenRevocationCannotBeRecorded(t *testing.T) {
+	oldHash, err := hashLocalPassword("old strong password")
+	require.NoError(t, err)
+	user := db.User{ID: 11, Username: "owner", LowerUsername: "owner", IsActive: true, IsAdmin: true}
+	for _, tc := range []struct {
+		name      string
+		list      func(context.Context, int64) ([]db.AuthSession, error)
+		publisher revocation.Publisher
+	}{
+		{"list fails", func(context.Context, int64) ([]db.AuthSession, error) { return nil, fmt.Errorf("list down") }, &recordingPublisher{}},
+		{"record fails", func(context.Context, int64) ([]db.AuthSession, error) {
+			return []db.AuthSession{{SessionKey: sessionStorageKey("current-raw")}}, nil
+		}, &failingPublisher{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &localIdentityTestQueries{mockAuthQuerier: &mockAuthQuerier{listUserSessionsFn: tc.list}, owner: &user}
+			credential := localCredentialRow(user, oldHash)
+			q.credential = &credential
+			svc := newLocalIdentityTestService(q)
+			svc.SetRevocationPublisher(tc.publisher)
+			_, err := svc.ChangeLocalOwnerPassword(context.Background(), user.ID, "old strong password", "new strong password")
+			require.Error(t, err)
+			assert.Zero(t, q.deletedAll)
+			assert.True(t, verifyLocalPassword(q.credential.PasswordHash, "old strong password"), "a retry must still accept the old password")
+		})
+	}
 }

@@ -60,6 +60,10 @@ const (
 	// KeyFingerprint identifies it (SHA256:<base64>); UserID is its owner for
 	// user keys, RepositoryID its repository for deploy keys.
 	KindSSHKeyRevoked Kind = "ssh_key_revoked"
+	// KindBrowserSessionRevoked: a browser session ended through logout or
+	// session deletion. TokenHash carries the SHA-256 of the session key, never
+	// the key itself; UserID is its owner when known.
+	KindBrowserSessionRevoked Kind = "browser_session_revoked"
 )
 
 // Event is one revocation. Zero fields mean "not applicable"; a consumer
@@ -97,6 +101,9 @@ type Principal struct {
 	// KeyFingerprint is the SHA256:<base64> fingerprint of the SSH public key
 	// that authenticated the session.
 	KeyFingerprint string
+	// BrowserSessionHash is the SHA-256 of the browser session key that
+	// authenticated the request.
+	BrowserSessionHash string
 }
 
 // Affects reports whether the event revokes the principal's authorization.
@@ -128,6 +135,8 @@ func (e Event) Affects(p Principal) bool {
 		return e.namesSandbox(p.SandboxID)
 	case KindSSHKeyRevoked:
 		return e.KeyFingerprint != "" && p.KeyFingerprint == e.KeyFingerprint
+	case KindBrowserSessionRevoked:
+		return e.TokenHash != "" && p.BrowserSessionHash == e.TokenHash
 	}
 	return false
 }

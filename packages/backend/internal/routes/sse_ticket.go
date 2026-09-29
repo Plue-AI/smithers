@@ -14,7 +14,7 @@ import (
 
 // SSETicketService defines the interface for creating SSE tickets.
 type SSETicketService interface {
-	CreateTicket(ctx context.Context, userID int64, tokenAuth bool, rawScopes, tokenHash string) (services.SSETicketResult, error)
+	CreateTicket(ctx context.Context, userID int64, tokenAuth bool, rawScopes, credentialHash string) (services.SSETicketResult, error)
 }
 
 // SSETicketHandler handles the SSE ticket creation endpoint.
@@ -39,13 +39,13 @@ func (h *SSETicketHandler) PostSSETicket(w http.ResponseWriter, r *http.Request)
 	}
 
 	rawScopes := ""
-	tokenHash := ""
+	credentialHash := authInfo.SessionHash
 	if authInfo.IsTokenAuth {
 		rawScopes = authInfo.RawScopes
-		tokenHash = strings.TrimSpace(authInfo.TokenHash)
+		credentialHash = strings.TrimSpace(authInfo.TokenHash)
 	}
 
-	ticket, err := h.Service.CreateTicket(r.Context(), authInfo.User.ID, authInfo.IsTokenAuth, rawScopes, tokenHash)
+	ticket, err := h.Service.CreateTicket(r.Context(), authInfo.User.ID, authInfo.IsTokenAuth, rawScopes, credentialHash)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
