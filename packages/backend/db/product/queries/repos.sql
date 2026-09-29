@@ -347,6 +347,7 @@ WHERE
             SELECT 1 FROM team_repos tr
             JOIN teams t ON t.id = tr.team_id AND t.organization_id = r.org_id
             JOIN team_members tm ON tm.team_id = t.id
+            JOIN org_members om ON om.organization_id = t.organization_id AND om.user_id = tm.user_id
             WHERE tr.repository_id = r.id
               AND tm.user_id = sqlc.arg(user_id)::bigint
         ))
@@ -374,6 +375,7 @@ WHERE
             SELECT 1 FROM team_repos tr
             JOIN teams t ON t.id = tr.team_id AND t.organization_id = r.org_id
             JOIN team_members tm ON tm.team_id = t.id
+            JOIN org_members om ON om.organization_id = t.organization_id AND om.user_id = tm.user_id
             WHERE tr.repository_id = r.id
               AND tm.user_id = sqlc.arg(user_id)::bigint
         ))

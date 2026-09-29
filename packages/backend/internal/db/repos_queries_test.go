@@ -269,6 +269,70 @@ func TestListReadableReposForUser_TeamOfOtherOrgDoesNotLeak(t *testing.T) {
 	}
 }
 
+func TestReadableReposForUser_FormerOrgMemberRetainsStaleTeamRow(t *testing.T) {
+	for _, permission := range []string{"read", "write", "admin"} {
+		t.Run(permission, func(t *testing.T) {
+			q, db := newQueries(t)
+			ctx := context.Background()
+
+			userID := mustCreateUser(t, db, "former-org-team-user")
+			orgID := mustCreateOrganization(t, db, "former-org-team-org")
+			mustAddOrgMember(t, db, orgID, userID, "member")
+
+			teamID := mustCreateTeam(t, db, orgID, "former-org-team")
+			_, err := db.Exec(ctx, `UPDATE teams SET permission = $1 WHERE id = $2`, permission, teamID)
+			require.NoError(t, err)
+			mustAddTeamMember(t, db, teamID, userID)
+			teamRepoID := mustCreateOrgRepo(t, db, orgID, "former-org-private", false)
+			mustAddTeamRepo(t, db, teamID, teamRepoID)
+
+			collaboratorRepoID := mustCreateOrgRepo(t, db, orgID, "former-org-collaborator", false)
+			mustAddTeamRepo(t, db, teamID, collaboratorRepoID)
+			_, err = db.Exec(ctx,
+				`INSERT INTO collaborators (repository_id, user_id, permission) VALUES ($1, $2, 'read')`,
+				collaboratorRepoID, userID)
+			require.NoError(t, err)
+			publicRepoID := mustCreateOrgRepo(t, db, orgID, "former-org-public", true)
+			mustAddTeamRepo(t, db, teamID, publicRepoID)
+
+			listIDs := func() []int64 {
+				t.Helper()
+				repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
+					UserID: userID, PageSize: 100, PageOffset: 0,
+				})
+				require.NoError(t, err)
+				ids := make([]int64, 0, len(repos))
+				for _, repo := range repos {
+					ids = append(ids, repo.ID)
+				}
+				return ids
+			}
+
+			assert.ElementsMatch(t, []int64{teamRepoID, collaboratorRepoID, publicRepoID}, listIDs())
+			count, err := q.CountReadableReposForUser(ctx, userID)
+			require.NoError(t, err)
+			assert.Equal(t, int64(3), count)
+
+			// Deliberately bypass normal removal cleanup to retain a stale team grant.
+			deleted, err := db.Exec(ctx,
+				`DELETE FROM org_members WHERE organization_id = $1 AND user_id = $2`, orgID, userID)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, deleted.RowsAffected())
+			var staleTeamRows int64
+			err = db.QueryRow(ctx,
+				`SELECT COUNT(*) FROM team_members WHERE team_id = $1 AND user_id = $2`,
+				teamID, userID).Scan(&staleTeamRows)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), staleTeamRows)
+
+			assert.ElementsMatch(t, []int64{collaboratorRepoID, publicRepoID}, listIDs())
+			count, err = q.CountReadableReposForUser(ctx, userID)
+			require.NoError(t, err)
+			assert.Equal(t, int64(2), count)
+		})
+	}
+}
+
 func TestDeleteOrganizationCascadesRepos(t *testing.T) {
 	ctx := context.Background()
 	q, pool := newQueries(t)
