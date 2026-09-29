@@ -86,7 +86,11 @@ describe("isRefused", () => {
 
 describe("Refused", () => {
   it("renders rule, code, and message, and exposes rule and code as fields", () => {
-    const refusal = new Outward.Refused("Github.Pages", "approval_unsatisfied", "nobody approved it")
+    const refusal = new Outward.Refused({
+      rule: "Github.Pages",
+      code: "approval_unsatisfied",
+      detail: "nobody approved it"
+    })
     expect(refusal.message).toBe("Github.Pages: approval_unsatisfied: nobody approved it")
     expect(refusal.rule).toBe("Github.Pages")
     expect(refusal.code).toBe("approval_unsatisfied")

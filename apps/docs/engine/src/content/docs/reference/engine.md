@@ -79,6 +79,7 @@ The members and the value each one carries across the seam:
 | `resume`                | no       | None.                                                                                                                                      |
 | `resumeSignal`          | yes      | None.                                                                                                                                      |
 | `actionExecute`         | no       | Encoded. `makeUnsafe` decodes it through the action's `exitSchemaPartial`.                                                                 |
+| `actionReplayKey`       | yes      | Selects a copied fork attempt key using the engine's canonical derivation. Fresh fork work is run-scoped.                                  |
 | `actionRetryOrigin`     | yes      | None.                                                                                                                                      |
 | `actionLatestAttempt`   | yes      | None.                                                                                                                                      |
 | `actionSnapshot`        | yes      | None.                                                                                                                                      |
@@ -248,7 +249,7 @@ The minimal host snapshot boundary compensable actions execute against. The engi
 
 ### `FlowProxy.FlowProxyCollision`
 
-- **Type:** `class FlowProxyCollision extends Error`
+- **Type:** `class FlowProxyCollision extends Schema.TaggedError<FlowProxyCollision>()("@smthrs/engine/FlowProxyCollision", { operation })`
 - **Since:** `1.0.0`
 - **Related:** `FlowProxy.assertNoCollisions`
 
@@ -256,7 +257,7 @@ The refusal thrown before proxy construction when two flow operations share one 
 
 ### `FlowProxy.InvalidFlowTag`
 
-- **Type:** `class InvalidFlowTag extends Error`
+- **Type:** `class InvalidFlowTag extends Schema.TaggedError<InvalidFlowTag>()("@smthrs/engine/InvalidFlowTag", { tag })`
 - **Since:** `1.0.0`
 - **Related:** `FlowProxy.toHttpApiGroup`
 

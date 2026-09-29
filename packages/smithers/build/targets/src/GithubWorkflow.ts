@@ -29,6 +29,7 @@
  * @since 0.1.0
  */
 
+import * as Schema from "effect/Schema"
 import { Buffer } from "node:buffer"
 import * as Yaml from "yaml"
 
@@ -91,20 +92,58 @@ export interface Workflow {
 }
 
 /**
+ * Why a workflow file was refused.
+ *
+ * `too_large` is a source over {@link maximumWorkflowBytes}; `invalid_yaml`
+ * is a structural YAML error; `unsupported` is a construct the gate scanner
+ * will not follow (an alias, a merge, an inherited `defaults:`); `duplicate`
+ * is a repeated key, job id, or event; `missing` is an absent trigger, job,
+ * runner, or step; `invalid_shape` is any other value of the wrong shape.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export const WorkflowParseReason = Schema.Literals([
+  "too_large",
+  "invalid_yaml",
+  "unsupported",
+  "duplicate",
+  "missing",
+  "invalid_shape"
+])
+
+/**
+ * Why a workflow file was refused.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type WorkflowParseReason = typeof WorkflowParseReason.Type
+
+/**
  * A workflow file could not be read as a GitHub Actions workflow.
+ *
+ * The message is `line {line}: {detail}`.
  *
  * @category errors
  * @since 0.1.0
  */
-export class WorkflowParseError extends Error {
+export class WorkflowParseError extends Schema.TaggedError<WorkflowParseError>()(
+  "smithers-build/WorkflowParseError",
+  {
+    line: Schema.Number,
+    reason: WorkflowParseReason,
+    detail: Schema.String
+  }
+) {
   override readonly name = "WorkflowParseError"
-  readonly line: number
-
-  constructor(line: number, message: string) {
-    super(`line ${line}: ${message}`)
-    this.line = line
+  override get message(): string {
+    return `line ${this.line}: ${this.detail}`
   }
 }
+
+const refusal = (line: number, reason: WorkflowParseReason, detail: string): WorkflowParseError =>
+  new WorkflowParseError({ line, reason, detail })
 
 /** One mapping entry, with the source line of its key. */
 interface Entry {
@@ -165,7 +204,7 @@ const entriesOf = (
   for (const item of map.items) {
     const line = nodeLine(counter, item.key)
     if (!Yaml.isScalar(item.key)) {
-      throw new WorkflowParseError(line, "a mapping key that is not a scalar is not supported by the gate scanner")
+      throw refusal(line, "unsupported", "a mapping key that is not a scalar is not supported by the gate scanner")
     }
     // The key is its decoded text, because `"test":` and `test:` are the same
     // key. A gate or a required job pinned to `test` must see the job either
@@ -186,7 +225,7 @@ const byKey = (entries: ReadonlyArray<Entry>): ReadonlyMap<string, Entry> =>
 const refuseInherited = (fields: ReadonlyMap<string, Entry>, describe: (key: string) => string): void => {
   for (const key of ["defaults", "<<"]) {
     const field = fields.get(key)
-    if (field !== undefined) throw new WorkflowParseError(field.line, describe(key))
+    if (field !== undefined) throw refusal(field.line, "unsupported", describe(key))
   }
 }
 
@@ -195,7 +234,7 @@ const eventNameShape = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** Holds a workflow event to the identifier shape GitHub documents. */
 const eventName = (text: string, line: number): string => {
   if (!eventNameShape.test(text)) {
-    throw new WorkflowParseError(line, `${JSON.stringify(text)} is not a supported workflow event name shape`)
+    throw refusal(line, "invalid_shape", `${JSON.stringify(text)} is not a supported workflow event name shape`)
   }
   return text
 }
@@ -207,22 +246,22 @@ const checkTrigger = (trigger: Entry, counter: Yaml.LineCounter): void => {
     const events = entriesOf(
       node,
       counter,
-      (key, line) => new WorkflowParseError(line, `duplicate workflow event ${JSON.stringify(key)}`)
+      (key, line) => refusal(line, "duplicate", `duplicate workflow event ${JSON.stringify(key)}`)
     )
-    if (events.length === 0) throw new WorkflowParseError(trigger.line, "workflow declares no trigger")
+    if (events.length === 0) throw refusal(trigger.line, "missing", "workflow declares no trigger")
     for (const event of events) eventName(event.key, event.line)
     return
   }
   if (Yaml.isSeq(node)) {
     const events = node.items.map((item) => eventName(scalarText(item), nodeLine(counter, item)))
-    if (events.length === 0) throw new WorkflowParseError(trigger.line, "workflow declares no trigger")
+    if (events.length === 0) throw refusal(trigger.line, "missing", "workflow declares no trigger")
     if (new Set(events).size !== events.length) {
-      throw new WorkflowParseError(trigger.line, "workflow event sequence contains a duplicate event")
+      throw refusal(trigger.line, "duplicate", "workflow event sequence contains a duplicate event")
     }
     return
   }
   const value = scalarText(node)
-  if (value === "") throw new WorkflowParseError(trigger.line, "workflow declares no trigger")
+  if (value === "") throw refusal(trigger.line, "missing", "workflow declares no trigger")
   eventName(value, trigger.line)
 }
 
@@ -230,17 +269,18 @@ const checkTrigger = (trigger: Entry, counter: Yaml.LineCounter): void => {
 const readStep = (node: unknown, job: string, counter: Yaml.LineCounter): WorkflowStep => {
   const line = nodeLine(counter, node)
   if (!Yaml.isMap(node)) {
-    throw new WorkflowParseError(line, `expected a mapping in a step of job ${JSON.stringify(job)}`)
+    throw refusal(line, "invalid_shape", `expected a mapping in a step of job ${JSON.stringify(job)}`)
   }
   const fields = byKey(entriesOf(
     node,
     counter,
     (key, keyLine) =>
-      new WorkflowParseError(keyLine, `duplicate key ${JSON.stringify(key)} in a step of job ${JSON.stringify(job)}`)
+      refusal(keyLine, "duplicate", `duplicate key ${JSON.stringify(key)} in a step of job ${JSON.stringify(job)}`)
   ))
   if (fields.has("<<")) {
-    throw new WorkflowParseError(
+    throw refusal(
       line,
+      "unsupported",
       `a YAML merge in a step of job ${JSON.stringify(job)} is not supported by the gate scanner`
     )
   }
@@ -251,20 +291,22 @@ const readStep = (node: unknown, job: string, counter: Yaml.LineCounter): Workfl
   const uses = field("uses")
   const run = field("run")
   if ((uses === undefined) === (run === undefined)) {
-    throw new WorkflowParseError(
+    throw refusal(
       line,
+      "invalid_shape",
       `a step of job ${JSON.stringify(job)} must declare exactly one of \`uses\` or \`run\``
     )
   }
   if ((uses ?? run)!.trim() === "") {
-    throw new WorkflowParseError(
+    throw refusal(
       line,
+      "invalid_shape",
       `a step of job ${JSON.stringify(job)} has an empty ${uses === undefined ? "run" : "uses"} value`
     )
   }
   const shell = field("shell")
   if (shell !== undefined && shell.trim() === "") {
-    throw new WorkflowParseError(line, `a step of job ${JSON.stringify(job)} has an empty shell`)
+    throw refusal(line, "invalid_shape", `a step of job ${JSON.stringify(job)} has an empty shell`)
   }
   return {
     name: field("name"),
@@ -287,22 +329,22 @@ const jobIdShape = /^[A-Za-z_][A-Za-z0-9_-]*$/
 const readJob = (job: Entry, counter: Yaml.LineCounter): WorkflowJob => {
   const node = job.value
   if (Yaml.isSeq(node)) {
-    throw new WorkflowParseError(
+    throw refusal(
       nodeLine(counter, node.items[0] ?? node),
+      "invalid_shape",
       `expected a mapping entry in job ${JSON.stringify(job.key)}, not a sequence item`
     )
   }
   if (!Yaml.isMap(node)) {
-    throw new WorkflowParseError(job.line, `job ${JSON.stringify(job.key)} must be a block mapping`)
+    throw refusal(job.line, "invalid_shape", `job ${JSON.stringify(job.key)} must be a block mapping`)
   }
   if (!jobIdShape.test(job.key)) {
-    throw new WorkflowParseError(job.line, `${JSON.stringify(job.key)} is not a valid GitHub Actions job id`)
+    throw refusal(job.line, "invalid_shape", `${JSON.stringify(job.key)} is not a valid GitHub Actions job id`)
   }
   const fields = byKey(entriesOf(
     node,
     counter,
-    (key, line) =>
-      new WorkflowParseError(line, `duplicate key ${JSON.stringify(key)} in job ${JSON.stringify(job.key)}`)
+    (key, line) => refusal(line, "duplicate", `duplicate key ${JSON.stringify(key)} in job ${JSON.stringify(job.key)}`)
   ))
   refuseInherited(
     fields,
@@ -316,7 +358,7 @@ const readJob = (job: Entry, counter: Yaml.LineCounter): WorkflowJob => {
   const declared = fields.get("steps")
   if (declared !== undefined && !isEmptyNode(declared.value)) {
     if (!Yaml.isSeq(declared.value)) {
-      throw new WorkflowParseError(declared.line, "`steps` must be a block sequence")
+      throw refusal(declared.line, "invalid_shape", "`steps` must be a block sequence")
     }
     for (const item of declared.value.items) steps.push(readStep(item, job.key, counter))
   }
@@ -324,20 +366,21 @@ const readJob = (job: Entry, counter: Yaml.LineCounter): WorkflowJob => {
   const uses = field("uses")
   if (uses !== undefined) {
     if (uses.trim() === "") {
-      throw new WorkflowParseError(job.line, `reusable job ${JSON.stringify(job.key)} has an empty uses value`)
+      throw refusal(job.line, "invalid_shape", `reusable job ${JSON.stringify(job.key)} has an empty uses value`)
     }
     if (runsOn !== undefined || declared !== undefined) {
-      throw new WorkflowParseError(
+      throw refusal(
         job.line,
+        "invalid_shape",
         `reusable job ${JSON.stringify(job.key)} cannot also declare runs-on or steps`
       )
     }
   } else {
     if (runsOn === undefined || runsOn.trim() === "") {
-      throw new WorkflowParseError(job.line, `job ${JSON.stringify(job.key)} declares no runner`)
+      throw refusal(job.line, "missing", `job ${JSON.stringify(job.key)} declares no runner`)
     }
     if (declared === undefined || steps.length === 0) {
-      throw new WorkflowParseError(job.line, `job ${JSON.stringify(job.key)} declares no steps`)
+      throw refusal(job.line, "missing", `job ${JSON.stringify(job.key)} declares no steps`)
     }
   }
   return {
@@ -357,7 +400,7 @@ const refuseYamlErrors = (document: Yaml.Document.Parsed, counter: Yaml.LineCoun
   if (failure === undefined) return
   const summary = failure.message.split("\n")[0]!.replace(/ at line \d+, column \d+:?$/, "")
   const line = failure.linePos?.[0].line ?? counter.linePos(failure.pos[0]).line
-  throw new WorkflowParseError(line, `invalid YAML: ${summary}`)
+  throw refusal(line, "invalid_yaml", `invalid YAML: ${summary}`)
 }
 
 /**
@@ -368,7 +411,7 @@ const refuseYamlErrors = (document: Yaml.Document.Parsed, counter: Yaml.LineCoun
 const refuseAliases = (document: Yaml.Document.Parsed, counter: Yaml.LineCounter): void => {
   Yaml.visit(document, {
     Alias: (_key, node) => {
-      throw new WorkflowParseError(nodeLine(counter, node), "a YAML alias is not supported by the gate scanner")
+      throw refusal(nodeLine(counter, node), "unsupported", "a YAML alias is not supported by the gate scanner")
     }
   })
 }
@@ -388,7 +431,7 @@ const refuseAliases = (document: Yaml.Document.Parsed, counter: Yaml.LineCounter
  */
 export const parseWorkflow = (source: string): Workflow => {
   if (Buffer.byteLength(source, "utf8") > maximumWorkflowBytes) {
-    throw new WorkflowParseError(1, `workflow source is larger than ${maximumWorkflowBytes} bytes`)
+    throw refusal(1, "too_large", `workflow source is larger than ${maximumWorkflowBytes} bytes`)
   }
   const counter = new Yaml.LineCounter()
   const document = Yaml.parseDocument(source, {
@@ -405,13 +448,14 @@ export const parseWorkflow = (source: string): Workflow => {
 
   const contents = document.contents
   if (Yaml.isSeq(contents)) {
-    throw new WorkflowParseError(
+    throw refusal(
       nodeLine(counter, contents.items[0] ?? contents),
+      "invalid_shape",
       "expected a mapping entry at the top level, not a sequence item"
     )
   }
   if (contents !== null && !Yaml.isMap(contents)) {
-    throw new WorkflowParseError(nodeLine(counter, contents), "expected a mapping at the top level")
+    throw refusal(nodeLine(counter, contents), "invalid_shape", "expected a mapping at the top level")
   }
   const top = byKey(
     contents === null
@@ -419,36 +463,37 @@ export const parseWorkflow = (source: string): Workflow => {
       : entriesOf(
         contents,
         counter,
-        (key, line) => new WorkflowParseError(line, `duplicate top-level key ${JSON.stringify(key)}`)
+        (key, line) => refusal(line, "duplicate", `duplicate top-level key ${JSON.stringify(key)}`)
       )
   )
   refuseInherited(top, (key) => `top-level ${JSON.stringify(key)} is not supported by the gate scanner`)
   const trigger = top.get("on")
   if (trigger === undefined) {
-    throw new WorkflowParseError(1, "workflow is missing the required top-level `on` trigger")
+    throw refusal(1, "missing", "workflow is missing the required top-level `on` trigger")
   }
   const declared = top.get("jobs")
   if (declared === undefined) {
-    throw new WorkflowParseError(1, "workflow is missing the required top-level `jobs` mapping")
+    throw refusal(1, "missing", "workflow is missing the required top-level `jobs` mapping")
   }
   checkTrigger(trigger, counter)
 
   if (Yaml.isSeq(declared.value)) {
-    throw new WorkflowParseError(
+    throw refusal(
       nodeLine(counter, declared.value.items[0] ?? declared.value),
+      "invalid_shape",
       "expected a job mapping entry, not a sequence item"
     )
   }
-  if (isEmptyNode(declared.value)) throw new WorkflowParseError(1, "workflow declares no jobs")
+  if (isEmptyNode(declared.value)) throw refusal(1, "missing", "workflow declares no jobs")
   if (!Yaml.isMap(declared.value)) {
-    throw new WorkflowParseError(declared.line, "inline `jobs` mappings are not supported")
+    throw refusal(declared.line, "unsupported", "inline `jobs` mappings are not supported")
   }
   const jobs = entriesOf(
     declared.value,
     counter,
-    (key, line) => new WorkflowParseError(line, `duplicate job id ${JSON.stringify(key)}`)
+    (key, line) => refusal(line, "duplicate", `duplicate job id ${JSON.stringify(key)}`)
   ).map((job) => readJob(job, counter))
-  if (jobs.length === 0) throw new WorkflowParseError(1, "workflow declares no jobs")
+  if (jobs.length === 0) throw refusal(1, "missing", "workflow declares no jobs")
 
   const name = top.get("name")
   return { name: name === undefined ? undefined : scalarText(name.value) || undefined, jobs }

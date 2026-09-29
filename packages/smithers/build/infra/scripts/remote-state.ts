@@ -20,6 +20,7 @@
 
 import { errorCode } from "@smthrs/targets/SafeFs"
 import { AwsClient } from "aws4fetch"
+import * as Data from "effect/Data"
 import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
 import * as Fs from "node:fs/promises"
@@ -145,16 +146,13 @@ export interface R2StateBucketOptions {
  * @category errors
  * @since 0.1.0
  */
-export class WeakEtagError extends Error {
-  readonly _tag = "WeakEtagError"
+export class WeakEtagError extends Data.TaggedError("@smthrs/build-infra/WeakEtagError")<{
   readonly key: string
   readonly etag: string
-
-  constructor(key: string, etag: string) {
-    super(`R2 state ${key} carries the weak ETag ${etag}, which R2 never matches on a conditional write`)
-    this.name = "WeakEtagError"
-    this.key = key
-    this.etag = etag
+}> {
+  override readonly name = "WeakEtagError"
+  override get message(): string {
+    return `R2 state ${this.key} carries the weak ETag ${this.etag}, which R2 never matches on a conditional write`
   }
 }
 
@@ -200,11 +198,13 @@ export const r2StateBucket = (options: R2StateBucketOptions): StateBucket => {
       const etag = response.headers.get("etag")
       const body = await response.text()
       if (etag === null) throw new Error(`R2 state GET ${key} returned no ETag, so no write can be conditioned on it`)
-      if (isWeakEtag(etag)) throw new WeakEtagError(key, etag)
+      if (isWeakEtag(etag)) throw new WeakEtagError({ key, etag })
       return { body, etag }
     },
     put: async (key, body, condition) => {
-      if ("ifMatch" in condition && isWeakEtag(condition.ifMatch)) throw new WeakEtagError(key, condition.ifMatch)
+      if ("ifMatch" in condition && isWeakEtag(condition.ifMatch)) {
+        throw new WeakEtagError({ key, etag: condition.ifMatch })
+      }
       const headers = "ifAbsent" in condition ? { "if-none-match": "*" } : { "if-match": condition.ifMatch }
       const response = await send(key, {
         method: "PUT",

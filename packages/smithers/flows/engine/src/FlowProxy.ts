@@ -26,14 +26,14 @@ import { isWellFormedUtf16 } from "./internal/Utf16.ts"
  * @category errors
  * @since 1.0.0
  */
-export class FlowProxyCollision extends Error {
+export class FlowProxyCollision extends Schema.TaggedError<FlowProxyCollision>()(
+  "@smthrs/engine/FlowProxyCollision",
+  { operation: Schema.String }
+) {
+  override readonly name = "FlowProxyCollision"
   readonly code = "flow_proxy_collision"
-  readonly operation: string
-
-  constructor(operation: string) {
-    super(`Flow proxy operation ${JSON.stringify(operation)} is not unique`)
-    this.name = "FlowProxyCollision"
-    this.operation = operation
+  override get message(): string {
+    return `Flow proxy operation ${JSON.stringify(this.operation)} is not unique`
   }
 }
 
@@ -43,14 +43,14 @@ export class FlowProxyCollision extends Error {
  * @category errors
  * @since 1.0.0
  */
-export class InvalidFlowTag extends Error {
+export class InvalidFlowTag extends Schema.TaggedError<InvalidFlowTag>()(
+  "@smthrs/engine/InvalidFlowTag",
+  { tag: Schema.String }
+) {
+  override readonly name = "InvalidFlowTag"
   readonly code = "invalid_flow_tag"
-  readonly tag: string
-
-  constructor(tag: string) {
-    super(`Flow tag ${JSON.stringify(tag)} is not well-formed UTF-16`)
-    this.name = "InvalidFlowTag"
-    this.tag = tag
+  override get message(): string {
+    return `Flow tag ${JSON.stringify(this.tag)} is not well-formed UTF-16`
   }
 }
 
@@ -94,7 +94,7 @@ export const assertNoCollisions = (
   const seen = new Set<string>()
   for (const flow of flows) {
     for (const operation of Object.values(operationAddresses(flow._tag, prefix))) {
-      if (seen.has(operation)) throw new FlowProxyCollision(operation)
+      if (seen.has(operation)) throw new FlowProxyCollision({ operation })
       seen.add(operation)
     }
   }
@@ -318,7 +318,7 @@ export const toHttpApiGroup = <const Name extends string, const Flows extends No
 }
 
 const tagToPath = (tag: string): string => {
-  if (!isWellFormedUtf16(tag)) throw new InvalidFlowTag(tag)
+  if (!isWellFormedUtf16(tag)) throw new InvalidFlowTag({ tag })
   // Routers disagree about whether a percent-encoded slash is decoded before
   // matching. UTF-16 hex is injective, URL-safe, and remains one segment in
   // every adapter while preserving case and normalization distinctions.

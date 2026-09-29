@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
+import * as Effect from "effect/Effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { stackName } from "../deployment.ts"
 import {
@@ -408,7 +409,12 @@ describe("the R2 state bucket", () => {
     const { fetch } = recordingFetch(() => new Response("body", { status: 200, headers: { etag: `W/"e1"` } }))
     const error = await r2StateBucket({ ...r2Options, fetch }).get("k").catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(WeakEtagError)
-    expect(error).toMatchObject({ _tag: "WeakEtagError", key: "k", etag: `W/"e1"` })
+    expect(error).toMatchObject({ _tag: "@smthrs/build-infra/WeakEtagError", key: "k", etag: `W/"e1"` })
+    const routed = await Effect.runPromise(
+      Effect.tryPromise({ try: () => r2StateBucket({ ...r2Options, fetch }).get("k"), catch: (cause) => cause as WeakEtagError })
+        .pipe(Effect.catchTag("@smthrs/build-infra/WeakEtagError", (weak) => Effect.succeed(weak.etag)))
+    )
+    expect(routed).toBe(`W/"e1"`)
   })
 
   it("deletes an object, and treats one already gone as deleted", async () => {

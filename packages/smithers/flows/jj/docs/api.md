@@ -406,7 +406,7 @@ filesystem, and a file-descriptor table.
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `make(options)`       | `(options: WasiPreview1Options) => WasiPreview1`                                                                           |
 | `Errno`               | A frozen record of WASI preview 1 errno names to numbers.                                                                  |
-| `WasiExitError`       | `class WasiExitError extends Error` with `readonly exitCode: number`                                                       |
+| `WasiExitError`       | Tagged error `@smthrs/jj/WasiExitError` with `readonly exitCode: number`, the unsigned `proc_exit` code                    |
 | `WasiPreview1Options` | `interface { fs: SyncFsLike; root?: string; onStdout?: (text: string) => void; onStderr?: (text: string) => void }`        |
 | `WasiPreview1`        | `interface { imports: Record<string, (...args: Array<any>) => number>; initialize: (memory: WebAssembly.Memory) => void }` |
 

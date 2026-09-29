@@ -24,6 +24,7 @@
  * @since 0.1.0
  */
 
+import * as Schema from "effect/Schema"
 import type * as Secret from "./Secret.ts"
 
 /**
@@ -37,23 +38,32 @@ import type * as Secret from "./Secret.ts"
  * @category models
  * @since 0.1.0
  */
-export type RefusalCode = "missing_secret" | "approval_unsatisfied"
+export const RefusalCode = Schema.Literals(["missing_secret", "approval_unsatisfied"])
+
+/**
+ * Why one outward invocation was refused.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export type RefusalCode = typeof RefusalCode.Type
 
 /**
  * An outward invocation was refused before any outward action.
  *
+ * The message is `{rule}: {code}: {detail}`.
+ *
  * @category errors
  * @since 0.1.0
  */
-export class Refused extends Error {
+export class Refused extends Schema.TaggedError<Refused>()("smithers-build/Refused", {
+  rule: Schema.String,
+  code: RefusalCode,
+  detail: Schema.String
+}) {
   override readonly name = "Refused"
-  readonly code: RefusalCode
-  readonly rule: string
-
-  constructor(rule: string, code: RefusalCode, message: string) {
-    super(`${rule}: ${code}: ${message}`)
-    this.code = code
-    this.rule = rule
+  override get message(): string {
+    return `${this.rule}: ${this.code}: ${this.detail}`
   }
 }
 
@@ -108,19 +118,19 @@ export const refuse = (requirements: Requirements, invocation: Invocation): Refu
   for (const name of requirements.required) {
     const secret = declared.find((entry) => entry.secret.env === name)
     if (secret === undefined) {
-      return new Refused(
-        requirements.rule,
-        "missing_secret",
-        `declares no S.HttpSecret(S.Secret(${JSON.stringify(name)}), [...]) in secrets`
-      )
+      return new Refused({
+        rule: requirements.rule,
+        code: "missing_secret",
+        detail: `declares no S.HttpSecret(S.Secret(${JSON.stringify(name)}), [...]) in secrets`
+      })
     }
   }
   if (requirements.approval === "required" && !invocation.approvalGranted) {
-    return new Refused(
-      requirements.rule,
-      "approval_unsatisfied",
-      "declares approval: \"required\" and no approval was granted"
-    )
+    return new Refused({
+      rule: requirements.rule,
+      code: "approval_unsatisfied",
+      detail: "declares approval: \"required\" and no approval was granted"
+    })
   }
   return undefined
 }

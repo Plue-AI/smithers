@@ -24,6 +24,7 @@ import {
   maxRecordedRunIdLength,
   maxReferencedDigests
 } from "../protocol.ts"
+import { CacheFailure } from "../cache-failure.ts"
 import { MemoryActionCache, MemoryContentStore } from "./MemoryStores.ts"
 
 const token = "test-token-with-sufficient-entropy-for-unit-tests"
@@ -732,9 +733,31 @@ describe("remote-cache hardening", () => {
       expect(response.status).toBe(503)
       expect(error).toHaveBeenCalledOnce()
       const diagnostic = String(error.mock.calls[0]?.[0])
-      expect(diagnostic).toContain("name=Error")
+      expect(diagnostic).toContain("name=CacheFailure")
       expect(diagnostic).toContain("code=ECONNRESET")
       expect(diagnostic).not.toContain(secret)
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  it("answers a tagged cache refusal with the fixed body and logs its name, code, and operation", async () => {
+    const failure = new CacheFailure("D1_RESULT_INVALID", "actionCache.get", "D1 row for tenant-secret was invalid")
+    const actionCache: ActionCache = {
+      get: async () => Promise.reject(failure),
+      put: async () => Promise.reject(failure),
+      delete: async () => Promise.reject(failure)
+    }
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const response = await makeHandler({ actionCache })(request(`/ac/${keyDigest}`))
+      expect(response.status).toBe(503)
+      const body = await response.text()
+      expect(JSON.parse(body)).toEqual({ error: "the cache tier failed to answer" })
+      expect(body).not.toContain("tenant-secret")
+      expect(String(error.mock.calls[0]?.[0])).toBe(
+        "smithers build cache: request failed (name=CacheFailure code=DEPENDENCY_FAILED operation=actionCache.get cause1.code=D1_RESULT_INVALID)"
+      )
     } finally {
       error.mockRestore()
     }

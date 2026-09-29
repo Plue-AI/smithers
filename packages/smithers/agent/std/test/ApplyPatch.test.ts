@@ -3,6 +3,7 @@ import { Cause, Effect, Exit, FileSystem, Option, Path, PlatformError } from "ef
 import { describe, expect, it } from "vitest"
 import * as ApplyPatch from "../src/ApplyPatch.ts"
 import {
+  ComputeReplacementsError,
   deriveNewContents,
   ParseError,
   parsePatch,
@@ -280,6 +281,40 @@ describe("StreamingPatchParser", () => {
       expect((error as ParseError).lineNumber).toBe(2)
     }
   })
+
+  it("routes a parse failure by tag and keeps the Codex sentence", () => {
+    const routed = Effect.runSync(
+      Effect.try({ try: () => parsePatch("bad"), catch: (error) => error as ParseError }).pipe(
+        Effect.map(() => "parsed"),
+        Effect.catchTag("@smthrs/std/ParseError", (error) => Effect.succeed(`${error.kind}: ${error.message}`))
+      )
+    )
+    expect(routed).toBe(
+      "invalid_patch: invalid patch: The first line of the patch must be '*** Begin Patch'"
+    )
+  })
+})
+
+describe("ComputeReplacementsError", () => {
+  it("names the missing context and the missing lines as separate reasons", () => {
+    const reason = (chunk: Parameters<typeof deriveNewContents>[2][number]) => {
+      try {
+        deriveNewContents("present\n", "/a.txt", [chunk])
+      } catch (error) {
+        expect(error).toBeInstanceOf(ComputeReplacementsError)
+        return error as ComputeReplacementsError
+      }
+      return expect.unreachable()
+    }
+    expect(reason({ changeContext: "gone", oldLines: [], newLines: ["x"], isEndOfFile: false })).toMatchObject({
+      _tag: "@smthrs/std/ComputeReplacementsError",
+      reason: "context_not_found",
+      path: "/a.txt",
+      message: "Failed to find context 'gone' in /a.txt"
+    })
+    expect(reason({ changeContext: undefined, oldLines: ["missing"], newLines: ["x"], isEndOfFile: false }))
+      .toMatchObject({ reason: "lines_not_found", message: "Failed to find expected lines in /a.txt:\nmissing" })
+  })
 })
 
 describe("seekSequence", () => {
@@ -395,6 +430,8 @@ describe("ApplyPatch.run", () => {
   )("maps $reason during path preflight to $code", async ({ reason, code }) => {
     const path = "/target.txt"
     const host = FileSystem.makeNoop({
+      makeDirectory: () => Effect.void,
+      remove: () => Effect.void,
       realPath: () =>
         Effect.fail(PlatformError.systemError({
           _tag: reason,
@@ -455,6 +492,7 @@ describe("ApplyPatch.run", () => {
     let temporary = ""
     let mode = 0o100644
     const host = FileSystem.makeNoop({
+      makeDirectory: () => Effect.void,
       realPath: (path) => Effect.succeed(path),
       rename: () => Effect.void,
       remove: () => Effect.void,
@@ -493,6 +531,9 @@ describe("ApplyPatch.run", () => {
     let mode = 0o100644
     let writes = 0
     const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      makeDirectory: () => Effect.void,
+      remove: () => Effect.void,
       stat: () => Effect.succeed(fileInfo({ mode, size: stored.byteLength })),
       readFile: () => Effect.succeed(stored.slice()),
       writeFile: (_path, content) =>
@@ -526,6 +567,9 @@ describe("ApplyPatch.run", () => {
     let stored = original.slice()
     let writes = 0
     const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      makeDirectory: () => Effect.void,
+      remove: () => Effect.void,
       readFile: () => Effect.succeed(stored.slice()),
       writeFile: (_path, content) =>
         Effect.sync(() => {
@@ -576,6 +620,8 @@ describe("ApplyPatch.run", () => {
   it("reports completed paths when a later write fails", async () => {
     let writes = 0
     const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      remove: () => Effect.void,
       makeDirectory: () => Effect.void,
       writeFile: (path) => {
         writes++

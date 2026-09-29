@@ -22,15 +22,13 @@ const isDigest = Schema.is(ArtifactStore.Digest)
  * @category errors
  * @since 1.0.0
  */
-export class ArtifactRootDecodeError extends Error {
-  readonly table: string
-  override readonly cause: unknown
-
-  constructor(table: string, cause: unknown) {
-    super(`a ${table} row carries artifact evidence this build cannot decode`)
-    this.name = "ArtifactRootDecodeError"
-    this.table = table
-    this.cause = cause
+export class ArtifactRootDecodeError extends Schema.TaggedError<ArtifactRootDecodeError>()(
+  "@smthrs/engine-store/ArtifactRootDecodeError",
+  { table: Schema.String, cause: Schema.Unknown }
+) {
+  override readonly name = "ArtifactRootDecodeError"
+  override get message(): string {
+    return `a ${this.table} row carries artifact evidence this build cannot decode`
   }
 }
 
@@ -46,12 +44,12 @@ export const rootDigests = (
 ): Effect.Effect<ReadonlyArray<string>, ArtifactRootDecodeError> =>
   Effect.gen(function*() {
     const meta = yield* Schema.decodeUnknownEffect(MetaJson)(metaJson).pipe(
-      Effect.mapError((cause) => new ArtifactRootDecodeError(table, cause))
+      Effect.mapError((cause) => new ArtifactRootDecodeError({ table, cause }))
     )
     if (meta === null || typeof meta !== "object" || !("boundary" in meta)) return []
     const decoded = Schema.decodeUnknownResult(RootMeta)(meta)
     if (decoded._tag === "Failure") {
-      return yield* Effect.fail(new ArtifactRootDecodeError(table, decoded.failure))
+      return yield* Effect.fail(new ArtifactRootDecodeError({ table, cause: decoded.failure }))
     }
     return StepBoundary.referencedDigests(decoded.success.boundary)
   })
@@ -88,7 +86,7 @@ export const checkpointDigests = (
   Effect.gen(function*() {
     if (checkpointJson === null) return []
     const checkpoint = yield* Schema.decodeUnknownEffect(MetaJson)(checkpointJson).pipe(
-      Effect.mapError((cause) => new ArtifactRootDecodeError("flows_attempts.checkpoint_json", cause))
+      Effect.mapError((cause) => new ArtifactRootDecodeError({ table: "flows_attempts.checkpoint_json", cause }))
     )
     return collectArtifactDigests(checkpoint)
   })

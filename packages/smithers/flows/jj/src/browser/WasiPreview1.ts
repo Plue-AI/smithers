@@ -69,6 +69,7 @@
  * @since 0.1.0
  */
 
+import * as Schema from "effect/Schema"
 import type { SyncDirentLike, SyncFsLike, SyncStatsLike } from "./WasiFs.ts"
 
 /**
@@ -117,11 +118,12 @@ export const Errno = {
  * @category errors
  * @since 0.1.0
  */
-export class WasiExitError extends Error {
-  readonly exitCode: number
-  constructor(exitCode: number) {
-    super(`wasm module called proc_exit(${exitCode})`)
-    this.exitCode = exitCode
+export class WasiExitError extends Schema.TaggedError<WasiExitError>()("@smthrs/jj/WasiExitError", {
+  /** The unsigned exit code the module passed to `proc_exit`. */
+  exitCode: Schema.Number
+}) {
+  override get message(): string {
+    return `wasm module called proc_exit(${this.exitCode})`
   }
 }
 
@@ -1107,7 +1109,7 @@ export const make = (options: WasiPreview1Options): WasiPreview1 => {
   }
 
   const procExit = (code: number): number => {
-    throw new WasiExitError(code >>> 0)
+    throw new WasiExitError({ exitCode: code >>> 0 })
   }
 
   const procRaise = (_signal: number): number => Errno.notsup

@@ -32,6 +32,7 @@ import type * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import type { FileSystem } from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import type * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import type { HttpClient } from "effect/unstable/http/HttpClient"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { isAbsolute } from "node:path"
@@ -88,16 +89,21 @@ export type NodeHost = FileSystem | Path.Path | ChildProcessSpawner | Jj | HttpC
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class NodeHostError extends Error {
+export class NodeHostError extends Schema.TaggedError<NodeHostError>()("@smthrs/platform-node/NodeHostError", {
+  code: Schema.Literal("invalid_repository_root"),
+  message: Schema.String
+}) {
   override readonly name = "NodeHostError"
-  readonly code = "invalid_repository_root"
 }
 
 const absoluteRoot = (root: string): string => {
   if (isAbsolute(root)) return root
-  throw new NodeHostError(
-    `NodeHost requires an absolute repository root, got ${JSON.stringify(Array.from(root).slice(0, 64).join(""))}`
-  )
+  throw new NodeHostError({
+    code: "invalid_repository_root",
+    message: `NodeHost requires an absolute repository root, got ${
+      JSON.stringify(Array.from(root).slice(0, 64).join(""))
+    }`
+  })
 }
 
 /**

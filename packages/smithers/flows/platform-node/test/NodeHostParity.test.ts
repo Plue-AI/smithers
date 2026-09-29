@@ -26,7 +26,11 @@ it("refuses invalid roots with the NodeHost error before composition", () => {
       try {
         factory(root)
       } catch (error) {
-        expect(error).toMatchObject({ code: "invalid_repository_root" })
+        expect(error).toMatchObject({
+          _tag: "@smthrs/platform-node/NodeHostError",
+          name: "NodeHostError",
+          code: "invalid_repository_root"
+        })
         expect((error as Error).message.length).toBeLessThan(200)
       }
     }

@@ -1120,6 +1120,20 @@ describe("FlowProxy.toHttpApiGroup path lowering", () => {
     expect(() => FlowProxy.toHttpApiGroup("ambiguous", [Foo, FooDiscard])).toThrow(
       FlowProxy.FlowProxyCollision
     )
+    let collision: unknown
+    try {
+      FlowProxy.assertNoCollisions([Foo, FooDiscard])
+    } catch (cause) {
+      collision = cause
+    }
+    expect(collision).toMatchObject({
+      _tag: "@smthrs/engine/FlowProxyCollision",
+      name: "FlowProxyCollision",
+      code: "flow_proxy_collision",
+      message: `Flow proxy operation ${
+        JSON.stringify((collision as FlowProxy.FlowProxyCollision).operation)
+      } is not unique`
+    })
   })
 
   it("refuses ill-formed UTF-16 tags before constructing a route", () => {
@@ -1136,7 +1150,13 @@ describe("FlowProxy.toHttpApiGroup path lowering", () => {
         error = cause
       }
       expect(error).toBeInstanceOf(FlowProxy.InvalidFlowTag)
-      expect(error).toMatchObject({ code: "invalid_flow_tag", tag })
+      expect(error).toMatchObject({
+        _tag: "@smthrs/engine/InvalidFlowTag",
+        name: "InvalidFlowTag",
+        code: "invalid_flow_tag",
+        tag,
+        message: `Flow tag ${JSON.stringify(tag)} is not well-formed UTF-16`
+      })
     }
   })
 })

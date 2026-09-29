@@ -10,6 +10,7 @@
  * @since 1.0.0
  */
 
+import * as Schema from "effect/Schema"
 import { sourceLines } from "./Text.ts"
 
 const BEGIN_PATCH_MARKER = "*** Begin Patch"
@@ -32,15 +33,20 @@ const ENVIRONMENT_ID_MARKER = "*** Environment ID:"
  * @since 1.0.0
  * @private
  */
-export class ParseError extends Error {
-  readonly kind: "invalid_patch" | "invalid_hunk"
-  readonly lineNumber: number | undefined
-  constructor(kind: "invalid_patch" | "invalid_hunk", message: string, lineNumber?: number) {
-    super(kind === "invalid_patch" ? `invalid patch: ${message}` : `invalid hunk at line ${lineNumber}, ${message}`)
-    this.kind = kind
-    this.lineNumber = lineNumber
+export class ParseError extends Schema.TaggedError<ParseError>()("@smthrs/std/ParseError", {
+  kind: Schema.Literals(["invalid_patch", "invalid_hunk"]),
+  detail: Schema.String,
+  lineNumber: Schema.UndefinedOr(Schema.Number)
+}) {
+  override get message(): string {
+    return this.kind === "invalid_patch"
+      ? `invalid patch: ${this.detail}`
+      : `invalid hunk at line ${this.lineNumber}, ${this.detail}`
   }
 }
+
+const parseError = (kind: ParseError["kind"], detail: string, lineNumber?: number): ParseError =>
+  new ParseError({ kind, detail, lineNumber })
 
 /**
  * One replaced region of an update hunk.
@@ -91,14 +97,14 @@ type Mode =
   | { readonly _tag: "EndedPatch" }
 
 const invalidHunkHeader = (trimmed: string, lineNumber: number): ParseError =>
-  new ParseError(
+  parseError(
     "invalid_hunk",
     `'${trimmed}' is not a valid hunk header. Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'`,
     lineNumber
   )
 
 const unexpectedUpdateLine = (line: string, lineNumber: number): ParseError =>
-  new ParseError(
+  parseError(
     "invalid_hunk",
     `Unexpected line found in update hunk: '${line}'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)`,
     lineNumber
@@ -126,7 +132,7 @@ export class StreamingPatchParser {
     const last = this.hunks[this.hunks.length - 1]
     if (last === undefined || last.kind !== "update") return
     if (last.chunks.length === 0 && this.mode._tag === "UpdateFile") {
-      throw new ParseError(
+      throw parseError(
         "invalid_hunk",
         `Update file hunk for path '${last.path}' is empty`,
         this.mode.hunkLineNumber
@@ -135,7 +141,7 @@ export class StreamingPatchParser {
     const chunk = last.chunks[last.chunks.length - 1]
     if (chunk !== undefined && chunk.oldLines.length === 0 && chunk.newLines.length === 0) {
       if (line === END_PATCH_MARKER) {
-        throw new ParseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
+        throw parseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
       }
       throw unexpectedUpdateLine(line, this.lineNumber)
     }
@@ -144,11 +150,11 @@ export class StreamingPatchParser {
   private handleHunkHeadersAndEndPatch(trimmed: string): boolean {
     if (this.mode._tag === "StartedPatch" && trimmed.startsWith(ENVIRONMENT_ID_MARKER)) {
       if (this._environmentId !== undefined) {
-        throw new ParseError("invalid_patch", "apply_patch environment_id cannot be specified more than once")
+        throw parseError("invalid_patch", "apply_patch environment_id cannot be specified more than once")
       }
       const environmentId = trimmed.slice(ENVIRONMENT_ID_MARKER.length).trim()
       if (environmentId === "") {
-        throw new ParseError("invalid_patch", "apply_patch environment_id cannot be empty")
+        throw parseError("invalid_patch", "apply_patch environment_id cannot be empty")
       }
       this._environmentId = environmentId
       return true
@@ -212,7 +218,7 @@ export class StreamingPatchParser {
       }
     }
     if (this.mode._tag !== "EndedPatch") {
-      throw new ParseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
+      throw parseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
     }
     return this.hunks
   }
@@ -230,7 +236,7 @@ export class StreamingPatchParser {
           this.mode = { _tag: "StartedPatch" }
           return
         }
-        throw new ParseError("invalid_patch", "The first line of the patch must be '*** Begin Patch'")
+        throw parseError("invalid_patch", "The first line of the patch must be '*** Begin Patch'")
       }
       case "StartedPatch": {
         if (this.handleHunkHeadersAndEndPatch(trimmed)) return
@@ -261,7 +267,7 @@ export class StreamingPatchParser {
           if (lastChunk !== undefined && lastChunk.isEndOfFile) {
             if (updateLine === "") return
             if (updateLine !== EMPTY_CHANGE_CONTEXT_MARKER && !updateLine.startsWith(CHANGE_CONTEXT_MARKER)) {
-              throw new ParseError(
+              throw parseError(
                 "invalid_hunk",
                 `Expected update hunk to start with a @@ context marker, got: '${line}'`,
                 this.lineNumber
@@ -301,7 +307,7 @@ export class StreamingPatchParser {
 
           if (updateLine === EOF_MARKER) {
             if (lastChunk !== undefined && lastChunk.oldLines.length === 0 && lastChunk.newLines.length === 0) {
-              throw new ParseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
+              throw parseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
             }
             if (lastChunk !== undefined) lastChunk.isEndOfFile = true
             this.mode = { _tag: "UpdateFile", hunkLineNumber }
@@ -340,7 +346,7 @@ export class StreamingPatchParser {
             return
           }
           if (lastChunk !== undefined && (lastChunk.oldLines.length > 0 || lastChunk.newLines.length > 0)) {
-            throw new ParseError(
+            throw parseError(
               "invalid_hunk",
               `Expected update hunk to start with a @@ context marker, got: '${line}'`,
               this.lineNumber
@@ -351,7 +357,7 @@ export class StreamingPatchParser {
       }
       case "EndedPatch": {
         if (trimmed === "") return
-        throw new ParseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
+        throw parseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
       }
     }
   }
@@ -362,9 +368,9 @@ const checkStartAndEndLinesStrict = (firstLine: string | undefined, lastLine: st
   const last = lastLine?.trim()
   if (first === BEGIN_PATCH_MARKER && last === END_PATCH_MARKER) return
   if (first !== undefined && first !== BEGIN_PATCH_MARKER) {
-    throw new ParseError("invalid_patch", "The first line of the patch must be '*** Begin Patch'")
+    throw parseError("invalid_patch", "The first line of the patch must be '*** Begin Patch'")
   }
-  throw new ParseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
+  throw parseError("invalid_patch", "The last line of the patch must be '*** End Patch'")
 }
 
 const checkPatchBoundariesStrict = (lines: ReadonlyArray<string>): ReadonlyArray<string> => {
@@ -491,10 +497,20 @@ export const seekSequence = (
 /**
  * Applier failure carrying the Codex message text verbatim.
  *
+ * `context_not_found` is an `@@` context line absent from the file;
+ * `lines_not_found` is a chunk whose expected lines are absent.
+ *
  * @since 1.0.0
  * @private
  */
-export class ComputeReplacementsError extends Error {}
+export class ComputeReplacementsError extends Schema.TaggedError<ComputeReplacementsError>()(
+  "@smthrs/std/ComputeReplacementsError",
+  {
+    reason: Schema.Literals(["context_not_found", "lines_not_found"]),
+    path: Schema.String,
+    message: Schema.String
+  }
+) {}
 
 type Replacement = readonly [startIndex: number, oldLength: number, newLines: ReadonlyArray<string>]
 
@@ -510,7 +526,11 @@ const computeReplacements = (
     if (chunk.changeContext !== undefined) {
       const idx = seekSequence(originalLines, [chunk.changeContext], lineIndex, false)
       if (idx === undefined) {
-        throw new ComputeReplacementsError(`Failed to find context '${chunk.changeContext}' in ${path}`)
+        throw new ComputeReplacementsError({
+          reason: "context_not_found",
+          path,
+          message: `Failed to find context '${chunk.changeContext}' in ${path}`
+        })
       }
       lineIndex = idx + 1
     }
@@ -537,9 +557,11 @@ const computeReplacements = (
       replacements.push([found, pattern.length, [...newSlice]])
       lineIndex = found + pattern.length
     } else {
-      throw new ComputeReplacementsError(
-        `Failed to find expected lines in ${path}:\n${chunk.oldLines.join("\n")}`
-      )
+      throw new ComputeReplacementsError({
+        reason: "lines_not_found",
+        path,
+        message: `Failed to find expected lines in ${path}:\n${chunk.oldLines.join("\n")}`
+      })
     }
   }
 

@@ -355,11 +355,16 @@ describe("WasiPreview1 bookkeeping", () => {
   it("turns proc_exit into a thrown WasiExitError", () => {
     const h = host()
     try {
-      h.sys.proc_exit!(3)
+      h.sys.proc_exit!(-1)
       expect.unreachable("proc_exit returned")
     } catch (cause) {
       expect(cause).toBeInstanceOf(WasiExitError)
-      expect((cause as WasiExitError).exitCode).toBe(3)
+      // The i32 argument is read as the unsigned WASI exit code.
+      expect(cause).toMatchObject({
+        _tag: "@smthrs/jj/WasiExitError",
+        exitCode: 4294967295,
+        message: "wasm module called proc_exit(4294967295)"
+      })
     }
   })
 

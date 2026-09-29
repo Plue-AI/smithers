@@ -39,6 +39,7 @@
  * @since 0.1.0
  */
 
+import * as Schema from "effect/Schema"
 import { randomBytes } from "node:crypto"
 import * as NodeHttp from "node:http"
 import * as NodeHttps from "node:https"
@@ -59,13 +60,13 @@ const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.to
  * @category errors
  * @since 0.1.0
  */
-export class SecretUnavailable extends Error {
+export class SecretUnavailable extends Schema.TaggedError<SecretUnavailable>()("smithers-build/SecretUnavailable", {
   /** The environment variable that carries no value. */
-  readonly env: string
-  constructor(env: string) {
-    super(`the declared secret ${env} is not set on this host`)
-    this.name = "SecretUnavailable"
-    this.env = env
+  env: Schema.String
+}) {
+  override readonly name = "SecretUnavailable"
+  override get message(): string {
+    return `the declared secret ${this.env} is not set on this host`
   }
 }
 
@@ -74,16 +75,18 @@ export class SecretUnavailable extends Error {
  * @category errors
  * @since 0.1.0
  */
-export class SecretAudienceDenied extends Error {
-  /** The environment name identifying the declaration, never its value. */
-  readonly env: string
-  /** The normalized origin the request attempted to reach. */
-  readonly audience: string
-  constructor(env: string, audience: string) {
-    super(`the declared secret ${env} is not authorized for ${audience}`)
-    this.name = "SecretAudienceDenied"
-    this.env = env
-    this.audience = audience
+export class SecretAudienceDenied extends Schema.TaggedError<SecretAudienceDenied>()(
+  "smithers-build/SecretAudienceDenied",
+  {
+    /** The environment name identifying the declaration, never its value. */
+    env: Schema.String,
+    /** The normalized origin the request attempted to reach. */
+    audience: Schema.String
+  }
+) {
+  override readonly name = "SecretAudienceDenied"
+  override get message(): string {
+    return `the declared secret ${this.env} is not authorized for ${this.audience}`
   }
 }
 
@@ -92,13 +95,16 @@ export class SecretAudienceDenied extends Error {
  * @category errors
  * @since 0.1.0
  */
-export class SecretValueInvalid extends Error {
-  /** The environment name identifying the declaration, never its value. */
-  readonly env: string
-  constructor(env: string) {
-    super(`the declared secret ${env} is not bounded control-free text`)
-    this.name = "SecretValueInvalid"
-    this.env = env
+export class SecretValueInvalid extends Schema.TaggedError<SecretValueInvalid>()(
+  "smithers-build/SecretValueInvalid",
+  {
+    /** The environment name identifying the declaration, never its value. */
+    env: Schema.String
+  }
+) {
+  override readonly name = "SecretValueInvalid"
+  override get message(): string {
+    return `the declared secret ${this.env} is not bounded control-free text`
   }
 }
 
@@ -257,12 +263,12 @@ export const makeVault = (options: { readonly read?: Read | undefined } = {}): V
   const resolveSecret = (secret: Secret.Secret): string => {
     const hostValue = read(secret.env)
     const value = hostValue === undefined ? secret.fallback : hostValue
-    if (value === undefined || value === "") throw new SecretUnavailable(secret.env)
+    if (value === undefined || value === "") throw new SecretUnavailable({ env: secret.env })
     if (
       typeof value !== "string" || !value.isWellFormed() ||
       Buffer.byteLength(value, "utf8") > maximumSecretValueBytes ||
       /[\u0000-\u001f\u007f]/.test(value)
-    ) throw new SecretValueInvalid(secret.env)
+    ) throw new SecretValueInvalid({ env: secret.env })
     return value
   }
   const mint = (credential: Secret.HttpCredential): string => {
@@ -318,7 +324,7 @@ export const makeVault = (options: { readonly read?: Read | undefined } = {}): V
           // by spelling a placeholder it was never given.
           if (credential === undefined) return match
           if (!credential.audiences.includes(normalized)) {
-            throw new SecretAudienceDenied(credential.secret.env, normalized)
+            throw new SecretAudienceDenied({ env: credential.secret.env, audience: normalized })
           }
           const previous = resolved.get(match)
           const value = previous ?? resolveSecret(credential.secret)
