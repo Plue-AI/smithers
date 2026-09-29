@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 import { modelPrices } from "../../src/server/proxy/modelPrices.ts";
+import { modelPrices as backendPrices } from "../../../../packages/backend/modelprice/prices.generated.ts";
 
 describe("modelPrices", () => {
+  test("exported model prices match backend sheet for every shared model id", () => {
+    for (const [id, price] of Object.entries(backendPrices)) {
+      expect(modelPrices(id)).toEqual({
+        input: price.input, output: price.output,
+        cacheRead: price.cacheRead, cacheWrite: price.cacheWrite,
+      });
+    }
+  });
   test("includes GPT-5.6 Sol, Terra, and Luna", () => {
     expect(modelPrices("gpt-5.6-sol")).toEqual({ input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4 });
     expect(modelPrices("gpt-5.6-terra")).toEqual({ input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 });

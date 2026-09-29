@@ -44,7 +44,7 @@
     "checklist": "pnpm --filter smithers-app run checklist",
     "deploy:dry": "pnpm --filter smithers-server run deploy:dry",
     "docs:build": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run build",
-    "docs:check": "node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
+    "docs:check": "go run ./packages/backend/modelprice/cmd/generate -check && node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
     "docs:deploy": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run deploy",
     "docs:sync": "node apps/docs/shared/sync-content.mjs --all",
     "lint": "pnpm --recursive --if-present run lint",

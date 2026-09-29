@@ -2,9 +2,19 @@ package modelprice
 
 import (
 	"math"
+	"os/exec"
 	"testing"
 	"time"
 )
+
+// The exported sheet and the site page must reflect every entry in Table.
+func TestExportedSheetMatchesTable(t *testing.T) {
+	cmd := exec.Command("go", "run", "./packages/backend/modelprice/cmd/generate", "-check")
+	cmd.Dir = "../../.."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exported sheet differs from Table: %s: %v", out, err)
+	}
+}
 
 func TestPromptTokensIncludesEveryInputClass(t *testing.T) {
 	usage := Usage{InputTokens: 11, CacheReadTokens: 13, CacheWriteTokens: 17, OutputTokens: 100}
