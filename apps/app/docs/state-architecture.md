@@ -127,6 +127,8 @@ These new fact endpoints are backend capabilities. The SPA still uses existing s
 
 Wiki has a different protocol: durable local Yjs state, pending update identities and verified acknowledgements. Its SSE revision event announces a changed document; it does not contain the complete document. Pending edits must merge with fetched causal state. Graphs can be derived; the pending-edit protocol cannot be replaced by folding revision numbers.
 
+Wiki navigation metadata stays in memory for the current account. Ending the account generation clears the indexes and notifies open Wiki views immediately, even if local sign-out cleanup fails. Pending reads must still belong to the account generation and conversation that requested them before publishing an index or notice. A refused or missing read clears page names, folders and tags; transient failures retain the same account’s metadata beside the error. Conversation changes retain the loaded index, and a fresh successful read replaces it.
+
 ## Other app state that still matters
 
 The UI Worker retains five existing Durable Object namespaces. The turn namespace now also contains durable chat acceptance and output. Gateway records still own protected connection/provisioning leases; turn-rate windows are mutable quota counters; client-error reports are a bounded diagnostic ring; recommendation records are a bounded log whose outcomes can be updated. Those are separate contracts, not additional copies of the browser journal. Identity and billing remain upstream authorities. [Worker identity and storage boundaries](../../server/src/workerIdentity.ts).

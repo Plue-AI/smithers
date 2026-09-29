@@ -74,13 +74,22 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       get: (repo, space) => indexes.get(wikiIndexRowId(repo, space)),
       subscribe: (listener) => { indexListeners.add(listener); return () => { indexListeners.delete(listener) } }
     }
-    const setIndex = (repo: string, space: WikiSpace, answer: Pick<WikiIndexRow, "pages" | "folders" | "tags"> | { readonly error: string }) => {
+    const notifyIndexes = () => {
+      for (const listener of indexListeners) {
+        try { listener() } catch (error) { ctx.failures.report("wiki.index.listener", error) }
+      }
+    }
+    const setIndex = (repo: string, space: WikiSpace, answer: Pick<WikiIndexRow, "pages" | "folders" | "tags"> | { readonly error: string; readonly retainMetadata?: boolean }) => {
       const id = wikiIndexRowId(repo, space)
-      const existing = indexes.get(id)
+      const existing = "error" in answer && answer.retainMetadata ? indexes.get(id) : undefined
       indexes.set(id, "error" in answer
         ? { id, repo, space, pages: existing?.pages ?? [], folders: existing?.folders ?? [], tags: existing?.tags ?? [], error: answer.error, loadedAt: Date.now() }
         : { id, repo, space, ...answer, loadedAt: Date.now() })
-      for (const listener of indexListeners) listener()
+      notifyIndexes()
+    }
+    const clearIndexes = () => {
+      indexes.clear()
+      notifyIndexes()
     }
     /** The space the pane shows (session), the default for every door that names none. */
     const space = (): WikiSpace => ctx.store.session().wikiSpace ?? "public"
@@ -338,12 +347,17 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     }
     let owner = login()
     let originBranch = branch()
+    let accountEpoch = ctx.accountEpoch
     const changed = () => {
-      if (owner === login() && originBranch === branch()) return
+      const accountChanged = owner !== login() || accountEpoch !== ctx.accountEpoch
+      if (!accountChanged && originBranch === branch()) return
       owner = login()
       originBranch = branch()
+      accountEpoch = ctx.accountEpoch
       detach()
+      if (accountChanged) clearIndexes()
     }
+    const stopAccountChanges = ctx.onAccountChange(changed)
     const identitySubscription = ctx.store.collections.identitySessions.subscribeChanges(changed)
     const sessionSubscription = ctx.store.collections.sessions.subscribeChanges(changed)
     const documentSubscription = ctx.store.collections.worldDocuments.subscribeChanges(() => {
@@ -359,7 +373,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     ctx.onDispose(() => {
       disposed = true
       lifetime.abort()
+      clearIndexes()
       for (const handle of watches.values()) handle.stop()
+      stopAccountChanges()
       identitySubscription.unsubscribe()
       sessionSubscription.unsubscribe()
       documentSubscription.unsubscribe()
@@ -394,6 +410,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   }
   const refusal = (error: unknown): string => error instanceof CloudWikiError ? error.message : `The ${WIKI_DISPLAY_NAME} request failed.`
 
+  const indexFailure = (error: unknown) => ({
+    error: refusal(error),
+    retainMetadata: !(error instanceof CloudWikiError) || error.status === undefined ||
+      error.status === 408 || error.status === 429 || error.status >= 500
+  })
+
   /**
    * The space's navigation index, read into the collection (`wikiIndexes`).
    * A read the person asked for shows its notice; the background read the
@@ -404,21 +426,29 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     if (typeof repo !== "string") return repo.error
     const owner = shared.login()
     if (owner === null) return `Sign in to read the repository ${WIKI_DISPLAY_NAME}.`
+    const accountEpoch = ctx.accountEpoch
+    const originBranch = shared.branch()
+    const current = () => !ctx.disposed && !shared.disposed() && ctx.accountEpoch === accountEpoch &&
+      shared.login() === owner && shared.branch() === originBranch
     const at = spaceArg ?? shared.space()
     const outcome = await ctx.withToast(`wiki.index.${repo}.${at}`, `Reading the ${at} ${WIKI_DISPLAY_NAME}…`, `${WIKI_DISPLAY_NAME} read`, async () => {
       const answer = await shared.run(Effect.gen(function*() {
         const api = yield* CloudWikiTransport
         return wikiIndexOf(yield* api.index(repo, at))
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))).catch(refusal)
-      if (shared.disposed()) return "The app closed while the Wiki was loading."
-      if (typeof answer === "string") {
-        shared.setIndex(repo, at, { error: answer })
-        return answer
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(indexFailure(error))))).catch(indexFailure)
+      if (ctx.disposed || shared.disposed()) return "The app closed while the Wiki was loading."
+      if (!current()) {
+        return "The account or conversation changed while the Wiki was loading."
+      }
+      if ("error" in answer) {
+        shared.setIndex(repo, at, answer)
+        return answer.error
       }
       shared.setIndex(repo, at, answer)
       return answer
-    }, quiet)
+    }, quiet, current)
     if (typeof outcome === "string") return outcome
+    if (!current()) return "The account or conversation changed while the Wiki was loading."
     return { value: `${outcome.pages.length} ${at} ${WIKI_DISPLAY_NAME} page${outcome.pages.length === 1 ? "" : "s"} in ${repo}: ${outcome.pages.map((page) => page.path).join(", ") || "none"}.` }
   }
 
