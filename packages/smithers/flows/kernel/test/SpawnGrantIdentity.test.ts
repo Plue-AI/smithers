@@ -5,6 +5,7 @@
  * the refusals come from the grant matcher, not a scripted double.
  */
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
@@ -230,7 +231,7 @@ describe("proc:spawn grant identity", () => {
           Layer.provide(GrantStore.layer({ attended: false, rules })),
           Layer.provide([
             Workspace.layer(workspace),
-            Path.layer,
+            NodePath.layer,
             NodeFileSystem.layer,
             Layer.succeed(HostChildProcessSpawner)(host)
           ])

@@ -26,8 +26,7 @@ import {
   ProcessId
 } from "effect/unstable/process/ChildProcessSpawner"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+import { isAbsolute, join, relative } from "node:path"
 import * as FileSystem from "../src/FileSystem.ts"
 import * as GrantStore from "../src/GrantStore.ts"
 import * as HostServices from "../src/HostServices.ts"
@@ -55,8 +54,7 @@ const fileSystem = FileSystem.withIsolatedFileSystem(EffectFileSystem.makeNoop({
 
 const encoder = new TextEncoder()
 
-const testHost = Layer.mergeAll(
-  EffectPath.layer,
+const testHostWithoutPath = Layer.mergeAll(
   BrowserJj.layerUnsupported,
   Layer.succeed(EffectChildProcessSpawner)(
     makeSpawner(() => {
@@ -77,17 +75,19 @@ const testHost = Layer.mergeAll(
     })
   )
 )
+const testHost = Layer.mergeAll(EffectPath.layer, testHostWithoutPath)
 
 describe("HostServices", () => {
   it.each(["workspace", "workspace/"] as const)(
     "constructs guarded filesystem with relative workspace root %s through direct and aggregate layers",
     async (suffix) => {
-      const directory = await mkdtemp(join(tmpdir(), "flows-relative-root-"))
+      const directory = await mkdtemp(join(process.cwd(), "flows-relative-root-"))
       try {
         const absoluteRoot = join(directory, "workspace")
         await mkdir(absoluteRoot)
         await writeFile(join(absoluteRoot, "inside.txt"), "inside")
         const relativeRoot = relative(process.cwd(), directory) + "/" + suffix
+        expect(isAbsolute(relativeRoot)).toBe(false)
         const consumer = Effect.gen(function*() {
           const fs = yield* EffectFileSystem.FileSystem
           return new TextDecoder().decode(yield* fs.readFile("inside.txt"))
@@ -99,7 +99,7 @@ describe("HostServices", () => {
         const host = Layer.mergeAll(
           isolatedHost,
           NodePath.layer,
-          testHost,
+          testHostWithoutPath,
           Layer.succeed(EffectHttpClient.HttpClient)(
             EffectHttpClient.make((request) => Effect.succeed({ status: 200, headers: {}, request } as never))
           )
