@@ -87,6 +87,7 @@ export const mythicalRoute = (
  * @category schemas
  */
 export const MythicalStackStateSchema = z.enum(["absent", "bootstrapping", "active", "frozen"])
+  .or(z.string().transform(() => "unknown" as const))
 
 /**
  * The decoded value accepted by {@link MythicalStackStateSchema}.
@@ -106,6 +107,7 @@ export type MythicalStackState = z.infer<typeof MythicalStackStateSchema>
  * @category schemas
  */
 export const MythicalChangeKindSchema = z.enum(["bootstrap", "fold", "item", "revert"])
+  .or(z.string().transform(() => "unknown" as const))
 
 /**
  * The decoded value accepted by {@link MythicalChangeKindSchema}.
@@ -201,7 +203,7 @@ export const MythicalItemStateSchema = z.enum([
   "rejected",
   "retrying",
   "blocked"
-])
+]).or(z.string().transform(() => "unknown" as const))
 
 /**
  * The decoded value accepted by {@link MythicalItemStateSchema}.
@@ -490,7 +492,7 @@ export type MythicalLane = z.infer<typeof MythicalLaneSchema>
  * @category schemas
  */
 export const MythicalWikiSchema = z.object({
-  state: z.enum(["refreshing", "current", "stale", "failed"]),
+  state: z.enum(["refreshing", "current", "stale", "failed"]).or(z.string().transform(() => "unknown" as const)),
   commit: z.string().optional(),
   publishedCommit: z.string().optional(),
   publishedAt: z.string().optional(),

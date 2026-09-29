@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
-import { MythicalItemSchema, MythicalItemStateSchema } from "@smthrs/rpc/Mythical"
+import { MythicalItemSchema } from "@smthrs/rpc/Mythical"
 import { renderToStaticMarkup } from "react-dom/server"
 import { StackBody } from "./StackCard"
 import type { StackBodyProps } from "./StackCard"
@@ -36,11 +36,15 @@ const section = (html: string, id: string): string => {
 
 describe("the issue groups", () => {
   test("every API state lands in exactly one group", () => {
-    const groups = Object.fromEntries(MythicalItemStateSchema.options.map((state) => [state, issueGroupOf(item("i1", state))]))
+    const states: ReadonlyArray<MythicalItem["state"]> = [
+      "blocked", "rejected", "proposed", "queued", "running", "delivering", "integrating", "verifying",
+      "proposing", "waiting", "retrying", "unknown", "landed", "declined", "skipped", "cancelled"
+    ]
+    const groups = Object.fromEntries(states.map((state) => [state, issueGroupOf(item("i1", state))]))
     expect(groups).toEqual({
       blocked: "needs-you", rejected: "needs-you", proposed: "needs-you",
       queued: "working", running: "working", delivering: "working", integrating: "working", verifying: "working",
-      proposing: "working", waiting: "working", retrying: "working",
+      proposing: "working", waiting: "working", retrying: "working", unknown: "working",
       landed: "done", declined: "done", skipped: "done", cancelled: "done"
     })
   })

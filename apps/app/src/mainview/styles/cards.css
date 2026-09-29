@@ -1397,6 +1397,9 @@
 	font-size: var(--fs-small);
 	font-weight: 600;
 }
+.stack-state[data-state="unknown"] {
+	color: var(--text-faint);
+}
 .stack-state[data-state="blocked"],
 .stack-state[data-state="rejected"],
 .stack-wiki > .stack-state[data-state="failed"] {
@@ -1436,6 +1439,9 @@
 }
 .stack-glyph[data-group="working"] {
 	color: var(--info);
+}
+.stack-glyph[data-state="unknown"] {
+	color: var(--text-faint);
 }
 .stack-glyph[data-group="done"] {
 	color: var(--text-faint);

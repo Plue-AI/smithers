@@ -180,9 +180,25 @@ describe("the mythical stack contract", () => {
     expect(isMythicalMisroute({ as: "close" })).toBe(false)
   })
 
-  test("an unknown item state is refused rather than rendered as something else", () => {
-    const bad = { ...snapshot, items: [{ ...snapshot.items[0], state: "done" }] }
-    expect(MythicalStackSchema.safeParse(bad).success).toBe(false)
+  test("decodes an unknown item state as unknown", () => {
+    const future = { ...snapshot, items: [{ ...snapshot.items[0], state: "future_state" }, ...snapshot.items.slice(1)] }
+    const decoded = MythicalStackSchema.parse(future)
+    expect(decoded.items[0]).toEqual({ ...snapshot.items[0], state: "unknown" })
+    expect(decoded.items.slice(1)).toEqual(snapshot.items.slice(1))
+    expect(isSettledItemState("unknown")).toBe(false)
+    expect(MythicalItemSchema.safeParse({ ...snapshot.items[0], state: 42 }).success).toBe(false)
+  })
+
+  test("future stack, change and wiki states decode without losing the snapshot", () => {
+    const decoded = MythicalStackSchema.parse({
+      ...snapshot, state: "future_state",
+      changes: [{ ...snapshot.changes[0], kind: "future_kind" }, ...snapshot.changes.slice(1)],
+      wiki: { state: "future_wiki", pages: 2, edited: 1, attempt: 0 }
+    })
+    expect(decoded.state).toBe("unknown")
+    expect(decoded.changes[0]).toEqual({ ...snapshot.changes[0], kind: "unknown" })
+    expect(decoded.changes[1]).toEqual(snapshot.changes[1])
+    expect(decoded.wiki).toEqual({ state: "unknown", pages: 2, edited: 1, attempt: 0 })
   })
 
   test("event hints and lane submissions decode", () => {
@@ -198,11 +214,11 @@ describe("the mythical stack contract", () => {
     expect(MythicalLaneSubmissionSchema.safeParse({ ...submission, source: "HEAD" }).success).toBe(false)
   })
 
-  test("the wiki decodes in each state and refuses any other", () => {
+  test("the wiki decodes known states unchanged and maps future states to unknown", () => {
     for (const state of ["refreshing", "current", "stale", "failed"]) {
       expect(MythicalWikiSchema.parse({ state, pages: 0, edited: 0, attempt: 0 }).state).toBe(state)
     }
-    expect(MythicalWikiSchema.safeParse({ state: "done", pages: 0, edited: 0, attempt: 0 }).success).toBe(false)
+    expect(MythicalWikiSchema.parse({ state: "future_state", pages: 0, edited: 0, attempt: 0 }).state).toBe("unknown")
     expect(mythicalRoute("wiki", "o", "r")).toBe("/api/repos/o/r/mythical/wiki")
   })
 

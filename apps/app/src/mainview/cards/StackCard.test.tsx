@@ -63,6 +63,16 @@ describe("the History card", () => {
     expect(itemStateLabel(STACK.items[1]!)).toBe("conflict")
   })
 
+  test("renders an unknown item state as a neutral chip", () => {
+    const future = { ...STACK, items: [...STACK.items, item("i9", "unknown", { updatedAt: "2020-01-01T00:00:00Z" })] }
+    const html = render({ snapshot: { stack: future, error: null } })
+    const row = html.slice(html.indexOf('data-testid="stack-item-i9"'), html.indexOf("</li>", html.indexOf('data-testid="stack-item-i9"')))
+    expect(row).toContain('data-group="working"')
+    expect(row).toContain('class="stack-state" data-state="unknown">unknown</span>')
+    expect(row).not.toContain("Retry")
+    expect(html).toContain('data-testid="stack-item-i3"')
+  })
+
   test("the history: each change says whether main contains it, and main moving past the stack shows", () => {
     const pending = { ...STACK, mainBehind: true, changes: [{ ...STACK.changes[1]!, state: "pending" as const }] }
     const html = render({ snapshot: { stack: pending, error: null } })

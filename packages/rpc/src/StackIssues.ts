@@ -53,7 +53,7 @@ const NEEDS_YOU: ReadonlySet<MythicalItem["state"]> = new Set(["blocked", "rejec
 export const issueGroupOf = (item: MythicalItem): IssueGroupId =>
   NEEDS_YOU.has(item.state) ?
     "needs-you" :
-    ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" ?
+    ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" || item.state === "unknown" ?
     "working" :
     "done"
 
