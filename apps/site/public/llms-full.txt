@@ -544,10 +544,11 @@ open → fixed → verified → closed
 | Fixed by | Who marked it fixed. |
 | Verified by | Who confirmed the fix. Never the fixer. |
 | Assignees, labels, milestone | Who owns it and how it is grouped. |
+| Owner, due date, priority, parent | Who answers for it, when, how urgent (`0`–`3`), and the issue it belongs under. |
 
 **Available now.** The issue card has **Fixed**, **Verify**, **Close**, and **Reopen**; `/issues.fix 42` and `/issues.verify 42` do the same, and so does the API.
 
-**Planned.** Owner, due date, priority, and parent issue ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+**Available now.** `/issues.set` sets an owner, due date, priority, or parent; the API takes `owner`, `due`, `priority`, and `parent` on `PATCH /issues/{number}`.
 
 ## Let Smithers fix it
 
@@ -1087,7 +1088,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 
 **GUI**
 
-**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. The list shows each issue's state; **Conversations** and **Issues** narrow it. **Planned:** owner, due date, and priority ([#2186](https://github.com/smithersai/smithers/issues/2186)).
+**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. The list shows each issue's state; **Conversations** and **Issues** narrow it. Set an owner, due date, priority or parent with `/issues.set`.
 
 ![The issue list: Open and Closed counts, All, Conversations and Issues filters, a conversation row, and two issues, one marked fixed.](/images/learn/app-issues.png)
 
@@ -1118,6 +1119,8 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 ```
 
 Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
+
+`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0`–`3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
 
 ## Next
 

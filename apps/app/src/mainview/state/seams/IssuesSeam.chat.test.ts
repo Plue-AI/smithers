@@ -51,7 +51,7 @@ describe("conversations and issues through the issues seam", () => {
     const controller = createAppController(store, unavailableAgent, backend({
       "GET /api/repos/will/flows/issues": json(200, [
         chatIssue,
-        { number: 8, title: "Land the fence", state: "fixed", fixed_by: { login: "engineer" }, author: { login: "will" }, labels: [], updated_at: "2026-09-26T08:00:00Z" },
+        { number: 8, title: "Land the fence", state: "fixed", owner: { id: 2, login: "engineer" }, due: "2026-10-01", priority: 1, parent: { number: 5, title: "Fences" }, fixed_by: { login: "engineer" }, author: { login: "will" }, labels: [], updated_at: "2026-09-26T08:00:00Z" },
         { number: 9, title: "Plain issue", state: "open", author: { login: "will" }, labels: [], updated_at: "2026-09-25T08:00:00Z" }
       ]),
       "POST /api/repos/will/flows/issues": json(201, { ...chatIssue, number: 10 }),
@@ -66,7 +66,8 @@ describe("conversations and issues through the issues seam", () => {
     const list = found
     expect(list.payload.kind).toBe("issue")
     expect(list.payload.issues.map((issue) => issue.number)).toEqual([8, 9])
-    expect(list.payload.issues[0]!.task).toEqual({ fixedBy: { id: "engineer", name: "engineer" } })
+    expect(list.payload.issues[0]!.task).toEqual({ owner: { id: "engineer", name: "engineer" }, due: "2026-10-01", priority: 1, parent: { number: 5, title: "Fences" }, fixedBy: { id: "engineer", name: "engineer" } })
+    expect(list.payload.issues[1]!.task).toBeUndefined()
     await controller.commands.run("issues.list", `all --kind conversation ${REPO}`)
     expect(calls.some((call) => call.line === "GET /api/repos/will/flows/issues?kind=chat")).toBe(true)
     const created = await controller.commands.run("issues.create", `Ask the assistant ${REPO} --kind conversation`)
@@ -88,7 +89,7 @@ const at = "2026-09-26T09:05:00Z"
 const issueDto = {
   idempotency_key: "thread-request", kind: "chat", visibility: "private", id: 700, number: 7, title: "Owner ↔ Assistant", body: "", state: "open",
   author: { id: 1, login: "will" }, assignees: [], labels: [], linear: null, milestone_id: null, comment_count: 2, closed_at: null,
-  fixed_by: null, fixed_at: null, verified_by: null, verified_at: null, created_at: at, updated_at: at
+  fixed_by: null, fixed_at: null, verified_by: null, verified_at: null, owner: null, due: null, priority: null, parent: null, created_at: at, updated_at: at
 }
 const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
   ({ id, issue_id: 700, user_id: 1, commenter: "will", body, type: "issue_comment", created_at: at, updated_at: at, ...extra })
@@ -139,6 +140,58 @@ describe("a conversation on the chat = issues contract", () => {
     const live = store.collections.cards.get(`issue-${REPO}-7`)
     if (live?.kind !== "issue") throw new Error("the conversation card is absent")
     expect(live.payload.pendingComments).toMatchObject([{ id: key, text: "Ship it.", status: "failed", error: expect.stringContaining("the mirror is down") }])
+    await controller.dispose()
+  })
+})
+
+/*
+ * issues.set (#2186): one flow sets an issue's owner, due date, priority or
+ * parent through PATCH /issues/{n} with the value the backend stores; an
+ * empty value clears the field, and a malformed number never leaves the app.
+ */
+describe("issues.set stores intent metadata on the issue", () => {
+  const setup = async (patch: RouteAnswer) => {
+    const calls: Array<{ line: string; body?: unknown }> = []
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, unavailableAgent, backend({
+      "PATCH /api/repos/will/flows/issues/7": patch,
+      "GET /api/repos/will/flows/issues/7": json(200, { ...issueDto, kind: "issue", priority: 2, owner: { id: 2, login: "engineer" }, due: "2026-10-01", parent: { number: 5, title: "Fences" } }),
+      "GET /api/repos/will/flows/issues/7/comments": json(200, []),
+      "GET /api/repos/will/flows/issues/7/sync": json(404, { message: "not found" })
+    }, calls))
+    await signedIn(store)
+    return { calls, store, controller }
+  }
+  const run = (controller: Awaited<ReturnType<typeof setup>>["controller"], field: string, value: string) =>
+    controller.commands.run("issues.set", JSON.stringify({ number: 7, field, value, repo: REPO }))
+  const patches = (calls: Array<{ line: string; body?: unknown }>) => calls.filter((call) => call.line.startsWith("PATCH ")).map((call) => call.body)
+
+  test("sends each field in the type the backend stores, clears on empty, and shows the stored values", async () => {
+    const { calls, store, controller } = await setup(json(200, issueDto))
+    for (const [field, value] of [["owner", "engineer"], ["due", "2026-10-01"], ["priority", "P2"], ["parent", "#5"], ["priority", "0"], ["owner", " "]] as const) {
+      expect((await run(controller, field, value)).status).toBe("executed")
+    }
+    expect(patches(calls)).toEqual([{ owner: "engineer" }, { due: "2026-10-01" }, { priority: 2 }, { parent: 5 }, { priority: 0 }, { owner: null }])
+    const card = [...store.collections.cards.values()].find((entry) => entry.kind === "issue")
+    if (card?.kind !== "issue") throw new Error("the issue card is absent")
+    expect(card.payload.task).toMatchObject({ owner: { id: "engineer" }, due: "2026-10-01", priority: 2, parent: { number: 5, title: "Fences" } })
+    await controller.dispose()
+  })
+
+  test("a malformed priority or parent is refused before any request", async () => {
+    const { calls, controller } = await setup(json(200, issueDto))
+    for (const [field, value] of [["priority", "4"], ["priority", "high"], ["priority", "-1"], ["parent", "0"], ["parent", "five"]] as const) {
+      const result = await run(controller, field, value)
+      expect(JSON.stringify(result)).toContain(field === "priority" ? "Priority is 0 to 3" : "Parent is an issue number")
+    }
+    expect(patches(calls)).toEqual([])
+    await controller.dispose()
+  })
+
+  test("the backend's refusal is reported in its words and nothing claims the value was set", async () => {
+    const { controller } = await setup(json(422, { message: "Validation Failed", errors: [{ resource: "Issue", field: "parent", code: "cycle" }] }))
+    const result = await run(controller, "parent", "5")
+    expect(JSON.stringify(result)).not.toContain("parent set")
     await controller.dispose()
   })
 })

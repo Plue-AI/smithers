@@ -47,6 +47,15 @@ export const syncUrl = (sync: Pick<Sync, "provider" | "scopeId" | "conversationI
   return sync.threadId === undefined ? base : `${base}/thread/${encodeURIComponent(sync.conversationId)}-${encodeURIComponent(sync.threadId)}`
 }
 
+/** A due date in the fewest words: the weekday inside a week, else the day. */
+export const dueWords = (iso: string, now: number = Date.now()): { readonly words: string; readonly past: boolean } => {
+  const at = Date.parse(iso)
+  if (Number.isNaN(at)) return { words: iso, past: false }
+  const days = Math.round((at - now) / 86_400_000)
+  const words = days === 0 ? "today" : days === 1 ? "tomorrow" : days > 1 && days < 7 ? new Date(at).toLocaleDateString("en-US", { weekday: "short" }) : iso.slice(5, 10)
+  return { words, past: at < now }
+}
+
 /** The identity a comment was posted under: its persona (an agent profile when it names one), else its author. */
 export const commentPersona = (comment: Pick<Comment, "author" | "authorAvatar" | "persona">, context: ThreadContext = { profiles: [] }): PersonaRef => {
   const persona = comment.persona
@@ -68,13 +77,23 @@ export const reactionChips = (reactions: Comment["reactions"], viewer: string | 
   return [...counts].map(([name, { count, mine }]) => ({ name, count, mine }))
 }
 
-/** The issue strip: state, fixer and verifier — each only when recorded. */
+/** The issue strip: state, owner, due, priority, parent, fixer and verifier — each only when recorded. */
 export const TaskStrip = ({ thread, onRunCommand, compact = false }: { readonly thread: Threadish; readonly onRunCommand: RunCommand; readonly compact?: boolean }) => {
   const task = thread.task
   if (task === undefined) return null
+  const due = task.due === undefined ? undefined : dueWords(task.due)
+  const settled = thread.state === "closed" || thread.state === "verified"
   return (
     <span className="thread-task" data-compact={compact || undefined} aria-label="Issue">
       <span className="thread-state" data-state={thread.state}>▮ {thread.state}</span>
+      {task.owner === undefined ? null : <AgentMark persona={task.owner} size={16} nameless={compact} onRunCommand={compact ? undefined : onRunCommand} />}
+      {due === undefined ? null : <span className="thread-due" data-past={due.past && !settled}>{due.words}</span>}
+      {task.priority === undefined ? null : <span className="thread-priority" data-priority={task.priority}>P{task.priority}</span>}
+      {task.parent === undefined ? null : compact ? <span className="thread-parent">#{task.parent.number}</span> : (
+        <button type="button" className="thread-ref" {...flowAction(onRunCommand, "issues.view", flowArgs("issues.view", { number: task.parent.number, repo: thread.repo }))}>
+          #{task.parent.number}{task.parent.title === undefined ? "" : ` ${task.parent.title}`}
+        </button>
+      )}
       {compact || task.fixedBy === undefined ? null : <span className="thread-by">fixed by <AgentMark persona={task.fixedBy} size={16} onRunCommand={onRunCommand} /></span>}
       {compact || task.verifiedBy === undefined ? null : <span className="thread-by">verified by <AgentMark persona={task.verifiedBy} size={16} onRunCommand={onRunCommand} /></span>}
     </span>

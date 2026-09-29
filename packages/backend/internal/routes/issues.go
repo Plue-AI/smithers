@@ -39,13 +39,19 @@ type createIssueRequest struct {
 	Milestone      *int64   `json:"milestone,omitempty"`
 }
 
+// patchIssueRequest is every field PATCH /issues/{n} stores; any other
+// field is refused. A field that may be cleared takes null to clear it.
 type patchIssueRequest struct {
-	Title     *string             `json:"title,omitempty"`
-	Body      *string             `json:"body,omitempty"`
-	State     *string             `json:"state,omitempty"`
-	Assignees *[]string           `json:"assignees,omitempty"`
-	Labels    *[]string           `json:"labels,omitempty"`
-	Milestone issueMilestonePatch `json:"milestone"`
+	Title     *string               `json:"title,omitempty"`
+	Body      *string               `json:"body,omitempty"`
+	State     *string               `json:"state,omitempty"`
+	Assignees *[]string             `json:"assignees,omitempty"`
+	Labels    *[]string             `json:"labels,omitempty"`
+	Milestone nullablePatch[int64]  `json:"milestone"`
+	Owner     nullablePatch[string] `json:"owner"`
+	Due       nullablePatch[string] `json:"due"`
+	Priority  nullablePatch[int64]  `json:"priority"`
+	Parent    nullablePatch[int64]  `json:"parent"`
 }
 
 type createIssueCommentRequest struct {
@@ -58,24 +64,32 @@ type patchIssueCommentRequest struct {
 	Body string `json:"body"`
 }
 
-type issueMilestonePatch struct {
+// nullablePatch tells an absent field (Set false) from null (Set, nil Value).
+type nullablePatch[T any] struct {
 	Set   bool
-	Value *int64
+	Value *T
 }
 
-func (m *issueMilestonePatch) UnmarshalJSON(data []byte) error {
+func (m *nullablePatch[T]) UnmarshalJSON(data []byte) error {
 	m.Set = true
 	if string(data) == "null" {
 		m.Value = nil
 		return nil
 	}
 
-	var id int64
-	if err := json.Unmarshal(data, &id); err != nil {
+	var value T
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	m.Value = &id
+	m.Value = &value
 	return nil
+}
+
+func (m nullablePatch[T]) service() *services.IssuePatch[T] {
+	if !m.Set {
+		return nil
+	}
+	return &services.IssuePatch[T]{Value: m.Value}
 }
 
 func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
@@ -176,13 +190,8 @@ func (h *IssueHandler) PatchIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req patchIssueRequest
-	if !decodeJSONBody(w, r, &req) {
+	if !decodeStrictJSONBody(w, r, &req) {
 		return
-	}
-
-	var milestone *services.IssueMilestonePatch
-	if req.Milestone.Set {
-		milestone = &services.IssueMilestonePatch{Value: req.Milestone.Value}
 	}
 
 	updated, err := h.Service.UpdateIssue(r.Context(), actor, owner, repo, number, services.UpdateIssueInput{
@@ -191,7 +200,11 @@ func (h *IssueHandler) PatchIssue(w http.ResponseWriter, r *http.Request) {
 		State:     req.State,
 		Assignees: req.Assignees,
 		Labels:    req.Labels,
-		Milestone: milestone,
+		Milestone: req.Milestone.service(),
+		Owner:     req.Owner.service(),
+		Due:       req.Due.service(),
+		Priority:  req.Priority.service(),
+		Parent:    req.Parent.service(),
 	})
 	if err != nil {
 		writeRouteError(w, r, err)

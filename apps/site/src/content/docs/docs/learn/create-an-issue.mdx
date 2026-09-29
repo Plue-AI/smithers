@@ -91,7 +91,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. The list shows each issue's state; **Conversations** and **Issues** narrow it. **Planned:** owner, due date, and priority ([#2186](https://github.com/smithersai/smithers/issues/2186)).
+**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. The list shows each issue's state; **Conversations** and **Issues** narrow it. Set an owner, due date, priority or parent with `/issues.set`.
 
 <AppScreenshot src="/images/learn/app-issues.png" alt="The issue list: Open and Closed counts, All, Conversations and Issues filters, a conversation row, and two issues, one marked fixed." caption="The issue list, with example data." width={2264} height={538} />
 
@@ -123,6 +123,8 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 ```
 
 Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
+
+`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0`–`3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
 
 </TabItem>
 </Tabs>

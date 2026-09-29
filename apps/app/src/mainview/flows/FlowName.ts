@@ -190,6 +190,7 @@ export const FLOW_NAMES = [
   "issues.fix",
   "issues.list",
   "issues.reopen",
+  "issues.set",
   "issues.setup",
   "issues.verify",
   "issues.sync.resolve",

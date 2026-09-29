@@ -83,6 +83,7 @@ type mockIssueQuerier struct {
 
 	createIssueFn                    func(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error)
 	getIssueByNumberFn               func(ctx context.Context, arg db.GetIssueByNumberParams) (db.Issue, error)
+	getIssueByIDFn                   func(ctx context.Context, id int64) (db.Issue, error)
 	listIssuesByRepoFilteredFn       func(ctx context.Context, arg db.ListIssuesByRepoFilteredParams) ([]db.Issue, error)
 	listIssuesByRepoFilteredKeysetFn func(ctx context.Context, arg db.ListIssuesByRepoFilteredKeysetParams) ([]db.Issue, error)
 	countIssuesByRepoFilteredFn      func(ctx context.Context, arg db.CountIssuesByRepoFilteredParams) (int64, error)
@@ -208,6 +209,13 @@ func (m *mockIssueQuerier) GetIssueByNumber(ctx context.Context, arg db.GetIssue
 		return m.getIssueByNumberFn(ctx, arg)
 	}
 	return issueDBRecord(1, arg.RepositoryID, arg.Number, 1, nil), nil
+}
+
+func (m *mockIssueQuerier) GetIssueByID(ctx context.Context, id int64) (db.Issue, error) {
+	if m.getIssueByIDFn != nil {
+		return m.getIssueByIDFn(ctx, id)
+	}
+	return db.Issue{}, pgx.ErrNoRows
 }
 
 func (m *mockIssueQuerier) ListIssuesByRepoFiltered(ctx context.Context, arg db.ListIssuesByRepoFilteredParams) ([]db.Issue, error) {
@@ -414,12 +422,12 @@ func issueAPIStatus(t *testing.T, err error) int {
 	return apiErr.Status
 }
 
-func milestonePatchSet(id int64) *IssueMilestonePatch {
-	return &IssueMilestonePatch{Value: &id}
+func milestonePatchSet(id int64) *IssuePatch[int64] {
+	return &IssuePatch[int64]{Value: &id}
 }
 
-func milestonePatchClear() *IssueMilestonePatch {
-	return &IssueMilestonePatch{}
+func milestonePatchClear() *IssuePatch[int64] {
+	return &IssuePatch[int64]{}
 }
 
 func TestIssueService_ListIssues_ReadAccessAndFilters(t *testing.T) {

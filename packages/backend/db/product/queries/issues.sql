@@ -48,6 +48,10 @@ SET title = sqlc.arg(title),
     verified_by_id = sqlc.arg(verified_by_id),
     verified_by_agent_session_id = NULLIF(sqlc.arg(verified_by_agent_session_id)::text, '')::uuid,
     verified_at = sqlc.arg(verified_at),
+    owner_id = sqlc.arg(owner_id),
+    due_on = sqlc.arg(due_on),
+    priority = sqlc.arg(priority),
+    parent_id = sqlc.arg(parent_id),
     updated_at = NOW()
 FROM repository_lock
 WHERE issues.id = sqlc.arg(id) AND issues.repository_id = repository_lock.id

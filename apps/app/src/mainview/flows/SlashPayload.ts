@@ -441,6 +441,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issues.comment.react": jsonObject("issues.comment.react"),
   "issues.sync.resolve": jsonObject("issues.sync.resolve"),
   "issues.comment.retry": jsonObject("issues.comment.retry"),
+  "issues.set": jsonObject("issues.set"),
   "integrations.list": args => repoOnly("integrations.list", args),
   "issues.setup": args => repoOnly("issues.setup", args),
   "review.setup": args => repoOnly("review.setup", args),

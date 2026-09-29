@@ -950,6 +950,10 @@ type Issue struct {
 	BodyEditorID             pgtype.Int8        `json:"body_editor_id"`
 	FiledBy                  string             `json:"filed_by"`
 	TextSource               pgtype.Text        `json:"text_source"`
+	OwnerID                  pgtype.Int8        `json:"owner_id"`
+	DueOn                    pgtype.Date        `json:"due_on"`
+	Priority                 pgtype.Int2        `json:"priority"`
+	ParentID                 pgtype.Int8        `json:"parent_id"`
 }
 
 type IssueArtifact struct {

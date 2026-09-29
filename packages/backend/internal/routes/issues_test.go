@@ -447,3 +447,109 @@ func TestIssueHandler_PropagatesServiceErrors(t *testing.T) {
 	h.GetIssue(rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestIssueHandler_PatchIssue_RefusesUnstoredIntentFields pins the #2186
+// contract: owner, due, priority and parent reach the service as set, clear
+// or absent, the DTO carries them, and a field the route does not store is
+// refused instead of answering 200 for dropped data.
+func TestIssueHandler_PatchIssue_RefusesUnstoredIntentFields(t *testing.T) {
+	t.Parallel()
+
+	patch := func(t *testing.T, body string, update func(services.UpdateIssueInput) (services.IssueResponse, error)) *httptest.ResponseRecorder {
+		t.Helper()
+		calls := 0
+		h := IssueHandler{Service: &mockIssueRouteService{
+			updateIssueFn: func(_ context.Context, _ *db.User, _, _ string, _ int64, req services.UpdateIssueInput) (services.IssueResponse, error) {
+				calls++
+				return update(req)
+			},
+		}}
+		req := httptest.NewRequest(http.MethodPatch, "/api/repos/alice/demo/issues/7", strings.NewReader(body))
+		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "number": "7"})
+		req = withAuth(req, 1, "alice")
+		rec := httptest.NewRecorder()
+		h.PatchIssue(rec, req)
+		if rec.Code != http.StatusOK {
+			assert.Zero(t, calls, "a refused body never reaches the service")
+		}
+		return rec
+	}
+
+	t.Run("sets every intent field and returns it", func(t *testing.T) {
+		rec := patch(t, `{"owner":"bob","due":"2026-10-01","priority":2,"parent":5}`, func(req services.UpdateIssueInput) (services.IssueResponse, error) {
+			require.NotNil(t, req.Owner)
+			require.NotNil(t, req.Owner.Value)
+			assert.Equal(t, "bob", *req.Owner.Value)
+			require.NotNil(t, req.Due)
+			assert.Equal(t, "2026-10-01", *req.Due.Value)
+			require.NotNil(t, req.Priority)
+			assert.Equal(t, int64(2), *req.Priority.Value)
+			require.NotNil(t, req.Parent)
+			assert.Equal(t, int64(5), *req.Parent.Value)
+			assert.Nil(t, req.Milestone)
+			response := sampleIssueResponse()
+			due, priority := "2026-10-01", int16(2)
+			response.Owner = &services.IssueUserSummary{ID: 2, Login: "bob"}
+			response.Due = &due
+			response.Priority = &priority
+			response.Parent = &services.IssueParentSummary{Number: 5, Title: "Parent"}
+			return response, nil
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, map[string]any{"id": float64(2), "login": "bob"}, body["owner"])
+		assert.Equal(t, "2026-10-01", body["due"])
+		assert.Equal(t, float64(2), body["priority"])
+		assert.Equal(t, map[string]any{"number": float64(5), "title": "Parent"}, body["parent"])
+	})
+
+	t.Run("null clears and absence leaves alone", func(t *testing.T) {
+		rec := patch(t, `{"owner":null,"priority":null}`, func(req services.UpdateIssueInput) (services.IssueResponse, error) {
+			require.NotNil(t, req.Owner)
+			assert.Nil(t, req.Owner.Value)
+			require.NotNil(t, req.Priority)
+			assert.Nil(t, req.Priority.Value)
+			assert.Nil(t, req.Due)
+			assert.Nil(t, req.Parent)
+			return sampleIssueResponse(), nil
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		for _, key := range []string{"owner", "due", "priority", "parent"} {
+			value, ok := body[key]
+			assert.True(t, ok, "the DTO always names %s", key)
+			assert.Nil(t, value)
+		}
+	})
+
+	for name, body := range map[string]string{
+		"unknown field":         `{"prio":2}`,
+		"unknown beside stored": `{"title":"x","assignee":"bob"}`,
+	} {
+		t.Run("refuses "+name, func(t *testing.T) {
+			rec := patch(t, body, func(services.UpdateIssueInput) (services.IssueResponse, error) {
+				t.Fatal("service must not be called")
+				return services.IssueResponse{}, nil
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "unknown field")
+		})
+	}
+
+	for name, body := range map[string]string{
+		"string priority": `{"priority":"high"}`,
+		"numeric owner":   `{"owner":7}`,
+		"string parent":   `{"parent":"5"}`,
+	} {
+		t.Run("refuses "+name, func(t *testing.T) {
+			rec := patch(t, body, func(services.UpdateIssueInput) (services.IssueResponse, error) {
+				t.Fatal("service must not be called")
+				return services.IssueResponse{}, nil
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "invalid request body")
+		})
+	}
+}

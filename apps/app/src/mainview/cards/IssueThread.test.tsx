@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
 import { fixtureCards } from "./fixtures/UiSurfaces"
 import { IssueCardBody, IssueListCardBody } from "./IssueCards"
-import { reactionChips, stateActions, syncUrl } from "./IssueThread"
+import { dueWords, reactionChips, stateActions, syncUrl } from "./IssueThread"
 
 const noop = () => {}
 const issue = () => fixtureCards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue")!
@@ -22,6 +22,8 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
     expect(html).not.toContain("Remove your")
     expect(reactionChips([{ name: "👀", actor: "owner", active: true }, { name: "👀", actor: "U1", active: true }, { name: "✅", actor: "U1", active: false }], "owner")).toEqual([{ name: "👀", count: 2, mine: true }])
     expect(html).toContain('data-state="fixed"')
+    expect(html).toContain("P1")
+    expect(html).toContain("#2088 Wiki freshness")
     expect(html).toContain("fixed by")
     expect(html).toContain(syncUrl({ provider: "slack", scopeId: "T0000000000", conversationId: "C0000000000", threadId: "1700000000.000100" })!)
     expect(syncUrl({ provider: "telegram", scopeId: "s", conversationId: "c" })).toBeUndefined()
@@ -56,6 +58,12 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
     expect(renderToStaticMarkup(<IssueCardBody card={closed} onRunCommand={noop} />)).not.toContain('data-testid="thread-composer"')
   })
 
+  test("due dates read in the fewest words and mark the past", () => {
+    const now = Date.UTC(2026, 8, 26, 9, 0, 0)
+    expect(dueWords(new Date(now).toISOString(), now)).toEqual({ words: "today", past: false })
+    expect(dueWords(new Date(now + 86_400_000).toISOString(), now)).toEqual({ words: "tomorrow", past: false })
+    expect(dueWords("2026-09-20", now)).toEqual({ words: "09-20", past: true })
+  })
 })
 
 describe("the issue list carries conversations and issues", () => {

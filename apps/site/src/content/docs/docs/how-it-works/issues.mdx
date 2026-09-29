@@ -19,10 +19,11 @@ open → fixed → verified → closed
 | Fixed by | Who marked it fixed. |
 | Verified by | Who confirmed the fix. Never the fixer. |
 | Assignees, labels, milestone | Who owns it and how it is grouped. |
+| Owner, due date, priority, parent | Who answers for it, when, how urgent (`0`–`3`), and the issue it belongs under. |
 
 **Available now.** The issue card has **Fixed**, **Verify**, **Close**, and **Reopen**; `/issues.fix 42` and `/issues.verify 42` do the same, and so does the API.
 
-**Planned.** Owner, due date, priority, and parent issue ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+**Available now.** `/issues.set` sets an owner, due date, priority, or parent; the API takes `owner`, `due`, `priority`, and `parent` on `PATCH /issues/{number}`.
 
 ## Let Smithers fix it
 

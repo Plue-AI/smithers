@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -36,17 +37,31 @@ type CreateIssueInput struct {
 	Milestone      *int64   `json:"milestone,omitempty"`
 }
 
-type IssueMilestonePatch struct {
-	Value *int64 `json:"value,omitempty"`
+// IssuePatch is one optional field of an issue update: a nil patch leaves
+// the field alone, a nil Value clears it, and a Value sets it.
+type IssuePatch[T any] struct {
+	Value *T `json:"value,omitempty"`
 }
 
 type UpdateIssueInput struct {
-	Title     *string              `json:"title,omitempty"`
-	Body      *string              `json:"body,omitempty"`
-	State     *string              `json:"state,omitempty"`
-	Assignees *[]string            `json:"assignees,omitempty"`
-	Labels    *[]string            `json:"labels,omitempty"`
-	Milestone *IssueMilestonePatch `json:"milestone,omitempty"`
+	Title     *string            `json:"title,omitempty"`
+	Body      *string            `json:"body,omitempty"`
+	State     *string            `json:"state,omitempty"`
+	Assignees *[]string          `json:"assignees,omitempty"`
+	Labels    *[]string          `json:"labels,omitempty"`
+	Milestone *IssuePatch[int64] `json:"milestone,omitempty"`
+	// Owner is a username; Due is a YYYY-MM-DD date; Priority is 0 (most
+	// urgent) to 3; Parent is an issue number in the same repository.
+	Owner    *IssuePatch[string] `json:"owner,omitempty"`
+	Due      *IssuePatch[string] `json:"due,omitempty"`
+	Priority *IssuePatch[int64]  `json:"priority,omitempty"`
+	Parent   *IssuePatch[int64]  `json:"parent,omitempty"`
+}
+
+// IssueParentSummary names an issue's parent issue.
+type IssueParentSummary struct {
+	Number int64  `json:"number"`
+	Title  string `json:"title"`
 }
 
 type IssuePersona struct {
@@ -110,6 +125,10 @@ type IssueResponse struct {
 	FixedAt        pgtype.Timestamptz    `json:"fixed_at"`
 	VerifiedBy     *IssueUserSummary     `json:"verified_by"`
 	VerifiedAt     pgtype.Timestamptz    `json:"verified_at"`
+	Owner          *IssueUserSummary     `json:"owner"`
+	Due            *string               `json:"due"`
+	Priority       *int16                `json:"priority"`
+	Parent         *IssueParentSummary   `json:"parent"`
 	LinkedChanges  []IssueLinkedChange   `json:"linked_changes"`
 	CreatedAt      time.Time             `json:"created_at"`
 	UpdatedAt      time.Time             `json:"updated_at"`
@@ -147,6 +166,7 @@ type IssueQuerier interface {
 
 	CreateIssue(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error)
 	GetIssueByNumber(ctx context.Context, arg db.GetIssueByNumberParams) (db.Issue, error)
+	GetIssueByID(ctx context.Context, id int64) (db.Issue, error)
 	ListIssuesByRepoFiltered(ctx context.Context, arg db.ListIssuesByRepoFilteredParams) ([]db.Issue, error)
 	CountIssuesByRepoFiltered(ctx context.Context, arg db.CountIssuesByRepoFilteredParams) (int64, error)
 	UpdateIssue(ctx context.Context, arg db.UpdateIssueParams) (db.Issue, error)
@@ -616,6 +636,11 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 		}
 	}
 
+	intent, err := s.resolveIssueIntent(ctx, repository.ID, current, req)
+	if err != nil {
+		return IssueResponse{}, err
+	}
+
 	// Resolve assignees and labels BEFORE writing the issue row or deleting
 	// existing associations, so a validation failure (unknown user, unknown
 	// label) leaves the issue, counters, and associations untouched.
@@ -667,8 +692,15 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 			VerifiedByID:             verifiedByID,
 			VerifiedByAgentSessionID: verifiedByAgentSessionID,
 			VerifiedAt:               verifiedAt,
+			OwnerID:                  intent.OwnerID,
+			DueOn:                    intent.DueOn,
+			Priority:                 intent.Priority,
+			ParentID:                 intent.ParentID,
 		})
 		if werr != nil {
+			if code, ok := issueParentViolation(werr); ok {
+				return pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Issue", Field: "parent", Code: code})
+			}
 			return pkgerrors.Internal("failed to update issue").WithCause(werr)
 		}
 		return replaceIssueAssociations(ctx, tx, updated.ID, actor.ID, assigneeSet, labelSet)
@@ -1137,6 +1169,31 @@ func (s *IssueService) mapIssue(ctx context.Context, issue db.Issue) (IssueRespo
 		}
 		verifiedBy = &IssueUserSummary{ID: user.ID, Login: user.Username, AgentSessionID: uuidString(issue.VerifiedByAgentSessionID)}
 	}
+	var issueOwner *IssueUserSummary
+	if issue.OwnerID.Valid {
+		user, userErr := s.queries.GetUserByID(ctx, issue.OwnerID.Int64)
+		if userErr != nil {
+			return IssueResponse{}, pkgerrors.Internal("failed to load issue owner").WithCause(userErr)
+		}
+		issueOwner = &IssueUserSummary{ID: user.ID, Login: user.Username}
+	}
+	var due *string
+	if issue.DueOn.Valid {
+		day := issue.DueOn.Time.Format(time.DateOnly)
+		due = &day
+	}
+	var priority *int16
+	if issue.Priority.Valid {
+		priority = &issue.Priority.Int16
+	}
+	var parent *IssueParentSummary
+	if issue.ParentID.Valid {
+		parentIssue, parentErr := s.queries.GetIssueByID(ctx, issue.ParentID.Int64)
+		if parentErr != nil {
+			return IssueResponse{}, pkgerrors.Internal("failed to load parent issue").WithCause(parentErr)
+		}
+		parent = &IssueParentSummary{Number: parentIssue.Number, Title: parentIssue.Title}
+	}
 	linkedChanges := []IssueLinkedChange{}
 	if q, ok := s.queries.(issueLinkedChangesQuerier); ok {
 		rows, linkErr := q.ListLinkedChangesForIssue(ctx, issue.ID)
@@ -1171,6 +1228,10 @@ func (s *IssueService) mapIssue(ctx context.Context, issue db.Issue) (IssueRespo
 		FixedAt:        issue.FixedAt,
 		VerifiedBy:     verifiedBy,
 		VerifiedAt:     issue.VerifiedAt,
+		Owner:          issueOwner,
+		Due:            due,
+		Priority:       priority,
+		Parent:         parent,
 		LinkedChanges:  linkedChanges,
 		CreatedAt:      issue.CreatedAt,
 		UpdatedAt:      issue.UpdatedAt,
@@ -1621,6 +1682,95 @@ func (s *IssueService) resolveIssueMilestone(ctx context.Context, repositoryID i
 		return pgtype.Int8{}, pkgerrors.Internal("failed to load milestone").WithCause(err)
 	}
 	return pgtype.Int8{Int64: *milestone, Valid: true}, nil
+}
+
+type issueIntent struct {
+	OwnerID  pgtype.Int8
+	DueOn    pgtype.Date
+	Priority pgtype.Int2
+	ParentID pgtype.Int8
+}
+
+// resolveIssueIntent validates an update's owner, due date, priority and
+// parent against the current row. The parent's repository and cycle rules
+// are enforced by the issues_parent_* guard inside the write transaction.
+func (s *IssueService) resolveIssueIntent(ctx context.Context, repositoryID int64, current db.Issue, req UpdateIssueInput) (issueIntent, error) {
+	intent := issueIntent{OwnerID: current.OwnerID, DueOn: current.DueOn, Priority: current.Priority, ParentID: current.ParentID}
+	invalid := func(field string) error {
+		return pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Issue", Field: field, Code: "invalid"})
+	}
+	if req.Owner != nil {
+		intent.OwnerID = pgtype.Int8{}
+		if req.Owner.Value != nil {
+			login := strings.ToLower(strings.TrimSpace(*req.Owner.Value))
+			if login == "" {
+				return issueIntent{}, invalid("owner")
+			}
+			user, err := s.queries.GetUserByLowerUsername(ctx, login)
+			if err != nil {
+				if stdErrors.Is(err, pgx.ErrNoRows) {
+					return issueIntent{}, invalid("owner")
+				}
+				return issueIntent{}, pkgerrors.Internal("failed to load owner").WithCause(err)
+			}
+			intent.OwnerID = pgtype.Int8{Int64: user.ID, Valid: true}
+		}
+	}
+	if req.Due != nil {
+		intent.DueOn = pgtype.Date{}
+		if req.Due.Value != nil {
+			day, err := time.Parse(time.DateOnly, strings.TrimSpace(*req.Due.Value))
+			if err != nil {
+				return issueIntent{}, invalid("due")
+			}
+			intent.DueOn = pgtype.Date{Time: day, Valid: true}
+		}
+	}
+	if req.Priority != nil {
+		intent.Priority = pgtype.Int2{}
+		if req.Priority.Value != nil {
+			if *req.Priority.Value < 0 || *req.Priority.Value > 3 {
+				return issueIntent{}, invalid("priority")
+			}
+			intent.Priority = pgtype.Int2{Int16: int16(*req.Priority.Value), Valid: true}
+		}
+	}
+	if req.Parent != nil {
+		intent.ParentID = pgtype.Int8{}
+		if req.Parent.Value != nil {
+			if *req.Parent.Value <= 0 {
+				return issueIntent{}, invalid("parent")
+			}
+			parent, err := s.queries.GetIssueByNumber(ctx, db.GetIssueByNumberParams{RepositoryID: repositoryID, Number: *req.Parent.Value})
+			if err != nil {
+				if stdErrors.Is(err, pgx.ErrNoRows) {
+					return issueIntent{}, invalid("parent")
+				}
+				return issueIntent{}, pkgerrors.Internal("failed to load parent issue").WithCause(err)
+			}
+			if parent.ID == current.ID {
+				return issueIntent{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Issue", Field: "parent", Code: "cycle"})
+			}
+			intent.ParentID = pgtype.Int8{Int64: parent.ID, Valid: true}
+		}
+	}
+	return intent, nil
+}
+
+// issueParentViolation maps the issues_parent_* guard's refusal to a field
+// error code.
+func issueParentViolation(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	if !stdErrors.As(err, &pgErr) || pgErr.Code != "23514" {
+		return "", false
+	}
+	switch pgErr.ConstraintName {
+	case "issues_parent_cycle":
+		return "cycle", true
+	case "issues_parent_repository":
+		return "invalid", true
+	}
+	return "", false
 }
 
 func normalizeAssigneeUsernames(usernames []string) ([]string, error) {

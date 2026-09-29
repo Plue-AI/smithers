@@ -68,6 +68,10 @@ func (m *benchIssueQuerier) GetIssueByNumber(_ context.Context, _ db.GetIssueByN
 	return m.issue, nil
 }
 
+func (m *benchIssueQuerier) GetIssueByID(_ context.Context, _ int64) (db.Issue, error) {
+	return m.issue, nil
+}
+
 func (m *benchIssueQuerier) ListIssuesByRepoFiltered(_ context.Context, _ db.ListIssuesByRepoFilteredParams) ([]db.Issue, error) {
 	issues := make([]db.Issue, 10)
 	for i := range issues {

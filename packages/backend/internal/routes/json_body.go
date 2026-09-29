@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -32,6 +33,24 @@ func decodeOptionalJSONBodyWithMessage(w http.ResponseWriter, r *http.Request, d
 		return true
 	}
 	writeJSONDecodeError(w, invalidMessage, err)
+	return false
+}
+
+// decodeStrictJSONBody refuses a body naming a field dst does not store, so a
+// write never answers success for data it dropped.
+func decodeStrictJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(dst)
+	if err == nil {
+		return true
+	}
+	if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("unknown field "+field))
+		return false
+	}
+	writeJSONDecodeError(w, "invalid request body", err)
 	return false
 }
 
