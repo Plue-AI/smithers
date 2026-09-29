@@ -356,6 +356,14 @@ const parseSnapshot = (body: string): Record<string, string> => {
     if (!file.endsWith(".json") || !file.split("/").every(safeSegment)) {
       throw new TypeError(`remote Alchemy state names a path outside the stack: ${JSON.stringify(file)}`)
     }
+    for (let separator = file.indexOf("/"); separator !== -1; separator = file.indexOf("/", separator + 1)) {
+      const ancestor = file.slice(0, separator)
+      if (Object.prototype.hasOwnProperty.call(files, ancestor)) {
+        throw new TypeError(
+          `remote Alchemy state file ${JSON.stringify(ancestor)} is an ancestor of ${JSON.stringify(file)}`
+        )
+      }
+    }
   }
   return files as Record<string, string>
 }
@@ -368,7 +376,7 @@ const parseSnapshot = (body: string): Record<string, string> => {
  * such as the ownership lock, are kept.
  *
  * @throws A `TypeError` when the snapshot is not one this module rendered, or
- * names a path outside the directory.
+ * names a path outside the directory or a file that is another file's ancestor.
  * @category utilities
  * @since 0.1.0
  */

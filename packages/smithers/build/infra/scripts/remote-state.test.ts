@@ -104,6 +104,46 @@ describe("state snapshots", () => {
   })
 
   it.each([
+    ["immediate ancestor first", ["prod/dir.json", "prod/dir.json/Child.json"]],
+    ["immediate descendant first", ["prod/dir.json/Child.json", "prod/dir.json"]],
+    ["deep ancestor first", ["prod/dir.json", "prod/dir.json/deep/Child.json"]],
+    ["deep descendant first", ["prod/dir.json/deep/Child.json", "prod/dir.json"]]
+  ])("refuses a %s file collision before changing local state", async (_name, paths) => {
+    await put("prod/Keep.json", "keep")
+    await put("prod/nested/Other.json", "other")
+    await put("prod/nested/notes.txt", "notes")
+    await put(".smithers-state-owner.lock", "123\n")
+    const originalTree = (await readdir(directory, { recursive: true })).sort()
+    const originalState = await readStateSnapshot(directory)
+    const snapshot = JSON.stringify({
+      format: "smithers-alchemy-state/1",
+      files: Object.fromEntries(paths.map((path, index) => [path, `{"order":${index}}`]))
+    })
+
+    const failure = await writeStateSnapshot(directory, snapshot).catch((cause: unknown) => cause)
+
+    expect((await readdir(directory, { recursive: true })).sort()).toEqual(originalTree)
+    expect(await readStateSnapshot(directory)).toBe(originalState)
+    expect(read("prod/Keep.json")).toBe("keep")
+    expect(read("prod/nested/Other.json")).toBe("other")
+    expect(read("prod/nested/notes.txt")).toBe("notes")
+    expect(read(".smithers-state-owner.lock")).toBe("123\n")
+    expect(failure).toBeInstanceOf(TypeError)
+  })
+
+  it("accepts nested paths and a file whose name prefixes a sibling directory", async () => {
+    const files = {
+      "prod/dir.json": "parent",
+      "prod/dir.json2/Child.json": "sibling",
+      "prod/tree/deep/Child.json": "nested"
+    }
+
+    await writeStateSnapshot(directory, JSON.stringify({ format: "smithers-alchemy-state/1", files }))
+
+    expect(JSON.parse(await readStateSnapshot(directory)).files).toEqual(files)
+  })
+
+  it.each([
     ["not JSON", "{"],
     ["another format", JSON.stringify({ format: "other", files: {} })],
     ["files that are not an object", JSON.stringify({ format: "smithers-alchemy-state/1", files: [] })],
