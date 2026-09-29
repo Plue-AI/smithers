@@ -107,7 +107,7 @@ const scrubScript = (search: boolean): string =>
     ...search
       ? [
         "set --",
-        `for entry in * .[!.]*; do case "$entry" in proc|sys|dev|run) ;; *) if [ -e "$entry" ]; then set -- "$@" "$entry"; fi ;; esac; done`,
+        `for entry in * .[!.]* ..?*; do case "$entry" in proc|sys|dev) ;; *) if [ -e "$entry" ]; then set -- "$@" "$entry"; fi ;; esac; done`,
         `grep -rlF -f - -- "$@"`
       ]
       : []

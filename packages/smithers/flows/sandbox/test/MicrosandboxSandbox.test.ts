@@ -2326,6 +2326,71 @@ describe("MicrosandboxSandbox snapshots", () => {
       expect(fake.machines.has(machine)).toBe(false)
     }))
 
+  it.effect.each([
+    "ordinary-secret",
+    ".hidden-secret",
+    "..hidden-secret",
+    "...secret",
+    ".proc/secret",
+    "..run/secret",
+    "run/secret",
+    "ordinary-dir/secret",
+    ".hidden-dir/secret",
+    "..hidden-dir/secret",
+    ".../secret"
+  ])("refuses a registered token under root path %s without capturing or stopping", (file) =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const path = join(fake.machineRoot("prepared"), file)
+      mkdirSync(join(path, ".."), { recursive: true })
+      writeFileSync(path, `token=${token}`)
+
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: [token]
+        })
+      )
+      expect(refused).toMatchObject({
+        code: "unavailable",
+        message: `microsandbox: the microVM prepared was not captured as base.1: ` +
+          `a secret is still on its disk at /${file}`
+      })
+      expect(refused.message).not.toContain(token)
+      expect(fake.snapshots.size).toBe(0)
+      expect(fake.recorded.stops).toEqual([])
+      expect(fake.recorded.destroys).toEqual([{ name: "prepared", timeoutMs: 30_000, force: true }])
+      expect(fake.machines.has("prepared")).toBe(false)
+    }))
+
+  it.effect.each(["proc", "sys", "dev"])(
+    "does not refuse a clean capture for a secret under excluded root %s",
+    (directory) =>
+      Effect.gen(function*() {
+        const fake = fakeSdk()
+        fake.plant("prepared", ownership("installation-a", "host"))
+        const path = join(fake.machineRoot("prepared"), directory, "secret")
+        mkdirSync(join(path, ".."), { recursive: true })
+        writeFileSync(path, `token=${token}`)
+
+        const name = yield* MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: `excluded-${directory}`,
+          secrets: [token]
+        })
+        expect(name).toBe(`base.excluded-${directory}`)
+        expect(fake.snapshots.get(name)?.source).toBe("prepared")
+        expect(fake.recorded.stops).toEqual(["prepared"])
+        expect(fake.machines.has("prepared")).toBe(false)
+      })
+  )
+
   it.effect("refuses a disk holding a secret base64-, percent-, or JSON-encoded, at any alignment", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()

@@ -382,10 +382,49 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
           `${session}-leaky`,
           ` && printf '[remote "origin"]\\n  url = https://x:%s@github.com/o/r\\n' "$GITHUB_TOKEN" > .git/config`
         )
-        const refused = yield* Effect.flip(capture(leaky, "leaky"))
+        const refused = yield* Effect.flip(
+          capture(leaky, "leaky").pipe(
+            Effect.ensuring(Effect.ignore(MicrosandboxSandbox.removeSnapshot(
+              Microsandbox,
+              `smthrs-test-${process.pid}.leaky`
+            )))
+          )
+        )
         expect(refused.message).toBe(
           `microsandbox: the microVM ${leaky} was not captured as smthrs-test-${process.pid}.leaky: ` +
             "a secret is still on its disk at /workspace/.git/config"
+        )
+
+        const rootLeaky = yield* prepare(
+          `${session}-root-leaky`,
+          ` && printf 'token=%s' "$GITHUB_TOKEN" > /..leak`
+        )
+        const rootRefused = yield* Effect.flip(
+          capture(rootLeaky, "root-leaky").pipe(
+            Effect.ensuring(Effect.ignore(MicrosandboxSandbox.removeSnapshot(
+              Microsandbox,
+              `smthrs-test-${process.pid}.root-leaky`
+            )))
+          )
+        )
+        expect(rootRefused.message).toBe(
+          `microsandbox: the microVM ${rootLeaky} was not captured as smthrs-test-${process.pid}.root-leaky: ` +
+            "a secret is still on its disk at /..leak"
+        )
+
+        const runLeaky = yield* prepare(
+          `${session}-run-leaky`,
+          ` && mkdir -p /run && printf 'token=%s' "$GITHUB_TOKEN" > /run/leak`
+        )
+        const runLeakyName = `smthrs-test-${process.pid}.run-leaky`
+        const runRefused = yield* Effect.flip(
+          capture(runLeaky, "run-leaky").pipe(
+            Effect.ensuring(Effect.ignore(MicrosandboxSandbox.removeSnapshot(Microsandbox, runLeakyName)))
+          )
+        )
+        expect(runRefused.message).toBe(
+          `microsandbox: the microVM ${runLeaky} was not captured as ${runLeakyName}: ` +
+            "a secret is still on its disk at /run/leak"
         )
 
         // Without the clone, the credential files are scrubbed and the capture succeeds.
