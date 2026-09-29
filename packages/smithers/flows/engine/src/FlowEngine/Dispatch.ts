@@ -34,6 +34,25 @@ const CurrentActionParent = Context.Reference<
 >("@smthrs/engine/CurrentActionParent", { defaultValue: () => undefined })
 
 /**
+ * Starts a flow body with its own dispatch context. A timer can wake a
+ * suspended execution from inside an action; the new round must replay from
+ * its root rather than inherit that action's parent, attempt or ordinal slot.
+ * Composition-wide cache identity remains in the context.
+ *
+ * @private
+ * @since 1.0.0
+ */
+export const resetActionContext = Context.omit(
+  CurrentActionParent,
+  Action.CurrentAttempt,
+  Action.CurrentOrdinal,
+  Action.CurrentInvocationKey,
+  Action.CurrentHeartbeat,
+  StepIdentity.DispatchSite,
+  StepIdentity.DispatchReport
+)
+
+/**
  * Whether a failed attempt died of nothing but an expired attempt bound, the
  * one defect the retry decision treats as an attempt failure. The tag is read
  * off the defect so a replayed row, whose defect is the error's encoded

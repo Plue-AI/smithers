@@ -18,7 +18,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { renderDiagnostic } from "../internal/Diagnostic.ts"
 import { toJsonExit } from "../internal/JsonExit.ts"
-import { makeActionExecute } from "./Dispatch.ts"
+import { makeActionExecute, resetActionContext } from "./Dispatch.ts"
 import type { Encoded } from "./Encoded.ts"
 import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
@@ -106,7 +106,7 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
           }).pipe(
             Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations)),
             Effect.updateContext(
-              (input) => Context.merge(services, input) as Context.Context<any>
+              (input) => resetActionContext(Context.merge(services, input)) as Context.Context<any>
             )
           )
       )

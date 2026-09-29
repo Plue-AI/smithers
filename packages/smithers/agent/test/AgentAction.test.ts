@@ -9,11 +9,16 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
+import * as EngineStore from "@smthrs/engine-store/EngineStore"
+import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
+import * as TestStores from "@smthrs/engine-store/test/TestStores"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
+import * as Jj from "@smthrs/kernel/Jj"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
@@ -39,6 +44,7 @@ import {
   SchemaGetter,
   Stream
 } from "effect"
+import { TestClock } from "effect/testing"
 import { describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentAction from "../src/AgentAction.ts"
@@ -1478,15 +1484,17 @@ describe("AgentAction seat auto", () => {
     asked: Array<string>,
     evaluator: Layer.Layer<Evaluator.Evaluator>,
     routing: Layer.Layer<SeatRouter.Catalog> | Layer.Layer<never> = catalog,
-    safety: Layer.Layer<QuotaPolicy.QuotaClassifier | Budget.Budget> = Safety.layer
+    safety: Layer.Layer<QuotaPolicy.QuotaClassifier | Budget.Budget> = Safety.layer,
+    composition: AgentAction.Host = host,
+    engine: Layer.Layer<FlowRuntime.FlowRuntime> = FlowEngine.layerMemory
   ) =>
     step.pipe(
-      Layer.provideMerge(AgentAction.layerHost(host)),
+      Layer.provideMerge(AgentAction.layerHost(composition)),
       Layer.provideMerge(resolving(model, asked)),
       Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, evaluator, routing)),
       Layer.provideMerge(safety),
       Layer.provideMerge(Action.layerImplementations),
-      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(engine),
       Layer.provideMerge(NodeCrypto.layer)
     )
 
@@ -1504,6 +1512,127 @@ describe("AgentAction seat auto", () => {
     body: ({ diff }) => Routed.call({ diff })
   })
   const routedStep = Layer.mergeAll(Routed.layer, Interpreter.layer(RoutedFlow))
+
+  it.each(["memory", "durable", "restart"])("keeps its recorded route after a quota park (%s)", async (mode) => {
+    const routed: Array<Evaluator.Request> = []
+    const calls: Array<string> = []
+    const requests: Array<string> = []
+    const answered = scripted([decodes], requests)
+    const models = (seat: string): Model.Model =>
+      Model.make({
+        stream: (request) =>
+          Stream.suspend(() => {
+            calls.push(seat)
+            return calls.length === 1
+              ? Stream.fail(
+                new ModelError({
+                  code: "rate_limited",
+                  message: "wait",
+                  httpStatus: 429,
+                  retryAfterMillis: mode === "memory" ? 50 : 3_000
+                })
+              )
+              : answered.stream(request)
+          })
+      })
+    const stores = Layer.mergeAll(
+      Layer.sync(DurableEngineState.DurableEngineState)(DurableEngineState.makeMemory),
+      StepBoundary.layerTest(),
+      Layer.succeed(Jj.Jj)(Jj.make({
+        snapshot: () => Effect.succeed({ commitId: "route-snapshot" as never, changeId: "route-snapshot" as never }),
+        restore: () => Effect.void,
+        diff: () => Effect.succeed(""),
+        workspaceAdd: () => Effect.void,
+        workspaceForget: () => Effect.void,
+        status: () => Effect.succeed("")
+      })),
+      TestStores.layer()
+    )
+    const executionId = `auto-quota-${mode}`
+    const incarnation = (hostId: string) =>
+      Effect.gen(function*() {
+        const engine = mode === "memory" ? undefined : yield* EngineStore.make({
+          owner: { hostId },
+          journalSource: hostId,
+          isAlive: () => Effect.succeed(false)
+        })
+        return routedStack(
+          routedStep,
+          models,
+          [],
+          judge([toSonnet, toOpus], routed),
+          catalog,
+          Layer.merge(Budget.layerUnbounded(), QuotaPolicy.layerDefault()),
+          { ...host, modelRetryPolicy: Schedule.recurs(0) },
+          engine === undefined ? FlowEngine.layerMemory : Layer.succeed(FlowRuntime.FlowRuntime)(engine)
+        )
+      })
+    const settle = <A, E>(running: Fiber.Fiber<A, E>) =>
+      Effect.gen(function*() {
+        if (mode === "memory") return yield* Fiber.join(running)
+        for (let step = 0; step < 60 && running.pollUnsafe() === undefined; step++) {
+          yield* TestClock.adjust("1 second")
+        }
+        return yield* Fiber.join(running)
+      })
+    const observed = await Effect.runPromise(Effect.scoped(
+      Effect.gen(function*() {
+        const state = yield* DurableEngineState.DurableEngineState
+        const first = yield* Effect.scoped(Effect.gen(function*() {
+          const wiring = yield* incarnation("auto-quota-before")
+          const context = yield* Layer.build(wiring)
+          const running = yield* RoutedFlow.execute({ diff: "diff" }, { executionId }).pipe(
+            Effect.provideContext(context),
+            Effect.forkChild({ startImmediately: true })
+          )
+          let parked = false
+          for (let step = 0; step < 400 && !parked; step++) {
+            if (mode === "memory") {
+              const result = yield* RoutedFlow.poll(executionId).pipe(Effect.provideContext(context))
+              parked = Option.isSome(result) && result.value._tag === "Suspended"
+            } else {
+              const waiting = yield* state.waitingRuns({ reason: "quota" })
+              parked = waiting.some((row) => row.runId === executionId && row.reason === "quota")
+            }
+            yield* Effect.yieldNow
+          }
+          expect(parked).toBe(true)
+          expect(calls).toEqual(["sonnet"])
+          expect(routed).toHaveLength(1)
+          if (mode === "restart") {
+            yield* Fiber.interrupt(running)
+            return undefined
+          }
+          const value = yield* settle(running)
+          const replayed = yield* RoutedFlow.execute({ diff: "diff" }, { executionId }).pipe(
+            Effect.provideContext(context)
+          )
+          return { value, replayed }
+        }))
+        if (first !== undefined) return first
+        return yield* Effect.scoped(Effect.gen(function*() {
+          const wiring = yield* incarnation("auto-quota-after")
+          const context = yield* Layer.build(wiring)
+          const running = yield* RoutedFlow.execute({ diff: "diff" }, { executionId }).pipe(
+            Effect.provideContext(context),
+            Effect.forkChild({ startImmediately: true })
+          )
+          const value = yield* settle(running)
+          const replayed = yield* RoutedFlow.execute({ diff: "diff" }, { executionId }).pipe(
+            Effect.provideContext(context)
+          )
+          return { value, replayed }
+        }))
+      }).pipe(
+        Effect.provide(stores),
+        Effect.provide(mode === "memory" ? NodeCrypto.layer : Layer.merge(NodeCrypto.layer, TestClock.layer()))
+      )
+    ))
+    expect(observed.value).toEqual({ approved: true, issues: [] })
+    expect(observed.replayed).toEqual(observed.value)
+    expect(routed).toHaveLength(1)
+    expect(calls).toEqual(["sonnet", "sonnet"])
+  })
 
   it("routes once per execution and hands the receipt to the sink before the first ask", async () => {
     const routed: Array<Evaluator.Request> = []
