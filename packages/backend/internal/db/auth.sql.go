@@ -1140,6 +1140,7 @@ WITH unset_primary AS (
         updated_at = NOW()
 	    WHERE ea.user_id = $1
 	      AND ea.is_primary = TRUE
+	      AND ea.lower_email <> $4
 	      AND $2::boolean = TRUE
 	    RETURNING ea.id
 ),

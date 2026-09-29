@@ -57,6 +57,7 @@ WITH unset_primary AS (
         updated_at = NOW()
 	    WHERE ea.user_id = sqlc.arg(user_id)
 	      AND ea.is_primary = TRUE
+	      AND ea.lower_email <> sqlc.arg(lower_email)
 	      AND sqlc.arg(is_primary)::boolean = TRUE
 	    RETURNING ea.id
 ),

@@ -41,9 +41,7 @@ func TestAuthSQL_H_EmailVerificationSessionTokenAndOAuthRoundTrip(t *testing.T) 
 	require.Len(t, emails, 2)
 	assert.Equal(t, secondEmail.ID, emails[0].ID)
 
-	// Re-upsert the current primary email with IsPrimary:false. Upserting the
-	// same row with IsPrimary:true would make unset_primary and the ON CONFLICT
-	// DO UPDATE both target that row in one statement (SQLSTATE 21000).
+	// Re-upsert the current primary with IsPrimary:false to test demotion.
 	updatedSecond, err := q.UpsertEmailAddress(ctx, UpsertEmailAddressParams{
 		UserID: userID, IsPrimary: false, Email: "SECOND-AUTH-H@example.com", LowerEmail: "second-auth-h@example.com", IsActivated: true,
 	})
@@ -179,6 +177,60 @@ func TestAuthSQL_H_EmailVerificationSessionTokenAndOAuthRoundTrip(t *testing.T) 
 	require.NoError(t, q.DeleteEmail(ctx, DeleteEmailParams{ID: firstEmail.ID, UserID: userID}))
 	_, err = q.GetEmailByID(ctx, firstEmail.ID)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestAuthSQL_H_ReupsertCurrentPrimary(t *testing.T) {
+	ctx := context.Background()
+	q, pool := newQueries(t)
+	userID := mustCreateUser(t, pool, uniqueTestUsername(t))
+
+	first, err := q.UpsertEmailAddress(ctx, UpsertEmailAddressParams{
+		UserID: userID, IsPrimary: true, Email: "alice@example.com", LowerEmail: "alice@example.com", IsActivated: false,
+	})
+	require.NoError(t, err)
+
+	// A normal retry must not update the same row twice in one statement.
+	retried, err := q.UpsertEmailAddress(ctx, UpsertEmailAddressParams{
+		UserID: userID, IsPrimary: true, Email: "alice@example.com", LowerEmail: "alice@example.com", IsActivated: false,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, retried.ID)
+	assert.True(t, retried.IsPrimary)
+
+	primary, err := q.GetPrimaryEmail(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, primary.ID)
+	emails, err := q.ListUserEmails(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, emails, 1)
+}
+
+func TestAuthSQL_H_VerifyExistingPrimary(t *testing.T) {
+	ctx := context.Background()
+	q, pool := newQueries(t)
+	userID := mustCreateUser(t, pool, uniqueTestUsername(t))
+	first, err := q.UpsertEmailAddress(ctx, UpsertEmailAddressParams{
+		UserID: userID, IsPrimary: true, Email: "alice@example.com", LowerEmail: "alice@example.com", IsActivated: false,
+	})
+	require.NoError(t, err)
+
+	// A verified OAuth email must activate the existing primary row.
+	verified, err := q.UpsertEmailAddress(ctx, UpsertEmailAddressParams{
+		UserID: userID, IsPrimary: true, Email: "ALICE@example.com", LowerEmail: "alice@example.com", IsActivated: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, verified.ID)
+	assert.True(t, verified.IsPrimary)
+	assert.True(t, verified.IsActivated)
+	assert.Equal(t, "ALICE@example.com", verified.Email)
+
+	primary, err := q.GetPrimaryEmail(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, primary.ID)
+	assert.True(t, primary.IsActivated)
+	emails, err := q.ListUserEmails(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, emails, 1)
 }
 
 func TestAuthSQL_H_MissingRowsEmptyListsAndConstraintErrors(t *testing.T) {
