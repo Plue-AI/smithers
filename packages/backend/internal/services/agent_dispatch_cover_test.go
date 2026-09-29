@@ -173,6 +173,7 @@ func TestAgentDispatch_Cov_LoadHistoryPrepareCloneAndMarkRunning(t *testing.T) {
 	assert.Equal(t, "codex", payload.AgentProvider)
 	assert.Equal(t, "http", payload.AgentTransport)
 	require.Len(t, payload.MessageHistory, 2)
+	assert.Empty(t, dispatch.triggerText, "an assistant message id records no message trigger")
 
 	svc.q = &mockAgentQuerier{
 		listAgentMessagesFn: func(context.Context, db.ListAgentMessagesParams) ([]db.AgentMessage, error) {
