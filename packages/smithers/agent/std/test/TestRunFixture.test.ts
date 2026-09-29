@@ -71,7 +71,7 @@ const run = (input: typeof TestRun.Input.Type, runner: TestRunner.Runner) =>
     Effect.provide(
       TestRun.run(input),
       Layer.mergeAll(NodeServices.layer, TestRunner.layer(runner), tree)
-    ) as Effect.Effect<typeof TestRun.Output.Type>
+    )
   )
 
 describe("TestRun over a real repository", () => {

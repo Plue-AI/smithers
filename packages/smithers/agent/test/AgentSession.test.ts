@@ -44,7 +44,7 @@ import { RunStore } from "@smthrs/run-store"
 import type * as Fixture from "@smthrs/testing/Fixture"
 import type * as ModelLike from "@smthrs/testing/ModelLike"
 import * as RecordedModel from "@smthrs/testing/RecordedModel"
-import { Cause, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -519,7 +519,7 @@ const moduleRun = (options: {
       resolve: () => Effect.die("a module must not resolve a model seat"),
       modules: { catalog, layer: options.registration }
     })))
-  }).pipe(Effect.scoped) as Effect.Effect<{ readonly claims: number }, unknown>
+  }).pipe(Effect.scoped)
 
 /**
  * Runs every other in-process fiber to a standstill, `times` over.
@@ -854,7 +854,7 @@ describe("AgentSession", () => {
             return yield* drive(gate, "approve", false, descriptor).pipe(
               Effect.provide(stack({ resolve: seat(capturing(captured)), notes, gate }))
             )
-          }).pipe(Effect.scoped) as Effect.Effect<Outcome>
+          }).pipe(Effect.scoped)
         )
         expect(captured).toHaveLength(2)
         expect(notes).toEqual(["frame zero note"])
@@ -875,7 +875,7 @@ describe("AgentSession", () => {
         return yield* drive(gate, "approve", true).pipe(
           Effect.provide(stack({ resolve: seat(capturing(captured)), notes, gate }))
         )
-      }).pipe(Effect.scoped) as Effect.Effect<Outcome>
+      }).pipe(Effect.scoped)
     )
     expect(captured).toHaveLength(2)
     expect(notes).toEqual(["frame zero note"])
@@ -1071,7 +1071,7 @@ describe("AgentSession", () => {
         return yield* drive(gate).pipe(
           Effect.provide(stack({ resolve: seat(capturing(captured)), notes, checks, gate, judged: true }))
         )
-      }).pipe(Effect.scoped) as Effect.Effect<Outcome>
+      }).pipe(Effect.scoped)
     )
 
     // Two provider calls, one per frame, and the resumed attempt replayed
@@ -1218,10 +1218,7 @@ describe("AgentSession", () => {
         )
         const unconsumed = yield* replay.controller.unconsumed()
         return { driven, unconsumed }
-      }).pipe(Effect.scoped) as Effect.Effect<{
-        driven: Outcome
-        unconsumed: ReadonlyArray<Fixture.RecordedCall>
-      }>
+      }).pipe(Effect.scoped)
     )
 
     expect(replayNotes).toEqual(["frame zero note"])
@@ -1248,10 +1245,7 @@ describe("AgentSession", () => {
         return yield* driveTwoParks.pipe(
           Effect.provide(stack({ resolve: seat(scripted(askFrames, captured)), notes: [], gate }))
         )
-      }).pipe(Effect.scoped) as Effect.Effect<{
-        questions: ReadonlyArray<string>
-        agentTrail: ReadonlyArray<JournalEvent.Entry>
-      }>
+      }).pipe(Effect.scoped)
     )
 
     expect(outcome.questions).toEqual(["publish the log?", "publish the report?"])
@@ -1293,10 +1287,7 @@ describe("AgentSession", () => {
         return yield* driveTwoParks.pipe(
           Effect.provide(stack({ resolve: seat(scripted(askFrames, captured)), notes: [], gate }))
         )
-      }).pipe(Effect.scoped) as Effect.Effect<{
-        questions: ReadonlyArray<string>
-        agentTrail: ReadonlyArray<JournalEvent.Entry>
-      }>
+      }).pipe(Effect.scoped)
     )
     const trail = [...outcome.agentTrail].sort((left, right) => left.seq - right.seq)
     const typed = (eventType: string) => trail.filter((entry) => entry.eventType === eventType)
@@ -1396,7 +1387,7 @@ describe("AgentSession", () => {
           }
           return yield* drive(gate)
         }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate })))
-      }).pipe(Effect.scoped) as Effect.Effect<Outcome>
+      }).pipe(Effect.scoped)
     )
 
     expect(outcome.requestedQuestion).toBe("publish the log?")
@@ -1430,7 +1421,7 @@ describe("AgentSession", () => {
           const run = yield* runtime.getRun(receipt.runId)
           return { kinds: events.map((event) => event.kind), status: run.status }
         }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate })))
-      }).pipe(Effect.scoped) as Effect.Effect<{ kinds: ReadonlyArray<string>; status: string }, unknown>
+      }).pipe(Effect.scoped)
     )
 
     expect(result.kinds).toEqual(["control.run.accepted", "control.run.pending"])
@@ -1445,7 +1436,7 @@ describe("AgentSession", () => {
         return yield* drive(gate, "deny").pipe(
           Effect.provide(stack({ resolve: seat(capturing([])), notes, gate }))
         )
-      }).pipe(Effect.scoped) as Effect.Effect<Outcome>
+      }).pipe(Effect.scoped)
     )
 
     // The denial resolved the token without installing a grant, so the
@@ -1487,7 +1478,7 @@ describe("AgentSession", () => {
           yield* awaitStatus(runtime, receipt.runId, "cancelled")
           return (yield* runtime.getRun(receipt.runId)).status
         }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate, toolStarted })))
-      }).pipe(Effect.scoped) as Effect.Effect<string>
+      }).pipe(Effect.scoped)
     )
 
     expect(status).toBe("cancelled")
@@ -1520,7 +1511,7 @@ describe("AgentSession", () => {
             status: runId === undefined ? "no run" : (yield* runtime.getRun(runId)).status
           }
         }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate })))
-      }).pipe(Effect.scoped) as Effect.Effect<{ refusal: string; status: string }, unknown>
+      }).pipe(Effect.scoped)
     )
 
     // A flow with no seat can never run on any agent host, so the refusal
@@ -1554,7 +1545,7 @@ describe("AgentSession", () => {
           const run = yield* runtime.getRun(receipt.runId)
           return run.status
         }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate })))
-      }).pipe(Effect.scoped) as Effect.Effect<string, unknown>
+      }).pipe(Effect.scoped)
     )
 
     expect(result).toBe("accepted")
@@ -1765,7 +1756,7 @@ describe("AgentSession", () => {
           resolve: () => Effect.die("a module must not resolve a model seat"),
           modules: { catalog, layer: registration }
         })))
-      }).pipe(Effect.scoped) as Effect.Effect<{ readonly claims: number }, unknown>
+      }).pipe(Effect.scoped)
     )
 
     // The resumed body read the answer the person gave, and the park cost one
@@ -1964,10 +1955,7 @@ describe("AgentSession", () => {
           resolve: () => Effect.die("a module must not resolve a model seat"),
           modules: { catalog, layer: registration }
         })))
-      }).pipe(Effect.scoped) as Effect.Effect<
-        { readonly status: string; readonly delegations: ReadonlyArray<string>; readonly claims: number },
-        unknown
-      >
+      }).pipe(Effect.scoped)
     )
 
     // Nothing asked, nothing ran: no delegation stands, the body past the ask
@@ -2021,10 +2009,7 @@ describe("AgentSession", () => {
           }
           return results
         }).pipe(Effect.provide(stack({ resolve: seat(failing), notes, gate, bare: true })))
-      }).pipe(Effect.scoped) as Effect.Effect<
-        ReadonlyArray<{ readonly status: string; readonly failed: JournalEvent.Entry }>,
-        unknown
-      >
+      }).pipe(Effect.scoped)
     )
 
     expect(results.map((result) => result.status)).toEqual(["failed", "failed"])
@@ -2082,7 +2067,7 @@ describe("AgentSession", () => {
             stack({ resolve: seat(recording), notes, gate, bare: true, reasoningEffort: "medium" })
           )
         )
-      }).pipe(Effect.scoped) as Effect.Effect<void, unknown>
+      }).pipe(Effect.scoped)
     )
 
     expect(requests.map((request) => request.params.reasoningEffort)).toEqual(["medium", "low"])
@@ -2132,7 +2117,7 @@ describe("AgentSession", () => {
           const page = yield* journal.entries({ runId: JournalEvent.RunId.make(receipt.runId), limit: 200 })
           return page.entries.filter((entry) => entry.eventType === "control.agent.prompt-rendered")
         }).pipe(Effect.provide(stack({ resolve: seat(recording), notes, gate, bare: true })))
-      }).pipe(Effect.scoped) as Effect.Effect<ReadonlyArray<JournalEvent.Entry>, unknown>
+      }).pipe(Effect.scoped)
     )
 
     const prose = requests.flatMap((request) => [
@@ -2195,10 +2180,7 @@ describe("AgentSession", () => {
               return { rows, digest: "opening-digest" }
             })
         })))
-      }).pipe(Effect.scoped) as Effect.Effect<
-        { readonly runId: string; readonly capabilities: ReadonlyArray<string> },
-        unknown
-      >
+      }).pipe(Effect.scoped)
     )
 
     expect(launches).toHaveLength(1)
@@ -2228,7 +2210,7 @@ describe("AgentSession", () => {
             idempotencyKey: "run:unresolved"
           }))
         }).pipe(Effect.provide(stack({ resolve, notes, gate })))
-      }).pipe(Effect.scoped) as Effect.Effect<unknown>
+      }).pipe(Effect.scoped)
     )
 
     expect(error).toBeInstanceOf(ControlError.LaunchFailed)
@@ -2357,7 +2339,7 @@ const routedRun = (options: {
         instructions: options.instructions,
         ...(options.refusing === true ? { asks: "refuse" as const } : {})
       })))
-    }).pipe(Effect.scoped) as Effect.Effect<Routed, unknown>
+    }).pipe(Effect.scoped)
   )
 
 const seatRouted = (trail: ReadonlyArray<JournalEvent.Entry>) =>
@@ -2586,5 +2568,22 @@ describe("AgentSession profile instructions", () => {
       instructions: () => Effect.fail("missing skill")
     })
     expect(run.requests).toHaveLength(0)
+  })
+})
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/agent/AgentSession/Unprovided") {}
+
+/** Never called; tsc checks it (#2704). The session sites run `body.pipe(Effect.provide(stack(...)))` uncast. */
+const unprovidedServiceProbe = (gate: Deferred.Deferred<void>) => {
+  const layer = stack({ resolve: seat(capturing([])), notes: [], gate })
+  // @ts-expect-error the session stack does not provide Unprovided
+  Effect.runPromise(Effect.map(Unprovided, (service) => service.value).pipe(Effect.provide(layer), Effect.scoped))
+  Effect.runPromise(Effect.map(Control.Control, (control) => control).pipe(Effect.provide(layer), Effect.scoped))
+}
+
+describe("regression: provide-then-cast test sites erase layer requirements (#2704)", () => {
+  it("rejects a body that needs a service the session stack does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive on unprovidedServiceProbe.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })

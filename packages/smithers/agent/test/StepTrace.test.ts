@@ -5,7 +5,7 @@ import { Journal } from "@smthrs/journal"
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import { RunStore } from "@smthrs/run-store"
-import { Deferred, Effect, Fiber, Option, Stream } from "effect"
+import { Context, Deferred, Effect, Fiber, Layer, Option, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
@@ -28,13 +28,25 @@ import {
   Twice
 } from "./fixtures/step-trace-stack.ts"
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+/** What `run` provides: the SQLite stores, crypto, and a scope. */
+type Provided =
+  | Layer.Success<ReturnType<typeof stores>>
+  | Layer.Success<typeof NodeCrypto.layer>
+  | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Provided>) =>
   Effect.runPromise(
-    Effect.scoped(effect).pipe(Effect.provide(stores(":memory:")), Effect.provide(NodeCrypto.layer)) as Effect.Effect<
-      A,
-      E
-    >
+    Effect.scoped(effect).pipe(Effect.provide(stores(":memory:")), Effect.provide(NodeCrypto.layer))
   )
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/agent/StepTrace/Unprovided") {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error run provides the stores and crypto, not Unprovided
+  run(Effect.map(Unprovided, (service) => service.value))
+  run(Effect.map(Journal.Journal, (journal) => journal))
+}
 
 describe("agent step checkpoints on the real SQLite engine", () => {
   it("has no trace without installation, and checkpoints a settled step before returning", async () => {
@@ -324,4 +336,11 @@ describe("agent checkpoint time travel", () => {
       expect(calls).toBe(1)
     }))
   }, 60_000)
+})
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a body that needs a service run does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive on unprovidedServiceProbe.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
 })

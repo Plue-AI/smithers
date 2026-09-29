@@ -26,7 +26,7 @@ const snapshot = await Effect.runPromise(
     Effect.provide(NodeHost.layer),
     Effect.scoped,
     Effect.orDie
-  ) as Effect.Effect<{ readonly id: string; readonly ref: string }>
+  )
 )
 
 process.stdout.write(`CAPTURED=${snapshot.ref}\n`)

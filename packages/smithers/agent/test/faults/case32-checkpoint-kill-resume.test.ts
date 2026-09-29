@@ -114,7 +114,7 @@ const readAtCheckpoint = (): Promise<string> =>
       Effect.provide(NodeHost.layer),
       Effect.scoped,
       Effect.orDie
-    ) as Effect.Effect<string>
+    )
   )
 
 describe("case32 a checkpoint is a pinned tree", () => {

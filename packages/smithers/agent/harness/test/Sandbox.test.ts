@@ -80,7 +80,7 @@ const withRealm = <A, E>(
     expect(open).toBeDefined()
     const realm = yield* open!({ flows, ...(limits === undefined ? {} : { limits }) })
     return yield* body(realm)
-  }).pipe(Effect.provide(QuickJSSandbox.layer), Effect.scoped) as Effect.Effect<A, E | Sandbox.SandboxError, never>
+  }).pipe(Effect.provide(QuickJSSandbox.layer), Effect.scoped)
 
 describe("Sandbox", () => {
   it("applies call overrides to only the requested evaluation", async () => {
