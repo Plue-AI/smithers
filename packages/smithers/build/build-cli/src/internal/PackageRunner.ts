@@ -1445,7 +1445,7 @@ export const executeEffect = (
               exitOk: true,
               output: { kind: "agent-verdict", value },
               storedAt: new Date().toISOString()
-            }).catch((cause: unknown) => {
+            }, { shared: sandboxEnforced(node) }).catch((cause: unknown) => {
               log(`smthrs: could not store the ${node.label} verdict in the cache: ${Diagnostic.describe(cause)}`)
             })
           ).pipe(Effect.mapError((cause) => agentSessionError("cache", cause)))

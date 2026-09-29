@@ -207,7 +207,9 @@ a property of the job rather than of the workspace it builds, which is why it
 comes from the environment and not from a declaration.
 
 A result produced outside an enforced sandbox is evidence for this machine
-only and never reaches the shared tier. See
+only and never reaches the shared tier. This includes agent verdicts: with
+`sandbox: "none"`, repeated runs can reuse a local verdict, but the verdict is
+never published to the remote cache. See
 [Target execution](./execution.md).
 
 ### Credentials
