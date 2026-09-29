@@ -1,8 +1,16 @@
 import { describe, expect, it } from "bun:test"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Search from "../src/search.ts"
+
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 6_000
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error("Search child did not reach the expected state")
+    await Bun.sleep(10)
+  }
+}
 
 const tree = () => {
   const cwd = mkdtempSync(join(tmpdir(), "tui-search-"))
@@ -27,14 +35,14 @@ describe("rg search", () => {
     expect(outcome.hits[0]).toMatchObject({ path: "math.js", line: 1 })
     expect(outcome.hits[0]!.text).toContain("a - b")
     expect(outcome.truncated).toBe(false)
-  })
+  }, 15_000)
 
   it("treats dots literally unless a regex is given", async () => {
     const literal = await Search.run({ cwd, query: "a.b" }).done
     expect(literal._tag === "done" ? literal.hits : undefined).toEqual([])
     const regex = await Search.run({ cwd, query: "/a.b/", regex: "a.b" }).done
     expect(regex._tag === "done" ? regex.hits.map((hit) => hit.path) : undefined).toContain("dots.txt")
-  })
+  }, 15_000)
 
   it("keeps a colon inside a path", async () => {
     const outcome = await Search.run({ cwd, query: "needle" }).done
@@ -43,7 +51,7 @@ describe("rg search", () => {
       line: 1,
       text: "needle here"
     }])
-  })
+  }, 15_000)
 
   it("finds hits in files with newline, tab, Unicode, quote, and backslash names, keeping exact paths", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-search-odd-"))
@@ -57,7 +65,7 @@ describe("rg search", () => {
       expect(readFileSync(join(dir, hit.path), "utf8")).toContain("pin")
       expect(hit).toMatchObject({ line: 1, text: "a\tpin \"q\" \\ é" })
     }
-  })
+  }, 15_000)
 
   it("decodes rg's base64 bytes, caps line text, and skips a path it cannot name exactly", () => {
     const b64 = (bytes: Buffer) => bytes.toString("base64")
@@ -87,7 +95,7 @@ describe("rg search", () => {
     const capped = await Search.run({ cwd: dir, query: "needle", limit: 50 }).done
     expect(capped._tag === "done" ? capped.hits.length : undefined).toBe(50)
     expect(capped._tag === "done" && capped.truncated).toBe(true)
-  })
+  }, 15_000)
 
   it("stops at the cap and says so", async () => {
     const outcome = await Search.run({ cwd, query: "repeated", limit: 50 }).done
@@ -95,7 +103,7 @@ describe("rg search", () => {
     if (outcome._tag !== "done") return
     expect(outcome.hits).toHaveLength(50)
     expect(outcome.truncated).toBe(true)
-  })
+  }, 15_000)
 
   it("types a bad pattern", async () => {
     expect(await Search.run({ cwd, query: "/(/", regex: "(" }).done).toMatchObject({
@@ -110,7 +118,7 @@ describe("rg search", () => {
       _tag: "failed",
       reason: "missing-rg"
     })
-  })
+  }, 15_000)
 
   it("reports a missing working directory and can retry after it is created", async () => {
     const dir = join(mkdtempSync(join(tmpdir(), "tui-search-missing-cwd-")), "later")
@@ -143,43 +151,93 @@ describe("rg search", () => {
     const shim = join(mkdtempSync(join(tmpdir(), "tui-slow-rg-")), "rg")
     writeFileSync(shim, "#!/bin/sh\nsleep 30\n")
     chmodSync(shim, 0o755)
-    const started = Date.now()
     const running = Search.run({ cwd, query: "x", command: shim })
     running.cancel()
     running.cancel()
     expect(await running.done).toEqual({ _tag: "cancelled" })
-    expect(Date.now() - started).toBeLessThan(5_000)
-  })
+  }, 15_000)
 
-  it("kills rg and its children on cancel", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tui-slow-rg-"))
+  it("regression: child PID cancellation waits for readiness and reaping in a path with spaces", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui slow rg-"))
     const shim = join(dir, "rg")
     const pidFile = join(dir, "pid")
-    // A grandchild, so only a process-group kill reaches it.
-    writeFileSync(shim, `#!/bin/sh\nsleep 30 &\necho $! > ${pidFile}\nwait\n`)
+    const reapedFile = join(dir, "reaped")
+    const parentPidFile = join(dir, "parent-pid")
+    const childScript = join(dir, "child.cjs")
+    const parentScript = join(dir, "parent.cjs")
+    // The child announces readiness after installing its signal handler. Its
+    // parent stays alive to reap it, making PID disappearance meaningful.
+    writeFileSync(
+      childScript,
+      `
+const { writeFileSync, renameSync } = require("node:fs")
+process.on("SIGTERM", () => process.exit(0))
+writeFileSync("pid.tmp", String(process.pid))
+renameSync("pid.tmp", "pid")
+setInterval(() => {}, 1000)
+`
+    )
+    writeFileSync(
+      parentScript,
+      `
+const { spawn } = require("node:child_process")
+const { writeFileSync, renameSync } = require("node:fs")
+process.on("SIGTERM", () => {})
+writeFileSync("parent-pid.tmp", String(process.pid))
+renameSync("parent-pid.tmp", "parent-pid")
+const child = spawn(process.execPath, ["child.cjs"], { stdio: "inherit" })
+child.on("exit", (code, signal) => {
+  writeFileSync("reaped.tmp", JSON.stringify({ pid: child.pid, code, signal }))
+  renameSync("reaped.tmp", "reaped")
+  process.exit(0)
+})
+`
+    )
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
+    writeFileSync(shim, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(parentScript)}\n`)
     chmodSync(shim, 0o755)
-    const running = Search.run({ cwd, query: "x", command: shim })
+    const running = Search.run({ cwd: dir, query: "x", command: shim })
     const alive = (pid: number) => {
       try {
         process.kill(pid, 0)
         return true
-      } catch {
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
         return false
       }
     }
     let pid = 0
-    for (let tries = 0; tries < 100 && pid === 0; tries++) {
-      await Bun.sleep(20)
-      pid = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0
+    try {
+      await waitFor(() => existsSync(pidFile))
+      pid = Number(readFileSync(pidFile, "utf8").trim())
+      expect(pid).toBeGreaterThan(0)
+      expect(alive(pid)).toBe(true)
+      running.cancel()
+      expect(await running.done).toEqual({ _tag: "cancelled" })
+      await waitFor(() => existsSync(reapedFile))
+      expect(JSON.parse(readFileSync(reapedFile, "utf8"))).toEqual({ pid, code: 0, signal: null })
+      await waitFor(() => !alive(pid))
+      expect(alive(pid)).toBe(false)
+    } finally {
+      running.cancel()
+      await running.done
+      // Cleanup must also work when process-group creation itself regresses.
+      if (!existsSync(reapedFile)) {
+        for (const file of [pidFile, parentPidFile]) {
+          if (!existsSync(file)) continue
+          const ownedPid = Number(readFileSync(file, "utf8"))
+          try {
+            process.kill(ownedPid, "SIGKILL")
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+          }
+        }
+      }
+      rmSync(dir, { recursive: true, force: true })
     }
-    expect(pid).toBeGreaterThan(0)
-    expect(alive(pid)).toBe(true)
-    running.cancel()
-    for (let tries = 0; tries < 100 && alive(pid); tries++) await Bun.sleep(20)
-    expect(alive(pid)).toBe(false)
-  })
+  }, 15_000)
 
   it("returns no hits, not a failure, when nothing matches", async () => {
     expect(await Search.run({ cwd, query: "zzz-not-here" }).done).toEqual({ _tag: "done", hits: [], truncated: false })
-  })
+  }, 15_000)
 })

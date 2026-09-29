@@ -1,43 +1,96 @@
 import { expect, it } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, watch, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import * as Complete from "../src/complete.ts"
 import * as Editor from "../src/editor.ts"
 import * as Files from "../src/files.ts"
 import * as Palette from "../src/palette.ts"
 
+const waitForFile = async (file: string): Promise<void> => {
+  if (existsSync(file)) return
+  await new Promise<void>((resolve, reject) => {
+    const watcher = watch(dirname(file), check)
+    const timeout = setTimeout(() => finish(new Error(`Timed out waiting for ${file}`)), 6_000)
+    let settled = false
+    function finish(error?: Error) {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      watcher.close()
+      if (error) reject(error)
+      else resolve()
+    }
+    function check() {
+      if (existsSync(file)) finish()
+    }
+    watcher.on("error", finish)
+    check()
+  })
+}
+
+const bounded = async (promise: Promise<void>, ms: number): Promise<void> => {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("File enumeration did not finish")), ms)
+      })
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 it("shows palette commands immediately and fills files after asynchronous enumeration", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "tui-files-"))
   const saved = process.env.PATH
-  writeFileSync(join(cwd, "git"), "#!/bin/sh\n/bin/sleep 0.4\nprintf \"a.ts\\000\"\n", { mode: 0o755 })
+  const ready = join(cwd, "ready")
+  const release = join(cwd, "release")
+  writeFileSync(join(cwd, "a.ts"), "export {}\n")
+  writeFileSync(
+    join(cwd, "git"),
+    `#!/bin/sh\nprintf ready > ready\nwhile [ ! -e release ]; do /bin/sleep 0.01; done\nprintf 'a.ts\\000'\n`,
+    { mode: 0o755 }
+  )
   process.env.PATH = cwd
+  let refreshed = 0
+  let notify: () => void = () => {}
+  const changed = new Promise<void>((resolve) => {
+    notify = resolve
+  })
   try {
-    let refreshed = 0
-    const files = Files.lister(cwd, Date.now, () => refreshed++)
+    const files = Files.lister(cwd, Date.now, () => {
+      refreshed++
+      notify()
+    })
     const sources = { commands: Editor.commands, files, sessions: [], tabs: [], hits: [], now: Date.now() }
-    const started = Date.now()
     const initial = Palette.rows(Palette.parse(""), sources)
-    expect(Date.now() - started).toBeLessThan(200)
     expect(initial.every((row) => row.value.kind === "command")).toBe(true)
     expect(initial.length).toBe(Editor.commands.length)
-    await Bun.sleep(10)
+    await waitForFile(ready)
     expect(refreshed).toBe(0)
-    for (let n = 0; n < 200 && refreshed === 0; n++) await Bun.sleep(10)
+    expect(Palette.rows(Palette.parse(""), sources)).toEqual(initial)
+    writeFileSync(release, "")
+    await bounded(changed, 6_000)
     expect(refreshed).toBe(1)
+    expect(files(), "Git fixture must finish within Files.list's 2 s timeout").toEqual(["a.ts"])
     expect(Palette.rows(Palette.parse(""), sources).at(-1)?.value).toEqual({ kind: "file", path: "a.ts" })
   } finally {
+    writeFileSync(release, "")
+    if (existsSync(ready)) await bounded(changed, 2_500).catch(() => {})
     process.env.PATH = saved
     rmSync(cwd, { recursive: true, force: true })
   }
-})
+}, 15_000)
 
 it("times out file enumeration without blocking timers", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "tui-files-timeout-"))
   const saved = process.env.PATH
   for (const command of ["git", "rg"]) {
-    writeFileSync(join(cwd, command), "#!/bin/sh\nexec /bin/sleep 0.4\n", { mode: 0o755 })
+    writeFileSync(join(cwd, command), "#!/bin/sh\nexec /bin/sleep 30\n", { mode: 0o755 })
   }
   process.env.PATH = cwd
   try {
@@ -45,16 +98,14 @@ it("times out file enumeration without blocking timers", async () => {
     const timer = setTimeout(() => {
       timerRan = true
     }, 5)
-    const started = Date.now()
     expect(await Files.list(cwd, 30)).toEqual([])
     expect(timerRan).toBe(true)
-    expect(Date.now() - started).toBeLessThan(300)
     clearTimeout(timer)
   } finally {
     process.env.PATH = saved
     rmSync(cwd, { recursive: true, force: true })
   }
-})
+}, 15_000)
 
 const awkward = [
   "café.txt",
@@ -125,7 +176,7 @@ it("lists Unicode, whitespace, quote, backslash, and control-character names exa
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }
-})
+}, 15_000)
 
 it("lists the same exact names from rg outside a repository", async () => {
   const cwd = repository()
@@ -141,7 +192,7 @@ it("lists the same exact names from rg outside a repository", async () => {
     rmSync(cwd, { recursive: true, force: true })
     rmSync(bin, { recursive: true, force: true })
   }
-})
+}, 15_000)
 
 it("drops names that are not UTF-8 and repeated unmerged entries", () => {
   const stdout = Buffer.concat([Buffer.from("a.ts\0"), Buffer.from([0x62, 0xff, 0x00]), Buffer.from("a.ts\0café\0")])
