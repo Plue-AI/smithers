@@ -351,6 +351,16 @@ Read-only projections of a run's events. Nothing here opens a database, so
 | `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
 | `render` | `(node) => string` | One node's human rendering. |
 
+## CloudSession
+
+The signed-in Smithers Cloud session for hosts other than the CLI (the terminal UI reads the factory's issue list with it). The token and origin come from where `smthrs auth login` and `smthrs config` put them.
+
+| Export | Signature | Meaning |
+| --- | --- | --- |
+| `Cloud` | interface | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
+| `signedIn` | `(env) => Promise<Cloud \| undefined>` | The session, or undefined without an origin or a login. |
+| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it. |
+
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.

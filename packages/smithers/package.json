@@ -75,6 +75,7 @@
     "./Output": "./src/Output.ts",
     "./Project": "./src/Project.ts",
     "./Providers": "./src/Providers.ts",
+    "./CloudSession": "./src/CloudSession.ts",
     "./Serve": "./src/Serve.ts",
     "./Suggest": "./src/Suggest.ts",
     "./Ui": "./src/Ui.ts",
@@ -369,6 +370,16 @@
         "require": {
           "types": "./dist/cjs/Providers.d.ts",
           "default": "./dist/cjs/Providers.js"
+        }
+      },
+      "./CloudSession": {
+        "import": {
+          "types": "./dist/esm/CloudSession.d.ts",
+          "default": "./dist/esm/CloudSession.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CloudSession.d.ts",
+          "default": "./dist/cjs/CloudSession.js"
         }
       },
       "./Serve": {
