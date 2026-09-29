@@ -13,8 +13,7 @@
  * assembles from what it already holds: the task, the newest frames, and the
  * counts the deterministic controls keep — read-only streak, repeat streak,
  * mutations, checks run and failing, unanswered failures, demands spent. It
- * re-derives none of them. Beside the run's state it carries a bounded list
- * of sentences the run wrote that might be worth keeping, the skills it has
+ * re-derives none of them. Beside the run's state it carries the skills it has
  * not called, the flows it has, and whether it can call `jev`. One Jev call per
  * snapshot answers every question at once.
  *
@@ -24,8 +23,7 @@
  * operational states a person would recognise in a colleague, each scored
  * `none`, `mild` or `strong` against evidence the snapshot names, and
  * `needs_help` is the one word a person is shown. The five about the run are
- * the {@link triggers}: any one past its threshold crosses. A boolean per
- * candidate sentence decides what is written to memory, and each monitor the
+ * the {@link triggers}: any one past its threshold crosses. Each monitor the
  * host arms may add one boolean of its own, under {@link monitorPrefix}.
  *
  * Rows recalled from {@link Memory} are not asked about here. Beside each
@@ -38,14 +36,14 @@
  * completion, or decides anything on the cell loop's hot path. `CellTurn`
  * offers each frame's snapshot to a one-slot sliding queue and continues; a
  * forked fiber takes the newest snapshot, asks, journals what came back, and
- * hands the monitors' values and any memory to the *next* turn boundary,
+ * hands the monitors' values and any recalled rows to the *next* turn boundary,
  * which decides there what the run is told. A reading that arrives after the boundary it was for is
  * journaled and never delivered, and a snapshot the fiber never reached is
  * dropped: the run is never told something about a frame two frames gone.
  *
  * It never falls back. A snapshot Jev could not read is journaled as
  * {@link AgentEvent.SupervisorUnjudged} with the transport's own reason; it
- * nudges nothing, remembers nothing, and is never counted as a reading that
+ * nudges nothing, and is never counted as a reading that
  * found the run calm or on target. Nothing here is a default value: every
  * level and every word on the settled event came back from the transport.
  *
@@ -55,9 +53,9 @@
  * `supervisor` lint monitor says. The offline replay of archived journals
  * (`evals/swebench/lib/jev-replay.mjs`, which scores {@link triggers} itself
  * rather than a copy of it) measures their precision. The verdict is
- * journaled whenever an `Evaluator` is bound. Remembering is behind
- * {@link Options.remember}, off unless the host opts in, and writes nothing
- * unless a {@link Memory} is bound.
+ * journaled whenever an `Evaluator` is bound. The supervisor writes no
+ * memory: a run's transcript is mined once, at run end, by `@smthrs/agent`'s
+ * `MemoryMine`.
  *
  * @since 1.0.0-rc.0
  */
@@ -90,14 +88,6 @@ export const frameBytes = 1024
  * @since 1.0.0-rc.0
  */
 export const recentFrames = 3
-
-/**
- * The most sentences one snapshot offers as memory candidates.
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const candidateLimit = 4
 
 /**
  * The most rows one reading recalls from {@link Memory}.
@@ -143,12 +133,13 @@ export const offTargetAt = 0.5
 export const suspectAt = 0.5
 
 /**
- * At or above this probability, a candidate is remembered.
+ * At or above this probability of `outdated_context` or
+ * `irrelevant_context`, the reading crosses.
  *
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const acceptAt = 0.5
+export const contextAt = 0.5
 
 /**
  * The three rungs every operational-state question is scored on.
@@ -361,9 +352,6 @@ export const Snapshot = Schema.Struct({
   task: Schema.String.annotate({ description: "The task, as the person stated it" }),
   frames: Schema.Array(Frame).annotate({ description: "The newest frames, oldest first" }),
   signals: Signals,
-  candidates: Schema.Array(Schema.String).annotate({
-    description: "Sentences the run wrote that might be worth remembering across runs, by index"
-  }),
   skills: Schema.Array(Skill).annotate({ description: "Skills the run could read and has not called, by index" }),
   called: Schema.Array(Schema.String).annotate({ description: "Distinct flows the run has called" }),
   jevAvailable: Schema.Boolean.annotate({ description: "Whether the run can call the jev flow" })
@@ -465,16 +453,6 @@ const fixedQuestions = {
   })
 } as const
 
-const candidateQuestion = (index: number) =>
-  Classifier.boolean({
-    instructions:
-      `Is candidates[${index}] worth remembering for a later run in this repository: a durable fact about how the project builds, tests, is laid out, or behaves, stated plainly?`,
-    criteria: {
-      true: "a fact about the repository or its tooling a later run would otherwise rediscover",
-      false: "a plan, a status line, a claim about this task, a value from this run, or nothing at all"
-    }
-  })
-
 /**
  * The prefix of every question a monitor adds to a reading; the rest of the
  * id is the monitor's own.
@@ -492,61 +470,46 @@ export const monitorPrefix = "monitor_"
  */
 export type MonitorQuestions = Readonly<Record<`${typeof monitorPrefix}${string}`, Classifier.BooleanQuestion>>
 
-/** The map of questions a snapshot with these many candidates and these monitors is asked. */
-const questionsFor = (candidates: number, extra: MonitorQuestions) => ({
-  ...fixedQuestions,
-  ...Object.fromEntries(
-    Array.from({ length: Math.min(candidates, candidateLimit) }, (_, index) => [
-      `remember_${index}`,
-      candidateQuestion(index)
-    ])
-  ),
-  ...extra
-})
-
-const declare = (candidates: number, extra: MonitorQuestions) =>
+const declare = (extra: MonitorQuestions) =>
   Classifier.make("supervisor/turn", {
     description:
-      "Read one running agent's newest frames and the counts its harness keeps: whether it is thrashing, on the task and honest; its operational state in five scored words; what it needs from a person; and which sentences to remember.",
+      "Read one running agent's newest frames and the counts its harness keeps: whether it is thrashing, on the task and honest; its operational state in five scored words; and what it needs from a person.",
     state: Snapshot,
-    questions: questionsFor(candidates, extra)
+    questions: { ...fixedQuestions, ...extra }
   })
 
 const cache = new Map<string, { readonly extra: MonitorQuestions; readonly made: ReturnType<typeof declare> }>()
 
 /**
- * The classifier for a snapshot with this many candidates and these monitor
- * questions.
+ * The classifier for a snapshot with these monitor questions.
  *
- * The fixed questions are the same for every snapshot, the per-candidate
- * booleans are added by index and the monitors' after them, so a snapshot
- * with no candidates and no monitor questions asks the eleven fixed
- * questions and no others. Declared once per count and set of monitor ids,
- * and again when a monitor id asks a different question, because the digest
- * is the canonical hash of the questions and the journal names it.
+ * The fixed questions are the same for every snapshot and the monitors' follow
+ * them, so a snapshot with no monitor questions asks the eleven fixed
+ * questions and no others. Declared once per set of monitor ids, and again
+ * when a monitor id asks a different question, because the digest is the
+ * canonical hash of the questions and the journal names it.
  *
  * @category classifiers
  * @since 1.0.0-rc.0
  */
-export const classifierFor = (candidates: number, extra: MonitorQuestions): ReturnType<typeof declare> => {
-  const count = Math.min(candidates, candidateLimit)
+export const classifierFor = (extra: MonitorQuestions): ReturnType<typeof declare> => {
   const ids = Object.keys(extra).sort() as Array<keyof MonitorQuestions>
-  const key = `${count}:${ids.join(",")}`
+  const key = ids.join(",")
   const held = cache.get(key)
   if (held !== undefined && ids.every((id) => held.extra[id] === extra[id])) return held.made
-  const made = declare(count, extra)
+  const made = declare(extra)
   cache.set(key, { extra, made })
   return made
 }
 
 /**
  * The classifier over a bare snapshot: the eleven fixed questions and no
- * per-candidate or monitor booleans. Its id is the id every shape shares.
+ * monitor booleans. Its id is the id every shape shares.
  *
  * @category classifiers
  * @since 1.0.0-rc.0
  */
-export const classifier = classifierFor(0, {})
+export const classifier = classifierFor({})
 
 /**
  * What one evaluation came back with, decoded.
@@ -562,8 +525,6 @@ export interface Reading {
   readonly irrelevantContext: number
   readonly emotions: Readonly<Record<Emotion, Level>>
   readonly needsHelp: Help
-  /** One entry per candidate, in order: whether it is worth remembering. */
-  readonly remember: ReadonlyArray<boolean>
   /** The probability of each monitor question asked, by monitor id. */
   readonly monitors: Readonly<Record<string, number>>
   readonly latencyMs: number
@@ -589,10 +550,10 @@ export interface Reading {
  */
 export const read = (snapshot: Snapshot, extra: MonitorQuestions): Effect.Effect<Reading, Judgement.Unjudged> =>
   Effect.gen(function*() {
-    const { answers, asked } = yield* Judgement.read(classifierFor(snapshot.candidates.length, extra), snapshot)
+    const { answers, asked } = yield* Judgement.read(classifierFor(extra), snapshot)
     const all = answers as Readonly<Record<string, Classifier.Answer>>
     // Every declared question is answered or the decode above failed, and a
-    // per-candidate or monitor question is declared exactly for the ids read below.
+    // monitor question is declared exactly for the ids read below.
     const bool = (id: string): number => (all[id] as Classifier.BooleanAnswer).probability
     return {
       thrashing: answers.thrashing.probability,
@@ -608,7 +569,6 @@ export const read = (snapshot: Snapshot, extra: MonitorQuestions): Effect.Effect
         confident: answers.confident.label
       },
       needsHelp: answers.needs_help.value,
-      remember: snapshot.candidates.slice(0, candidateLimit).map((_, index) => bool(`remember_${index}`) >= acceptAt),
       monitors: Object.fromEntries(Object.keys(extra).map((id) => [id.slice(monitorPrefix.length), bool(id)])),
       latencyMs: asked.latencyMs,
       ...(asked.usage === undefined ? {} : { usage: asked.usage }),
@@ -617,30 +577,8 @@ export const read = (snapshot: Snapshot, extra: MonitorQuestions): Effect.Effect
   })
 
 /**
- * What a host arms the supervisor with.
- *
- * @category models
- * @since 1.0.0-rc.0
- */
-export interface Options {
-  /**
-   * Whether a candidate Jev accepts is written to the bound {@link Memory}.
-   * Off by default: a host opts in. A host with no memory bound writes
-   * nothing whatever this says.
-   */
-  readonly remember: boolean
-}
-
-/**
- * Memory writes off.
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const defaultOptions: Options = { remember: false }
-
-/**
- * The memory a supervisor reads rows from and writes accepted sentences to.
+ * The memory a supervisor reads rows from, and the run-end transcript miner
+ * writes accepted facts to.
  *
  * A port, so this package needs no memory store: the production composition
  * adapts `@smthrs/memory` to it, and a test binds a recording double. The
@@ -655,8 +593,8 @@ export interface Memory {
   /** Rows relevant to the query, most relevant first, bounded by the caller. */
   readonly recall: (query: string, limit: number) => Effect.Effect<ReadonlyArray<Recalled>, MemoryFailure>
   /**
-   * Writes one accepted sentence. A store that refuses it fails typed, and
-   * the supervisor journals `supervisor-memory-failed` and carries on.
+   * Writes one accepted fact. A store that refuses it fails typed, and the
+   * writer journals `supervisor-memory-failed` and carries on.
    */
   readonly remember: (text: string) => Effect.Effect<void, MemoryFailure>
 }
@@ -694,18 +632,6 @@ export const Memory = Context.Reference<Memory>("@smthrs/harness/Supervisor/Memo
 })
 
 /**
- * What one reading writes to memory, decided from the reading and the
- * options. What it tells the run is the monitors' to decide.
- *
- * @category models
- * @since 1.0.0-rc.0
- */
-export interface Verdict {
-  /** Candidates written to memory; empty unless remembering is on. */
-  readonly remembers: ReadonlyArray<string>
-}
-
-/**
  * The five readings that cross, by name, each with the inequality that fires
  * it. The one rule: the `supervisor` lint monitor crosses on it, {@link nudge}
  * names from it, and the offline replay scores it, so the three cannot drift
@@ -718,8 +644,8 @@ export const triggers = {
   thrashing: (reading: Triggerable): boolean => reading.thrashing >= thrashingAt,
   off_target: (reading: Triggerable): boolean => reading.onTarget <= offTargetAt,
   suspect: (reading: Triggerable): boolean => reading.suspect >= suspectAt,
-  outdated_context: (reading: Triggerable): boolean => reading.outdatedContext >= acceptAt,
-  irrelevant_context: (reading: Triggerable): boolean => reading.irrelevantContext >= acceptAt
+  outdated_context: (reading: Triggerable): boolean => reading.outdatedContext >= contextAt,
+  irrelevant_context: (reading: Triggerable): boolean => reading.irrelevantContext >= contextAt
 } as const
 
 /**
@@ -812,16 +738,6 @@ export const nudge = (snapshot: Snapshot, reading: Reading): string => {
 export const recalledInsert = (row: Recalled): string => `From memory of this repository (${row.key}):\n${row.text}`
 
 /**
- * Decides what one reading writes to memory, under the options the host armed.
- *
- * @category conversions
- * @since 1.0.0-rc.0
- */
-export const judge = (snapshot: Snapshot, reading: Reading, options: Options): Verdict => ({
-  remembers: options.remember ? snapshot.candidates.filter((_, index) => reading.remember[index] === true) : []
-})
-
-/**
  * The head of a frame's cell or prose, bounded by {@link frameBytes}.
  *
  * @category conversions
@@ -841,18 +757,14 @@ export const tail = (text: string): string => {
   return kept.length === trimmed.length ? trimmed : `[… older bytes elided]\n${kept}`
 }
 
+const fencedCell = /```(?:cell|typescript|ts|javascript|js)[^\n]*\n[\s\S]*?(?:```|$)/g
+
 /**
- * The sentences a frame wrote that might be worth keeping: its prose outside
- * the cell, split on blank lines, the first {@link candidateLimit} of them,
- * each bounded. A frame that wrote no prose offers none.
+ * What the model wrote around its cell: the reply with every fenced cell
+ * removed. The anxiety question reads it, and so does the run-end
+ * transcript miner.
  *
  * @category conversions
  * @since 1.0.0-rc.0
  */
-export const candidates = (prose: string): ReadonlyArray<string> =>
-  prose
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0 && !paragraph.startsWith("```"))
-    .slice(0, candidateLimit)
-    .map((paragraph) => elide.head(paragraph, 400, "clipped"))
+export const prose = (text: string): string => text.replace(fencedCell, "").trim()

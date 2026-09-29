@@ -87,6 +87,7 @@ describe("the shipped Node executor's supervisor memory", () => {
     let frame = 0
     const snapshots: Record<Phase, Array<Supervisor.Snapshot>> = { "run-1": [], "run-2": [] }
     const recalled: Record<Phase, Array<Relevance.Item>> = { "run-1": [], "run-2": [] }
+    const mined: Record<Phase, Array<string>> = { "run-1": [], "run-2": [] }
     const requests: Record<Phase, Array<string>> = { "run-1": [], "run-2": [] }
     const reads: Record<Phase, Deferred.Deferred<void>> = {
       "run-1": Deferred.makeUnsafe<void>(),
@@ -128,7 +129,7 @@ describe("the shipped Node executor's supervisor memory", () => {
           )
     })
 
-    // Finishes every completion, accepts every memory candidate, and keeps
+    // Finishes every completion, accepts every sentence the miner offers, and keeps
     // every item relevance is asked about.
     const judge = Evaluator.layerScripted((request) => {
       if (Object.hasOwn(request.questions, "unnecessary_0")) {
@@ -139,6 +140,16 @@ describe("the shipped Node executor's supervisor memory", () => {
       // The opening `memory({ task })` call: nothing in the fixture is needed.
       if (Object.keys(request.questions).every((id) => /^(?:needed|descend)_\d+$/.test(id))) {
         return Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+      }
+      if (Object.hasOwn(request.questions, "durable_0")) {
+        const items = (request.state as { readonly items: ReadonlyArray<{ readonly text: string }> }).items
+        mined[phase].push(...items.map((item) => item.text))
+        return Object.fromEntries(
+          items.flatMap((
+            _,
+            index
+          ) => [[`durable_${index}`, { probability: 0.99 }], [`issue_${index}`, { probability: 0.01 }]])
+        )
       }
       if (!Object.hasOwn(request.questions, "thrashing")) {
         return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
@@ -152,9 +163,7 @@ describe("the shipped Node executor's supervisor memory", () => {
             ? { choice: "none" }
             : ["frustrated", "anxious", "scared", "confused", "confident"].includes(key)
             ? { score: 0 }
-            : {
-              probability: key === "on_target" || key.startsWith("remember_") ? 0.99 : 0.01
-            }
+            : { probability: key === "on_target" ? 0.99 : 0.01 }
         ])
       )
     })
@@ -207,11 +216,15 @@ describe("the shipped Node executor's supervisor memory", () => {
         judged: true
       })
     }
-    expect(snapshots["run-1"][0]?.candidates).toEqual([sentence])
+    // Run 1's transcript is mined once, at its end; run 2 recalls what it kept.
+    expect(mined["run-1"]).toEqual([sentence])
     expect(recalled["run-1"]).toEqual([])
     expect(recalled["run-2"].map((item) => item.text)).toContain(sentence)
-    // Run 2's third frame reads the recalled row, with no env arming it.
-    expect(requests["run-2"]).toHaveLength(3)
+    // Run 2's third frame reads the recalled row, with no env arming it. No
+    // frame moves the tree (the note is written after the run), so each run's
+    // first completion is bounced once and it completes a frame later.
+    expect(requests["run-1"]).toHaveLength(3)
+    expect(requests["run-2"]).toHaveLength(4)
     expect(requests["run-2"][2]).toContain("From memory of this repository")
     expect(requests["run-2"][1]).not.toContain("From memory of this repository")
   }, 60_000)

@@ -6,6 +6,7 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import { Effect, Option, Schema } from "effect"
 import { describe, expect, it } from "vitest"
+import * as MemoryMine from "../src/MemoryMine.ts"
 import * as ScriptedJudge from "../src/ScriptedJudge.ts"
 import * as Seat from "../src/Seat.ts"
 import * as SeatRouter from "../src/SeatRouter.ts"
@@ -255,13 +256,12 @@ describe("the offline judge for every classifier", () => {
         task: "Fix it",
         frames: [],
         signals: { ...signals, repeatFrames },
-        candidates: ["The build uses pnpm."],
         skills: [],
         called: [],
         jevAvailable: false
       }, {}).pipe(Effect.provide(ScriptedJudge.layerAll))
     )
-    expect(Object.keys(reading.asked.answers).sort()).toHaveLength(12)
+    expect(Object.keys(reading.asked.answers).sort()).toHaveLength(11)
     expect(reading).toMatchObject({
       thrashing,
       onTarget: 0.9,
@@ -269,9 +269,19 @@ describe("the offline judge for every classifier", () => {
       outdatedContext: 0.1,
       irrelevantContext: 0.1,
       emotions: { frustrated: "none", anxious: "none", scared: "none", confused: "none", confident: "none" },
-      needsHelp: "none",
-      remember: [false]
+      needsHelp: "none"
     })
+  })
+
+  it("accepts no mined candidate as a fact or an issue", async () => {
+    const judged = await Effect.runPromise(
+      MemoryMine.judge("Fix it", [{ text: "The build uses pnpm.", seq: 1 }]).pipe(
+        Effect.provide(ScriptedJudge.layerAll)
+      )
+    )
+    expect(judged.facts).toEqual([])
+    expect(judged.issues).toEqual([])
+    expect(Object.keys(judged.asked[0]!.answers).sort()).toEqual(["durable_0", "issue_0"])
   })
 
   it("fires a skill monitor only while its skill is uncalled and keeps every other monitor quiet", async () => {
@@ -279,7 +289,6 @@ describe("the offline judge for every classifier", () => {
       task: "Fix it",
       frames: [],
       signals,
-      candidates: [],
       skills: [Supervisor.skill("review-checklist", "Review.", "/r.md"), Supervisor.skill("style", "Style.", "/s.md")],
       called: ["style"],
       jevAvailable: true

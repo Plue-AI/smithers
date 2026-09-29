@@ -143,7 +143,6 @@ const jevEvents: ReadonlyArray<AgentEvent.AgentEvent> = [
     needsHelp: "none",
     crossed: false,
     nudged: false,
-    remembered: [],
     latencyMs: 200,
     monitors: [{ id: "mood/frustrated", kind: "mood", p: 0.3, crossed: false }]
   }),
@@ -354,7 +353,6 @@ describe("AgentEvent", () => {
         needsHelp: "stuck",
         crossed: true,
         nudged: false,
-        remembered: [0],
         latencyMs: 310
       }),
       new AgentEvent.SupervisorUnjudged({
@@ -682,7 +680,6 @@ describe("AgentEvent", () => {
       crossed: true,
       nudged: true,
       steer: true,
-      remembered: [],
       latencyMs: 310
     },
     {
@@ -738,6 +735,14 @@ describe("AgentEvent", () => {
     const decoded = Schema.decodeUnknownSync(AgentEvent.AgentEvent)({ ...encoded, inserted: [0] })
     expect(decoded).toEqual(reading)
     expect("inserted" in decoded).toBe(false)
+  })
+
+  it("decodes a reading journaled with the retired remembered indexes and drops them", () => {
+    const reading = jevEvents[5]!
+    const encoded = Schema.encodeSync(AgentEvent.AgentEvent)(reading) as Record<string, unknown>
+    const decoded = Schema.decodeUnknownSync(AgentEvent.AgentEvent)({ ...encoded, remembered: [0, 2] })
+    expect(decoded).toEqual(reading)
+    expect("remembered" in decoded).toBe(false)
   })
 
   it("decodes a legacy cell settlement without inventing an execution frontier", () => {

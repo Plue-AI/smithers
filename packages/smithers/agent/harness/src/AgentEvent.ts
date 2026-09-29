@@ -1021,8 +1021,7 @@ const Level = Schema.Literals(["none", "mild", "strong"])
  * a failed reading fills in, because a failed reading writes
  * {@link SupervisorUnjudged} and never this. `crossed` says whether the
  * reading passed a nudge threshold; `nudged` whether a nudge was handed to
- * the next boundary, which needs the host to have armed steering.
- * `remembered` holds the indexes of the candidates written to memory; the
+ * the next boundary, which needs the host to have armed steering. The
  * recalled rows are judged by Relevance and journaled beside this as
  * `relevance-settled`. `decision-settled` beside this carries the snapshot
  * and every answer.
@@ -1066,8 +1065,6 @@ export class SupervisorSettled extends Schema.TaggedClass<SupervisorSettled>(
    * Absent from readings journaled before it existed.
    */
   steer: Schema.optional(Schema.Boolean),
-  /** Indexes of candidates written to memory. */
-  remembered: Schema.Array(Schema.Int),
   /**
    * Whether the snapshot had more uncalled skills than `Supervisor.skillLimit`,
    * so some were not scored. Absent when every one was.
@@ -1093,7 +1090,7 @@ export class SupervisorSettled extends Schema.TaggedClass<SupervisorSettled>(
  * evaluator on the host, a refusal, a deadline, an answer that does not
  * decode, a run that ended with the reading in flight. `reason` is
  * `unconfigured`, `interrupted`, or the transport's own error code. A reading
- * that fails inserts nothing, remembers nothing and reports no level, so a
+ * that fails inserts nothing and reports no level, so a
  * wave counting calm runs counts only runs Jev read. An `interrupted` reading
  * was asked and may have cost a call, so a wave counting Jev's cost counts it.
  *
@@ -1252,12 +1249,14 @@ export class SeatRouted extends Schema.TaggedClass<SeatRouted>(
 }) {}
 
 /**
- * A memory read or write the supervisor asked for and the store refused.
+ * A memory read or write the store refused.
  *
- * Written by the supervisor fiber beside the reading it belongs to, never
- * instead of it: a memory fault is not a supervisor fault, and the reading
- * still settles. `operation` says which side failed; `detail` is the store's
- * own account. A wave counts these rather than reading a log, because a
+ * A `recall` is written by the supervisor fiber beside the reading it belongs
+ * to, never instead of it: a memory fault is not a supervisor fault, and the
+ * reading still settles. A `remember` is written at run end by the transcript
+ * miner, for a fact Jev accepted that the store did not keep, and the run
+ * still ends as it would have. `operation` says which side failed; `detail`
+ * is the store's own account. A wave counts these rather than reading a log, because a
  * concurrent writer that loses a lock looks exactly like a run that
  * remembered nothing.
  *
@@ -1270,7 +1269,7 @@ export class SupervisorMemoryFailed extends Schema.TaggedClass<SupervisorMemoryF
   eventType: Schema.Literal("flows.harness.supervisor-memory-failed.v1"),
   /** The run's session. */
   scope: Schema.String,
-  /** The frame whose reading asked. */
+  /** The frame whose reading asked; for a `remember`, the run's last frame. */
   frame: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   /** `recall` for a read, `remember` for a write. */
   operation: Schema.Literals(["recall", "remember"]),

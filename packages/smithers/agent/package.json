@@ -51,6 +51,7 @@
     "./InMemoryWorkspaceSandbox": "./src/InMemoryWorkspaceSandbox.ts",
     "./Memory": "./src/Memory.ts",
     "./MemoryCalibration": "./src/MemoryCalibration.ts",
+    "./MemoryMine": "./src/MemoryMine.ts",
     "./MemorySnapshotRecorder": "./src/MemorySnapshotRecorder.ts",
     "./PromoteFlows": "./src/PromoteFlows.ts",
     "./QuotaPolicy": "./src/QuotaPolicy.ts",
@@ -232,6 +233,16 @@
         "require": {
           "types": "./dist/cjs/MemoryCalibration.d.ts",
           "default": "./dist/cjs/MemoryCalibration.js"
+        }
+      },
+      "./MemoryMine": {
+        "import": {
+          "types": "./dist/esm/MemoryMine.d.ts",
+          "default": "./dist/esm/MemoryMine.js"
+        },
+        "require": {
+          "types": "./dist/cjs/MemoryMine.d.ts",
+          "default": "./dist/cjs/MemoryMine.js"
         }
       },
       "./MemorySnapshotRecorder": {

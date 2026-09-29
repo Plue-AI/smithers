@@ -69,6 +69,7 @@ import * as Agent from "../src/Agent.ts"
 import type * as Budget from "../src/Budget.ts"
 import * as Checkpointed from "../src/Checkpointed.ts"
 import type * as FlowEngineLike from "../src/FlowEngineLike.ts"
+import * as MemoryMine from "../src/MemoryMine.ts"
 import * as QuotaPolicy from "../src/QuotaPolicy.ts"
 import { layer as scriptedCompletionJudge, layerAll as scriptedJudgeAll } from "../src/ScriptedJudge.ts"
 import * as Seat from "../src/Seat.ts"
@@ -1118,6 +1119,7 @@ describe("supervisor memory through Agent.run", () => {
     const sentence = "The repository runs its checks with tox and the key sk-live-abcdefghijklmnop."
     const stored = "The repository runs its checks with tox and the key [REDACTED_API_KEY]."
     const store = MemoryStore.makeNoop({
+      getNote: () => Effect.succeed(undefined),
       putNote: (input) =>
         Effect.suspend(() => {
           notes.push(input)
@@ -1150,11 +1152,22 @@ describe("supervisor memory through Agent.run", () => {
             })))
         })
     })
+    const mined: Array<ReadonlyArray<{ readonly text: string }>> = []
     const evaluator = Evaluator.layerScripted((request) => {
       if (Object.hasOwn(request.questions, "unnecessary_0")) {
         const items = (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items
         judged.push(items)
         return Object.fromEntries(items.map((_, index) => [`unnecessary_${index}`, { probability: 0.1 }]))
+      }
+      if (Object.hasOwn(request.questions, "durable_0")) {
+        const items = (request.state as { readonly items: ReadonlyArray<{ readonly text: string }> }).items
+        mined.push(items)
+        return Object.fromEntries(
+          items.flatMap((
+            _,
+            index
+          ) => [[`durable_${index}`, { probability: 0.99 }], [`issue_${index}`, { probability: 0.01 }]])
+        )
       }
       if (!Object.hasOwn(request.questions, "thrashing")) {
         return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
@@ -1167,7 +1180,7 @@ describe("supervisor memory through Agent.run", () => {
             { choice: "none" }
             : ["frustrated", "anxious", "scared", "confused", "confident"].includes(key) ?
             { score: 0 }
-            : { probability: key === "on_target" || key.startsWith("remember_") ? 0.99 : 0.01 }
+            : { probability: key === "on_target" ? 0.99 : 0.01 }
         ])
       )
     })
@@ -1207,7 +1220,10 @@ describe("supervisor memory through Agent.run", () => {
       )
     )
     expect(outcome._tag).toBe("completed")
-    expect(snapshots[0]?.candidates).toEqual([sentence])
+    expect(snapshots.length).toBeGreaterThan(0)
+    // Mined once, at run end, only where a bank can be written and the host opted in.
+    const writes = mode !== "unnamed" && mode !== "unopted" && mode !== "enveloped"
+    expect(mined).toEqual(writes ? [[{ text: stored }]] : [])
     // The recalled rows go through relevance, capped, as memory items keyed by row.
     expect(judged[0] ?? []).toEqual(
       mode === "recall" || mode === "unopted" || mode === "enveloped"
@@ -1220,14 +1236,16 @@ describe("supervisor memory through Agent.run", () => {
     // Written only when a namespace names the bank and the host opted in, and
     // then through the journal's secret redaction.
     expect(notes).toEqual(
-      mode === "unnamed" || mode === "unopted" || mode === "enveloped" ? [] : [{
-        namespace: { kind: "agent", id: namespace },
-        id: expect.stringMatching(/^[0-9a-f]{64}$/),
-        text: stored,
-        tags: ["source:supervisor"],
-        provenance: { runId: "session-1" },
-        status: "accepted"
-      }]
+      writes
+        ? [{
+          namespace: { kind: "agent", id: namespace },
+          id: MemoryMine.noteId("agent-repository", stored),
+          text: stored,
+          tags: ["source:transcript"],
+          provenance: { runId: "session-1" },
+          status: "accepted"
+        }]
+        : []
     )
     expect(recalls).toEqual(
       mode === "absent" || mode === "unnamed" ? [] : [{
@@ -1238,7 +1256,9 @@ describe("supervisor memory through Agent.run", () => {
     )
     // A store that failed is journaled, typed, for a scorecard to count.
     const failed = mode === "failed" || mode === "typed-failed"
-    expect(failures.map((event) => event.operation)).toEqual(failed ? ["recall", "remember"] : [])
+    expect(failures.map((event) => [event.operation, event.frame])).toEqual(
+      failed ? [["recall", 0], ["remember", 1]] : []
+    )
     expect(failures.map((event) => event.detail)).toEqual(
       mode === "typed-failed" ?
         ["store: recall locked", "store: notes locked"] :
@@ -1246,9 +1266,9 @@ describe("supervisor memory through Agent.run", () => {
         ? ["The memory store failed unexpectedly", "The memory store failed unexpectedly"]
         : []
     )
-    expect(warnings.filter((message) => message.includes("supervisor could not"))).toEqual(
+    expect(warnings.filter((message) => message.includes("could not"))).toEqual(
       failed
-        ? ["The supervisor could not recall memory", "The supervisor could not write memory"] :
+        ? ["The supervisor could not recall memory", "The transcript miner could not write memory"] :
         []
     )
   })

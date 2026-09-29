@@ -36,7 +36,7 @@ importable as `@smthrs/harness/<Module>`.
 | `CallLedger` | `bound`, `width`, `members`, `depth`, `distinct`, `resultWidth`, `Entry`, `Ledger`, `subject`, `sole`, `target`, `digest`, `payload`, `Settlement`, `entry`, `settled`, `remember`, `render` | The call ledger: what this run has already asked, rendered every frame. |
 | `NarrowedCheck` | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger` | The narrowing ledger: which checks this run has run, and over which tree. |
 | `CellValidation` | `Validation`, `normalize`, `validate` | Cell validation at the boundary. |
-| `Supervisor` | `frameBytes`, `recentFrames`, `candidateLimit`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `acceptAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Options`, `defaultOptions`, `Memory`, `MemoryFailure`, `memoryNone`, `Verdict`, `triggers`, `Triggerable`, `Trigger`, `triggered`, `crosses`, `nudge`, `recalledInsert`, `judge`, `head`, `tail`, `candidates` | The reading Jev takes of a run while it is still running. |
+| `Supervisor` | `frameBytes`, `recentFrames`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `contextAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Memory`, `MemoryFailure`, `memoryNone`, `triggers`, `Triggerable`, `Trigger`, `triggered`, `crosses`, `nudge`, `recalledInsert`, `head`, `tail`, `prose` | The reading Jev takes of a run while it is still running. |
 | `Monitor` | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate` | What one supervisor reading can put in front of the run, and when. |
 | `Judgement` | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task` | The one way this package asks Jev a question. |
 | `Relevance` | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render` | What a run is shown of the human-provided items it could be shown. |
@@ -109,7 +109,7 @@ Serializable events emitted by harness adapters.
 | `RelevanceSettled` | class | events | Which human-provided items a relevance reading kept and which it withheld. |
 | `RelevanceRestored` | class | events | A withheld flow restored because the run called it by name. |
 | `SeatRouted` | class | events | The seat a run with no declared model was routed to, and who chose it. |
-| `SupervisorMemoryFailed` | class | events | A memory read or write the supervisor asked for and the store refused. |
+| `SupervisorMemoryFailed` | class | events | A memory read or write the store refused: a supervisor recall, or a run-end transcript write. |
 | `DecisionAnswer` | const | models | One classifier answer as `decision-settled` journals it, tagged by kind. |
 | `decisionAnswers` | const | conversions | The answers of one evaluation in the shape `DecisionSettled` carries. |
 | `DecisionSettled` | class | events | One decision a classifier made, with everything a reader needs to make it again: the state it read, the questions it was asked, and what it answered. |
@@ -786,13 +786,12 @@ The reading Jev takes of a run while it is still running.
 | --- | --- | --- | --- |
 | `frameBytes` | const | constants | The most of one frame's cell, prose or prints the snapshot carries, in UTF-8 bytes. |
 | `recentFrames` | const | constants | How many of the newest frames a snapshot carries. |
-| `candidateLimit` | const | constants | The most sentences one snapshot offers as memory candidates. |
 | `recalledLimit` | const | constants | The most rows one reading recalls from `Memory`. |
 | `closeGraceMs` | const | constants | How long a run that ends with a reading in flight waits for it to settle and journal, in milliseconds. |
 | `thrashingAt` | const | constants | At or above this probability of `thrashing`, the reading crosses. |
 | `offTargetAt` | const | constants | At or below this probability of `on_target`, the reading crosses. |
 | `suspectAt` | const | constants | At or above this probability of `suspect`, the reading crosses. |
-| `acceptAt` | const | constants | At or above this probability, a candidate is remembered. |
+| `contextAt` | const | constants | At or above this probability of `outdated_context` or `irrelevant_context`, the reading crosses. |
 | `Level` | const | schemas | The three rungs every operational-state question is scored on. |
 | `levels` | const | constants | The rungs as the score question declares them, in order. |
 | `Help` | const | schemas | The one word a person is shown about a run. |
@@ -809,16 +808,13 @@ The reading Jev takes of a run while it is still running.
 | `Snapshot` | const | schemas | Everything one supervisor reading is a reading of. |
 | `monitorPrefix` | const | constants | The prefix of every question a monitor adds to a reading. |
 | `MonitorQuestions` | type | models | The questions a snapshot's monitors add, by `monitor_<id>`. |
-| `classifierFor` | const | classifiers | The classifier for a snapshot with this many candidates and these monitor questions. |
-| `classifier` | const | classifiers | The classifier over a bare snapshot: the fixed questions and no per-item or monitor booleans. |
+| `classifierFor` | const | classifiers | The classifier for a snapshot with these monitor questions. |
+| `classifier` | const | classifiers | The classifier over a bare snapshot: the fixed questions and no monitor booleans. |
 | `Reading` | interface | models | What one evaluation came back with, decoded, each monitor's probability among it. |
 | `read` | const | conversions | Asks Jev about one snapshot and its monitor questions; fails, typed, whenever an answer could not be obtained. |
-| `Options` | interface | models | What a host arms the supervisor with. |
-| `defaultOptions` | const | constants | Verdicts journaled, nudges off, memory writes on. |
-| `Memory` | const | services | The memory a supervisor reads rows from and writes accepted sentences to. |
+| `Memory` | const | services | The memory a supervisor reads rows from, and the run-end transcript miner writes accepted facts to. |
 | `MemoryFailure` | interface | models | What a `Memory` fails with: the store's own account, safe to journal. |
 | `memoryNone` | const | constructors | A memory with nothing behind it. |
-| `Verdict` | interface | models | What one reading writes to memory, decided from the reading and the options. |
 | `triggers` | const | constants | The five readings that cross, by name, each with the inequality that fires it. |
 | `Triggerable` | type | models | The fields of a `Reading` the triggers read. |
 | `Trigger` | type | models | One of `triggers`. |
@@ -826,10 +822,9 @@ The reading Jev takes of a run while it is still running.
 | `crosses` | const | conversions | Whether one reading crosses: any trigger fires. |
 | `nudge` | const | conversions | The nudge a crossed reading puts in front of the run, naming its evidence. |
 | `recalledInsert` | const | conversions | Renders one recalled row as the run reads it. |
-| `judge` | const | conversions | Decides what one reading writes to memory, under the options the host armed. |
 | `head` | const | conversions | The head of a frame's cell or prose, bounded by `frameBytes`. |
 | `tail` | const | conversions | The newest `frameBytes` of a frame's prints. |
-| `candidates` | const | conversions | The sentences a frame wrote that might be worth keeping. |
+| `prose` | const | conversions | What the model wrote around its cell: the reply with every fenced cell removed. |
 
 ## Monitor
 

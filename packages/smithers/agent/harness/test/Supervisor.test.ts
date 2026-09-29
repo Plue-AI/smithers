@@ -83,7 +83,7 @@ const confident = {
   invented: { probability: 0.01 }
 }
 
-/** A calm supervisor answer over a snapshot with these many candidates and recalled rows. */
+/** A calm supervisor answer. */
 const calm = (
   overrides: Readonly<Record<string, Evaluator.ScriptedAnswer>> = {}
 ): Readonly<Record<string, Evaluator.ScriptedAnswer>> => ({
@@ -148,17 +148,7 @@ const scripted = (
     }
     if (!isSupervisor(request)) return confident
     contacted.push(request)
-    // A per-candidate question the case did not script is declined, so a case
-    // about the run's shape is not failed by the candidate the model fixture's
-    // "Here is the next step." prose always offers.
-    const declined = {
-      ...Object.fromEntries(
-        Object.keys(request.questions)
-          .filter((key) => key.startsWith("remember_"))
-          .map((key) => [key, { probability: 0.1 }] as const)
-      ),
-      ...quietMonitors(request)
-    }
+    const declined = quietMonitors(request)
     const scripted = answer(request, contacted.length - 1)
     return Effect.isEffect(scripted)
       ? Effect.map(scripted, (answers) => ({ ...declined, ...answers }))
@@ -167,7 +157,7 @@ const scripted = (
   return { layer, contacted, relevance, marks }
 }
 
-/** A bound memory that recalls the first `limit` of `rows` on every reading and records what it is told to remember. */
+/** A bound memory that recalls the first `limit` of `rows` on every reading and records any write. */
 const recalling = (rows: ReadonlyArray<Supervisor.Recalled>) => {
   const remembered: Array<string> = []
   const memory: Supervisor.Memory = {
@@ -340,8 +330,8 @@ describe("Supervisor", () => {
     expect(snapshot.signals.frame).toBe(0)
     expect(snapshot.signals.readOnlyFrames).toBe(1)
     expect(Object.keys(first.state as object)).not.toContain("recalled")
-    // The model fixture's prose is one candidate, so one per-item question follows the eleven.
-    expect(snapshot.candidates).toEqual(["Here is the next step."])
+    // The eleven fixed questions and no others: the supervisor asks nothing about memory.
+    expect(Object.keys(first.state as object)).not.toContain("candidates")
     expect(Object.keys(first.questions)).toEqual([
       "thrashing",
       "on_target",
@@ -353,8 +343,7 @@ describe("Supervisor", () => {
       "scared",
       "confused",
       "confident",
-      "needs_help",
-      "remember_0"
+      "needs_help"
     ])
     const settled = of(read.seen, "supervisor-settled")
     expect(settled.length).toBeGreaterThanOrEqual(1)
@@ -372,8 +361,7 @@ describe("Supervisor", () => {
       needsHelp: "stuck",
       // A strong frustration crosses the step_back mood; unjudged, nothing is handed on.
       crossed: true,
-      nudged: false,
-      remembered: []
+      nudged: false
     })
     expect(settled[0]?.monitors).toEqual([
       { id: "supervisor", kind: "lint", p: 0, crossed: false },
@@ -404,7 +392,6 @@ describe("Supervisor", () => {
       ],
       evaluator: layer,
       ...read,
-      supervisor: { remember: true },
       judged: true
     })
     expect(failure).toBeUndefined()
@@ -701,7 +688,6 @@ describe("Supervisor", () => {
       script: threeFrames,
       evaluator: layer,
       ...read,
-      supervisor: { remember: true },
       judged: true
     })
     expect(failure).toBeUndefined()
@@ -727,12 +713,11 @@ describe("Supervisor", () => {
     expect(of(read.seen, "supervisor-unjudged")[0]?.reason).toBe("unreachable")
   })
 
-  it("writes only the candidates Jev accepted and shows each recalled row relevance keeps once", async () => {
+  it("writes nothing to memory and shows each recalled row relevance keeps once", async () => {
     const { memory, remembered } = recalling([tests, layout])
     const read = untilRead()
     const { contacted, layer, relevance } = scripted(
-      (_, ordinal) =>
-        ordinal === 0 ? calm({ remember_0: { probability: 0.9 }, remember_1: { probability: 0.2 } }) : calm(),
+      () => calm(),
       (item) => item.id === "tests" ? 0.95 : 0.3
     )
     const prose: ScriptedModel.Step = {
@@ -754,7 +739,6 @@ describe("Supervisor", () => {
       script: [prose, emits(`console.log("two")`), emits(`console.log("three")`), emits(`ctx.done("done")`)],
       evaluator: layer,
       ...read,
-      supervisor: { remember: true },
       judged: true,
       // Nothing for the run-start relevance reading, so every relevance row is the supervisor's.
       pinned: ["fs/list"],
@@ -763,15 +747,9 @@ describe("Supervisor", () => {
     expect(failure).toBeUndefined()
     const first = contacted[0]!
     const snapshot = Schema.decodeUnknownSync(Supervisor.Snapshot)(first.state)
-    expect(snapshot.candidates).toEqual([
-      "The suite is invoked through tox, never pytest directly.",
-      "Next I will edit add()."
-    ])
-    expect(Object.keys(first.questions).filter((key) => key.includes("_") && /_\d+$/.test(key))).toEqual([
-      "remember_0",
-      "remember_1"
-    ])
-    expect(remembered).toEqual(["The suite is invoked through tox, never pytest directly."])
+    expect(Object.keys(first.questions).filter((key) => /_\d+$/.test(key))).toEqual([])
+    // The transcript is mined at run end by `@smthrs/agent`, never by a reading.
+    expect(remembered).toEqual([])
     // Rows are asked about by relevance, never by the supervisor, and a row
     // once shown is never asked about again.
     expect(Object.keys(relevance[0]!.questions)).toEqual(["unnecessary_0", "unnecessary_1"])
@@ -794,7 +772,8 @@ describe("Supervisor", () => {
     const last = engine.recorder.sealStep.at(-1)!.request.messages
     expect(textsOf(last).filter((text) => text.includes(layout.text))).toHaveLength(1)
     const settled = of(read.seen, "supervisor-settled")
-    expect(settled[0]).toMatchObject({ remembered: [0], nudged: false })
+    expect(settled[0]).toMatchObject({ nudged: false })
+    expect(settled[0]).not.toHaveProperty("remembered")
     expect(of(read.seen, "relevance-settled")[0]).toMatchObject({
       source: "supervisor",
       frame: 0,
@@ -939,7 +918,6 @@ describe("Supervisor", () => {
       await CellTurn.run({
         state: from,
         flows: [descriptor("fs/list")],
-        supervisor: { remember: true },
         judged: true
       })
         .pipe(
@@ -1067,7 +1045,6 @@ describe("Supervisor", () => {
   describe("handle", () => {
     const open = (
       evaluator: Layer.Layer<Evaluator.Evaluator>,
-      options: Supervisor.Options = { remember: true },
       memory: Supervisor.Memory = Supervisor.memoryNone,
       monitors: ReadonlyArray<Monitor.Monitor> = Monitor.defaults()
     ) =>
@@ -1079,7 +1056,6 @@ describe("Supervisor", () => {
           session: "session-1",
           engine: engine.engine,
           emit: (event) => Effect.sync(() => void events.push(event)),
-          options,
           monitors,
           deliver: true
         })
@@ -1116,7 +1092,6 @@ describe("Supervisor", () => {
           claimDemands: 0,
           sufficiencyStated: false
         },
-        candidates: [],
         skills: [],
         called: [],
         jevAvailable: false
@@ -1275,7 +1250,6 @@ describe("Supervisor", () => {
                   : boundary.execute
             },
             emit: (event) => Effect.sync(() => void events.push(event)),
-            options: { remember: true },
             monitors: Monitor.defaults(),
             deliver: true
           })
@@ -1311,7 +1285,7 @@ describe("Supervisor", () => {
       const { layer, relevance } = scripted(() => calm(), () => 0.2)
       const { memory } = recalling([tests, layout])
       await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-        const { handle } = yield* open(layer, { remember: false }, memory)
+        const { handle } = yield* open(layer, memory)
         yield* handle.offer(offer(0, ["tests"]))
         yield* Effect.sleep("20 millis")
         expect(relevance.map((request) => itemsOf(request).map((item) => item.id))).toEqual([["layout"]])
@@ -1336,7 +1310,7 @@ describe("Supervisor", () => {
       const { layer } = scripted(() => calm({ thrashing: { probability: 0.9 } }), () => 0.2)
       const { memory } = recalling([layout])
       await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-        const { handle } = yield* open(layer, { remember: false }, memory)
+        const { handle } = yield* open(layer, memory)
         yield* handle.offer(offer(0))
         yield* Effect.sleep("20 millis")
         const taken = yield* handle.take(1, delivering)
@@ -1373,7 +1347,6 @@ describe("Supervisor", () => {
         claimDemands: 0,
         sufficiencyStated: false
       },
-      candidates: [],
       skills: [],
       called: [],
       jevAvailable: false
@@ -1390,23 +1363,14 @@ describe("Supervisor", () => {
       const question = (instructions: string) =>
         Classifier.boolean({ instructions, criteria: { true: "yes", false: "no" } })
       const one = question("One?")
-      const held = Supervisor.classifierFor(0, { monitor_x: one })
-      expect(Supervisor.classifierFor(0, { monitor_x: one })).toBe(held)
+      const held = Supervisor.classifierFor({ monitor_x: one })
+      expect(Supervisor.classifierFor({ monitor_x: one })).toBe(held)
       expect(Object.keys(held.questions).at(-1)).toBe("monitor_x")
-      const other = Supervisor.classifierFor(0, { monitor_x: question("Two?") })
+      const other = Supervisor.classifierFor({ monitor_x: question("Two?") })
       expect(other).not.toBe(held)
       expect(other.digest).not.toBe(held.digest)
-      expect(Supervisor.classifierFor(0, {})).toBe(Supervisor.classifier)
-    })
-
-    it("declares one classifier per snapshot shape and reuses it", () => {
-      expect(Supervisor.classifierFor(0, {})).toBe(Supervisor.classifier)
-      expect(Supervisor.classifierFor(2, {})).toBe(Supervisor.classifierFor(2, {}))
-      expect(Supervisor.classifierFor(2, {}).digest).not.toBe(Supervisor.classifier.digest)
-      // Bounded: a snapshot past the limit asks the limit's questions, under one declaration.
-      expect(Supervisor.classifierFor(99, {})).toBe(Supervisor.classifierFor(Supervisor.candidateLimit, {}))
-      expect(Object.keys(Supervisor.classifierFor(99, {}).questions).filter((key) => key.startsWith("remember_")))
-        .toHaveLength(Supervisor.candidateLimit)
+      expect(Supervisor.classifierFor({})).toBe(Supervisor.classifier)
+      expect(Object.keys(Supervisor.classifier.questions)).toHaveLength(11)
     })
   })
 
@@ -1445,7 +1409,6 @@ describe("Supervisor", () => {
             claimDemands: 0,
             sufficiencyStated: false
           },
-          candidates: [],
           skills: [],
           called: [],
           jevAvailable: false
@@ -1474,19 +1437,9 @@ describe("Supervisor", () => {
       expect(clipped.endsWith("x".repeat(Supervisor.frameBytes))).toBe(true)
     })
 
-    it("offers prose paragraphs as candidates and never a fenced block", () => {
-      expect(Supervisor.candidates("")).toEqual([])
-      expect(Supervisor.candidates("one\n\n```\ncode\n```\n\ntwo\n\nthree\n\nfour\n\nfive")).toEqual([
-        "one",
-        "two",
-        "three",
-        "four"
-      ])
-    })
-
     it("strips a fenced cell from the model's prose", () => {
-      expect(Supervision.prose("Plan.\n\n```cell\nctx.done(1)\n```\n\nAfter.")).toBe("Plan.\n\n\n\nAfter.")
-      expect(Supervision.prose("```typescript\nlet x = 1")).toBe("")
+      expect(Supervisor.prose("Plan.\n\n```cell\nctx.done(1)\n```\n\nAfter.")).toBe("Plan.\n\n\n\nAfter.")
+      expect(Supervisor.prose("```typescript\nlet x = 1")).toBe("")
     })
   })
 
@@ -1499,7 +1452,6 @@ describe("Supervisor", () => {
       irrelevantContext: 0.1,
       emotions: { frustrated: "none", anxious: "none", scared: "none", confused: "none", confident: "strong" },
       needsHelp: "none",
-      remember: [],
       monitors: {},
       latencyMs: 1,
       asked: { digest: "d", questions: {}, state: null, answers: {} },
@@ -1528,7 +1480,6 @@ describe("Supervisor", () => {
         claimDemands: 0,
         sufficiencyStated: false
       },
-      candidates: ["a", "b"],
       skills: [],
       called: [],
       jevAvailable: false
@@ -1616,12 +1567,6 @@ describe("Supervisor", () => {
     it("needs_help never crosses on its own", () => {
       expect(Supervisor.crosses(reading({ needsHelp: "risky_action" }))).toBe(false)
     })
-
-    it("gates memory writes on the options and the per-candidate answers", () => {
-      const accepted = reading({ remember: [true, false] })
-      expect(Supervisor.judge(snapshot, accepted, { remember: true }).remembers).toEqual(["a"])
-      expect(Supervisor.judge(snapshot, accepted, { remember: false }).remembers).toEqual([])
-    })
   })
 })
 
@@ -1642,12 +1587,7 @@ describe("Supervisor inserts on the transcript", () => {
         return confident
       }
       supervisor.push(request)
-      const declined = Object.fromEntries(
-        Object.keys(request.questions)
-          .filter((key) => key.startsWith("remember_"))
-          .map((key) => [key, { probability: 0.1 }] as const)
-      )
-      return { ...declined, ...(supervisor.length === 1 ? calm({ thrashing: { probability: 0.9 } }) : calm()) }
+      return supervisor.length === 1 ? calm({ thrashing: { probability: 0.9 } }) : calm()
     })
     return { layer, supervisor, completion }
   }
@@ -1666,7 +1606,6 @@ describe("Supervisor inserts on the transcript", () => {
       ],
       evaluator: evaluator.layer,
       ...read,
-      supervisor: { remember: false },
       judged: true,
       // Nothing for the run-start relevance reading, so every other request
       // is the completion brake's.
@@ -1717,7 +1656,6 @@ describe("Supervisor inserts on the transcript", () => {
       script: [emits(`console.log("a")`), frame, emits(`console.log("c")`), emits(`ctx.done("done")`)],
       evaluator: evaluator.layer,
       ...read,
-      supervisor: { remember: false },
       judged: true
     })
     expect(failure).toBeUndefined()
@@ -1794,7 +1732,6 @@ describe("Supervisor inserts on the transcript", () => {
       script: threeFrames,
       evaluator: layer,
       ...read,
-      supervisor: { remember: false },
       judged
     })
     expect(failure).toBeUndefined()
@@ -1805,26 +1742,25 @@ describe("Supervisor inserts on the transcript", () => {
     expect(settled.map((event) => event.steer)).toEqual(settled.map(() => judged))
   })
 
-  it("journals a typed memory failure for a recall or a write the store refused", async () => {
+  it("journals a typed memory failure for a recall the store refused, and never writes", async () => {
     const memory: Supervisor.Memory = {
       bound: true,
       recall: () => Effect.fail({ detail: "database is locked" }),
-      remember: () => Effect.fail({ detail: "database is locked" })
+      remember: () => Effect.die("the supervisor never writes memory")
     }
     const read = untilRead()
-    const { layer } = scripted(() => calm({ remember_0: { probability: 0.9 } }))
+    const { layer } = scripted(() => calm())
     const { failure } = await run({
       state: state(3),
       script: threeFrames,
       evaluator: layer,
       ...read,
-      supervisor: { remember: true },
       memory
     })
     expect(failure).toBeUndefined()
     const failed = of(read.seen, "supervisor-memory-failed")
-    expect(failed.filter((event) => event.operation === "recall").length).toBeGreaterThanOrEqual(1)
-    expect(failed.filter((event) => event.operation === "remember").length).toBeGreaterThanOrEqual(1)
+    expect(failed.length).toBeGreaterThanOrEqual(1)
+    expect(failed.every((event) => event.operation === "recall")).toBe(true)
     expect(failed[0]).toMatchObject({ scope: "session-1", frame: 0, detail: "database is locked" })
     // The reading itself still settles: a memory fault is not a supervisor fault.
     expect(of(read.seen, "supervisor-settled").length).toBeGreaterThanOrEqual(1)

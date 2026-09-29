@@ -969,25 +969,16 @@ export interface Input {
   readonly refreshFlows?: Effect.Effect<ReadonlyArray<Descriptor.FlowDescriptor>, HarnessError> | undefined
   readonly limits?: Sandbox.Limits | undefined
   /**
-   * What the supervisor may do with a reading; omitted takes
-   * `Supervisor.defaultOptions`, which remembers nothing. Runtime
-   * configuration rather than durable state: what it says is journaled once
-   * on `discipline-armed`, and a resumed run is armed by the host that
-   * resumes it. See `Supervisor`.
-   */
-  readonly supervisor?: Supervisor.Options | undefined
-  /**
    * The monitors each supervisor reading scores and each boundary gates;
-   * omitted takes `Monitor.defaults()`. Runtime configuration like
-   * {@link supervisor}. Nothing a monitor says reaches the run unless
-   * {@link judged}.
+   * omitted takes `Monitor.defaults()`. Runtime configuration rather than
+   * durable state: a resumed run is armed by the host that resumes it.
+   * Nothing a monitor says reaches the run unless {@link judged}.
    */
   readonly monitors?: ReadonlyArray<Monitor.Monitor> | undefined
   /**
    * Whether the host's `Evaluator` is a real judge. True arms Jev's features,
    * the supervisor's monitor messages and memory inserts among them; omitted is false.
-   * Runtime configuration like {@link supervisor}: a resumed run is armed by
-   * the host that resumes it.
+   * Runtime configuration like {@link monitors}.
    */
   readonly judged?: boolean | undefined
   /**
@@ -2503,7 +2494,7 @@ const markItem = (segment: ContextWindow.Segment): compactionMarks.Item => {
   return {
     tokens: segment.tokens.value,
     cell: extracted._tag === "Success" ? extracted.success.source.text : "",
-    prose: Supervision.prose(said),
+    prose: Supervisor.prose(said),
     observed: messages.filter((message) => message.role !== "assistant").map(messageText).join("\n\n")
   }
 }
@@ -3508,7 +3499,7 @@ const frame = (
     // printed, how it ended, and the counts the deterministic controls keep.
     // Built here, on the loop's fiber, and offered by the frame's live
     // boundary; see `drain` for when, and `Supervisor` for what it is for.
-    const written = Supervision.prose(assistantText(answer))
+    const written = Supervisor.prose(assistantText(answer))
     const { mutated } = accounting
     const { readOnlyFrames } = accounting.facts
     const failed = ran.calls.length > 0 && ran.calls.every((call) => !call.ok || call.failing)
@@ -3547,7 +3538,6 @@ const frame = (
         snapshot: {
           task: Judgement.task(taskOf(contextWindow)),
           signals: Supervision.signals(state, accounting.facts, accounting.workspaceDigest, accounting.observed.paths),
-          candidates: Supervisor.candidates(written),
           ...offered
         },
         shown: state.memoryShown,
@@ -4073,7 +4063,6 @@ export const run = (
     // The supervisor reads the task the completion brake reads: the stated
     // task and every later instruction the run accepted from the person.
     const taskOf = (window: ContextWindow.ContextWindow): string => completionTask(Frame.taskText(window), instructions)
-    const supervisorOptions = input.supervisor ?? Supervisor.defaultOptions
     const monitors = input.monitors ?? Monitor.defaults()
     const judged = input.judged ?? false
     const pinned = input.pinned ?? []
@@ -4137,7 +4126,6 @@ export const run = (
         session: current.session,
         engine,
         emit,
-        options: supervisorOptions,
         monitors,
         deliver: judged
       })

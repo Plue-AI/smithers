@@ -77,7 +77,7 @@ behavior and signatures.
 | `NarrowedCheck`              | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The narrowing ledger: which checks this run has run, and over which tree.                                |
 | `CellValidation`             | `Validation`, `normalize`, `validate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Cell validation at the boundary.                                                                         |
 | `CompletionClaim`            | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `unjudged`, `unproven`, `read`, `demand`, `quote`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The completion nothing in the record contradicts.                                                        |
-| `Supervisor`                 | `frameBytes`, `recentFrames`, `candidateLimit`, `recalledLimit`, `thrashingAt`, `offTargetAt`, `suspectAt`, `acceptAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Options`, `defaultOptions`, `Memory`, `memoryNone`, `Verdict`, `nudge`, `recalledInsert`, `judge`, `head`, `tail`, `candidates`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The reading Jev takes of a run while it is still running.                                                |
+| `Supervisor`                 | `frameBytes`, `recentFrames`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `contextAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Memory`, `memoryNone`, `nudge`, `recalledInsert`, `head`, `tail`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | The reading Jev takes of a run while it is still running.                                                |
 | `Monitor`                    | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What one supervisor reading can put in front of the run, and when.                                       |
 | `Judgement`                  | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The one way this package asks Jev a question.                                                            |
 | `Relevance`                  | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | What a run is shown of the human-provided items it could be shown.                                       |
@@ -1518,8 +1518,7 @@ a `Snapshot` the controller assembles from what it already holds: the task
 `frameBytes`, the transition, whether the frame moved the tree), the counts the
 deterministic controls keep as `Signals` (read-only and repeat streaks,
 mutations, checks run and failing, unanswered failures, failed calls, demands
-spent), and up to `candidateLimit` (4) sentences the run wrote that might be
-worth remembering. It also carries `skills`: up to `skillLimit` (12)
+spent). It also carries `skills`: up to `skillLimit` (12)
 Markdown skills from the frame's relevance-filtered catalog the model may
 call and has not, sorted by name and offered only when `read` is in that
 catalog, each a `Skill` of name, Markdown body path and the description's
@@ -1533,7 +1532,7 @@ One Jev call per snapshot answers every question at once; eleven are fixed.
 Five are about the run, the `triggers`: `thrashing` (at or
 above `thrashingAt`, 0.5), `off_target` (`on_target` at or below
 `offTargetAt`, 0.5), `suspect` (at or above `suspectAt`, 0.5),
-`outdated_context` and `irrelevant_context` (each at or above `acceptAt`,
+`outdated_context` and `irrelevant_context` (each at or above `contextAt`,
 0.5). `crosses(reading)` is any trigger firing and `triggered(reading)` names
 the ones that did; the `supervisor` lint monitor and the offline replay both
 call them, and `nudge` names the counts behind them. Five are
@@ -1541,14 +1540,12 @@ operational states scored on `Level` (`none`, `mild`, `strong`), each naming
 the evidence it reads: `frustrated`, `anxious`, `scared`, `confused`,
 `confident`. `needs_help` is a choice over `Help` (`none`, `clarification`,
 `permission`, `stuck`, `risky_action`): the one word a person is shown, and it
-never steers the run. One boolean per candidate (`remember_<i>`) decides what
-is written to `Memory`, and each monitor question the run's `Monitor`s add is
-one more boolean, keyed `monitor_<id>` (`monitorPrefix`; `MonitorQuestions`).
+never steers the run. Each monitor question the run's `Monitor`s add is one
+more boolean, keyed `monitor_<id>` (`monitorPrefix`; `MonitorQuestions`).
 `read(snapshot, extra)` asks them all and puts each monitor's probability on
-`Reading.monitors` by monitor id. `classifierFor(candidates, extra)` is the
-classifier for that shape, declared once per count and set of monitor ids,
-and `classifier` the bare one; with no monitor questions the digest is the
-one the eleven fixed questions always had.
+`Reading.monitors` by monitor id. `classifierFor(extra)` is the classifier for
+that set of monitor ids, declared once per set, and `classifier` the bare one
+over the eleven fixed questions. `prose` strips fenced cells from a reply.
 
 Recalled memory goes through `Relevance`, not `supervisor/turn`. Beside each
 reading the fiber recalls past every row whose key the run has already been
@@ -1573,8 +1570,7 @@ every answer), the memory reading's `DecisionSettled` rows, its
 `AgentEvent.SupervisorSettled`, whose `monitors` holds each monitor's value
 and whether it crossed, and whose `skillsCapped` is true when more than
 `skillLimit` skills could have been offered. Each reading scores the run's monitors, then
-`Monitor.skills` of its snapshot, then `Monitor.useJev()`. `judge` turns a
-`Reading` into a `Verdict` under `Options`: the candidates to remember. What
+`Monitor.skills` of its snapshot, then `Monitor.useJev()`. What
 the run is told is the monitors' to decide: the reading records each
 monitor's raw value and every crossed monitor's message, and the next
 boundary that executes gates them with `Monitor.gate` against
@@ -1585,17 +1581,18 @@ person's steering inserts; a reading is dropped as stale after that boundary.
 A reading that fails on one side still delivers the other. The model reads
 them above the frame's ask; the task the completion brake and later snapshots
 read never includes them. Each `SupervisorSettled` states the delivery it ran
-under as `steer`. `Options` is `{ remember }`: `remember` (default off) writes accepted
-candidates to the bound `Memory`, a port with `memoryNone` behind it unless the host adapts
-a store. A `Memory` read or write that fails is journaled as
-`AgentEvent.SupervisorMemoryFailed` and the reading goes on.
-`defaultOptions` writes nothing.
+under as `steer`. `Memory` is a port with `memoryNone` behind it unless the
+host adapts a store. The supervisor only recalls through it; a recall that
+fails is journaled as `AgentEvent.SupervisorMemoryFailed` and the reading goes
+on. The supervisor writes no memory: when `supervisor.remember` is on,
+`@smthrs/agent`'s `MemoryMine` mines the run's transcript once, at run end,
+and writes through `Memory.remember`.
 
 It never falls back. A snapshot nobody could judge is journaled as
 `AgentEvent.SupervisorUnjudged` with `UnjudgedReason` (`unconfigured`,
 `interrupted`, or the transport's own code; an `unreachable` detail is
 `Evaluator.unreachableMessage`, never the transport's text), gates no
-monitor, leaves the ledger alone, remembers nothing and reports no level. A replayed frame is never
+monitor, leaves the ledger alone and reports no level. A replayed frame is never
 offered, so a resumed run re-asks nothing and re-delivers exactly what its
 recorded drains hold. A reading in flight when the run ends gets
 `closeGraceMs` (1,500) to settle; one still unanswered is interrupted and

@@ -40,7 +40,6 @@
  */
 
 import * as Capability from "@smthrs/capability/Capability"
-import * as Digest from "@smthrs/core/Digest"
 import { Action, DurableClock, Fault, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as Cell from "@smthrs/harness/Cell"
@@ -55,9 +54,7 @@ import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
 import * as Supervisor from "@smthrs/harness/Supervisor"
-import * as Redaction from "@smthrs/journal/Redaction"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
-import * as Bank from "@smthrs/memory/Bank"
 import * as MemoryError from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
@@ -90,6 +87,7 @@ import type * as Budget from "./Budget.ts"
 import * as CellPlugin from "./CellPlugin.ts"
 import * as Checkpointed from "./Checkpointed.ts"
 import * as FlowEngineLike from "./FlowEngineLike.ts"
+import * as MemoryMine from "./MemoryMine.ts"
 import * as QuotaPolicy from "./QuotaPolicy.ts"
 import type * as Seat from "./Seat.ts"
 import * as StandardFlows from "./StandardFlows.ts"
@@ -271,13 +269,14 @@ export interface Options {
    * What the supervisor may do with its readings; see `Supervisor`.
    *
    * Verdicts are journaled whenever an `Evaluator` is bound, whatever this
-   * says; {@link judged} arms nudges and memory insertion. `remember` writes
-   * accepted sentences to the bound memory store, redacted the way the
-   * journal redacts; it is off unless the host opts in, and a host with no
-   * store bound writes nothing. `namespace` is the memory bank read from and
-   * written to, one per project or repository. With no namespace the
-   * supervisor reads and writes no memory at all: there is no global bank a
-   * run of one repository could share with another's. `monitors` follow
+   * says; {@link judged} arms nudges and memory insertion. `remember` mines
+   * the run's transcript once, at run end, and writes the facts Jev accepts
+   * to the bound memory store through `MemoryMine.write`; it is off unless
+   * the host opts in, and a host with no store or no writable bank asks and
+   * writes nothing. `banks` are the memory banks read from and written to,
+   * one per project or repository. With no bank the run reads and writes no
+   * memory at all: there is no global bank a run of one repository could
+   * share with another's. `monitors` follow
    * `Monitor.defaults()` into the `cellMonitors` plugin hook. `stance` is the
    * static stance a {@link judged} run is taught, `careful` when omitted; an
    * unjudged run is taught none.
@@ -322,19 +321,18 @@ const memoryDetail = (cause: Cause.Cause<unknown>): string => {
 }
 
 /**
- * The supervisor's memory port over whatever memory the host bound.
+ * The supervisor's memory port over whatever memory the host bound, and
+ * whether it can write.
  *
  * Optional on both sides: a composition with no `MemoryStore`, or a run with
  * no namespace, recalls nothing and writes nothing, and says so through
  * `bound`. A store or recall that fails is logged and fails typed, and the
- * supervisor journals it and carries on: it runs off the loop's hot path, and
- * a memory fault must not become a run fault.
- *
- * A written sentence passes the journal's secret redaction first. It came
- * from the model's prose, which can quote a key it read, and memory outlives
- * the run that wrote it.
+ * caller journals it and carries on: a memory fault must not become a run
+ * fault. A write goes through `MemoryMine.write`, which redacts it first.
  */
-const supervisorMemory = (options: Options): Effect.Effect<Supervisor.Memory> =>
+const supervisorMemory = (
+  options: Options
+): Effect.Effect<{ readonly memory: Supervisor.Memory; readonly writes: boolean }> =>
   Effect.gen(function*() {
     const store = yield* Effect.serviceOption(MemoryStore.MemoryStore)
     const recall = yield* Effect.serviceOption(Recall.Recall)
@@ -349,8 +347,10 @@ const supervisorMemory = (options: Options): Effect.Effect<Supervisor.Memory> =>
     const candidates = [...new Set([...declared, ...explicit])]
     const banks = candidates.filter((bank) => CapabilitySet.allows(ceiling, Capability.make("memory:read", bank)))
     const writeBank = candidates.find((bank) => CapabilitySet.allows(ceiling, Capability.make("memory:write", bank)))
-    if (Option.isNone(store) || (banks.length === 0 && writeBank === undefined)) return Supervisor.memoryNone
-    return {
+    if (Option.isNone(store) || (banks.length === 0 && writeBank === undefined)) {
+      return { memory: Supervisor.memoryNone, writes: false }
+    }
+    const memory: Supervisor.Memory = {
       bound: true,
       recall: (query, limit) =>
         Option.isNone(recall) ? Effect.succeed([]) : recall.value.recall({
@@ -366,29 +366,62 @@ const supervisorMemory = (options: Options): Effect.Effect<Supervisor.Memory> =>
             )
           )
         ),
-      remember: (text) => {
-        if (writeBank === undefined) return Effect.void
-        const redacted = String(Redaction.redact(text))
-        return Bank.parse(writeBank).pipe(Effect.flatMap((namespace) =>
-          store.value.putNote({
-            namespace,
-            id: Digest.digest(`${writeBank}\0${redacted}`),
-            text: redacted,
-            tags: ["source:supervisor"],
-            provenance: { runId: options.session },
-            status: "accepted"
-          })
-        )).pipe(
-          Effect.asVoid,
-          Effect.catchCause((cause) =>
-            Effect.andThen(
-              Effect.logWarning("The supervisor could not write memory", cause),
-              Effect.fail({ detail: memoryDetail(cause) })
+      remember: writeBank === undefined ?
+        Supervisor.memoryNone.remember :
+        (text) =>
+          MemoryMine.write(store.value, { bank: writeBank, runId: options.session, text }).pipe(
+            Effect.asVoid,
+            Effect.catchCause((cause) =>
+              Effect.andThen(
+                Effect.logWarning("The transcript miner could not write memory", cause),
+                Effect.fail({ detail: memoryDetail(cause) })
+              )
             )
           )
-        )
-      }
     }
+    return { memory, writes: writeBank !== undefined }
+  })
+
+/**
+ * Runs `MemoryMine` over the events `stream` emitted, once, when it ends,
+ * and appends the rows it journals, each observed first as `CellTurn`
+ * observes its own. Only the prose of settled replies and the person's
+ * drained messages are kept while the run goes, bounded as `MemoryMine`
+ * bounds them. A run that parks or fails never ends here, so a run is mined
+ * once, by the attempt that finished it. The miner never fails the run: an
+ * engine that cannot record its reading is journaled as
+ * `supervisor-memory-failed`, as a refused write is.
+ */
+const minedAtEnd = <E, R>(
+  stream: Stream.Stream<AgentEvent.AgentEvent, E, R>,
+  input: { readonly session: string; readonly task: string; readonly memory: Supervisor.Memory }
+): Stream.Stream<AgentEvent.AgentEvent, E, R | EngineLike.EngineLike | Evaluator.Evaluator> =>
+  Stream.suspend(() => {
+    const read = MemoryMine.transcript()
+    let seq = 0
+    let frames = 0
+    return stream.pipe(
+      Stream.tap((event) =>
+        Effect.sync(() => {
+          seq += 1
+          if (event._tag === "turn-opened") frames += 1
+          MemoryMine.add(read, { seq, eventType: event.eventType, payload: event })
+        })
+      ),
+      Stream.concat(Stream.unwrap(Effect.gen(function*() {
+        const events = yield* MemoryMine.settle({
+          engine: yield* EngineLike.EngineLike,
+          session: input.session,
+          frame: Math.max(frames - 1, 0),
+          task: input.task,
+          candidates: read.candidates,
+          memory: input.memory
+        })
+        const observe = yield* AgentEvent.Observer
+        yield* Effect.forEach(events, observe, { discard: true })
+        return Stream.fromIterable(events)
+      })))
+    )
   })
 
 /**
@@ -888,8 +921,8 @@ const runProductionUnmeasured: Service["run"] = (options) =>
             approvalChannel: options.approvalChannel,
             serverTools: options.serverTools
           })
-          const memory = yield* supervisorMemory(options)
-          return CellTurn.run({
+          const { memory, writes } = yield* supervisorMemory(options)
+          const turns = CellTurn.run({
             state,
             flows: [],
             refreshFlows: Effect.suspend(() => registry.visible()).pipe(
@@ -897,17 +930,20 @@ const runProductionUnmeasured: Service["run"] = (options) =>
             ),
             limits: options.limits,
             contextWindowTokensFor: options.contextWindowTokensFor,
-            supervisor: { remember: options.supervisor?.remember ?? false },
             judged: options.judged,
             stance: stanceOf(options),
             instructions: options.instructions,
             pinned,
             monitors,
             ...(options.memory === undefined ? {} : { memory: openingMemory(options.memory) })
-          }).pipe(
-            Stream.provideService(EngineLike.EngineLike, withRequestPlugins(port, kernel.plugins)),
-            Stream.provideService(Supervisor.Memory, memory)
-          )
+          })
+          // The same opt-in and the same port the supervisor recalls through.
+          return (options.supervisor?.remember === true && writes
+            ? minedAtEnd(turns, { session: options.session, task: options.prompt, memory })
+            : turns).pipe(
+              Stream.provideService(EngineLike.EngineLike, withRequestPlugins(port, kernel.plugins)),
+              Stream.provideService(Supervisor.Memory, memory)
+            )
         })
       ).pipe(
         Stream.provide(kernel.layer)

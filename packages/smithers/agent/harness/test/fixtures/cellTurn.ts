@@ -179,8 +179,6 @@ export interface Options {
    * engine is.
    */
   readonly resolve?: EngineLike.EngineLike["resolve"]
-  /** What the supervisor may do with a reading; omitted remembers nothing. */
-  readonly supervisor?: Supervisor.Options | undefined
   /** The monitors the supervisor scores and the boundaries gate; omitted takes the defaults. */
   readonly monitors?: CellTurn.Input["monitors"]
   /** Whether the evaluator is a real judge, which delivers monitors and inserts; omitted is false. */
@@ -191,7 +189,7 @@ export interface Options {
   readonly instructions?: CellTurn.Input["instructions"]
   /** Flow names the run-start relevance reading never judges; omitted pins none. */
   readonly pinned?: CellTurn.Input["pinned"]
-  /** The memory the supervisor reads and writes; omitted binds none. */
+  /** The memory the supervisor recalls from; omitted binds none. */
   readonly memory?: Supervisor.Memory | undefined
   /** Observes every event before the controller advances; omitted observes nothing. */
   readonly observer?: ((event: AgentEvent.AgentEvent) => Effect.Effect<void>) | undefined
@@ -292,7 +290,6 @@ export const run = async (options: Options): Promise<Run> => {
     state: options.state,
     flows: options.flows ?? [descriptor("fs/list", { capabilities: ["fs:read:**"] })],
     limits: options.limits,
-    supervisor: options.supervisor,
     monitors: options.monitors,
     judged: options.judged,
     stance: options.stance,

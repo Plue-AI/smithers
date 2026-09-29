@@ -179,7 +179,6 @@ describe("trace", () => {
       needsHelp: "permission" as const,
       crossed: true,
       nudged: false,
-      remembered: [0],
       latencyMs: 23,
       ...(present
         ? {
@@ -1887,7 +1886,6 @@ describe("Jev receipts", () => {
         needsHelp: "none",
         crossed: false,
         nudged: false,
-        remembered: [],
         latencyMs: 5,
         monitors: [{ id: "mood/frustrated", kind: "mood", p: 0.2, crossed: false }]
       })
@@ -1988,7 +1986,6 @@ describe("Jev receipts", () => {
       needsHelp: "none",
       crossed: false,
       nudged: false,
-      remembered: [],
       latencyMs: 5
     } as const
     const pairs: ReadonlyArray<readonly [AgentEvent.AgentEvent, AgentEvent.AgentEvent]> = [

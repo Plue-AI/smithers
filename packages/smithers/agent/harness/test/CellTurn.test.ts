@@ -3300,7 +3300,6 @@ describe("CellTurn compaction marks", () => {
       steering,
       evaluator: judge.layer,
       judged: true,
-      supervisor: { remember: false },
       pinned: ["edit", "bash"],
       observer: (event) =>
         event._tag === "supervisor-settled" || event._tag === "supervisor-unjudged"

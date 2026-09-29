@@ -13,7 +13,6 @@ const reading = (overrides: Partial<Supervisor.Reading> = {}): Supervisor.Readin
   irrelevantContext: 0.1,
   emotions: { frustrated: "none", anxious: "none", scared: "none", confused: "none", confident: "none" },
   needsHelp: "none",
-  remember: [],
   monitors: {},
   latencyMs: 1,
   asked: { digest: "d", questions: {}, state: null, answers: {} },
@@ -44,7 +43,6 @@ const snapshot = (signals: Partial<Supervisor.Signals> = {}): Supervisor.Snapsho
     sufficiencyStated: false,
     ...signals
   },
-  candidates: [],
   skills: [],
   called: [],
   jevAvailable: false

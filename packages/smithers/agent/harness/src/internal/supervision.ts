@@ -159,7 +159,6 @@ const Recorded = Schema.Struct({
   monitorRows: Schema.Array(MonitorRow),
   /** The crossed monitors' messages, ungated; the boundary gates them. */
   monitorCandidates: Schema.Array(MonitorCandidate),
-  remembers: Schema.Array(Schema.String),
   /** The answers of the marks reading; empty when none was asked or it failed. */
   marks: Schema.Array(compactionMarks.Marking),
   marksDecisions: Schema.Array(AgentEvent.DecisionSettled),
@@ -249,17 +248,6 @@ export const catalog = (
   }
 }
 
-const fencedCell = /```(?:cell|typescript|ts|javascript|js)[^\n]*\n[\s\S]*?(?:```|$)/g
-
-/**
- * What the model wrote around its cell, which is what a memory candidate is
- * read from and what the anxiety question reads.
- *
- * @since 1.0.0-rc.0
- * @private
- */
-export const prose = (text: string): string => text.replace(fencedCell, "").trim()
-
 /**
  * Opens the supervisor beside the loop: the queue, the mailbox, and the
  * forked fiber that serves them. Requires a scope, which is the loop's own,
@@ -272,14 +260,13 @@ export const open = (input: {
   readonly session: string
   readonly engine: EngineLike.EngineLike
   readonly emit: (event: AgentEvent.AgentEvent) => Effect.Effect<void>
-  readonly options: Supervisor.Options
   /** The host's monitors; each reading adds `Monitor.skills` of its snapshot and `Monitor.useJev`. */
   readonly monitors: ReadonlyArray<Monitor.Monitor>
   /** Whether a monitor's message and memory inserts reach the run: the host holds a real judge. */
   readonly deliver: boolean
 }): Effect.Effect<Handle, never, Scope.Scope | Evaluator.Evaluator> =>
   Effect.gen(function*() {
-    const { deliver, emit, engine, monitors, options, session } = input
+    const { deliver, emit, engine, monitors, session } = input
     const mailbox = yield* Ref.make<Option.Option<Mailbox>>(Option.none())
     // The host's monitors, then one per skill the snapshot offers, then the
     // use-jev lint: what one reading asks and scores and its boundary gates.
@@ -308,15 +295,15 @@ export const open = (input: {
       Option.none()
     )
 
-    // A store that refused a read or a write is journaled, typed, and the
-    // reading goes on: memory is the supervisor's aid, not its evidence.
-    const memoryFailed = (frame: number, operation: "recall" | "remember", failure: Supervisor.MemoryFailure) =>
+    // A store that refused a read is journaled, typed, and the reading goes
+    // on: memory is the supervisor's aid, not its evidence.
+    const recallFailed = (frame: number, failure: Supervisor.MemoryFailure) =>
       emit(
         new AgentEvent.SupervisorMemoryFailed({
           eventType: eventType.supervisorMemoryFailed,
           scope: session,
           frame,
-          operation,
+          operation: "recall",
           detail: failure.detail
         })
       )
@@ -339,7 +326,7 @@ export const open = (input: {
                 [offer.snapshot.task, offer.recent].filter(Boolean).join("\n").slice(-16_384),
                 Supervisor.recalledLimit + offer.shown.length
               ).pipe(
-                Effect.catch((failure) => Effect.as(memoryFailed(offer.frame, "recall", failure), []))
+                Effect.catch((failure) => Effect.as(recallFailed(offer.frame, failure), []))
               )
               : []
             const rows = recalled.filter((row) => !offer.shown.includes(row.key)).slice(0, Supervisor.recalledLimit)
@@ -416,13 +403,11 @@ export const open = (input: {
                 ...memoryRecord,
                 ...marksRecord,
                 monitorRows: [],
-                monitorCandidates: [],
-                remembers: []
+                monitorCandidates: []
               }
               return record
             }
             const reading = result.success
-            const verdict = Supervisor.judge(snapshot, reading, options)
             const evaluation = Monitor.evaluate({ monitors: declared, reading, snapshot, values: reading.monitors })
             // Whether a monitor's message is handed to the boundary, which may
             // still withhold it for its streak, cooldown, limit or slot.
@@ -441,9 +426,6 @@ export const open = (input: {
                 crossed: evaluation.rows.some((row) => row.crossed),
                 nudged,
                 steer: deliver,
-                remembered: snapshot.candidates.flatMap((_, index) =>
-                  reading.remember[index] === true && options.remember ? [index] : []
-                ),
                 latencyMs: reading.latencyMs,
                 ...(reading.usage === undefined ? {} : { usage: reading.usage }),
                 monitors: evaluation.rows,
@@ -465,8 +447,7 @@ export const open = (input: {
               ...memoryRecord,
               ...marksRecord,
               monitorRows: evaluation.rows,
-              monitorCandidates: evaluation.candidates,
-              remembers: verdict.remembers
+              monitorCandidates: evaluation.candidates
             }
             return record
           })
@@ -490,19 +471,10 @@ export const open = (input: {
               marks: [...Option.match(held, { onNone: () => [], onSome: (value) => value.marks }), ...recorded.marks]
             }))
         }
-        // Written before the reading is journaled, and idempotent by
-        // construction: a note is keyed on its own text, so a frame that
-        // writes what it wrote the first time writes nothing new.
-        for (const text of recorded.remembers) {
-          yield* memory.remember(text).pipe(
-            Effect.catch((failure) => memoryFailed(offer.frame, "remember", failure))
-          )
-        }
         // The verdict is the last thing this fiber does with a reading: the
         // full decisions and the memory reading go ahead of it, so a host that
         // acts on the verdict the moment it is checkpointed never finds the
-        // record behind it missing, and the reading's whole side effect is
-        // complete by then.
+        // record behind it missing.
         if (recorded.decision !== null) yield* emit(recorded.decision)
         for (const decision of recorded.memoryDecisions) yield* emit(decision)
         if (recorded.memory !== null) yield* emit(recorded.memory)

@@ -166,3 +166,9 @@ export * as Memory from "./Memory.ts"
  * @since 1.0.0
  */
 export * as MemoryCalibration from "./MemoryCalibration.ts"
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export * as MemoryMine from "./MemoryMine.ts"

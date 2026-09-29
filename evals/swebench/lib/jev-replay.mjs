@@ -23,9 +23,8 @@
  * give are stated rather than guessed at:
  *
  * - No memory is recalled. Recalled rows are judged by a separate relevance
- *   reading, not by `supervisor/turn`. `candidates` are read from the
- *   frame's prose exactly as the live supervisor reads them, so the eleven
- *   fixed questions and the same `remember_*` questions are asked.
+ *   reading, not by `supervisor/turn`, and the supervisor asks nothing about
+ *   memory, so the eleven fixed questions are asked.
  * - `remoteMutations` is zero. The journal records container writes only on
  *   the call that made them, and the r9x waves ran no container-side edits.
  * - `task` is the last system text of the first frame's `model-requested`
@@ -55,7 +54,6 @@ import { Effect, Layer, Redacted } from "effect"
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import * as Supervision from "../../../packages/smithers/agent/harness/src/internal/supervision.ts"
 import * as Judgement from "../../../packages/smithers/agent/harness/src/Judgement.ts"
 import * as Monitor from "../../../packages/smithers/agent/harness/src/Monitor.ts"
 import * as Relevance from "../../../packages/smithers/agent/harness/src/Relevance.ts"
@@ -160,8 +158,7 @@ export const offered = (facts, index, maxFrames, approvalChannel) => {
  * frames are the offered frames before it, as the live handle keeps them.
  *
  * The prose is the model's text with its fenced cell stripped, by the same
- * `prose` the live supervisor calls, and the candidates are read from it by
- * the same `candidates`. `treeMoved` is `UnmovedTree.find` on the same inputs.
+ * `prose` the live supervisor calls. `treeMoved` is `UnmovedTree.find` on the same inputs.
  *
  * @category conversions
  * @since 0.1.0
@@ -189,7 +186,7 @@ export const snapshots = (facts) => {
     callsSettled += frame.calls.length
     callsFailed += frame.calls.filter((call) => !call.ok).length
     if (!offered(facts, index, maxFrames, approvalChannel)) continue
-    const written = Supervision.prose(frame.prose ?? "")
+    const written = Supervisor.prose(frame.prose ?? "")
     const current = {
       frame: frame.index,
       cell: Supervisor.head(frame.cell ?? ""),
@@ -221,7 +218,6 @@ export const snapshots = (facts) => {
         ...demandsBefore(facts, seq),
         sufficiencyStated: facts.sufficiencyEvents.some((event) => event.seq <= seq)
       },
-      candidates: Supervisor.candidates(written),
       // An archived journal records no catalog, so no skill or use-jev monitor is rebuilt.
       skills: [],
       called: [],

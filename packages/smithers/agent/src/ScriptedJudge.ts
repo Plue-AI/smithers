@@ -173,11 +173,15 @@ export const answer: {
   /**
    * A calm run: thrashing only when more than one frame repeated, on target,
    * nothing suspect, outdated or irrelevant, every emotion `none`, and nothing
-   * needed from a person. No candidate is remembered (0.1). A skill monitor
-   * fires (0.9) while the run has not called the skill it asks about; every
-   * other monitor stays quiet (0.05).
+   * needed from a person. A skill monitor fires (0.9) while the run has not
+   * called the skill it asks about; every other monitor stays quiet (0.05).
    */
   readonly supervisor: Answerer
+  /**
+   * `memory/mine`: no candidate is a durable fact or an issue (0.1), so an
+   * offline run remembers nothing.
+   */
+  readonly mine: Answerer
 } = {
   completion: (request) =>
     decoded(CompletionClaim.Evidence, "completion", request).pipe(Effect.map((evidence) => {
@@ -253,10 +257,12 @@ export const answer: {
       return Object.fromEntries(
         Object.keys(request.questions).map((id) => [
           id,
-          fixed[id] ?? { probability: id.startsWith("remember_") ? 0.1 : unread(id) ? 0.9 : 0.05 }
+          fixed[id] ?? { probability: unread(id) ? 0.9 : 0.05 }
         ])
       )
-    }))
+    })),
+  mine: (request) =>
+    Effect.succeed(Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.1 }])))
 }
 
 const every = (ids: ReadonlyArray<string>, pattern: RegExp): boolean =>
@@ -280,10 +286,11 @@ export const answererFor = (ids: ReadonlyArray<string>): Answerer | undefined =>
   if (every(ids, /^unnecessary_\d+$/)) return answer.relevance
   if (every(ids, /^(?:remove|keep)_\d+$/)) return answer.compaction
   if (every(ids, /^(?:phase|size|clarity|binary|system)$/) && ids.includes("size")) return answer.route
+  if (every(ids, /^(?:durable|issue)_\d+$/)) return answer.mine
   const fixed = Object.keys(calm(0))
   if (
     fixed.every((id) => ids.includes(id)) &&
-    ids.every((id) => fixed.includes(id) || /^(?:remember|monitor)_/.test(id))
+    ids.every((id) => fixed.includes(id) || id.startsWith(Supervisor.monitorPrefix))
   ) return answer.supervisor
   return undefined
 }
@@ -313,8 +320,8 @@ export const layer: Layer.Layer<Evaluator.Evaluator> = dispatch(
 
 /**
  * Every classifier the agent asks, each answered by its {@link answer}: the
- * completion brake, relevance, compaction marks, seat routing and the
- * supervisor. Bind this only in an offline fixture; a question-id set no
+ * completion brake, relevance, compaction marks, seat routing, the
+ * supervisor and the transcript miner. Bind this only in an offline fixture; a question-id set no
  * classifier asks fails `unreachable`.
  *
  * @category layers

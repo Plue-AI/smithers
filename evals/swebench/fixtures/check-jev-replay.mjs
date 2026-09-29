@@ -204,10 +204,9 @@ try {
   assert.equal("recalled" in built[2], false)
   assert.equal(built[2].frames[2].transition, "continue")
   assert.equal(built[2].frames[1].mutated, true)
-  // The fenced cell is stripped, as the live supervisor strips it, and the
-  // candidates are read from what is left.
+  // The fenced cell is stripped, as the live supervisor strips it.
   assert.equal(built[2].frames[2].prose, "Retrying.")
-  assert.deepEqual(built[2].candidates, ["Retrying."])
+  assert.equal("candidates" in built[2], false)
   assert.equal(built[3].frames[2].transition, "complete")
 
   const s0 = built[0].signals

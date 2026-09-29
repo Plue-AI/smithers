@@ -18099,6 +18099,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/src/MemoryMine.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/src/MemorySnapshotRecorder.ts"
       },
       {
@@ -29146,6 +29150,10 @@
       {
         "kind": "file",
         "path": "flows/test/memory-calibrate.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/memory-mine.test.ts"
       },
       {
         "kind": "glob",

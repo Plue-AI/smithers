@@ -1078,7 +1078,6 @@ export const trace = (
           crossed: event.crossed,
           nudged: event.nudged,
           ...(event.steer === undefined ? {} : { steer: event.steer }),
-          remembered: event.remembered,
           latencyMs: event.latencyMs,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
           ...(event.monitors === undefined ? {} : { monitors: event.monitors }),

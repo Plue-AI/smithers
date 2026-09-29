@@ -207,7 +207,6 @@ const attempt = async (
     pinned: ["read"],
     monitors: [noTestEdits],
     memory: { bound: true, recall: () => Effect.succeed([layout]), remember: () => Effect.void },
-    supervisor: { remember: false },
     steering: reading.steering,
     observer: reading.observer,
     records

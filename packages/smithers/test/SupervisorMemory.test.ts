@@ -86,15 +86,26 @@ const cells = (prose: string, sources: ReadonlyArray<string>, held: Deferred.Def
 }
 
 /**
- * A judge that finishes every completion, accepts every memory candidate and
- * keeps every recalled row, recording the rows relevance was asked about.
+ * A judge that finishes every completion, accepts every sentence the run-end
+ * miner offers and keeps every recalled row, recording the rows relevance was
+ * asked about and the sentences mined.
  */
-const judge = (snapshots: Array<Supervisor.Snapshot>, recalled: Array<Relevance.Item>) =>
+const judge = (snapshots: Array<Supervisor.Snapshot>, recalled: Array<Relevance.Item>, mined: Array<string>) =>
   Evaluator.layerScripted((request) => {
     if (Object.hasOwn(request.questions, "unnecessary_0")) {
       const items = (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items
       recalled.push(...items)
       return Object.fromEntries(items.map((_, index) => [`unnecessary_${index}`, { probability: 0.01 }]))
+    }
+    if (Object.hasOwn(request.questions, "durable_0")) {
+      const items = (request.state as { readonly items: ReadonlyArray<{ readonly text: string }> }).items
+      mined.push(...items.map((item) => item.text))
+      return Object.fromEntries(
+        items.flatMap((
+          _,
+          index
+        ) => [[`durable_${index}`, { probability: 0.99 }], [`issue_${index}`, { probability: 0.01 }]])
+      )
     }
     if (!Object.hasOwn(request.questions, "thrashing")) {
       return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
@@ -107,7 +118,7 @@ const judge = (snapshots: Array<Supervisor.Snapshot>, recalled: Array<Relevance.
           ? { choice: "none" }
           : ["frustrated", "anxious", "scared", "confused", "confident"].includes(key)
           ? { score: 0 }
-          : { probability: key === "on_target" || key.startsWith("remember_") ? 0.99 : 0.01 }
+          : { probability: key === "on_target" ? 0.99 : 0.01 }
       ])
     )
   })
@@ -127,6 +138,7 @@ const agentRun = (input: {
   readonly supervisor: Agent.Options["supervisor"]
   readonly snapshots: Array<Supervisor.Snapshot>
   readonly recalled?: Array<Relevance.Item>
+  readonly mined?: Array<string>
 }) =>
   Effect.gen(function*() {
     const engine = yield* FlowRuntime.FlowRuntime
@@ -158,7 +170,9 @@ const agentRun = (input: {
             ? Deferred.succeed(held, undefined)
             : Effect.void
         ),
-        Effect.provide(Layer.merge(Agent.layerDefaults, judge(input.snapshots, input.recalled ?? [])))
+        Effect.provide(
+          Layer.merge(Agent.layerDefaults, judge(input.snapshots, input.recalled ?? [], input.mined ?? []))
+        )
       )
     }).pipe(
       Effect.provide(Agent.layer),
@@ -331,9 +345,10 @@ describe("SupervisorMemory", () => {
         crypto: platform.crypto
       })
     const sentence = "The repository runs its suite through tox, never pytest directly."
-    const written: Array<Supervisor.Snapshot> = []
-    await agentRun({ session: "run-1", prose: sentence, memory: memory(), supervisor: first, snapshots: written })
-    expect(written[0]?.candidates).toEqual([sentence])
+    const mined: Array<string> = []
+    await agentRun({ session: "run-1", prose: sentence, memory: memory(), supervisor: first, snapshots: [], mined })
+    // Run 1's transcript is mined once, at its end.
+    expect(mined).toEqual([sentence])
 
     const recalled: Array<Relevance.Item> = []
     await agentRun({

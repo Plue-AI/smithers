@@ -227,11 +227,13 @@ const codingRuntime = Smithers.NodeTest({
   cwd,
   cache: true
 })
-// Agent memory: threshold calibration over `@smthrs/agent/Memory`.
+// Agent memory: calibration and the transcript miner, each over
+// `@smthrs/agent/Memory`.
 const memory = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
-    Smithers.file("//flows/test/memory-calibrate.test.ts")
+    Smithers.file("//flows/test/memory-calibrate.test.ts"),
+    Smithers.file("//flows/test/memory-mine.test.ts")
   ]),
   srcs: [
     ...codingSources,

@@ -1031,6 +1031,23 @@
       "flows": []
     },
     {
+      "id": "memory/mine",
+      "description": "Mine a finished run's journal: durable facts to memory, human decisions to the item's wiki page, factory issues back to the caller.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/memory/mine/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:factory/wiki/decisions/**",
+        "memory:write:**",
+        "model:call:typesafe-ai/jev"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "register-repository",
       "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
       "summary": null,
