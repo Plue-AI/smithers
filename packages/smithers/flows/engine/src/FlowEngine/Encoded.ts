@@ -171,10 +171,13 @@ export interface Encoded {
    * An unknown execution id is a silent no-op: a re-drive request carries no
    * state of its own, so there is nothing to report to a caller that named a
    * run this engine does not hold.
+   * `poll` marks an automatic follower retry, without operator authority to
+   * clear a quarantine park. Omitted, this is an explicit recovery request.
    */
   readonly resume: (
     flow: Flow.Any,
-    executionId: string
+    executionId: string,
+    options?: { readonly poll?: boolean | undefined } | undefined
   ) => Effect.Effect<void>
   readonly resumeSignal?:
     | ((

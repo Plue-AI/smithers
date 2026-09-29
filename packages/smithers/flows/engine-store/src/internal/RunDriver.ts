@@ -559,7 +559,12 @@ export const make = (
     const recordParentResume = (parentExecutionId: string): Effect.Effect<void> =>
       dependencies.requestResume === undefined ? Effect.void : Effect.flatMap(
         engineState.waiting(parentExecutionId),
-        (waiting) => recordResume(parentExecutionId, Option.isSome(waiting), "parent")
+        (waiting) =>
+          recordResume(
+            parentExecutionId,
+            Option.isSome(waiting) && waiting.value.reason !== "quarantine",
+            "parent"
+          )
       )
 
     /**
@@ -806,6 +811,13 @@ export const make = (
           return false
         }
 
+        // Every drive, including a fresh execute or a queued wake, must
+        // preserve quarantine. Cancellation still claims the row to close it.
+        if (row.cancelRequestedAtMs === null) {
+          const waiting = yield* engineState.waiting(row.runId)
+          if (Option.isSome(waiting) && waiting.value.reason === "quarantine") return false
+        }
+
         const expected = snapshot(row)
         const nowMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
         let claim: RunStore.StealOutcome
@@ -918,6 +930,15 @@ export const make = (
         // with no journal entry saying who took it.
         const activation = yield* transactState(
           Effect.gen(function*() {
+            // Another owner can quarantine and return to the same suspended
+            // snapshot between preflight and claim. Fence that park in the
+            // activation transaction too; the rejected claim is abandoned below.
+            if (row.cancelRequestedAtMs === null) {
+              const waiting = yield* engineState.waiting(row.runId)
+              if (Option.isSome(waiting) && waiting.value.reason === "quarantine") {
+                return { _tag: "SnapshotChanged" as const }
+              }
+            }
             const activation = yield* store.activate(
               row.runId,
               dependencies.owner,
@@ -2673,7 +2694,7 @@ export const make = (
       reason,
       sourceId
     ) =>
-      Effect.gen(function*() {
+      transactState(Effect.gen(function*() {
         yield* Effect.annotateCurrentSpan({ executionId, flow: flowName, reason })
         const row = yield* store.get(executionId).pipe(
           Effect.catch((error) =>
@@ -2692,20 +2713,31 @@ export const make = (
         if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") return
         const state = yield* decodeState(row.stateJson)
         if (state.flowName !== flowName) return
+        const waiting = yield* engineState.waiting(executionId)
+        if (Option.isSome(waiting) && waiting.value.reason === "quarantine") {
+          if (reason !== "operator") return
+          // Recovery consent and its journal receipt commit together. A
+          // queued drive cannot consume quarantined evidence before consent.
+          yield* engineState.wake(executionId)
+        }
         yield* emitDecision(executionId, {
           decision: "wake-scheduled",
           reason
         }, sourceId)
-        // Before the wake, so the host's record is already standing when the
-        // round it schedules reaches the host's own guard.
-        if (reason !== "operator") yield* recordResume(executionId, row.status === "suspended", reason)
-        yield* coordinator.wake(executionId)
-        // The runnability change (deferred completed, clock fired, operator
-        // resume) is already durable — the caller commits before scheduling —
-        // so announcing after the coordinator enqueues the re-drive lets an
-        // in-process waiter skip the rest of its poll sleep.
-        yield* wakeBus.wake(executionId)
-      })
+        return { parked: row.status === "suspended" }
+      })).pipe(
+        Effect.orDie,
+        // A host can write a separate database. Release the engine transaction
+        // before calling it, but record its request before publishing the wake.
+        Effect.flatMap((scheduled) =>
+          scheduled === undefined
+            ? Effect.void
+            : (reason === "operator" ? Effect.void : recordResume(executionId, scheduled.parked, reason)).pipe(
+              Effect.andThen(coordinator.wake(executionId)),
+              Effect.andThen(wakeBus.wake(executionId))
+            )
+        )
+      )
     )
 
     return {
@@ -2755,9 +2787,9 @@ export const make = (
           })
         )
       ),
-      resume: Effect.fn("FlowEngine.resume")((flow, executionId) =>
+      resume: Effect.fn("FlowEngine.resume")((flow, executionId, options) =>
         Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
-          Effect.andThen(scheduleResume(flow._tag, executionId, "operator")),
+          Effect.andThen(options?.poll === true ? Effect.void : scheduleResume(flow._tag, executionId, "operator")),
           Effect.andThen(coordinator.run(executionId))
         )
       ),

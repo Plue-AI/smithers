@@ -104,9 +104,14 @@ A succeeded attempt row is different. It records that this run's side effects
 already ran, so evicting and re-executing would break exactly-once for an
 irreversible action. Under the strict verdict the corrupt evidence is
 quarantined instead: the driver parks the first detection in the `quarantine`
-waiting state and reports `AttemptEvidenceQuarantined`, and the next explicit
-resume returns the durable outcome without re-materializing the poisoned
-evidence and without re-executing the action.
+waiting state after `AttemptEvidenceQuarantined`. The engine's automatic polls,
+discarded-execution followers, internal wakes, and fresh `execute` calls leave
+that park intact. A waiting caller
+continues under its `suspendedRetryPolicy`; exhausting that budget reports
+`SuspendedResumeGaveUp` without clearing quarantine. Only an explicit
+`Flow.resume(executionId)` or engine `resume` authorizes recovery, returning the
+durable outcome without re-materializing the poisoned evidence or re-executing
+the action.
 
 ## Every lifecycle write takes the durable channel
 

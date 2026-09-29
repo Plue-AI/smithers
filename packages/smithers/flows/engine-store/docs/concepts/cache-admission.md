@@ -116,7 +116,8 @@ without a finish timestamp uses the current clock when it converges the entry.
 Empty outputs do not bypass replay verification. If the boundary reports
 `BoundaryCorruption` in admitted evidence, the succeeded attempt's evidence is
 quarantined, its boundary and read-verification proof are cleared, and strict
-policy parks the run once. A subsequent explicit resume returns the durable
+policy parks the run until an explicit resume; polling and repeated execution
+cannot clear quarantine. That explicit resume returns the durable
 outcome without rechecking that evidence, repeating the body, or publishing it.
 
 An opaque `{}` is unsupported evidence, not an encoded empty set. An empty

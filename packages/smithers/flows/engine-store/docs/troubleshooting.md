@@ -39,7 +39,10 @@ parked for a process that does register it.
 **What happened.** A succeeded attempt row's recorded boundary evidence no
 longer hashes to its recorded digest, under the strict `Inconsistency` verdict.
 The failure carries `keyDigest`, `attempt`, `path`, `recordedDigest`, and
-`measuredDigest`. The driver parks the run in the `quarantine` waiting state.
+`measuredDigest`. The driver handles this failure by parking the run in the `quarantine` waiting
+state. Execution callers keep waiting under their `suspendedRetryPolicy` and
+report `SuspendedResumeGaveUp` if that budget expires; polling and fresh
+execution calls cannot authorize recovery.
 
 **What to change.** Investigate the disk. A succeeded attempt row records that
 this run's side effects already ran, so the evidence cannot simply be evicted

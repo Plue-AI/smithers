@@ -219,21 +219,25 @@ describe("empty output evidence is eligible and still checked for corruption", (
             yield* runs.transitionOwned("empty-run", owner, "suspended", stateJson)
           })
         )
-        const resume = Effect.gen(function*() {
-          const services = yield* Effect.context<Services>()
-          const driver = yield* RunDriver.make({
-            owner,
-            journalSource: "empty-output-policy",
-            isAlive: () => Effect.succeed(false),
-            engine: Effect.succeed({} as FlowRuntime.FlowRuntime["Service"])
+        const drive = (recover = false) =>
+          Effect.gen(function*() {
+            const services = yield* Effect.context<Services>()
+            const driver = yield* RunDriver.make({
+              owner,
+              journalSource: "empty-output-policy",
+              isAlive: () => Effect.succeed(false),
+              engine: Effect.succeed({} as FlowRuntime.FlowRuntime["Service"])
+            })
+            yield* driver.register(
+              EmptyFlow,
+              () => dispatch("empty-run", () => Effect.die("durable body repeated")).pipe(Effect.provide(services))
+            )
+            if (recover) yield* driver.resume(EmptyFlow, "empty-run")
+            else yield* driver.execute(EmptyFlow, { executionId: "empty-run", payload: {}, discard: true })
           })
-          yield* driver.register(
-            EmptyFlow,
-            () => dispatch("empty-run", () => Effect.die("durable body repeated")).pipe(Effect.provide(services))
-          )
-          yield* driver.execute(EmptyFlow, { executionId: "empty-run", payload: {}, discard: true })
-        })
-        await onDatabase(file, corruptBoundary, resume)
+        await onDatabase(file, corruptBoundary, drive())
+        // Reopening and submitting again cannot authorize quarantine recovery.
+        await onDatabase(file, corruptBoundary, drive())
         // Read the parked state from a connection that did not drive it.
         await onDatabase(
           file,
@@ -268,7 +272,7 @@ describe("empty output evidence is eligible and still checked for corruption", (
           })
         )
         expect(replays).toBe(1)
-        await onDatabase(file, corruptBoundary, resume)
+        await onDatabase(file, corruptBoundary, drive(true))
         await onDatabase(
           file,
           corruptBoundary,

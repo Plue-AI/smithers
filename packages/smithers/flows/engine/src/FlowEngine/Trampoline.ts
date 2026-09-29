@@ -288,7 +288,7 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         // re-driving it back to back with no delay.
         if (!woken) {
           resumeAttempt = resumeAttempt + 1
-          yield* options.resume(lineage.flow, lineage.executionId)
+          yield* options.resume(lineage.flow, lineage.executionId, { poll: true })
         }
         current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, true)
       }
