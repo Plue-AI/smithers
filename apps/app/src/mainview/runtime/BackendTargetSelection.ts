@@ -34,7 +34,8 @@ export const switchBackendTarget = (origin: string, token: string, pageOrigin: s
     developerExternal: credential !== ""
   }, pageOrigin)
   const { apiVersion, mode, apiOrigin, auth, cors, developerExternal } = target
+  // Retire the old credential before changing hosts; any storage failure must fail closed.
+  sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.setItem(TARGET_KEY, JSON.stringify({ apiVersion, mode, apiOrigin, auth, cors, developerExternal }))
   if (credential) sessionStorage.setItem(TOKEN_KEY, credential)
-  else sessionStorage.removeItem(TOKEN_KEY)
 }
