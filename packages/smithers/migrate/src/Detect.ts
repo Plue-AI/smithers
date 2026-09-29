@@ -93,7 +93,6 @@ export const deletedSmthrsPackages: ReadonlyArray<string> = [
   "telegram",
   "tool-context",
   "tui",
-  "ui",
   "usage",
   "vcs",
   "vercel",

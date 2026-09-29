@@ -38,6 +38,8 @@ run-state directories, and covers:
   `.smithers/package.json`, and any manifest next to a workflow file. A
   dependency that only ever existed in Smithers 0.x is decided by name; one
   that exists in both trees is decided by version, against `<1.0.0-0`.
+  This includes `@smthrs/ui`: 0.x versions migrate; `1.0.0-rc.1` and its
+  imports remain intact, including in projects that also use `smthrs@0.35.0`.
 - Every `effect` declaration in every manifest, and what the lockfile resolved
   `effect` to. Anything other than the pin this release was built against
   raises `effect-pin-conflict` naming the file and the field.
