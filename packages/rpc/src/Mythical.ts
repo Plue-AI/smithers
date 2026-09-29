@@ -320,7 +320,9 @@ export const MythicalItemSchema = z.object({
   checks: MythicalChecksSchema.optional(),
   pullRequest: MythicalPullRequestSchema.optional(),
   dependsOn: z.array(z.string()),
-  updatedAt: z.string()
+  updatedAt: z.string(),
+  /** When the service first observed the issue and stored the item (often while still skipped); absent from older servers. */
+  createdAt: z.string().optional()
 })
 
 /**

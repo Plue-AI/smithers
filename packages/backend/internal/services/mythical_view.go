@@ -80,6 +80,10 @@ type MythicalItemView struct {
 	PullRequest *MythicalPullRequestView `json:"pullRequest,omitempty"`
 	DependsOn   []string                 `json:"dependsOn"`
 	UpdatedAt   string                   `json:"updatedAt"`
+	// CreatedAt is when the service first observed the issue and inserted this
+	// item row, whatever its state then (often skipped, waiting for a label);
+	// it is not when the issue became actionable.
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 type MythicalLaneView struct {
@@ -294,6 +298,9 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	}
 	if item.UpdatedAt.Valid {
 		row.UpdatedAt = item.UpdatedAt.Time.UTC().Format(time.RFC3339)
+	}
+	if item.CreatedAt.Valid {
+		row.CreatedAt = item.CreatedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return row
 }
