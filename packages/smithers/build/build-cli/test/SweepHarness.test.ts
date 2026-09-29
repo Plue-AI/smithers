@@ -1,3 +1,5 @@
+import * as Fs from "node:fs/promises"
+import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
 import {
@@ -9,6 +11,7 @@ import {
   loadExpectations,
   parseCliJson,
   resetCommands,
+  runSweep,
   selectRows,
   summarize,
   validateExpectations,
@@ -146,6 +149,45 @@ describe("outcome classifier", () => {
       "ready"
     )
   })
+})
+
+describe("service shutdown observation", () => {
+  it("requires a clean SIGTERM shutdown after readiness", async () => {
+    const workspace = await Fs.mkdtemp(NodePath.join(NodeOs.tmpdir(), "sweep-service-"))
+    try {
+      const cli = NodePath.join(workspace, "service.mjs")
+      const expectationsPath = NodePath.join(workspace, "expectations.json")
+      const receipt = NodePath.join(workspace, "exit.txt")
+      await Fs.writeFile(
+        expectationsPath,
+        JSON.stringify({ version: 1, labels: { "//:serve": { class: "service", expect: "ready" } } })
+      )
+      for (const exit of [17, 0, null]) {
+        await Fs.rm(receipt, { force: true })
+        const shutdown = exit === null
+          ? "return;"
+          : `writeFileSync(${JSON.stringify(receipt)}, ${JSON.stringify(String(exit))}); process.exit(${exit});`
+        await Fs.writeFile(cli, `import { writeFileSync } from "node:fs";
+process.on("SIGTERM", () => { ${shutdown} });
+console.log("listening on 4000");
+setInterval(() => {}, 1000);
+`)
+        const report = await runSweep({
+          workspace, cli, expectationsPath, invoke: "run {label}",
+          heavy: false, services: true, only: [], timeoutSeconds: 5, reset: false
+        })
+        const result = report.results[0]!
+        if (exit !== null) expect(await Fs.readFile(receipt, "utf8")).toBe(String(exit))
+        expect(result.observed.exitCode).toBe(exit)
+        expect(result.observed.signal).toBe(exit === null ? "SIGKILL" : null)
+        expect(result.observed.outcome).toBe(exit === 0 ? "ready" : "failed")
+        expect(result.verdict).toBe(exit === 0 ? "pass" : "mismatch")
+        expect(report.ok).toBe(exit === 0)
+      }
+    } finally {
+      await Fs.rm(workspace, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
 
 describe("verdicts against stubbed CLI outputs", () => {

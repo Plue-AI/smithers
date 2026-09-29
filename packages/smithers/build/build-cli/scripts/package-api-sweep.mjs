@@ -178,7 +178,7 @@ export const compareLabelSets = (expected, actual) => {
  * Classifies one finished CLI invocation. Pure: everything observed comes in
  * as data, so the vitest suite drives it with stubbed outputs.
  */
-export const classifyOutcome = ({ exitCode, stdout, stderr, timedOut = false, sawReadiness = false }) => {
+export const classifyOutcome = ({ exitCode, signal, stdout, stderr, timedOut = false, sawReadiness = false }) => {
   const output = `${stdout}\n${stderr}`
   const detectedCodes = Object.entries(refusalRecognizers)
     .filter(([, pattern]) => pattern.test(output))
@@ -186,8 +186,8 @@ export const classifyOutcome = ({ exitCode, stdout, stderr, timedOut = false, sa
   if (notImplementedPattern.test(output) && exitCode !== 0) {
     return { outcome: "not-implemented", detectedCodes }
   }
-  if (timedOut) return { outcome: sawReadiness ? "ready" : "timeout", detectedCodes }
-  if (sawReadiness && exitCode === 0) return { outcome: "ready", detectedCodes }
+  if (timedOut) return { outcome: sawReadiness ? "failed" : "timeout", detectedCodes }
+  if (sawReadiness && (exitCode === 0 || signal === "SIGTERM")) return { outcome: "ready", detectedCodes }
   if (exitCode === 0) return { outcome: "green", detectedCodes }
   return { outcome: "failed", detectedCodes }
 }
@@ -272,10 +272,8 @@ const observe = (bin, args, { cwd, timeoutMs, service = false, graceMs = 15_000 
     let stderr = ""
     let timedOut = false
     let sawReadiness = false
-    let settledByReadiness = false
     const finishService = () => {
       // Readiness reached: ask the service to stop and judge the shutdown.
-      settledByReadiness = true
       child.kill("SIGTERM")
       setTimeout(() => child.kill("SIGKILL"), graceMs).unref()
     }
@@ -302,7 +300,8 @@ const observe = (bin, args, { cwd, timeoutMs, service = false, graceMs = 15_000 
     child.on("close", (code, signal) => {
       clearTimeout(timer)
       resolve({
-        exitCode: settledByReadiness ? 0 : code ?? 1,
+        exitCode: code,
+        signal,
         stdout,
         stderr,
         timedOut,
@@ -396,6 +395,7 @@ export const runSweep = async ({
       expected: { outcome: expectedOutcome(row), refusal: row.refusal },
       observed: {
         exitCode: observed.exitCode,
+        signal: observed.signal,
         outcome: classified.outcome,
         detectedCodes: classified.detectedCodes,
         timedOut: observed.timedOut,
