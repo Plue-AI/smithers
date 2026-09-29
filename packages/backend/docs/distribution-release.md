@@ -29,6 +29,43 @@ scripted model and evaluator responses, an actual PostgreSQL service, and the
 packaged coding runtime. It checks file creation, judged completion, restart,
 backup, restore, and version mismatch refusal; it does not measure model quality.
 
+## Verify a parked review across process replacement
+
+The backend integration test uses a disposable PostgreSQL database and a real
+Node Flow host with durable SQLite state. It parks a repository registration
+review, replaces the host process, reopens the backend database connection, and
+answers through the backend’s browser Flow HTTP handler. It covers approval, decline with a
+follow-up answer, duplicate starts before and after replacement, and cancellation
+followed by another replacement, a repeated cancellation request, and refusal of
+a late answer to the cancelled question. Repeated starts must return the original run
+and must not add another run to the workspace.
+
+```bash
+SMITHERS_REQUIRE_DATABASE_TESTS=1 \
+SMITHERS_TEST_DATABASE_URL=postgres://USER@localhost:5432/postgres \
+GOWORK=off go test ./packages/backend/internal/compose \
+  -run '^TestAdminRegistrationReviewPostgresRestart$' -count=1 -v
+```
+
+Install the workspace dependencies and use the repository's supported Node
+version first. The database user needs permission to create databases. The test
+creates and drops its own database; it does not reuse product state. Its scripted
+evaluator avoids provider traffic and does not qualify a live coding seat.
+
+This test replaces the Flow process and backend handler objects, not an entire
+backend service or VM. PostgreSQL itself stays running; only its connection pool
+is reopened. Each replacement host reuses the same filesystem root, so this test
+does not cover disk loss, backup or restore. Replacement happens while parked or
+after the cancellation RPC returns, not while an answer or cancel is in flight.
+The container acceptance above currently checks a completed
+coding run before restarting the application; it does not prove recovery of a
+parked run. Qualifying an installation still requires parking an actual run,
+restarting its backend and VM, answering the same persisted question, and checking
+one completed run. Also repeat cancellation and confirm that the cancelled run
+stays cancelled after replacement, then test host reboot and unavailable capacity.
+Keep run ids, revisions, supervisor configuration and timestamped results with the
+installation's private receipts.
+
 ## Publish
 
 The existing Release workflow validates the image before publication. Its image

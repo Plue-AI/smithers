@@ -86,6 +86,8 @@ func startRegistrationHost(t *testing.T, root string) (*runtimebridge.Client, fu
 		}
 	})
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
+	// This source host imports the workspace packages on every replacement.
+	// Give startup its own budget; recovery assertions below still have 60s.
 	require.Eventually(t, func() bool {
 		r, e := http.Get(endpoint + "/health")
 		if e != nil {
@@ -93,7 +95,7 @@ func startRegistrationHost(t *testing.T, root string) (*runtimebridge.Client, fu
 		}
 		defer r.Body.Close()
 		return r.StatusCode == 200
-	}, 45*time.Second, 100*time.Millisecond)
+	}, 90*time.Second, 100*time.Millisecond)
 	client, err := runtimebridge.New(runtimebridge.Config{Endpoint: endpoint, Credential: "registration-integration-only"})
 	require.NoError(t, err)
 	return client, stop
@@ -224,15 +226,28 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 		return w.Body
 	}
 	hostTest := t
-	for _, choice := range []string{"Approve", "Decline"} {
+	for _, choice := range []string{"Approve", "Decline", "Cancel"} {
 		t.Run(choice, func(t *testing.T) {
+			var existing struct {
+				Rows []json.RawMessage `json:"rows"`
+			}
+			require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Projection.Snapshot", map[string]any{"selector": map[string]any{"_tag": "workspace-runs"}}), &existing))
 			var plan map[string]any
 			require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Plan", map[string]any{"flowId": "register-repository", "input": map[string]any{}}), &plan))
 			registrationHostRPC(t, client, "Approve", plan["approval"])
 			var receipt struct {
 				RunID string `json:"runId"`
 			}
-			require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Run", map[string]any{"_tag": "Plan", "planId": plan["planId"], "digest": plan["digest"], "envelope": plan["envelope"], "idempotencyKey": uuid.NewString()}), &receipt))
+			start := map[string]any{"_tag": "Plan", "planId": plan["planId"], "digest": plan["digest"], "envelope": plan["envelope"], "idempotencyKey": uuid.NewString()}
+			require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Run", start), &receipt))
+			assertDuplicate := func() {
+				var duplicate struct {
+					RunID string `json:"runId"`
+				}
+				require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Run", start), &duplicate))
+				require.Equal(t, receipt.RunID, duplicate.RunID, "retry must recover the accepted run")
+			}
+			assertDuplicate()
 			require.NotEmpty(t, receipt.RunID)
 			var inbox []registrationInbox
 
@@ -256,7 +271,18 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 			require.NoError(t, json.Unmarshal(before, &original))
 			require.NoError(t, json.Unmarshal(inbox[0].Rows[0], &recovered))
 			require.JSONEq(t, string(original.Payload), string(recovered.Payload))
-			answer(inbox[0].Rows[0], choice)
+			assertDuplicate()
+			cancelRequest := map[string]any{"runId": receipt.RunID, "reason": "restart acceptance", "idempotencyKey": "cancel:" + receipt.RunID}
+			var cancelReceipt json.RawMessage
+			if choice == "Cancel" {
+				cancelReceipt = registrationHostRPC(t, client, "Cancel", cancelRequest)
+				// A second process replacement must not resurrect a cancelled wait.
+				stop()
+				client, stop = startRegistrationHost(hostTest, root)
+				dispatcher.client = client
+			} else {
+				answer(inbox[0].Rows[0], choice)
+			}
 			if choice == "Decline" {
 				require.Eventually(t, func() bool {
 					inbox = list()
@@ -276,11 +302,46 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 				require.NoError(t, json.Unmarshal(last, &result))
 				for _, run := range result.Rows {
 					if run.RunID == receipt.RunID {
+						if choice == "Cancel" {
+							return run.Status == "cancelled"
+						}
 						return run.Status == "completed"
 					}
 				}
 				return false
 			}, 60*time.Second, 100*time.Millisecond, "last snapshot: %s", &last)
+			if choice == "Cancel" {
+				require.JSONEq(t, string(cancelReceipt), string(registrationHostRPC(t, client, "Cancel", cancelRequest)), "a cancellation retry must answer the run's terminal state")
+				var stale map[string]any
+				require.NoError(t, json.Unmarshal(original.Payload, &stale))
+				stale["decision"], stale["answer"] = "approve", "Approve"
+				body, err := json.Marshal(map[string]any{"repo": "registrant/repo", "workspaceId": workspace, "procedure": "Approval.Submit", "payload": stale})
+				require.NoError(t, err)
+				refused := registrationRequest(api, &admin, false, string(body))
+				require.Equal(t, http.StatusConflict, refused.Code, refused.Body.String())
+				require.Contains(t, refused.Body.String(), "no longer pending")
+			}
+			assertDuplicate()
+			var snapshot struct {
+				Rows []struct {
+					RunID  string `json:"runId"`
+					Status string `json:"status"`
+				} `json:"rows"`
+			}
+			require.NoError(t, json.Unmarshal(registrationHostRPC(t, client, "Projection.Snapshot", map[string]any{"selector": map[string]any{"_tag": "workspace-runs"}}), &snapshot))
+			require.Len(t, snapshot.Rows, len(existing.Rows)+1, "retries must not create additional runs")
+			count := 0
+			for _, row := range snapshot.Rows {
+				if row.RunID == receipt.RunID {
+					if choice == "Cancel" {
+						require.Equal(t, "cancelled", row.Status)
+					} else {
+						require.Equal(t, "completed", row.Status)
+					}
+					count++
+				}
+			}
+			require.Equal(t, 1, count, "exactly one run survives retries and replacement")
 			require.Empty(t, list()[0].Rows)
 		})
 	}
