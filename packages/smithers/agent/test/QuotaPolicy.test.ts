@@ -844,6 +844,13 @@ describe("a quota refusal at a model-backed step", () => {
     expect(calls).toHaveLength(1)
   }, 60_000)
 
+  it("keeps a decoded hosted credit refusal terminal without HTTP metadata", () => {
+    const error = new ModelError({ code: "out_of_credit", message: "Out of credit." })
+    expect(error.retryable).toBe(false)
+    expect(QuotaPolicy.isTerminalRefusal(error)).toBe(true)
+    expect(QuotaPolicy.isTerminalRefusal(JSON.parse(JSON.stringify(error)) as ModelError)).toBe(true)
+  })
+
   it("fails as it does today when the composition classifies nothing", async () => {
     const calls: Array<string> = []
     const exit = await Effect.runPromise(

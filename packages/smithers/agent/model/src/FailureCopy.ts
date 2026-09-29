@@ -91,6 +91,10 @@ const model: Record<ModelErrorCode, readonly [string, string, ReadonlyArray<Acti
     "wait",
     "details"
   ]],
+  out_of_credit: ["Hosted credit exhausted", "Add credit and resume.", [
+    "resume",
+    "details"
+  ]],
   content_policy: ["Model declined the request", "Change the request and resume.", [
     "resume",
     "switch-model",

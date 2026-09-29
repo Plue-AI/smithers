@@ -20,6 +20,7 @@ export const classifyHttpStatus = (
 ): ModelErrorCode => {
   const normalized = `${code ?? ""} ${message}`.toLowerCase()
   if (status === 401 || status === 403) return "authentication"
+  if (status === 402 && code === "out_of_credit") return "out_of_credit"
   if (status === 402 || isQuotaExhausted(code, message)) return "quota_exceeded"
   if (
     /authentication|invalid[-_\s]?api[-_\s]?key|incorrect[-_\s]?api[-_\s]?key|permission[-_\s]?denied/.test(normalized)

@@ -65,6 +65,19 @@ for (const [name, toModel] of routes) {
       }
     )
 
+    it("preserves hosted out_of_credit as a terminal typed model code", async () => {
+      const body = JSON.stringify({ status: "error", code: "out_of_credit", message: "Out of credit." })
+      const { error, attempts } = await errorFor(402, body)
+      expect(error).toMatchObject({
+        _tag: "flows/model/ModelError",
+        code: "out_of_credit",
+        providerCode: "out_of_credit",
+        httpStatus: 402,
+        retryable: false
+      })
+      expect(attempts).toBe(1)
+    })
+
     it.each(
       [
         [400, "invalid_request"],

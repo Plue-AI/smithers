@@ -154,6 +154,7 @@ The codes and their retryability:
 | `authentication`          | The credential was rejected.                          | no        |
 | `rate_limited`            | A transient limit.                                    | yes       |
 | `quota_exceeded`          | The account has no usable balance or quota.           | no        |
+| `out_of_credit`           | Hosted proxy credit is exhausted.                     | no        |
 | `content_policy`          | The provider refused on safety grounds.               | no        |
 | `provider_internal`       | The provider failed on its own side.                  | yes       |
 | `transport`               | The connection failed.                                | yes       |

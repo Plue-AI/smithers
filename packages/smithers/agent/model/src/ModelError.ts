@@ -34,6 +34,7 @@ export const ModelErrorCode = Schema.Literals([
   "authentication",
   "rate_limited",
   "quota_exceeded",
+  "out_of_credit",
   "content_policy",
   "provider_internal",
   "transport",
@@ -148,7 +149,7 @@ export class ModelError extends Schema.TaggedError<ModelError>()("flows/model/Mo
 
   /** @category getters @since 0.1.0 */
   get retryable(): boolean {
-    if (this.code === "quota_exceeded") return false
+    if (this.code === "quota_exceeded" || this.code === "out_of_credit") return false
     return this.code === "rate_limited" || this.code === "provider_internal" || this.code === "transport" ||
       this.code === "call_timeout" ||
       this.httpStatus === 429 || (this.httpStatus !== undefined && this.httpStatus >= 500 && this.httpStatus <= 599)

@@ -263,6 +263,7 @@ const terminalCodes: ReadonlySet<string> = new Set([
   "no_route",
   "content_policy",
   "context_overflow",
+  "out_of_credit",
   "invalid_provider_output"
 ])
 

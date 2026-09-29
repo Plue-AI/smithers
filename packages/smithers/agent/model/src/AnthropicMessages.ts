@@ -212,6 +212,8 @@ type AnthropicEvent = typeof AnthropicEvent.Type
 type AnthropicUsage = typeof AnthropicUsage.Type
 
 const ErrorBody = Schema.Struct({
+  code: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
   error: Schema.optional(
     Schema.Struct({
       type: Schema.optional(Schema.String),
@@ -1054,8 +1056,10 @@ const spendCapResetAt = (message: string, now: number): number => {
 
 const classifyError = (status: number, body: string): ModelError => {
   const decoded = decodeErrorBody(body)
-  const error = Option.isSome(decoded) ? decoded.value.error : undefined
-  const message = error?.message ?? `Anthropic Messages request failed with HTTP ${status}`
+  const parsed = Option.isSome(decoded) ? decoded.value : undefined
+  const error = parsed?.error
+  const code = error?.type ?? parsed?.code
+  const message = error?.message ?? parsed?.message ?? `Anthropic Messages request failed with HTTP ${status}`
   if (error?.details?.error_code === SPEND_CAP) {
     // An exhausted quota with a known reset parks the run; a rate limit
     // would retry against a cap that no retry can clear.
@@ -1068,9 +1072,9 @@ const classifyError = (status: number, body: string): ModelError => {
     })
   }
   return new ModelError({
-    code: providerReason(status, error?.type, message),
+    code: providerReason(status, code, message),
     message,
-    providerCode: error?.type,
+    providerCode: code,
     httpStatus: status
   })
 }
