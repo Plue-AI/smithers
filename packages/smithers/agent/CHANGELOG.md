@@ -16,6 +16,9 @@
 - The sealed model step key moved to `key1_71b2f391…` because
   `@smthrs/capability`'s `Action` union gained `memory:read` and
   `memory:write`. Runs recorded under the old key re-dispatch their model calls.
+- The sealed model step key moved to `key1_674672c5…` because
+  `ModelEvent.Settle` gained `sessionId`, which `RecordedModelStep` embeds.
+  Runs recorded under the old key re-dispatch their model calls.
 
 ### Fixed
 

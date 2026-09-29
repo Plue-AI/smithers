@@ -210,12 +210,18 @@ describe("the sealed model step key", () => {
     //
     // It moved a fifth time when that union gained `memory:read` and
     // `memory:write` for capability-scoped role memory (06a13ab4ee).
+    //
+    // It moved a sixth time when `ModelEvent.Settle` gained `sessionId`, the
+    // vendor session a wrapped CLI seat answered from (45aa1347): the
+    // activity's `RecordedModelStep` success schema embeds the event union,
+    // and its fingerprint is in this key.
     expect(observed.host).not.toBe("key1_b5b3584a4ab3f2df73c684edccbb962e95e5497a4c33ac14d7f6601a4b3b043f")
     expect(observed.host).not.toBe("key1_a577eb74c0f86b94bec571cfe4ee22fc88b149a371652057677c28fb49effebe")
     expect(observed.host).not.toBe("key1_46a73bc13be2fe77a111e193fb0f1fafbaab470fb6c2a5c36a86dce446e027f5")
     expect(observed.host).not.toBe("key1_7e84313af37d0f9ac1e55b49529d1784837d40536a74e879aadb5a13074b8cc1")
     expect(observed.host).not.toBe("key1_6326d2f880ff8a393a69657ad23575ad6587c01328ab81742a6e7465bbc7a154")
-    expect(observed.host).toBe("key1_71b2f391813935739bf19fb2ade03b31af6f751f85c8c9fc1708852a297971eb")
+    expect(observed.host).not.toBe("key1_71b2f391813935739bf19fb2ade03b31af6f751f85c8c9fc1708852a297971eb")
+    expect(observed.host).toBe("key1_674672c55bd09f6b4907f8961f14598b0bb900c5d2aadacd28a51bbd3c3e209b")
     // Sealed means content-addressed: the same declaration through a second
     // port of the same composition is one recorded answer, not two calls.
     expect(observed.again).toBe(observed.host)
