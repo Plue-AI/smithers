@@ -9,19 +9,21 @@ import * as Log from "./log.ts"
  *   -r, --resume     pick a session to continue
  *   -p, --print      run one prompt and print the answer
  *   --box            run worker tools in a Smithers Cloud workspace, owner/repo/id (or SMITHERS_BOX)
+ *   --harness        run the Claude Code seat on a workspace's signed-in claude, owner/repo/id (or SMITHERS_HARNESS)
  */
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import * as Approvals from "./approvals.ts"
 import * as Box from "./box.ts"
 import * as Budget from "./budget.ts"
 import * as Cli from "./cli.ts"
 import type * as Context from "./context.ts"
 import * as FlowControl from "./flow-control.ts"
+import * as Harness from "./harness.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
 import * as Session from "./session.ts"
@@ -65,7 +67,17 @@ try {
   process.exit(1)
 }
 
-const available = Models.detect(process.env)
+// A harness workspace's signed-in `claude` becomes this machine's Claude Code seat.
+const harness = values.harness ?? (process.env.SMITHERS_HARNESS || undefined)
+if (harness !== undefined && !Cli.validBox(harness)) {
+  console.error("SMITHERS_HARNESS needs owner/repo/workspace-id")
+  process.exit(1)
+}
+const available = Models.detect(
+  harness === undefined
+    ? process.env
+    : Harness.install(process.env, harness, dirname(Log.path()))
+)
 const seat = values.model ?? (replay === undefined ? available.defaultSeat : `replay:${replay}`)
 if (seat === undefined) {
   console.error("No model is available. Run `codex login` for the ChatGPT subscription, or set a provider API key.")

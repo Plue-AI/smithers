@@ -112,3 +112,10 @@ it("takes a Smithers Cloud workspace for worker tools and refuses a malformed on
   expect(Cli.parse(["--box", "acme/app"], "/")).toEqual({ error: "--box needs owner/repo/workspace-id" })
   expect(Cli.parse(["--box", "acme/app/ws;rm"], "/")).toEqual({ error: "--box needs owner/repo/workspace-id" })
 })
+
+it("takes a harness workspace for the Claude Code seat and refuses a malformed one", () => {
+  expect(Cli.parse(["--harness", "acme/harness/ws_02"], "/")).toMatchObject({
+    values: { harness: "acme/harness/ws_02" }
+  })
+  expect(Cli.parse(["--harness", "acme"], "/")).toEqual({ error: "--harness needs owner/repo/workspace-id" })
+})
