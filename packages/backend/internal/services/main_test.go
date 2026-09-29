@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -13,7 +14,12 @@ import (
 var servicesSuite = postgresfixture.Suite{MaxConns: 20}
 
 func TestMain(m *testing.M) {
-	os.Exit(servicesSuite.Run(m))
+	code := servicesSuite.Run(m)
+	if err := closeProductTestTemplate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 // getAgentTestPool returns the shared test pool, skipping the test (or

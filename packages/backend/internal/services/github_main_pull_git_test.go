@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,17 +25,32 @@ import (
 // gitBackedRepoHost is repo-host's git surface over a real bare repository,
 // using git's own stateless RPC, so the transfer is exercised end to end.
 type gitBackedRepoHost struct {
-	t   *testing.T
-	dir string
+	dir  string
+	home string
+}
+
+func newGitBackedRepoHost(t *testing.T, dir string) *gitBackedRepoHost {
+	t.Helper()
+	return &gitBackedRepoHost{dir: dir, home: t.TempDir()}
 }
 
 func (h *gitBackedRepoHost) rpc(ctx context.Context, service string, stdin io.Reader, stdout io.Writer, advertise bool) error {
+	var request []byte
+	if stdin != nil {
+		var err error
+		request, err = io.ReadAll(stdin)
+		if err != nil {
+			return fmt.Errorf("read %s request: %w", service, err)
+		}
+	}
 	args := []string{service, "--stateless-rpc"}
 	if advertise {
 		args = append(args, "--advertise-refs")
 	}
 	cmd := exec.CommandContext(ctx, "git", append(args, h.dir)...)
-	cmd.Stdin, cmd.Stdout = stdin, stdout
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "HOME="+h.home)
+	cmd.WaitDelay = 5 * time.Second
+	cmd.Stdin, cmd.Stdout = bytes.NewReader(request), stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -153,10 +169,16 @@ func TestGitHubMainPullTransfersThroughRealGit(t *testing.T) {
 	defer server.Close()
 
 	store := newFakeMainPullStore()
-	host := &gitBackedRepoHost{t: t, dir: smithers}
+	host := newGitBackedRepoHost(t, smithers)
 	service := NewGitHubMainPullService(store, host, &fixtureTokens{}, nil)
 	service.gitHubGitBaseURL = func() string { return server.URL }
 	service.readPolicy = func(context.Context, string, string, string, string) (string, error) { return "pull", nil }
+	hooks := filepath.Join(root, "hostile-hooks")
+	require.NoError(t, os.MkdirAll(hooks, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(hooks, "pre-receive"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+	globalConfig := filepath.Join(root, "hostile.gitconfig")
+	require.NoError(t, os.WriteFile(globalConfig, []byte("[core]\n\thooksPath = "+hooks+"\n"), 0o600))
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
 
 	_, err := service.Request(context.Background(), 19)
 	require.NoError(t, err)
@@ -232,7 +254,7 @@ func TestGitHubMainPullPushesAPackLargerThanThePostBuffer(t *testing.T) {
 	defer server.Close()
 
 	store := newFakeMainPullStore()
-	service := NewGitHubMainPullService(store, &gitBackedRepoHost{t: t, dir: smithers}, &fixtureTokens{}, nil)
+	service := NewGitHubMainPullService(store, newGitBackedRepoHost(t, smithers), &fixtureTokens{}, nil)
 	service.gitHubGitBaseURL = func() string { return server.URL }
 	service.readPolicy = func(context.Context, string, string, string, string) (string, error) { return "pull", nil }
 

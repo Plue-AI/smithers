@@ -105,7 +105,7 @@ func newMythicalServiceFixture(t *testing.T) *mythicalServiceFixture {
 	f := &gitFixture{t: t, root: root, work: filepath.Join(root, "work")}
 	f.git(root, "init", "-q", "--initial-branch=main", f.work)
 	hostDir := f.bare("host.git")
-	host := &recordingRepoHost{gitBackedRepoHost: &gitBackedRepoHost{t: t, dir: hostDir}}
+	host := &recordingRepoHost{gitBackedRepoHost: newGitBackedRepoHost(t, hostDir)}
 	ctx := context.Background()
 	var userID, repoID int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username, lower_username) VALUES ('smithers-canary', 'smithers-canary') RETURNING id`).Scan(&userID))

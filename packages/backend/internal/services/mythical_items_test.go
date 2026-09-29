@@ -382,11 +382,18 @@ func (o *mythicalOrchestration) item(number int64) db.MythicalItem {
 // wake makes the stack and every item due and runs one claim.
 func (o *mythicalOrchestration) wake() db.MythicalStack {
 	o.t.Helper()
-	ctx := context.Background()
+	const pollTimeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), pollTimeout)
+	defer cancel()
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
 	require.NoError(o.t, err)
 	o.service.MainMoved(ctx, o.repoID)
-	return o.poll()
+	err = o.service.PollOnce(ctx)
+	require.NoError(o.t, ctx.Err(), "mythical orchestration poll exceeded %s", pollTimeout)
+	require.NoError(o.t, err)
+	row, err := db.New(o.pool).GetMythicalStack(ctx, o.repoID)
+	require.NoError(o.t, err)
+	return row
 }
 
 // project answers a launched run's terminal outcome, as flowdispatch would.

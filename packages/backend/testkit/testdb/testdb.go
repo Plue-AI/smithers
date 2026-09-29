@@ -66,8 +66,17 @@ type Database struct {
 // It needs no *testing.T, so a TestMain can share one database across a test
 // binary.
 func Create(ctx context.Context, serverURL string) (*Database, error) {
+	return CreateFromTemplate(ctx, serverURL, "template0")
+}
+
+// CreateFromTemplate clones a disconnected test database. The template must
+// have no open connections while PostgreSQL copies it.
+func CreateFromTemplate(ctx context.Context, serverURL, template string) (*Database, error) {
 	if serverURL == "" {
 		return nil, ErrNotConfigured
+	}
+	if template == "" {
+		return nil, errors.New("test database template is empty")
 	}
 	parsed, err := url.Parse(serverURL)
 	if err != nil {
@@ -83,7 +92,7 @@ func Create(ctx context.Context, serverURL string) (*Database, error) {
 	}
 	defer admin.Close(context.WithoutCancel(ctx))
 	sweepOnce.Do(func() { sweepStale(ctx, admin, time.Now()) })
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE template0 ENCODING 'UTF8'"); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE "+pgx.Identifier{template}.Sanitize()+" ENCODING 'UTF8'"); err != nil {
 		return nil, fmt.Errorf("create test database: %w", err)
 	}
 	target := *parsed
@@ -107,6 +116,12 @@ func (d *Database) Drop(ctx context.Context) error {
 // New returns an empty database that exists for the duration of
 // the test. Without a server the test is skipped, or fails when required.
 func New(t testing.TB) *Database {
+	return NewFromTemplate(t, "template0")
+}
+
+// NewFromTemplate clones a disconnected database for one test and drops the
+// clone during that test's cleanup.
+func NewFromTemplate(t testing.TB, template string) *Database {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("PostgreSQL tests skipped in short mode")
@@ -117,7 +132,7 @@ func New(t testing.TB) *Database {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	database, err := Create(ctx, serverURL)
+	database, err := CreateFromTemplate(ctx, serverURL, template)
 	if err != nil {
 		t.Fatal(err)
 	}
