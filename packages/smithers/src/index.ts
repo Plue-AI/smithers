@@ -39,6 +39,11 @@ export * as Bug from "./Bug.ts"
  */
 export * as ClaudeMirror from "./ClaudeMirror.ts"
 /**
+ * @category node
+ * @since 1.0.0
+ */
+export * as CloudSession from "./CloudSession.ts"
+/**
  * @category errors
  * @since 1.0.0
  */
