@@ -26,8 +26,43 @@ const secretName = "token|secret|password|api[-_]?key|credential|private[-_]?key
 
 const secretField = new RegExp(secretName, "i")
 
+// Consume complete quoted values, including escaped JSON strings. If the
+// bounded diagnostic ends inside a quote, redact through the end of the text.
+const redactCredentialValues = (text: string): string => {
+  const keys = new RegExp(`(?:${secretName})["'\\\\]*\\s*[=:]\\s*`, "gi")
+  let output = ""
+  let position = 0
+  for (let match = keys.exec(text); match !== null; match = keys.exec(text)) {
+    let start = keys.lastIndex
+    const escaped = text[start] === "\\" && (text[start + 1] === '"' || text[start + 1] === "'")
+    if (escaped) start++
+    const quote = text[start] === '"' || text[start] === "'" ? text[start] : undefined
+    let end = start
+    if (quote !== undefined) {
+      end++
+      while (end < text.length) {
+        if (text[end] === quote) {
+          let slashes = 0
+          for (let i = end - 1; i > start && text[i] === "\\"; i--) slashes++
+          if (slashes % 4 === (escaped ? 1 : 0)) break
+        }
+        end++
+      }
+      if (end < text.length) end++
+    } else {
+      while (end < text.length && !/[\s,;"'\\]/.test(text[end]!)) end++
+    }
+    output += text.slice(position, keys.lastIndex) + (escaped ? "\\" : "") +
+      (quote ?? "") + "[REDACTED]" +
+      (quote !== undefined && text[end - 1] === quote ? (escaped ? "\\" : "") + quote : "")
+    position = end
+    keys.lastIndex = end
+  }
+  return output + text.slice(position)
+}
+
 const sanitizeDiagnosticText = (value: string): string =>
-  value.slice(0, diagnosticTextLimit)
+  redactCredentialValues(value.slice(0, diagnosticTextLimit)
     // An authorization or cookie header value is a credential whatever its
     // scheme (`Basic`, `Token`, a cookie list), so the rest of the header is
     // dropped up to the end of the line or the quote that closes it.
@@ -36,17 +71,10 @@ const sanitizeDiagnosticText = (value: string): string =>
       "$1$2[REDACTED]"
     )
     .replace(/((?:bearer|basic)\s+)[^\s,;"'\\]+/gi, "$1[REDACTED]")
-    // An HTTP client error embeds the upstream response body in its message, so
-    // the key arrives quoted (`"apiKey":"..."`) or escaped (`\"apiKey\":\"..."`)
-    // rather than as the bare `apiKey=...` pair. Quotes and backslashes around
-    // the separator are skipped and also end the value.
-    .replace(
-      new RegExp(`((?:${secretName})["'\\\\]*\\s*[=:]\\s*["'\\\\]*)[^\\s,;"'\\\\]+`, "gi"),
-      "$1[REDACTED]"
-    )
     // A request URL carries credentials as userinfo or as a signed query.
     .replace(/(\/\/)[^/@\s"'\\]+@/g, "$1[REDACTED]@")
     .replace(/([?&][\w.-]*(?:key|sig|signature|auth|credential)=)[^&#\s"'\\]+/gi, "$1[REDACTED]")
+  )
 
 const primitiveDiagnostic = (value: unknown): unknown => {
   switch (typeof value) {

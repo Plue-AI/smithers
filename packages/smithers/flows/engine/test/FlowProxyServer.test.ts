@@ -986,6 +986,67 @@ describe("FlowProxyServer.layerHttpApi", () => {
     }).pipe(Effect.provideService(Logger.CurrentLoggers, new Set([capture])))
   })
 
+  effect("redacts quoted passwords in RPC defects and server logs (#2452)", () => {
+    const SecretAction = Action.make("Proxy/QuotedSecret/action", {
+      payload: { id: Schema.String },
+      success: Schema.Void
+    })
+    const SecretFlow = Flow.make("Proxy/QuotedSecret", {
+      payload: { id: Schema.String },
+      success: Schema.Void,
+      body: (payload) => SecretAction.call(payload)
+    })
+    const secretFlows = [SecretFlow] as const
+    let password = ""
+    const layer = Layer.mergeAll(
+      SecretAction.toLayer(() => Effect.die(new Error(JSON.stringify({ password })))),
+      Interpreter.layer(SecretFlow)
+    ).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory)
+    )
+    const logs: Array<unknown> = []
+    const capture = Logger.make((entry) => {
+      if (entry.logLevel === "Error" &&
+        entry.fiber.getRef(References.CurrentLogAnnotations)["module"] === "FlowProxyServer") {
+        logs.push(entry.message)
+      }
+    })
+    return Effect.gen(function*() {
+      const client = yield* RpcTest.makeClient(FlowProxy.toRpcGroup(secretFlows))
+      const suffix = "suffix-sensitive-XYZ123"
+      const passwords = [
+        `prefix-sensitive ${suffix}`,
+        `prefix-sensitive,${suffix}`,
+        `prefix-sensitive;${suffix}`,
+        `prefix-sensitive"${suffix}`,
+        `prefix-sensitive\\${suffix}`,
+        JSON.stringify({ nested: `prefix-sensitive ${suffix}` })
+      ]
+      for (const [index, value] of passwords.entries()) {
+        password = value
+        const exit = yield* Effect.exit(client["Proxy/QuotedSecret"]({
+          payload: { id: String(index) },
+          executionId: `quoted-secret-${index}`
+        }))
+        expect(Exit.isFailure(exit)).toBe(true)
+        const defect = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+        expect(defect).toBeInstanceOf(FlowProxyServer.FlowHandlerDefect)
+        const wire = JSON.stringify(Schema.encodeSync(Schema.toCodecJson(Schema.Defect()))(defect))
+        expect(wire).toContain("[REDACTED]")
+        yield* Effect.yieldNow
+        expect(logs.length).toBe(index + 1)
+        for (const diagnostic of [wire, String(logs[index])]) {
+          expect(diagnostic).not.toContain("prefix-sensitive")
+          expect(diagnostic).not.toContain(suffix)
+        }
+      }
+    }).pipe(
+      Effect.provide(FlowProxyServer.layerRpcHandlers(secretFlows).pipe(Layer.provideMerge(layer))),
+      Effect.provideService(Logger.CurrentLoggers, new Set([capture]))
+    )
+  })
+
   /** Never called; tsc checks it (#2704). */
   const unprovidedServiceProbe = () => {
     const { layer } = makeLayer((value) => Effect.succeed(value))
