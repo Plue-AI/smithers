@@ -1477,19 +1477,16 @@ const requestFrom = (
 }
 
 /**
- * The prompt-cache identity every frame of one run shares.
- *
- * A provider that spreads a conversation across machines only finds its
- * cached prefix on the machine that saw it last, and the ChatGPT-plan route
- * routes by this key: without it two Terminal-Bench trials on gpt-6-sol read
- * 7% and 8% of their input from cache where the Codex CLI, sending its
- * conversation id, read 96% and 97% of the same tasks. The session alone is
- * `run-1` in every fresh store, so the system prefix (teaching and task) is
- * hashed in to keep unrelated runs apart; a frame whose system changed has
- * no cached prefix to find anyway.
+ * Route by the session store and the stable system prefix, not the task.
+ * The task is kept in the system window for compaction, but changes between
+ * runs of one profile. Other windows without a task marker use their whole
+ * system as the prefix.
  */
-const cacheKey = (state: State, system: ReadonlyArray<ModelRequest.SystemPart>): string =>
-  `smithers-${CanonicalJson.shortHash(`${state.session}\n${system.map((part) => part.text).join("\n")}`)}`
+const cacheKey = (state: State, system: ReadonlyArray<ModelRequest.SystemPart>): string => {
+  const task = system.findIndex((part) => part.text.startsWith("The task for this run:\n\n"))
+  const prefix = task < 0 ? system : system.slice(0, task)
+  return `smithers-${CanonicalJson.shortHash(`${state.session}\n${prefix.map((part) => part.text).join("\n")}`)}`
+}
 
 const assistantText = (message: ModelRequest.AssistantMessage): string =>
   message.content

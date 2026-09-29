@@ -4423,6 +4423,27 @@ describe("CellTurn context ordering", () => {
     }
   })
 
+  it("keys two runs of one profile with different tasks to one prompt cache", async () => {
+    const render = async (teaching: string, task: string) => {
+      const contextWindow = ContextWindow.make({
+        modelId: "test-model",
+        segments: [
+          { kind: "system", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: teaching })] },
+          { kind: "instructions", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: `The task for this run:\n\n${task}` })] },
+          { kind: "transcript", zone: "tail", content: [ModelRequest.Message.user("Begin")] }
+        ]
+      })
+      const { model } = await run({ script: [emits(`ctx.done("done")`)], state: state({ contextWindow }) })
+      return model.recorder.requests[0]!
+    }
+    const first = await render("profile A", "task A")
+    const second = await render("profile A", "task B")
+    const other = await render("profile B", "task A")
+    expect(first.system).not.toEqual(second.system)
+    expect(first.cacheKey).toBe(second.cacheKey)
+    expect(other.cacheKey).not.toBe(first.cacheKey)
+  })
+
   it("keys every request of a run to one prompt cache, and a different run to another", async () => {
     const script = [emits(`console.log("alpha")`), emits(`console.log("beta")`), emits(`ctx.done("done")`)]
     const { model } = await run({ script })
