@@ -938,8 +938,11 @@ const prDefinition = Target.make("Agent.Pr", {
 })
 
 /**
- * An agent whose accepted candidate becomes a pull request; outward, so it
- * runs only when named explicitly.
+ * Experimental: an agent whose accepted candidate would become a pull request;
+ * outward, so it runs only when named explicitly. The build CLI does not bind
+ * a PR opener yet, so a converged candidate refuses at settle.
+ *
+ * @experimental
  *
  * @category targets
  * @since 0.1.0

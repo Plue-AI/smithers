@@ -1178,9 +1178,8 @@ export const makeFileVerdictStore = (directory: string): AgentVerdictStore => ({
 /**
  * Opens the accepted candidate of one Agent.Pr as a pull request.
  *
- * The real implementation is the Github lane's interface; this lane only
- * ships {@link unavailablePrOpener}, which refuses with the candidate
- * preserved.
+ * Experimental: the build CLI does not bind an opener. This lane only ships
+ * {@link unavailablePrOpener}, which refuses with the candidate preserved.
  *
  * @category models
  * @since 0.1.0

@@ -230,7 +230,7 @@ An agent producing a bounded, gate-checked candidate diff inside the declared wr
 - **Signature:** `Agent.Pr(attrs: AgentTarget.PrAttrs): Target`
 - **Since:** `0.1.0`
 
-An agent whose accepted candidate becomes a pull request. The attrs match `Agent.Diff` except that `maxRounds` is optional and defaults to `AgentTarget.defaultPrRounds`, 3. The rule is outward, so it runs only when named explicitly, and a converged loop with no bound settle action fails with `AgentPrSettleRefused` rather than reporting a pull request that was never opened.
+**Experimental; not usable for PR publication from the build CLI yet.** The attrs match `Agent.Diff` except that `maxRounds` is optional and defaults to `AgentTarget.defaultPrRounds`, 3. The rule is outward and runs only when named explicitly. The build CLI does not bind a `PrOpener`: after convergence, settle fails with `AgentPrSettleRefused` and preserves the candidate diff and gate report. It does not commit, push, or open a PR. Integrations may inject a `PrOpener`, but should publish the exact accepted candidate before returning a PR URL.
 
 ### `Smithers.Git`
 
