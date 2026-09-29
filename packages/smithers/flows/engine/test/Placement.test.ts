@@ -219,6 +219,7 @@ describe("a placed .child()", () => {
     withCrypto(
       Effect.gen(function*() {
         let asks = 0
+        let settled = 0
         const a = yield* Layer.build(
           Interpreter.layer(Parent).pipe(
             Layer.provideMerge(Action.layerImplementations),
@@ -232,7 +233,11 @@ describe("a placed .child()", () => {
                       // Port 1 answers nothing.
                       RpcClient.layerProtocolHttp({
                         url: "http://127.0.0.1:1/",
-                        transformClient: (http) => HttpClient.tapRequest(http, () => Effect.sync(() => asks++))
+                        transformClient: (http) =>
+                          HttpClient.tapError(
+                            HttpClient.tapRequest(http, () => Effect.sync(() => asks++)),
+                            () => Effect.sync(() => settled++)
+                          )
                       }).pipe(
                         Layer.provide(RpcSerialization.layerJson),
                         Layer.provide(FetchHttpClient.layer)
@@ -247,11 +252,15 @@ describe("a placed .child()", () => {
         const asking = yield* Effect.forkChild(
           Parent.execute({ version: "6.0" }, { executionId: "parent-6" }).pipe(onA(a))
         )
-        // Each retry's sleep registers only after the failed fetch settles on
-        // an I/O turn, so the clock moves one macrotask at a time until done.
-        for (let step = 0; step < 60 && asking.pollUnsafe() === undefined; step++) {
+        // Each retry's sleep registers only after the refused fetch settles on
+        // real I/O. Node settles it within one macrotask; Bun can take dozens.
+        // So wait out every ask in flight, and move the clock only between asks.
+        let adjustments = 0
+        while (asking.pollUnsafe() === undefined && adjustments < 60) {
           yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)))
+          if (settled < asks) continue
           yield* TestClock.adjust("1 minute")
+          adjustments++
         }
         expect(asking.pollUnsafe()).toBeDefined()
         const exit = yield* Fiber.await(asking)
