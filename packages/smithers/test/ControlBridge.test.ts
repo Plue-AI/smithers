@@ -698,10 +698,26 @@ describe("control bridge transport scope", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     await Bridge.host(bind, local, runtime)
     expect(ports.scheduler).toHaveBeenCalledExactlyOnceWith(local.root)
-    expect(ports.serve).toHaveBeenCalledExactlyOnceWith(bind, local.root)
+    // A host with no credential mints a per-session operator token for approvals.
+    expect(ports.serve).toHaveBeenCalledExactlyOnceWith(
+      { ...bind, operatorToken: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      local.root
+    )
+    const { operatorToken } = ports.serve.mock.calls[0]![0] as { readonly operatorToken: string }
     expect(lifecycle).toEqual(["control:open", "scheduler:open", "serve", "scheduler:close", "control:close"])
+    expect(stderr.mock.calls.map(([text]) => String(text))).toEqual([
+      expect.stringContaining("127.0.0.1:0"),
+      `  approval token  ${operatorToken}\n`
+    ])
+  })
+
+  it("mints no operator token for a host that carries a credential", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    const credentialed = { ...bind, credential: "host-bearer" }
+    await Bridge.host(credentialed, local, runtime)
+    expect(ports.serve).toHaveBeenCalledExactlyOnceWith({ ...credentialed, operatorToken: undefined }, local.root)
     expect(stderr).toHaveBeenCalledOnce()
-    expect(stderr.mock.calls[0]![0]).toContain("127.0.0.1:0")
+    expect(String(stderr.mock.calls[0]![0])).not.toContain("approval token")
   })
 
   it("does not print a quiet host banner and preserves launch failures after cleanup", async () => {
@@ -709,7 +725,9 @@ describe("control bridge transport scope", () => {
     const failure = { _tag: "host-failure" }
     ports.serve.mockReturnValue(Effect.fail(failure))
     await expect(Bridge.host(bind, { ...local, quiet: true }, runtime)).rejects.toBe(failure)
-    expect(stderr).not.toHaveBeenCalled()
+    // Quiet drops the banner but never the token an operator needs to approve.
+    const { operatorToken } = ports.serve.mock.calls[0]![0] as { readonly operatorToken: string }
+    expect(stderr.mock.calls.map(([text]) => String(text))).toEqual([`  approval token  ${operatorToken}\n`])
     expect(lifecycle).toEqual(["control:open", "scheduler:open", "scheduler:close", "control:close"])
   })
 

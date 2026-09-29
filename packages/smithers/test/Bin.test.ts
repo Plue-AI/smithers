@@ -1074,8 +1074,10 @@ describe("flow start outside a repository", processBudget, () => {
       expect(result.error).toBeUndefined()
       expect(result.status).not.toBe(0)
       expect(result.status).not.toBe(130)
-      expect(result.stdout).toBe("")
-      expect(result.stderr).toContain(cwd)
+      // The refusal is the CLI's ordinary error envelope, on stdout like every other one.
+      expect(result.stdout).toContain("code: command_failed")
+      expect(result.stdout).toContain(`No flows found in ${cwd}`)
+      expect(result.stderr).toBe("")
     }))
 })
 
