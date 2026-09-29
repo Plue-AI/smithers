@@ -496,6 +496,52 @@ describe("shared canonical and strict tree admission", () => {
     expect(BoundedJson.admit(hostile, strictLimits)).toMatchObject({ ok: false, code: "inspection" })
   })
 
+  it("admits supported native leaves at their exact encoded-byte boundary", () => {
+    const leaf = new Date(0)
+    const detached = new Date(0)
+    const native = (value: object) => value === leaf ? { value: detached, bytes: 9 } : undefined
+    const input = { dates: [leaf] }
+    const accepted = BoundedJson.admitStrict(input, { ...strictLimits, maxBytes: 21 }, { native })
+    expect(accepted).toMatchObject({ ok: true })
+    if (accepted.ok) {
+      expect((accepted.value as unknown as { readonly dates: ReadonlyArray<Date> }).dates[0]).toBe(detached)
+    }
+    expect(BoundedJson.admitStrict(input, { ...strictLimits, maxBytes: 20 }, { native }))
+      .toEqual({ ok: false, path: "$.dates[0]", complaint: "exceeds the 20-byte limit" })
+    expect(BoundedJson.admitStrict([new Date(0)], strictLimits, { native }))
+      .toEqual({ ok: false, path: "$[0]", complaint: "must be an ordinary record" })
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses an invalid native leaf byte size %s at its own path",
+    (bytes) => {
+      const input = { leaf: new Date(0) }
+      expect(BoundedJson.admitStrict(input, strictLimits, { native: () => ({ value: "epoch", bytes }) }))
+        .toEqual({ ok: false, path: "$.leaf", complaint: "has an invalid native size" })
+    }
+  )
+
+  it("counts a trusted zero-byte native leaf as a node at the exact byte boundary", () => {
+    const leaf = new Date(0)
+    const native = (value: object) => value === leaf ? { value: null, bytes: 0 } : undefined
+    expect(BoundedJson.admitStrict([leaf], { ...strictLimits, maxBytes: 2, maxNodes: 2 }, { native }))
+      .toEqual({ ok: true, value: [null] })
+    expect(BoundedJson.admitStrict([leaf], { ...strictLimits, maxBytes: 1, maxNodes: 2 }, { native }))
+      .toEqual({ ok: false, path: "$", complaint: "exceeds the 1-byte limit" })
+    expect(BoundedJson.admitStrict([leaf], { ...strictLimits, maxNodes: 1 }, { native }))
+      .toEqual({ ok: false, path: "$[0]", complaint: "exceeds the 1-node limit" })
+  })
+
+  it("reports native callback failures as inspection refusals at the leaf", () => {
+    const leaf = new Date(0)
+    expect(BoundedJson.admitStrict([leaf], strictLimits, {
+      native: () => {
+        throw new Error("native failed")
+      }
+    }))
+      .toEqual({ ok: false, path: "$[0]", complaint: "could not be inspected without executing user code" })
+  })
+
   it("honors configured deep limits without depending on the JavaScript call stack", () => {
     let value: unknown = null
     for (let depth = 0; depth < 2_000; depth++) value = [value]
