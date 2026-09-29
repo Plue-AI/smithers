@@ -12,9 +12,16 @@
  * Nothing here leaves the loopback interface.
  */
 import { describe, expect, it } from "@effect/vitest"
+import { CapabilityPattern } from "@smthrs/capability/Capability"
+import { Rule } from "@smthrs/capability/Permission"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import { Destination } from "@smthrs/kernel/HttpClient"
+import * as Workspace from "@smthrs/kernel/Workspace"
 import { Effect } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { connect, getDefaultAutoSelectFamily, setDefaultAutoSelectFamily } from "node:net"
 import type { AddressInfo } from "node:net"
 import type { Duplex } from "node:stream"
 import * as EgressHttpClient from "../src/EgressHttpClient.ts"
@@ -25,6 +32,7 @@ interface Listener {
   readonly port: number
   /** Every request line and tunnel this listener was asked for, in order. */
   readonly seen: ReadonlyArray<string>
+  readonly connections: ReadonlyArray<Promise<void>>
   readonly close: () => Promise<void>
 }
 
@@ -41,6 +49,7 @@ const listen = async (
 ): Promise<Listener> => {
   const seen: Array<string> = []
   const sockets = new Set<Duplex>()
+  const connections: Array<Promise<void>> = []
   const server: Server = createServer((request, response) => {
     seen.push(`${request.method} ${request.url}`)
     handle(request, response)
@@ -51,6 +60,7 @@ const listen = async (
   })
   server.on("connection", (socket) => {
     sockets.add(socket)
+    connections.push(new Promise<void>((resolve) => socket.once("close", () => resolve())))
     socket.on("close", () => sockets.delete(socket))
   })
   await new Promise<void>((resolve) => server.listen(0, address, resolve))
@@ -61,6 +71,7 @@ const listen = async (
     host,
     port,
     seen,
+    connections,
     close: () =>
       new Promise<void>((resolve) => {
         for (const socket of sockets) socket.destroy()
@@ -233,6 +244,347 @@ describe("the outbound client a Node process should use", () => {
       expect(answered.success.status).toBe(204)
     } finally {
       await origin.close()
+    }
+  })
+})
+
+const pinnedReach = (
+  environment: Readonly<Record<string, string | undefined>>,
+  url: string,
+  destination: { readonly origin: string; readonly addresses: ReadonlyArray<string> },
+  headers: Record<string, string> = {},
+  timeout: "5 seconds" | "100 millis" = "5 seconds"
+) =>
+  Effect.runPromise(
+    Effect.result(Effect.flatMap(HttpClient.HttpClient, (client) =>
+      client.execute(HttpClientRequest.get(url).pipe(HttpClientRequest.setHeaders(headers))).pipe(
+        Effect.timeout(timeout)
+      ))).pipe(
+        Effect.provideService(Destination, destination),
+        Effect.provide(EgressHttpClient.layer(environment))
+      )
+  )
+
+const closesPromptly = async (closed: Promise<void>) => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      closed,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Pinned connection did not close within one second")), 1000)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+describe("authorized destination connections", () => {
+  it("refuses mismatched origins, empty snapshots, and non-IP addresses before connecting", async () => {
+    const origin = await listen()
+    try {
+      for (
+        const destination of [
+          { origin: "http://other.invalid", addresses: ["127.0.0.1"] },
+          { origin: origin.url, addresses: [] },
+          { origin: origin.url, addresses: ["localhost"] }
+        ]
+      ) {
+        const result = await pinnedReach({}, origin.url, destination)
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") {
+          expect(result.failure.reason._tag).toBe("TransportError")
+          expect(result.failure.reason.description).toBe("Invalid pinned HTTP destination")
+        }
+      }
+      expect(origin.seen).toEqual([])
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("refuses SOCKS proxies even when loopback would bypass them", async () => {
+    const origin = await listen()
+    try {
+      for (
+        const environment of [
+          { http_proxy: "socks5://127.0.0.1:1" },
+          { HTTPS_PROXY: "socks://127.0.0.1:1" }
+        ]
+      ) {
+        const result = await pinnedReach(environment, origin.url, {
+          origin: origin.url,
+          addresses: ["127.0.0.1"]
+        })
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") {
+          expect(result.failure.reason._tag).toBe("TransportError")
+          expect(result.failure.reason.description).toBe("Pinned HTTP requests require HTTP or HTTPS proxies")
+        }
+      }
+      expect(origin.seen).toEqual([])
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("uses the approved IP for an unresolvable hostname and strips caller transport headers", async () => {
+    let received: IncomingMessage["headers"] = {}
+    const origin = await listen((request, response) => {
+      received = request.headers
+      response.end("approved")
+    })
+    try {
+      const url = `http://unresolvable.invalid:${origin.port}`
+      const result = await pinnedReach({}, `${url}/pinned`, { origin: url, addresses: ["127.0.0.1"] }, {
+        host: "attacker.invalid",
+        "proxy-authorization": "secret",
+        connection: "close",
+        "transfer-encoding": "chunked",
+        "content-length": "999",
+        "x-preserved": "yes"
+      })
+      expect(result._tag).toBe("Success")
+      if (result._tag === "Success") expect(await Effect.runPromise(result.success.text)).toBe("approved")
+      expect(origin.seen).toEqual(["GET /pinned"])
+      expect(received.host).toBe(`unresolvable.invalid:${origin.port}`)
+      expect(received["proxy-authorization"]).toBeUndefined()
+      expect(received.connection).not.toBe("close")
+      expect(received["transfer-encoding"]).toBeUndefined()
+      expect(received["content-length"]).toBeUndefined()
+      expect(received["x-preserved"]).toBe("yes")
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("falls back across approved address families on a direct connection", async () => {
+    const origin = await listen((_, response) => response.end("fallback"))
+    const previous = getDefaultAutoSelectFamily()
+    try {
+      setDefaultAutoSelectFamily(true)
+      const url = `http://multiple-addresses.invalid:${origin.port}`
+      const result = await pinnedReach({}, url, { origin: url, addresses: ["::1", "127.0.0.1"] })
+      expect(result._tag).toBe("Success")
+      if (result._tag === "Success") expect(await Effect.runPromise(result.success.text)).toBe("fallback")
+      expect(origin.seen).toEqual(["GET /"])
+    } finally {
+      setDefaultAutoSelectFamily(previous)
+      await origin.close()
+    }
+  })
+
+  it("allows the body to drain before closing the pinned connection", async () => {
+    let finish: (() => void) | undefined
+    const origin = await listen((_, response) => {
+      response.writeHead(200)
+      response.write("first ")
+      finish = () => response.end("last")
+    })
+    try {
+      const url = `http://stream.invalid:${origin.port}`
+      const result = await pinnedReach({}, url, { origin: url, addresses: ["127.0.0.1"] })
+      expect(result._tag).toBe("Success")
+      if (result._tag !== "Success") throw new Error("expected streaming response")
+      expect(origin.connections).toHaveLength(1)
+      finish!()
+      expect(await Effect.runPromise(result.success.text)).toBe("first last")
+      await closesPromptly(origin.connections[0]!)
+      expect(origin.seen).toEqual(["GET /"])
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("pins a connection when Node uses a single-address lookup", async () => {
+    const origin = await listen()
+    const previous = getDefaultAutoSelectFamily()
+    try {
+      setDefaultAutoSelectFamily(false)
+      const url = `http://single-address.invalid:${origin.port}`
+      const result = await pinnedReach({}, `${url}/single`, { origin: url, addresses: ["127.0.0.1"] })
+      expect(result._tag).toBe("Success")
+      expect(origin.seen).toEqual(["GET /single"])
+    } finally {
+      setDefaultAutoSelectFamily(previous)
+      await origin.close()
+    }
+  })
+
+  it("uses IP authorities and default ports for refused HTTP and HTTPS tunnels", async () => {
+    const proxy = await listen()
+    try {
+      for (
+        const [url, address, authority] of [
+          ["http://remote.invalid", "127.0.0.1", "127.0.0.1:80"],
+          ["https://remote.invalid", "::1", "[::1]:443"]
+        ] as const
+      ) {
+        const result = await pinnedReach({ http_proxy: proxy.url, https_proxy: proxy.url }, url, {
+          origin: url,
+          addresses: [address]
+        })
+        expect(result._tag).toBe("Failure")
+        expect(proxy.seen.at(-1)).toBe(`CONNECT ${authority}`)
+      }
+      expect(proxy.seen).toHaveLength(2)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it.each([{ addresses: ["127.0.0.1"] }, { addresses: ["::1", "127.0.0.1"] }])(
+    "selects the proxy by hostname and tunnels to the first approved IP in $addresses",
+    async ({ addresses }) => {
+      const origin = await listen((_, response) => response.end("tunnel body"), addresses[0]! as "127.0.0.1" | "::1")
+      const seen: Array<string> = []
+      const sockets = new Set<Duplex>()
+      const proxy = createServer()
+      proxy.on("connection", (socket) => {
+        sockets.add(socket)
+        socket.on("close", () => sockets.delete(socket))
+      })
+      proxy.on("connect", (request, socket, head) => {
+        seen.push(`${request.url} ${request.headers.host}`)
+        const target = new URL(`http://${request.url}`)
+        const upstream = connect(Number(target.port), target.hostname.replace(/^\[|\]$/g, ""), () => {
+          socket.write("HTTP/1.1 200 Connection Established\r\n\r\n")
+          upstream.write(head)
+          socket.pipe(upstream).pipe(socket)
+        })
+        socket.on("error", () => upstream.destroy())
+        socket.on("close", () => upstream.destroy())
+        upstream.on("error", () => socket.destroy())
+      })
+      await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve))
+      try {
+        const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`
+        const url = `http://remote.invalid:${origin.port}`
+        const result = await pinnedReach({ HTTP_PROXY: proxyUrl }, `${url}/through`, {
+          origin: url,
+          addresses
+        })
+        expect(result._tag).toBe("Success")
+        if (result._tag === "Success") expect(await Effect.runPromise(result.success.text)).toBe("tunnel body")
+        expect(seen).toEqual([`${origin.host} ${origin.host}`])
+        expect(origin.seen).toEqual(["GET /through"])
+      } finally {
+        for (const socket of sockets) socket.destroy()
+        await new Promise<void>((resolve) => proxy.close(() => resolve()))
+        await origin.close()
+      }
+    }
+  )
+
+  it("destroys a failed pinned connection and permits a later request", async () => {
+    const origin = await listen((request, response) => {
+      if (request.url !== "/fail") response.end("recovered")
+    })
+    try {
+      const url = `http://recovery.invalid:${origin.port}`
+      const destination = { origin: url, addresses: ["127.0.0.1"] }
+      expect((await pinnedReach({}, `${url}/fail`, destination, {}, "100 millis"))._tag).toBe("Failure")
+      expect(origin.seen).toEqual(["GET /fail"])
+      expect(origin.connections).toHaveLength(1)
+      await closesPromptly(origin.connections[0]!)
+      const result = await pinnedReach({}, `${url}/ok`, destination)
+      expect(result._tag).toBe("Success")
+      if (result._tag === "Success") expect(await Effect.runPromise(result.success.text)).toBe("recovered")
+      expect(origin.seen).toEqual(["GET /fail", "GET /ok"])
+    } finally {
+      await origin.close()
+    }
+  })
+})
+
+describe("replaceable transports", () => {
+  it("replaces the pool and makes the previous client unusable", async () => {
+    const origin = await listen()
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const transport = yield* EgressHttpClient.rebuildableTransport(EgressHttpClient.dispatcher({}))
+        expect((yield* transport.client.get(origin.url)).status).toBe(204)
+        const replacement = yield* transport.rebuild
+        expect(replacement).not.toBe(transport.client)
+        expect((yield* Effect.result(transport.client.get(origin.url)))._tag).toBe("Failure")
+        expect((yield* replacement.get(origin.url)).status).toBe(204)
+      })))
+      expect(origin.seen).toEqual(["GET /", "GET /"])
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("keeps the working client when replacement decoration fails and releases the failed pool", async () => {
+    const origin = await listen()
+    let acquired = 0
+    const released: Array<number> = []
+    const acquire = Effect.gen(function*() {
+      const id = ++acquired
+      const pool = yield* EgressHttpClient.dispatcher({})
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          released.push(id)
+        })
+      )
+      return pool
+    })
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const transport = yield* EgressHttpClient.rebuildableTransport(
+          acquire,
+          (client) => acquired === 2 ? Effect.die("replacement middleware unavailable") : Effect.succeed(client)
+        )
+        expect((yield* transport.client.get(origin.url)).status).toBe(204)
+        expect((yield* Effect.exit(transport.rebuild))._tag).toBe("Failure")
+        expect(released).toEqual([2])
+        expect((yield* transport.client.get(origin.url)).status).toBe(204)
+        const replacement = yield* transport.rebuild
+        expect(released).toEqual([2, 1])
+        expect((yield* replacement.get(origin.url)).status).toBe(204)
+      })))
+      expect(released).toEqual([2, 1, 3])
+      expect(origin.seen).toEqual(["GET /", "GET /", "GET /"])
+    } finally {
+      await origin.close()
+    }
+  })
+
+  it("retains the grant store and proxy policy after rebuilding", async () => {
+    const proxy = await listen()
+    try {
+      await Effect.runPromise(
+        Effect.scoped(Effect.gen(function*() {
+          const grants = yield* GrantStore.make({
+            attended: false,
+            rules: [
+              new Rule({
+                effect: "allow",
+                pattern: new CapabilityPattern({ action: "net:get", resource: "http://model.invalid" })
+              })
+            ]
+          }).pipe(Effect.provide(Workspace.layerNoop))
+          const transport = yield* EgressHttpClient.guardedTransport({ HTTP_PROXY: proxy.url }).pipe(
+            Effect.provideService(GrantStore.GrantStore, grants)
+          )
+          for (const iteration of [0, 1]) {
+            const client = iteration === 0 ? transport.client : yield* transport.rebuild
+            const denied = yield* Effect.result(client.get("http://unapproved.invalid/deny"))
+            expect(denied._tag).toBe("Failure")
+            if (denied._tag === "Failure") {
+              expect(denied.failure.reason._tag).toBe("TransportError")
+              expect(denied.failure.reason.cause).toMatchObject({
+                code: "permission_required",
+                capability: { action: "net:get", resource: "http://unapproved.invalid" }
+              })
+            }
+            expect((yield* client.get("http://model.invalid/allowed")).status).toBe(204)
+          }
+        })).pipe(Effect.provideService(GrantStore.GrantStore, GrantStore.makeNoop))
+      )
+      expect(proxy.seen).toEqual(["GET http://model.invalid/allowed", "GET http://model.invalid/allowed"])
+    } finally {
+      await proxy.close()
     }
   })
 })
