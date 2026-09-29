@@ -6,6 +6,7 @@
 
 ## Start here
 
+- [Model prices](https://smithers.sh/docs/model-prices/): Managed model credit rates per million tokens.
 - [Welcome to Smithers](https://smithers.sh/docs/): Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how.
 - [Quickstart](https://smithers.sh/docs/quickstart/): Connect a repository, set up a job, and inspect its real result in the Smithers app.
 - [Pricing](https://smithers.sh/docs/pricing/): Free and Pro plans. Smithers runs the models; model usage draws on your account credit.
