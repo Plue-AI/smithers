@@ -729,6 +729,162 @@ describe("createGitHubSeam", () => {
   })
 })
 
+describe("GitHub mirror wire admission", () => {
+  test.each([
+    ["missing", {}],
+    ["null", { refs: null }],
+    ["object", { refs: { name: "refs/heads/main" } }]
+  ])("a terminal run with %s refs preserves the running rows and skips the terminal refresh", async (_case, fields) => {
+    const previous = { ...mirrorSyncPolling }
+    mirrorSyncPolling.delayMs = 1
+    mirrorSyncPolling.maxAttempts = 3
+    const malformed = Promise.withResolvers<Response>()
+    try {
+      let polls = 0
+      let repositoryReads = 0
+      let runId = 88
+      const { store, seam, requests } = await harness({
+        [REPO_PATH]: () => {
+          repositoryReads += 1
+          return json(200, repoDto(repositoryReads === 1 ? "behind" : "synced"))()
+        },
+        [`POST ${MIRROR_PATH}`]: () => json(202, { run_id: runId })(),
+        [`${MIRROR_PATH}/88`]: () => {
+          polls += 1
+          return polls === 1
+            ? json(200, mirrorRun("running", [
+              { name: "refs/heads/main", from: "old", to: "new", status: "pending", error: "" }
+            ]))()
+            : malformed.promise
+        },
+        [`${MIRROR_PATH}/89`]: json(200, mirrorRun("succeeded", []))
+      })
+
+      await seam.mirrorSync()
+      await waitUntil(() => mirrorPayloadOf(store)?.runState === "running" && mirrorPayloadOf(store)?.ops.length === 1)
+      await store.settled?.()
+      const runningRows = mirrorPayloadOf(store)?.ops
+      await waitUntil(() => requests.filter(request => request === `GET ${MIRROR_PATH}/88`).length === 2)
+      expect(mirrorPayloadOf(store)?.runState).toBe("running")
+      expect(mirrorPayloadOf(store)?.ops).toEqual(runningRows)
+      malformed.resolve(json(200, { state: "succeeded", ...fields })())
+      await waitUntil(() => mirrorPayloadOf(store)?.error !== undefined, "the malformed run error")
+
+      expect(mirrorPayloadOf(store)?.error).toBe("The mirror run answer for will/smithers was malformed.")
+      expect(mirrorPayloadOf(store)?.runState).toBe("running")
+      expect(mirrorPayloadOf(store)?.ops).toEqual(runningRows)
+      expect(mirrorPayloadOf(store)?.mirrorStatus).toBe("behind")
+      expect(repositoryReads).toBe(1)
+      expect(requests.filter(request => request === `GET ${MIRROR_PATH}/88`)).toHaveLength(2)
+
+      runId = 89
+      await seam.mirrorSync()
+      await waitUntil(() => mirrorPayloadOf(store)?.runId === "89" && mirrorPayloadOf(store)?.runState === "succeeded")
+      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
+      expect(mirrorPayloadOf(store)?.ops).toEqual([])
+      expect(requests).toContain(`GET ${MIRROR_PATH}/89`)
+      expect(repositoryReads).toBe(3)
+    } finally {
+      malformed.resolve(json(200, { state: "succeeded", ...fields })())
+      Object.assign(mirrorSyncPolling, previous)
+    }
+  })
+
+  test("a terminal run with refs: [] clears the rows and refreshes the repository", async () => {
+    const previous = { ...mirrorSyncPolling }
+    mirrorSyncPolling.delayMs = 1
+    mirrorSyncPolling.maxAttempts = 3
+    try {
+      let polls = 0
+      let repositoryReads = 0
+      const { store, seam } = await harness({
+        [REPO_PATH]: () => {
+          repositoryReads += 1
+          return json(200, repoDto(repositoryReads === 1 ? "behind" : "synced"))()
+        },
+        [`POST ${MIRROR_PATH}`]: json(202, { run_id: 88 }),
+        [`${MIRROR_PATH}/88`]: () => {
+          polls += 1
+          return polls === 1
+            ? json(200, mirrorRun("running", [
+              { name: "refs/heads/main", from: "old", to: "new", status: "pending", error: "" }
+            ]))()
+            : json(200, mirrorRun("succeeded", []))()
+        }
+      })
+
+      await seam.mirrorSync()
+      await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded" && mirrorPayloadOf(store)?.mirrorStatus === "synced")
+
+      expect(mirrorPayloadOf(store)?.ops).toEqual([])
+      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
+      expect(repositoryReads).toBe(2)
+    } finally {
+      Object.assign(mirrorSyncPolling, previous)
+    }
+  })
+
+  test.each(["sync", "retry", "reconcile"] as const)("%s admits only positive run IDs", async action => {
+    const previous = { ...mirrorSyncPolling }
+    mirrorSyncPolling.delayMs = 1
+    mirrorSyncPolling.maxAttempts = 3
+    try {
+      const post = action === "sync" ? MIRROR_PATH : action === "retry" ? REF_RETRY_PATH : RECONCILE_PATH
+      for (const runId of [0, -1]) {
+        const { store, seam, requests } = await harness({
+          [REPO_PATH]: json(200, repoDto("behind")),
+          [STATUS_PATH]: json(200, INSTALLED),
+          [`POST ${post}`]: json(202, { run_id: runId, state: "queued", refs: [] }),
+          [`${MIRROR_PATH}/${runId}`]: json(400, { message: "invalid run id" })
+        })
+
+        const result = action === "sync" ? await seam.mirrorSync()
+          : action === "retry" ? await seam.retryMirrorRef("refs/heads/wip") : await seam.reconcile()
+
+        if (action === "reconcile") {
+          expect(textOf(result)).toBe("Reconciled — the GitHub card for will/smithers re-read the App status.")
+          expect(payloadOf(store)?.phase).toBe("connected")
+          expect(mirrorPayloadOf(store)).toBeUndefined()
+        } else {
+          expect(mirrorPayloadOf(store)?.runId).toBeUndefined()
+          expect(mirrorPayloadOf(store)?.error).toBe(textOf(result))
+          expect(textOf(result)).toContain("without naming a run id")
+        }
+        await new Promise(resolve => setTimeout(resolve, 10))
+        expect(requests.filter(request => request.startsWith("POST "))).toEqual([`POST ${post}`])
+        expect(requests.some(request => request.startsWith(`GET ${MIRROR_PATH}/`))).toBe(false)
+      }
+
+      const { store, seam, requests } = await harness({
+        [REPO_PATH]: json(200, repoDto("behind")),
+        [STATUS_PATH]: json(200, INSTALLED),
+        [`POST ${post}`]: json(202, { run_id: 1, state: "queued", refs: [] }),
+        [`${MIRROR_PATH}/1`]: json(200, mirrorRun("succeeded", []))
+      })
+      if (action === "sync") await seam.mirrorSync()
+      else if (action === "retry") await seam.retryMirrorRef("refs/heads/wip")
+      else await seam.reconcile()
+      await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded", "the admitted positive run")
+      expect(mirrorPayloadOf(store)?.runId).toBe("1")
+      expect(requests).toContain(`GET ${MIRROR_PATH}/1`)
+    } finally {
+      Object.assign(mirrorSyncPolling, previous)
+    }
+  })
+
+  test("legacy reconcile without a run ID still refreshes status without tracking a run", async () => {
+    const { store, seam, requests } = await harness({
+      [`POST ${RECONCILE_PATH}`]: json(202, { id: 91, state: "queued", refs: [] }),
+      [STATUS_PATH]: json(200, INSTALLED)
+    })
+
+    expect(textOf(await seam.reconcile())).toBe("Reconciled — the GitHub card for will/smithers re-read the App status.")
+    expect(requests).toEqual([`POST ${RECONCILE_PATH}`, `GET ${STATUS_PATH}`])
+    expect(payloadOf(store)?.phase).toBe("connected")
+    expect(mirrorPayloadOf(store)).toBeUndefined()
+  })
+})
+
 /*
  * The two fences the mirror poll runs behind: the epoch that retires a
  * superseded loop, and the drop budget that separates a lost connection from

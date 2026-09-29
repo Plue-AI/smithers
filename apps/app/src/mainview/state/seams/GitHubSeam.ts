@@ -113,6 +113,12 @@ const str = (value: unknown): string | null => (typeof value === "string" && val
 const intOrNull = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null
 
+const mirrorRunId = (value: unknown): number | null => {
+  if (!isRecord(value)) return null
+  const id = intOrNull(value.run_id)
+  return id !== null && id > 0 ? id : null
+}
+
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Registered App 4163546, shared with apps/server/src/githubApp.ts and plue; verified against GitHub App metadata. */
@@ -213,13 +219,11 @@ interface MirrorRunAnswer {
 const parseMirrorRun = (value: unknown): MirrorRunAnswer | null => {
   if (!isRecord(value)) return null
   const state = str(value.state)
-  if (state === null) return null
-  const refs = Array.isArray(value.refs)
-    ? value.refs.flatMap((entry) => {
-      const ref = parseMirrorRef(entry)
-      return ref === null ? [] : [ref]
-    })
-    : []
+  if (state === null || !Array.isArray(value.refs)) return null
+  const refs = value.refs.flatMap((entry) => {
+    const ref = parseMirrorRef(entry)
+    return ref === null ? [] : [ref]
+  })
   return { state, refs }
 }
 
@@ -562,7 +566,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     }
     const body = await response.json().catch(() => null)
     if (!current()) return SIGN_OUT_REFUSAL
-    const runId = isRecord(body) ? intOrNull(body.run_id) : null
+    const runId = mirrorRunId(body)
     const answer = await readStatus(target.repo)
     if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
@@ -776,7 +780,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     }
     const body = await response.json().catch(() => null)
     if (!current()) return SIGN_OUT_REFUSAL
-    const runId = isRecord(body) ? intOrNull(body.run_id) : null
+    const runId = mirrorRunId(body)
     if (runId === null) {
       const message = words.unnamed(repo)
       upsertMirrorCard(repo, { error: message, ...mirror })
