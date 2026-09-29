@@ -45,6 +45,15 @@ const spawnFailure = (error: unknown, cwd: string): Outcome => {
 
 type Data = { readonly text: string } | { readonly bytes: string }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const isBase64 = (value: unknown): value is string =>
+  typeof value === "string" && Buffer.from(value, "base64").toString("base64") === value
+
+const isData = (value: unknown): value is Data =>
+  isObject(value) && ("text" in value ? typeof value.text === "string" : isBase64(value.bytes))
+
 /** rg's `text`, or its base64 `bytes` when the value is not valid UTF-8; `exact` refuses a lossy decode. */
 const decode = (data: Data | undefined, exact: boolean): string | undefined => {
   if (data === undefined) return undefined
@@ -60,22 +69,25 @@ const decode = (data: Data | undefined, exact: boolean): string | undefined => {
  * be named and is skipped. Line text is decoded lossily for display.
  */
 export const parse = (line: string): Hit | undefined => {
-  let message: {
-    readonly type?: string
-    readonly data?: { readonly path?: Data; readonly lines?: Data; readonly line_number?: number }
-  }
+  let message: unknown
   try {
     message = JSON.parse(line)
   } catch {
     return undefined
   }
-  if (message.type !== "match" || !Number.isInteger(message.data?.line_number)) return undefined
-  const path = decode(message.data!.path, true)
-  const text = decode(message.data!.lines, false)
+  if (!isObject(message) || typeof message.type !== "string" || message.type !== "match") return undefined
+  const data = message.data
+  if (!isObject(data)) return undefined
+  const lineNumber = data.line_number
+  if (typeof lineNumber !== "number" || !Number.isInteger(lineNumber) || !isData(data.path) || !isData(data.lines)) {
+    return undefined
+  }
+  const path = decode(data.path, true)
+  const text = decode(data.lines, false)
   if (path === undefined || text === undefined) return undefined
   return {
     path: path.replace(/^\.\//, ""),
-    line: message.data!.line_number!,
+    line: lineNumber,
     text: text.replace(/\r?\n$/, "").slice(0, maxColumns)
   }
 }
@@ -130,8 +142,12 @@ export const run = (options: {
     resolve(outcome)
   }
   const take = (line: string) => {
-    const hit = parse(line)
-    if (hit !== undefined) hits.push(hit)
+    try {
+      const hit = parse(line)
+      if (hit !== undefined) hits.push(hit)
+    } catch {
+      // A malformed message from an alternate command cannot escape an event callback.
+    }
   }
   child.stdout.setEncoding("utf8")
   child.stdout.on("data", (chunk: string) => {
