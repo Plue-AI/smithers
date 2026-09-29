@@ -19,9 +19,9 @@ import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "eff
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
 import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
-import { text } from "node:stream/consumers"
 import { hostname } from "node:os"
 import { resolve } from "node:path"
+import { text } from "node:stream/consumers"
 import * as CliError from "./CliError.ts"
 import * as BugCmd from "./commands/Bug.ts"
 import { cancelAll } from "./commands/CancelAll.ts"
@@ -205,10 +205,12 @@ const decodeInput = (
     })
     : Effect.succeed(source)
   return serialized.pipe(
-    Effect.flatMap((value) => Effect.try({
-      try: () => JSON.parse(value) as unknown,
-      catch: () => malformedJson("--data")
-    })),
+    Effect.flatMap((value) =>
+      Effect.try({
+        try: () => JSON.parse(value) as unknown,
+        catch: () => malformedJson("--data")
+      })
+    ),
     Effect.map((decoded) =>
       decoded !== null && typeof decoded === "object" && !Array.isArray(decoded)
         ? { ...pairs, ...(decoded as Record<string, unknown>) }

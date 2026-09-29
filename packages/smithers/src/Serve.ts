@@ -225,6 +225,8 @@ export const host = (bind: Bind, root: string) =>
       host: bind.host,
       port: bind.port,
       listen: bind.listen,
-      ...(bind.credential === undefined || bind.credential === "" ? { operatorToken: bind.operatorToken } : { credential: bind.credential })
+      ...(bind.credential === undefined || bind.credential === ""
+        ? { operatorToken: bind.operatorToken }
+        : { credential: bind.credential })
     }, root)
   })

@@ -203,7 +203,7 @@ describe("input decoding", () => {
     const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
     try {
       const file = join(directory, "input.json")
-      writeFileSync(file, '{"a":"file","count":2}')
+      writeFileSync(file, "{\"a\":\"file\",\"count\":2}")
       const card = await run(json(["--json", "plan", "demo/ship", "a=pair", "--data", `@${file}`]), testControl)
       expect((card as { readonly inputSummary: string }).inputSummary).toBe(
         JSON.stringify({ a: "file", count: 2 })
@@ -214,7 +214,9 @@ describe("input decoding", () => {
   })
 
   it("reads --data - from stdin for plan", async () => {
-    const stdin = vi.spyOn(process, "stdin", "get").mockReturnValue(Readable.from(['{"topic":"stdin"}']) as typeof process.stdin)
+    const stdin = vi.spyOn(process, "stdin", "get").mockReturnValue(
+      Readable.from(["{\"topic\":\"stdin\"}"]) as typeof process.stdin
+    )
     try {
       const card = await run(json(["--json", "plan", "demo/ship", "--data", "-"]), testControl)
       expect((card as { readonly inputSummary: string }).inputSummary).toBe(
@@ -228,7 +230,10 @@ describe("input decoding", () => {
   it("rejects a missing --data file with a usage error", async () => {
     const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
     try {
-      const error = await run(Effect.flip(runCommand(["plan", "demo/ship", "--data", `@${join(directory, "missing.json")}`])), testControl)
+      const error = await run(
+        Effect.flip(runCommand(["plan", "demo/ship", "--data", `@${join(directory, "missing.json")}`])),
+        testControl
+      )
       expect(error).toBeInstanceOf(CliError.UsageError)
       expect((error as Error).message).toContain("missing.json")
     } finally {
@@ -588,7 +593,7 @@ describe("up", () => {
     const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
     try {
       const file = join(directory, "input.json")
-      writeFileSync(file, '{"topic":"file"}')
+      writeFileSync(file, "{\"topic\":\"file\"}")
       const receipt = await run(json(["--json", "up", "demo/ship", "--data", `@${file}`]), testControl)
       expect(receipt).toMatchObject({ _tag: "Accepted" })
     } finally {
