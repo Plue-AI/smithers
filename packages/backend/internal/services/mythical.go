@@ -77,6 +77,9 @@ type MythicalService struct {
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost
+	// publicURL is this Smithers's origin, where a landed item's issue is
+	// pointed at its run (SetPublicURL); absent, the comment names no link.
+	publicURL string
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
@@ -87,6 +90,12 @@ func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalSer
 // SetPolicyReader wires the repo host the stack reads the owner's
 // committed factory policy through.
 func (s *MythicalService) SetPolicyReader(host repositoryPolicyHost) { s.policy = host }
+
+// SetPublicURL names this Smithers's origin for the links its issue
+// comments carry.
+func (s *MythicalService) SetPublicURL(origin string) {
+	s.publicURL = strings.TrimRight(strings.TrimSpace(origin), "/")
+}
 
 // SetFactoryReconciler uses the same owner-main registration boundary as mirror pulls.
 func (s *MythicalService) SetFactoryReconciler(reconcile func(context.Context, int64, string, FactoryProjection) error) {

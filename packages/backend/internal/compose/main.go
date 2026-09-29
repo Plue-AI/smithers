@@ -916,6 +916,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	mythicalService.SetPublicURL(publicBaseURL)
 	gitHubMainPullService.SetMainMoved(mythicalService.MainMoved)
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)

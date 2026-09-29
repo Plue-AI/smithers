@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"sort"
@@ -1075,6 +1076,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			return
 		}
 		item = s.deliverNotice(ctx, r, item)
+		if item.State == "landed" && !(item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now)) {
+			item = s.complete(ctx, r, item, step.now)
+		}
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
 			// A finished item's lane is retired even if an earlier release failed.
 			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
@@ -1991,7 +1995,9 @@ func (st *mythicalItemStep) proposal(item db.MythicalItem) (string, string) {
 		if body != "" {
 			body += "\n\n"
 		}
-		body += "Closes #" + strconv.FormatInt(item.IssueNumber.Int64, 10)
+		// Never a closing keyword: GitHub would close the issue at the
+		// merge, before its completion evidence is on it (complete).
+		body += "Refs #" + strconv.FormatInt(item.IssueNumber.Int64, 10)
 	}
 	body += "\n\nOne commit carrying this item's verified change from the repository's mythical stack."
 	return title, strings.TrimSpace(body)
@@ -2029,6 +2035,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	switch {
 	case pull.Merged:
 		next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", pull.MergeCommit, "landed", ""
+		next.NextAttemptAt = pgtype.Timestamptz{}
 	case pull.State == "closed":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "the pull request was closed without merging"
 	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && item.CandidateBase != r.row.TipCommit:
@@ -2307,6 +2314,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	}
 	next := item
 	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""
+	next.NextAttemptAt = pgtype.Timestamptz{}
 	return &next
 }
 
@@ -2801,7 +2809,7 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 	if err == nil {
 		var gh mythicalGitHubRepo
 		if gh, err = s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64); err == nil {
-			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, checks.Notice.Body)
+			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, checks.Notice.Key, checks.Notice.Body)
 		}
 	}
 	if err != nil {
@@ -2817,6 +2825,125 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 		return item
 	}
 	return saved
+}
+
+// complete writes a landed item's evidence to its issue, then closes it:
+// one comment (keyed by the merge commit, so a retry never repeats it) with
+// the commit on main, the checks and the run, posted only once GitHub main
+// carries the commit, and the close only once the comment is on the issue.
+// Each step that fails is tried again on a later pass.
+func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.MythicalItem, now time.Time) db.MythicalItem {
+	checks := mythicalChecksOf(item)
+	if s.github == nil || !item.IssueNumber.Valid || item.PRMergeCommit == "" || !r.row.ActorUserID.Valid ||
+		checks.Completion != nil && checks.Completion.Commit == item.PRMergeCommit && checks.Completion.Outcome != "" {
+		return item
+	}
+	if checks.Completion == nil || checks.Completion.Commit != item.PRMergeCommit {
+		checks.Completion = &mythicalCompletion{Commit: item.PRMergeCommit, Since: now}
+	}
+	next := item
+	next.Checks = checks.encode()
+	later := func(reason string, err error) db.MythicalItem {
+		if ctx.Err() == nil {
+			level := slog.LevelInfo
+			if err != nil {
+				level = slog.LevelWarn
+			}
+			s.logger.Log(ctx, level, "mythical.completion_deferred", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "reason", reason, "error", err)
+		}
+		next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalPullPollEvery), Valid: true}
+		if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
+			return saved
+		}
+		return item
+	}
+	repository, owner, err := s.repository(ctx, r.row.RepositoryID)
+	if err != nil {
+		return later("the repository could not be read", err)
+	}
+	gh, err := s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64)
+	if err != nil {
+		return later("GitHub could not be resolved", err)
+	}
+	key := "landed:" + item.PRMergeCommit
+	if !slices.Contains(checks.Noticed, key) {
+		bookmark := strings.TrimSpace(repository.DefaultBookmark)
+		if bookmark == "" {
+			bookmark = "main"
+		}
+		onMain, err := s.github.OnMain(ctx, gh, bookmark, item.PRMergeCommit)
+		if err != nil {
+			return later("GitHub did not answer for main", err)
+		}
+		if !onMain {
+			if now.Sub(checks.Completion.Since) < mythicalCompletionWaitBound {
+				return later("the merge commit is not on "+bookmark+" yet", nil)
+			}
+			checks.Completion.Outcome = mythicalCompletionOffMain
+			next.Checks, next.Reason = checks.encode(), "the merge commit "+short(item.PRMergeCommit)+" is not on "+bookmark
+			if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
+				return saved
+			}
+			return item
+		}
+		ci, err := s.github.HeadChecks(ctx, gh, item.PRHead)
+		if err != nil {
+			return later("GitHub did not answer for the checks", err)
+		}
+		checks.notice(key, s.completionBody(item, checks, owner, repository.Name, ci))
+		next.Checks = checks.encode()
+		saved, err := s.queries().SaveMythicalItem(ctx, next)
+		if err != nil {
+			return item
+		}
+		next = s.deliverNotice(ctx, r, saved)
+		if checks = mythicalChecksOf(next); checks.Notice != nil {
+			item = next
+			return later("the completion comment could not be posted", nil)
+		}
+	}
+	if err := s.github.CloseIssue(ctx, gh, item.IssueNumber.Int64); err != nil {
+		item = next
+		return later("the issue could not be closed", err)
+	}
+	checks.Completion.Outcome = mythicalCompletionClosed
+	next.Checks, next.NextAttemptAt = checks.encode(), pgtype.Timestamptz{}
+	saved, err := s.queries().SaveMythicalItem(ctx, next)
+	if err != nil {
+		return next
+	}
+	return saved
+}
+
+// completionBody is the evidence a landed item leaves on its issue: the
+// merge commit on main, the checks it passed and where its run is.
+func (s *MythicalService) completionBody(item db.MythicalItem, checks mythicalChecks, owner, name, ci string) string {
+	commit := item.PRMergeCommit
+	if base, ok := strings.CutSuffix(item.PRURL, "/pull/"+strconv.FormatInt(item.PRNumber.Int64, 10)); ok && item.PRNumber.Valid {
+		commit = base + "/commit/" + item.PRMergeCommit
+	}
+	results := []string{"CI " + ci + " on " + short(item.PRHead)}
+	if checks.Review != nil && checks.Review.Head == item.PRHead && checks.Review.Verdict != "" {
+		results = append(results, "review "+checks.Review.Verdict)
+	}
+	if item.VerifyOutcome != "" {
+		results = append(results, "verification "+item.VerifyOutcome)
+	}
+	lines := []string{"Landed on main: " + commit, "Checks: " + strings.Join(results, "; ")}
+	run := strings.TrimSpace(item.RequestRunID)
+	if run == "" {
+		run = strings.TrimSpace(item.VibeRunID)
+	}
+	if s.publicURL != "" {
+		link := s.publicURL + "/" + owner + "/" + name
+		if run != "" {
+			link += " (" + run + ")"
+		}
+		lines = append(lines, "Run: "+link)
+	} else if run != "" {
+		lines = append(lines, "Run: "+run)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // appliedByMaintainer reports whether this event is a maintainer person
@@ -2877,7 +3004,30 @@ type mythicalChecks struct {
 	// Route is the route Jev gave the TODO (factory/Todo) on its latest
 	// request, from the request's result or failure; each replan asks again.
 	Route string `json:"route,omitempty"`
+	// Completion is the landed item's evidence on its issue (complete).
+	Completion *mythicalCompletion `json:"completion,omitempty"`
 }
+
+// mythicalCompletion is how a landed item's issue hears of it: the merge
+// commit the evidence is written for, since when the stack waits for that
+// commit on GitHub main, and the outcome once settled: the issue closed
+// (mythicalCompletionClosed) or the commit never reached main
+// (mythicalCompletionOffMain).
+type mythicalCompletion struct {
+	Commit  string    `json:"commit"`
+	Since   time.Time `json:"since"`
+	Outcome string    `json:"outcome,omitempty"`
+}
+
+const (
+	mythicalCompletionClosed  = "closed"
+	mythicalCompletionOffMain = "off-main"
+)
+
+// mythicalCompletionWaitBound is how long a landed item waits for its merge
+// commit on GitHub main before its issue is left open: a merge into another
+// branch never reaches it.
+const mythicalCompletionWaitBound = 6 * time.Hour
 
 // mythicalCIWait is the approved head whose CI the stack waits for, since
 // when.

@@ -21,6 +21,9 @@ The stack service starts the existing coding flow in that repository's own
 workspace, with the approved source and repository policy. It proposes a
 pull request under `changes: "send-upstream"`. The owner merges it, or a
 maintainer applies `automerge` and the stack merges after review approval.
+The proposal never carries a closing keyword: once GitHub main holds the
+merge commit, the stack writes one comment on the issue (the commit, the
+checks, the run) and only then closes it; a retry never repeats the comment.
 Do not register a second prompt worker for the same TODO.
 
 For another repository, commit its own factory and the flows it runs there.

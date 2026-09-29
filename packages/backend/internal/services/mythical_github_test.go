@@ -135,12 +135,16 @@ func TestMythicalGitHubMergePinsTheHeadWithANarrowToken(t *testing.T) {
 func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 	t.Parallel()
 	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-		"DELETE /repos/o/r/issues/3/labels/todo": answer(http.StatusOK, []any{}),
-		"DELETE /repos/o/r/issues/4/labels/todo": answer(http.StatusNotFound, map[string]any{}),
-		"DELETE /repos/o/r/issues/5/labels/todo": answer(http.StatusForbidden, map[string]any{}),
-		"POST /repos/o/r/issues/3/labels":        answer(http.StatusOK, []any{}),
-		"POST /repos/o/r/issues/3/comments":      answer(http.StatusCreated, map[string]any{}),
-		"POST /repos/o/r/issues/4/comments":      answer(http.StatusForbidden, map[string]any{}),
+		"DELETE /repos/o/r/issues/3/labels/todo":               answer(http.StatusOK, []any{}),
+		"DELETE /repos/o/r/issues/4/labels/todo":               answer(http.StatusNotFound, map[string]any{}),
+		"DELETE /repos/o/r/issues/5/labels/todo":               answer(http.StatusForbidden, map[string]any{}),
+		"POST /repos/o/r/issues/3/labels":                      answer(http.StatusOK, []any{}),
+		"POST /repos/o/r/issues/3/comments":                    answer(http.StatusCreated, map[string]any{}),
+		"POST /repos/o/r/issues/4/comments":                    answer(http.StatusForbidden, map[string]any{}),
+		"PATCH /repos/o/r/issues/3":                            answer(http.StatusOK, map[string]any{"state": "closed"}),
+		"PATCH /repos/o/r/issues/4":                            answer(http.StatusForbidden, map[string]any{}),
+		"GET /repos/o/r/issues/3/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
+		"GET /repos/o/r/issues/4/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
 		"GET /repos/o/r/issues/3/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
 			{"event": "labeled", "actor": map[string]any{"login": "first"}, "label": map[string]any{"name": "todo"}},
 			{"event": "labeled", "actor": map[string]any{"login": "other"}, "label": map[string]any{"name": "bug"}},
@@ -156,11 +160,17 @@ func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 	require.NoError(t, api.RemoveLabel(ctx, stackRepo, 4, "todo"), "an absent label is removed")
 	require.Error(t, api.RemoveLabel(ctx, stackRepo, 5, "todo"))
 	require.NoError(t, api.AddLabel(ctx, stackRepo, 3, "todo"))
-	require.NoError(t, api.Comment(ctx, stackRepo, 3, "Smithers stopped work on this TODO"))
-	require.Error(t, api.Comment(ctx, stackRepo, 4, "x"))
+	require.NoError(t, api.Comment(ctx, stackRepo, 3, "stop", "Smithers stopped work on this TODO"))
+	require.Error(t, api.Comment(ctx, stackRepo, 4, "stop", "x"))
+	require.NoError(t, api.CloseIssue(ctx, stackRepo, 3))
+	require.Error(t, api.CloseIssue(ctx, stackRepo, 4))
 	for _, call := range github.calls {
-		assert.Contains(t, call, " issues=write ", call)
+		if !strings.HasPrefix(call, "GET ") {
+			assert.Contains(t, call, " issues=write ", call)
+		}
 	}
+	assert.Contains(t, github.calls, `POST /repos/o/r/issues/3/comments issues=write {"body":"Smithers stopped work on this TODO\n\n\u003c!-- smithers:stop --\u003e"}`)
+	assert.Contains(t, github.calls, `PATCH /repos/o/r/issues/3 issues=write {"state":"closed","state_reason":"completed"}`)
 	assert.Contains(t, github.calls, `POST /repos/o/r/issues/3/labels issues=write {"labels":["todo"]}`)
 	applier, err := api.LabelApplier(ctx, stackRepo, 3, "todo")
 	require.NoError(t, err)
@@ -297,4 +307,64 @@ func TestMythicalGitHubHeadChecksReadsEveryPage(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, mythicalCIPending, verdict, "an unread eleventh page could be red")
 	})
+}
+
+func TestMythicalGitHubCommentSaysEachKeyOnce(t *testing.T) {
+	t.Parallel()
+	var page2 []map[string]any
+	for i := range 100 {
+		page2 = append(page2, map[string]any{"id": 1000 + i, "body": "unrelated"})
+	}
+	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+		"GET /repos/o/r/issues/5/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
+			{"id": 41, "body": "a person's comment"},
+			{"id": 42, "body": "Landed on main: old\n\n<!-- smithers:landed:abc -->"},
+		}),
+		"PATCH /repos/o/r/issues/comments/42":                  answer(http.StatusOK, map[string]any{}),
+		"GET /repos/o/r/issues/6/comments?per_page=100&page=1": answer(http.StatusOK, page2),
+		"GET /repos/o/r/issues/6/comments?per_page=100&page=2": answer(http.StatusOK, []map[string]any{
+			{"id": 43, "body": "unrelated\n\n<!-- smithers:landed:other -->"},
+		}),
+		"POST /repos/o/r/issues/6/comments":                    answer(http.StatusCreated, map[string]any{}),
+		"GET /repos/o/r/issues/7/comments?per_page=100&page=1": answer(http.StatusBadGateway, map[string]any{}),
+	}}
+	api := github.api(t)
+	ctx := context.Background()
+	// A comment carrying the key is edited, never repeated, however the
+	// earlier post was lost from the stack's record.
+	require.NoError(t, api.Comment(ctx, stackRepo, 5, "landed:abc", "Landed on main: new"))
+	assert.Equal(t, []string{
+		"GET /repos/o/r/issues/5/comments?per_page=100&page=1 read-token ",
+		`PATCH /repos/o/r/issues/comments/42 issues=write {"body":"Landed on main: new\n\n\u003c!-- smithers:landed:abc --\u003e"}`,
+	}, github.calls)
+	github.calls = nil
+	// Another key's comment, on any page, is not this one.
+	require.NoError(t, api.Comment(ctx, stackRepo, 6, "landed:abc", "Landed on main: new"))
+	assert.Equal(t, `POST /repos/o/r/issues/6/comments issues=write {"body":"Landed on main: new\n\n\u003c!-- smithers:landed:abc --\u003e"}`, github.calls[len(github.calls)-1])
+	assert.Len(t, github.calls, 3)
+	// Unread comments never risk a repeat: nothing is posted.
+	github.calls = nil
+	require.Error(t, api.Comment(ctx, stackRepo, 7, "landed:abc", "x"))
+	assert.Len(t, github.calls, 1, "no write after an unread thread")
+	assert.Equal(t, "<!-- smithers:a-b -->", mythicalCommentMarker("a--b"), "a key never ends the marker early")
+}
+
+func TestMythicalGitHubOnMainComparesTheBookmark(t *testing.T) {
+	t.Parallel()
+	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+		"GET /repos/o/r/compare/main...landed":  answer(http.StatusOK, map[string]any{"status": "behind", "ahead_by": 0}),
+		"GET /repos/o/r/compare/main...other":   answer(http.StatusOK, map[string]any{"status": "diverged", "ahead_by": 1}),
+		"GET /repos/o/r/compare/main...unknown": answer(http.StatusNotFound, map[string]any{}),
+	}}
+	api := github.api(t)
+	ctx := context.Background()
+	on, err := api.OnMain(ctx, stackRepo, "main", "landed")
+	require.NoError(t, err)
+	assert.True(t, on)
+	on, err = api.OnMain(ctx, stackRepo, "main", "other")
+	require.NoError(t, err)
+	assert.False(t, on, "a commit main lacks is not on it")
+	_, err = api.OnMain(ctx, stackRepo, "main", "unknown")
+	require.Error(t, err, "an unanswered compare is an error, never on main")
+	assert.Contains(t, github.calls[0], " read-token ", "read with the stack's read token")
 }

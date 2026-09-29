@@ -112,3 +112,38 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 		require.Equal(t, before, item)
 	}
 }
+
+func TestMythicalProposalDoesNotCloseIssueBeforeCompletionEvidence(t *testing.T) {
+	t.Parallel()
+	st := &mythicalItemStep{}
+	item := db.MythicalItem{IssueNumber: pgtype.Int8{Int64: 7, Valid: true}, IssueTitle: "Add docs", Summary: "📝 docs: add docs\n\nAdds the docs page."}
+	title, body := st.proposal(item)
+	require.Equal(t, "📝 docs: add docs", title)
+	require.NotContains(t, body, "Closes #7", "the merge alone never closes the issue")
+	require.NotContains(t, strings.ToLower(body), "fixes #")
+	require.NotContains(t, strings.ToLower(body), "resolves #")
+	require.Contains(t, body, "Adds the docs page.\n\nRefs #7")
+	_, chat := st.proposal(db.MythicalItem{Summary: "chat change"})
+	require.NotContains(t, chat, "#", "a chat item names no issue")
+}
+
+func TestMythicalCompletionBodyCarriesTheEvidence(t *testing.T) {
+	t.Parallel()
+	item := db.MythicalItem{PRNumber: pgtype.Int8{Int64: 12, Valid: true}, PRURL: "https://github.com/o/r/pull/12",
+		PRHead: "0123456789abcdef", PRMergeCommit: "fedcba9876543210", RequestRunID: "run-1", VibeRunID: "run-2", VerifyOutcome: "passed"}
+	checks := mythicalChecks{Review: &mythicalReview{Head: "0123456789abcdef", Verdict: "approve"}}
+	s := &MythicalService{}
+	require.Equal(t, "Landed on main: https://github.com/o/r/commit/fedcba9876543210\nChecks: CI green on 0123456789ab; review approve; verification passed\nRun: run-1",
+		s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	s.SetPublicURL("https://smithers.example/")
+	require.Equal(t, "Landed on main: https://github.com/o/r/commit/fedcba9876543210\nChecks: CI green on 0123456789ab; review approve; verification passed\nRun: https://smithers.example/will/r (run-1)",
+		s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	// A review of an older head and an unverified item are not claimed.
+	stale := mythicalChecks{Review: &mythicalReview{Head: "older", Verdict: "approve"}}
+	bare := db.MythicalItem{PRURL: "https://example.invalid/pull/12", PRHead: "abc", PRMergeCommit: "def"}
+	require.Equal(t, "Landed on main: def\nChecks: CI pending on abc\nRun: https://smithers.example/will/r",
+		s.completionBody(bare, stale, "will", "r", mythicalCIPending))
+	s.SetPublicURL("")
+	require.Equal(t, "Landed on main: def\nChecks: CI pending on abc", s.completionBody(bare, stale, "will", "r", mythicalCIPending))
+	require.Equal(t, "Run: run-2", strings.Split(s.completionBody(db.MythicalItem{VibeRunID: "run-2"}, mythicalChecks{}, "will", "r", mythicalCIGreen), "\n")[2])
+}
