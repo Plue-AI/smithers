@@ -763,6 +763,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.repositoryCommandEntry
     delete draft.approvalsInboxRequests
     delete draft.runOpenRequests
+    delete draft.codingProviderRequests
     draft.phase = "idle"
     draft.composerOwner = "user"
     draft.turnTabId = null
