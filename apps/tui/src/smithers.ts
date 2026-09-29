@@ -22,12 +22,21 @@ export interface Factory {
   readonly rows: ReadonlyArray<Panels.Row>
 }
 
+/** The one row a signed-out person sees in place of the factory's issues. */
+const signIn: Panels.Row = {
+  id: "factory:sign-in",
+  label: "Sign in to see the factory: smthrs auth login",
+  details: []
+}
+
 export const panel = (
   listed: ReadonlyArray<Listed>,
   runs: ReadonlyArray<Run>,
   apps: ReadonlyArray<Home.App> = [],
-  factory?: Factory
+  /** The issue list, or `signed-out` when the repository is known but no Cloud session is. */
+  input?: Factory | "signed-out"
 ): Panels.Panel => {
+  const factory = input === "signed-out" ? undefined : input
   const newest = [...runs].sort((a, b) => b.startedAt - a.startedAt)
   const active = newest.filter((run) => {
     const shown = status(run)
@@ -42,7 +51,7 @@ export const panel = (
       ? factory.metrics
       : `${apps.length === 0 ? "" : `${apps.length} apps · `}${listed.length} flows · ${active.length} active`,
     rows: [
-      ...factory?.rows ?? [],
+      ...input === "signed-out" ? [signIn] : factory?.rows ?? [],
       // The apps the homepage declares (home.ts): the same list the app home shows as tiles. A row runs its flow when this directory discovers it.
       ...apps.map((app) => ({
         id: `app:${app.flow}`,

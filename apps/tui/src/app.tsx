@@ -565,7 +565,7 @@ export function App(props: AppProps) {
   // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the directory's apps and the flow runs.
   const homeApps = useMemo(() => Home.read(props.host.cwd), [props.host.cwd])
   // The factory's issue list, read from Cloud as the signed-in person while the Smithers tab shows.
-  const [factory, setFactory] = useState<Smithers.Factory | undefined>()
+  const [factory, setFactory] = useState<Smithers.Factory | "signed-out" | undefined>()
   const factoryRepo = useMemo(() => Factory.repository(props.host.cwd, process.env), [props.host.cwd])
   const smithersShown = surface === `ui:${Smithers.id}`
   useEffect(() => {
@@ -580,7 +580,7 @@ export function App(props: AppProps) {
       reading = true
       try {
         cloud ??= await CloudSession.signedIn(process.env)
-        if (cloud === undefined) return setFactory(undefined)
+        if (cloud === undefined) return setFactory("signed-out")
         const stack = await Factory.load(cloud.get, factoryRepo, controller.signal).catch((error: unknown) => {
           if (/HTTP 40[13]\b/.test(String(error))) cloud = undefined
           throw error

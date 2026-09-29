@@ -83,3 +83,15 @@ it("lists the homepage's apps first, running the ones this directory discovers",
     details: [{ kind: "text", text: "issue.implement" }]
   })
 })
+
+it("says how to see the factory's issues when the person is not signed in to Cloud", () => {
+  const panel = Smithers.panel(listed, [], [], "signed-out")
+  expect(Panels.decode(panel)).toEqual(panel)
+  expect(panel.rows[0]).toEqual({
+    id: "factory:sign-in",
+    label: "Sign in to see the factory: smthrs auth login",
+    details: []
+  })
+  expect(panel.summary).toBe("2 flows · 0 active")
+  expect(panel.rows.slice(1).map((row) => row.id)).toEqual(["flow:review", "flow:release"])
+})
