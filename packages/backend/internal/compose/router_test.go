@@ -528,6 +528,7 @@ func defaultRouter(gitHandler *routes.GitSmartHandler, lfsHandlers ...*routes.LF
 
 type routerAgentEnvironmentService struct {
 	setupScript string
+	input       services.PutAgentEnvironmentInput
 }
 
 func (s *routerAgentEnvironmentService) GetAgentEnvironment(context.Context, *db.User, string, string) (services.AgentEnvironmentResponse, error) {
@@ -536,6 +537,7 @@ func (s *routerAgentEnvironmentService) GetAgentEnvironment(context.Context, *db
 
 func (s *routerAgentEnvironmentService) PutAgentEnvironment(_ context.Context, _ *db.User, _, _ string, input services.PutAgentEnvironmentInput) (services.AgentEnvironmentResponse, error) {
 	s.setupScript = input.SetupScript
+	s.input = input
 	return services.AgentEnvironmentResponse{}, nil
 }
 
@@ -2599,10 +2601,30 @@ func TestServerRouter_AgentEnvironmentAllowsMiBSetupScriptOnlyOnExactPut(t *test
 		require.Empty(t, service.setupScript)
 	}
 
-	oversized := `{"setup_script":"` + strings.Repeat("x", 8<<20) + `"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/repos/will/flows/agent-environment", strings.NewReader(oversized))
+	combined := services.PutAgentEnvironmentInput{SetupScript: strings.Repeat("\x01", 1<<20)}
+	for i := range 100 {
+		combined.Env = append(combined.Env, services.AgentEnvironmentVariable{Name: fmt.Sprintf("ENV_%d", i), Value: strings.Repeat("x", 64<<10)})
+	}
+	for i := range 30 {
+		combined.Secrets = append(combined.Secrets, services.AgentEnvironmentSecretWrite{Name: fmt.Sprintf("SECRET_%d", i), Value: strings.Repeat("x", 64<<10)})
+	}
+	body, err := json.Marshal(combined)
+	require.NoError(t, err)
+	require.Greater(t, len(body), 8<<20)
+	require.Less(t, len(body), 16<<20)
+	req := httptest.NewRequest(http.MethodPut, "/api/repos/will/flows/agent-environment", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, withRouterTokenAuth(req, middleware.ScopeWriteRepository))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, service.input.Env, 100)
+	require.Len(t, service.input.Secrets, 30)
+
+	service.setupScript = ""
+	oversized := `{"setup_script":"` + strings.Repeat("x", 16<<20) + `"}`
+	req = httptest.NewRequest(http.MethodPut, "/api/repos/will/flows/agent-environment", strings.NewReader(oversized))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, withRouterTokenAuth(req, middleware.ScopeWriteRepository))
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
 	require.Empty(t, service.setupScript)
@@ -2617,7 +2639,7 @@ func TestAPIBodyLimitOnlyWidensAgentEnvironmentPut(t *testing.T) {
 		path   string
 		want   int64
 	}{
-		{"setup PUT", http.MethodPut, "/api/repos/will/flows/agent-environment", 8 << 20},
+		{"setup PUT", http.MethodPut, "/api/repos/will/flows/agent-environment", middleware.MaxAgentEnvironmentBodySize},
 		{"setup POST", http.MethodPost, "/api/repos/will/flows/agent-environment", middleware.MaxRequestBodySize},
 		{"secret PUT", http.MethodPut, "/api/repos/will/flows/agent-environment/secrets/TOKEN", middleware.MaxRequestBodySize},
 		{"lookalike PUT", http.MethodPut, "/api/repos/will/flows/agent-environment-extra", middleware.MaxRequestBodySize},

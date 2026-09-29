@@ -22,6 +22,9 @@ import (
 // to prevent denial-of-service via oversized payloads.
 const MaxRequestBodySize int64 = 1 << 20
 
+// MaxAgentEnvironmentBodySize bounds the combined repository environment PUT.
+const MaxAgentEnvironmentBodySize int64 = 16 << 20
+
 // JSONAllowContentType mirrors chi's content-type enforcement but returns APIError JSON for API routes.
 func JSONAllowContentType(contentTypes ...string) func(http.Handler) http.Handler {
 	allowedContentTypes := make(map[string]struct{}, len(contentTypes))

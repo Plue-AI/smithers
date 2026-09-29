@@ -72,15 +72,15 @@ export const PLATFORM_PROXY_RULES: ReadonlyArray<{
 ]
 
 const PLATFORM_PROXY_MAX_BODY = 256 * 1024
+const AGENT_ENVIRONMENT_MAX_BODY = 16 * 1024 * 1024
 const platformBodyLimit = (pathname: string, method: string): number => {
   // Wiki updates carry a 1 MiB binary Yjs update in a base64 JSON envelope.
   if (method === "POST" && /^\/api\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/wiki\/[a-z0-9-]+\/updates$/.test(pathname)) {
     return 2 * 1024 * 1024
   }
-  // Cap the whole setup document at 8 MiB. JSON escapes can expand a valid
-  // 1 MiB script to 6 MiB, leaving room for its envelope and small env values.
+  // Bound the combined setup document, variables, and secrets.
   if (method === "PUT" && /^\/api\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/agent-environment$/.test(pathname)) {
-    return 8 * 1024 * 1024
+    return AGENT_ENVIRONMENT_MAX_BODY
   }
   return PLATFORM_PROXY_MAX_BODY
 }

@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,4 +82,43 @@ func TestAgentEnvironmentHandler_SecretValuesAreWriteOnly(t *testing.T) {
 	))
 	require.Equal(t, http.StatusCreated, putRecorder.Code)
 	assert.NotContains(t, putRecorder.Body.String(), secretValue)
+}
+
+func TestAgentEnvironmentHandler_CombinedBodyBoundary(t *testing.T) {
+	const target = "/api/repos/alice/demo/agent-environment"
+	limit := int(middleware.MaxAgentEnvironmentBodySize)
+	// A large combined document passes the public PUT, including escaped JSON.
+	input := services.PutAgentEnvironmentInput{SetupScript: strings.Repeat("\x01", 1024*1024)}
+	for i := range 100 {
+		input.Env = append(input.Env, services.AgentEnvironmentVariable{Name: fmt.Sprintf("ENV_%d", i), Value: strings.Repeat("x", 64*1024)})
+	}
+	for i := range 30 {
+		input.Secrets = append(input.Secrets, services.AgentEnvironmentSecretWrite{Name: fmt.Sprintf("SECRET_%d", i), Value: strings.Repeat("x", 64*1024)})
+	}
+	encoded, err := json.Marshal(input)
+	require.NoError(t, err)
+	require.Greater(t, len(encoded), 8<<20)
+	handler := middleware.MaxBodySizeForRequest(func(*http.Request) int64 { return middleware.MaxAgentEnvironmentBodySize })(http.HandlerFunc((&SecretHandler{AgentEnvironment: agentEnvironmentRouteMock{}}).PutAgentEnvironment))
+	request := agentEnvironmentRouteRequest(http.MethodPut, target, string(encoded))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	// The wire limit is inclusive; legal trailing whitespace reaches it exactly.
+	base := `{"setup_script":"","env":[],"secrets":[]}`
+	exact := base + strings.Repeat(" ", limit-len(base))
+	for _, tc := range []struct {
+		name, body string
+		want       int
+	}{
+		{"exact", exact, http.StatusOK},
+		{"over", exact + " ", http.StatusRequestEntityTooLarge},
+		{"trailing document", base + ` {}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, agentEnvironmentRouteRequest(http.MethodPut, target, tc.body))
+			require.Equal(t, tc.want, response.Code)
+		})
+	}
 }

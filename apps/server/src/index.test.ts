@@ -3584,7 +3584,7 @@ describe("the /api/cloud bridge", () => {
   test("agent-environment's larger cap still bounds the whole JSON document", async () => {
     await withUpstreams(() => jsonAnswer({}), async (calls) => {
       const response = await worker.fetch(new Request("https://mvp.test/api/repos/will/flows/agent-environment", {
-        method: "PUT", headers: { cookie: "smithers_session=sealed", "content-length": String(8 * 1024 * 1024 + 1) }, body: "{}"
+        method: "PUT", headers: { cookie: "smithers_session=sealed", "content-length": String(16 * 1024 * 1024 + 1) }, body: "{}"
       }), signedInEnv)
       expect(response.status).toBe(413)
       expect(cloudCalls(calls)).toHaveLength(0)
@@ -3670,6 +3670,39 @@ describe("the /api/cloud bridge", () => {
       expect(cancelled).toBe(true)
       expect(pulled).toBe(5)
       expect(cloudCalls(calls)).toHaveLength(0)
+    })
+  })
+
+  test("agent-environment PUT accepts the combined document through both proxy paths and enforces the inclusive 16 MiB wire cap", async () => {
+    const path = "/api/repos/will/flows/agent-environment"
+    const value = "x".repeat(64 * 1024)
+    const body = JSON.stringify({
+      setup_script: "\u0001".repeat(1024 * 1024),
+      env: Array.from({ length: 100 }, (_, i) => ({ name: `ENV_${i}`, value })),
+      secrets: Array.from({ length: 30 }, (_, i) => ({ name: `SECRET_${i}`, value }))
+    })
+    const limit = 16 * 1024 * 1024
+    expect(new TextEncoder().encode(body).length).toBeGreaterThan(8 * 1024 * 1024)
+    await withUpstreams(() => jsonAnswer({}), async (calls) => {
+      for (const prefix of ["", "/api/cloud"]) {
+        const response = await worker.fetch(new Request(`https://mvp.test${prefix}${path}`, {
+          method: "PUT", headers: { cookie: "smithers_session=sealed" }, body
+        }), signedInEnv)
+        expect(response.status).toBe(200)
+      }
+      expect(cloudCalls(calls)).toHaveLength(2)
+    })
+    const exact = "{" + " ".repeat(limit - 2) + "}"
+    await withUpstreams(() => jsonAnswer({}), async (calls) => {
+      const accepted = await worker.fetch(new Request(`https://mvp.test${path}`, {
+        method: "PUT", headers: { cookie: "smithers_session=sealed" }, body: exact
+      }), signedInEnv)
+      expect(accepted.status).toBe(200)
+      const over = await worker.fetch(new Request(`https://mvp.test/api/cloud${path}`, {
+        method: "PUT", headers: { cookie: "smithers_session=sealed" }, body: exact + " "
+      }), signedInEnv)
+      expect(over.status).toBe(413)
+      expect(cloudCalls(calls)).toHaveLength(1)
     })
   })
 

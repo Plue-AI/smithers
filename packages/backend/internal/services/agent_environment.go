@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -161,6 +162,9 @@ func (s *AgentEnvironmentService) GetAgentEnvironment(ctx context.Context, actor
 }
 
 func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor *db.User, owner, repo string, input PutAgentEnvironmentInput) (AgentEnvironmentResponse, error) {
+	if agentEnvironmentContentBytes(input) > middleware.MaxAgentEnvironmentBodySize {
+		return AgentEnvironmentResponse{}, pkgerrors.RequestEntityTooLarge("agent environment too large")
+	}
 	repository, err := s.resolveAgentEnvironmentRepo(ctx, owner, repo)
 	if err != nil {
 		return AgentEnvironmentResponse{}, err
@@ -271,6 +275,26 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 		return AgentEnvironmentResponse{}, err
 	}
 	return s.agentEnvironmentResponse(ctx, repository.ID)
+}
+
+// Valid UTF-8 decoded string bytes cannot exceed the JSON wire bytes. Checking them
+// keeps direct service calls bounded without rejecting a wire-valid request
+// because Go escapes characters differently from a browser JSON encoder.
+func agentEnvironmentContentBytes(input PutAgentEnvironmentInput) int64 {
+	total := int64(len(input.SetupScript))
+	for _, variable := range input.Env {
+		total += int64(len(variable.Name) + len(variable.Value))
+	}
+	for _, secret := range input.Secrets {
+		total += int64(len(secret.Name) + len(secret.Value))
+		for _, host := range secret.Hosts {
+			total += int64(len(host))
+		}
+		for _, header := range secret.MatchHeaders {
+			total += int64(len(header))
+		}
+	}
+	return total
 }
 
 func (s *AgentEnvironmentService) PutAgentEnvironmentSecret(ctx context.Context, actor *db.User, owner, repo string, input AgentEnvironmentSecretWrite) (AgentEnvironmentSecretMetadata, error) {

@@ -1,8 +1,11 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -122,6 +126,39 @@ func TestAgentEnvironmentService_WriteOnlySecretsEncryptedAtRest(t *testing.T) {
 
 	require.NoError(t, service.DeleteAgentEnvironmentSecret(context.Background(), actor, "alice", "demo", "SETUP_TOKEN"))
 	assert.Equal(t, "SETUP_TOKEN", store.deletedSecret)
+}
+
+func TestAgentEnvironmentService_CombinedDocumentBound(t *testing.T) {
+	store := &agentEnvironmentTestQuerier{}
+	codec, err := webhook.NewSecretCodec("agent-environment-unit-test-key")
+	require.NoError(t, err)
+	service := NewAgentEnvironmentService(store, codec)
+	actor := &db.User{ID: 7}
+	input := PutAgentEnvironmentInput{SetupScript: strings.Repeat("&", 1024*1024)}
+	for i := range 100 {
+		input.Env = append(input.Env, AgentEnvironmentVariable{Name: fmt.Sprintf("ENV_%d", i), Value: strings.Repeat("x", 64*1024)})
+	}
+	for i := range 60 {
+		input.Secrets = append(input.Secrets, AgentEnvironmentSecretWrite{Name: fmt.Sprintf("SECRET_%d", i), Value: strings.Repeat("x", 64*1024)})
+	}
+	encoded, err := json.Marshal(input)
+	require.NoError(t, err)
+	require.Greater(t, int64(len(encoded)), middleware.MaxAgentEnvironmentBodySize)
+	var wire bytes.Buffer
+	encoder := json.NewEncoder(&wire)
+	encoder.SetEscapeHTML(false)
+	require.NoError(t, encoder.Encode(input))
+	require.LessOrEqual(t, int64(wire.Len()), middleware.MaxAgentEnvironmentBodySize)
+	_, err = service.PutAgentEnvironment(context.Background(), actor, "alice", "demo", input)
+	require.NoError(t, err)
+	require.NotNil(t, store.config)
+
+	input.Env[0].Value = strings.Repeat("x", 17*1024*1024)
+	require.Greater(t, agentEnvironmentContentBytes(input), middleware.MaxAgentEnvironmentBodySize)
+	store.config = nil
+	_, err = service.PutAgentEnvironment(context.Background(), actor, "alice", "demo", input)
+	require.ErrorContains(t, err, "too large")
+	require.Nil(t, store.config)
 }
 
 func TestAgentEnvironmentService_DoesNotDecryptSecretsWithoutSetupScript(t *testing.T) {

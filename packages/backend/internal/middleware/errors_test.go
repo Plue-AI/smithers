@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -910,6 +911,36 @@ func TestMaxBodySize_NoBodyPassesThrough(t *testing.T) {
 
 	assert.True(t, nextCalled)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestMaxBodySizeForRequest_SelectsBound(t *testing.T) {
+	body := strings.Repeat("x", int(MaxRequestBodySize)+1)
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/larger", http.StatusOK},
+		{"/default", http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			handler := MaxBodySizeForRequest(func(r *http.Request) int64 {
+				if r.URL.Path == "/larger" {
+					return MaxAgentEnvironmentBodySize
+				}
+				return MaxRequestBodySize
+			})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, err := io.ReadAll(r.Body)
+				if IsMaxBytesError(err) {
+					w.WriteHeader(http.StatusRequestEntityTooLarge)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, tc.path, strings.NewReader(body)))
+			assert.Equal(t, tc.want, response.Code)
+		})
+	}
 }
 
 func TestIsMaxBytesError_TrueForMaxBytesError(t *testing.T) {

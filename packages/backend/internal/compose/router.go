@@ -31,9 +31,8 @@ var agentEnvironmentSetupPath = regexp.MustCompile(`^/api/repos/[A-Za-z0-9_.-]+/
 
 func apiBodyLimit(r *http.Request) int64 {
 	if r.Method == http.MethodPut && agentEnvironmentSetupPath.MatchString(r.URL.EscapedPath()) {
-		// Bound the whole document. JSON escapes can expand a valid 1 MiB
-		// script to 6 MiB, leaving room for its envelope and small env values.
-		return 8 << 20
+		// Bound the combined setup document, variables, and secrets.
+		return middleware.MaxAgentEnvironmentBodySize
 	}
 	return middleware.MaxRequestBodySize
 }
