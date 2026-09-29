@@ -876,7 +876,9 @@ describe("ControlLive executor acceptance", () => {
         const control = yield* Control
         const failure = yield* Effect.flip(start("system/test", "refused"))
         const listed = yield* control.list({ _tag: "runs" })
-        return { failure, listed }
+        const runId = (failure as LaunchFailed).runId
+        const events = yield* control.watch({ runId, follow: false }).pipe(Stream.runCollect)
+        return { failure, listed, failed: [...events].find((event) => event.kind === "control.run.failed") }
       }),
       live({
         runtime: memoryRuntime({ flows }),
@@ -895,6 +897,11 @@ describe("ControlLive executor acceptance", () => {
     // survives settled. Left `accepted`, it was a run nothing would ever drive
     // and nothing but `smithers cancel` could end (release rehearsal).
     expect(observed.listed).toMatchObject({ items: [{ status: "failed" }] })
+    // The typed fault rides beside the cause, as it does on a run that launched.
+    expect(observed.failed?.payload).toMatchObject({
+      cause: "no capacity",
+      fault: { class: "user", tag: "/control/LaunchFailed/launch_failed" }
+    })
   })
 
   it("keeps the executor refusal and admission when failure settlement cannot be saved", async () => {

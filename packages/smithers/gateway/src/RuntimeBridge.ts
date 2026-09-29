@@ -12,6 +12,7 @@ import { Control } from "@smthrs/control/Control"
 import * as ControlError from "@smthrs/control/ControlError"
 import type { Principal, WatchCursor } from "@smthrs/control/ControlSchema"
 import { ApprovalPayload, ControlEvent, Receipt, RunSummary, SignalPayload } from "@smthrs/control/ControlSchema"
+import * as Fault from "@smthrs/flow/Fault"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RunSummaryRow } from "./GatewayProjection.ts"
@@ -404,6 +405,7 @@ export const observe = (control: Control["Service"], input: ObserveRequest) =>
     // A terminal status alone never supplies a result, and a bounded event
     // page cannot reconstruct a root result that precedes its cursor.
     let finalOutput: string | undefined
+    let failure: { readonly failureFault?: Fault.Class; readonly failureTag?: string } = {}
     if (terminal.has(summary.status)) {
       const projections = yield* Projections.make(control)
       const snapshot = yield* projections.snapshot({ _tag: "run-summary", runId: input.runId })
@@ -417,9 +419,13 @@ export const observe = (control: Control["Service"], input: ObserveRequest) =>
         )
       }
       finalOutput = row.finalOutput
+      failure = {
+        ...(row.failureFault === undefined ? {} : { failureFault: row.failureFault }),
+        ...(row.failureTag === undefined ? {} : { failureTag: row.failureTag })
+      }
     }
     return {
-      run: { ...summary, ...(finalOutput === undefined ? {} : { finalOutput }) },
+      run: { ...summary, ...(finalOutput === undefined ? {} : { finalOutput }), ...failure },
       events: page,
       nextCursor: last === undefined
         ? input.afterCursor ?? ""
@@ -461,7 +467,12 @@ export const ObserveResponse = Schema.Struct({
   protocol: Schema.Literal(protocol),
   ok: Schema.Literal(true),
   value: Schema.Struct({
-    run: Schema.Struct({ ...RunSummary.fields, finalOutput: Schema.optional(Schema.String) }),
+    run: Schema.Struct({
+      ...RunSummary.fields,
+      finalOutput: Schema.optional(Schema.String),
+      failureFault: Schema.optional(Fault.Class),
+      failureTag: Schema.optional(Schema.String)
+    }),
     events: Schema.Array(ControlEvent),
     nextCursor: Schema.String,
     hasMore: Schema.Boolean,

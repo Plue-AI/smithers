@@ -59,7 +59,7 @@ import { Envelope, type PlanCard, type RunStatus } from "@smthrs/control/Control
 import * as Digest from "@smthrs/core/Digest"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
-import { Action, DurableDeferred, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Fault, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
@@ -2698,8 +2698,10 @@ export const make = (
      * benchmark runs ended `control.run.failed {runId, status}` and nothing
      * else, and the log line was long gone. The journal is the record a
      * `smithers status` diagnosis reads, so the reason a run died belongs in it.
+     * Beside it goes the failure's typed {@link Fault}, which the gateway
+     * carries to the worker so nothing downstream re-reads the prose.
      */
-    const writeStatus = (runId: string, status: RunStatus, detail?: string) =>
+    const writeStatus = (runId: string, status: RunStatus, detail?: string, fault?: Fault.Fault) =>
       Effect.suspend(() => {
         let fence: string
         return ControlFacts.commitRun(
@@ -2710,7 +2712,10 @@ export const make = (
           }),
           sourceId,
           `control.run.${status}`,
-          detail === undefined ? {} : { cause: detail.slice(0, 4096) }
+          {
+            ...(detail === undefined ? {} : { cause: detail.slice(0, 4096) }),
+            ...(fault === undefined ? {} : { fault })
+          }
         ).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
@@ -2744,9 +2749,9 @@ export const make = (
      * With no ordering to observe there is nothing to wait for and nothing to
      * detach: the status is written inline, exactly as it was.
      */
-    const settleTerminal = (runId: string, status: RunStatus, detail?: string) => {
+    const settleTerminal = (runId: string, status: RunStatus, detail?: string, fault?: Fault.Fault) => {
       const order = options.orderTerminalStatus
-      if (order === undefined) return writeStatus(runId, status, detail)
+      if (order === undefined) return writeStatus(runId, status, detail, fault)
       return Effect.sync(() => {
         const key = {}
         terminalWrites.set(
@@ -2763,7 +2768,7 @@ export const make = (
                   { runId, status, cause: Cause.pretty(cause) }
                 )
               ),
-              Effect.andThen(writeStatus(runId, status, detail)),
+              Effect.andThen(writeStatus(runId, status, detail, fault)),
               // Nothing joins this fiber, so an unwritten terminal status would
               // otherwise be silent. It is the run's outcome of record.
               Effect.catchCause((cause) =>
@@ -2811,9 +2816,15 @@ export const make = (
             cause: Cause.pretty(exit.cause)
           }),
           Effect.suspend(() => {
-            const detail = failureSummary(settlementFailure(Cause.squash(exit.cause)))
+            const error = Cause.squash(exit.cause)
+            const detail = failureSummary(settlementFailure(error))
             const cause = Cause.pretty(exit.cause)
-            return settleTerminal(runId, "failed", detail === undefined ? cause : `${detail}\n${cause}`)
+            return settleTerminal(
+              runId,
+              "failed",
+              detail === undefined ? cause : `${detail}\n${cause}`,
+              Fault.of(error)
+            )
           })
         )
 

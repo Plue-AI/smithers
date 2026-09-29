@@ -824,6 +824,8 @@ describe("AgentSession", () => {
       const failure = result.entries.find((entry) => entry.eventType === "control.run.failed")
       expect(JSON.stringify(failure)).toContain("ended without a completed answer")
       expect(JSON.stringify(failure)).toContain("FramesExhausted")
+      // Frames spent without an answer is the plan not converging: a replan, not a retry.
+      expect(failure?.payload).toMatchObject({ fault: { class: "factory", tag: "FramesExhausted" } })
       // Read the durable settlement after scope closure, not just the control status.
       const database = new DatabaseSync(join([...engineRoots][0]!, "engine.db"), { readOnly: true })
       try {
@@ -893,6 +895,9 @@ describe("AgentSession", () => {
     const failed = outcome.agentTrail.find((entry) => entry.eventType === "control.run.failed")
     expect(JSON.stringify(failed?.payload)).toContain("/harness/HarnessError")
     expect(JSON.stringify(failed?.payload)).toContain("predates harness journal format 2")
+    expect(failed?.payload).toMatchObject({
+      fault: { class: "bug", tag: "/harness/HarnessError/incompatible_journal" }
+    })
     // The refusal is the operator's resume reading the history this test
     // wrote, and nothing else: one claim means the run sat on its ask until
     // the approval arrived, so no earlier incarnation was still inside the
@@ -2530,6 +2535,10 @@ describe("AgentSession seat routing", () => {
     expect(seatRouted(run.trail)).toHaveLength(0)
     const failed = run.trail.find((entry) => entry.eventType === "control.run.failed")
     expect(JSON.stringify(failed?.payload)).toContain("SeatUnrouted")
+    // The typed fault rides beside the prose, so the worker never re-reads it.
+    expect(failed?.payload).toMatchObject({
+      fault: { class: "dependency", tag: "@smthrs/agent/Seat/SeatUnrouted/unreachable" }
+    })
   })
 
   it("fails a resumed run whose catalog dropped the variant it started on", async () => {

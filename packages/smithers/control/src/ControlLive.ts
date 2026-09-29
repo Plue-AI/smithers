@@ -6,6 +6,7 @@
  */
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import * as Fault from "@smthrs/flow/Fault"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import { NotificationQueue } from "@smthrs/notifications"
 import * as SteerPayload from "@smthrs/notifications/SteerPayload"
@@ -444,7 +445,8 @@ export const layer: Layer.Layer<
      */
     const settleUnlaunched = (
       runId: RunId,
-      cause: string
+      cause: string,
+      fault: Fault.Fault
     ): Effect.Effect<void> =>
       Effect.gen(function*() {
         const fence = yield* runtime.claimFence(runId)
@@ -452,7 +454,7 @@ export const layer: Layer.Layer<
         yield* emit(
           runId,
           "control.run.failed",
-          json({ runId, status: "failed", cause: cause.slice(0, 4096), ...ControlFacts.runFact(run) })
+          json({ runId, status: "failed", cause: cause.slice(0, 4096), fault, ...ControlFacts.runFact(run) })
         )
       }).pipe(
         journal.transact,
@@ -573,7 +575,7 @@ export const layer: Layer.Layer<
       Effect.gen(function*() {
         const acceptance = Option.isSome(executor)
           ? yield* executor.value.launch(launch).pipe(
-            Effect.tapError((error) => settleUnlaunched(error.runId, error.message))
+            Effect.tapError((error) => settleUnlaunched(error.runId, error.message, Fault.of(error)))
           )
           : "pending"
         yield* transact(

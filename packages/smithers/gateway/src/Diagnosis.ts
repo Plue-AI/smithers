@@ -20,7 +20,8 @@
  */
 
 import { ControlSchema } from "@smthrs/control"
-import { HashMap } from "effect"
+import * as Fault from "@smthrs/flow/Fault"
+import { HashMap, Schema } from "effect"
 import { callEventKey, callScope, nativeCallEvent, nativeStepEvent, uniqueCallEvents } from "./internal/callEvents.ts"
 import * as DigestIndex from "./internal/digestIndex.ts"
 import { encodedBytes, recordDigestBytes } from "./internal/digestMemory.ts"
@@ -100,6 +101,8 @@ export interface Digest {
   readonly status: RunStatus | undefined
   /** The journaled failure cause, when the run failed and recorded one. */
   readonly cause: string | undefined
+  /** The typed fault stamped beside {@link cause}; it is written and cleared with it. */
+  readonly fault?: Fault.Fault | undefined
   /** The model seat the last opened turn ran on. */
   readonly seat: string | undefined
   readonly turns: number
@@ -146,6 +149,8 @@ export const asRecord = (value: unknown): Record<string, unknown> =>
  * @category conversions
  */
 export const asString = (value: unknown): string | undefined => typeof value === "string" ? value : undefined
+
+const isFault = Schema.is(Fault.Fault)
 
 /**
  * Reads a payload field as a number, or nothing when it is not one.
@@ -205,6 +210,7 @@ export const clip = (text: string, width: number): string => {
 interface Accumulator {
   status: RunStatus | undefined
   cause: string | undefined
+  fault: Fault.Fault | undefined
   seat: string | undefined
   turns: number
   calls: number
@@ -330,6 +336,7 @@ const rawDigest = (events: ReadonlyArray<ControlSchema.ControlEvent>): Digest =>
   const accumulator: Accumulator = {
     status: undefined,
     cause: undefined,
+    fault: undefined,
     seat: undefined,
     turns: 0,
     calls: 0,
@@ -390,6 +397,8 @@ const rawDigest = (events: ReadonlyArray<ControlSchema.ControlEvent>): Digest =>
       observe(at)
       accumulator.status = status as RunStatus
       if (status === "failed") accumulator.cause = asString(payload.cause)
+      // A resumed run is no longer failed, so the fault of its last failure goes.
+      accumulator.fault = status === "failed" && isFault(payload.fault) ? payload.fault : undefined
     }
   }
 
@@ -712,6 +721,7 @@ const combinePlain = (earlier: Digest, later: Digest, writes: DigestState["write
   return {
     status: later.status ?? earlier.status,
     cause: writes.cause ? later.cause : earlier.cause,
+    fault: writes.cause || (later.status !== undefined && later.status !== "failed") ? later.fault : earlier.fault,
     seat: later.seat ?? earlier.seat,
     turns: earlier.turns + later.turns,
     calls: earlier.calls + later.calls,

@@ -131,6 +131,22 @@ describe("Diagnosis.digest", () => {
     expect(digest).toMatchObject({ status: "failed", cause: "the model refused", parkedQuestion: "Ship it?" })
   })
 
+  it("keeps a failure's stamped fault, drops a malformed one, and clears it with the cause", () => {
+    const fault = { class: "factory", tag: "coding/Error/stalled" }
+    expect(Diagnosis.digest([event("control.run.failed", { cause: "stalled", fault })]).fault).toEqual(fault)
+    expect(Diagnosis.digest([event("control.run.failed", { cause: "x", fault: { class: "nope", tag: "t" } })]).fault)
+      .toBeUndefined()
+    const earlier = Diagnosis.digest([event("control.run.failed", { cause: "stalled", fault })])
+    const later = Diagnosis.digest([event("control.run.failed", { cause: "legacy" })])
+    expect(Diagnosis.combine(earlier, later)).toMatchObject({ cause: "legacy", fault: undefined })
+    expect(Diagnosis.combine(earlier, Diagnosis.digest([event("control.agent.turn-opened", {})])).fault).toEqual(fault)
+    // A run resumed after the failure no longer carries its fault, in one window or across two.
+    expect(Diagnosis.combine(earlier, Diagnosis.digest([event("control.run.running", {})])).fault).toBeUndefined()
+    expect(
+      Diagnosis.digest([event("control.run.failed", { cause: "x", fault }), event("control.run.running", {})]).fault
+    ).toBeUndefined()
+  })
+
   it("tolerates a payload that is not a record", () => {
     const digest = Diagnosis.digest([
       event("control.agent.turn-opened", "not a record"),

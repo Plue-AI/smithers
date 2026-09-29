@@ -399,6 +399,38 @@ describe("RuntimeBridge", () => {
       }))
   }
 
+  it.effect("carries a failed run's stamped fault to the worker, and none on a run that did not fail", () =>
+    Effect.gen(function*() {
+      const failed = { ...summary, status: "failed" } as RunSummary
+      const control = service({
+        list: () => Effect.succeed({ _tag: "runs" as const, items: [failed] }),
+        watch: () =>
+          Stream.make({
+            sequence: 4,
+            kind: "control.run.failed",
+            runId: "run-1",
+            occurredAt: 1,
+            payload: {
+              cause: "quota_exceeded: limit",
+              fault: { class: "wait", tag: "flows/model/ModelError/quota_exceeded" }
+            }
+          })
+      })
+      const result = yield* RuntimeBridge.observe(control, { protocol: RuntimeBridge.protocol, runId: "run-1" })
+      expect(result.run).toMatchObject({ failureFault: "wait", failureTag: "flows/model/ModelError/quota_exceeded" })
+      expect(
+        Schema.decodeUnknownSync(RuntimeBridge.ObserveResponse)({
+          protocol: RuntimeBridge.protocol,
+          ok: true,
+          value: result
+        })
+          .value.run.failureFault
+      ).toBe("wait")
+      const completed = yield* RuntimeBridge.observe(service(), { protocol: RuntimeBridge.protocol, runId: "run-1" })
+      expect(completed.run).not.toHaveProperty("failureFault")
+      expect(completed.run).not.toHaveProperty("failureTag")
+    }))
+
   it.effect("does not invent a result for a terminal run without committed output", () =>
     Effect.gen(function*() {
       const result = yield* RuntimeBridge.observe(service(), { protocol: RuntimeBridge.protocol, runId: "run-1" })

@@ -14,6 +14,7 @@
  */
 
 import { ControlFacts, ControlSchema, Health, Monitor } from "@smthrs/control"
+import * as Fault from "@smthrs/flow/Fault"
 import { ExecutionFact } from "@smthrs/journal"
 import { Schema } from "effect"
 import * as Diagnosis from "./Diagnosis.ts"
@@ -68,7 +69,10 @@ export const RunSummaryRow = Schema.Struct({
   verdict: Schema.String,
   /** The whole diagnosis card, which the old wire called `whatHappened`. */
   diagnosis: Schema.String,
-  finalOutput: Schema.optional(Schema.String)
+  finalOutput: Schema.optional(Schema.String),
+  /** The failed run's fault class and `<_tag>/<code>`, stamped when it failed. */
+  failureFault: Schema.optional(Fault.Class),
+  failureTag: Schema.optional(Schema.String)
 })
 
 /**
@@ -317,7 +321,9 @@ export const runSummary = (
     outputTokens: facts.outputTokens,
     verdict: Diagnosis.verdict(facts),
     diagnosis: Diagnosis.render({ runId: run.runId, ...optional("flowId", run.flowId) }, facts),
-    ...optional("finalOutput", Diagnosis.resolvedOutput(facts))
+    ...optional("finalOutput", Diagnosis.resolvedOutput(facts)),
+    ...(run.status === "failed" ? optional("failureFault", facts.fault?.class) : {}),
+    ...(run.status === "failed" ? optional("failureTag", facts.fault?.tag) : {})
   }
 }
 
