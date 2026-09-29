@@ -190,10 +190,14 @@ interpreters, including PATH interpreters selected by `/usr/bin/env`, are
 identified too. A target used as `bin` is identified after its executable
 output has been produced.
 
+`Host.bin(name, { env })` first takes the absolute path in host variable
+`env`, for a tool whose callers read that variable; PATH is used only when it
+is unset.
+
 `Shell.Build` command forms key the shell and the leading literal executable.
-Declare tool dependencies for commands computed dynamically or launched later
-in shell text. Executable installations must stay stable while a run is in
-progress; the executor rejects observed changes between planning, cache
+List executables a shell target spawns by itself in `tools`: their bytes join
+the key the same way, and an absent one refuses the target. Executable
+installations must stay stable while a run is in progress; the executor rejects observed changes between planning, cache
 lookup, and result storage. The build CLI cache keys on executable
 content, with Go, Rust, Node module, and within-run guarantees described
 in its caching concept doc.

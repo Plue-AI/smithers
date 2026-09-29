@@ -68,6 +68,16 @@ describe("bounded names", () => {
     })
     expect(Reference.NodeModule.Bin("typescript")).toEqual({ _tag: "NodeModuleBin", package: "typescript" })
   })
+
+  it("keeps a Host.bin selecting variable only when given one, and only a portable name", () => {
+    expect(Reference.hostBin("jj")).toEqual({ _tag: "HostBin", name: "jj" })
+    const selected = Reference.hostBin(" exporter ", { env: "EXPORTER_BINARY" })
+    expect(selected).toEqual({ _tag: "HostBin", name: "exporter", env: "EXPORTER_BINARY" })
+    expect(Object.isFrozen(selected)).toBe(true)
+    for (const env of ["", "1ST", "A-B", "A B", "A=B"]) {
+      expect(() => Reference.hostBin("exporter", { env })).toThrow()
+    }
+  })
 })
 
 describe("callableReferences", () => {

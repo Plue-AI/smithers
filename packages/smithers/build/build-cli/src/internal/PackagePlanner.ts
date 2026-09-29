@@ -832,12 +832,29 @@ const resolveTool = async (context: PlanContext, reference: Record<string, unkno
       }
   } else if (tag === "HostBin") {
     const name = String(reference["name"])
-    const path = PackageTree.findOnPath(name, context.environment)
+    const variable = typeof reference["env"] === "string" ? reference["env"] : undefined
+    const selected = variable === undefined ? undefined : context.environment[variable]
+    let path: string | undefined
+    let problem: string | undefined
+    if (selected !== undefined && selected !== "") {
+      // The variable selects the binary exactly as the tool's own callers do;
+      // PATH is never a fallback for a path that does not execute.
+      if (!NodePath.isAbsolute(selected)) problem = `${variable} must name an absolute path to ${JSON.stringify(name)}`
+      else if (!Exec.isExecutableFile(selected)) {
+        problem = `${variable} names ${JSON.stringify(selected)}, which is not an executable file`
+      } else path = selected
+    } else {
+      path = PackageTree.findOnPath(name, context.environment)
+      if (path === undefined) {
+        problem = `host binary ${JSON.stringify(name)} is declared in S.Host({ bins }) but is not present on PATH` +
+          (variable === undefined ? "" : ` and ${variable} is unset`)
+      }
+    }
     if (path === undefined) {
       outcome = {
         _tag: "refused",
         tool: {
-          refusal: `host binary ${JSON.stringify(name)} is declared in S.Host({ bins }) but is not present on PATH`,
+          refusal: problem!,
           identity: { tag: "HostBin", name, absent: true }
         }
       }
@@ -1573,6 +1590,7 @@ const visit = async (
   let cargoCrates: ReadonlyArray<CrateRow> | undefined
   let cargoOutFiles: ReadonlyArray<string> = []
   const absoluteEnv: Array<string> = []
+  const spawnedTools: Array<string> = []
   let env: Record<string, string> = {}
   let bunTemplate: PackageNode["bunTemplate"]
   let emit: PackageNode["emit"]
@@ -1669,6 +1687,15 @@ const visit = async (
       if (bun._tag === "resolved" && refusal === undefined) {
         bunTemplate = { template: shellAttrs.bun, consts, bunPath: bun.tool.path }
       }
+    }
+    // Tools the process spawns by itself never reach argv, so their bytes are
+    // fingerprinted with the executable below rather than left to the host.
+    for (const reference of shellAttrs.tools ?? []) {
+      const outcome = await resolveTool(toolContext, reference as Record<string, unknown>)
+      toolchain.push({ slot: "tool", identity: outcome.tool.identity })
+      if (outcome._tag === "refused") noteRefusal(outcome.tool.refusal)
+      else if (outcome.tool.args !== undefined) noteRefusal("Runtime.npx references must be used as bin, not in tools")
+      else spawnedTools.push(outcome.tool.path)
     }
     // A Diff tool that names no path in its declared args is pointed at its
     // write set: the resolved patterns' static prefixes become trailing
@@ -2738,7 +2765,7 @@ const visit = async (
       .filter((name) => name in declaredEnvironment || !["HOME", "TMPDIR", "TEMP", "TMP"].includes(name))
       .map((name) => [name, name in declaredEnvironment ? spawnEnvironment[name] : true])
   ))
-  const executableCommands = argv === undefined ? [] : [argv[0]!]
+  const executableCommands = argv === undefined ? [] : [argv[0]!, ...spawnedTools]
   // A command-form target spawns a shell, but its leading literal program
   // can change independently of that shell. Dynamic commands still need
   // declared bin/using tools to identify their executable dependencies.

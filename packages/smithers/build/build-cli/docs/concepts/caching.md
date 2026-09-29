@@ -77,8 +77,8 @@ of a `Shell.Build` command. Shebang
 scripts also include their interpreter's path and bytes, including the PATH
 lookup in `#!/usr/bin/env node` and `#!/usr/bin/env -S node ...`. Unsupported
 `env` option or quoting forms refuse planning instead of guessing. Commands
-computed by shell expressions or launched later by a script need declared
-tool dependencies; the executor does not trace arbitrary subprocesses.
+computed by shell expressions or launched later by a script are declared in
+a shell target's `tools`; the executor does not trace arbitrary subprocesses.
 
 Go identities include the selected `GOROOT/bin` executables and `GOTOOLDIR`
 tools, so a stable launcher cannot hide a changed compiler. Rust identities

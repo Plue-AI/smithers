@@ -141,7 +141,7 @@ const makeHost = (options: { readonly bins: ReadonlyArray<string> }): HostDeclar
  * @category constructors
  * @since 0.1.0
  */
-export const Host: typeof makeHost & { readonly bin: (name: string) => Reference.HostBin } = Object.assign(
+export const Host: typeof makeHost & { readonly bin: typeof Reference.hostBin } = Object.assign(
   makeHost,
   { bin: Reference.hostBin }
 )

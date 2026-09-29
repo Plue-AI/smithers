@@ -57,6 +57,9 @@ const sharedFields = {
   shell: Schema.optional(Schema.NonEmptyString),
   script: Schema.optional(Input.File),
   using: Schema.optional(Attr.Using),
+  // Executables the process spawns by itself, not through argv. Their bytes
+  // are key material and an absent one refuses the target.
+  tools: Schema.optional(Schema.Array(Reference.Tool)),
   args: Schema.optional(Attr.Args),
   runtimeArgs: Schema.optional(Schema.Array(Schema.String)),
   env: Schema.optional(Attr.Env),
@@ -271,6 +274,7 @@ export interface ExecAttrs {
   readonly shell?: string | undefined
   readonly script?: Input.File | undefined
   readonly using?: Readonly<Record<string, Reference.Tool>> | undefined
+  readonly tools?: ReadonlyArray<Reference.Tool> | undefined
   readonly args?: ReadonlyArray<string | Reference.FlagRef> | undefined
   readonly runtimeArgs?: ReadonlyArray<string> | undefined
   readonly env?: Readonly<Record<string, string>> | undefined

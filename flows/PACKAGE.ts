@@ -271,12 +271,17 @@ const codingConfigBun = Smithers.NodeTest({
 })
 
 // Explicit slow gates: preflight refuses missing native tools instead of letting
-// opt-in integration cases silently skip. Shell.Test caches a green verdict; the
-// JJ and helper bytes it spawns are bound by the coding check cache partition.
+// opt-in integration cases silently skip. Shell.Test caches a green verdict, so
+// the JJ and exporter bytes the gate spawns are key material through `tools`.
+const nativeTools = [
+  Smithers.Host.bin("jj"),
+  Smithers.Host.bin("smithers-jj-export", { env: "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY" })
+]
 const codingNative = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: node,
   args: ["flows/test/coding-native-gate.mjs", "source"],
+  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -292,6 +297,7 @@ const codingNativeBun = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: bun,
   args: ["flows/test/coding-native-gate.mjs", "source"],
+  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -299,6 +305,7 @@ const codingBundle = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: node,
   args: ["flows/test/coding-native-gate.mjs", "bundle"],
+  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -306,6 +313,7 @@ const codingBundleBun = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: bun,
   args: ["flows/test/coding-native-gate.mjs", "bundle"],
+  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })

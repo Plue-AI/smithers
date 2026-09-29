@@ -53,13 +53,17 @@ export const NodeModuleDep = Schema.TaggedStruct("NodeModule", {
 export type NodeModuleDep = typeof NodeModuleDep.Type
 
 /**
- * Schema for a host binary reference, `S.Host.bin(name)`.
+ * Schema for a host binary reference, `S.Host.bin(name, { env? })`.
+ *
+ * `env` names a host variable holding an absolute path that selects the
+ * binary instead of PATH, for a tool whose own callers read that variable.
  *
  * @category schemas
  * @since 0.1.0
  */
 export const HostBin = Schema.TaggedStruct("HostBin", {
-  name: Schema.NonEmptyString
+  name: Schema.NonEmptyString,
+  env: Schema.optional(Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)))
 })
 
 /**
@@ -284,12 +288,17 @@ export const NodeModule: {
 
 /**
  * References a binary the workspace `S.Host({ bins })` declaration names.
+ * With `env`, an absolute path in that host variable selects the binary
+ * before PATH does.
  *
  * @category constructors
  * @since 0.1.0
  */
-export const hostBin = (name: string): HostBin =>
-  Object.freeze(HostBin.make({ name: boundedName(name, "Host.bin name") }))
+export const hostBin = (name: string, options: { readonly env?: string } = {}): HostBin =>
+  Object.freeze(HostBin.make({
+    name: boundedName(name, "Host.bin name"),
+    ...(options.env === undefined ? {} : { env: options.env })
+  }))
 
 /**
  * The workspace package manager's binary as an inert reference value.

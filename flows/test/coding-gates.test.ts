@@ -77,8 +77,14 @@ test("every flows fixture belongs to a declared gate; native targets stay separa
   ], "dual ownership is declared, not accidental")
   assert.deepEqual([...new Set([...ordinary, ...nativeTests])].sort(), actual.sort())
   for (const target of [Package.codingNative, Package.codingNativeBun, Package.codingBundle, Package.codingBundleBun]) {
-    const metadata = Target.metadata(target), attrs = metadata.attrs as { timeout: string; args: string[] }
+    const metadata = Target.metadata(target)
+    const attrs = metadata.attrs as { timeout: string; args: string[]; tools: unknown[] }
     assert.equal(metadata.target, "Shell.Test")
+    // The JJ and exporter bytes the gate spawns are key material, not host luck.
+    assert.deepEqual(attrs.tools, [
+      { _tag: "HostBin", name: "jj" },
+      { _tag: "HostBin", name: "smithers-jj-export", env: "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY" }
+    ])
     assert.equal(metadata.cacheable, false)
     assert.equal(attrs.timeout, "45m")
     assert.equal(attrs.args[0], "flows/test/coding-native-gate.mjs")
@@ -96,6 +102,14 @@ test("native gate refuses absent prerequisites before an opt-in fixture can skip
   assert.equal(result.status, 1, result.stderr)
   assert.match(result.stderr, /Native coding prerequisite is missing/)
   assert.doesNotMatch(result.stdout, /Native coding gate:/)
+  // Unset, the helper is found on PATH, as the build resolves it; none is absent.
+  const unset = spawnSync(process.execPath, [fileURLToPath(new URL("./coding-native-gate.mjs", import.meta.url))], {
+    encoding: "utf8",
+    timeout: 15_000,
+    env: { PATH: "/smithers-acceptance-does-not-exist" }
+  })
+  assert.equal(unset.status, 1, unset.stderr)
+  assert.match(unset.stderr, /Native coding prerequisite is missing/)
   const unlisted = spawnSync(process.execPath, [
     fileURLToPath(new URL("./coding-native-gate.mjs", import.meta.url)),
     "source",

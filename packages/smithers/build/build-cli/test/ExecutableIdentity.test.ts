@@ -16,8 +16,12 @@ import { serve as serveCli } from "./helpers/ServeCli.ts"
 
 const temporary: Array<string> = []
 const originalPath = process.env["PATH"]
+const helperVariable = "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"
+const originalHelper = process.env[helperVariable]
 afterEach(async () => {
   process.env["PATH"] = originalPath
+  if (originalHelper === undefined) delete process.env[helperVariable]
+  else process.env[helperVariable] = originalHelper
   await Promise.all(temporary.splice(0).map((root) => Fs.rm(root, { recursive: true, force: true })))
 })
 const directory = async (): Promise<string> => {
@@ -45,7 +49,7 @@ export const Workspace = S.Workspace("identity", {
   runtime: S.Runtime.Node({ version: "24" }),
   packageManager: S.PackageManager.Yarn({ manifest: packageJson, lockfile: S.file("//yarn.lock") }),
   nodeModules: S.Npm.NodeModules({ packageJson }),
-  host: S.Host({ bins: ["identity-compiler"] }),
+  host: S.Host({ bins: ["identity-compiler", "identity-helper"] }),
   ${extra}
 })`
   )
@@ -235,6 +239,91 @@ export const Package = S.Package({ targets: { dist: S.Shell.Build({ shell: "${bi
     )
     await write(tools, "identity-compiler", compiler(tools, "first"))
     await assertReplacement(root, tools, () => write(tools, "identity-compiler", compiler(tools, "second")))
+  })
+
+  it.each([true, false])("keys a helper the tool spawns itself only when tools declares it (%s)", async (declared) => {
+    const { root, tools } = await fixture(
+      `S.Shell.Build({ bin: S.Host.bin("identity-compiler"), ${
+        declared ? "tools: [S.Host.bin(\"identity-helper\")], " : ""
+      }outDirs: ["dist"], sandbox: "none" })`
+    )
+    await write(
+      tools,
+      "identity-compiler",
+      "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.0.0; exit 0; fi\nexec identity-helper \"$@\"\n"
+    )
+    await write(tools, "identity-helper", compiler(tools, "first"))
+    if (declared) {
+      await assertReplacement(root, tools, () => write(tools, "identity-helper", compiler(tools, "second")))
+      return
+    }
+    // The undeclared helper is invisible to the key: a replacement replays.
+    expect(await serve(root)).toContain("//:dist  ran")
+    await write(tools, "identity-helper", compiler(tools, "second"))
+    expect(await serve(root)).toContain("//:dist  hit")
+    expect(await Fs.readFile(Path.join(root, "dist/value"), "utf8")).toBe("first")
+  })
+
+  it("keys the helper a Host.bin variable selects over PATH and hands the process that file", async () => {
+    const { root, tools } = await fixture(
+      `S.Shell.Build({ bin: S.Host.bin("identity-compiler"), tools: [S.Host.bin("identity-helper", { env: "${helperVariable}" })], outDirs: ["dist"], sandbox: "none" })`
+    )
+    const selected = await directory()
+    await write(
+      tools,
+      "identity-compiler",
+      `#!/bin/sh\nif [ "$1" = --version ]; then echo 1.0.0; exit 0; fi\nexec "$${helperVariable}" "$@"\n`
+    )
+    // PATH holds a decoy the variable must win over.
+    await write(tools, "identity-helper", "#!/bin/sh\nexit 9\n")
+    await write(selected, "identity-helper", compiler(tools, "first"))
+    process.env[helperVariable] = Path.join(selected, "identity-helper")
+    await assertReplacement(root, tools, () => write(selected, "identity-helper", compiler(tools, "second")))
+  })
+
+  it.each([
+    ["unset and absent from PATH", undefined, /not present on PATH and SMITHERS_WORKSPACE_JJ_EXPORT_BINARY is unset/],
+    ["relative", "identity-helper", /SMITHERS_WORKSPACE_JJ_EXPORT_BINARY must name an absolute path/],
+    ["not executable", "missing", /which is not an executable file/]
+  ])("refuses a tools helper whose variable is %s", async (_, value, refusal) => {
+    const { root, tools } = await fixture(
+      `S.Shell.Build({ bin: S.Host.bin("identity-compiler"), tools: [S.Host.bin("identity-helper", { env: "${helperVariable}" })], outDirs: ["dist"], sandbox: "none" })`
+    )
+    await write(tools, "identity-compiler", compiler(tools, "first"))
+    if (value === undefined) delete process.env[helperVariable]
+    else process.env[helperVariable] = value === "missing" ? Path.join(tools, "absent-helper") : value
+    // A PATH helper never stands in for a variable that names a broken path.
+    if (value !== undefined) await write(tools, "identity-helper", compiler(tools, "first"))
+    const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
+    const planned = await PackageExec.plan({
+      index: PackageIndex.make(loaded),
+      patterns: ["//:dist"],
+      cacheDirectory: ".flows",
+      verb: "auto"
+    })
+    expect(planned.nodes.get("//:dist")?.refusal).toMatch(refusal)
+    await expect(Fs.access(Path.join(tools, "dispatches"))).rejects.toThrow()
+  })
+
+  it("refuses Runtime.npx in tools, which cannot carry its command arguments", async () => {
+    const { root, tools } = await fixture(
+      `S.Shell.Build({ bin: S.Host.bin("identity-compiler"), tools: [S.Runtime.npx("cowsay@1.6.0")], outDirs: ["dist"], sandbox: "none" })`
+    )
+    await write(tools, "identity-compiler", compiler(tools, "first"))
+    // The launcher resolves under the declared runtime, so declare this one.
+    const workspace = Path.join(root, "WORKSPACE.ts")
+    await Fs.writeFile(
+      workspace,
+      (await Fs.readFile(workspace, "utf8")).replace("version: \"24\"", `version: "${process.versions.node}"`)
+    )
+    const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
+    const planned = await PackageExec.plan({
+      index: PackageIndex.make(loaded),
+      patterns: ["//:dist"],
+      cacheDirectory: ".flows",
+      verb: "auto"
+    })
+    expect(planned.nodes.get("//:dist")?.refusal).toBe("Runtime.npx references must be used as bin, not in tools")
   })
 
   it.each(["direct", "env", "env-split"])(

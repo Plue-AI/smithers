@@ -51,7 +51,7 @@ export const Workspace = S.Workspace("smithers", {
   packageManager,
   nodeModules,
   toolchains: [rust],
-  host: S.Host({ bins: ["git", "jj", "bun", "cargo"] }),
+  host: S.Host({ bins: ["git", "jj", "bun", "cargo", "smithers-jj-export"] }),
   // Build-target confinement stays off: `default` is the mechanism every
   // tool run of the build goes through, and the fail-closed Nix resolver would
   // refuse every host without `nix` on PATH. `microsandbox` is the runtime

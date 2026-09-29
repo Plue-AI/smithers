@@ -1,9 +1,9 @@
 /** Private slow-test launcher. It selects existing fixtures, not a new test engine. */
 import { spawn, execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { constants, createReadStream } from "node:fs"
+import { accessSync, constants, createReadStream, statSync } from "node:fs"
 import { access, stat } from "node:fs/promises"
-import { resolve } from "node:path"
+import { delimiter, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 export const nativeTests = [
@@ -22,6 +22,11 @@ const digest = async path => {
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest("hex")
 }
+const onPath = name => (process.env.PATH ?? "").split(delimiter).filter(Boolean)
+  .map(directory => join(directory, name)).find(candidate => {
+    try { accessSync(candidate, constants.X_OK); return statSync(candidate).isFile() }
+    catch { return false }
+  })
 const run = (args, env) => new Promise((resolve, reject) => {
   const child = spawn(process.execPath, args, { stdio: "inherit", env,
     cwd: fileURLToPath(new URL("../../", import.meta.url)), timeout: 25 * 60_000, killSignal: "SIGTERM" })
@@ -36,13 +41,15 @@ export const main = async (mode = "source", selected) => {
   if (selected !== undefined && (mode !== "source" || !available.includes(selected))) {
     throw new Error("Select an existing source fixture for this runtime, or omit the selection for the full gate")
   }
-  const helper = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY ?? "/usr/local/bin/smithers-jj-export"
-  if (!helper) throw new Error("Native coding gates require the packaged workspace helper")
+  // The same selection the build keys through `tools`: the variable, else PATH.
+  const helper = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY || onPath("smithers-jj-export")
+  const missing = "Native coding prerequisite is missing: set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to the built helper"
+  if (!helper) throw new Error(missing)
   try {
     await access(helper, constants.R_OK | constants.X_OK)
     if (!(await stat(helper)).isFile()) throw new Error("Expected a regular helper")
   }
-  catch { throw new Error("Native coding prerequisite is missing: set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to the built helper") }
+  catch { throw new Error(missing) }
   const jj = execFileSync("jj", ["--version"], { encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 }).trim()
   // These are measured preflight facts, not claims that host tools are build outputs.
   console.log(JSON.stringify({ runtime: process.versions.bun ? "bun" : "node",

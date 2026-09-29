@@ -839,8 +839,13 @@ const executableNames = (
   return [...new Set(names)]
 }
 
-/** Whether one directory entry is a file this host would run. */
-const isExecutableFile = (candidate: string): boolean => {
+/**
+ * Whether one path is a file this host would run.
+ *
+ * @category tools
+ * @since 0.1.0
+ */
+export const isExecutableFile = (candidate: string): boolean => {
   try {
     NodeFs.accessSync(candidate, NodeFs.constants.X_OK)
     return NodeFs.statSync(candidate).isFile()
