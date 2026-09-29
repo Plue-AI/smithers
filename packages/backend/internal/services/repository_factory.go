@@ -27,6 +27,8 @@ type FactoryProjection struct {
 	On []struct {
 		Event string          `json:"event"`
 		Flow  json.RawMessage `json:"flow"`
+		// Presence is rejected, including null: execution is repository-local.
+		Repository json.RawMessage `json:"repository,omitempty"`
 	} `json:"on"`
 }
 
@@ -39,6 +41,9 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 	var result []factoryRegistration
 	seen := map[string]bool{}
 	for _, rule := range projection.On {
+		if rule.Repository != nil {
+			return nil, errors.New("factory rules cannot select a repository; declare the flow in the target repository's factory")
+		}
 		var names []string
 		var name string
 		if json.Unmarshal(rule.Flow, &name) == nil {
