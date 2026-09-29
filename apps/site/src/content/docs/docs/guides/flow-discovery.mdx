@@ -38,6 +38,11 @@ import { FileTree } from "@astrojs/starlight/components"
 
 Discovery scans the directories under `flows/` for an entry file: `flow.ts`, `flow.mdx`, or `SKILL.md`. The flow id is the directory path below `flows/`, segments joined with `/`: `flows/review/flow.mdx` is `review`, and `flows/deploy/status/flow.ts` is `deploy/status`. An entry file directly in `flows/` is refused, because a path-named source cannot contain a root-level entry, and a frontmatter `name`, or a `Flow.make` tag that differs from the path-derived id, is ignored with a `name_field_ignored` warning.
 
+The chosen authoring direction is a TypeScript `flow.ts` entry importing MDX,
+but that migration has not landed. Today discovery still accepts all three
+entry files, and the current `smthrs init` scaffold writes `flow.mdx`. Do not
+rename existing Markdown flows on the assumption that the new format is live.
+
 Three rules decide what counts:
 
 - One directory holds one flow. When several entry files sit in one directory, discovery uses the first by precedence (`flow.ts`, then `flow.mdx`, then `SKILL.md`) and warns.

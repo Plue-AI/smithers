@@ -1,11 +1,11 @@
 ---
 title: "Why importing smthrs throws"
-description: "The notice smthrs@1.0.0-rc.0 throws, what each line of it means, why the package throws instead of resolving to an empty module, and the publication facts that make the notice reach a reader."
+description: "The planned smthrs@1.0.0-rc.1 notice, its import behavior, and the difference between checkout and npm availability."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smthrs-deprecation/docs/notice.md"
 ---
 
-The whole of `smthrs@1.0.0-rc.0` is one error, raised while the module
-evaluates:
+The `smthrs@1.0.0-rc.1` source checkout defines one error, raised while the module
+evaluates once this candidate is published:
 
 ```text
 smthrs 1.0 is a migration notice, not a runtime.
@@ -72,9 +72,12 @@ carries no notice. Nothing in this package can run during linking, so that
 error is documented rather than avoided; see
 [Troubleshooting](/troubleshooting/).
 
-## Only `smthrs@next` reaches the notice
+## Publication status
 
-`smthrs@0.35.0` keeps the `latest` dist-tag until Smithers 1.0.0 is final, so
-`npm install smthrs` still installs 0.x. Release candidates publish under the
-`next` dist-tag, so `smthrs@next` and `smthrs@1.0.0-rc.0` are the two
-specifiers that reach this package.
+At the 2026-09-29 registry check, `npm view smthrs dist-tags version --json`
+reported only `latest: 0.35.0`; `npm view @smthrs/flow dist-tags version --json`
+returned 404. Neither `smthrs@next` nor `smthrs@1.0.0-rc.1` is an installable
+notice yet. Use the source checkout and its workspace dependencies to inspect
+or test this candidate; do not treat a source build as an npm publication.
+The manifest requests the `next` tag for a future release, while `latest`
+continues to install 0.x until an actual release changes that tag.

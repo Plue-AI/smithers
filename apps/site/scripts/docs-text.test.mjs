@@ -75,6 +75,19 @@ test("kernel concept lists exactly the closed host tag surface", () => {
   assert.match(concept, /`CommandLine` is not one either: it is a pure renderer with no host access/)
 })
 
+test("authoring and release claims match supported state", () => {
+  const discovery = readFileSync(new URL("../../../packages/smithers/agent/registry/src/Discovery.ts", import.meta.url), "utf8")
+  const flowGuide = readFileSync(new URL("../src/content/docs/docs/guides/flow-discovery.mdx", import.meta.url), "utf8")
+  const markdownGuide = readFileSync(new URL("../src/content/docs/docs/guides/markdown-flows.mdx", import.meta.url), "utf8")
+  const notice = readFileSync(new URL("../../../packages/smthrs-deprecation/docs/notice.md", import.meta.url), "utf8")
+
+  assert.match(discovery, /flow\.ts[\s\S]*flow\.mdx[\s\S]*SKILL\.md/)
+  assert.match(flowGuide, /flow\.ts`, `flow\.mdx`, or `SKILL\.md`/)
+  assert.match(flowGuide, /chosen authoring direction[\s\S]*migration has not landed[\s\S]*scaffold writes `flow\.mdx`/)
+  assert.match(markdownGuide, /scaffold writes `flows\/review\/flow\.mdx`/)
+  assert.match(notice, /Neither `smthrs@next` nor `smthrs@1\.0\.0-rc\.1` is an installable\s+notice yet/)
+})
+
 test("migrate --scan rows describe the scan pipeline: planned units, nothing written", () => {
   const flow = readFileSync(new URL("../../../packages/smithers/migrate/src/flow/MigrateFlow.ts", import.meta.url), "utf8")
   const scan = readFileSync(new URL("../../../packages/smithers/migrate/src/Scan.ts", import.meta.url), "utf8")
