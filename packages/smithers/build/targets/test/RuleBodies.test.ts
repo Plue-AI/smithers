@@ -209,6 +209,19 @@ describe("Node programs", () => {
     }))[0]
     expect(call?.payload["argv"]).toEqual(["node", "../../scripts/pack.mjs", "--dry-run"])
     expect(call?.payload["env"]).toEqual({ REGION: "us" })
+    expect(call?.payload["timeoutMs"]).toBeUndefined()
+  })
+
+  it("NodeBinary forwards an explicit long-running deadline", () => {
+    const call = plannedCalls(NodeBinary.NodeBinary({
+      runtime,
+      entry: Input.file("//scripts/check-api-baseline.mjs"),
+      args: ["--build-declarations"],
+      srcs: [],
+      deps: [],
+      timeout: "30m"
+    }))[0]
+    expect(call?.payload["timeoutMs"]).toBe(1_800_000)
   })
 
   it("NodeTest plans its runner the same way", () => {

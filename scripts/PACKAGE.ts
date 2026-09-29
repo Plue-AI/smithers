@@ -235,6 +235,7 @@ const webBundleContract = Smithers.NodeTest({
 const apiBaseline = Smithers.NodeBinary({
   entry: Smithers.file("//scripts/check-api-baseline.mjs"),
   args: ["--build-declarations"],
+  timeout: "30m",
   srcs: sources,
   deps: []
 })

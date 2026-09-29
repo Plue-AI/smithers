@@ -22,6 +22,7 @@ import * as Exec from "./Exec.ts"
 import * as Input from "./Input.ts"
 import * as NodeTest from "./NodeTest.ts"
 import * as Runtime from "./Runtime.ts"
+import * as Shell from "./Shell.ts"
 import * as Target from "./Target.ts"
 
 /**
@@ -42,6 +43,8 @@ export const Attrs = Schema.Struct({
   args: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(NodeTest.maximumArguments)),
   srcs: Schema.Array(Input.Declared),
   deps: Schema.Array(Target.Dependency),
+  /** Explicit deadline for a long-running build; omitted targets retain Exec's ten-minute default. */
+  timeout: Schema.optional(Shell.Duration),
   env: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withConstructorDefault(Effect.succeed({}))
   ),
@@ -88,5 +91,11 @@ export const NodeBinary = Target.make("NodeBinary", {
   success: Exec.Result,
   error: Exec.ExecError,
   cache: false,
-  implementation: (attrs) => Exec.runTool({ cwd: attrs.cwd, argv: runArgv(attrs), env: attrs.env })
+  implementation: (attrs) =>
+    Exec.runTool({
+      cwd: attrs.cwd,
+      argv: runArgv(attrs),
+      env: attrs.env,
+      ...(attrs.timeout === undefined ? {} : { timeoutMs: Shell.durationMs(attrs.timeout) })
+    })
 })
