@@ -1,27 +1,19 @@
 import assert from "node:assert/strict"
-import { readdirSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { commands } from "../../tui/src/editor.ts"
 import { registry } from "../../tui/src/keys.ts"
 import { scenarioNames } from "../scripts/scenarios.mjs"
-import { parseScripts } from "../scripts/scripts.mjs"
+import { collectScripts } from "../scripts/scripts.mjs"
 const scripts = fileURLToPath(new URL("../../tui/docs/", import.meta.url))
 const site = fileURLToPath(new URL("../../site/src/content/docs/docs/", import.meta.url))
 const learn = fileURLToPath(new URL("../../site/scripts/journeys/journeys.mjs", import.meta.url))
-const walk = (dir: string): string[] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]
-  )
-const ids = new Map<string, string>()
-for (const file of walk(scripts).filter((file) => file.endsWith(".md"))) {
-  for (const script of parseScripts(readFileSync(file, "utf8"))) {
-    if (ids.has(script.id)) assert.equal(ids.get(script.id), JSON.stringify(script), `Conflicting script ${script.id}`)
-    ids.set(script.id, JSON.stringify(script))
-    const setup = script.steps.find((step: { kind: string }) => step.kind === "Use")
-    if (setup) assert(scenarioNames.includes(setup.value), `Unknown fixture ${setup.value}`)
-  }
+const ids = collectScripts(scripts)
+for (const script of ids.values()) {
+  const setup = script.steps.find((step: { kind: string }) => step.kind === "Use")
+  if (setup) assert(scenarioNames.includes(setup.value), `Unknown fixture ${setup.value}`)
 }
 test("every recording is a valid script and every TUI GIF on smithers.sh has one", () => {
   assert(ids.size >= 35, `Only ${ids.size} recordings`)

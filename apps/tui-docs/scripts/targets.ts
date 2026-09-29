@@ -63,10 +63,10 @@ export const test = (docs: ReturnType<typeof Smithers.Filegroup>) =>
     deps: [sourceFiles, docs, sitePages],
     cwd
   })
-export const browserTest = (build: ReturnType<typeof Smithers.ToolBuild>) =>
+export const browserTest = (build: ReturnType<typeof Smithers.ToolBuild>, docs: ReturnType<typeof Smithers.Filegroup>) =>
   Smithers.Shell.Test({
     bin: Smithers.Runtime.bin,
     args: ["apps/tui-docs/scripts/browser-test.mjs"],
-    data: [build, sourceFiles],
+    data: [build, sourceFiles, docs],
     timeout: "10m"
   })

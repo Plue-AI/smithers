@@ -1,4 +1,6 @@
 /** A strict, reviewable recording language. Setup names select repository-owned fixtures. */
+import { readFileSync } from "node:fs"
+import { walk } from "./inputs.mjs"
 export const keys = {
   Enter: "\r",
   Escape: "\x1b",
@@ -82,6 +84,20 @@ export function parseScripts(markdown) {
       ) throw new Error(`Invalid ${step.subject} status: ${step.value}`)
     }
     scripts.push({ id, kind, steps })
+  }
+  return scripts
+}
+/** Every recording the Markdown under `docsDir` declares, keyed by id; one id has one script. */
+export function collectScripts(docsDir) {
+  const scripts = new Map()
+  for (const file of walk(docsDir).filter((f) => f.endsWith(".md"))) {
+    for (const script of parseScripts(readFileSync(file, "utf8"))) {
+      const previous = scripts.get(script.id)
+      if (previous && JSON.stringify(previous) !== JSON.stringify(script)) {
+        throw new Error(`Conflicting recording ${script.id}`)
+      }
+      scripts.set(script.id, script)
+    }
   }
   return scripts
 }

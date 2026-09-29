@@ -1,8 +1,13 @@
 import assert from "node:assert/strict"
 import { fork } from "node:child_process"
+import { createHash } from "node:crypto"
 import { once } from "node:events"
+import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import { browserReplies, completion } from "./browser-replies.mjs"
+import { collectScripts } from "./scripts.mjs"
+const recordings = [...collectScripts(fileURLToPath(new URL("../../tui/docs/", import.meta.url))).keys()]
+assert(recordings.length > 0, "No TUI recordings declared")
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.CHROME_BIN
@@ -102,6 +107,19 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   await page.screenshot({ path: "/tmp/smithers-tui-docs-mobile.png", fullPage: true })
+  // Every declared recording is published with a receipt whose hashes match the served bytes.
+  for (const id of recordings) {
+    const receiptResponse = await page.request.get(`${origin}/recordings/${id}.json`)
+    assert.equal(receiptResponse.status(), 200, `${id} receipt`)
+    const receipt = await receiptResponse.json()
+    for (const ext of ["gif", "png", "txt"]) {
+      const asset = await page.request.get(`${origin}/recordings/${id}.${ext}`)
+      assert.equal(asset.status(), 200, `${id}.${ext}`)
+      const bytes = await asset.body()
+      assert.equal(createHash("sha256").update(bytes).digest("hex"), receipt[ext], `${id}.${ext} receipt`)
+      if (ext === "gif") assert.equal(bytes.subarray(0, 3).toString(), "GIF", id)
+    }
+  }
   const moved = await page.request.get(origin + "/guides/chat/", { maxRedirects: 0 })
   assert([301, 302, 200].includes(moved.status()), "former guide pages redirect to smithers.sh")
   await page.goto(origin)
@@ -168,7 +186,7 @@ try {
   await recovering.close()
   assert.deepEqual(errors, [])
   console.log(
-    "Browser: live production agent, unresolved provider, checkpoints, reload, branching, mobile, and the former guide redirects passed."
+    "Browser: live production agent, unresolved provider, checkpoints, reload, branching, mobile, recording receipts, and the former guide redirects passed."
   )
 } finally {
   release()

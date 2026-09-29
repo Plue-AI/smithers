@@ -85,7 +85,7 @@ export const Package = Smithers.Package({
     build,
     check: Docs.check(tui.docsFiles),
     test: Docs.test(tui.docsFiles),
-    browserTests: Docs.browserTest(build),
+    browserTests: Docs.browserTest(build, tui.docsFiles),
     sources: Docs.sourceFiles,
     ...securityReview
   }

@@ -22,7 +22,7 @@ import { recordBrowser } from "./browser-record.mjs"
 import { runtimeInputs } from "./inputs.mjs"
 import { providerFixture } from "./provider-fixture.mjs"
 import { prepare } from "./scenarios.mjs"
-import { keys, parseScripts } from "./scripts.mjs"
+import { collectScripts, keys } from "./scripts.mjs"
 const here = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
   root = resolve(here, "../.."),
   tuiRoot = join(root, "apps/tui")
@@ -34,16 +34,7 @@ const walk = (dir) =>
       ? walk(join(dir, e.name))
       : [join(dir, e.name)]
   )
-const scripts = new Map()
-for (const file of walk(join(tuiRoot, "docs")).filter((f) => f.endsWith(".md"))) {
-  for (const script of parseScripts(readFileSync(file, "utf8"))) {
-    const previous = scripts.get(script.id)
-    if (previous && JSON.stringify(previous) !== JSON.stringify(script)) {
-      throw new Error(`Conflicting recording ${script.id}`)
-    }
-    scripts.set(script.id, script)
-  }
-}
+const scripts = collectScripts(join(tuiRoot, "docs"))
 const output = join(here, "public/recordings"), cache = join(here, ".cache/recordings")
 mkdirSync(output, { recursive: true })
 mkdirSync(cache, { recursive: true })

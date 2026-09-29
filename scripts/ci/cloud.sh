@@ -553,6 +553,9 @@ run_gate() {
       pnpm exec smthrs ci '//apps/docs/...' --known-red '.github/ci-known-red.json' --verbose
       pnpm exec smthrs run '//apps/tui-docs:check' --verbose
       pnpm exec smthrs test '//apps/tui-docs:test' --verbose
+      # browserTests depends on build, which depends on recordings, so this
+      # executes every TUI recording and verifies its published receipts.
+      pnpm exec smthrs test '//apps/tui-docs:browserTests' --verbose
       ;;
     review-eval)
       pnpm exec smthrs test '//evals/review-seeded-bugs/...' --known-red '.github/ci-known-red.json' --verbose

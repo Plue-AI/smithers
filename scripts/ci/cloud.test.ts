@@ -79,7 +79,8 @@ describe("Smithers Cloud CI", () => {
         // fleet command stays pinned without creating another Actions lane.
         const cloudOnly = name === "docs" ? [
           "pnpm exec smthrs run '//apps/tui-docs:check' --verbose",
-          "pnpm exec smthrs test '//apps/tui-docs:test' --verbose"
+          "pnpm exec smthrs test '//apps/tui-docs:test' --verbose",
+          "pnpm exec smthrs test '//apps/tui-docs:browserTests' --verbose"
         ] : []
         for (const command of cloudOnly) expect(all).toContain(command)
         const commands = all.filter(command => command !== repair && !cloudOnly.includes(command))
@@ -499,6 +500,32 @@ describe("Smithers Cloud CI", () => {
       expect(run("docs").stdout).not.toContain("tui-docs")
       expect(run("tui").stdout).not.toContain("RAN install")
       expect(shell).not.toMatch(/run_gate "[^"]*"\)?\s*(\|\||&&)/)
+    })
+
+    test("docs invokes the recording-dependent browser target and propagates failure", () => {
+      const browserProbe = new URL("cloud.browser-probe.tmp.sh", import.meta.url)
+      const failing = stubs.replace(
+        /^pnpm\(\) \{.*$/m,
+        "pnpm() { echo \"RAN $*\"; case \"$*\" in *//apps/tui-docs:browserTests*) return 23 ;; esac; }"
+      )
+      writeFileSync(browserProbe, shell.replace(marker, `${failing}${marker}`))
+      try {
+        const invoke = (...args: string[]) =>
+          spawnSync("bash", ["scripts/ci/cloud.browser-probe.tmp.sh", ...args], { cwd: root, encoding: "utf8" })
+        const single = invoke("docs")
+        expect(single.error).toBeUndefined()
+        expect(single.stdout).toContain("RAN exec smthrs test //apps/tui-docs:test --verbose")
+        expect(single.stdout).toContain("RAN exec smthrs test //apps/tui-docs:browserTests --verbose")
+        expect(single.status).toBe(23)
+        expect(single.stdout).not.toContain("GATE-OK")
+        const grouped = invoke("group", "docs", "script-lint")
+        expect(grouped.status).toBe(1)
+        expect(grouped.stdout).toContain("::gate docs fail")
+        expect(grouped.stdout).toContain("::gate script-lint ok")
+        expect(grouped.stderr).toContain("GATE-FAIL docs")
+      } finally {
+        rmSync(browserProbe, { force: true })
+      }
     })
 
     test("single-gate mode still bootstraps and runs one gate", () => {
