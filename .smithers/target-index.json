@@ -18467,6 +18467,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/model/src/Pricing.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/model/src/Protocol.ts"
       },
       {
@@ -18488,6 +18492,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/model/src/internal/WireTrace.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/model/src/internal/prices.generated.ts"
       },
       {
         "kind": "file",
@@ -21035,6 +21043,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/flow/src/Action/AttemptTimedOut.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/flow/src/Action/BoundaryMode.ts"
       },
       {
@@ -23524,6 +23536,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/SupervisorMemory.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/Telemetry.ts"
       },
       {
         "kind": "file",
@@ -52470,6 +52486,56 @@
     }
   },
   {
+    "label": "//scripts/repo-contract:distributionImageTag",
+    "package": "scripts/repo-contract",
+    "name": "distributionImageTag",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/repo-contract/distribution-image-tag.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/repo-contract/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/set-release-version.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/workspace-packages.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/README.md"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/version.env"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/Dockerfile"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/repo-contract/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts/repo-contract:egressHttpClient",
     "package": "scripts/repo-contract",
     "name": "egressHttpClient",
@@ -53613,6 +53679,46 @@
         "kind": "glob",
         "pattern": "packages/smithers/gateway/test/**/*.ts",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:nativeWindowsWorkflow",
+    "package": "scripts",
+    "name": "nativeWindowsWorkflow",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/ci/native-windows.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/native-windows.yml"
       }
     ],
     "outputs": [],

@@ -281,6 +281,13 @@ const driftJob = Smithers.NodeTest({
   deps: []
 })
 
+/** The Windows kernel suite runs independently of the native and Node host jobs. */
+const nativeWindowsWorkflow = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/ci/native-windows.test.mjs")]),
+  srcs: [...sources, Smithers.file("//.github/workflows/native-windows.yml")],
+  deps: []
+})
+
 /**
  * Installs the packed artifacts into a scratch project and imports every
  * published entry point, ESM and CJS.
@@ -804,6 +811,7 @@ export const Package = Smithers.Package({
     apiBaseline,
     docsDrift,
     driftJob,
+    nativeWindowsWorkflow,
     bunCoverage,
     commit,
     conformanceCheck,
