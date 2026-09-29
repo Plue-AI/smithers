@@ -114,6 +114,9 @@ The new `PlanningContext` is durable action input/output, not a database table:
   parent, and operation IDs, plus native descriptions.
 - `memory` is empty by default, or contains selected Wiki pages labeled
   `current` or `intent`, with publication source revision and page input digest.
+- `learnings` holds the newest accepted `flow:coding` memory notes (at most
+  20, within the memory byte budget), recorded from earlier rejected
+  correction passes. It is absent when there are none.
 - `sources` carries bounded existing file text and digests; `missing` records
   paths whose bytes were unavailable.
 - `implementation`, `implementationDigest`, and `checks` identify verified

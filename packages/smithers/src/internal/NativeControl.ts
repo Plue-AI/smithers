@@ -158,6 +158,7 @@ export type ModuleRegistration = Layer.Layer<
   | QuotaPolicy.QuotaClassifier
   | NotificationQueue.NotificationQueue
   | Evaluator.Evaluator
+  | MemoryStore.MemoryStore
 >
 
 /** Everything the production executor is configured with beyond its stores.
@@ -1156,6 +1157,8 @@ export const make = (
             Layer.provide(Action.layerImplementations),
             Layer.provide(AgentAction.layerHost(actionHost)),
             Layer.provide(evaluator),
+            // The same store the run's memory flows and `memory notes` use.
+            Layer.provide(Layer.succeedContext(memoryServices)),
             Layer.provide(QuickJSSandbox.layer.pipe(Layer.orDie)),
             Layer.provide(Layer.succeed(Steering.Source, authority!.steering)),
             Layer.provide(Layer.succeed(FlowRuntime.FlowRuntime, authority!.runtime))

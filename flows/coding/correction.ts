@@ -36,6 +36,7 @@ import {
   RecordGate,
   RecordSlow
 } from "./feedback.ts"
+import { recordLearning } from "./learnings.ts"
 import { Assess, FastGate, Implement, RunCheck } from "./workflow.ts"
 
 const MaxRounds = Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(8))
@@ -184,6 +185,12 @@ const Finish = Action.make("coding/finish-correction", {
   payload: { cursor: Cursor, outcome: RoundOutcome },
   success: CorrectionResult,
   error: CodingError
+})
+/** A rejected round leaves a pending repository note; its own journal entry keeps replay from repeating it. */
+export const RecordLearning = Action.make("coding/record-learning", {
+  payload: { plan: Plan, round: Schema.Int, outcome: RoundOutcome },
+  success: RoundOutcome,
+  nondeterministic: true
 })
 const Begin = Action.make("coding/begin-correction", { payload: Input, success: Cursor, error: CodingError })
 
@@ -366,7 +373,7 @@ type RoundFlow = Flow.Flow<
   typeof Cursor,
   typeof CorrectionResult,
   typeof CodingError,
-  Action.Requirement<(typeof RunRound | typeof Finish)["name"]>
+  Action.Requirement<(typeof RunRound | typeof RecordLearning | typeof Finish)["name"]>
 >
 const Round: RoundFlow = Flow.make("coding/CorrectionRound", {
   payload: Cursor,
@@ -374,14 +381,17 @@ const Round: RoundFlow = Flow.make("coding/CorrectionRound", {
   error: CodingError,
   maxRounds: 8,
   body: (cursor) =>
-    RunRound.call(cursor).pipe(Node.branch({
-      if: (outcome) =>
-        outcome.blocked !== null || outcome.stalled !== null || outcome.result?.status === "validated" ||
-        cursor.round >= cursor.maxRounds,
-      then: (outcome) => Finish.call({ cursor, outcome }).pipe(Node.bindPlanned((result) => Flow.done(result))),
-      else: (outcome) =>
-        Round.to({ ...cursor, round: cursor.round + 1, previous: outcome.result, streaks: outcome.streaks })
-    }))
+    RunRound.call(cursor).pipe(
+      Node.bindPlanned((outcome) => RecordLearning.call({ plan: cursor.plan, round: cursor.round, outcome })),
+      Node.branch({
+        if: (outcome) =>
+          outcome.blocked !== null || outcome.stalled !== null || outcome.result?.status === "validated" ||
+          cursor.round >= cursor.maxRounds,
+        then: (outcome) => Finish.call({ cursor, outcome }).pipe(Node.bindPlanned((result) => Flow.done(result))),
+        else: (outcome) =>
+          Round.to({ ...cursor, round: cursor.round + 1, previous: outcome.result, streaks: outcome.streaks })
+      })
+    )
 })
 
 /** Private opt-in composition; existing coding/ImplementPlan keeps its current contract. */
@@ -410,6 +420,13 @@ export const correctionLayers = Layer.mergeAll(
     })
   ),
   Finish.toLayer(({ cursor, outcome }) => finishRound(cursor, outcome)),
+  RecordLearning.toLayer(({ plan, round, outcome }) =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      yield* recordLearning(plan, instance.executionId, round, outcome.result)
+      return outcome
+    })
+  ),
   PrepareContext.toLayer(({ plan, previous, read }) =>
     policy(() => {
       if (

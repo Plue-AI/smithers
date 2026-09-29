@@ -34,6 +34,15 @@ result carries the typed `stalled` verdict. The implement agent's `EditAtom`
 also sets `readOnlyCap: 12`: twelve frames without a workspace write demand an
 edit, and twenty-four fail the pass with `read_only_cap`.
 
+## Learnings
+
+After each pass, `coding/record-learning` writes a pass that ended
+`changes-requested` as one `pending` note in the `flow:coding` memory namespace:
+the request and each finding. Its id derives from the correction execution and
+round, and the action is journaled, so replay writes nothing twice. A store
+failure is logged and never blocks the correction. Accept a note with
+`smithers memory notes status <id> accepted`; planning reads only accepted notes.
+
 ## Early actionable feedback
 
 The first pass uses `ObservePlan`, an opt-in composition of the existing

@@ -174,7 +174,8 @@ const coding = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding.test.ts"),
-    Smithers.file("//flows/test/coding-state.test.ts")
+    Smithers.file("//flows/test/coding-state.test.ts"),
+    Smithers.file("//flows/test/coding-learnings.test.ts")
   ]),
   srcs: codingSources,
   deps: codingDependencies,

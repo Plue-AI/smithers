@@ -27844,6 +27844,10 @@
         "path": "flows/test/coding-state.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/coding-learnings.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []

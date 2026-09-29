@@ -9,7 +9,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemoryStore.ts"
+import * as TestMemory from "../../packages/smithers/agent/memory/src/test/TestMemory.ts"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
+import { namespace as learningNamespace } from "../coding/learnings.ts"
 import { NativeCoding } from "../coding/native.ts"
 import { gather } from "../coding/planning-memory.ts"
 import {
@@ -251,8 +254,13 @@ const gathering = async (root: string) => {
     }))
   }
   const input = { prompt: "Make start idempotent", feedback: "", wiki: { sourceRevision: "main@abc", pages } }
-  return (judge: Layer.Layer<never>) =>
-    Effect.runPromise(Effect.result(gather(options, input).pipe(Effect.provide(Layer.merge(services, judge)))))
+  return (
+    judge: Layer.Layer<never>,
+    memory: Layer.Layer<MemoryStore.MemoryStore> = TestMemory.layer.pipe(Layer.orDie)
+  ) =>
+    Effect.runPromise(
+      Effect.result(gather(options, input).pipe(Effect.provide(Layer.mergeAll(services, judge, memory))))
+    )
 }
 
 test("gather plans with the wiki pages and files Jev keeps, and nothing it omits", async (t) => {
@@ -296,4 +304,77 @@ test("gather fails unavailable when Jev cannot judge, never planning with the wi
     assert.equal(error.code, "unavailable")
     assert.ok(error.message.includes(reason), error.message)
   }
+})
+
+const keepNothing = Evaluator.layerScripted((request) =>
+  Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
+) as Layer.Layer<never>
+
+test("gather plans with accepted coding learnings only, and they change the memory revision", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "planning-gather-learnings-"))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const attempt = await gathering(root)
+  const seeded = (notes: ReadonlyArray<readonly [string, "pending" | "accepted" | "rejected"]>) =>
+    Layer.effectDiscard(Effect.gen(function*() {
+      const store = yield* MemoryStore.MemoryStore
+      for (const [id, status] of notes) {
+        yield* store.putNote({
+          namespace: learningNamespace,
+          id,
+          text: `lesson ${id}`,
+          tags: [],
+          provenance: {},
+          status
+        })
+      }
+      // A note outside the coding namespace never reaches planning.
+      yield* store.putNote({ namespace: "user:cli", id: "other", text: "other", tags: [], provenance: {} })
+    })).pipe(Layer.provideMerge(TestMemory.layer), Layer.orDie)
+  const none = await attempt(keepNothing, seeded([["pending", "pending"], ["rejected", "rejected"]]))
+  const some = await attempt(keepNothing, seeded([["pending", "pending"], ["accepted", "accepted"]]))
+  assert.equal(none._tag, "Success")
+  assert.equal(some._tag, "Success")
+  if (none._tag !== "Success" || some._tag !== "Success") return
+  assert.equal("learnings" in none.success, false)
+  assert.deepEqual(some.success.learnings, [{ id: "accepted", text: "lesson accepted" }])
+  assert.notEqual(some.success.memoryRevision, none.success.memoryRevision)
+  assert.ok(planningPrompt({ context: some.success }).includes("lesson accepted"))
+})
+
+test("gather keeps the newest accepted learnings within the memory budget", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "planning-gather-learning-budget-"))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const attempt = await gathering(root)
+  const many = Layer.effectDiscard(Effect.gen(function*() {
+    const store = yield* MemoryStore.MemoryStore
+    for (let index = 0; index < 25; index++) {
+      yield* store.putNote({
+        namespace: learningNamespace,
+        id: `lesson-${String(index).padStart(2, "0")}`,
+        text: "x".repeat(4_000),
+        tags: [],
+        provenance: {}
+      })
+    }
+  })).pipe(Layer.provideMerge(TestMemory.layer), Layer.orDie)
+  const gathered = await attempt(keepNothing, many)
+  assert.equal(gathered._tag, "Success")
+  const ids = gathered._tag === "Success" ? gathered.success.learnings?.map((learning) => learning.id) ?? [] : []
+  // 48 KiB default budget holds eleven 4 KB notes: the newest, oldest first.
+  assert.ok(ids.length > 0 && ids.length < 20, String(ids.length))
+  assert.deepEqual(
+    ids,
+    Array.from({ length: ids.length }, (_, i) => `lesson-${String(25 - ids.length + i).padStart(2, "0")}`)
+  )
+})
+
+test("gather fails unavailable when accepted learnings cannot be read", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "planning-gather-learning-down-"))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const gathered = await (await gathering(root))(keepNothing, MemoryStore.layerNoop())
+  assert.equal(gathered._tag, "Failure")
+  const error = gathered._tag === "Failure" ? gathered.failure : undefined
+  assert.ok(error instanceof CodingError)
+  assert.equal(error.code, "unavailable")
+  assert.match(error.message, /learnings are unreadable: listNotes is unavailable/)
 })

@@ -13,6 +13,7 @@ import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
+import { acceptedLearnings, type Learning } from "./learnings.ts"
 import { NativeCoding } from "./native.ts"
 import { collectSources, extractPaths, reader as sourceReader, staleSources } from "./planning-sources.ts"
 import {
@@ -219,9 +220,21 @@ export const gather = (
       // equivalent explanation; a project can supply a finer-grained gather flow.
       if (bytes([...memory, note]) <= maximum) memory.push(note)
     }
+    // Accepted learnings share the memory budget; the newest are kept when it runs out.
+    const accepted = yield* acceptedLearnings.pipe(Effect.mapError((error) =>
+      new CodingError({ code: "unavailable", message: `Accepted coding learnings are unreadable: ${error.message}` })
+    ))
+    const learnings: Array<Learning> = []
+    for (const learning of accepted.toReversed()) {
+      if (bytes([...memory, ...learnings, learning]) <= maximum) {
+        learnings.unshift(learning)
+      }
+    }
     const catalog = yield* Executable.Catalog
     const identity = (name: string) => {
-      const entry = catalog.executables.find((entry) => entry.descriptor.name === name)
+      const entry = catalog.executables.find((entry) =>
+        entry.descriptor.name === name
+      )
       const digest = entry && Descriptor.executionDigest(entry.descriptor)
       if (!digest) {
         throw new CodingError({
@@ -276,12 +289,14 @@ export const gather = (
       head: before.head,
       history,
       memory,
+      ...(learnings.length ? { learnings } : {}),
       ...definitions,
       ...collected,
       memoryRevision: memoryRevision({
         wiki: wikiDigest,
         history,
         memory,
+        ...(learnings.length ? { learnings } : {}),
         definitions,
         sources: collected.sources.map(({ digest, path }) => ({ path, digest })),
         missing: collected.missing
