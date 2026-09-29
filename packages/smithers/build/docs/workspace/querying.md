@@ -151,13 +151,13 @@ The command's structured result also carries `roots`, a flat `targets` list of
 
 ## Patterns
 
-| Pattern        | Selects                                                   |
-| -------------- | --------------------------------------------------------- |
-| `//pkg:target` | One named export                                          |
-| `//pkg`        | The package's default target                              |
-| `//pkg/...`    | Every target in the subtree, including synthesized ones   |
-| `//...`        | Every target in the workspace                             |
-| `:target`      | An export of the package containing the current directory |
+| Pattern        | Selects                                                 |
+| -------------- | ------------------------------------------------------- |
+| `//pkg:target` | One `Package.targets` key                               |
+| `//pkg`        | The package's default target                            |
+| `//pkg/...`    | Every target in the subtree, including synthesized ones |
+| `//...`        | Every target in the workspace                           |
+| `:target`      | A `Package.targets` key in the current package          |
 
 Recursive patterns also include targets synthesized by default targets for
 directories without a `PACKAGE.ts`. See

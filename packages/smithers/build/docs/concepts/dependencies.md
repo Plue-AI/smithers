@@ -9,20 +9,20 @@ A dependency edge is a direct import between `PACKAGE.ts` files. There are no la
 strings in target attributes.
 
 ```ts
-import { buildAndCheckPackage } from "./package-targets.ts"
 // packages/app/PACKAGE.ts
-import { Smithers } from "@smthrs/targets"
-import { packageManager } from "../../PACKAGE.ts"
-import { lib as flow } from "../flow/PACKAGE.ts"
+import { Smithers as S } from "@smthrs/targets"
+import { Package as flow } from "../flow/PACKAGE.ts"
+import { buildAndCheckPackage } from "./package-targets.ts"
 
-export const { lib, test, lint } = buildAndCheckPackage({
-  packageManager,
-  deps: [flow],
+const { lib, test, lint } = buildAndCheckPackage({
+  deps: [flow.lib],
   cwd: "packages/app"
 })
+
+export const Package = S.Package({ targets: { lib, test, lint } })
 ```
 
-`//packages/app:lib` now depends on `//packages/greeter:lib`.
+`//packages/app:lib` now depends on `//packages/flow:lib`.
 
 ## How an edge is recorded
 
@@ -85,16 +85,17 @@ The conventional shape is one `lib` target per package, imported by dependent
 packages:
 
 ```ts
-import { packageManager } from "../../PACKAGE.ts"
-import { lib as flow } from "../flow/PACKAGE.ts"
-import { lib as plan } from "../plan/PACKAGE.ts"
+import { Smithers as S } from "@smthrs/targets"
+import { Package as flow } from "../flow/PACKAGE.ts"
+import { Package as plan } from "../plan/PACKAGE.ts"
 import { buildAndCheckPackage } from "./package-targets.ts"
 
-export const { lib, test, lint } = buildAndCheckPackage({
-  packageManager,
-  deps: [plan, flow],
+const { lib, test, lint } = buildAndCheckPackage({
+  deps: [plan.lib, flow.lib],
   cwd: "packages/app"
 })
+
+export const Package = S.Package({ targets: { lib, test, lint } })
 ```
 
 `buildAndCheckPackage` threads those deps into the emitted targets: `lib` gets them

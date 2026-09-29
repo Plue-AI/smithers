@@ -187,27 +187,41 @@ patch content changes. `LlmLint` is the target built on it.
 Declare once and reuse. Each target digests the declaration independently.
 
 ```ts
-const sources = glob("src/**/*.ts")
+// packages/greeter/PACKAGE.ts
+import { Smithers as S } from "@smthrs/targets"
 
-export const lib = TsBuild({ packageManager, srcs: [sources] /* ... */ })
-export const lint = EsLint({ packageManager, sources: [sources] /* ... */ })
+const sources = S.glob("src/**/*.ts")
+const sourceFiles = S.Filegroup({ srcs: [sources] })
+const lintFiles = S.Filegroup({ srcs: [sources] })
+
+export const Package = S.Package({ targets: { sourceFiles, lintFiles } })
 ```
 
 Export a declaration for other `PACKAGE.ts` files to import:
 
 ```ts
 // PACKAGE.ts
-export const rootJSDocConfig = file("//eslint.jsdoc.js")
+import { Smithers as S } from "@smthrs/targets"
+
+export const rootJSDocConfig = S.file("//eslint.jsdoc.js")
+export const Package = S.Package({ targets: {} })
 ```
 
 ```ts
 // packages/greeter/PACKAGE.ts
+import { Smithers as S } from "@smthrs/targets"
 import { rootJSDocConfig } from "../../PACKAGE.ts"
 
-export const lint = EsLint({
-  packageManager,
-  configs: [file("eslint.config.js"), rootJSDocConfig] /* ... */
+const lint = S.EsLint({
+  sources: [S.glob("src/**/*.ts")],
+  deps: [],
+  configs: [S.file("eslint.config.js"), rootJSDocConfig],
+  maxWarnings: 0,
+  fix: false,
+  cwd: "packages/greeter"
 })
+
+export const Package = S.Package({ targets: { lint } })
 ```
 
 An exported `file()` value is not a target and gets no label.

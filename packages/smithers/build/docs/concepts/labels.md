@@ -3,8 +3,8 @@ title: "Labels"
 description: "The //package:target label grammar, package default targets, relative :target labels, and recursive //... patterns."
 ---
 
-A label identifies one target. Labels come only from a `PACKAGE.ts` file's path and
-one of its named exports.
+A label identifies one target. It combines a `PACKAGE.ts` file's path with a key
+in its exported `Package.targets` map.
 
 ```text
 //packages/greeter:lib
@@ -13,18 +13,26 @@ one of its named exports.
 ```
 
 The package path is the `PACKAGE.ts` file's directory relative to the workspace
-root, in posix form. The target name is the export name.
+root, in posix form. The target name is the map key.
+
+```ts
+// packages/greeter/PACKAGE.ts
+import { Smithers as S } from "@smthrs/targets"
+
+const lib = S.Filegroup({ srcs: [S.file("src/index.ts")] })
+export const Package = S.Package({ targets: { lib } })
+```
 
 ## Grammar
 
-| Form                | Meaning                                                             |
-| ------------------- | ------------------------------------------------------------------- |
-| `//pkg/path:target` | The export `target` in the package at `pkg/path`                    |
-| `//pkg/path`        | The default target of the package at `pkg/path`                     |
-| `//`                | The default target of the root package                              |
-| `//...`             | Every target in the workspace                                       |
-| `//pkg/path/...`    | Every target in the subtree rooted at `pkg/path`                    |
-| `:target`           | The export `target` in the package containing the current directory |
+| Form                | Meaning                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `//pkg/path:target` | The `Package.targets` key `target` at `pkg/path`                          |
+| `//pkg/path`        | The default target of the package at `pkg/path`                           |
+| `//`                | The default target of the root package                                    |
+| `//...`             | Every target in the workspace                                             |
+| `//pkg/path/...`    | Every target in the subtree rooted at `pkg/path`                          |
+| `:target`           | The `Package.targets` key in the package containing the current directory |
 
 A label must start with `//` or `:`. Anything else fails with
 `label must start with // or :`.
@@ -71,7 +79,7 @@ order:
 3. The package directory's basename
 4. `default`
 
-If none of those exist and the package exports exactly one target, that target is
+If none of those exist and the package maps exactly one target, that target is
 the default. Otherwise the label fails with
 `package //<path> has no unambiguous default target`.
 
@@ -81,7 +89,7 @@ resolves to it in a workspace that follows the convention.
 ## Recursive patterns
 
 `//...` and `//pkg/...` select targets rather than one target. They load every
-`PACKAGE.ts` in the selected subtree and return every target those modules export,
+`PACKAGE.ts` in the selected subtree and return every target in their `Package` maps,
 plus every target synthesized by a matching default target for a directory in the
 subtree without its own `PACKAGE.ts`.
 
@@ -96,14 +104,15 @@ error, because you named it deliberately.
 ## Where labels do not appear
 
 Labels never appear in target attributes. A dependency is a direct import of
-another `PACKAGE.ts` file's export, and the imported value is placed in the attrs.
-The planner derives the label afterwards, from the module the value was exported
-from.
+another `PACKAGE.ts` file's `Package` map, and the selected target value is placed
+in the attrs. The planner derives the label afterwards, from the map key.
 
 ```ts
-import { lib as plan } from "../plan/PACKAGE.ts"
+import { Smithers as S } from "@smthrs/targets"
+import { Package as plan } from "../plan/PACKAGE.ts"
 
-export const lib = TsBuild({ packageManager, deps: [plan] /* ... */ })
+const lib = S.TsBuild({ deps: [plan.lib] /* ... */ })
+export const Package = S.Package({ targets: { lib } })
 ```
 
 See [Dependencies](dependencies.md).
@@ -120,7 +129,8 @@ Deriving a label from a target value has two paths.
 
 If neither path resolves, the command fails with
 `could not derive a label for <target>; export it from a PACKAGE.ts file`. The fix is
-to export the target: a target that no `PACKAGE.ts` exports has no label.
+to register the target in the `Package.targets` map: a target absent from every
+map has no label.
 
 How a target learns its own source path, today by reading the construction
 stack, is an open design question.

@@ -92,12 +92,13 @@ uses to match a dependency to its label. Across commands in one process, a
 `PACKAGE.ts` that was edited is re-evaluated, and two workspaces that happen to
 share a path spelling never share a module.
 
-Besides targets, a `PACKAGE.ts` may export a `PackageDefaults` declaration, a
-`Workspace` configuration, and one `Smithers.Nix.Environment`. The environment
+Besides its `Package` map, a `PACKAGE.ts` may export a `PackageDefaults`
+declaration and one `Smithers.Nix.Environment`. The environment
 applies to the exporting package and every package below it; the root's is the
 workspace's, and a package that exports its own overrides it for that package
 alone. Two environment exports in one `PACKAGE.ts` fail the load. See
-[Environments](../concepts/environments.md).
+[Environments](../concepts/environments.md). Workspace configuration belongs in
+`.smithers/WORKSPACE.ts` or the root `WORKSPACE.ts` fallback.
 
 Three guards apply. A `PACKAGE.ts` must resolve, inside the canonical workspace
 root, to a regular file; a link out of the workspace is refused rather than
@@ -120,7 +121,7 @@ A package's boundary matters in three places.
   directory, unless it starts with `//`, which resolves from the workspace root.
   A value that escapes the workspace is refused. See
   [Inputs](../concepts/inputs.md).
-- **Labels.** A target's label is its package path plus its export name.
+- **Labels.** A target's label is its package path plus its `Package.targets` key.
 - **Tool working directory.** Every tool-running target takes a `cwd` attribute
   that names the workspace-relative directory the tool starts in, defaulting to
   the workspace root. That attribute is separate from the package path: a
@@ -141,6 +142,8 @@ export const packageDefaults = Smithers.PackageDefaults({
   directories: "packages/*",
   macro: buildAndCheckPackage
 })
+
+export const Package = Smithers.Package({ targets: {} })
 ```
 
 A directory is eligible when all three hold:
@@ -165,10 +168,10 @@ workspace-level declarations are in scope. See
 Two directories are never part of the workspace as far as discovery, globs, and
 digests are concerned.
 
-| Path                                              | What it holds                                                                                             | Configurable                              |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| The resolved cache directory, `.flows` by default | The CLI result cache under `<cacheDirectory>/cache`, and target scratch such as the generated knip config | Yes, through `Workspace` or `--cache-dir` |
-| `.flows/store/<manager>`                          | Package-manager store populated by fetch                                                                  | No                                        |
+| Path                                              | What it holds                                                                                             | Configurable                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| The resolved cache directory, `.flows` by default | The CLI result cache under `<cacheDirectory>/cache`, and target scratch such as the generated knip config | Yes, through `Workspace` in a `WORKSPACE.ts` file or `--cache-dir` |
+| `.flows/store/<manager>`                          | Package-manager store populated by fetch                                                                  | No                                                                 |
 
 The store stays fixed because fetch declares it as a `TreeArtifact` boundary, and
 a declared boundary is key material that must mean the same thing on every
