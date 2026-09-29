@@ -74,6 +74,11 @@ const (
 	mythicalOutageBound = 6
 )
 
+// mythicalRunTokenReserve is what the daily budget holds back for each run
+// in flight, on top of what it has recorded: a long Opus-class worker
+// (~150k context over ~400 calls) is about 60M tokens (apps/tui/src/budget.ts).
+const mythicalRunTokenReserve int64 = 60_000_000
+
 var (
 	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true, "deferred": true}
 	mythicalSettledStates = map[string]bool{"skipped": true, "declined": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
@@ -888,7 +893,11 @@ type mythicalItemStep struct {
 	// maxParallel: every launch that takes a new lane asks slot first.
 	busy        int
 	maxParallel int
-	now         time.Time
+	// inFlight names the items with a run in flight, each holding
+	// mythicalRunTokenReserve of the daily budget: those found running when
+	// the pass began and those it launched.
+	inFlight map[[16]byte]bool
+	now      time.Time
 	// policy is the owner's committed policy, read once per claim.
 	policy *factoryGitHubPolicy
 }
@@ -898,6 +907,11 @@ type mythicalItemStep struct {
 // factory's daily token budget is spent it waits for the next UTC day. The
 // budget sums every token the repository's work recorded today, a workspace
 // named or not; a call whose usage the provider never reported counts zero.
+// Every other TODO run in flight also holds mythicalRunTokenReserve of it,
+// on top of what it has recorded so far, so a launch waits while they settle.
+// A day's TODO lanes overshoot dailyTokens only by what the last admitted run
+// spends plus what any run spends past its reserve; wiki refreshes
+// (mythical_wiki.go) are neither gated nor reserved here.
 func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
 	checks := mythicalChecksOf(item)
 	if launched := checks.Launches - checks.LaunchBase; launched >= mythicalLaunchBound {
@@ -923,12 +937,22 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the factory's spend today could not be read", st.now)
 	}
-	if spent < st.policy.DailyTokens {
+	if spent >= st.policy.DailyTokens {
+		next := item
+		next.Reason = "the factory's daily token budget is spent; work resumes at 00:00 UTC"
+		next.NextAttemptAt = pgtype.Timestamptz{Time: day.Add(24 * time.Hour), Valid: true}
+		return &next
+	}
+	others := int64(len(st.inFlight))
+	if st.inFlight[item.ID.Bytes] {
+		others--
+	}
+	if others*mythicalRunTokenReserve < st.policy.DailyTokens-spent {
 		return nil
 	}
 	next := item
-	next.Reason = "the factory's daily token budget is spent; work resumes at 00:00 UTC"
-	next.NextAttemptAt = pgtype.Timestamptz{Time: day.Add(24 * time.Hour), Valid: true}
+	next.Reason = "the factory's daily token budget is reserved for the runs in flight; work resumes as they settle"
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	return &next
 }
 
@@ -944,6 +968,22 @@ func mythicalHoldsLane(item db.MythicalItem) bool {
 		return mythicalChecksOf(item).reviewing(item)
 	}
 	return mythicalLaneStates[item.State]
+}
+
+// mythicalRunInFlight reports whether item's latest launch is still running:
+// its phase has no outcome yet, or its review of the current head no verdict.
+func mythicalRunInFlight(item db.MythicalItem) bool {
+	switch item.State {
+	case "running":
+		return item.RequestOutcome == ""
+	case "delivering":
+		return item.VibeOutcome == ""
+	case "verifying":
+		return item.VerifyOutcome == ""
+	case "proposed":
+		return mythicalChecksOf(item).reviewing(item)
+	}
+	return false
 }
 
 // slot reports whether item may launch a run on a new lane now, trading in
@@ -986,7 +1026,20 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
-	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: int(r.row.MaxParallel)}
+	// Runs in flight are read apart from the capped listing, so a long
+	// backlog never hides one from the daily budget's reservations.
+	active, err := q.ListMythicalItemsInStates(ctx, r.row.RepositoryID, []string{"running", "delivering", "verifying", "proposed"})
+	if err != nil {
+		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
+		return
+	}
+	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: int(r.row.MaxParallel),
+		inFlight: map[[16]byte]bool{}}
+	for _, item := range active {
+		if mythicalRunInFlight(item) {
+			step.inFlight[item.ID.Bytes] = true
+		}
+	}
 	for _, item := range items {
 		if item.Lane.Valid && !mythicalSettledStates[item.State] {
 			step.held[item.Lane.Int32] = item.ID
@@ -1356,11 +1409,13 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 		// persisted row decides.
 		if persisted, readErr := s.queries().GetMythicalItem(context.WithoutCancel(ctx), saved.ID); readErr == nil && persisted.Version == saved.Version {
 			st.launches++
+			st.inFlight[persisted.ID.Bytes] = true
 			return persisted, nil
 		}
 		return db.MythicalItem{}, err
 	}
 	st.launches++
+	st.inFlight[saved.ID.Bytes] = true
 	return saved, nil
 }
 

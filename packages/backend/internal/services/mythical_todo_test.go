@@ -363,6 +363,70 @@ func TestMythicalDailyBudgetHoldsNewWork(t *testing.T) {
 	assert.Equal(t, time.Now().UTC().Truncate(24*time.Hour).Add(24*time.Hour), item.NextAttemptAt.Time.UTC())
 }
 
+// Runs in flight keep spending after they are admitted, so admission
+// reserves mythicalRunTokenReserve for each: a launch waits while the day's
+// recorded tokens plus the other runs' reservations reach the budget (#2794).
+func TestMythicalDailyBudgetReservesForRunsInFlight(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	daily := 2 * mythicalRunTokenReserve
+	o.service.SetPolicyReader(policyHost{fmt.Sprintf(`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":%d}}`, daily)})
+	o.spend("", mythicalRunTokenReserve/4)
+	for _, number := range []int64{95, 96, 97} {
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Budget %d", number), State: "open",
+			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	}
+	o.wake()
+	// 95: 0.25R recorded, nothing in flight. 96: 0.25R + 1R reserved < 2R.
+	// 97: 0.25R + 2R reserved passes 2R, so it waits.
+	assert.Equal(t, "running", o.item(95).State)
+	assert.Equal(t, "running", o.item(96).State)
+	held := o.item(97)
+	assert.Equal(t, "queued", held.State)
+	assert.Equal(t, "the factory's daily token budget is reserved for the runs in flight; work resumes as they settle", held.Reason)
+	assert.Equal(t, 2, len(o.launcher.byFlow("coding/request")))
+	assert.WithinDuration(t, time.Now().Add(mythicalPullPollEvery), held.NextAttemptAt.Time, time.Minute)
+
+	// A run leaving flight frees its reservation.
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state = 'blocked' WHERE repository_id = $1 AND issue_number = 95`, o.repoID)
+	require.NoError(t, err)
+	o.wake()
+	assert.Equal(t, "running", o.item(97).State)
+}
+
+// A request whose run has ended holds no reservation while its item waits to
+// deliver: only launches still running count against the day (#2794).
+func TestMythicalDailyBudgetReleasesSettledRuns(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	o.service.SetPolicyReader(policyHost{fmt.Sprintf(`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":%d}}`, 2*mythicalRunTokenReserve)})
+	for _, number := range []int64{98, 99} {
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Settled %d", number), State: "open",
+			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	}
+	o.wake()
+	for _, number := range []int64{98, 99} {
+		item := o.item(number)
+		require.Equal(t, "running", item.State, item.Reason)
+		for _, request := range o.launcher.byFlow("coding/request") {
+			if request.Target.BindingID == uuidString(item.ID) {
+				o.project(request, jobs.StateCompleted, fmt.Sprintf("run-%d", number), validatedRequest)
+			}
+		}
+	}
+	// 1.25R recorded: 98 delivers against no other run in flight; 99 then
+	// sees 98's delivery and waits. Counting both ended requests held both.
+	o.spend("", mythicalRunTokenReserve+mythicalRunTokenReserve/4)
+	o.wake()
+	assert.Equal(t, "delivering", o.item(98).State, o.item(98).Reason)
+	assert.Equal(t, "the factory's daily token budget is reserved for the runs in flight; work resumes as they settle", o.item(99).Reason)
+	assert.Equal(t, 1, len(o.launcher.byFlow("coding/vibe")))
+}
+
 // An outage is not the plan's failure: three provider quota failures cost
 // the TODO no attempt, back off, and the prompt never says the work failed;
 // past the bound the TODO parks loudly instead of retrying forever.

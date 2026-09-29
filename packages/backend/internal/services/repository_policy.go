@@ -35,6 +35,9 @@ type factoryGitHubPolicy struct {
 	TodoSince string `json:"todoSince"`
 	// DailyTokens bounds the tokens the factory's lanes spend per UTC day;
 	// 0 (none declared) launches nothing: the factory never spends unbounded.
+	// Each run in flight holds mythicalRunTokenReserve of it until it
+	// settles (launchable): a day ends over only by the last admitted run's
+	// spend plus what runs spend past their reserves.
 	DailyTokens int64 `json:"dailyTokens"`
 }
 

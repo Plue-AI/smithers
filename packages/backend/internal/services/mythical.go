@@ -964,7 +964,7 @@ func (s *MythicalService) refreshMerged(ctx context.Context, r *mythicalRun) {
 	if err != nil {
 		return
 	}
-	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now()}
+	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), inFlight: map[[16]byte]bool{}}
 	for _, item := range items {
 		if item.State != "proposed" {
 			continue

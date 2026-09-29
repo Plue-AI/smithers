@@ -312,6 +312,18 @@ func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, lim
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1
 		ORDER BY (state IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')), issue_number NULLS LAST, created_at
 		LIMIT $2`, repositoryID, limit)
+	return scanMythicalItems(rows, err)
+}
+
+// ListMythicalItemsInStates returns every one of a repository's items in one
+// of states, with no limit.
+func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID int64, states []string) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1 AND state = ANY($2)`,
+		repositoryID, states)
+	return scanMythicalItems(rows, err)
+}
+
+func scanMythicalItems(rows pgx.Rows, err error) ([]MythicalItem, error) {
 	if err != nil {
 		return nil, err
 	}
