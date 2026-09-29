@@ -98,7 +98,7 @@ export interface Refusal {
   /** What the wire actually spelled. Also supports contracted codes arriving before the next vendored registry refresh. */
   readonly rawCode: string | null
   readonly fault: PlueFault
-  /** The refusing party's own words. Rendered verbatim; this app never rewrites them. */
+  /** The refusing party's own words, never rewritten. A person reads them only through `refusalLine`. */
   readonly message: string
   /**
    * Seconds THIS RESPONSE asked us to wait — its `Retry-After` header or its

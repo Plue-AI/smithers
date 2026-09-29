@@ -11,6 +11,7 @@ import {
   refusalCopy,
   refusalDoors,
   refusalLead,
+  refusalLine,
   refusalSentence,
   refusalUserFailure
 } from "../src/RefusalCopy.ts"
@@ -445,5 +446,55 @@ describe("refusalUserFailure", () => {
     expect(failure.tag).toBeNull()
     expect(failure.sentence).toBe(NOTHING_ANSWERED)
     expect(failure.detail).toBe("Load failed")
+  })
+})
+
+describe("refusalLine", () => {
+  const USER_CODE = (Object.keys(PLUE_FAILURES) as ReadonlyArray<PlueFailureCode>).find(code => PLUE_FAILURES[code].fault === "user")!
+  const NOT_USER_CODES = (Object.keys(PLUE_FAILURES) as ReadonlyArray<PlueFailureCode>).filter(code => PLUE_FAILURES[code].fault !== "user")
+
+  test("plue's words lead a refusal the person can act on", () => {
+    expect(refusalLine(forCode(USER_CODE, "That name is taken."), "Renaming failed.")).toBe("That name is taken.")
+    /* An upstream that named no code, refusing with a 4xx, wrote for a person too. */
+    expect(refusalLine(refusalOf({ body: { message: "x" }, status: 404, message: "No such branch." }), "Reading failed.")).toBe("No such branch.")
+  })
+
+  test("a refusal that is not the person's to fix never shows the server's words", () => {
+    for (const code of NOT_USER_CODES) {
+      const refusal = forCode(code, "pq: deadlock detected at 0x7f")
+      const line = refusalLine(refusal, "Saving the page failed.")
+      expect(line).toBe(`Saving the page failed. ${refusalLead(refusal)}`)
+      expect(line).not.toContain("pq:")
+    }
+    const uncoded = refusalOf({ body: { message: "x" }, status: 500, message: "panic: runtime error" })
+    expect(refusalLine(uncoded, "Reading issues failed (500)")).toBe(`Reading issues failed (500). ${refusalLead(uncoded)}`)
+  })
+
+  test("a Worker or desktop-host code speaks through its written lead, even when the person can act", async () => {
+    for (const code of WORKER_FAILURE_CODES) {
+      for (const origin of ["worker", "local"] as const) {
+        const refusal = await workerRefusal(code, "raw worker words: stack at x.ts:12", { origin })
+        const line = refusalLine(refusal, "Opening the box failed.")
+        expect(line).toBe(`Opening the box failed. ${refusalLead(refusal)}`)
+        expect(line).not.toContain("raw worker words")
+      }
+    }
+  })
+
+  test("nothing answering says what failed and that it was the connection", () => {
+    const refusal = clientRefusal(new Error("Load failed"), "Load failed")
+    expect(refusalLine(refusal, "Could not reach Smithers Cloud.")).toBe(`Could not reach Smithers Cloud. ${NOTHING_ANSWERED}`)
+  })
+
+  test("empty words and an empty context leave the lead alone", () => {
+    const refusal = forCode(USER_CODE, "  ")
+    expect(refusalLine(refusal, "")).toBe(refusalLead(refusal))
+    expect(refusalLine(forCode("internal", "boom"), "")).toBe(refusalLead(forCode("internal", "boom")))
+  })
+
+  test("the context gains a full stop only when it lacks one", () => {
+    const refusal = forCode("internal", "boom")
+    expect(refusalLine(refusal, "Saving failed")).toBe(`Saving failed. ${refusalLead(refusal)}`)
+    expect(refusalLine(refusal, "Saving failed!")).toBe(`Saving failed! ${refusalLead(refusal)}`)
   })
 })

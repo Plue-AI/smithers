@@ -850,6 +850,32 @@ export const refusalSentence = (refusal: Refusal): string => {
   return stopped === "" ? `${head}${refusalCopy(refusal).lead}` : `${head}${stopped} ${refusalCopy(refusal).lead}`
 }
 
+const stopped = (text: string): string => /[.!?]$/u.test(text) ? text : `${text}.`
+
+/**
+ * The one line a person reads for a refusal, with no code and no raw text.
+ *
+ * The refusing party's own words lead only when the person can act on them:
+ * a `user`-fault refusal that plue, or an upstream naming no code, wrote.
+ * Everything else (another fault, a Worker or desktop-host code, nothing
+ * answering) is `context`, the caller's own words for what failed, followed by
+ * the written lead for its code or fault. A server's words for a failure that
+ * is not the reader's (a stack, a driver message, a 5xx body) never reach
+ * them; they stay on the refusal for diagnostics and the model.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const refusalLine = (refusal: Refusal, context: string): string => {
+  const words = refusal.message.trim()
+  const theirs = refusal.fault === "user" && refusal.origin !== "client" && refusal.origin !== "local" &&
+    !isWorkerFailureCode(refusal.code) && !isNativeFailureCode(refusal.code)
+  if (theirs && words !== "") return words
+  const lead = refusalCopy(refusal).lead
+  const said = context.trim()
+  return said === "" ? lead : `${stopped(said)} ${lead}`
+}
+
 /*
  * A code as `refusalSentence` writes it, at the front of the string and
  * nowhere else. Anchored on purpose: several of plue's codes (`conflict`,
