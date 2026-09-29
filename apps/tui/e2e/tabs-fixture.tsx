@@ -64,7 +64,6 @@ const host: Host.Host = {
   cwd: process.cwd(),
   runCap: 200,
   judged: false,
-  compaction: async () => undefined,
   dispose: async () => {},
   run: (input) => {
     if (input.role === "worker") {

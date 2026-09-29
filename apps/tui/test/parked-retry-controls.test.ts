@@ -27,7 +27,6 @@ async function fixture() {
   const host: Host.Host = {
     cwd,
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       let finish!: (outcome: Host.Outcome) => void

@@ -16,7 +16,6 @@ it("lets a worker delegate twice, wait for both, and projects their live tree", 
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-tree-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       runtime.set(input.source!, input.runtime!)
@@ -75,7 +74,6 @@ it("refuses depth four with a typed error and queues the seventh worker", async 
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-pool-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       contacted.push(input.source!)
@@ -126,7 +124,6 @@ it("cancels descendants and removes queued children when a parent stops", async 
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-cascade-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       launched.push(input.source!)
@@ -163,7 +160,6 @@ it("releases a waiting parent and its subscription when the wait exits", async (
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-wait-exit-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => ({ done: new Promise((resolve) => controls.set(input.source!, resolve)), cancel: () => {} })
   }

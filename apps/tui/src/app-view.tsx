@@ -190,7 +190,7 @@ export function PickerDialog(props: {
 }
 
 /** The status line's right end: a stale-context warning, token usage, and the context window used. */
-export const meter = (transcript: Transcript.Transcript, window: number, compact: number | undefined) => {
+export const meter = (transcript: Transcript.Transcript, window: number) => {
   const usage = transcript.usage
   const percent = window > 0 ? (usage.context / window) * 100 : 0
   const { cache } = Inbox.usage(usage, window)
@@ -209,9 +209,7 @@ export const meter = (transcript: Transcript.Transcript, window: number, compact
     }`,
     window: `${
       window > 0
-        ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}${
-          compact === undefined ? "" : ` · compact ${Editor.tokens(compact)}`
-        }`
+        ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}`
         : ""
     }${cache === undefined ? "" : ` cache ${cache}%`}`
   }

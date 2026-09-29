@@ -15,7 +15,7 @@ importable as `@smthrs/harness/<Module>`.
 | Module | Public exports | Description |
 | --- | --- | --- |
 | `HarnessError` | `HarnessErrorCode`, `HarnessError` | Stable failures reported at the harness translation boundary. |
-| `AgentEvent` | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `SeatFailedOver`, `ModelParked`, `ModelUnparked`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatRouted`, `SupervisorMemoryFailed`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters. |
+| `AgentEvent` | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `CompactionCause`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `SeatFailedOver`, `ModelParked`, `ModelUnparked`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatRouted`, `SupervisorMemoryFailed`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters. |
 | `Plan` | `Child`, `Batch`, `ChildResult`, `ChildProgress`, `ChildSettled`, `SpliceEvent` | Local structural plan nodes used at the harness-to-engine boundary. |
 | `EngineLike` | `SuspendReasonCode`, `SuspendReason`, `SealedModelStep`, `BoundaryIdentity`, `DurableSchema`, `RecordBoundary`, `Observation`, `Snapshot`, `Binding`, `Resolved`, `CaptureRequest`, `EngineLike`, `make`, `layer`, `resolve`, `makeNoop`, `layerNoop` | Narrow engine port consumed by the built-in harness. |
 | `Tokens` | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine` | Deterministic token accounting for context windows. |
@@ -35,7 +35,7 @@ importable as `@smthrs/harness/<Module>`.
 | `CallLedger` | `bound`, `width`, `members`, `depth`, `distinct`, `resultWidth`, `Entry`, `Ledger`, `subject`, `sole`, `target`, `digest`, `payload`, `Settlement`, `entry`, `settled`, `remember`, `render` | The call ledger: what this run has already asked, rendered every frame. |
 | `NarrowedCheck` | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger` | The narrowing ledger: which checks this run has run, and over which tree. |
 | `CellValidation` | `Validation`, `normalize`, `validate` | Cell validation at the boundary. |
-| `Supervisor` | `frameBytes`, `recentFrames`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `contextAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Memory`, `MemoryFailure`, `memoryNone`, `triggers`, `Triggerable`, `Trigger`, `triggered`, `crosses`, `nudge`, `recalledInsert`, `head`, `tail`, `prose` | The reading Jev takes of a run while it is still running. |
+| `Supervisor` | `frameBytes`, `recentFrames`, `recalledLimit`, `closeGraceMs`, `thrashingAt`, `offTargetAt`, `suspectAt`, `contextAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Memory`, `MemoryFailure`, `memoryNone`, `triggers`, `Triggerable`, `Trigger`, `triggered`, `contextTriggers`, `ContextTrigger`, `crosses`, `compacting`, `nudge`, `recalledInsert`, `head`, `tail`, `prose` | The reading Jev takes of a run while it is still running. |
 | `Monitor` | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate` | What one supervisor reading can put in front of the run, and when. |
 | `Judgement` | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task` | The one way this package asks Jev a question. |
 | `Relevance` | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render` | What a run is shown of the human-provided items it could be shown. |
@@ -72,6 +72,7 @@ Serializable events emitted by harness adapters.
 | `RelevanceKind` | const | models | The kind of a human-provided item a relevance reading may withhold. |
 | `CompactionMark` | const | models | What a compaction reading did with one replaced message. |
 | `CompactionPin` | const | models | The invariant that kept a message from being removed, whatever it was marked. |
+| `CompactionCause` | const | models | Why a compaction ran: the context `budget` was crossed, or a drained supervisor reading found the run carrying `outdated_context` or `irrelevant_context`. |
 | `MonitorKind` | const | models | What a supervisor monitor watches for. |
 | `Stance` | const | models | The static stance a run's monitors deliver under. |
 | `Suppression` | const | models | Why a crossed monitor was not delivered. |
@@ -791,7 +792,7 @@ The reading Jev takes of a run while it is still running.
 | `thrashingAt` | const | constants | At or above this probability of `thrashing`, the reading crosses. |
 | `offTargetAt` | const | constants | At or below this probability of `on_target`, the reading crosses. |
 | `suspectAt` | const | constants | At or above this probability of `suspect`, the reading crosses. |
-| `contextAt` | const | constants | At or above this probability of `outdated_context` or `irrelevant_context`, the reading crosses. |
+| `contextAt` | const | constants | At or above this probability of `outdated_context` or `irrelevant_context`, a judged run compacts at its next frame. |
 | `Level` | const | schemas | The three rungs every operational-state question is scored on. |
 | `levels` | const | constants | The rungs as the score question declares them, in order. |
 | `Help` | const | schemas | The one word a person is shown about a run. |
@@ -815,11 +816,14 @@ The reading Jev takes of a run while it is still running.
 | `Memory` | const | services | The memory a supervisor reads rows from, and the run-end transcript miner writes accepted facts to. |
 | `MemoryFailure` | interface | models | What a `Memory` fails with: the store's own account, safe to journal. |
 | `memoryNone` | const | constructors | A memory with nothing behind it. |
-| `triggers` | const | constants | The five readings that cross, by name, each with the inequality that fires it. |
+| `triggers` | const | constants | The five triggers a reading fires, by name, each with the inequality that fires it. |
 | `Triggerable` | type | models | The fields of a `Reading` the triggers read. |
 | `Trigger` | type | models | One of `triggers`. |
 | `triggered` | const | conversions | The triggers one reading fires, in declaration order. |
-| `crosses` | const | conversions | Whether one reading crosses: any trigger fires. |
+| `contextTriggers` | const | constants | The triggers that compact the run's context instead of nudging it. |
+| `ContextTrigger` | type | models | One of `contextTriggers`. |
+| `crosses` | const | conversions | Whether one reading crosses: any trigger but a context one fires. |
+| `compacting` | const | conversions | The context triggers one reading fires, in declaration order: why a judged run that is sent this reading compacts at its next frame. |
 | `nudge` | const | conversions | The nudge a crossed reading puts in front of the run, naming its evidence. |
 | `recalledInsert` | const | conversions | Renders one recalled row as the run reads it. |
 | `head` | const | conversions | The head of a frame's cell or prose, bounded by `frameBytes`. |

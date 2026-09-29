@@ -134,7 +134,7 @@ export const suspectAt = 0.5
 
 /**
  * At or above this probability of `outdated_context` or
- * `irrelevant_context`, the reading crosses.
+ * `irrelevant_context`, a judged run compacts at its next frame.
  *
  * @category constants
  * @since 1.0.0-rc.0
@@ -632,10 +632,10 @@ export const Memory = Context.Reference<Memory>("@smthrs/harness/Supervisor/Memo
 })
 
 /**
- * The five readings that cross, by name, each with the inequality that fires
- * it. The one rule: the `supervisor` lint monitor crosses on it, {@link nudge}
- * names from it, and the offline replay scores it, so the three cannot drift
- * apart.
+ * The five triggers a reading fires, by name, each with the inequality that
+ * fires it. The one rule: the `supervisor` lint monitor crosses on it,
+ * {@link nudge} names from it, {@link compacting} reads its context triggers,
+ * and the offline replay scores it, so they cannot drift apart.
  *
  * @category constants
  * @since 1.0.0-rc.0
@@ -674,12 +674,42 @@ export const triggered = (reading: Triggerable): ReadonlyArray<Trigger> =>
   (Object.keys(triggers) as Array<Trigger>).filter((name) => triggers[name](reading))
 
 /**
- * Whether one reading crosses: any trigger fires.
+ * The triggers that compact the run's context instead of nudging it.
+ *
+ * @category constants
+ * @since 1.0.0-rc.0
+ */
+export const contextTriggers = ["outdated_context", "irrelevant_context"] as const
+
+/**
+ * One of {@link contextTriggers}.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export type ContextTrigger = typeof contextTriggers[number]
+
+const isContext = (trigger: Trigger): trigger is ContextTrigger =>
+  (contextTriggers as ReadonlyArray<Trigger>).includes(trigger)
+
+/**
+ * Whether one reading crosses: any trigger but a context one fires. A context
+ * trigger compacts the run's context at the next frame instead; see
+ * {@link compacting}.
  *
  * @category conversions
  * @since 1.0.0-rc.0
  */
-export const crosses = (reading: Triggerable): boolean => triggered(reading).length > 0
+export const crosses = (reading: Triggerable): boolean => triggered(reading).some((trigger) => !isContext(trigger))
+
+/**
+ * The context triggers one reading fires, in declaration order: why a judged
+ * run that is sent this reading compacts at its next frame.
+ *
+ * @category conversions
+ * @since 1.0.0-rc.0
+ */
+export const compacting = (reading: Triggerable): ReadonlyArray<ContextTrigger> => triggered(reading).filter(isContext)
 
 /**
  * The nudge a crossed reading puts in front of the run, naming its evidence.
@@ -693,15 +723,12 @@ export const crosses = (reading: Triggerable): boolean => triggered(reading).len
  */
 export const nudge = (snapshot: Snapshot, reading: Reading): string => {
   const { signals } = snapshot
-  const said: Record<Trigger, string> = {
+  const said: Record<Exclude<Trigger, ContextTrigger>, string> = {
     thrashing: `repeating itself (thrashing ${reading.thrashing.toFixed(2)})`,
     off_target: `drifting from the task (on target ${reading.onTarget.toFixed(2)})`,
-    suspect: `standing on suspect evidence (suspect ${reading.suspect.toFixed(2)})`,
-    outdated_context: `carrying outdated context (${reading.outdatedContext.toFixed(2)})`,
-    irrelevant_context: `carrying irrelevant context (${reading.irrelevantContext.toFixed(2)})`
+    suspect: `standing on suspect evidence (suspect ${reading.suspect.toFixed(2)})`
   }
-  const fired = triggered(reading)
-  const found = fired.map((name) => said[name])
+  const found = triggered(reading).flatMap((name) => isContext(name) ? [] : [said[name]])
   const evidence: Array<string> = []
   if (signals.checksFailing > 0) {
     evidence.push(`${signals.checksFailing} check${signals.checksFailing === 1 ? "" : "s"} last reported failing`)
@@ -717,16 +744,13 @@ export const nudge = (snapshot: Snapshot, reading: Reading): string => {
   if (signals.readOnlyFrames > 0) evidence.push(`${signals.readOnlyFrames} consecutive frames changed nothing`)
   if (signals.callsFailed > 0) evidence.push(`${signals.callsFailed} of ${signals.callsSettled} calls failed`)
   evidence.push(`${signals.mutations} frame${signals.mutations === 1 ? "" : "s"} changed the workspace`)
-  const compact = fired.includes("outdated_context") || fired.includes("irrelevant_context")
-    ? " Consider compacting the obsolete material while preserving the task, reusable source material, decisions, and the stable cache prefix."
-    : ""
   // The counts are the ones the run held when frame N closed; by the time the
   // run reads this it has written at least one frame more, so the frame is named.
   return `Supervisor: a reading of this run's last ${snapshot.frames.length} frames, through frame ${signals.frame}, finds it ${
     found.join(", ")
   }. Evidence at frame ${signals.frame}: ${
     evidence.join("; ")
-  }.${compact} Before the next call, state in one sentence which mechanism you now believe is wrong and which single call would show it; then make that call. Do not re-run a check over an unchanged tree, and do not edit a test to make it pass.`
+  }. Before the next call, state in one sentence which mechanism you now believe is wrong and which single call would show it; then make that call. Do not re-run a check over an unchanged tree, and do not edit a test to make it pass.`
 }
 
 /**

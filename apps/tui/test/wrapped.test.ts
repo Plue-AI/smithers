@@ -27,7 +27,6 @@ const vendors = (pause: string): string => {
 const host = (memory?: Host.Host["memory"]): Host.Host => ({
   cwd: mkdtempSync(join(tmpdir(), "tui-wrapped-")),
   judged: false,
-  compaction: async () => undefined,
   dispose: async () => {},
   ...(memory === undefined ? {} : { memory }),
   run: () => {

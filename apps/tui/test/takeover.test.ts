@@ -61,7 +61,6 @@ it("records who drove a worker, for how long and how many messages, and refuses 
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-take-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       sources.set(input.source!, input)
@@ -138,7 +137,6 @@ it("stops a worker parked for its driver, filing the take-over", async () => {
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-take-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       inputs.set(input.source!, input)
@@ -170,7 +168,6 @@ it("parks a restored worker that was taken over again at its first boundary", as
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-take-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       inputs.set(input.source!, input)
@@ -208,7 +205,6 @@ it("ends a take-over when the driven worker's host fails", async () => {
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-take-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: () => ({ done: new Promise((_, reject) => (fail = reject)), cancel: () => {} })
   }

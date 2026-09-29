@@ -1104,7 +1104,7 @@ describe("Supervisor", () => {
     })
 
     const delivering = { ledger: {}, shown: [], deliver: true } as const
-    const empty = { messages: [], memory: [], suppressed: [], marks: [] }
+    const empty = { messages: [], memory: [], suppressed: [], marks: [], compact: [] }
 
     it("keeps only the newest snapshot while a reading is in flight", async () => {
       const release = Effect.runSync(Deferred.make<void>())
@@ -1423,7 +1423,8 @@ describe("Supervisor", () => {
         messages: [],
         memory: [],
         suppressed: [],
-        marks: []
+        marks: [],
+        compact: []
       })
     })
   })
@@ -1493,12 +1494,28 @@ describe("Supervisor", () => {
         expect(text).toContain("1 check last reported failing")
         expect(text).toContain("2 consecutive frames repeated earlier calls")
       }
-      for (const obsolete of [{ outdatedContext: 0.9 }, { irrelevantContext: 0.9 }] as const) {
-        expect(Supervisor.crosses(reading(obsolete))).toBe(true)
-        const text = Supervisor.nudge(snapshot, reading(obsolete))
-        expect(text).toContain("Consider compacting the obsolete material")
-        expect(text).toContain("stable cache prefix")
+    })
+
+    it("compacts instead of nudging on outdated or irrelevant context", () => {
+      expect(Supervisor.compacting(reading())).toEqual([])
+      for (
+        const [obsolete, fired] of [
+          [{ outdatedContext: 0.9 }, ["outdated_context"]],
+          [{ irrelevantContext: 0.9 }, ["irrelevant_context"]],
+          [{ outdatedContext: 0.5, irrelevantContext: 0.5 }, ["outdated_context", "irrelevant_context"]],
+          [{ outdatedContext: 0.49, irrelevantContext: 0.49 }, []]
+        ] as const
+      ) {
+        expect(Supervisor.crosses(reading(obsolete))).toBe(false)
+        expect(Supervisor.compacting(reading(obsolete))).toEqual(fired)
       }
+      const both = reading({ thrashing: 0.9, outdatedContext: 0.9 })
+      expect(Supervisor.crosses(both)).toBe(true)
+      expect(Supervisor.compacting(both)).toEqual(["outdated_context"])
+      const text = Supervisor.nudge(snapshot, both)
+      expect(text).toContain("thrashing 0.90")
+      expect(text).not.toContain("context")
+      expect(text).not.toMatch(/compact/i)
     })
 
     it("names the frame its counts describe", () => {
@@ -1522,7 +1539,8 @@ describe("Supervisor", () => {
       for (const [overrides, fired] of cases) {
         const read = reading(overrides)
         expect(Supervisor.triggered(read)).toEqual(fired)
-        expect(Supervisor.crosses(read)).toBe(fired.length > 0)
+        expect(Supervisor.crosses(read)).toBe(fired.some((name) => !name.endsWith("_context")))
+        expect(Supervisor.compacting(read)).toEqual(fired.filter((name) => name.endsWith("_context")))
       }
       expect(Object.keys(Supervisor.triggers)).toEqual([
         "thrashing",

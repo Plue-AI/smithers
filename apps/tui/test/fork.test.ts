@@ -19,7 +19,6 @@ afterEach(() => {
 const host: Host.Host = {
   cwd: "/work/repo",
   judged: false,
-  compaction: async () => undefined,
   dispose: async () => {},
   run: () => ({ done: new Promise(() => {}), cancel: () => {} })
 }

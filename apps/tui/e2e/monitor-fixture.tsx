@@ -13,7 +13,6 @@ const notable = process.env.MONITOR_NOTABLE === "1"
 const host: Host.Host = {
   cwd: process.cwd(),
   judged: true,
-  compaction: async () => undefined,
   dispose: async () => {},
   monitor: {
     judge: async ({ after }) => {

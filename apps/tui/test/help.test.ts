@@ -18,7 +18,6 @@ const setup = async () => {
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-help-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       runtime.set(input.source!, input.runtime!)

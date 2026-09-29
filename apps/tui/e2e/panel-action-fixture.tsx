@@ -25,7 +25,6 @@ const request: Approvals.Pending = {
 const host: Host.Host = {
   cwd: process.cwd(),
   judged: false,
-  compaction: async () => undefined,
   dispose: async () => {},
   run: (input) => {
     log(`run ${input.prompt}`)

@@ -34,7 +34,6 @@ import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Rooted from "@smthrs/kernel/Rooted"
-import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -148,7 +147,6 @@ export interface Host {
     /** Set when Jev did not judge the block: it holds the seeds and facts alone. */
     readonly unjudged?: Memory.Output["unjudged"]
   }>
-  readonly compaction: (used: number, window: number) => Promise<number | undefined>
   /** A one-line tab description, asked of `seat`: the seat the task already goes to. */
   readonly describe?: (input: { title: string; prompt: string; seat: string }) => Promise<string>
   /** Jev judges a monitor's change; Luna writes its update. Absent on test fakes. */
@@ -311,28 +309,6 @@ export const make = (options: {
   const runtime = ManagedRuntime.make(layer)
   let turns = 0
   const hostId = crypto.randomUUID().slice(0, 8)
-
-  const compaction: Host["compaction"] = async (used, window) => {
-    if (used <= 0 || window <= 0) return undefined
-    const questions = {
-      amount: Classifier.choice({
-        instructions:
-          "How much of the used context should be compacted? Choose 0 if no compaction is needed. Consider the current occupancy and leave enough context for the next turn.",
-        criteria: { "0": "none", "25": "a quarter", "50": "half", "75": "three quarters" }
-      })
-    }
-    try {
-      const response = await runtime.runPromise(Effect.gen(function*() {
-        const evaluator = yield* Evaluator.Evaluator
-        return yield* evaluator.evaluate({ state: { used, window }, questions })
-      }))
-      const answers = await Effect.runPromise(Classifier.decodeAnswers(questions, response.answers))
-      return Math.round(used * Number(answers.amount.value) / 100)
-    } catch (error) {
-      Log.write("host.compaction", error)
-      return undefined
-    }
-  }
 
   // What a wrapped harness is told: the same selection a worker opens with.
   const memory: NonNullable<Host["memory"]> = (task) =>
@@ -775,7 +751,6 @@ export const make = (options: {
     ...(options.budget?.tokens === undefined ? {} : { runCap: options.budget.tokens.max }),
     judged: true,
     routes: catalog !== undefined,
-    compaction,
     memory,
     run,
     approvals,

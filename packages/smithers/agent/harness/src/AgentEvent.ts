@@ -65,6 +65,16 @@ export const CompactionMark = Schema.Literals(["keep", "squash", "remove"])
 export const CompactionPin = Schema.Literals(["summary", "person", "steering", "mutated", "failing", "pair", "budget"])
 
 /**
+ * Why a compaction ran: the context `budget` was crossed, or a drained
+ * supervisor reading found the run carrying `outdated_context` or
+ * `irrelevant_context`.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export const CompactionCause = Schema.Literals(["budget", "outdated_context", "irrelevant_context"])
+
+/**
  * What a supervisor monitor watches for.
  *
  * @category models
@@ -1494,7 +1504,7 @@ export class CompactionSettled extends Schema.TaggedClass<CompactionSettled>(
   summary: Schema.optional(ModelRequest.Message),
   /** Replaced messages carried over verbatim, after the summary. */
   kept: Schema.optional(Schema.Array(ModelRequest.Message)),
-  /** What a reading marked each replaced message, by message digest. */
+  /** What a reading marked each replaced segment, by segment digest. */
   marks: Schema.optional(Schema.Array(Schema.Struct({
     digest: Schema.String,
     mark: CompactionMark,
@@ -1508,7 +1518,9 @@ export class CompactionSettled extends Schema.TaggedClass<CompactionSettled>(
    * transcript segment, as in state written before marks, so every replaced
    * message was squashed.
    */
-  unaligned: Schema.optional(Schema.Boolean)
+  unaligned: Schema.optional(Schema.Boolean),
+  /** Why the compaction ran, budget first. Absent in older journals, which compacted on the budget alone. */
+  causes: Schema.optional(Schema.Array(CompactionCause))
 }) {}
 
 /**

@@ -268,10 +268,12 @@ each supervisor reading also asks `compaction/marks` about the transcript
 segments not yet marked, the person's excepted, and the next boundary stores
 the answers, by segment digest, on `State.segmentFacts` inside its recorded
 drain (`Steering.DrainRecord.marks`). Marking changes nothing the model is
-sent: the prefix a request is sent stays byte-stable until the budget forces
-a compaction. A frame compacts only when the window crosses its budget
-(`Compaction.shouldCompact` and `selectPrefix` at their defaults); a judged
-run then marks each prefix segment `keep`, `squash` or `remove`. Pins, read
+sent: the prefix a request is sent stays byte-stable until a compaction. A
+frame compacts when the window crosses its budget (`Compaction.shouldCompact`
+and `selectPrefix` at their defaults), or when the boundary before it took a
+supervisor reading that fired `outdated_context` or `irrelevant_context`
+(`Steering.DrainRecord.compact`, carried on `State.compactionDue` for that
+frame alone); a judged run then marks each prefix segment `keep`, `squash` or `remove`. Pins, read
 from `State.segmentFacts` and the still-failing checks, fix what must
 survive: a summary is squashed; steering, the person's segments and the
 newest segment that ran each still-failing check are kept; a segment that
@@ -282,7 +284,7 @@ a replay asks nothing and re-keys the same summary. Only squashed segments
 reach the sealed summary step, which is skipped when nothing is squashed;
 kept segments stay verbatim after the summary. `decision-settled` rows
 precede `compaction-settled`, which carries `summary?`, `kept`, `marks`
-(segment digest, mark, `pinned?`) and `removedTokens`. An unjudged run and a
+(segment digest, mark, `pinned?`), `removedTokens` and `causes`. An unjudged run and a
 reading nobody could judge (journaled `decision-unjudged`) squash every
 prefix segment; so does a judged run whose facts do not describe every
 transcript segment, and its `compaction-settled` says `unaligned`.
@@ -730,8 +732,8 @@ without mutation. `Steering.Drain` is
 what one boundary promoted; `Steering.DrainRecord` and `drainRecord` project
 it into its journaled record, which also carries what the supervisor delivered
 there: its messages, the memory keys, the monitor delivered, the monitors
-withheld, the monitor ledger after gating, and the compaction marks the run
-stores.
+withheld, the monitor ledger after gating, the compaction marks the run
+stores, and the context triggers that compact its next frame.
 
 ```ts
 export interface Source {
@@ -969,8 +971,9 @@ Jev's other readings write these:
 Fields later writers add to existing events are optional, so older journals
 decode unchanged: `DecisionSettled.usage`; `CompactionSettled.kept`, `marks`
 (`CompactionMark` `keep`, `squash` or `remove`, with the `CompactionPin` that
-overrode a removal), `removedTokens` and `unaligned`, with `summary`
-optional; `SupervisorSettled.monitors` (`MonitorKind` `mood`, `skill` or
+overrode a removal, by segment digest), `removedTokens`, `unaligned` and
+`causes` (`CompactionCause` `budget`, `outdated_context` or
+`irrelevant_context`), with `summary` optional; `SupervisorSettled.monitors` (`MonitorKind` `mood`, `skill` or
 `lint`) and `skillsCapped`; `DisciplineArmed.judged`,
 `relevance`, `monitors` and `stance` (`careful` or `paranoid`), with
 `supervisorSteer` optional; `SteeringDrained.monitor`, `suppressed`
@@ -1557,9 +1560,13 @@ Five are about the run, the `triggers`: `thrashing` (at or
 above `thrashingAt`, 0.5), `off_target` (`on_target` at or below
 `offTargetAt`, 0.5), `suspect` (at or above `suspectAt`, 0.5),
 `outdated_context` and `irrelevant_context` (each at or above `contextAt`,
-0.5). `crosses(reading)` is any trigger firing and `triggered(reading)` names
-the ones that did; the `supervisor` lint monitor and the offline replay both
-call them, and `nudge` names the counts behind them. Five are
+0.5). `triggered(reading)` names the triggers that fired. The two
+`contextTriggers` never nudge: `compacting(reading)` names the ones that
+fired, and a judged run whose boundary takes that reading compacts its
+context at the next frame by the marks it stored, whatever the budget, its
+`compaction-settled` naming them as `causes`. `crosses(reading)` is any other
+trigger firing; the `supervisor` lint monitor and the offline replay both
+call it, and `nudge` names the counts behind it. Five are
 operational states scored on `Level` (`none`, `mild`, `strong`), each naming
 the evidence it reads: `frustrated`, `anxious`, `scared`, `confused`,
 `confident`. `needs_help` is a choice over `Help` (`none`, `clarification`,

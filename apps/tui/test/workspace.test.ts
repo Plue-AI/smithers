@@ -64,7 +64,6 @@ const setup = (
     cwd: options.cwd ?? mkdtempSync(join(tmpdir(), "tui-agents-")),
     judged: options.routes === true,
     ...(options.routes === undefined ? {} : { routes: options.routes }),
-    compaction: async () => undefined,
     dispose: async () => {},
     describe: ({ seat }) => new Promise((resolve) => descriptions.push({ seat, resolve })),
     run: (input) => {

@@ -1,15 +1,18 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
+import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Capability from "@smthrs/capability/Capability"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
+import * as Compaction from "@smthrs/harness/Compaction"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
+import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect, Stream } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -1148,6 +1151,112 @@ describe("Host.run instructions", () => {
     expect(system).toContain(
       `<project_instructions path="${join(cwd, "AGENTS.md")}">\n${text}\n</project_instructions>`
     )
+  })
+})
+
+describe("Host.run compaction", () => {
+  // A worker that prints bulk each frame until its context is compacted, then answers.
+  const compacting = async (judge: Layer.Layer<Evaluator.Evaluator>) => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-compact-"))
+    roots.push(cwd)
+    const events: Array<AgentEvent.AgentEvent> = []
+    let frame = 0
+    const text = (body: string) =>
+      Stream.fromIterable(
+        [
+          { type: "text-start", id: "reply" },
+          { type: "text-delta", id: "reply", text: body },
+          { type: "text-end", id: "reply" },
+          { type: "settle", stopReason: "stop" }
+        ] as unknown as ReadonlyArray<ModelEvent.ModelEvent>
+      )
+    const model = Model.make({
+      stream: (request) => {
+        if (request.system.some((part) => part.text === Compaction.summaryInstruction)) {
+          return text("Summary: the worker printed bulk.")
+        }
+        frame += 1
+        const settled = events.some((event) => event._tag === "compaction-settled")
+        return text(
+          "```cell\n" +
+            (settled ? `ctx.done("ok")` : `console.log(${JSON.stringify(`${frame} ${"bulk ".repeat(3_000)}`)})`) +
+            "\n```"
+        )
+      }
+    })
+    const seats = SeatResolver.layer({
+      resolve: (id) =>
+        Effect.succeed(
+          Seat.make({
+            id,
+            modelId: id,
+            model,
+            route: {
+              prepare: () =>
+                Effect.succeed({
+                  routeId: "compact-test",
+                  protocolId: "compact-test",
+                  method: "POST" as const,
+                  url: "https://compact.invalid/",
+                  publicHeaders: {},
+                  body: new Uint8Array(),
+                  bodyText: ""
+                })
+            },
+            contextWindowTokens: 40_000
+          })
+        )
+    })
+    const host = Host.make({ cwd, environment: {}, judge, approvals: "all", seats })
+    try {
+      const outcome = await host.run({
+        prompt: "Print bulk.",
+        role: "worker",
+        seat: "bulk",
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      return { outcome, events }
+    } finally {
+      await host.dispose()
+    }
+  }
+
+  test("a judged worker compacts through CellTurn marks once it crosses its window", async () => {
+    const { events, outcome } = await compacting(ScriptedJudge.layerAll)
+    expect(outcome).toEqual({ _tag: "done", answer: "ok" })
+    const settled = events.filter((event): event is AgentEvent.CompactionSettled => event._tag === "compaction-settled")
+    expect(settled.length).toBeGreaterThan(0)
+    expect(settled[0]!.causes).toContain("budget")
+    expect(settled[0]!.marks?.length).toBeGreaterThan(0)
+    expect(settled[0]!.unaligned).toBeUndefined()
+    expect(
+      events.some((event) => event._tag === "decision-settled" && event.classifier === "compaction/marks")
+    ).toBe(true)
+    expect(events.some((event) => event._tag === "decision-unjudged")).toBe(false)
+  })
+
+  test("a failed marks reading journals decision-unjudged and squashes into the summary", async () => {
+    const unreachable = Layer.effect(
+      Evaluator.Evaluator,
+      Effect.gen(function*() {
+        const inner = yield* Evaluator.Evaluator
+        return {
+          evaluate: (request: Evaluator.Request) =>
+            Object.hasOwn(request.questions, "remove_0")
+              ? Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "No judge" }))
+              : inner.evaluate(request)
+        }
+      })
+    ).pipe(Layer.provide(ScriptedJudge.layerAll))
+    const { events, outcome } = await compacting(unreachable)
+    expect(outcome).toEqual({ _tag: "done", answer: "ok" })
+    expect(
+      events.filter((event) => event._tag === "decision-unjudged" && event.classifier === "compaction/marks").length
+    ).toBeGreaterThan(0)
+    const settled = events.find((event): event is AgentEvent.CompactionSettled => event._tag === "compaction-settled")
+    expect(settled?.marks).toBeUndefined()
+    expect(settled?.summary).toBeDefined()
   })
 })
 

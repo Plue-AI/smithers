@@ -18,7 +18,6 @@ const setup = (run: Host.Host["run"], restored?: ConstructorParameters<typeof Wo
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-failed-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run
   }

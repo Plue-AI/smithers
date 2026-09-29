@@ -132,7 +132,6 @@ export function App(props: AppProps) {
     }
   })
   const [transcript, setTranscript] = useState(restored.current?.transcript ?? Transcript.empty)
-  const [compact, setCompact] = useState<number | undefined>()
   const [seat, setSeat] = useState(props.seat)
   const [thinking, setThinking] = useState<Editor.Thinking>(undefined)
   const [turn, setTurn] = useState<TurnState | undefined>()
@@ -1263,7 +1262,6 @@ export function App(props: AppProps) {
     setOverview({ pane: "tree" })
     clearInspection()
     setNavigation(Panels.initial())
-    setCompact(undefined)
     const nextWorkspace = makeWorkspace(state.workspace)
     workspaceRef.current = nextWorkspace
     setWorkspace(nextWorkspace)
@@ -1496,14 +1494,13 @@ export function App(props: AppProps) {
           setStatus("Stop running work first", "warning")
           return true
         }
-        const dropped = Context.compactable(entries.current, compact ?? Math.round(transcript.usage.context / 2))
+        const dropped = Context.compactable(entries.current, Math.round(transcript.usage.context / 2))
         if (dropped === 0) {
           setStatus("Nothing to compact")
           return true
         }
         entries.current.splice(0, dropped)
         writer.current.append({ type: "compact", at: Date.now(), dropped })
-        setCompact(undefined)
         setStatus(`Dropped the ${dropped} oldest context entries`)
         return true
       }
@@ -2163,16 +2160,6 @@ export function App(props: AppProps) {
   const working = turn !== undefined
   const bashMode = draft.startsWith("!")
   const window = props.contextWindow(seat)
-  useEffect(() => {
-    let active = true
-    setCompact(undefined)
-    void props.host.compaction(transcript.usage.context, window).then((amount) => {
-      if (active) setCompact(amount)
-    })
-    return () => {
-      active = false
-    }
-  }, [props.host, transcript.usage.context, window, writer.current.file])
   const accent = driven !== undefined
     ? color.needs
     : bashMode
@@ -2232,7 +2219,7 @@ export function App(props: AppProps) {
         Budget.capped(overviewRow.worker.failure) && props.host.runCap !== undefined)
     )
     : Keys.hintsFor(footerContext, merged)
-  const meter = AppView.meter(transcript, window, compact)
+  const meter = AppView.meter(transcript, window)
   // The hints get the row less its padding, the margins, the status items and the meter; the path gives way first.
   const hintColumns = width - 5 -
     statusItems.reduce((total, item) => total + stringWidth(item.text) + 2, 0) -

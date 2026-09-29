@@ -13,7 +13,6 @@ const setup = () => {
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-steer-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (value) => {
       input = value

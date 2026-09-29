@@ -288,7 +288,7 @@ test.each([
     usage: { input: 12, output: 4, cached: 0, context: 75 },
     contextAssessment: { scope: "run", frame: 1, outdated, irrelevant }
   }
-  expect(AppView.meter(transcript, 100, undefined)).toEqual({
+  expect(AppView.meter(transcript, 100)).toEqual({
     percent: 75,
     context,
     usage: "↑12 ↓4",
@@ -296,22 +296,22 @@ test.each([
   })
 })
 
-test("meter has no percentage label without a known window and includes cached and compaction counts", () => {
+test("meter has no percentage label without a known window and includes the cache share", () => {
   const transcript: Transcript.Transcript = {
     ...Transcript.empty,
     usage: { input: 12, output: 4, cached: 3, context: 75 }
   }
-  expect(AppView.meter(transcript, 0, 50)).toEqual({
+  expect(AppView.meter(transcript, 0)).toEqual({
     percent: 0,
     context: "",
     usage: "↑12 ↓4 R3",
     window: " cache 25%"
   })
-  expect(AppView.meter(transcript, 100, 50)).toEqual({
+  expect(AppView.meter(transcript, 100)).toEqual({
     percent: 75,
     context: "",
     usage: "↑12 ↓4 R3",
-    window: "  75.0%/100 · compact 50 cache 25%"
+    window: "  75.0%/100 cache 25%"
   })
 })
 

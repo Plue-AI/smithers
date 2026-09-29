@@ -941,6 +941,17 @@ export class State extends Schema.Class<State>("flows/harness/CellTurn/State")({
     Schema.withDecodingDefaultKey(Effect.succeed<ReadonlyArray<compactionMarks.Facts>>([]))
   ),
   /**
+   * The context triggers a drained supervisor reading fired, which compact the
+   * next frame's context whatever the budget says; empty once it has opened.
+   *
+   * State because it is folded in only from each recorded drain, so a replay
+   * compacts the same frame for the same cause.
+   */
+  compactionDue: Schema.Array(AgentEvent.CompactionCause).pipe(
+    Schema.withConstructorDefault(Effect.succeed<ReadonlyArray<typeof AgentEvent.CompactionCause.Type>>([])),
+    Schema.withDecodingDefaultKey(Effect.succeed<ReadonlyArray<typeof AgentEvent.CompactionCause.Type>>([]))
+  ),
+  /**
    * Output this run has been handed as a fragment, by digest.
    *
    * The ledger is state rather than a per-frame detail because a cell may store
@@ -1614,10 +1625,12 @@ const ledgerAfter = (drained: Steering.DrainRecord): Frame.StateChanges =>
 /**
  * The segment facts after a drain: each unmarked transcript segment a
  * drained mark names by digest takes its answer. A mark for a segment a
- * compaction has since replaced names nothing and is dropped.
+ * compaction has since replaced names nothing and is dropped. The context
+ * triggers the drain delivered make the next frame's compaction due.
  */
 const marksAfter = (state: State, drained: Steering.DrainRecord): Frame.StateChanges => {
-  if (drained.marks === undefined) return {}
+  const due = drained.compact === undefined ? {} : { compactionDue: drained.compact }
+  if (drained.marks === undefined) return due
   const answers = new Map(drained.marks.map(({ digest, ...answer }) => [digest, answer]))
   const transcripts = compactable(state.contextWindow.segments).filter((segment) => segment.kind === "transcript")
   // The entries describe the newest segments, so an unaligned run's are
@@ -1627,7 +1640,8 @@ const marksAfter = (state: State, drained: Steering.DrainRecord): Frame.StateCha
     segmentFacts: state.segmentFacts.map((facts, at) => {
       const answer = answers.get(transcripts[at + missing]!.digest)
       return facts.answer !== undefined || answer === undefined ? facts : { ...facts, answer }
-    })
+    }),
+    ...due
   }
 }
 
@@ -2676,9 +2690,11 @@ const marked = (
  * A judged run marks each replaced segment keep, squash or remove first, and
  * only what it squashes is summarized; an unjudged one squashes all of them.
  * Marks are stored as the supervisor reads them and applied only here, when
- * the budget forces a compaction, so the prefix the model is sent never
- * changes between compactions. A judged run whose facts are not aligned
- * cannot be marked; its settlement says so as `unaligned`.
+ * the budget forces a compaction or a drained supervisor reading found the
+ * context outdated or irrelevant, so the prefix the model is sent never
+ * changes between compactions. The settlement names its `causes`. A judged
+ * run whose facts are not aligned cannot be marked; its settlement says so as
+ * `unaligned`.
  *
  * Nothing here is best-effort. A window that cannot be compacted stays as it
  * is; a compaction the model started and could not finish is a typed failure.
@@ -2695,14 +2711,20 @@ const compacted = (
       total: state.contextWindow.tokens.total,
       contextWindow: state.contextWindowTokens
     })
-    if (!over) return state
+    const due = state.compactionDue
+    // A due compaction is this frame's alone, taken or not.
+    const opened = due.length === 0 ? state : advance(state, { compactionDue: [] })
+    if (!over && due.length === 0) return opened
     const prefixLength = Compaction.selectPrefix(state.contextWindow)
     // Nothing compactable is not a failure: a window that is all prefix has
     // already given up everything it can, and the frame proceeds as declared.
-    if (prefixLength === 0) return state
+    if (prefixLength === 0) return opened
+    const causes: ReadonlyArray<typeof AgentEvent.CompactionCause.Type> = [...(over ? ["budget" as const] : []), ...due]
     const facts = judged ? alignedFacts(state, compactable(state.contextWindow.segments)) : undefined
     const unaligned = judged && facts === undefined
     const marks = facts === undefined ? undefined : yield* marked(state, facts, prefixLength, engine, emit, taskOf)
+    // An early compaction that would keep every segment gives nothing up.
+    if (!over && marks !== undefined && marks.every((mark) => mark.mark === "keep")) return opened
     // `InvalidStep` is discharged as a defect, not surfaced as a typed failure.
     // Every call below receives the same immutable window, `selectPrefix`'s
     // own output, marks resolved one per prefix segment, and the state's
@@ -2734,6 +2756,7 @@ const compacted = (
           .filter((item) => "role" in item).length,
         ...(summary === undefined ? {} : { summary }),
         ...(unaligned ? { unaligned } : {}),
+        causes,
         ...(marks === undefined ? {} : {
           kept: replaced
             .filter((_, index) => marks[index]!.mark === "keep")
@@ -2745,7 +2768,7 @@ const compacted = (
         })
       })
     )
-    return advance(state, {
+    return advance(opened, {
       contextWindow,
       segmentFacts: factsAfter(state, prefixLength, marks?.map((mark) => mark.mark)),
       // The sections that listed earlier calls may be among what was replaced.
@@ -3209,7 +3232,8 @@ const drain = (settling: Settling, wouldIdle: boolean): Effect.Effect<Steering.D
                   ...(taken.monitor === undefined ? {} : { monitor: taken.monitor }),
                   ...(taken.suppressed.length === 0 ? {} : { suppressed: taken.suppressed }),
                   ...(taken.ledger === undefined ? {} : { monitorLedger: taken.ledger }),
-                  ...(taken.marks.length === 0 ? {} : { marks: taken.marks })
+                  ...(taken.marks.length === 0 ? {} : { marks: taken.marks }),
+                  ...(taken.compact.length === 0 ? {} : { compact: taken.compact })
                 }))
               )
           ),

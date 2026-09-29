@@ -3094,14 +3094,16 @@ const isMarks = (request: Evaluator.Request): boolean => Object.hasOwn(request.q
  * A Jev for judged compaction: each `remove_*`/`keep_*` item at the
  * probabilities `mark` gives it, the completion brake confident, and the
  * supervisor and relevance readings quiet unless `crossing` says the
- * supervisor reading crosses. `asked` holds every mark request's items.
+ * supervisor reading crosses or `obsolete` that it finds outdated context.
+ * `asked` holds every mark request's items.
  */
 const marksJudge = (
   mark: (
     item: compactionMarks.Item,
     index: number
   ) => { readonly remove: number; readonly keep: number } | "unreachable",
-  crossing: (request: Evaluator.Request) => boolean = () => false
+  crossing: (request: Evaluator.Request) => boolean = () => false,
+  obsolete: (request: Evaluator.Request) => boolean = () => false
 ) => {
   const asked: Array<ReadonlyArray<compactionMarks.Item>> = []
   const layer = Evaluator.layerScripted((request) => {
@@ -3125,11 +3127,18 @@ const marksJudge = (
       )
     }
     const crosses = crossing(request)
+    const stale = obsolete(request)
     return Object.fromEntries(
       Object.entries(request.questions).map(([id, question]) => [
         id,
         question.type === "boolean"
-          ? { probability: id === "on_target" ? 0.95 : id === "thrashing" && crosses ? 0.9 : 0.05 }
+          ? {
+            probability: id === "on_target"
+              ? 0.95
+              : (id === "thrashing" && crosses) || (id === "outdated_context" && stale)
+              ? 0.9
+              : 0.05
+          }
           : question.type === "score"
           ? { score: 0 }
           : { choice: "none" }
@@ -3185,6 +3194,36 @@ const contextDigests = (events: ReadonlyArray<AgentEvent.AgentEvent>): ReadonlyA
   of(events, "turn-opened").map((event) => event.contextDigest)
 
 describe("CellTurn compaction marks", () => {
+  /** Each boundary waits for the reading of the frame before it, so frame 0's reading is what frame 1's boundary delivers. */
+  const gated = () => {
+    const gates = new Map<number, Deferred.Deferred<void>>()
+    const gate = (frame: number) => {
+      const held = gates.get(frame)
+      if (held !== undefined) return held
+      const made = Effect.runSync(Deferred.make<void>())
+      gates.set(frame, made)
+      return made
+    }
+    const steering: Layer.Layer<Steering.Source> = Steering.layer({
+      read: () => Effect.succeed(Steering.empty()),
+      drain: (input) => {
+        const frame = Number(input.boundary.split(":")[0])
+        return (frame === 0 ? Effect.void : Deferred.await(gate(frame - 1))).pipe(Effect.as({
+          inserts: [],
+          seatChanges: [],
+          remaining: Steering.empty(),
+          queued: false,
+          duplicate: false
+        }))
+      }
+    })
+    const observer = (event: AgentEvent.AgentEvent) =>
+      event._tag === "supervisor-settled" || event._tag === "supervisor-unjudged"
+        ? Effect.asVoid(Deferred.succeed(gate(event.frame), undefined))
+        : Effect.void
+    return { steering, observer }
+  }
+
   // Room to keep bulk `two` beside the suffix, and still over the trigger.
   const marking = () => compactionState(crowded, 70_000)
   const script = (): ScriptedModel.Script => [prose("the compacted summary"), emits(`ctx.done("done")`)]
@@ -3344,6 +3383,86 @@ describe("CellTurn compaction marks", () => {
       `console.log("after the nudge")`,
       `await ctx.call("bash", { command: "pytest" }); console.log("red")`
     ])
+  })
+
+  it("compacts early by the stored marks when a drained reading finds outdated context, and replays it", async () => {
+    const frameZero = (request: Evaluator.Request) =>
+      (request.state as { readonly frames?: ReadonlyArray<{ readonly frame: number }> }).frames?.at(-1)?.frame === 0
+    const script = (): ScriptedModel.Script => [
+      emits(`console.log("looked")`),
+      emits(`console.log("looked again")`),
+      prose("the early summary"),
+      emits(`ctx.done("done")`)
+    ]
+    // Far under the budget: only the reading can compact it.
+    const early = () => compactionState(crowded, 10_000_000, 4)
+    const records = new Map<string, unknown>()
+    const judge = marksJudge(() => ({ remove: 0.05, keep: 0.05 }), () => false, frameZero)
+    const first = await run({
+      script: script(),
+      state: early(),
+      flows: [],
+      evaluator: judge.layer,
+      judged: true,
+      records,
+      ...gated()
+    })
+    expect(first.failure).toBeUndefined()
+    const settled = of(first.events, "compaction-settled")
+    expect(settled).toHaveLength(1)
+    expect(settled[0]!.causes).toEqual(["outdated_context"])
+    expect(settled[0]!.marks?.length).toBeGreaterThan(0)
+    // Every replaced segment was marked by the reading, so the compaction
+    // asked Jev nothing more.
+    expect(first.engine.recorder.records.filter((boundary) => boundary.name === "compaction-marks")).toEqual([])
+    // It opened frame 2, the one after the boundary that delivered it.
+    const opened = first.events.findIndex((event) => event._tag === "compaction-settled")
+    expect(of(first.events.slice(0, opened), "turn-opened")).toHaveLength(2)
+    // The reading compacted instead of nudging.
+    expect(of(first.events, "steering-drained").every((event) => event.supervisor === undefined)).toBe(true)
+    expect(first.model.recorder.requests.map(textsOf).join("\n")).not.toMatch(/outdated context|compacting/i)
+
+    const quiet = marksJudge(() => ({ remove: 0.99, keep: 0.01 }))
+    const replay = await run({
+      script: script(),
+      state: early(),
+      flows: [],
+      evaluator: quiet.layer,
+      judged: true,
+      records
+    })
+    expect(replay.failure).toBeUndefined()
+    expect(quiet.asked).toEqual([])
+    expect(of(replay.events, "compaction-settled")).toEqual(settled)
+    expect(contextDigests(replay.events)).toEqual(contextDigests(first.events))
+  })
+
+  it("skips an early compaction whose marks keep every segment", async () => {
+    const judge = marksJudge(() => ({ remove: 0.01, keep: 0.99 }), () => false, () => true)
+    const { events, failure } = await run({
+      script: [emits(`console.log("looked")`), emits(`console.log("looked again")`), emits(`ctx.done("done")`)],
+      state: compactionState(crowded, 10_000_000, 4),
+      flows: [],
+      evaluator: judge.layer,
+      judged: true,
+      ...gated()
+    })
+    expect(failure).toBeUndefined()
+    expect(of(events, "decision-settled").some((event) => event.classifier === "compaction/marks")).toBe(true)
+    expect(of(events, "compaction-settled")).toEqual([])
+  })
+
+  it("does not compact early on a reading an unjudged run is never sent", async () => {
+    const judge = marksJudge(() => ({ remove: 0.05, keep: 0.05 }), () => false, () => true)
+    const { events, failure } = await run({
+      script: [emits(`console.log("looked")`), emits(`console.log("looked again")`), emits(`ctx.done("done")`)],
+      state: compactionState(crowded, 10_000_000, 4),
+      flows: [],
+      evaluator: judge.layer,
+      ...gated()
+    })
+    expect(failure).toBeUndefined()
+    expect(of(events, "compaction-settled")).toEqual([])
   })
 
   it("keeps its facts aligned through a second compaction, which squashes the first one's summary", async () => {

@@ -16,7 +16,6 @@ let settle = (_: Flows.Settled) => {}
 const host: Host.Host = {
   cwd: process.cwd(),
   judged: false,
-  compaction: async () => undefined,
   dispose: async () => {},
   run: (input) => {
     let answer = "Still here."

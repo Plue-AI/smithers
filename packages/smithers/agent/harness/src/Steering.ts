@@ -210,7 +210,12 @@ export const DrainRecord = Schema.Struct({
    * for its next compaction. The model is not sent them. Absent from
    * boundaries that took none.
    */
-  marks: Schema.optional(Schema.Array(compactionMarks.Marking))
+  marks: Schema.optional(Schema.Array(compactionMarks.Marking)),
+  /**
+   * The context triggers the delivered supervisor reading fired, which
+   * compact the run at its next frame. Absent from boundaries that took none.
+   */
+  compact: Schema.optional(Schema.Array(AgentEvent.CompactionCause))
 })
 
 /**

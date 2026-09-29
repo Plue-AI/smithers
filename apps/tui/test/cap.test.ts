@@ -16,7 +16,6 @@ it("resumes a worker stopped at its run cap with the chosen allowance, for it al
     cwd: mkdtempSync(join(tmpdir(), "tui-cap-")),
     runCap: 100,
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       runs.push(input)

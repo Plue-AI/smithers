@@ -49,7 +49,7 @@ import type * as Frame from "./frame.ts"
 
 const eventType = AgentEvent.eventType
 
-const nothing: Taken = { messages: [], memory: [], suppressed: [], marks: [] }
+const nothing: Taken = { messages: [], memory: [], suppressed: [], marks: [], compact: [] }
 
 /**
  * What one frame hands the supervisor: the snapshot without its frames,
@@ -98,6 +98,8 @@ export interface Taken {
   readonly ledger?: Monitor.Ledger
   /** Jev's answers about the segments the reading marked. */
   readonly marks: ReadonlyArray<compactionMarks.Marking>
+  /** The context triggers the reading fired, which compact the run at its next frame. */
+  readonly compact: ReadonlyArray<Supervisor.ContextTrigger>
 }
 
 /**
@@ -118,6 +120,7 @@ export interface Handle {
    * nothing is gated or delivered unless `deliver`. A reading Jev could not
    * take gates nothing. Takes the mailbox either way, so a stale reading is
    * dropped and never delivered later; its marks are taken all the same.
+   * A delivered reading's context triggers are taken beside its message.
    */
   readonly take: (
     frame: number,
@@ -175,6 +178,8 @@ interface Mailbox {
   readonly declared: ReadonlyArray<Monitor.Monitor>
   readonly rows: ReadonlyArray<Supervisor.Recalled>
   readonly marks: ReadonlyArray<compactionMarks.Marking>
+  /** The context triggers the reading fired; empty when Jev could not take it. */
+  readonly compact: ReadonlyArray<Supervisor.ContextTrigger>
 }
 
 /**
@@ -468,6 +473,11 @@ export const open = (input: {
                 ? undefined
                 : { rows: recorded.monitorRows, candidates: recorded.monitorCandidates },
               rows: recorded.memoryRows,
+              compact: recorded.settled === null ? [] : Supervisor.compacting({
+                ...recorded.settled,
+                outdatedContext: recorded.settled.outdatedContext ?? 0,
+                irrelevantContext: recorded.settled.irrelevantContext ?? 0
+              }),
               marks: [...Option.match(held, { onNone: () => [], onSome: (value) => value.marks }), ...recorded.marks]
             }))
         }
@@ -564,7 +574,8 @@ export const open = (input: {
             ...(message === undefined ? {} : { monitor: message.id }),
             suppressed: gated?.suppressed ?? [],
             ...(gated === undefined ? {} : { ledger: gated.ledger }),
-            marks
+            marks,
+            compact: held.value.compact
           }, Option.none()]
         })
     }

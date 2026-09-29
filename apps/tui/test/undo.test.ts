@@ -669,7 +669,6 @@ describe("undo", () => {
     const host = {
       cwd,
       judged: false,
-      compaction: async () => undefined,
       dispose: async () => {},
       run: () => {
         throw new Error("no run")

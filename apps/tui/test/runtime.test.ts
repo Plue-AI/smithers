@@ -537,7 +537,6 @@ const setup = (run?: Host.Host["run"], contribute?: (owner: string, contribution
   const host: Host.Host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-worker-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: run ?? ((value) => {
       launched++

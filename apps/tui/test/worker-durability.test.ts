@@ -26,7 +26,6 @@ const fixture = (
   const host = {
     cwd: mkdtempSync(join(tmpdir(), "tui-durable-")),
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run
   } satisfies Host.Host

@@ -72,7 +72,6 @@ const host: Host.Host = {
   cwd: process.cwd(),
   judged: false,
   approvals,
-  compaction: async () => undefined,
   dispose: async () => {
     await flows.dispose()
     model.stop()
