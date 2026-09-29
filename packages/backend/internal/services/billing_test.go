@@ -379,6 +379,7 @@ type stripeBillingClientMock struct {
 	latestCheckoutSession StripeCheckoutSessionSnapshot
 	latestCheckoutFound   bool
 	latestCheckoutErr     error
+	latestCheckoutCalls   int
 	expiredSessions       []string
 	canceledSubscriptions []string
 	cancelSubscriptionErr error
@@ -443,6 +444,7 @@ func (m *stripeBillingClientMock) UpdateSubscriptionQuantity(_ context.Context, 
 }
 
 func (m *stripeBillingClientMock) GetLatestCheckoutSession(_ context.Context, _ string) (StripeCheckoutSessionSnapshot, bool, error) {
+	m.latestCheckoutCalls++
 	if m.latestCheckoutErr != nil {
 		return StripeCheckoutSessionSnapshot{}, false, m.latestCheckoutErr
 	}
@@ -868,18 +870,21 @@ func TestBillingService_CreateUserCheckout_LatestSessionErrorBlocksCheckout(t *t
 	t.Parallel()
 
 	queries := newBillingQuerierMock()
+	checkoutCalls := 0
 	client := &stripeBillingClientMock{
 		createCustomerFn: func(_ context.Context, _ StripeCreateCustomerInput) (string, error) { return "cus_x", nil },
 		createCheckoutFn: func(_ context.Context, _ StripeCreateCheckoutSessionInput) (StripeCheckoutSessionResult, error) {
-			t.Fatal("checkout must not proceed when Stripe session state is unknown")
+			checkoutCalls++
 			return StripeCheckoutSessionResult{}, nil
 		},
 		latestCheckoutErr: errors.New("stripe down"),
 	}
-	svc := NewBillingService(queries, client, BillingServiceConfig{BaseURL: "https://smithers.test", PersonalMonthlyPriceID: "price_personal_monthly"})
+	svc := NewBillingService(queries, client, BillingServiceConfig{BaseURL: "https://smithers.test", ProMonthlyPriceID: "price_pro_monthly"})
 
 	_, err := svc.CreateUserCheckout(context.Background(), &db.User{ID: 42, Username: "alice"}, "", "")
-	require.Error(t, err, "unknown Stripe session state must fail closed to prevent a duplicate charge")
+	require.ErrorContains(t, err, "failed to inspect stripe checkout sessions")
+	assert.Equal(t, 1, client.latestCheckoutCalls, "Stripe session state must be inspected")
+	assert.Zero(t, checkoutCalls, "checkout must not proceed when Stripe session state is unknown")
 }
 
 func TestAuthorizePairingPlanMatrix(t *testing.T) {
