@@ -46,7 +46,7 @@ export default defineConfig({
     }
   }],
   test: {
-    include: ["template/*/test/**/*.test.ts"],
+    include: ["template/*/test/**/*.test.ts", "template/*/flows/**/*.e2e.ts"],
     exclude: ["template/*/test/tevm.test.ts"],
     environment: "node",
     // The same finite budget `vitest.config.ts` uses: generous under a loaded

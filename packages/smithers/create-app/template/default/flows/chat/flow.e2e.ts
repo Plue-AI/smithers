@@ -18,6 +18,7 @@
  * registry accepted the name. `resetCollectedCards` runs before each test, so
  * the assertion sees only the cards this test's run emitted.
  */
+import { fileURLToPath } from "node:url"
 import { cachedModelTest } from "@smthrs/create-app/testing"
 import type * as Schema from "effect/Schema"
 import { beforeEach } from "vitest"
@@ -32,6 +33,7 @@ type Output = typeof Flow.output.Type
 cachedModelTest<Payload, Output>("chat answers a question and renders a pane", {
   fixture: new URL("./fixtures/answer.json", import.meta.url),
   flow: "chat",
+  root: fileURLToPath(new URL("../..", import.meta.url)),
   payload: { message: "What does durable execution buy me?" },
   expect: (output) => {
     if (output.answer.trim().length === 0) throw new Error("chat returned an empty answer")
