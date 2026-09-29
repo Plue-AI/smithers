@@ -467,15 +467,15 @@ describe("Install", () => {
     expect(metadata.cacheable).toBe(false)
     expect(metadata.outputs).toBeUndefined()
     expect(metadata.inputs.map((input) => (input as Input.File).path))
-      .toEqual(["bun.lock", ".npmrc", "package.json"])
+      .toEqual(["bun.lock", ".npmrc", "package.json", ".pnpmfile.mjs"])
     expect(inputsFor(metadata.attrs as Parameters<typeof inputsFor>[0]).map((input) => (input as Input.File).path))
-      .toEqual(["bun.lock", ".npmrc", "package.json"])
+      .toEqual(["bun.lock", ".npmrc", "package.json", ".pnpmfile.mjs"])
   })
 
   it("prefers the declared lockfilePath over the manager's conventional file", () => {
     const metadata = Target.metadata(Install({ packageManager, lockfilePath: "lock/pnpm-lock.yaml" }))
     expect(metadata.inputs.map((input) => (input as Input.File).path))
-      .toEqual(["lock/pnpm-lock.yaml", ".npmrc", "package.json"])
+      .toEqual(["lock/pnpm-lock.yaml", ".npmrc", "package.json", ".pnpmfile.mjs"])
   })
 })
 

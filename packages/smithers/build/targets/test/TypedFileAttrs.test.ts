@@ -13,16 +13,17 @@ import * as TypedocDocs from "../src/TypedocDocumentation.ts"
 import { packageManager, runtime } from "./toolchain.ts"
 
 describe("Install declared inputs", () => {
-  it("declares the manager's lockfile, the npmrc, and the root manifest", () => {
+  it("declares the manager's lockfile, npmrc, root manifest, and pnpm hook", () => {
     const metadata = Target.metadata(Install.Install({ packageManager }))
     expect(metadata.inputs).toEqual([
       { _tag: "File", path: "pnpm-lock.yaml" },
       { _tag: "File", path: ".npmrc" },
-      { _tag: "File", path: "package.json" }
+      { _tag: "File", path: "package.json" },
+      { _tag: "File", path: ".pnpmfile.mjs" }
     ])
-    expect(metadata.inputs).toHaveLength(3)
+    expect(metadata.inputs).toHaveLength(4)
     expect(metadata.inputs.map((input) => input._tag === "File" ? Input.resolvePath("", input.path) : input._tag))
-      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json"])
+      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json", ".pnpmfile.mjs"])
     expect(metadata.cacheable).toBe(false)
   })
 

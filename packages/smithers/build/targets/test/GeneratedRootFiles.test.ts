@@ -204,7 +204,7 @@ describe("Install", () => {
     const metadata = Target.metadata(Install.Install({ packageManager, lockfile }))
     expect(metadata.dependencies).toHaveLength(1)
     expect(metadata.inputs.map((input) => (input as { readonly path: string }).path))
-      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json"])
+      .toEqual(["pnpm-lock.yaml", ".npmrc", "package.json", ".pnpmfile.mjs"])
   })
 
   it("defaults every generated-file dependency to absent", () => {
@@ -225,6 +225,7 @@ describe("the checked-in root files match the declarations", () => {
       extends: { _tag: "File", path: "tsconfig.base.json" },
       compilerOptions: {
         noEmit: true,
+        lib: ["ES2024"],
         module: "NodeNext",
         moduleResolution: "NodeNext",
         paths: { "*": ["./*"] }
@@ -240,15 +241,8 @@ describe("the checked-in root files match the declarations", () => {
         "examples/PACKAGE.ts",
         "apps/docs/*/PACKAGE.ts",
         "packages/*/PACKAGE.ts",
-        "packages/*/src/**/*",
-        "packages/*/test/**/*",
         "packages/*/*/PACKAGE.ts",
-        "packages/*/*/src/**/*",
-        "packages/*/*/test/**/*",
-        "packages/*/*/*/PACKAGE.ts",
-        "packages/*/*/*/src/**/*",
-        "packages/*/*/*/test/**/*",
-        "packages/coding-agent/examples/**/*"
+        "packages/*/*/*/PACKAGE.ts"
       ],
       exclude: ["**/dist/**", "packages/coding-agent/examples/extensions/gondolin/**"]
     }))
