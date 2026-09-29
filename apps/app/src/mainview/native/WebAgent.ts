@@ -291,8 +291,9 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
       }
       if (request.journal !== undefined) {
         if (response.headers.get("content-type")?.includes("application/json")) {
-          const reply = AgentTurnJournalReplySchema.safeParse(await response.json())
-          release()
+          let reply: ReturnType<typeof AgentTurnJournalReplySchema.safeParse>
+          try { reply = AgentTurnJournalReplySchema.safeParse(await response.json()) }
+          finally { release() }
           // An existing head is server progress, not proof this browser applied it.
           if (reply.success && reply.data.status === "existing") return { status: "started" }
           return { status: "error", message: "The accepted turn could not be resumed." }

@@ -38,6 +38,8 @@ does not append text, create another card or execute a tool.
 The cursor means **the whole batch committed locally**, never bytes received or
 the server's current head. An `existing` response to the initial POST supplies
 no local application evidence; the client reads from its own saved cursor.
+A malformed JSON admission releases the local request handle so the same turn
+can retry.
 Catch-up exhausts bounded pages and serializes application with live delivery.
 Periodic reads repair socket loss. The pure event replay path does not enter
 the controller or execute a model, command, provider or filesystem action.

@@ -99,6 +99,20 @@ test("a host without journal delivery cannot silently downgrade a durable turn t
   expect(frames).toEqual([])
 })
 
+test("malformed JSON journal admission releases the handle for a same-run retry", async () => {
+  const calls: string[] = []
+  const agent = createWebAgent({ fetchImpl: async url => {
+    calls.push(String(url))
+    return calls.length === 1
+      ? new Response("{not-json", { headers: { "content-type": "application/json" } })
+      : Response.json({ status: "existing", cursor, terminal: false })
+  } })
+  const first = await agent.startTurn(request).then(result => result.status, () => "rejected")
+  expect(["error", "rejected"]).toContain(first)
+  expect(await agent.startTurn(request)).toEqual({ status: "started" })
+  expect(calls).toEqual([TURN_PATH, TURN_PATH])
+})
+
 test.each([[410, "retired"], [409, "cursor"], [400, "request_invalid"], [404, "not-found"], [403, "forbidden"]] as const)(
   "public replay refusal HTTP %s preserves the permanent journal meaning %s", async (status, code) => {
     const agent = createWebAgent({ fetchImpl: async () => Response.json({ status: "error", code: "request_invalid", message: "The recorded turn is unavailable." }, { status }) })
