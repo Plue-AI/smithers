@@ -238,12 +238,17 @@ test("meter has no percentage label without a known window and includes cached a
     ...Transcript.empty,
     usage: { input: 12, output: 4, cached: 3, context: 75 }
   }
-  expect(AppView.meter(transcript, 0, 50)).toEqual({ percent: 0, context: "", usage: "↑12 ↓4 R3", window: "" })
+  expect(AppView.meter(transcript, 0, 50)).toEqual({
+    percent: 0,
+    context: "",
+    usage: "↑12 ↓4 R3",
+    window: " cache 25%"
+  })
   expect(AppView.meter(transcript, 100, 50)).toEqual({
     percent: 75,
     context: "",
     usage: "↑12 ↓4 R3",
-    window: "  75.0%/100 · compact 50"
+    window: "  75.0%/100 · compact 50 cache 25%"
   })
 })
 

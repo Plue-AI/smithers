@@ -41,7 +41,7 @@ const stream = (input: Host.TurnInput, prose: string, code: string, flow: string
   )
   input.onEvent(event({
     _tag: "model-settled",
-    usage: { inputTokens: 18_400, outputTokens: 2_150 },
+    usage: { inputTokens: 18_400, outputTokens: 2_150, cachedInputTokens: 16_900 },
     message: { role: "assistant", content: [{ type: "text", text: prose }] }
   }))
   input.onEvent(event({ _tag: "cell-produced", cell: { text: code } }))

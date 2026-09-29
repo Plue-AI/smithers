@@ -60,6 +60,8 @@ export const color = {
   warning: "#ecc48d",
   danger: "#ef5350",
   info: "#82aaff",
+  /** The person acts now: a question, a spend cap, a take-over. Never a theme color. */
+  needs: "#c792ea",
   /** `--bubble-outgoing` (dark): the user's messages. */
   bubble: mix(brand, 24, surface),
   addedBg: mix("#addb67", 14, page),

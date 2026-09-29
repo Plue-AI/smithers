@@ -203,6 +203,7 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly release: () => void
   readonly pane: () => void
   readonly tree: (step: -1 | 1) => void
+  readonly peek: () => void
   readonly card: (direction: Subagents.Direction) => void
   readonly open: () => void
   readonly files: () => void
@@ -214,6 +215,7 @@ export const overviewKey = (key: KeyEvent, state: {
   if (key.name === "i") return act.release()
   if (key.name === "return" || key.name === "kpenter") return act.open()
   if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
+  if (key.name === "space" && state.pane === "tree") return act.peek()
   const moved = direction(key, true)
   if (moved !== undefined && state.pane === "tree") {
     if (moved === "right") return act.pane()

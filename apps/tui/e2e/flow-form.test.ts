@@ -76,3 +76,47 @@ for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, tr
     }
   }, 60_000)
 }
+
+it("lists a flow waiting for its form under Needs you; enter opens it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "tui-form-"))
+  const project = join(root, "project")
+  mkdirSync(join(project, "flows/greet"), { recursive: true })
+  symlinkSync(join(app, "node_modules"), join(project, "node_modules"), "dir")
+  writeFileSync(
+    join(project, "flows/greet/flow.ts"),
+    `
+    import { Flow } from "@smthrs/flow"
+    import { Node } from "@smthrs/plan"
+    import { Schema } from "effect"
+    export default Flow.make("greet", {
+      description: "Greets", capabilities: [],
+      effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+      payload: { name: Schema.String }, success: Schema.String,
+      body: (input) => Node.succeed("hi " + input.name)
+    })
+  `
+  )
+  let tui: Tui | undefined
+  try {
+    tui = await Tui.start({
+      cwd: project,
+      cols: 100,
+      rows: 24,
+      command: `bun ${join(app, "e2e/real-flows-fixture.tsx")}`,
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SMITHERS_TUI_SESSION_DIR: join(root, "s") }
+    })
+    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.type("/flow greet")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Name"), 15_000, "form")
+    await tui.press(key.escape)
+    await tui.press(key.ctrlS)
+    await tui.until((screen) => screen.includes("Needs you 1") && screen.includes("greet"), 5_000, "needs you")
+    await tui.press("j")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Needs: "), 5_000, "flow tab")
+  } finally {
+    await tui?.stop()
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 60_000)

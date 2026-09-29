@@ -738,7 +738,9 @@ test.each(
     ["tree", "escape", ["close"]],
     ["cards", "i", ["release"]],
     ["cards", "pageup", [["scroll", -1]]],
-    ["tree", "pagedown", [["scroll", 1]]]
+    ["tree", "pagedown", [["scroll", 1]]],
+    ["tree", "space", ["peek"]],
+    ["cards", "space", []]
   ] as const
 )("overview %s %s routes only its active pane", (pane, name, expected) => {
   const calls: unknown[] = []
@@ -748,6 +750,7 @@ test.each(
     release: () => calls.push("release"),
     pane: () => calls.push("pane"),
     tree: (step) => calls.push(["tree", step]),
+    peek: () => calls.push("peek"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
     files: () => calls.push("files"),

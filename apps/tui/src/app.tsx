@@ -38,6 +38,7 @@ import { actions as flowActions, FlowRuns, type Port as FlowPort } from "./flows
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
 import * as Improve from "./improve.ts"
+import * as Inbox from "./inbox.ts"
 import * as Dispatch from "./key-dispatch.ts"
 import * as Keys from "./keys.ts"
 import * as Models from "./models.ts"
@@ -330,7 +331,7 @@ export function App(props: AppProps) {
     })
   /** The Summary overview: the tree's selection (`chat` or a worker), the pane with the keys, and the focused card. */
   const [overview, setOverview] = useState<
-    { readonly selected?: string; readonly pane: "tree" | "cards"; readonly card?: string }
+    { readonly selected?: string; readonly pane: "tree" | "cards"; readonly card?: string; readonly peek?: boolean }
   >({ pane: "tree" })
   useEffect(() => workspace.subscribe(() => setRevision((value) => value + 1)), [workspace])
   useEffect(() => () => workspace.dispose(), [workspace])
@@ -633,19 +634,30 @@ export function App(props: AppProps) {
     setPanelFocus,
     width
   })
-  /** The Summary overview shows while workers exist: the tree, then the selected branch's cards. */
-  const nodes = Tree.walk(snapshot.tabs)
-  const overviewShown = surface === "summary" && nodes.length > 0 && !focusMain
+  /** The Summary overview shows while work exists: Needs you, Working, Done, then the selected worker's cards. */
+  const inbox = Inbox.rows({
+    tabs: snapshot.tabs,
+    runs: flowRuns,
+    transcript: workspace.transcript,
+    contextWindow: props.contextWindow,
+    models: props.models,
+    now
+  })
+  const inboxRows = Inbox.flat(inbox)
+  const overviewShown = surface === "summary" && inboxRows.length > 0 && !focusMain
   const overviewSelected = overview.selected === SubagentView.chat ||
-      nodes.some((node) => node.tab.id === overview.selected)
+      inboxRows.some((row) => row.key === overview.selected)
     ? overview.selected!
-    : nodes[0]?.tab.id ?? SubagentView.chat
-  const overviewTab = nodes.find((node) => node.tab.id === overviewSelected)?.tab
+    : inboxRows[0]?.key ?? SubagentView.chat
+  const overviewRow = inboxRows.find((row) => row.key === overviewSelected)
+  const overviewTab = overviewRow?.worker
   const overviewBranch = overviewTab === undefined ? [] : Tree.branch(snapshot.tabs, overviewTab.id)
   const overviewCard = overviewBranch.find((tab) => tab.id === overview.card) ?? overviewBranch[0]
+  /** A flow row has no cards: however it was selected, the keys stay on the list. */
+  const overviewPane = overviewRow?.run === undefined ? overview.pane : "tree"
   /** The overview takes the keys, except while the conversation review has them. */
   const overviewKeys = overviewShown && panelFocus &&
-    !(overviewSelected === SubagentView.chat && overview.pane === "cards")
+    !(overviewSelected === SubagentView.chat && overviewPane === "cards")
   const panelScroll = useRef<((direction: number) => void) | undefined>(undefined)
   const lastCtrlC = useRef(0)
   useEffect(() => Log.subscribe((message) => setStatus(message, "danger")), [setStatus])
@@ -1632,11 +1644,14 @@ export function App(props: AppProps) {
     }
     if (overviewShown && panelFocus && key.name === "tab" && !key.shift && !key.ctrl && open === undefined) {
       // The overview's tab switches between its tree and the selected branch, the review included.
+      // A flow row has no cards to act on; the cards pane always shows cards, never a peek.
       key.preventDefault()
+      if (overviewRow?.run !== undefined) return
       return setOverview((current) => ({
         ...current,
         selected: overviewSelected,
-        pane: current.pane === "tree" ? "cards" : "tree"
+        pane: current.pane === "tree" ? "cards" : "tree",
+        peek: false
       }))
     }
     if (
@@ -1688,23 +1703,29 @@ export function App(props: AppProps) {
       return
     }
     if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
-      const ids = [SubagentView.chat, ...nodes.map((node) => node.tab.id)]
+      const ids = [SubagentView.chat, ...inboxRows.map((row) => row.key)]
       const branchKeys = overviewBranch.map((tab) => Subagents.cardKey(tab.id))
       return Dispatch.overviewKey(key, {
-        pane: overview.pane,
-        worker: overview.pane === "tree" ? overviewTab : overviewCard
+        pane: overviewPane,
+        worker: overviewPane === "tree" ? overviewTab : overviewCard
       }, {
         close: () =>
           flushSync(() => {
             setSurface("chat")
             setPanelFocus(false)
+            setOverview((current) => ({ ...current, peek: false }))
           }),
         release: () => flushSync(() => setPanelFocus(false)),
-        pane: () => setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" })),
+        pane: () => {
+          if (overviewRow?.run === undefined) {
+            setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards", peek: false }))
+          }
+        },
         tree: (step) => {
           const at = Math.max(0, Math.min(ids.length - 1, ids.indexOf(overviewSelected) + step))
           setOverview((current) => ({ ...current, selected: ids[at]!, card: undefined }))
         },
+        peek: () => setOverview((current) => ({ ...current, selected: overviewSelected, peek: current.peek !== true })),
         card: (direction) => {
           if (overviewCard === undefined) return
           const next = Subagents.move(
@@ -1717,10 +1738,12 @@ export function App(props: AppProps) {
           setOverview((current) => ({ ...current, card: overviewBranch[branchKeys.indexOf(next)]?.id }))
         },
         open: () => {
-          if (overview.pane === "tree" && overviewTab === undefined) {
+          setOverview((current) => ({ ...current, peek: false }))
+          if (overviewPane === "tree" && overviewRow?.run !== undefined) return clickTab(`flow:${overviewRow.run.id}`)
+          if (overviewPane === "tree" && overviewTab === undefined) {
             return setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" }))
           }
-          const target = overview.pane === "tree" ? overviewTab : overviewCard
+          const target = overviewPane === "tree" ? overviewTab : overviewCard
           if (target !== undefined) clickTab(`tab:${target.id}`)
         },
         files: () => {
@@ -2002,13 +2025,17 @@ export function App(props: AppProps) {
             overviewShown && panel !== undefined ?
             (
               <SubagentView.Overview
-                nodes={nodes}
+                sections={inbox}
+                tabs={snapshot.tabs}
+                {...(overview.peek === true && overviewRow !== undefined
+                  ? { peek: Inbox.peek(overviewRow, workspace.transcript) }
+                  : {})}
                 selected={overviewSelected}
-                pane={overview.pane}
+                pane={overviewPane}
                 width={width}
                 cards={{
                   ...cards,
-                  focused: overview.pane === "cards" && overviewCard !== undefined
+                  focused: overviewPane === "cards" && overviewCard !== undefined
                     ? Subagents.cardKey(overviewCard.id)
                     : undefined
                 }}

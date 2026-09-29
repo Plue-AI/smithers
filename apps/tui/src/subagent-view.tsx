@@ -8,6 +8,7 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type ReactNode, type RefObject, useEffect, useRef } from "react"
 import stringWidth from "string-width"
+import * as Inbox from "./inbox.ts"
 import type { Model } from "./models.ts"
 import * as Subagents from "./subagents.ts"
 import { tabTitle } from "./surfaces.ts"
@@ -251,11 +252,11 @@ export function Crumb(props: {
   )
 }
 
-/** The overview's columns: its tree pane, its cards pane, and the grid inside the cards pane's border. */
+/** The overview's columns: its inbox pane, its cards pane, and the grid inside the cards pane's border. */
 export const overviewWidths = (
   width: number
 ): { readonly tree: number; readonly cards: number; readonly grid: number } => {
-  const tree = Math.min(28, Math.max(20, Math.floor(width * 0.3)))
+  const tree = Math.min(64, Math.max(30, Math.floor(width * 0.52)))
   const cards = Math.max(10, width - tree)
   return { tree, cards, grid: cards - 2 }
 }
@@ -263,20 +264,52 @@ export const overviewWidths = (
 /** The overview's tree row id for the chat itself. */
 export const chat = "chat"
 
+const groupGlyph: Record<Inbox.Group, string> = { needs: "◆", working: "◐", done: "●" }
+const groupColor = (group: Inbox.Group): string =>
+  group === "needs" ? color.needs : group === "working" ? color.info : color.success
+
+/** A row's glyph: a needs-you node is `◆` in the needs color, the rest the shared status glyph. */
+export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string; readonly tone: string } =>
+  row.status === "input" ? { glyph: "◆", tone: color.needs } : Tabs.style(row.status, now)
+
+/** Fixed columns right of the name: seat, clock, window and cache. */
+const columns = { seat: 7, clock: 7, meter: 10 } as const
+
+/** The pending question or the last step of the selected row, `space` in the overview. */
+export function Peek(props: { readonly row: Inbox.Row; readonly lines: ReadonlyArray<string>; readonly now: number }) {
+  const { row } = props
+  const glyph = rowGlyph(row, props.now)
+  return (
+    <box style={{ flexDirection: "column", paddingLeft: 1 }}>
+      <text wrapMode="none">
+        <span fg={glyph.tone}>{glyph.glyph}</span> <strong fg={color.text}>{row.name}</strong>
+        <span fg={color.faint}>{`  ${row.seat} · ${row.clock}`}</span>
+      </text>
+      {props.lines.map((line, index) => <text key={index} fg={color.text}>{line}</text>)}
+      {row.window === undefined ? null : <text fg={color.faint}>{`window  ${row.window}%`}</text>}
+      {row.cache === undefined ? null : <text fg={color.faint}>{`cache   ${row.cache}%`}</text>}
+    </box>
+  )
+}
+
 /**
- * The Summary overview: the worker tree beside the selected branch's cards.
- * The chat heads the tree; choosing it shows the conversation review.
+ * The Summary overview: Needs you, Working and Done beside the selected
+ * worker's cards. The chat heads the list; choosing it shows the conversation
+ * review. `peek` shows the selected row's question or last step instead of cards.
  */
 export function Overview(props: {
-  readonly nodes: ReadonlyArray<Tree.Node>
-  /** `chat`, or the selected worker's id. */
+  readonly sections: ReadonlyArray<Inbox.Section>
+  /** `chat`, or the selected row's key. */
   readonly selected: string
   readonly pane: "tree" | "cards"
   readonly width: number
   readonly cards: Cards
-  readonly onSelect: (id: string) => void
+  readonly tabs: ReadonlyArray<Tab>
+  readonly onSelect: (key: string) => void
   /** The conversation review, shown while the chat is selected. */
   readonly review: ReactNode
+  /** The selected row's question or last step while peeking. */
+  readonly peek?: ReadonlyArray<string>
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
 }) {
   const { tree: treeWidth, cards: rightWidth, grid: gridWidth } = overviewWidths(props.width)
@@ -290,14 +323,11 @@ export function Overview(props: {
   useEffect(() => {
     if (props.cards.focused !== undefined) grid.current?.scrollChildIntoView(props.cards.focused)
   }, [props.cards.focused])
-  const selected = props.nodes.find((node) => node.tab.id === props.selected)?.tab
-  const branch = selected === undefined ? [] : Tree.branch(props.nodes.map((node) => node.tab), selected.id)
+  const row = Inbox.flat(props.sections).find((each) => each.key === props.selected)
+  const selected = row?.worker
+  const branch = selected === undefined ? [] : Tree.branch(props.tabs, selected.id)
   const frame = (pane: "tree" | "cards") => props.pane === pane ? color.brand : color.border
-  const row = (id: string, level: number, label: string, glyph?: { glyph: string; tone: string }, clock = "") => {
-    const lead = `${"  ".repeat(level)}${glyph === undefined ? "" : `${glyph.glyph} `}`
-    const room = Math.max(1, inner - 1 - stringWidth(lead) - (clock === "" ? 0 : stringWidth(clock) + 1))
-    const title = SubagentCard.clip(label, room)
-    const gap = Math.max(1, inner - 1 - stringWidth(lead) - stringWidth(title) - stringWidth(clock))
+  const line = (id: string, content: ReactNode) => {
     const chosen = props.selected === id
     return (
       <box
@@ -307,14 +337,31 @@ export function Overview(props: {
         {...(chosen ? { backgroundColor: props.pane === "tree" ? color.element : color.surface } : {})}
         onMouseDown={() => props.onSelect(id)}
       >
-        <text wrapMode="none">
-          {" "}
-          {"  ".repeat(level)}
-          {glyph === undefined ? null : <span fg={glyph.tone}>{glyph.glyph}{" "}</span>}
-          <span fg={chosen ? color.text : color.muted}>{title}</span>
-          <span fg={color.faint}>{" ".repeat(gap)}{clock}</span>
-        </text>
+        {content}
       </box>
+    )
+  }
+  const aside = (each: Inbox.Row) => {
+    const pad = (text: string, width: number) => SubagentCard.clip(text, width).padEnd(width)
+    return `${pad(each.seat, columns.seat)}${pad(each.clock, columns.clock)}${Inbox.meter(each)}`
+  }
+  const nodeRow = (each: Inbox.Row) => {
+    const glyph = rowGlyph(each, props.cards.now)
+    const lead = `  ${"  ".repeat(each.level)}${glyph.glyph} `
+    const right = columns.seat + columns.clock + columns.meter
+    const room = Math.max(1, inner - 1 - stringWidth(lead) - right)
+    const title = SubagentCard.clip(each.name, room)
+    const gap = Math.max(1, inner - 1 - stringWidth(lead) - stringWidth(title) - right)
+    const chosen = props.selected === each.key
+    return line(
+      each.key,
+      <text wrapMode="none">
+        {" "}
+        {"  ".repeat(each.level + 1)}
+        <span fg={glyph.tone}>{glyph.glyph}{" "}</span>
+        <span fg={chosen ? color.text : color.muted}>{title}</span>
+        <span fg={color.faint}>{" ".repeat(gap)}{SubagentCard.clip(aside(each), right)}</span>
+      </text>
     )
   }
   return (
@@ -326,26 +373,34 @@ export function Overview(props: {
         titleColor={color.faint}
       >
         <scrollbox ref={tree} scrollX={false} style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
-          {row(chat, 0, "Chat")}
-          {props.nodes.map((node) =>
-            row(
-              node.tab.id,
-              node.level,
-              tabTitle(node.tab),
-              Tabs.style(node.tab.status, props.cards.now),
-              SubagentCard.duration(Tabs.elapsed(node.tab, props.cards.now))
-            )
+          {line(
+            chat,
+            <text wrapMode="none">
+              {" "}
+              <span fg={props.selected === chat ? color.text : color.muted}>Chat</span>
+            </text>
           )}
+          {props.sections.map((section) => [
+            <text key={`heading:${section.group}`} wrapMode="none">
+              {" "}
+              <span fg={groupColor(section.group)}>{groupGlyph[section.group]}</span>{" "}
+              <strong fg={color.text}>{Inbox.headings[section.group]}</strong>
+              <span fg={color.faint}>{` ${section.rows.length}`}</span>
+            </text>,
+            ...section.rows.map(nodeRow)
+          ])}
         </scrollbox>
       </box>
       <box
-        title={selected === undefined ? "Summary" : tabTitle(selected)}
+        title={row === undefined ? "Summary" : row.name}
         style={{ width: rightWidth, border: true, flexShrink: 0 }}
         borderColor={frame("cards")}
         titleColor={color.faint}
       >
-        {selected === undefined ?
+        {row === undefined ?
           props.review :
+          props.peek !== undefined || selected === undefined ?
+          <Peek row={row} lines={props.peek ?? []} now={props.cards.now} /> :
           (
             <scrollbox ref={grid} scrollX={false} style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
               <Grid tabs={branch} width={gridWidth} cards={props.cards} />

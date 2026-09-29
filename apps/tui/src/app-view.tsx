@@ -7,6 +7,7 @@ import type { ReactNode } from "react"
 import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
+import * as Inbox from "./inbox.ts"
 import type { FlowForm } from "./key-dispatch.ts"
 import type * as Keys from "./keys.ts"
 import { color } from "./theme.ts"
@@ -169,6 +170,7 @@ export function PickerDialog(props: {
 export const meter = (transcript: Transcript.Transcript, window: number, compact: number | undefined) => {
   const usage = transcript.usage
   const percent = window > 0 ? (usage.context / window) * 100 : 0
+  const { cache } = Inbox.usage(usage, window)
   return {
     percent,
     context: transcript.contextAssessment?.outdated || transcript.contextAssessment?.irrelevant
@@ -182,11 +184,13 @@ export const meter = (transcript: Transcript.Transcript, window: number, compact
     usage: `↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}${
       usage.cached === 0 ? "" : ` R${Editor.tokens(usage.cached)}`
     }`,
-    window: window > 0
-      ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}${
-        compact === undefined ? "" : ` · compact ${Editor.tokens(compact)}`
-      }`
-      : ""
+    window: `${
+      window > 0
+        ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}${
+          compact === undefined ? "" : ` · compact ${Editor.tokens(compact)}`
+        }`
+        : ""
+    }${cache === undefined ? "" : ` cache ${cache}%`}`
   }
 }
 
