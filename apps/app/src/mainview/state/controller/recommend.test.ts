@@ -189,7 +189,7 @@ for (const change of ["replacement", "failed-cleanup"] as const) {
       expect(h.row()?.source).toBe("agent")
       if (change === "replacement") await identity(h.store, "bob")
       else {
-        expect(await h.controller.signOut()).toContain("cleanup is incomplete")
+        expect(await h.controller.signOut()).toContain("Signed out. Smithers could not finish clearing this browser's data.")
         expect(h.store.collections.identitySessions.get("identity")?.login).toBe("alice")
       }
       await h.controller.commands.run("chat.commands")

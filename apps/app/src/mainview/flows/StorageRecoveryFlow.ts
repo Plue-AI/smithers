@@ -3,6 +3,7 @@ import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Schema } from "effect"
 import { StorageRecoveryError } from "../chain/StorageRecovery"
+import { recoveryFailure } from "../chain/StorageFailureCopy"
 import {
   STORAGE_RECOVERY_EXPORT,
   STORAGE_RECOVERY_RESET,
@@ -28,7 +29,7 @@ export const storageRecoveryExportFlow = (run: () => Promise<string | void>): Fl
     handler: () =>
       Effect.tryPromise({
         try: run,
-        catch: () => new StorageRecoveryError("unreadable").message
+        catch: () => recoveryFailure(new StorageRecoveryError("unreadable"))
       }).pipe(Effect.flatMap((refusal) => refusal === undefined ? Effect.succeed({}) : Effect.fail(refusal)))
   }),
   input,
@@ -59,7 +60,7 @@ export const storageRecoveryResetFlow = (run: () => Promise<string | void>): Flo
     handler: () =>
       Effect.tryPromise({
         try: run,
-        catch: () => new StorageRecoveryError("unreadable").message
+        catch: () => recoveryFailure(new StorageRecoveryError("unreadable"))
       }).pipe(Effect.flatMap((refusal) => refusal === undefined ? Effect.succeed({}) : Effect.fail(refusal)))
   }),
   input,

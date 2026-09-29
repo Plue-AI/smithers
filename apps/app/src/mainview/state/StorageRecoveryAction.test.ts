@@ -132,10 +132,10 @@ describe("the shared private recovery action and Flow", () => {
         const flow = storageRecoveryExportFlow(action.run)
         const result = await invokeStartupRecovery(flow)
         expect(result.outcome).toBe("failure")
-        expect(result.message).toContain("not reset")
+        expect(result.message).toContain("Nothing was reset")
         expect(JSON.stringify(result)).not.toContain(raw)
         expect(action.state.get("recovery")?.phase).toBe("failed")
-        expect(action.state.get("recovery")?.message).toContain("not reset")
+        expect(action.state.get("recovery")?.message).toContain("Nothing was reset")
         expect(JSON.stringify([...action.state.values()])).not.toContain(raw)
         failing = false
         expect((await invokeStartupRecovery(flow)).outcome).toBe("success")
@@ -157,7 +157,7 @@ describe("the shared private recovery action and Flow", () => {
     try {
       const result = await invokeStartupRecovery(storageRecoveryExportFlow(action.run))
       expect(result.outcome).toBe("failure")
-      expect(result.message).toContain("safety limit")
+      expect(result.message).toContain("The recovery file is too large to download. Not your fault. Nothing was reset.")
       expect(result.message).not.toContain(raw)
     } finally {
       await action.dispose()

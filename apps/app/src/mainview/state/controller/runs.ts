@@ -36,6 +36,7 @@ import { gatewayBindingFor,gatewayRunContextFor,recordedRunBinding,type GatewayB
 import { approvalCardIdFor,cardContainsRun,runCardIdFor,runCardInScope,runScopeFromCard,sameRunScope,type BoxRunScope,type RunScope } from "../RunReference"
 import { runtimeRunKey } from "../RuntimeProjection"
 import { reconcileRunApprovals } from "./approval-reconciliation"
+import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
 import type { FormsController } from "./forms"
@@ -113,6 +114,11 @@ const waitingWord = (row: RunSummaryRow): string | undefined =>
     ? row.waitingReason ?? "parked"
     : undefined
 
+/** A read failure this controller or the gateway already worded for a person. */
+class RunReadRefusal extends Data.TaggedError("RunReadRefusal")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
+
 export const createRunsController = (
   ctx: ControllerContext,
   nextTranscriptOrdinal: () => number,
@@ -120,6 +126,10 @@ export const createRunsController = (
   renderFlowForm?: FormsController["renderFlowForm"]
 ): RunsController => {
   const { store, gateway } = ctx
+  /** What a person reads when a read fails: its worded refusal, else the tagged or site sentence, never a raw message. */
+  const readFailure = (error: unknown, key: string, sentence: string): string =>
+    error instanceof RunReadRefusal ? error.message
+      : presentAppFailure(error, failure => ctx.failures.report("toast.work", failure, key), { fault: "bug", sentence, actions: ["retry"] }).sentence
 
   // A named trace is the reader's exact view; ancillary cards identify only a run scope.
   const runCardFor = (scope: RunScope, sourceCard?: string) => {
@@ -215,16 +225,16 @@ export const createRunsController = (
         if (!current()) return TOAST_SUPERSEDED
         const { repo } = request
         const binding = recordedRunBinding(request, "This list's box is gone.")
-        if ("error" in binding) throw new Error(binding.error)
+        if ("error" in binding) throw new RunReadRefusal(binding.error)
         const provisioned = await workflows.provisionWorkspace(repo, binding)
         if (!current()) return TOAST_SUPERSEDED
-        if (provisioned !== true) throw new Error(provisioned)
+        if (provisioned !== true) throw new RunReadRefusal(provisioned)
         const attention = request.status === "attention"
         const [listed, inbox] = await Promise.all([
           gateway.workspaceRuns(repo, binding), attention ? gateway.approvalsInbox(repo, binding) : undefined
         ])
         if (!current()) return TOAST_SUPERSEDED
-        if (listed.status !== "ok" && !attention) throw new Error(listed.message)
+        if (listed.status !== "ok" && !attention) throw new RunReadRefusal(listed.message)
         const observed = listed.status === "ok" ? listed.value : []
         for (const summary of observed) {
           if (!current()) return TOAST_SUPERSEDED
@@ -257,14 +267,16 @@ export const createRunsController = (
         return current() ? errors.length ? errors.join(" · ") : true : TOAST_SUPERSEDED
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
+        // The card keeps the raw words behind Details; the toast says the sentence.
         const message = error instanceof Error ? error.message : String(error)
+        const shown = readFailure(error, key, "The run list could not be loaded. Not your fault.")
         const card = listCard(cardId, request)!
         try {
           await store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, status: "error", payload: {
             ...card.payload, observationError: message, listRequest: { ...request, state: "failed" }
           } } }).isPersisted.promise
         } catch { return current() ? "The run list could not be saved. Refresh to retry." : TOAST_SUPERSEDED }
-        return current() ? message : TOAST_SUPERSEDED
+        return current() ? shown : TOAST_SUPERSEDED
       }
     }, false, current)
     const entry = { id: request.id, epoch, work }
@@ -629,13 +641,13 @@ export const createRunsController = (
       try {
         if (!current()) return TOAST_SUPERSEDED
         const binding = recordedRunBinding(request)
-        if ("error" in binding) throw new Error(binding.error)
+        if ("error" in binding) throw new RunReadRefusal(binding.error)
         const target: BoxRunScope = { repo: request.repo, runId: request.runId, workspaceId: binding.workspaceId }
         const result = request.facet === "transcript"
           ? { facet: "transcript" as const, answer: await gateway.transcript(request.repo, request.runId, binding) }
           : { facet: "events" as const, answer: await gateway.runEvents(request.repo, request.runId, binding) }
         if (!current()) return TOAST_SUPERSEDED
-        if (result.answer.status !== "ok") throw new Error(result.answer.message)
+        if (result.answer.status !== "ok") throw new RunReadRefusal(result.answer.message)
         // The shared observation is run data; the reader's choice remains on its exact card.
         if (result.facet === "transcript") {
           await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
@@ -665,14 +677,16 @@ export const createRunsController = (
         return true
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
+        // The card keeps the raw words behind Details; the toast says the sentence.
         const message = error instanceof Error ? error.message : String(error)
+        const shown = readFailure(error, key, `This run's ${title.toLowerCase()} could not be loaded. Not your fault.`)
         const card = facetCard(cardId, request)!
         try {
           await store.dispatch({ type: "card.updated", actor: "system", id: cardId,
             patch: { payload: { ...card.payload, facetRequest: { ...request, state: "failed", error: message } } }
           }).isPersisted.promise
         } catch { return current() ? saveFailure : TOAST_SUPERSEDED }
-        return current() ? message : TOAST_SUPERSEDED
+        return current() ? shown : TOAST_SUPERSEDED
       }
     }, false, current)
     const entry = { id: request.id, epoch, work }
@@ -1020,7 +1034,7 @@ export const createRunsController = (
     }
     try {
       await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
-    } catch { throw new Error(resultSaveFailure) }
+    } catch { throw new RunReadRefusal(resultSaveFailure) }
     return pending.length
   }
 
@@ -1039,7 +1053,7 @@ export const createRunsController = (
       if (!current()) return false
       try {
         await store.dispatch({ type: "approvals.inbox.settled", actor: "system", id: request.id, ...(error === undefined ? {} : { error }) }).isPersisted.promise
-      } catch { throw new Error(resultSaveFailure) }
+      } catch { throw new RunReadRefusal(resultSaveFailure) }
       return ownsAccount() && (error === undefined ? inboxRequestFor(key) === undefined : inboxRequestFor(key)?.id === request.id)
     }
     const toastKey = `approvals.list.${key}`
@@ -1092,7 +1106,7 @@ export const createRunsController = (
         return { value: pending === 0 ? `No approvals are pending on ${request.repo}.` : registrationCount > 0 ? `${approvals}.` : `${approvals} on ${request.repo}.` }
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
-        const message = error instanceof Error ? error.message : String(error)
+        const message = readFailure(error, toastKey, "The approvals could not be loaded. Not your fault.")
         try {
           if (!await settle(message)) return TOAST_SUPERSEDED
         } catch {

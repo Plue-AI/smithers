@@ -1,4 +1,6 @@
 import type { UserFailureCopy, UserFailureRegistry } from "@smthrs/rpc/UserFailure"
+import type { PrivacyRetirementError } from "../chain/PrivacyRetirement"
+import { PRIVACY_RETIREMENT_COPY } from "../chain/PrivacyRetirementCopy"
 import { STORAGE_FAILURE_COPY, type StorageTaggedFailure } from "../chain/StorageFailureCopy"
 import type { AgentJournalIntegrityError } from "../runtime/AgentPort"
 import type { AppEventIntegrityError, AppProjectorVersionError } from "./AppEventStream"
@@ -23,6 +25,7 @@ import type {
 /** Every tagged failure the app's saved state, event log and writer lock throw. */
 export type StateTaggedFailure =
   | StorageTaggedFailure
+  | PrivacyRetirementError
   | AmbiguousPersistenceBackendError
   | AppProjectorVersionError
   | AppEventIntegrityError
@@ -54,6 +57,7 @@ const copyOf = ({ fault, sentence, actions }: UserFailureCopy): UserFailureCopy 
 
 export const STATE_FAILURE_COPY: UserFailureRegistry<StateTaggedFailure> = {
   ...STORAGE_FAILURE_COPY,
+  ...PRIVACY_RETIREMENT_COPY,
   DurableStorageConflictError: copyOf(LOST_ACT_COPY["storage-conflict"]),
   AmbiguousPersistenceBackendError: {
     fault: "bug",

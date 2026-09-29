@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import { CODING_PLAN } from "../../cards/fixtures/CodingPlan"
 import { createAppStore } from "../AppStore"
+import { StorageWriteFailedError } from "../StorageRecoveryContract"
+import { presentAppFailure } from "./AppFailure"
 import { scopedControllers } from "../ControllerTestScope"
 import { json, loadBox, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
 
@@ -14,22 +16,24 @@ const createAppController = scopedControllers()
 const repo = "owner/tutorial"
 const plan = { ...CODING_PLAN, changes: [CODING_PLAN.changes[0]!] }
 
-const fixture = async (box = true) => {
+type Store = Awaited<ReturnType<typeof createAppStore>>
+const fixture = async (box = true, wrap: (store: Store) => Store = store => store) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "tutorial", head: null }] }).isPersisted.promise
   if (box) await loadBox(store, repo)
   let planned: () => Promise<Response> = async () => json(200, plan)
+  let preflight: () => Promise<Response> = async () => json(503, { message: "The change service is unavailable." })
   let login = "owner"
   const posts: string[] = []
-  const controller = createAppController(store, silentAgent, {
+  const controller = createAppController(wrap(store), silentAgent, {
     fetchImpl: async (input) => {
       const path = new URL(String(input), "https://app.test").pathname
       if (path.endsWith("/api/auth/session")) return json(200, { login, allowlisted: true, admin: false })
       if (path.startsWith("/api/tutorial/change/")) {
         posts.push(path)
         // The start is proven admitted by reaching preflight; what follows is not under test.
-        return path.endsWith("/plan") ? planned() : json(503, { message: "The change service is unavailable." })
+        return path.endsWith("/plan") ? planned() : preflight()
       }
       return new Promise<Response>(() => {})
     }
@@ -37,6 +41,7 @@ const fixture = async (box = true) => {
   const plans = () => [...store.collections.cards.values()].filter(card => card.kind === "run-trace" && card.payload.kind === "change-plan")
   return { store, controller, posts, plans,
     planned: (answer: () => Promise<Response>) => { planned = answer },
+    preflight: (answer: () => Promise<Response>) => { preflight = answer },
     signIn: (next: string) => { login = next } }
 }
 
@@ -89,4 +94,35 @@ test("a plan saved by another owner is refused after the account changes", async
   await t.store.dispatch({ type: "card.upsert", actor: "system", card: card! }).isPersisted.promise
   expect(await t.controller.startTutorialChange(card!.id)).toBe("The repository or account changed; request a new plan.")
   expect(t.posts).not.toContain("/api/tutorial/change/preflight")
+})
+
+const RAW = "TypeError: fetch failed at undici/lib/fetch.js:42"
+
+test("an untagged planning failure answers the planning sentence, never its raw message", async () => {
+  const t = await fixture()
+  t.planned(async () => { throw new Error(RAW) })
+  const answer = await t.controller.suggestTutorialChange(repo)
+  expect(answer).toBe("The change could not be planned. Not your fault.")
+  expect(t.plans()).toHaveLength(0)
+})
+
+test("a storage failure while saving the plan answers its registry sentence", async () => {
+  const t = await fixture(true, store => new Proxy(store, { get: (target, key, receiver) => key === "dispatch"
+    ? (transition: Parameters<typeof store.dispatch>[0]) => {
+      if (transition.type === "card.upsert" && transition.card.kind === "run-trace") throw new StorageWriteFailedError()
+      return target.dispatch(transition)
+    } : Reflect.get(target, key, receiver) }))
+  expect(await t.controller.suggestTutorialChange(repo)).toBe(presentAppFailure(new StorageWriteFailedError(), () => {}).sentence)
+})
+
+test("an untagged start failure puts the start sentence on the plan card, and a service refusal keeps its words", async () => {
+  const t = await fixture()
+  await t.controller.suggestTutorialChange(repo)
+  const [card] = t.plans()
+  t.preflight(async () => { throw new Error(RAW) })
+  expect(await t.controller.startTutorialChange(card!.id)).toBe("The change could not be started. Not your fault.")
+  const saved = t.store.collections.cards.get(card!.id)
+  expect(saved?.kind === "run-trace" && saved.payload.error).toBe("The change could not be started. Not your fault.")
+  t.preflight(async () => json(503, { message: "The change service is unavailable." }))
+  expect(await t.controller.startTutorialChange(card!.id)).toBe("The change service is unavailable.")
 })

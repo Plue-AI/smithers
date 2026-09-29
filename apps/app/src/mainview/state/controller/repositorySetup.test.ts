@@ -1,5 +1,7 @@
 import { createOperationalFailureReporter } from "../OperationalFailures"
 import { browserWriteRefusal } from "../BrowserWriteFailure"
+import { StorageWriteFailedError } from "../StorageRecoveryContract"
+import { presentAppFailure } from "./AppFailure"
 import { expect, spyOn, test } from "bun:test"
 import { editSetup, initialSetup, setupActivationProblems, setupCandidate, type RepositorySetup, type SetupManualRequest, type SetupDraft, type SetupRecoveryResponse } from "@smthrs/rpc/RepositorySetup"
 import { createAppStore } from "../AppStore"
@@ -361,7 +363,9 @@ test("a setup question that cannot open stays visibly retryable and reports the 
     await until(() => t.state().guidance?.state === "failed")
     expect(attempts).toBe(2)
     expect(t.state().guidance?.error).toBe("Form unavailable")
-    expect(reported).toEqual([{ error: "Form unavailable", admitted: false }])
+    // The person reads the sentence; the raw message goes only to diagnostics.
+    expect(reported).toEqual([{ error: "The setup question could not be opened. Not your fault.", admitted: false }])
+    expect(t.ctx.failures.recent().some(entry => entry.seam === "setup.guidance" && entry.message.includes("Form unavailable"))).toBe(true)
     expect(t.calls).toEqual([])
     const failedId = t.state().guidance!.id
     expect(await t.setup.guideRepositorySetup("setup")).toEqual({ value: "Setup guidance requested." })
@@ -417,12 +421,42 @@ test("a lost response stays visibly retryable and reuses the durable request id"
   try {
     await t.setup.runRepositorySetup("setup", "evaluate"); await Promise.all(t.background)
     const id = t.state().request!.id
-    expect(t.state().request?.error).toBe("Connection lost")
+    // An untagged failure is the site's sentence on the card and the toast, never its raw message.
+    expect(t.state().request?.error).toBe("The setup could not be completed. Not your fault.")
+    expect([...t.store.collections.toasts.values()].map(toast => toast.detail).join(" ")).not.toContain("Connection lost")
     expect(t.state().active).toBeUndefined()
     lost = false
     await t.setup.retryRepositorySetup("setup"); await Promise.all(t.background)
     expect(t.calls.map(call => call.body.requestId)).toEqual([id, id])
     expect(t.state().request?.state).toBe("completed")
+  } finally { await t.close() }
+})
+
+test("a storage failure during setup shows its registry sentence, and a host refusal keeps its words", async () => {
+  const tagged = await fixture(async () => { throw new StorageWriteFailedError() })
+  try {
+    await tagged.setup.runRepositorySetup("setup", "evaluate"); await Promise.all(tagged.background)
+    expect(tagged.state().request?.error).toBe(presentAppFailure(new StorageWriteFailedError(), () => {}).sentence)
+  } finally { await tagged.close() }
+  const refused = await fixture(async () => Response.json({ message: "no" }, { status: 503 }))
+  try {
+    await refused.setup.runRepositorySetup("setup", "evaluate"); await Promise.all(refused.background)
+    expect(refused.state().request?.error).toBe("The host refused the request.")
+  } finally { await refused.close() }
+})
+
+test("an untagged recovery failure shows the recovery sentence, not its raw message", async () => {
+  const t = await fixture(async () => { throw Error("Setup must not launch during recovery") })
+  t.recovery.answer = async () => { throw Error("socket hang up at recover.ts:1") }
+  try {
+    const current = t.state()
+    const card = t.store.collections.cards.get("setup")!
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, kind: "repository-setup", payload: { ...current,
+      recovery: { id: "recover-raw", baseRevision: current.revision, baseDigest: setupCandidate(current), state: "failed" as const, registrationState: "unavailable" as const, error: "Offline" } } } }).isPersisted.promise
+    expect(await t.setup.runRepositorySetup("setup", "evaluate")).toEqual({ value: "Setup recovery requested." })
+    await Promise.all(t.background)
+    await until(() => t.state().recovery?.state === "failed")
+    expect(t.state().recovery?.error).toBe("Setup recovery is unavailable. Not your fault.")
   } finally { await t.close() }
 })
 

@@ -1,6 +1,7 @@
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { z } from "zod"
 import { encodeStorageRecovery, StorageRecoveryError } from "../chain/StorageRecovery"
+import { recoveryFailure } from "../chain/StorageFailureCopy"
 import type { StorageRecoverySnapshot } from "../chain/StorageRecovery"
 import {
   HeldBrowserStorageError,
@@ -95,7 +96,7 @@ export const createStorageRecoveryAction = (host: StorageRecoveryHost, actor: "u
         // vocabulary reaches the state, flow result, transcript or telemetry.
         const message = disposed
           ? CANCELED
-          : new StorageRecoveryError(error instanceof StorageRecoveryError ? error.code : "unreadable").message
+          : recoveryFailure(error instanceof StorageRecoveryError ? error : new StorageRecoveryError("unreadable"))
         await dispatch(disposed ? "canceled" : "failed", message)
         return message
       }
@@ -170,7 +171,7 @@ export const createStorageRecoveryAction = (host: StorageRecoveryHost, actor: "u
   const bindingUnavailable = async (): Promise<void> => {
     if (disposed || actor !== "user") return
     await state.preload()
-    if (!disposed) await dispatch("failed", new StorageRecoveryError("unreadable").message)
+    if (!disposed) await dispatch("failed", recoveryFailure(new StorageRecoveryError("unreadable")))
   }
   return { state, run, reset, dispose, bindingUnavailable }
 }

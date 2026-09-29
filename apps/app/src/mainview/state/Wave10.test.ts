@@ -219,10 +219,12 @@ describe("/chat.clear — optional summaries and atomic local archives", () => {
 
   test("a failed sweep leaves the chat UNcleared with an honest line", async () => {
     const store = await webStore()
+    const reports: string[] = []
     const controller = createAppController(store, silentAgent, {
       ...backend({
         "/api/model/stream": json(500, { status: "error", message: "chat upstream down" })
-      })
+      }),
+      clientErrors: { report: (_kind, error) => { reports.push(String(error)) }, reported: () => reports.length }
     })
     await signIn(store)
     controller.send("some conversation worth keeping")
@@ -235,6 +237,8 @@ describe("/chat.clear — optional summaries and atomic local archives", () => {
     const messages = [...store.collections.messages.values()]
     expect(messages.length).toBe(before)
     expect(outcome).toMatchObject({ status: "failed", error: expect.stringContaining("nothing was cleared or saved") })
+    // The raw cause reaches diagnostics, never the line the person reads.
+    expect(reports.some(report => report.includes("\"subject\":\"chat.clear\""))).toBe(true)
     expect([...store.collections.transitions.values()].some((record) => record.type === "conversation.cleared")).toBe(
       false
     )

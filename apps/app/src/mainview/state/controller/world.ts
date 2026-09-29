@@ -117,6 +117,7 @@ export const createWorldController = (
                 if (error instanceof SweepRequestTooLargeError) {
                   return "This conversation is too large for a summary (768 KiB request limit). Nothing was cleared or saved; run /chat.clear without arguments to archive it locally."
                 }
+                ctx.failures.report("command.boundary", error, "chat.clear")
                 return "The summary did not finish; nothing was cleared or saved. Run /chat.clear without arguments to archive locally, or try summarizing again."
               }
             }

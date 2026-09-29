@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { USER_FAILURE_ACTIONS } from "@smthrs/rpc/UserFailure"
 import { DurableStorageConflictError, StaleDurableMutationError } from "../../chain/DurableCollection"
+import { PrivacyCleanupPending, PrivacyMarkerUnreadable } from "../../chain/PrivacyRetirement"
 import { InvalidSchemaStampError } from "../../chain/SchemaStamp"
 import { UnknownPersistenceBackendError, UnsupportedLocalStorageSchemaError } from "../../chain/SchemaVersion"
 import { FutureSqliteSchemaError, OversizedSqliteCollectionError, UnreadableSqliteStateError } from "../../chain/SqliteRowStorage"
@@ -57,7 +58,9 @@ const every = (): ReadonlyArray<Error & { readonly _tag: string }> => [
   new StorageWriteFailedError(),
   new ApplicationClientError("forbidden", "role lacks repo:write", 403, "forbidden"),
   new RepositorySignInRequired("401 from /api/repos"),
-  new SweepRequestTooLargeError()
+  new SweepRequestTooLargeError(),
+  new PrivacyCleanupPending(),
+  new PrivacyMarkerUnreadable()
 ]
 
 const noReport = (error: unknown): void => { throw new Error(`reported a tagged failure: ${String(error)}`) }

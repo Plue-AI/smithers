@@ -317,3 +317,34 @@ test("an authoring wait holds no scope registration after it settles and still w
   await waitFor(() => running === 0)
   await store.dispose?.()
 })
+
+test("an untagged authoring failure toasts its sentence and keeps the raw words only on the card", async () => {
+  const RAW = "TypeError: undefined is not an object (evaluating 'launched.value.runId')"
+  const relay = fixture()
+  relay.release()
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await loadBox(store, REPO)
+  let thrown = false
+  const guarded = new Proxy(store, { get: (target, key, receiver) => key === "dispatch"
+    ? (transition: Parameters<typeof store.dispatch>[0]) => {
+      if (!thrown && transition.type === "card.upsert" && transition.card.kind === "run-trace" && transition.card.payload.runId === "author-1") { thrown = true; throw new Error(RAW) }
+      return target.dispatch(transition)
+    } : Reflect.get(target, key, receiver) })
+  const controller = createController(guarded, silentAgent, { fetchImpl: relay.fetchImpl, workflowPollMs: 1, toastDebounceMs: 0, toastAutoDismissMs: 10000 })
+  await controller.createWorkflow("make a review flow", REPO)
+  await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Creating a flow" && toast.status === "failed"))
+  const toast = [...store.collections.toasts.values()].find(toast => toast.title === "Creating a flow")!
+  expect(toast.detail).toBe("The flow could not be created. Not your fault.")
+  expect(runs(store)[0]?.payload.observationError).toBe(RAW)
+})
+
+test("a gateway refusal keeps its words on the authoring toast", async () => {
+  const relay = fixture()
+  relay.state.fail = true
+  relay.release()
+  const { store, controller } = await ready(relay)
+  await controller.createWorkflow("make a review flow", REPO)
+  await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Creating a flow" && toast.status === "failed"))
+  expect([...store.collections.toasts.values()].find(toast => toast.title === "Creating a flow")?.detail).toBe("authoring unavailable")
+})

@@ -131,7 +131,7 @@ test("a failed real cleanup stops the controller before saved reads close and re
     expect(t.store.privacyWriteState()).toBe("failed")
     expect(() => t.controller.runCommand("account.show")).not.toThrow()
     expect(() => t.controller.changeDraft("private rejected input")).not.toThrow()
-    expect(await t.controller.commands.runForAgent("account.show")).toMatchObject({ status: "failed", error: "Account cleanup failed. Reload to retry." })
+    expect(await t.controller.commands.runForAgent("account.show")).toMatchObject({ status: "failed", error: "Smithers could not finish clearing this browser's data. Not your fault." })
     expect(t.controller.runCommand("account.show")).toBe(false)
     expect(await t.controller.submitCommand({ name: "toast.dismiss", actor: "user", payload: { toastId: "toast-privacy-write" } })).toMatchObject({ status: "failed" })
     await t.dispose()

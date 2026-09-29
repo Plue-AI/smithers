@@ -1,9 +1,10 @@
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import { Plan } from "../../../../../../flows/coding/schema"
 import { decodeChangeReceipt,receiptMatchesPlan,validateTutorialPlan } from "../../cards/tutorial2-agent_change-contract"
 import { flag,line,text } from "@smthrs/ui/flow-form"
 import type { Card } from "../AppState"
 import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
+import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import type { FormsController } from "./forms"
 import { formRenderedText } from "./forms"
@@ -16,17 +17,24 @@ export interface TutorialChangeController {
 }
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
+/** A refusal this app or the change service already worded for a person. */
+class ChangeRefusal extends Data.TaggedError("ChangeRefusal")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
 /** What an already-started plan answers: the run it became and where that run stands, never a refusal. */
 const startedPlanState = (card: RunCard): string => {
   const started = card.payload.input?.started as { runId?: string } | undefined
   return started?.runId === undefined ? "This plan was already started." : `This plan was already started as run ${started.runId}; its card shows the run.`
 }
 export const createTutorialChangeController = (ctx: ControllerContext, flows: WorkflowController, nextOrdinal: () => number, renderFlowForm: FormsController["renderFlowForm"]): TutorialChangeController => {
+  /** What a person reads: a worded refusal, else the tagged or site sentence, never a raw message. */
+  const shown = (error: unknown, subject: string, sentence: string): string => error instanceof ChangeRefusal ? error.message
+    : presentAppFailure(error, failure => ctx.failures.report("command.boundary", failure, subject), { fault: "bug", sentence, actions: ["retry"] }).sentence
   const post = async (verb: string, input: object) => {
     const response = await ctx.boundedFetch(`${ctx.baseUrl}/api/tutorial/change/${verb}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input)
     })
-    if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "The change service is unavailable."))
+    if (!response.ok) throw new ChangeRefusal(await ctx.errorMessageOf(response, "The change service is unavailable."))
     return response.json()
   }
   const suggestTutorialChange: TutorialChangeController["suggestTutorialChange"] = async (repo, feature) => {
@@ -52,8 +60,9 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
           input: { plan, tutorialScope: { repoKey: scope.activeRepoKey, accountLogin } } }
       } }).isPersisted.promise
       return { value: `Review the suggested feature and planned commit in ${id}.` }
-    } catch (error) { return error instanceof Error ? error.message : String(error) }
+    } catch (error) { return shown(error, "agent.change", "The change could not be planned. Not your fault.") }
   }
+  const startFailure = "The change could not be started. Not your fault."
   const startTutorialChange: TutorialChangeController["startTutorialChange"] = async cardId => {
     const card = ctx.store.collections.cards.get(cardId)
     if (card?.kind !== "run-trace" || card.payload.kind !== "change-plan") return "This plan is no longer available to start."
@@ -71,13 +80,13 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
       try {
         // No box, no run: the plan keeps its Start door and says which box to open or pick.
         const binding = gatewayBindingFor(ctx.store, card.payload.repo)
-        if ("error" in binding) throw new Error(binding.error)
+        if ("error" in binding) throw new ChangeRefusal(binding.error)
         await post("preflight", { repo: card.payload.repo, plan })
         const provisioned = await flows.provisionWorkspace(card.payload.repo, binding)
-        if (provisioned !== true) throw new Error(provisioned)
+        if (provisioned !== true) throw new ChangeRefusal(provisioned)
         const launched = await flows.launchWorkflow({ repo: card.payload.repo, workflow: "tutorial-change", title: plan.changes[0]!.title, binding,
           kind: "change", input: { ...card.payload.input, plan } })
-        if ("message" in launched) throw new Error(launched.message)
+        if ("message" in launched) throw new ChangeRefusal(launched.message)
         const runCard = [...ctx.store.collections.cards.values()].find(candidate =>
           candidate.kind === "run-trace" && candidate.payload.runId === launched.runId && candidate.payload.repo === card.payload.repo)
         const current = ctx.store.collections.cards.get(cardId)
@@ -86,14 +95,14 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
         return { value: `Started change run ${launched.runId}.` }
       } catch (error) {
         // Nothing launched: the plan keeps its door, and the card says why the start stopped.
-        const message = error instanceof Error ? error.message : String(error)
+        const message = shown(error, cardId, startFailure)
         const current = ctx.store.collections.cards.get(cardId)
         if (current?.kind === "run-trace" && current.payload.input?.started === undefined) {
           await ctx.store.dispatch({ type: "card.updated", actor: "system", id: cardId, patch: { status: "active", payload: { ...current.payload, error: message } } }).isPersisted.promise
         }
-        throw error
+        throw new ChangeRefusal(message)
       }
-    } catch (error) { return error instanceof Error ? error.message : String(error) }
+    } catch (error) { return shown(error, cardId, startFailure) }
   }
   const finishTutorialChange: TutorialChangeController["finishTutorialChange"] = async cardId => {
     const card = ctx.store.collections.cards.get(cardId)
@@ -101,7 +110,7 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
     try {
       const plan = validateTutorialPlan(Schema.decodeUnknownSync(Plan)(card.payload.input?.plan))
       const receipt = decodeChangeReceipt(await post("receipt", { repo: card.payload.repo, runId: card.payload.runId, plan }))
-      if (!receiptMatchesPlan(receipt, plan, card.payload.repo, card.payload.runId)) throw new Error("The commit does not match the captured HEAD.")
+      if (!receiptMatchesPlan(receipt, plan, card.payload.repo, card.payload.runId)) throw new ChangeRefusal("The commit does not match the captured HEAD.")
       const current = ctx.store.collections.cards.get(cardId)
       if (current?.kind !== "run-trace" || current.payload.phase !== "completed") return
       await ctx.store.dispatch({ type: "card.updated", actor: "system", id: cardId,
@@ -109,7 +118,7 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
     } catch (error) {
       const current = ctx.store.collections.cards.get(cardId)
       if (current?.kind === "run-trace") ctx.store.dispatch({ type: "card.updated", actor: "system", id: cardId,
-        patch: { payload: { ...current.payload, error: error instanceof Error ? error.message : String(error) } } })
+        patch: { payload: { ...current.payload, error: shown(error, cardId, "The change could not be confirmed. Not your fault.") } } })
     }
   }
 

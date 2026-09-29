@@ -5,6 +5,7 @@ import {
   type RepositoryJob, type RepositorySetup, type SetupDraft, type SetupManualRequest, type SetupRecoveryResponse
 } from "@smthrs/rpc/RepositorySetup"
 import { refusalCode } from "@smthrs/rpc/Refusal"
+import { Data } from "effect"
 import { accountOwnerOf } from "../AccountOwner"
 import type { Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
@@ -12,11 +13,16 @@ import { browserWriteRefusal } from "../BrowserWriteFailure"
 import { resolveTargetRepo } from "../RepoContext"
 import { setupTrialPr } from "../RepositorySetupTrial"
 import { setupFailureSentence } from "../RunFailure"
+import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
 import { defaultSetupQuestion, repositorySetupGuide, setupGuideQuestions } from "./repositorySetupGuide"
 
 type SetupCard = Extract<Card, { kind: "repository-setup" }>
+/** A setup failure this app or the host already worded for a person. */
+class SetupRefusal extends Data.TaggedError("SetupRefusal")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
 type Operation = NonNullable<RepositorySetup["request"]>["operation"]
 type Result = Promise<string | { value: string } | void>
 
@@ -153,8 +159,8 @@ export const applySetupEdit = (
 export function projectRecoveredSetup(current: RepositorySetup, recovered: SetupRecoveryResponse, liveWorkspaces?: ReadonlySet<string>): RepositorySetup {
   // The host names the account by its username, which is the GitHub login in
   // whatever case GitHub first reported it.
-  if (current.owner === null || recovered.owner.toLowerCase() !== current.owner.toLowerCase()) throw Error("The recovered setup belongs to a different account.")
-  if (recovered.repo !== current.repo || recovered.job !== current.job || !current.recovery) throw Error("The recovered setup belongs to another repository.")
+  if (current.owner === null || recovered.owner.toLowerCase() !== current.owner.toLowerCase()) throw new SetupRefusal("The recovered setup belongs to a different account.")
+  if (recovered.repo !== current.repo || recovered.job !== current.job || !current.recovery) throw new SetupRefusal("The recovered setup belongs to another repository.")
   const unchanged = current.recovery.adoptDraft === true && current.revision === current.recovery.baseRevision && setupCandidate(current) === current.recovery.baseDigest
   let next = { ...current }
   const { registration, setup } = recovered
@@ -172,10 +178,10 @@ export function projectRecoveredSetup(current: RepositorySetup, recovered: Setup
       || result.requestId !== input.requestId || result.revision !== input.revision || result.digest !== input.digest
       || !receipt || receipt.requestId !== input.requestId || receipt.revision !== input.revision || receipt.digest !== input.digest || receipt.operation !== input.operation
       || (receipt.phase === "completed" && (!receipt.runId || (input.operation === "run" && !receipt.jobRunId)))
-      || (result.inspection && (input.operation !== "inspect" || receipt.phase !== "completed"))) throw Error("The recovered receipt does not match its setup request.")
+      || (result.inspection && (input.operation !== "inspect" || receipt.phase !== "completed"))) throw new SetupRefusal("The recovered receipt does not match its setup request.")
     if (unchanged) next = { ...next, draft: input.draft, revision: input.revision }
     if (result.workspaceId !== undefined && pinned !== undefined && result.workspaceId !== pinned
-      && policy?.owned === false && policy.workspaceId === result.workspaceId) throw Error("The recovered setup belongs to another workspace.")
+      && policy?.owned === false && policy.workspaceId === result.workspaceId) throw new SetupRefusal("The recovered setup belongs to another workspace.")
     next = archiveReplacedSetupReceipt(next, receipt)
     next = { ...next, ...(supersedes(result.workspaceId, input.workspaceId === pinned) ? { workspaceId: result.workspaceId } : {}), receipt }
     // A settled failure is recorded evidence whether the app watched it or read
@@ -352,7 +358,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
     const outcome = await ctx.commands.runAsAgent("setup.ask", JSON.stringify({ cardId: id,
       questionId: defaultSetupQuestion(card.payload).id, revision: card.payload.revision, digest: setupCandidate(card.payload) }))
     if (outcome.status === "form") return true
-    throw Error(outcome.status === "failed" ? outcome.error : "The setup question could not be opened.")
+    throw new SetupRefusal(outcome.status === "failed" ? outcome.error : "The setup question could not be opened.")
   }
 
   /*
@@ -419,6 +425,9 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
               if (!guidanceCurrent(card.id, intent.id, login, accountEpoch)) break
               if (attempt === 0) continue
               const message = error instanceof Error ? error.message : String(error)
+              const shown = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+                failure => ctx.failures.report("setup.guidance", failure, intent.id),
+                { fault: "bug", sentence: "The setup question could not be opened. Not your fault.", actions: ["retry"] }).sentence
               shared.guidanceFailures.add(intent.id)
               await edit(card.id, async () => {
                 if (!guidanceCurrent(card.id, intent.id, login, accountEpoch)) return
@@ -427,7 +436,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
               }).catch(error => ctx.failures.report("setup.guidance", error, intent.id))
               settled = true
               if (guidanceCurrent(card.id, intent.id, login, accountEpoch)) dependencies.guidanceFailed(accepted
-                ? "The command's outcome could not be saved. Check its result before trying again." : message, accepted)
+                ? "The command's outcome could not be saved. Check its result before trying again." : shown, accepted)
             }
           }
         } finally { shared.guiding = false; if (settled) offerGuidance() }
@@ -504,24 +513,24 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
             // Accept the older spelling during a mixed app/host rollout too.
             if (code === "setup_request_conflict" || code === "setup_request_reused") shared.spentRequests.add(intent.id)
             if (reading && response.status === 404) { forgotten = true; shared.spentRequests.add(intent.id) }
-            throw Error(await ctx.errorMessageOf(response, "The setup could not be completed."))
+            throw new SetupRefusal(await ctx.errorMessageOf(response, "The setup could not be completed."))
           }
           const result = SetupOperationResponseSchema.parse(await response.json())
           if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
-          if (result.requestId !== intent.id || result.revision !== intent.revision || result.digest !== intent.digest) throw Error("The host returned a result for a different setup draft.")
+          if (result.requestId !== intent.id || result.revision !== intent.revision || result.digest !== intent.digest) throw new SetupRefusal("The host returned a result for a different setup draft.")
           const latest = get(id)!
           // The host owns workspace selection: a workspace it replaced because
           // Cloud no longer had the one this request pinned is this setup's new
           // box. A result that moves a pin the request never carried is not.
           if (latest.payload.workspaceId && result.workspaceId && result.workspaceId !== latest.payload.workspaceId
-            && workspaceId !== latest.payload.workspaceId) throw Error("The host returned a result for a different workspace.")
+            && workspaceId !== latest.payload.workspaceId) throw new SetupRefusal("The host returned a result for a different workspace.")
           const previous = latest.payload.receipt?.requestId === intent.id ? latest.payload.receipt : undefined
           if ((previous?.runId && result.receipt?.runId && previous.runId !== result.receipt.runId)
-            || (previous?.jobRunId && result.receipt?.jobRunId && previous.jobRunId !== result.receipt.jobRunId)) throw Error("The host returned a different run for this setup request.")
+            || (previous?.jobRunId && result.receipt?.jobRunId && previous.jobRunId !== result.receipt.jobRunId)) throw new SetupRefusal("The host returned a different run for this setup request.")
           const scope = { ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}), ...(result.receipt ? { receipt: result.receipt } : {}) }
-          if (result.receipt && (result.receipt.requestId !== intent.id || result.receipt.revision !== intent.revision || result.receipt.digest !== intent.digest || result.receipt.operation !== intent.operation)) throw Error("The host receipt does not match this setup request.")
+          if (result.receipt && (result.receipt.requestId !== intent.id || result.receipt.revision !== intent.revision || result.receipt.digest !== intent.digest || result.receipt.operation !== intent.operation)) throw new SetupRefusal("The host receipt does not match this setup request.")
           if (result.inspection) {
-            if (intent.operation !== "inspect" || result.receipt?.phase !== "completed" || !result.receipt.runId) throw Error("The host did not confirm completed repository inspection.")
+            if (intent.operation !== "inspect" || result.receipt?.phase !== "completed" || !result.receipt.runId) throw new SetupRefusal("The host did not confirm completed repository inspection.")
             const canAdopt = latest.payload.revision === intent.revision && setupCandidate(latest.payload) === intent.digest
             const next = canAdopt ? editSetup({ ...latest.payload, ...scope }, result.inspection.suggestedDraft) : { ...latest.payload, ...scope }
             const updated: SetupCard = { ...latest, status: "active", payload: { ...next, ...scope, sources: result.inspection.sources,
@@ -533,9 +542,9 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
             return { value: "Repository inspection completed. Review the suggested configuration." }
           }
           const receipt = result.receipt!
-          if (receipt.requestId !== intent.id || receipt.revision !== intent.revision || receipt.digest !== intent.digest || receipt.operation !== intent.operation) throw Error("The host receipt does not match this setup request.")
-          if (receipt.phase === "completed" && !receipt.runId) throw Error("The host did not provide the completed setup run.")
-          if (intent.operation === "run" && receipt.phase === "completed" && !receipt.jobRunId) throw Error("The host did not provide the completed job run.")
+          if (receipt.requestId !== intent.id || receipt.revision !== intent.revision || receipt.digest !== intent.digest || receipt.operation !== intent.operation) throw new SetupRefusal("The host receipt does not match this setup request.")
+          if (receipt.phase === "completed" && !receipt.runId) throw new SetupRefusal("The host did not provide the completed setup run.")
+          if (intent.operation === "run" && receipt.phase === "completed" && !receipt.jobRunId) throw new SetupRefusal("The host did not provide the completed job run.")
           const terminal = ["completed", "failed", "stopped"].includes(receipt.phase)
           let next: RepositorySetup = { ...latest.payload, ...scope, request: { ...intent, ...(observing() ? { observeOnly: true } : {}), state: terminal ? receipt.phase === "completed" ? "completed" : "failed" : "running", ...(receipt.error ? { error: receipt.error } : {}) } }
           if (intent.operation === "evaluate") next = { ...next, evaluation: receipt }
@@ -543,11 +552,11 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
           if (terminal && receipt.phase !== "completed") next = { ...next,
             previousReceipts: [...next.previousReceipts.filter(item => item.requestId !== receipt.requestId), receipt].slice(-50) }
           if (receipt.phase === "completed" && intent.operation === "apply" && !observing()) {
-            if (!receipt.registrationId || !receipt.sourceRevision || !receipt.evidence.length) throw Error("The host did not confirm the saved flow and active registration.")
+            if (!receipt.registrationId || !receipt.sourceRevision || !receipt.evidence.length) throw new SetupRefusal("The host did not confirm the saved flow and active registration.")
             next = { ...next, active: { revision: intent.revision, digest: intent.digest, registrationId: receipt.registrationId, sourceRevision: receipt.sourceRevision, enabled: true, draft: latest.payload.draft } }
           }
           if (receipt.phase === "completed" && intent.operation === "pause" && !observing()) {
-            if (!next.active || receipt.registrationId !== next.active.registrationId || !receipt.evidence.length) throw Error("The host did not confirm that this registration paused.")
+            if (!next.active || receipt.registrationId !== next.active.registrationId || !receipt.evidence.length) throw new SetupRefusal("The host did not confirm that this registration paused.")
             next = { ...next, active: { ...next.active, enabled: false, schedule: undefined } }
             if (next.revision <= next.active!.revision) {
               const { evaluation, trial, ...preserved } = next
@@ -583,7 +592,9 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
       } catch (error) {
         if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
         const latest = get(id)!
-        const message = error instanceof Error ? error.message : String(error)
+        const message = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+          failure => ctx.failures.report("toast.work", failure, intent.id),
+          { fault: "bug", sentence: "The setup could not be completed. Not your fault.", actions: ["retry"] }).sentence
         // A forgotten request is no longer observe-only, so its Retry asks again.
         const { observeOnly: _, ...failed } = intent
         await upsert({ ...latest, status: "error", payload: { ...latest.payload, request: { ...failed, ...(observing() && !forgotten ? { observeOnly: true } : {}), state: "failed", error: message } } }, "system")
@@ -608,7 +619,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
       try {
         const response = await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/state?${new URLSearchParams({ repo, job })}`, { credentials: "include" })
         if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
-        if (!response.ok) throw Error(await ctx.errorMessageOf(response, "Setup recovery is unavailable."))
+        if (!response.ok) throw new SetupRefusal(await ctx.errorMessageOf(response, "Setup recovery is unavailable."))
         const result = SetupRecoveryResponseSchema.parse(await response.json())
         if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
         await edit(id, async () => {
@@ -634,7 +645,9 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
         return { value: "Setup recovered." }
       } catch (error) {
         if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
-        const message = error instanceof Error ? error.message : String(error)
+        const message = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+          failure => ctx.failures.report("toast.work", failure, intent.id),
+          { fault: "bug", sentence: "Setup recovery is unavailable. Not your fault.", actions: ["retry"] }).sentence
         await edit(id, async () => {
           if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return
           const latest = get(id)!

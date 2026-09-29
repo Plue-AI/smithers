@@ -25,6 +25,8 @@ import { gatewayRunContextFor } from "./RepoContext"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController, AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
+import { presentAppFailure } from "./controller/AppFailure"
+import { StorageWriteFailedError } from "./StorageRecoveryContract"
 import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
@@ -1503,7 +1505,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
       await waitFor(() => requests === 1)
       const second = controller.commands.runForAgent("approvals.list")
       await settle(3)
-      expect(await controller.signOut()).toContain("cleanup is incomplete")
+      expect(await controller.signOut()).toContain("Signed out. Smithers could not finish clearing this browser's data.")
       release()
       await Promise.all([first, second])
       await settle(6)
@@ -1532,7 +1534,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
       await controller.commands.run("approvals.list")
       await waitFor(() => started.read === 1)
       const request = inboxRequests(store)[0]!
-      expect(await controller.signOut()).toContain("cleanup is incomplete")
+      expect(await controller.signOut()).toContain("Signed out. Smithers could not finish clearing this browser's data.")
       expect(store.collections.identitySessions.get("identity")?.login).toBe(request.owner)
       releaseRead()
       await settle(10)
@@ -3289,4 +3291,62 @@ test("an admin inbox with an unread registration box keeps the readable reviews 
   const toast = [...store.collections.toasts.values()].find(entry => entry.key.startsWith("approvals.list."))!
   expect(toast.status).toBe("ok")
   expect(toast.detail).toBe("1 box not checked")
+})
+
+describe("run read failures speak a sentence, never a raw message", () => {
+  const RAW = "TypeError: cannot read properties of undefined (reading 'rows') at pump.ts:12"
+  const throwingOn = (store: Awaited<ReturnType<typeof webStore>>, type: string, error: () => unknown) =>
+    new Proxy(store, { get: (target, key, receiver) => key === "dispatch"
+      ? (transition: Parameters<typeof store.dispatch>[0]) => { if (transition.type === type) throw error(); return target.dispatch(transition) }
+      : Reflect.get(target, key, receiver) })
+  const failedToast = async (store: Awaited<ReturnType<typeof webStore>>, prefix: string) => {
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith(prefix) && toast.status === "failed"))
+    return [...store.collections.toasts.values()].find(toast => toast.key.startsWith(prefix) && toast.status === "failed")!
+  }
+  const tagged = presentAppFailure(new StorageWriteFailedError(), () => {}).sentence
+
+  for (const [name, error, sentence] of [
+    ["an untagged error", () => new Error(RAW), "The run list could not be loaded. Not your fault."],
+    ["a storage failure", () => new StorageWriteFailedError(), tagged]
+  ] as const) {
+    test(`runs.list shows ${name} as its sentence and keeps the raw words for Details`, async () => {
+      const store = await webStore()
+      const double = relay({ runs: [{ runId: "parked", flowId: "review-pr", status: "parked" }] })
+      const controller = createAppController(throwingOn(store, "gateway.run.observed", error), silentAgent, double.services)
+      await signIn(store)
+      await listInventory(controller, store, "runs.list")
+      const toast = await failedToast(store, "runs.list.")
+      expect(toast.detail).toBe(sentence)
+      expect(toast.detail).not.toContain("TypeError")
+      if (name === "an untagged error") expect(runListCard(store)?.payload.observationError).toBe(RAW)
+    })
+  }
+
+  test("runs.logs shows an untagged error as its sentence, not the raw message", async () => {
+    const store = await webStore()
+    await signIn(store)
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "b", kind: "run-trace", title: "b", status: "acted", createdAt: 1, ordinal: 1,
+      payload: { repo: REPO, workspaceId: TEST_BOX, runId: "run-facet", workflow: "review", phase: "completed", steps: [], result: null,
+        lastSeq: 0, facet: "steps", follow: false }
+    } }).isPersisted.promise
+    const double = relay({ transcriptLines: [{ runId: "run-facet", sequence: 1, turn: 1, at: 1, kind: "assistant", text: "Facet source" }] })
+    const controller = createAppController(throwingOn(store, "gateway.run.observed", () => new Error(RAW)), silentAgent, double.services)
+    await controller.commands.run("runs.logs", "sourceCard=b run-facet")
+    const toast = await failedToast(store, "runs.facet.")
+    expect(toast.detail).toBe("This run's transcript could not be loaded. Not your fault.")
+    const card = store.collections.cards.get("b")
+    expect(card?.kind === "run-trace" && card.payload.facetRequest?.error).toBe(RAW)
+  })
+
+  test("approvals.list shows an untagged error as its sentence, not the raw message", async () => {
+    const store = await webStore()
+    const double = relay({ approvals: [approvalRow("run-1", "gate", "Review deployment")] })
+    const controller = createAppController(throwingOn(store, "gateway.approvals.observed", () => new Error(RAW)), silentAgent, double.services)
+    await signIn(store)
+    await controller.commands.run("approvals.list")
+    const toast = await failedToast(store, "approvals.list.")
+    expect(toast.detail).toBe("The approvals could not be loaded. Not your fault.")
+    expect(inboxRequests(store)[0]?.error).toBe("The approvals could not be loaded. Not your fault.")
+  })
 })

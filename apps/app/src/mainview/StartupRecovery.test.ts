@@ -43,7 +43,7 @@ describe("startup recovery's non-React projection", () => {
     try {
       const button = recovery.element.querySelector("button")!
       button.click()
-      await until(() => recovery.element.textContent?.includes("could not be read completely") === true)
+      await until(() => recovery.element.textContent?.includes("could not read all of this browser's saved data") === true)
       expect(recovery.element.textContent).not.toContain("private bundle failure")
       expect(downloads).toBe(0)
       fails = false
@@ -68,7 +68,7 @@ describe("startup recovery's non-React projection", () => {
     try {
       const button = recovery.element.querySelector("button")!
       button.click()
-      await until(() => recovery.element.textContent?.includes("could not be read completely") === true)
+      await until(() => recovery.element.textContent?.includes("could not read all of this browser's saved data") === true)
       expect(button.disabled).toBe(false)
       expect(recovery.element.textContent).not.toContain("private original")
       expect(downloads).toEqual([])

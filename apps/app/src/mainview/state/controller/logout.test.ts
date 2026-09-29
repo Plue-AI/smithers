@@ -212,7 +212,11 @@ test("a refused save of the rechecked sign-out reports incomplete local state", 
     await waitFor(() => t.paths.includes(t.sessionPath))
     armed = true
     t.session.resolve(new Response(null, { status: 401 }))
-    expect(await signingOut).toBe("Sign-in status could not be saved. Reload to retry.")
+    const said = await signingOut
+    expect(said).toBe("Smithers could not confirm you are signed out. Not your fault. Try again.")
+    expect(said).not.toContain("Storage full")
+    expect(said).not.toContain("Reload")
     expect(refused).toBe(1)
   } finally { armed = false; await t.dispose() }
 })
+

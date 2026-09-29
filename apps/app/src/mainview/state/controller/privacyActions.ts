@@ -6,7 +6,8 @@ import type { ControllerContext } from "./context"
 import type { CommandLifecycle } from "../../flows/CommandLifecycle"
 
 export const PRIVACY_WRITE_PENDING = "Account cleanup is running. Try again in a moment."
-export const PRIVACY_WRITE_FAILED = "Account cleanup failed. Reload to retry."
+/* The same words as the startup panel's PrivacyCleanupPending copy; reloading opens that panel and its doors. */
+export const PRIVACY_WRITE_FAILED = "Smithers could not finish clearing this browser's data. Not your fault."
 const id = "toast-privacy-write"
 
 /**

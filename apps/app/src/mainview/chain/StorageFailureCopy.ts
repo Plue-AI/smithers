@@ -1,4 +1,4 @@
-import type { UserFailureCopy, UserFailureRegistry } from "@smthrs/rpc/UserFailure"
+import { presentUserFailure, type UserFailureCopy, type UserFailureRegistry } from "@smthrs/rpc/UserFailure"
 import type { DurableStorageConflictError, StaleDurableMutationError } from "./DurableCollection"
 import type { InvalidSchemaStampError } from "./SchemaStamp"
 import type { UnknownPersistenceBackendError, UnsupportedLocalStorageSchemaError } from "./SchemaVersion"
@@ -83,3 +83,6 @@ export const STORAGE_FAILURE_COPY: UserFailureRegistry<StorageTaggedFailure> = {
         actions: ["retry"]
       }
 }
+
+/** The sentence a person reads when the recovery download fails; the raw message stays internal. */
+export const recoveryFailure = (error: StorageRecoveryError): string => presentUserFailure(STORAGE_FAILURE_COPY, error).sentence

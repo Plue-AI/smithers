@@ -22,6 +22,20 @@ import type { ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { TOAST_SUPERSEDED } from "./failures"
 import type { ApplicationIdentityClient } from "../../runtime/ApplicationClient"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { presentAppFailure } from "./AppFailure"
+
+/* Sign-out failures with no tagged cause. Reloading cannot finish either, so neither says to. */
+const SIGN_OUT_UNCONFIRMED: UserFailureCopy = {
+  fault: "infra",
+  sentence: "Smithers could not confirm you are signed out. Not your fault. Try again.",
+  actions: ["retry"]
+}
+const SIGN_OUT_CLEANUP_UNFINISHED: UserFailureCopy = {
+  fault: "infra",
+  sentence: "Smithers could not finish clearing this browser's data. Not your fault.",
+  actions: ["retry", "reset-local-data"]
+}
 
 export interface AuthBillingController {
   readonly handleAuthReturn: (search: string) => boolean
@@ -617,8 +631,8 @@ export const createAuthBillingController = (
   const reconcileLogout = async (): Promise<string | void> => {
     if (ctx.disposed) return
     try { await loadSession() }
-    catch {
-      if (!ctx.disposed) return "Sign-in status could not be saved. Reload to retry."
+    catch (error) {
+      if (!ctx.disposed) return presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "auth.sign-out"), SIGN_OUT_UNCONFIRMED).sentence
     }
   }
 
@@ -647,8 +661,8 @@ export const createAuthBillingController = (
       const cleared = store.dispatch({ type: "identity.session.cleared", actor: "user" })
       retired = admitAccount()
       await cleared.isPersisted.promise
-    } catch {
-      if (retired()) return "Signed out, but local privacy cleanup is incomplete. Reload to retry before opening saved state or preparing recovery."
+    } catch (error) {
+      if (retired()) return `Signed out. ${presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "auth.sign-out"), SIGN_OUT_CLEANUP_UNFINISHED).sentence}`
       return
     }
     if (!retired()) return

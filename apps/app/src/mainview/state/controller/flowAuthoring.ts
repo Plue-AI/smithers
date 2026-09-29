@@ -6,6 +6,8 @@ import { runtimeRunKey } from "../RuntimeProjection"
 import { recordedRunBinding } from "../RepoContext"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 import { flowArgs } from "../../flows/FlowArgs"
+import { Data } from "effect"
+import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import { isFlowNotFound, type GatewayWorkspaceBinding } from "./gateway"
 import { TOAST_CANCELLED, TOAST_SUPERSEDED } from "./failures"
@@ -14,6 +16,11 @@ type Run = Extract<Card, { kind: "run-trace" }>
 type Plan = Extract<Card, { kind: "flow-plan" }>
 
 /** The durable request, launch and journal observer share one background lifetime. */
+/** A launch refusal this app or the gateway already worded for a person. */
+class AuthoringRefusal extends Data.TaggedError("AuthoringRefusal")<{ readonly message: string }> {
+  constructor(message: string) { super({ message }) }
+}
+
 export const createFlowAuthoringController = (
   ctx: ControllerContext,
   nextOrdinal: () => number,
@@ -125,13 +132,13 @@ export const createFlowAuthoringController = (
         let card = read(id)!
         if (card.payload.runId === "") {
           const binding = recordedRunBinding(card.payload, "This request's box is gone.")
-          if ("error" in binding) throw Error(binding.error)
+          if ("error" in binding) throw new AuthoringRefusal(binding.error)
           const ready = await provision(card.payload.repo, binding)
           if (!current(card)) return TOAST_SUPERSEDED
-          if (ready !== true) throw Error(ready)
+          if (ready !== true) throw new AuthoringRefusal(ready)
           const launched = await ctx.gateway.launch(card.payload.repo, FLOW_AUTHORING_ENTRY, { args: card.payload.input?.args }, binding, card.payload.authoring!.requestId)
           if (!current(card)) return TOAST_SUPERSEDED
-          if (launched.status !== "ok") throw Error(isFlowNotFound(launched.code) ? flowAuthoringUnavailable(card.payload.repo) : launched.message)
+          if (launched.status !== "ok") throw new AuthoringRefusal(isFlowNotFound(launched.code) ? flowAuthoringUnavailable(card.payload.repo) : launched.message)
           card = read(id)!
           await upsert({ ...card, status: "active", payload: { ...card.payload, runId: launched.value.runId,
             phase: "running", observationError: undefined, follow: true,
@@ -153,10 +160,13 @@ export const createFlowAuthoringController = (
       } catch (error) {
         const card = read(id)
         if (!card || !current(card)) return TOAST_SUPERSEDED
+        // The card keeps the raw words behind Details; the toast says the sentence.
         const message = error instanceof Error ? error.message : String(error)
         await upsert({ ...card, status: "error", payload: { ...card.payload, observationError: message,
           authoring: { ...card.payload.authoring!, launchError: message } } })
-        return message
+        return error instanceof AuthoringRefusal ? error.message : presentAppFailure(error,
+          failure => ctx.failures.report("toast.work", failure, id),
+          { fault: "bug", sentence: "The flow could not be created. Not your fault.", actions: ["retry"] }).sentence
       }
     }, false, () => { const card = read(id); return card !== undefined && current(card) }, id).finally(() => pending.delete(id))
     pending.set(id, work)

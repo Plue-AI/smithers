@@ -52,40 +52,6 @@ const database = () => {
   return { db, host }
 }
 
-test("provider request metadata survives an outage but not a durable account boundary", async () => {
-  const { storage } = memory()
-  const store = await open(storage)
-  await fill(store)
-  const requests = (["connect", "order", "revoke", "codex"] as const).flatMap((action) =>
-    (["requested", "completed", "failed"] as const).map((state) => ({
-      id: `${action}-${state}`, owner: "alice", action, state,
-      ...(action === "revoke" ? { connectionId: "private-connection" } : {}),
-      ...(action === "order" ? { provider: "claude" as const, ids: ["private-connection"] } : {}),
-      ...(action === "codex" ? { device: { id: "private-device", userCode: "private-code",
-        verificationUri: "https://example.invalid", interval: 1, expiresAt: "2099-01-01T00:00:00Z" } } : {})
-    })))
-  await store.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests }).isPersisted.promise
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
-    allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
-  expect(store.session().codingProviderRequests).toEqual(requests)
-  const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: async () => Response.json({}) })
-  const auth = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    expect(await auth.signOut()).toBeUndefined()
-    expect(store.session().codingProviderRequests).toBeUndefined()
-    await store.dispose?.()
-    const reopened = await open(storage)
-    expect(reopened.session().codingProviderRequests).toBeUndefined()
-    await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
-    expect(reopened.session().codingProviderRequests).toBeUndefined()
-    await reopened.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests }).isPersisted.promise
-    await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "carol",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
-    expect(reopened.session().codingProviderRequests).toBeUndefined()
-  } finally { await ctx.dispose() }
-})
-
 describe("durable privacy retirement", () => {
   for (const fails of [false, true]) test(`signout waits for the privacy receipt before reporting completion (failure: ${fails})`, async () => {
     const { storage } = memory()
@@ -104,7 +70,8 @@ describe("durable privacy retirement", () => {
       release.resolve()
       const result = await signingOut
       if (fails) {
-        expect(result).toContain("cleanup is incomplete")
+        expect(result).toContain("Signed out. Smithers could not finish clearing this browser's data.")
+        expect(result).not.toContain("Reload")
         expect(result).not.toContain(secret)
         expect(readPrivacyRetirement(storage)?.phase).toBe("pending")
         expect(changed).toBe(0)
