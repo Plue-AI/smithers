@@ -63,9 +63,13 @@ const pytest = (text: string): Report | undefined => {
   const verboseFailed = outcomes.flatMap((match) => match[2] === "FAILED" || match[2] === "ERROR" ? [match[1]!] : [])
   const verbosePassed = unique(outcomes.flatMap((match) => match[2] === "PASSED" ? [match[1]!] : [])).length
   const failed = unique([...summaryFailed, ...verboseFailed])
-  const tally = count(text, /\b(\d+) passed\b/)
-  const failures = count(text, /\b(\d+) failed\b/)
-  const errors = count(text, /\b(\d+) errors?\b/)
+  // Only a terminal pytest summary can certify completion. Earlier diagnostic
+  // lines (including test stdout) are not runner tallies.
+  const lastLine = text.trimEnd().split("\n").at(-1) ?? ""
+  const summary = /^(?:=+[ \t]*)?(\d+ [a-z]+(?:,[ \t]*\d+ [a-z]+)*) in \d+(?:\.\d+)?s(?: \([^)]*\))?[ \t]*(?:=+)?$/.exec(lastLine)?.[1]
+  const tally = summary === undefined ? undefined : count(summary, /\b(\d+) passed\b/)
+  const failures = summary === undefined ? undefined : count(summary, /\b(\d+) failed\b/)
+  const errors = summary === undefined ? undefined : count(summary, /\b(\d+) errors?\b/)
   const hasTally = tally !== undefined || failures !== undefined || errors !== undefined
   const reportedFailed = hasTally ? (failures ?? 0) + (errors ?? 0) : undefined
   if (!hasTally && outcomes.length === 0 && summaryFailed.length === 0) return undefined
@@ -147,10 +151,17 @@ const tap = (text: string): Report | undefined => {
  * @since 1.0.0
  */
 export const parse = (text: string): Report => {
-  // unittest first: its two signals — a `Ran N tests` tally and `FAIL:`/`ERROR:`
-  // outcome lines — appear in no other runner's output, while its summary line
-  // is close enough to pytest's wording to be misread the other way round.
-  for (const reader of [unittest, pytest, tap]) {
+  const hasTap = /^(?:TAP version \d+|1\.\.\d+|not ok\b|ok\b)/m.test(text)
+  const hasUnittest = /^Ran \d+ tests?\b/m.test(text)
+  const lastLine = text.trimEnd().split("\n").at(-1) ?? ""
+  const hasPytest = /^(?:=+[ \t]*)?\d+ [a-z]+(?:,[ \t]*\d+ [a-z]+)* in \d+(?:\.\d+)?s(?: \([^)]*\))?[ \t]*(?:=+)?$/.test(lastLine)
+  // Two runner completion signatures in one capture cannot establish which
+  // protocol owns the outcomes. Never attribute such a report.
+  if ([hasTap, hasUnittest, hasPytest].filter(Boolean).length > 1) {
+    return { passed: 0, failed: [], reportedFailed: undefined, parsed: false }
+  }
+  const readers = hasTap ? [tap] : hasUnittest ? [unittest] : hasPytest ? [pytest] : [unittest, pytest, tap]
+  for (const reader of readers) {
     const report = reader(text)
     if (report !== undefined) return report
   }
