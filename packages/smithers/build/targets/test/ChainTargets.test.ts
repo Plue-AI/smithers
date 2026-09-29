@@ -113,6 +113,7 @@ describe("Anvil and Docker targets", () => {
         image: build,
         registry: "registry.example.invalid",
         name: "api",
+        // @ts-expect-error Exercise the runtime rejection of an empty tag list.
         tags: [],
         approval: "required"
       })
