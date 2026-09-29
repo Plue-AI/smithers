@@ -39,7 +39,7 @@ const cells = {
   basic: "ctx.done(\"Ready. Ask for a small change with a check.\");",
   edit: `${edit}ctx.done("Fixed math.js.");`,
   approval:
-    `const result = await ctx.call("edit", {path:"math.js",oldString:"a - b",newString:"a + b"}); console.log(result); ctx.done("Edit request settled.");`,
+    `const result = await ctx.call("edit", {path:"math.js",oldString:"a - b",newString:"a + b"}); console.log(result); if (result.ok !== false) ctx.done("Edit request settled.");`,
   panels: `${publish(panel)}ctx.done("Published the checks view.");`,
   cards: `${publish({ kind: "panel", placement: "card", panel })}${
     publish({

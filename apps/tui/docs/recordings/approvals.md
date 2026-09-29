@@ -11,8 +11,6 @@ Wait 500 ms
 Capture "The edit waits for approval."
 Expect file "math.js" contains "a - b"
 Press y
-Wait 700 ms
-Press y
 Wait for answer "Edit request settled."
 Expect file "math.js" contains "a + b"
 Capture "Allow the call once and inspect its result."

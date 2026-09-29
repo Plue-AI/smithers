@@ -21,6 +21,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import * as Approvals from "../src/approvals.ts"
 import * as Session from "../src/session.ts"
 import { key, Tui } from "./tmux.ts"
 
@@ -2443,6 +2444,31 @@ describe("approvals", () => {
     expect(ready.match(asking)?.[0]).toBe(before)
     await tui.press("y")
     await tui.until((screen) => screen.match(asking)?.[0] !== before, 30_000, "answered")
+  }, 120_000)
+
+  it("one y lets one edit call settle the turn", async () => {
+    const started = await start({
+      approve: "ask",
+      replay: replayCells([
+        `const result = await ctx.call("edit", {path:"math.js",oldString:"a - b",newString:"a + b"}); console.log(result); if (result.ok !== false) ctx.done("Edit request settled.");`
+      ])
+    })
+    const { tui, cwd, sessions } = started
+    await tui.type("Fix the addition function.")
+    await tui.press(key.enter)
+    const shown = await tui.until((screen) => asking.test(screen), 60_000, "edit approval")
+    expect(shown.match(asking)![0]).toMatch(/^\? edit math\.js/)
+    await new Promise((resolve) => setTimeout(resolve, Approvals.armMs + 100))
+    await tui.press("y")
+    // A second request would hold the turn open, so the answer never persists.
+    await successfulAnswer(started, "Edit request settled.", 30_000)
+    expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
+    const folder = sessionFolder(sessions)
+    const file = join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!)
+    const edits = Session.load(file).filter((record) =>
+      record.type === "event" && record.event._tag === "cell-call-settled" && record.event.flowName === "edit"
+    )
+    expect(edits).toHaveLength(1)
   }, 120_000)
 
   it("keeps chat usable while a request waits, and esc drops it", async () => {
