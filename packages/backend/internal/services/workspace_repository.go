@@ -66,7 +66,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 
 	rootEntries, err := s.listRuntimeRepositoryFiles(ctx, row, requesterID, "inspect-root", "")
 	if err != nil {
-		return pkgerrors.Internal("inspect workspace repository root: " + err.Error())
+		return runtimeOperationError("inspect workspace repository root", err)
 	}
 	root := make(map[string]workspaceapi.FileEntry, len(rootEntries))
 	for _, entry := range rootEntries {
@@ -80,7 +80,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if hasGit {
 		gitEntries, listErr := s.listRuntimeRepositoryFiles(ctx, row, requesterID, "inspect-receipt", ".git")
 		if listErr != nil {
-			return pkgerrors.Internal("inspect workspace repository receipt: " + listErr.Error())
+			return runtimeOperationError("inspect workspace repository receipt", listErr)
 		}
 		for _, entry := range gitEntries {
 			if entry.Name != path.Base(workspaceRepositoryReceiptPath) {
@@ -91,7 +91,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			}
 			contents, readErr := s.readRuntimeRepositoryFile(ctx, row, requesterID, "read-receipt", workspaceRepositoryReceiptPath)
 			if readErr != nil {
-				return pkgerrors.Internal("read workspace repository receipt: " + readErr.Error())
+				return runtimeOperationError("read workspace repository receipt", readErr)
 			}
 			var receipt workspaceRepositoryReceipt
 			if decodeErr := json.Unmarshal(contents, &receipt); decodeErr != nil {
@@ -113,6 +113,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "verify-source-pin", workspaceapi.Command{
 				Args: []string{"git", "cat-file", "-e", receipt.SourceRevision + "^{commit}"},
 			}); err != nil {
+				if lostWorker(err) {
+					return err
+				}
 				return pkgerrors.Conflict("workspace repository source pin is unavailable")
 			}
 			if receipt.WorkspaceID == row.ID {
@@ -143,6 +146,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "validate-bookmark", workspaceapi.Command{
 		Args: []string{"git", "check-ref-format", "--branch", bookmark},
 	}); err != nil {
+		if lostWorker(err) {
+			return err
+		}
 		return pkgerrors.BadRequest("source bookmark is invalid")
 	}
 
@@ -168,7 +174,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 
 	rootEntries, err = s.listRuntimeRepositoryFiles(ctx, row, requesterID, "inspect-jj", "")
 	if err != nil {
-		return pkgerrors.Internal("inspect initialized workspace repository: " + err.Error())
+		return runtimeOperationError("inspect initialized workspace repository", err)
 	}
 	hasJJ := false
 	for _, entry := range rootEntries {
@@ -205,7 +211,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			return err
 		}
 		if err := linker.LinkWorkspaceEnvironment(linkCtx, row.ID); err != nil {
-			return pkgerrors.Internal("prepare workspace environment: " + err.Error())
+			return runtimeOperationError("prepare workspace environment", err)
 		}
 	}
 	receipt := workspaceRepositoryReceipt{
@@ -226,7 +232,7 @@ func (s *WorkspaceService) writeRuntimeRepositoryReceipt(ctx context.Context, ro
 		return err
 	}
 	if err := s.runtime.WriteFile(operationCtx, row.ID, workspaceRepositoryReceiptPath, contents, 0o600); err != nil {
-		return pkgerrors.Internal("commit workspace repository receipt: " + err.Error())
+		return runtimeOperationError("commit workspace repository receipt", err)
 	}
 	return nil
 }
@@ -264,7 +270,7 @@ func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row 
 	defer cancel()
 	result, err := s.runtime.ExecuteCommand(execCtx, row.ID, command)
 	if err != nil {
-		return pkgerrors.Internal("initialize workspace repository (" + step + "): " + err.Error())
+		return runtimeOperationError("initialize workspace repository ("+step+")", err)
 	}
 	if result.ExitCode == 0 && !result.OutputTruncated {
 		return nil
@@ -294,7 +300,7 @@ func (s *WorkspaceService) runtimeRepositoryCommandOutput(ctx context.Context, r
 	defer cancel()
 	result, err := s.runtime.ExecuteCommand(execCtx, row.ID, command)
 	if err != nil {
-		return "", pkgerrors.Internal("inspect workspace repository (" + step + "): " + err.Error())
+		return "", runtimeOperationError("inspect workspace repository ("+step+")", err)
 	}
 	if result.ExitCode != 0 || result.OutputTruncated {
 		return "", pkgerrors.Conflict("workspace repository " + step + " could not be verified")

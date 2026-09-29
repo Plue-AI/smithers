@@ -197,6 +197,22 @@ func lostWorkerError(err error) error {
 	return nil
 }
 
+// lostWorker reports whether err is the typed lost-worker failure, which a
+// caller passes through instead of recasting as a data error.
+func lostWorker(err error) bool {
+	var apiErr *pkgerrors.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeHostLeaseLost
+}
+
+// runtimeOperationError types a failed runtime call: a lost worker is an
+// infrastructure fault the user retries elsewhere, not a product bug.
+func runtimeOperationError(operation string, err error) error {
+	if lost := lostWorkerError(err); lost != nil {
+		return lost
+	}
+	return pkgerrors.Internal(operation + ": " + err.Error())
+}
+
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
 	if err := s.refuseRebuildRequired(row); err != nil {
 		return row, err
@@ -230,10 +246,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 			return row, pkgerrors.Conflict("workspace runtime no longer exists; create a fresh workspace")
 		}
-		if lost := lostWorkerError(err); lost != nil {
-			return row, lost
-		}
-		return row, pkgerrors.Internal("inspect workspace runtime: " + err.Error())
+		return row, runtimeOperationError("inspect workspace runtime", err)
 	}
 	if validationErr := validateRuntimeWorkspace(row.ID, observed); validationErr != nil {
 		if create {
@@ -261,10 +274,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if err != nil {
-			if lost := lostWorkerError(err); lost != nil {
-				return row, lost
-			}
-			return row, pkgerrors.Internal("start workspace runtime: " + err.Error())
+			return row, runtimeOperationError("start workspace runtime", err)
 		}
 		if validationErr := validateRuntimeWorkspace(row.ID, observed); validationErr != nil {
 			return row, pkgerrors.Internal(validationErr.Error())
@@ -305,7 +315,7 @@ func (s *WorkspaceService) stopRuntimeWorkspaceLocked(ctx context.Context, row d
 		return err
 	}
 	if err := s.runtime.StopWorkspace(operationCtx, row.ID); err != nil && !errors.Is(err, workspaceapi.ErrWorkspaceStopped) && !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
-		return pkgerrors.Internal("stop workspace runtime: " + err.Error())
+		return runtimeOperationError("stop workspace runtime", err)
 	}
 	return nil
 }
@@ -322,7 +332,7 @@ func (s *WorkspaceService) deleteRuntimeWorkspaceLocked(ctx context.Context, row
 		return err
 	}
 	if err := s.runtime.DeleteWorkspace(operationCtx, row.ID); err != nil && !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
-		return pkgerrors.Internal("delete workspace runtime: " + err.Error())
+		return runtimeOperationError("delete workspace runtime", err)
 	}
 	return nil
 }
@@ -378,7 +388,7 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if err != nil {
-			return row, pkgerrors.Internal("start restored workspace: " + err.Error())
+			return row, runtimeOperationError("start restored workspace", err)
 		}
 	}
 	if observed.State != workspaceapi.WorkspaceRunning {
@@ -528,7 +538,7 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 			observed, err = s.runtime.StartWorkspace(startCtx, created.ID)
 		}
 		if err != nil {
-			err = pkgerrors.Internal("start forked workspace runtime: " + err.Error())
+			err = runtimeOperationError("start forked workspace runtime", err)
 			s.markWorkspaceProvisionFailed(ctx, created, err)
 			return WorkspaceResponse{}, err
 		}
@@ -688,7 +698,7 @@ func (s *WorkspaceService) ExecuteWorkspaceCommand(ctx context.Context, workspac
 		Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
 	})
 	if err != nil {
-		return WorkspaceCommandResult{}, pkgerrors.Internal("execute workspace command: " + err.Error())
+		return WorkspaceCommandResult{}, runtimeOperationError("execute workspace command", err)
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
@@ -751,7 +761,7 @@ func (s *WorkspaceService) LaunchWorkspaceService(ctx context.Context, workspace
 		ReadyAddress: runtimeReadyAddress(input.Port), ReadyTimeout: 30 * time.Second,
 	})
 	if err != nil {
-		return WorkspaceManagedService{}, pkgerrors.Internal("start workspace service: " + err.Error())
+		return WorkspaceManagedService{}, runtimeOperationError("start workspace service", err)
 	}
 	s.touchWorkspaceEntryRecency(ctx, row.ID, "service-start")
 	return runtimeManagedService(started.Name, workspaceapi.ServiceRunning, started.Address, 0), nil
@@ -796,7 +806,7 @@ func (s *WorkspaceService) listRuntimeWorkspaceServices(ctx context.Context, row
 	}
 	observed, err := catalog.ListServices(operationCtx, row.ID)
 	if err != nil {
-		return nil, pkgerrors.Internal("list workspace services: " + err.Error())
+		return nil, runtimeOperationError("list workspace services", err)
 	}
 	result := make([]WorkspaceManagedService, 0, len(observed))
 	for _, service := range observed {
@@ -877,7 +887,7 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 	}
 	terminal, err := s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, workspaceapi.Command{Args: []string{"/bin/sh"}})
 	if err != nil {
-		return nil, pkgerrors.Internal("open workspace terminal: " + err.Error())
+		return nil, runtimeOperationError("open workspace terminal", err)
 	}
 	if columns == 0 {
 		columns = 80
