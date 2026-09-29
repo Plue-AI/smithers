@@ -32,6 +32,8 @@ func TestMaximumChoosesDearerPromptClassAndKeepsOutputLimit(t *testing.T) {
 		{"input", Rates{InputPerMTok: 9, CacheReadPerMTok: 3, CacheWritePerMTok: 4}, Usage{InputTokens: 23, OutputTokens: 7}},
 		{"cache read", Rates{InputPerMTok: 3, CacheReadPerMTok: 9, CacheWritePerMTok: 4}, Usage{CacheReadTokens: 23, OutputTokens: 7}},
 		{"cache write", Rates{InputPerMTok: 3, CacheReadPerMTok: 4, CacheWritePerMTok: 9}, Usage{CacheWriteTokens: 23, OutputTokens: 7}},
+		{"1-hour cache write", Rates{InputPerMTok: 3, CacheReadPerMTok: 4, CacheWritePerMTok: 5, CacheWrite1hPerMTok: 9}, Usage{CacheWriteTokens: 23, CacheWrite1hTokens: 23, OutputTokens: 7}},
+		{"tie keeps 5-minute write", Rates{InputPerMTok: 3, CacheReadPerMTok: 4, CacheWritePerMTok: 9, CacheWrite1hPerMTok: 9}, Usage{CacheWriteTokens: 23, OutputTokens: 7}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			price := Price{Context: ContextFlat, Rates: tc.rates}
@@ -58,15 +60,15 @@ func TestCostNanosRoundsOnlyOnceAndIncludesFlatCharge(t *testing.T) {
 }
 
 func TestCostNanosRejectsEveryNegativeUsageAndPriceClass(t *testing.T) {
-	base := Price{Context: ContextFlat, Rates: Rates{1, 1, 1, 1}}
+	base := Price{Context: ContextFlat, Rates: Rates{1, 1, 1, 1, 1}}
 	for _, usage := range []Usage{
-		{InputTokens: -1}, {OutputTokens: -1}, {CacheReadTokens: -1}, {CacheWriteTokens: -1},
+		{InputTokens: -1}, {OutputTokens: -1}, {CacheReadTokens: -1}, {CacheWriteTokens: -1}, {CacheWriteTokens: 1, CacheWrite1hTokens: -1},
 	} {
 		if _, err := CostNanos(base, usage); err == nil || err.Error() != "negative model usage" {
 			t.Fatalf("usage %+v: err=%v", usage, err)
 		}
 	}
-	for _, rates := range []Rates{{-1, 1, 1, 1}, {1, -1, 1, 1}, {1, 1, -1, 1}, {1, 1, 1, -1}} {
+	for _, rates := range []Rates{{-1, 1, 1, 1, 1}, {1, -1, 1, 1, 1}, {1, 1, -1, 1, 1}, {1, 1, 1, -1, 1}, {1, 1, 1, 1, -1}} {
 		price := Price{Context: ContextFlat, Rates: rates}
 		if _, err := CostNanos(price, Usage{}); err == nil || err.Error() != "negative model price" {
 			t.Fatalf("rates %+v: err=%v", rates, err)
@@ -124,7 +126,8 @@ func TestTableDeclaresContextPricingAndLongRatesNeverUndercut(t *testing.T) {
 		}
 		base, long := price.Rates, price.LongContext
 		if long.InputPerMTok < base.InputPerMTok || long.OutputPerMTok < base.OutputPerMTok ||
-			long.CacheReadPerMTok < base.CacheReadPerMTok || long.CacheWritePerMTok < base.CacheWritePerMTok {
+			long.CacheReadPerMTok < base.CacheReadPerMTok || long.CacheWritePerMTok < base.CacheWritePerMTok ||
+			long.CacheWrite1hPerMTok < base.CacheWrite1hPerMTok {
 			t.Errorf("%s: a long-context rate is below its standard rate", model)
 		}
 	}
@@ -213,11 +216,11 @@ func TestAnthropicContextIsFlatAtEverySize(t *testing.T) {
 
 func TestPublishedRateCards(t *testing.T) {
 	for model, want := range map[string]Rates{
-		"claude-fable-5-1": {usd(10), usd(50), usd(0.25), usd(12.5)},
-		"claude-opus-5-5":  {usd(4), usd(20), usd(0.2), usd(5)},
-		"claude-sonnet-5":  {usd(2), usd(10), usd(0.2), usd(2.5)},
-		"qwen-3.8-27b":     {usd(0.99), usd(1.49), usd(0.99), usd(0.99)},
-		"gpt-4o":           {usd(2.5), usd(10), usd(1.25), usd(2.5)},
+		"claude-fable-5-1": {usd(10), usd(50), usd(0.25), usd(12.5), usd(20)},
+		"claude-opus-5-5":  {usd(4), usd(20), usd(0.2), usd(5), usd(8)},
+		"claude-sonnet-5":  {usd(2), usd(10), usd(0.2), usd(2.5), usd(4)},
+		"qwen-3.8-27b":     {usd(0.99), usd(1.49), usd(0.99), usd(0.99), usd(0.99)},
+		"gpt-4o":           {usd(2.5), usd(10), usd(1.25), usd(2.5), usd(2.5)},
 	} {
 		if price, ok := Lookup(model); !ok || price.Rates != want {
 			t.Errorf("%s: %+v, want %+v", model, price.Rates, want)
@@ -251,7 +254,7 @@ func TestMaximumCoversEverySplitAcrossTheThreshold(t *testing.T) {
 // $0.60/$7.50) from 200,000 prompt tokens.
 func TestSonnet45LongContextPremiumAtBelowAndAboveThreshold(t *testing.T) {
 	price, ok := Lookup("anthropic/claude-sonnet-4-5")
-	if !ok || price.LongContext != (Rates{usd(6), usd(22.5), usd(0.6), usd(7.5)}) {
+	if !ok || price.LongContext != (Rates{usd(6), usd(22.5), usd(0.6), usd(7.5), usd(12)}) {
 		t.Fatalf("sonnet 4.5 long rates: %+v", price.LongContext)
 	}
 	for _, tc := range []struct {
@@ -275,8 +278,8 @@ func TestDatedPriceChangesAtItsPublishedDate(t *testing.T) {
 		at   time.Time
 		want Rates
 	}{
-		{change.Add(-time.Nanosecond), Rates{usd(0.75), usd(3.75), usd(0.075), usd(0.75)}},
-		{change, Rates{usd(1.50), usd(7.50), usd(0.15), usd(1.50)}},
+		{change.Add(-time.Nanosecond), Rates{usd(0.75), usd(3.75), usd(0.075), usd(0.75), usd(0.75)}},
+		{change, Rates{usd(1.50), usd(7.50), usd(0.15), usd(1.50), usd(1.50)}},
 	} {
 		price, ok := LookupAt("gemini-3.8-flash", tc.at)
 		if !ok || price.Provider != "google" || price.Rates != tc.want || (price.Next == nil) != !tc.at.Before(change) {
@@ -288,5 +291,49 @@ func TestDatedPriceChangesAtItsPublishedDate(t *testing.T) {
 	}
 	if _, ok := Lookup("gemini-2.0-flash-001"); ok {
 		t.Fatal("the shut-down gemini-2.0-flash-001 is priced")
+	}
+}
+
+// Anthropic 1-hour cache writes cost 2x input; cache_creation_input_tokens
+// counts both lifetimes, so the 1-hour part is priced once, not twice.
+func TestAnthropicOneHourCacheWrites(t *testing.T) {
+	haiku, _ := Lookup("claude-haiku-4-5")
+	for _, tc := range []struct {
+		name  string
+		usage Usage
+		want  int64
+	}{
+		{"mixed 100x5m + 100x1h", Usage{CacheWriteTokens: 200, CacheWrite1hTokens: 100}, 325_000},
+		{"pure 1h", Usage{CacheWriteTokens: 100, CacheWrite1hTokens: 100}, 200_000},
+		{"pure 5m", Usage{CacheWriteTokens: 100}, 125_000},
+	} {
+		got, err := CostNanos(haiku, tc.usage)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: got %d want %d (err %v)", tc.name, got, tc.want, err)
+		}
+	}
+	bound := haiku.Maximum(100, 10)
+	if bound != (Usage{CacheWriteTokens: 100, CacheWrite1hTokens: 100, OutputTokens: 10}) {
+		t.Fatalf("bound %+v does not use the 1-hour class", bound)
+	}
+	if got, err := CostNanos(haiku, bound); err != nil || got != 250_000 {
+		t.Fatalf("bound cost %d err %v, want 250000", got, err)
+	}
+	if _, err := CostNanos(haiku, Usage{CacheWriteTokens: 1, CacheWrite1hTokens: 2}); err == nil || err.Error() != "1-hour cache writes exceed all cache writes" {
+		t.Fatalf("inconsistent split: err=%v", err)
+	}
+	for model, price := range Table {
+		for _, rates := range []Rates{price.Rates, price.LongContext} {
+			if rates == (Rates{}) || price.FlatPerCall > 0 {
+				continue
+			}
+			want := rates.CacheWritePerMTok
+			if price.Provider == "anthropic" {
+				want = rates.InputPerMTok * 2
+			}
+			if rates.CacheWrite1hPerMTok != want {
+				t.Errorf("%s: 1-hour cache write %d, want %d", model, rates.CacheWrite1hPerMTok, want)
+			}
+		}
 	}
 }

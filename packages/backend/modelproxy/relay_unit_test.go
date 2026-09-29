@@ -117,3 +117,42 @@ func TestRelayUnitTruncatedUpstreamDoesNotCertifyFinalUsage(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicUsageSplitsCacheLifetimes(t *testing.T) {
+	haiku, ok := modelprice.Lookup("claude-haiku-4-5")
+	require.True(t, ok)
+	split := `"cache_creation_input_tokens":200,"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":100}`
+	want := modelprice.Usage{InputTokens: 10, OutputTokens: 5, CacheWriteTokens: 200, CacheWrite1hTokens: 100}
+
+	usage, ok := usageFromJSON([]byte(`{"type":"message","usage":{"input_tokens":10,"output_tokens":5,` + split + `}}`))
+	require.True(t, ok)
+	require.Equal(t, want, usage)
+	cost, err := modelprice.CostNanos(haiku, modelprice.Usage{CacheWriteTokens: usage.CacheWriteTokens, CacheWrite1hTokens: usage.CacheWrite1hTokens})
+	require.NoError(t, err)
+	require.Equal(t, int64(325_000), cost, "100 tokens at $1.25 plus 100 at $2 per million")
+
+	body := strings.Join([]string{
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":10,` + split + `}}}`,
+		`data: {"type":"message_delta","usage":{"output_tokens":5,"cache_creation_input_tokens":200}}`,
+		`data: {"type":"message_stop"}`, "",
+	}, "\n")
+	streamed, final := relayStream(httptest.NewRecorder(), strings.NewReader(body))
+	require.True(t, final)
+	require.Equal(t, want, streamed)
+
+	for _, item := range []struct {
+		name, usage string
+		want        modelprice.Usage
+	}{
+		{"split without total", `{"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}`, modelprice.Usage{CacheWriteTokens: 7, CacheWrite1hTokens: 4}},
+		{"total below its parts", `{"cache_creation_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}`, modelprice.Usage{CacheWriteTokens: 7, CacheWrite1hTokens: 4}},
+		{"1-hour only", `{"cache_creation_input_tokens":4,"cache_creation":{"ephemeral_1h_input_tokens":4}}`, modelprice.Usage{CacheWriteTokens: 4, CacheWrite1hTokens: 4}},
+		{"total without split", `{"cache_creation_input_tokens":4}`, modelprice.Usage{CacheWriteTokens: 4}},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			usage, ok := usageFromJSON([]byte(`{"usage":` + item.usage + `}`))
+			require.True(t, ok)
+			require.Equal(t, item.want, usage)
+		})
+	}
+}

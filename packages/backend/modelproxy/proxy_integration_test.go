@@ -419,7 +419,8 @@ func TestProxy_RefusesUnpricedAndUnboundedCalls(t *testing.T) {
 		{"/model-proxy/openai/v1/responses", `{"model":"gpt-5.5","input":"hi","tools":[{"type":"web_search"}]}`},
 		{"/model-proxy/openai/v1/responses", `{"model":"gpt-5.5","input":"hi","service_tier":"priority"}`},
 		{"/model-proxy/anthropic/v1/messages", `{"model":"claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}]}]}`},
-		{"/model-proxy/anthropic/v1/messages", `{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[]}`},
+		{"/model-proxy/anthropic/v1/messages", `{"model":"claude-haiku-4-5","max_tokens":10,"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"24h"}}],"messages":[]}`},
+		{"/model-proxy/openrouter/v1/chat/completions", `{"model":"anthropic/claude-haiku-4-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`},
 		{"/model-proxy/openrouter/v1/chat/completions", `{"model":"openai/gpt-oss-120b:online","messages":[]}`},
 		{"/model-proxy/vercel/v4/ai/evaluation-model", `{"questions":{}}`},
 	} {

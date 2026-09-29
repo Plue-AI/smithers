@@ -78,7 +78,8 @@ func TestContentUnitRefusesUnboundedExternalInputs(t *testing.T) {
 		{"remote image string", `"input":[{"type":"input_image","image_url":"https://example.invalid/image"}]`, "images by URL are not offered on platform keys"},
 		{"remote image object", `"input":[{"type":"image_url","image_url":{"url":"https://example.invalid/image"}}]`, "images by URL are not offered on platform keys"},
 		{"PDF document", `"input":[{"type":"document","source":{"type":"base64"}}]`, "documents are offered on platform keys as text only"},
-		{"paid cache lifetime", `"input":[{"cache_control":{"ttl":"1h"}}]`, "cache lifetime 1h is not offered on platform keys"},
+		{"1-hour cache lifetime off Anthropic", `"input":[{"cache_control":{"ttl":"1h"}}]`, "cache lifetime 1h is not offered on platform keys"},
+		{"unpriced cache lifetime", `"input":[{"cache_control":{"ttl":"24h"}}]`, "cache lifetime 24h is not offered on platform keys"},
 		{"deeply nested audio", `"input":[{"content":[{"type":"audio"}]}]`, "content of type audio is not offered on platform keys"},
 	} {
 		t.Run(item.name, func(t *testing.T) {

@@ -117,7 +117,7 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 		return parsedCall{}, refuse("request body must be a JSON object")
 	}
 	images := 0
-	if err := checkContent(document, &images); err != nil {
+	if err := checkContent(provider, document, &images); err != nil {
 		return parsedCall{}, err
 	}
 	if err := checkTools(fields["tools"]); err != nil {
@@ -270,9 +270,10 @@ func checkTools(raw json.RawMessage) error {
 var dataFields = []string{"input_schema", "parameters", "schema", "json_schema", "metadata", "format", "arguments"}
 
 // checkContent refuses content whose tokens the request size does not bound
-// (anything fetched by reference, PDFs, audio, long cache lifetimes) and
-// counts inline images, which are bounded per image.
-func checkContent(value any, images *int) error {
+// (anything fetched by reference, PDFs, audio) or whose cache lifetime the
+// provider's usage report does not price, and counts inline images, which are
+// bounded per image. Only Anthropic reports 1-hour cache writes separately.
+func checkContent(provider string, value any, images *int) error {
 	switch v := value.(type) {
 	case map[string]any:
 		for _, name := range []string{"file_id", "file_url", "file_data"} {
@@ -294,7 +295,7 @@ func checkContent(value any, images *int) error {
 			*images++
 		}
 		if control, ok := v["cache_control"].(map[string]any); ok {
-			if ttl, _ := control["ttl"].(string); ttl != "" && ttl != "5m" {
+			if ttl, _ := control["ttl"].(string); ttl != "" && ttl != "5m" && (ttl != "1h" || provider != ProviderAnthropic) {
 				return refuse("cache lifetime " + ttl + " is not offered on platform keys")
 			}
 		}
@@ -316,13 +317,13 @@ func checkContent(value any, images *int) error {
 			if slices.Contains(dataFields, name) || (name == "input" && strings.HasSuffix(kind, "tool_use")) {
 				continue
 			}
-			if err := checkContent(child, images); err != nil {
+			if err := checkContent(provider, child, images); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if err := checkContent(child, images); err != nil {
+			if err := checkContent(provider, child, images); err != nil {
 				return err
 			}
 		}
@@ -371,7 +372,11 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 		CompletionTokens *int64 `json:"completion_tokens"`
 		CacheRead        *int64 `json:"cache_read_input_tokens"`
 		CacheWrite       *int64 `json:"cache_creation_input_tokens"`
-		PromptDetails    struct {
+		CacheCreation    struct {
+			FiveMinute *int64 `json:"ephemeral_5m_input_tokens"`
+			OneHour    *int64 `json:"ephemeral_1h_input_tokens"`
+		} `json:"cache_creation"`
+		PromptDetails struct {
 			Cached     *int64 `json:"cached_tokens"`
 			CacheWrite *int64 `json:"cache_write_tokens"`
 		} `json:"prompt_tokens_details"`
@@ -398,6 +403,14 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 	pick(&out.OutputTokens, u.OutputTokens, u.CompletionTokens)
 	pick(&out.CacheReadTokens, u.CacheRead, u.PromptDetails.Cached, u.InputDetails.Cached)
 	pick(&out.CacheWriteTokens, u.CacheWrite, u.PromptDetails.CacheWrite, u.InputDetails.CacheWrite)
+	// Anthropic's cache_creation_input_tokens counts both cache lifetimes;
+	// cache_creation splits them. A total below its parts is raised to them.
+	var fiveMinute int64
+	pick(&fiveMinute, u.CacheCreation.FiveMinute)
+	pick(&out.CacheWrite1hTokens, u.CacheCreation.OneHour)
+	if fiveMinute >= 0 && out.CacheWrite1hTokens >= 0 && out.CacheWriteTokens < fiveMinute+out.CacheWrite1hTokens {
+		out.CacheWriteTokens = fiveMinute + out.CacheWrite1hTokens
+	}
 	if !found {
 		return modelprice.Usage{}, errUsageMissing
 	}
@@ -418,9 +431,10 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 // input on message_start and cumulative output on every message_delta.
 func mergeUsage(a, b modelprice.Usage) modelprice.Usage {
 	return modelprice.Usage{
-		InputTokens:      max(a.InputTokens, b.InputTokens),
-		OutputTokens:     max(a.OutputTokens, b.OutputTokens),
-		CacheReadTokens:  max(a.CacheReadTokens, b.CacheReadTokens),
-		CacheWriteTokens: max(a.CacheWriteTokens, b.CacheWriteTokens),
+		InputTokens:        max(a.InputTokens, b.InputTokens),
+		OutputTokens:       max(a.OutputTokens, b.OutputTokens),
+		CacheReadTokens:    max(a.CacheReadTokens, b.CacheReadTokens),
+		CacheWriteTokens:   max(a.CacheWriteTokens, b.CacheWriteTokens),
+		CacheWrite1hTokens: max(a.CacheWrite1hTokens, b.CacheWrite1hTokens),
 	}
 }

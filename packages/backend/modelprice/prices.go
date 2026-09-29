@@ -22,9 +22,11 @@ type Rates struct {
 	InputPerMTok  int64
 	OutputPerMTok int64
 	// CacheReadPerMTok / CacheWritePerMTok apply to prompt-cache tokens the
-	// provider reports separately from InputPerMTok.
-	CacheReadPerMTok  int64
-	CacheWritePerMTok int64
+	// provider reports separately from InputPerMTok. CacheWrite1hPerMTok
+	// prices writes to Anthropic's 1-hour cache.
+	CacheReadPerMTok    int64
+	CacheWritePerMTok   int64
+	CacheWrite1hPerMTok int64
 }
 
 // ContextPricing declares how a model's price depends on prompt size. The
@@ -61,12 +63,15 @@ type Price struct {
 	Next     *Price
 }
 
-// Usage is what a provider reported for one call.
+// Usage is what a provider reported for one call. CacheWriteTokens counts
+// every cache write; CacheWrite1hTokens is the part of it written to the
+// 1-hour cache, priced at CacheWrite1hPerMTok.
 type Usage struct {
-	InputTokens      int64
-	OutputTokens     int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
+	InputTokens        int64
+	OutputTokens       int64
+	CacheReadTokens    int64
+	CacheWriteTokens   int64
+	CacheWrite1hTokens int64
 }
 
 // PromptTokens is every input token of the call, whatever its cache class:
@@ -92,8 +97,8 @@ const OpenAILongContextFrom = 272_000
 //     window at standard pricing) and
 //     https://platform.claude.com/docs/en/build-with-claude/context-windows
 //     (Sonnet 4.5 and Haiku 4.5 have a 200k window; the proxy refuses the
-//     context-1m beta, and OpenRouter's 1M Sonnet 4.5 is tiered). Cache write 1.25x input (5-minute; the 1-hour cache
-//     is refused), cache read 0.1x (0.05x Opus 5.5, 0.025x Fable 5.1).
+//     context-1m beta, and OpenRouter's 1M Sonnet 4.5 is tiered). Cache write 1.25x input (5-minute) or 2x input
+//     (1-hour), cache read 0.1x (0.05x Opus 5.5, 0.025x Fable 5.1).
 //   - OpenAI: https://developers.openai.com/api/docs/pricing and each
 //     https://developers.openai.com/api/docs/models/<id> page: prompts over
 //     272K input tokens are priced at 2x input and cache rates and 1.5x
@@ -131,7 +136,7 @@ var Table = map[string]Price{
 	"gpt-5.6-luna":  openaiTiered(0.2, 0.02, 0.25, 1.2),
 	"gpt-5.5":       openaiTiered(5, 0.5, 5, 30),
 	// 128k context window, one rate card.
-	"gpt-4o": {Provider: "openai", Context: ContextFlat, Rates: Rates{InputPerMTok: usd(2.5), OutputPerMTok: usd(10), CacheReadPerMTok: usd(1.25), CacheWritePerMTok: usd(2.5)}},
+	"gpt-4o": {Provider: "openai", Context: ContextFlat, Rates: Rates{InputPerMTok: usd(2.5), OutputPerMTok: usd(10), CacheReadPerMTok: usd(1.25), CacheWritePerMTok: usd(2.5), CacheWrite1hPerMTok: usd(2.5)}},
 
 	"gpt-oss-120b": flat("cerebras", 0.35, 0.75),
 	"qwen-3.8-27b": flat("cerebras", 0.99, 1.49),
@@ -149,10 +154,11 @@ var Table = map[string]Price{
 
 func anthropic(in, out, cacheRead float64) Price {
 	return Price{Provider: "anthropic", Context: ContextFlat, Rates: Rates{
-		InputPerMTok:      usd(in),
-		OutputPerMTok:     usd(out),
-		CacheReadPerMTok:  usd(in * cacheRead),
-		CacheWritePerMTok: usd(in * 1.25),
+		InputPerMTok:        usd(in),
+		OutputPerMTok:       usd(out),
+		CacheReadPerMTok:    usd(in * cacheRead),
+		CacheWritePerMTok:   usd(in * 1.25),
+		CacheWrite1hPerMTok: usd(in * 2),
 	}}
 }
 
@@ -161,7 +167,7 @@ func anthropic(in, out, cacheRead float64) Price {
 func anthropicTiered(in, out float64, from int64) Price {
 	price := anthropic(in, out, 0.1)
 	price.Context, price.LongContextFrom = ContextTiered, from
-	price.LongContext = Rates{InputPerMTok: usd(in * 2), OutputPerMTok: usd(out * 1.5), CacheReadPerMTok: usd(in * 0.2), CacheWritePerMTok: usd(in * 2.5)}
+	price.LongContext = Rates{InputPerMTok: usd(in * 2), OutputPerMTok: usd(out * 1.5), CacheReadPerMTok: usd(in * 0.2), CacheWritePerMTok: usd(in * 2.5), CacheWrite1hPerMTok: usd(in * 4)}
 	return price
 }
 
@@ -171,15 +177,15 @@ func openaiTiered(in, cacheRead, cacheWrite, out float64) Price {
 	return Price{
 		Provider:        "openai",
 		Context:         ContextTiered,
-		Rates:           Rates{InputPerMTok: usd(in), OutputPerMTok: usd(out), CacheReadPerMTok: usd(cacheRead), CacheWritePerMTok: usd(cacheWrite)},
+		Rates:           Rates{InputPerMTok: usd(in), OutputPerMTok: usd(out), CacheReadPerMTok: usd(cacheRead), CacheWritePerMTok: usd(cacheWrite), CacheWrite1hPerMTok: usd(cacheWrite)},
 		LongContextFrom: OpenAILongContextFrom,
-		LongContext:     Rates{InputPerMTok: usd(in * 2), OutputPerMTok: usd(out * 1.5), CacheReadPerMTok: usd(cacheRead * 2), CacheWritePerMTok: usd(cacheWrite * 2)},
+		LongContext:     Rates{InputPerMTok: usd(in * 2), OutputPerMTok: usd(out * 1.5), CacheReadPerMTok: usd(cacheRead * 2), CacheWritePerMTok: usd(cacheWrite * 2), CacheWrite1hPerMTok: usd(cacheWrite * 2)},
 	}
 }
 
 // flat is one rate card with no published cache discount.
 func flat(provider string, in, out float64) Price {
-	return Price{Provider: provider, Context: ContextFlat, Rates: Rates{InputPerMTok: usd(in), OutputPerMTok: usd(out), CacheReadPerMTok: usd(in), CacheWritePerMTok: usd(in)}}
+	return Price{Provider: provider, Context: ContextFlat, Rates: Rates{InputPerMTok: usd(in), OutputPerMTok: usd(out), CacheReadPerMTok: usd(in), CacheWritePerMTok: usd(in), CacheWrite1hPerMTok: usd(in)}}
 }
 
 // flatCached is one rate card with a published cache-read discount.
@@ -247,9 +253,11 @@ func (p Price) RatesFor(promptTokens int64) Rates {
 func (p Price) Maximum(promptTokens, outputTokens int64) Usage {
 	rates := p.RatesFor(promptTokens)
 	usage := Usage{OutputTokens: outputTokens}
-	switch max(rates.InputPerMTok, rates.CacheReadPerMTok, rates.CacheWritePerMTok) {
+	switch max(rates.InputPerMTok, rates.CacheReadPerMTok, rates.CacheWritePerMTok, rates.CacheWrite1hPerMTok) {
 	case rates.CacheWritePerMTok:
 		usage.CacheWriteTokens = promptTokens
+	case rates.CacheWrite1hPerMTok:
+		usage.CacheWriteTokens, usage.CacheWrite1hTokens = promptTokens, promptTokens
 	case rates.CacheReadPerMTok:
 		usage.CacheReadTokens = promptTokens
 	default:
@@ -262,8 +270,11 @@ func (p Price) Maximum(promptTokens, outputTokens int64) Usage {
 // selects the rate card; the sum is rounded upward once, preserving sub-cent
 // value without floats.
 func CostNanos(price Price, usage Usage) (int64, error) {
-	if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.CacheReadTokens < 0 || usage.CacheWriteTokens < 0 {
+	if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.CacheReadTokens < 0 || usage.CacheWriteTokens < 0 || usage.CacheWrite1hTokens < 0 {
 		return 0, errors.New("negative model usage")
+	}
+	if usage.CacheWrite1hTokens > usage.CacheWriteTokens {
+		return 0, errors.New("1-hour cache writes exceed all cache writes")
 	}
 	if !price.known() {
 		return 0, errors.New("model context pricing is unknown")
@@ -278,7 +289,7 @@ func CostNanos(price Price, usage Usage) (int64, error) {
 		rates = price.LongContext
 	}
 	numerator := new(big.Int)
-	for _, part := range [][2]int64{{usage.InputTokens, rates.InputPerMTok}, {usage.OutputTokens, rates.OutputPerMTok}, {usage.CacheReadTokens, rates.CacheReadPerMTok}, {usage.CacheWriteTokens, rates.CacheWritePerMTok}} {
+	for _, part := range [][2]int64{{usage.InputTokens, rates.InputPerMTok}, {usage.OutputTokens, rates.OutputPerMTok}, {usage.CacheReadTokens, rates.CacheReadPerMTok}, {usage.CacheWriteTokens - usage.CacheWrite1hTokens, rates.CacheWritePerMTok}, {usage.CacheWrite1hTokens, rates.CacheWrite1hPerMTok}} {
 		if part[1] < 0 {
 			return 0, errors.New("negative model price")
 		}
