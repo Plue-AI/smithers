@@ -45,7 +45,8 @@ export const openHost = async (options: {
   const registration = Layer.mergeAll(
     Interpreter.layer(Slack.Post), Interpreter.layer(Slack.Update), Interpreter.layer(Slack.Delete),
     Interpreter.layer(Slack.React), Interpreter.layer(Slack.Reconcile),
-    Interpreter.layer(Telegram.Post), Interpreter.layer(Telegram.Update), Interpreter.layer(Telegram.Delete)
+    Interpreter.layer(Telegram.Post), Interpreter.layer(Telegram.Update), Interpreter.layer(Telegram.Delete),
+    Interpreter.layer(Telegram.React)
   ).pipe(
     Layer.provideMerge(SlackActions.layer),
     Layer.provideMerge(TelegramActions.layerIssueSync(() => telegram ? Effect.succeed(telegram) : Effect.die("Telegram is not configured"))),
@@ -72,7 +73,7 @@ export const openHost = async (options: {
     }
     if (telegram && config.telegram) {
       const bridge = Telegram.make({ ...common, connectionId: "telegram", botId: config.telegram.botId, allowedChatIds: config.telegram.chatIds, allowedUserIds: config.telegram.userIds })
-      bridges.push({ drain: bridge.drain, run: bridge.run(TelegramSource.make({ client: telegram, allowedChatIds: config.telegram.chatIds })) })
+      bridges.push({ drain: bridge.drain, run: bridge.run(TelegramSource.make({ client: telegram, allowedChatIds: config.telegram.chatIds, allowedUpdates: Telegram.ALLOWED_UPDATES })) })
     }
     return {
       durability: runtime.durability,

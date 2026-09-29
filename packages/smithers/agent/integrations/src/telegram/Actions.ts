@@ -15,7 +15,7 @@ import { Effect, type Layer, Layer as Layers, Schema } from "effect"
 import { fromIntegrationError, IntegrationFailure, MessageId } from "../core/ActionFailure.ts"
 import type { IntegrationError } from "../core/IntegrationError.ts"
 import { chunk } from "./Chunk.ts"
-import { TelegramClient, toIntegrationError } from "./TelegramClient.ts"
+import { isTelegramApiError, TelegramClient, toIntegrationError } from "./TelegramClient.ts"
 
 /**
  * What {@link SendMessage} needs.
@@ -165,6 +165,139 @@ export const DeleteIssueMessage = Action.make("integrations/telegram/issue-delet
   tier: "irreversible"
 })
 
+/** A Telegram `ReactionType` a bot may set: a standard emoji or a custom emoji.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Reaction = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("emoji"), emoji: Schema.NonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("custom_emoji"),
+    custom_emoji_id: Schema.String.check(Schema.isPattern(/^[0-9]{1,32}$/))
+  })
+])
+
+// Issue reaction names use Slack short names. Only emoji Telegram accepts as
+// standard reactions appear here; the first name for an emoji is canonical.
+const names: ReadonlyArray<readonly [string, string]> = [
+  ["+1", "👍"],
+  ["thumbsup", "👍"],
+  ["-1", "👎"],
+  ["thumbsdown", "👎"],
+  ["heart", "❤"],
+  ["fire", "🔥"],
+  ["smiling_face_with_3_hearts", "🥰"],
+  ["clap", "👏"],
+  ["grin", "😁"],
+  ["thinking_face", "🤔"],
+  ["exploding_head", "🤯"],
+  ["scream", "😱"],
+  ["cry", "😢"],
+  ["tada", "🎉"],
+  ["star-struck", "🤩"],
+  ["pray", "🙏"],
+  ["ok_hand", "👌"],
+  ["dove_of_peace", "🕊"],
+  ["clown_face", "🤡"],
+  ["yawning_face", "🥱"],
+  ["woozy_face", "🥴"],
+  ["heart_eyes", "😍"],
+  ["whale", "🐳"],
+  ["hotdog", "🌭"],
+  ["100", "💯"],
+  ["rolling_on_the_floor_laughing", "🤣"],
+  ["zap", "⚡"],
+  ["banana", "🍌"],
+  ["trophy", "🏆"],
+  ["broken_heart", "💔"],
+  ["face_with_raised_eyebrow", "🤨"],
+  ["neutral_face", "😐"],
+  ["strawberry", "🍓"],
+  ["champagne", "🍾"],
+  ["kiss", "💋"],
+  ["smiling_imp", "😈"],
+  ["sleeping", "😴"],
+  ["sob", "😭"],
+  ["nerd_face", "🤓"],
+  ["ghost", "👻"],
+  ["eyes", "👀"],
+  ["jack_o_lantern", "🎃"],
+  ["see_no_evil", "🙈"],
+  ["innocent", "😇"],
+  ["fearful", "😨"],
+  ["handshake", "🤝"],
+  ["writing_hand", "✍"],
+  ["hugging_face", "🤗"],
+  ["saluting_face", "🫡"],
+  ["santa", "🎅"],
+  ["christmas_tree", "🎄"],
+  ["snowman", "☃"],
+  ["nail_care", "💅"],
+  ["zany_face", "🤪"],
+  ["moyai", "🗿"],
+  ["cool", "🆒"],
+  ["cupid", "💘"],
+  ["hear_no_evil", "🙉"],
+  ["unicorn_face", "🦄"],
+  ["kissing_heart", "😘"],
+  ["pill", "💊"],
+  ["speak_no_evil", "🙊"],
+  ["sunglasses", "😎"],
+  ["space_invader", "👾"],
+  ["shrug", "🤷"],
+  ["rage", "😡"]
+]
+const byName = new Map(names)
+const byEmoji = new Map<string, string>()
+for (const [name, emoji] of names) if (!byEmoji.has(emoji)) byEmoji.set(emoji, name)
+const customPrefix = "telegram_custom_"
+
+/** The Telegram reaction for an issue reaction name, if Telegram has one.
+ * @category conversions
+ * @since 1.0.0
+ */
+export const toReaction = (name: string): typeof Reaction.Type | undefined => {
+  const emoji = byName.get(name)
+  if (emoji !== undefined) return { type: "emoji", emoji }
+  const id = name.startsWith(customPrefix) ? name.slice(customPrefix.length) : ""
+  return /^[0-9]{1,32}$/.test(id) ? { type: "custom_emoji", custom_emoji_id: id } : undefined
+}
+/** The issue reaction name for a Telegram `ReactionType`; paid and unknown reactions have none.
+ * @category conversions
+ * @since 1.0.0
+ */
+export const fromReaction = (reaction: unknown): string | undefined => {
+  if (typeof reaction !== "object" || reaction === null) return undefined
+  const r = reaction as Record<string, unknown>
+  if (r["type"] === "emoji" && typeof r["emoji"] === "string") return byEmoji.get(r["emoji"].replace(/\uFE0F/g, ""))
+  if (r["type"] === "custom_emoji" && typeof r["custom_emoji_id"] === "string") {
+    return /^[0-9]{1,32}$/.test(r["custom_emoji_id"]) ? `${customPrefix}${r["custom_emoji_id"]}` : undefined
+  }
+  return undefined
+}
+/** What {@link SetIssueReaction} needs.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const IssueReactionPayload = Schema.Struct({
+  connectionId: Schema.String,
+  chatId: Schema.String,
+  messageId: MessageId,
+  reaction: Reaction,
+  active: Schema.Boolean
+})
+/** Set or clear the bot's reaction. A chat that refuses the reaction is an explicit unsupported receipt.
+ * Telegram gives a bot one reaction per message, so an add replaces and a removal clears it.
+ * @category actions
+ * @since 1.0.0
+ */
+export const SetIssueReaction = Action.make("integrations/telegram/issue-react", {
+  payload: IssueReactionPayload,
+  success: Schema.Struct({ status: Schema.Literals(["applied", "unsupported"]) }),
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+
 /** Host connection resolver, backed by the existing credential broker.
  * @category models
  * @since 1.0.0
@@ -229,9 +362,27 @@ export const layerIssueSync = (resolve: IssueClientResolver) => {
         error instanceof IntegrationFailure ? error : fromIntegrationError(toIntegrationError(error))
       )
     )
+  const react = (payload: typeof IssueReactionPayload.Type) =>
+    Effect.gen(function*() {
+      const client = yield* resolve(payload.connectionId, payload.chatId)
+      return yield* client.call("setMessageReaction", {
+        chat_id: payload.chatId,
+        message_id: payload.messageId,
+        reaction: payload.active ? [payload.reaction] : []
+      }).pipe(
+        Effect.as({ status: "applied" as const }),
+        Effect.catch((error) =>
+          isTelegramApiError(error) && error.errorCode === 400 &&
+            /REACTION_INVALID|REACTIONS_TOO_MANY|REACTION_EMPTY/.test(String(error.details?.["description"] ?? ""))
+            ? Effect.succeed({ status: "unsupported" as const })
+            : Effect.fail(error)
+        )
+      )
+    }).pipe(Effect.mapError((error) => fromIntegrationError(toIntegrationError(error))))
   return Layers.mergeAll(
     PostIssueMessage.toLayer(implement("post")),
     UpdateIssueMessage.toLayer(implement("update")),
-    DeleteIssueMessage.toLayer(implement("delete"))
+    DeleteIssueMessage.toLayer(implement("delete")),
+    SetIssueReaction.toLayer(react)
   )
 }

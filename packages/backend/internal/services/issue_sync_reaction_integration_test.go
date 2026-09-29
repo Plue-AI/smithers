@@ -131,3 +131,56 @@ func TestIssueSyncUnrelatedReactionIgnored(t *testing.T) {
 		})
 	}
 }
+
+// Telegram reaction updates carry no topic. A chunked comment mirrored into a
+// forum topic must still receive a reaction on any of its chunks, even when the
+// same chat also has a chat-root issue.
+func TestIssueSyncTelegramTopicReactionResolvesByMessage(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	actor, repo := issueCovSeedUserRepo(t, pool)
+	svc := NewIssueService(db.New(pool))
+	cfg := IssueSyncInput{Provider: "telegram", ConnectionID: "bot", ScopeID: "123", ConversationID: "-100"}
+	require.NoError(t, svc.ConfigureIssueSyncChannel(ctx, &actor, actor.Username, repo, cfg))
+	version := 0
+	ingest := func(key, thread, message, kind, reaction string) (int64, error) {
+		version++
+		in := IssueSyncEvent{IssueSyncInput: cfg, DeliveryKey: key, MessageID: message, Version: fmt.Sprintf("100.%d", version), UserID: "42", Kind: kind, Body: "hello", Reaction: reaction}
+		in.ThreadID = thread
+		return svc.IngestIssueSync(ctx, &actor, actor.Username, repo, in)
+	}
+	chatIssue, err := ingest("m1", "", "1", "message", "")
+	require.NoError(t, err)
+	topicIssue, err := ingest("m2", "5", "2", "message", "")
+	require.NoError(t, err)
+	require.NotEqual(t, chatIssue, topicIssue)
+	var number int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT number FROM issues WHERE id=$1`, topicIssue).Scan(&number))
+	comment, err := svc.CreateIssueComment(ctx, &actor, actor.Username, repo, number, CreateIssueCommentInput{Body: "outgoing"})
+	require.NoError(t, err)
+	rows, err := svc.IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	claim, err := svc.ClaimIssueSync(ctx, &actor, actor.Username, repo, rows[0].ID)
+	require.NoError(t, err)
+	// A topic reaction that beats the outbound receipt stays unacknowledged.
+	_, err = ingest("r0", "", "21", "reaction_add", "+1")
+	var retry *api.APIError
+	require.ErrorAs(t, err, &retry)
+	require.Equal(t, 409, retry.Status)
+	require.NoError(t, svc.CompleteIssueSync(ctx, &actor, actor.Username, repo, rows[0].ID, IssueSyncReceipt{State: "sent", Token: claim.Token, MessageID: "20,21"}))
+	for range 2 {
+		got, err := ingest("r1", "", "21", "reaction_add", "+1")
+		require.NoError(t, err)
+		require.Equal(t, topicIssue, got)
+	}
+	reactions, err := svc.IssueReactions(ctx, &actor, actor.Username, repo, number, comment.ID)
+	require.NoError(t, err)
+	require.Equal(t, []IssueReaction{{Name: "+1", Actor: "telegram:123:42", Active: true}}, reactions)
+	got, err := ingest("r2", "", "21", "reaction_remove", "+1")
+	require.NoError(t, err)
+	require.Equal(t, topicIssue, got)
+	reactions, err = svc.IssueReactions(ctx, &actor, actor.Username, repo, number, comment.ID)
+	require.NoError(t, err)
+	require.Empty(t, reactions)
+}

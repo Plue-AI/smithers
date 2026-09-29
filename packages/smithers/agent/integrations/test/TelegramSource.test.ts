@@ -10,6 +10,7 @@ import {
   idempotencyKey,
   make,
   MESSAGE_EVENT,
+  MESSAGE_REACTION_EVENT,
   threadCorrelationId,
   updateToEvents,
   WEB_APP_DATA_EVENT
@@ -533,5 +534,44 @@ describe("the poll refuses what it cannot read", () => {
       expect(() => make({ allowedChatIds: [-100], sourceId, botToken: TOKEN, apiBaseUrl: "https://example.invalid" }))
         .toThrow(/source id must be a non-empty string/)
     }
+  })
+
+  it("admits reaction updates from allowed chats only, chat-scoped", async () => {
+    const reaction = (chatId: number) => ({
+      chat: { id: chatId },
+      message_id: 5,
+      user: { id: 42, is_bot: false },
+      date: 9,
+      old_reaction: [],
+      new_reaction: [{ type: "emoji", emoji: "👍" }]
+    })
+    fixture = await startFixture((_request, response) =>
+      json(response, 200, {
+        ok: true,
+        result: [{ update_id: 3, message_reaction: reaction(-100) }, { update_id: 4, message_reaction: reaction(-999) }]
+      })
+    )
+    const batch = await Effect.runPromise(
+      source({ allowedUpdates: ["message_reaction"] }).poll(null)
+    )
+    expect(JSON.parse(fixture.requests[0]?.body ?? "{}").allowed_updates).toEqual(["message_reaction"])
+    expect(batch.cursor).toBe("5")
+    expect(batch.events).toEqual([{
+      source: "telegram",
+      eventName: MESSAGE_REACTION_EVENT,
+      correlationId: chatCorrelationId(-100),
+      payload: reaction(-100),
+      dedupeKey: "update:8:telegram:3",
+      receivedAtMs: expect.any(Number)
+    }])
+  })
+
+  it("refuses a reaction update that is not an object", async () => {
+    fixture = await startFixture((_request, response) =>
+      json(response, 200, { ok: true, result: [{ update_id: 1, message_reaction: null }] })
+    )
+    const failure = await Effect.runPromise(Effect.flip(source().poll(null)))
+    expect(failure.reason).toBe("decode-failed")
+    expect(failure.details).toMatchObject({ member: "message_reaction" })
   })
 })

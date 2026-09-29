@@ -518,7 +518,7 @@ A message can trigger a flow. The assistant answers, or hands the request to the
 
 A conversation can sync with one Slack thread or Telegram chat. Sync is two-way: a message, edit, or delete on either side appears once on the other. Agents post under their own names.
 
-**Partly available.** The API connects a conversation; setup in the app is planned ([#2116](https://github.com/smithersai/smithers/issues/2116)), and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105)). Telegram reactions are not synced ([#2110](https://github.com/smithersai/smithers/issues/2110)). See [Sync a conversation](/docs/learn/sync-a-conversation/).
+**Partly available.** The API connects a conversation; setup in the app is planned ([#2116](https://github.com/smithersai/smithers/issues/2116)), and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105)). Telegram reactions sync when the bot administers the chat. See [Sync a conversation](/docs/learn/sync-a-conversation/).
 
 ## Next
 
@@ -955,7 +955,7 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 | Messages and replies | Both ways | Both ways |
 | Edits | Both ways | Both ways |
 | Deletes | Both ways | Smithers to Telegram only |
-| Reactions | Both ways | Not synced ([#2110](https://github.com/smithersai/smithers/issues/2110)) |
+| Reactions | Both ways | Both ways |
 
 ## Connect a conversation
 

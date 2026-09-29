@@ -41,6 +41,7 @@ issue sync API (`connection_id` is `slack` or `telegram`). The host does not
 expand or overwrite admission settings on restart. Inbound events commit to
 the issue store before the source acknowledges them; the factory consumes the
 same issues. No model credential or separate agent loop enters this host.
+Telegram delivers reaction updates only to a bot that administers the chat.
 
 The backend supplies its loopback URL and persistent state path. It exchanges
 bootstrap authorization for a repository-bound, system-issued sync credential,

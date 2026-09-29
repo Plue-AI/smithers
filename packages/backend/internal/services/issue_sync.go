@@ -261,8 +261,9 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 		if !reactionName.MatchString(in.Reaction) {
 			return IssueSyncIgnored{"invalid reaction"}
 		}
+		// A Telegram reaction update names no topic; any thread may hold its message.
 		thread := in.ThreadID
-		if in.Provider == "telegram" {
+		if in.Provider == "telegram" && in.ThreadID != "" {
 			thread = in.root(in.MessageID, in.UserID)
 		}
 		var awaiting bool
@@ -281,9 +282,21 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 	}
 	root := in.root(in.MessageID, in.UserID)
 	var issueID int64
-	err = tx.QueryRow(ctx, `SELECT t.issue_id FROM issue_sync_threads t JOIN issues i ON i.id=t.issue_id WHERE t.owner_id=$1 AND t.connection_id=$2 AND t.scope_id=$3 AND t.conversation_id=$4 AND t.thread_id=$5 AND i.repository_id=$6 AND t.provider=$7 FOR UPDATE`, actor.ID, in.ConnectionID, in.ScopeID, in.ConversationID, root, r.ID, in.Provider).Scan(&issueID)
-	if errors.Is(err, pgx.ErrNoRows) && in.Kind != "message" {
-		err = tx.QueryRow(ctx, `SELECT t.issue_id FROM issue_sync_threads t JOIN issues i ON i.id=t.issue_id JOIN issue_external_messages m ON m.issue_id=t.issue_id WHERE t.owner_id=$1 AND t.connection_id=$2 AND t.scope_id=$3 AND t.conversation_id=$4 AND m.message_id=$5 AND i.repository_id=$6 AND t.provider=$7`, actor.ID, in.ConnectionID, in.ScopeID, in.ConversationID, in.MessageID, r.ID, in.Provider).Scan(&issueID)
+	byMessage := func() error {
+		return tx.QueryRow(ctx, `SELECT t.issue_id FROM issue_sync_threads t JOIN issues i ON i.id=t.issue_id JOIN issue_external_messages m ON m.issue_id=t.issue_id WHERE t.owner_id=$1 AND t.connection_id=$2 AND t.scope_id=$3 AND t.conversation_id=$4 AND $5=ANY(string_to_array(m.message_id,',')) AND i.repository_id=$6 AND t.provider=$7`, actor.ID, in.ConnectionID, in.ScopeID, in.ConversationID, in.MessageID, r.ID, in.Provider).Scan(&issueID)
+	}
+	// Telegram reaction updates carry no topic, so their message identity,
+	// not the chat root, selects the issue.
+	reaction := in.Kind == "reaction_add" || in.Kind == "reaction_remove"
+	err = pgx.ErrNoRows
+	if reaction && in.Provider == "telegram" {
+		err = byMessage()
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT t.issue_id FROM issue_sync_threads t JOIN issues i ON i.id=t.issue_id WHERE t.owner_id=$1 AND t.connection_id=$2 AND t.scope_id=$3 AND t.conversation_id=$4 AND t.thread_id=$5 AND i.repository_id=$6 AND t.provider=$7 FOR UPDATE`, actor.ID, in.ConnectionID, in.ScopeID, in.ConversationID, root, r.ID, in.Provider).Scan(&issueID)
+		if errors.Is(err, pgx.ErrNoRows) && in.Kind != "message" {
+			err = byMessage()
+		}
 	}
 	tq := q.WithTx(tx)
 	inner := NewIssueService(tq)

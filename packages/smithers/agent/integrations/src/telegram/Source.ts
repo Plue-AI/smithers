@@ -50,6 +50,15 @@ export const MESSAGE_EVENT = SignalName.eventName(SERVICE, "message")
 export const EDITED_MESSAGE_EVENT = SignalName.eventName(SERVICE, "edited_message")
 
 /**
+ * The signal name for a reaction change. Telegram sends it only to a chat
+ * administrator bot that lists `message_reaction` in `allowed_updates`.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const MESSAGE_REACTION_EVENT = SignalName.eventName(SERVICE, "message_reaction")
+
+/**
  * The signal name for an inline-keyboard press.
  *
  * @category constants
@@ -152,6 +161,9 @@ export const updateToEvents = (
     }
   } else if (update["edited_message"] !== undefined) {
     pushMessage(EDITED_MESSAGE_EVENT, update["edited_message"])
+  } else if (update["message_reaction"] !== undefined) {
+    // Reaction updates carry no topic, so they are chat-scoped only.
+    pushMessage(MESSAGE_REACTION_EVENT, update["message_reaction"])
   } else if (update["callback_query"] !== undefined) {
     const callbackQuery = update["callback_query"]
     const chatId = callbackQuery?.["message"]?.chat?.id
@@ -193,7 +205,7 @@ export const idempotencyKey = (event: ExternalEvent): string => event.dedupeKey
 
 const updateChatId = (update: Record<string, any>): number | string | null =>
   update["message"]?.chat?.id ?? update["edited_message"]?.chat?.id ??
-    update["callback_query"]?.message?.chat?.id ?? null
+    update["message_reaction"]?.chat?.id ?? update["callback_query"]?.message?.chat?.id ?? null
 
 /**
  * One poll turn's result: the core `Source.Batch`.
@@ -354,7 +366,7 @@ export const make = (
             )
           )
         }
-        for (const key of ["message", "edited_message", "callback_query"]) {
+        for (const key of ["message", "edited_message", "message_reaction", "callback_query"]) {
           const member = update[key]
           // `update["message"] !== undefined` is true for `null`, and
           // `updateToEvents` then reads through it and throws a TypeError,

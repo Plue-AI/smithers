@@ -250,7 +250,7 @@ private issue with `PUT …/issues/{number}/sync`. Each chat or topic maps to on
 issue, including replies. The mapping is immutable and one connector destination
 is supported per issue. No credentials enter these settings or flow payloads.
 
-Register `Telegram.IssueSync.Post`, `Update`, and `Delete` in the existing host's
+Register `Telegram.IssueSync.Post`, `Update`, `Delete`, and `React` in the existing host's
 durable engine, using `Telegram.Actions.layerIssueSync(resolveClient)`.
 `resolveClient(connectionId, chatId)` checks the configured connection's provider,
 principal and containers through `Core.Connection`, resolves its token through
@@ -282,7 +282,8 @@ claim's execution identity: a claim held for over
 result instead of sending again. `request` is authenticated as the issue owner.
 Events the backend refuses, such as an unmapped chat, are acknowledged and
 return `"ignored"`.
-Use the existing Source with its SQL cursor store. Admission is checked again
+Use the existing Source with its SQL cursor store and
+`allowedUpdates: Telegram.IssueSync.ALLOWED_UPDATES`. Admission is checked again
 at the connector; bot messages never become comments. Chat and topic variants
 of one update share a canonical key. The backend atomically deduplicates updates
 with the comment change. Same-second edits use the source update ID to break
@@ -298,8 +299,11 @@ key: confirming delivery as sent requires actual provider or durable flow eviden
 
 Ordinary Bot API updates do not report message deletions, so deleting a human
 message in Telegram cannot delete its issue comment. Business-account deletion
-updates are a separate integration capability. Reactions currently settle as
-`unsupported` ([tracked work](https://github.com/smithersai/smithers/issues/2110)).
+updates are a separate integration capability. Reactions sync both ways using
+Slack short names (`+1`, `heart`, `telegram_custom_<id>` for custom emoji).
+Telegram sends reaction updates only to a bot that administers the chat, and a
+bot holds one reaction per message. A name Telegram cannot show, or a reaction
+the chat refuses, settles as `unsupported`; anonymous and paid reactions are ignored.
 The [Bot API reference](https://core.telegram.org/bots/api#update) defines these
 provider limits; fixture tests are not a live Telegram receipt.
 

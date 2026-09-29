@@ -58,12 +58,14 @@ test("production host reopens a lost receipt without a second provider write", a
 test("Telegram intake checkpoints its cursor in the host's durable store", async () => {
   const root = await mkdtemp(join(tmpdir(), "chat-telegram-test-"))
   const offsets: Array<number | undefined> = []
+  const allowed: Array<unknown> = []
   let admitted = 0
   const server = createServer(async (req, res) => {
     let body = ""
     for await (const chunk of req) body += chunk
-    const offset = JSON.parse(body).offset
+    const { offset, allowed_updates } = JSON.parse(body)
     offsets.push(offset)
+    allowed.push(allowed_updates)
     res.setHeader("content-type", "application/json")
     res.end(JSON.stringify({ ok: true, result: offset === undefined ? [{
       update_id: 10, message: { message_id: 7, date: 100, text: "hello", chat: { id: -100 }, from: { id: 42, is_bot: false } }
@@ -105,6 +107,7 @@ test("Telegram intake checkpoints its cursor in the host's durable store", async
     await run
     assert.equal(offsets[0], 11)
     assert.equal(admitted, 1)
+    assert.deepEqual(allowed[0], ["message", "edited_message", "message_reaction"])
   } finally {
     await host?.close()
     await new Promise<void>(resolve => server.close(() => resolve()))

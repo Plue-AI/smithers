@@ -28,12 +28,17 @@ interface Executor {
     payload: typeof Actions.IssueMessagePayload.Type,
     executionId: string
   ): Promise<typeof Actions.IssueMessageResult.Type>
+  react(
+    payload: typeof Actions.IssueReactionPayload.Type,
+    executionId: string
+  ): Promise<typeof Actions.SetIssueReaction.successSchema.Type>
 }
 const options = { connectionId: "bot", botId: "123", allowedChatIds: ["-100"], owner: "owner", repo: "repo" }
 const executor = (patch: Partial<Executor> = {}): Executor => ({
   post: async () => ({ messageIds: [10, 11] }),
   update: async (p) => ({ messageIds: p.messageIds }),
   delete: async (p) => ({ messageIds: p.messageIds }),
+  react: async () => ({ status: "applied" }),
   ...patch
 })
 const message = { message_id: 7, date: 100, chat: { id: -100 }, from: { id: 42, is_bot: false }, text: "hello" }
@@ -154,13 +159,10 @@ it.each(["comment.created", "comment.edited", "comment.deleted"])(
     expect(receipts[0]).toMatchObject({ state: "sent", message_id: "10,11" })
   }
 )
-it("supports topics, absent persona/body and unsupported reactions", async () => {
+it("supports topics and absent persona/body", async () => {
   const calls: any[] = []
   const { sync, receipts } = fixture(
-    [
-      row({ message_id: "", payload: { comment: { id: 7 } }, mapping: { ...row().mapping, thread_id: "3" } }),
-      row({ id: 2, event: "comment.reaction" })
-    ],
+    [row({ message_id: "", payload: { comment: { id: 7 } }, mapping: { ...row().mapping, thread_id: "3" } })],
     executor({
       post: async (p) => {
         calls.push(p)
@@ -168,9 +170,9 @@ it("supports topics, absent persona/body and unsupported reactions", async () =>
       }
     })
   )
-  expect(await sync.drain()).toBe(2)
+  expect(await sync.drain()).toBe(1)
   expect(calls[0]).toMatchObject({ messageThreadId: 3, messageIds: [], text: "" })
-  expect(receipts[1].state).toBe("unsupported")
+  expect(receipts[0].state).toBe("sent")
 })
 it.each([row({ event: "comment.edited", message_id: "" }), row({ event: "unknown" })])(
   "keeps unexecutable delivery unknown",
@@ -236,12 +238,18 @@ it("awaits backend commit before acknowledging Source", async () => {
   await Effect.runPromise(sync.run({ run: (handle: any) => handle(events()) } as any) as any)
 })
 const runAction = async (
-  kind: "post" | "update" | "delete",
+  kind: "post" | "update" | "delete" | "react",
   payload: any,
   client: Client.TelegramClient,
   resolveError = false
 ) => {
-  const flow = kind === "post" ? Sync.Post : kind === "update" ? Sync.Update : Sync.Delete
+  const flow: any = kind === "post"
+    ? Sync.Post
+    : kind === "update"
+    ? Sync.Update
+    : kind === "react"
+    ? Sync.React
+    : Sync.Delete
   const layers = Layer.mergeAll(
     Actions.layerIssueSync(() =>
       resolveError
@@ -365,7 +373,8 @@ const memoryReplay = (server: { origin: string }) => {
       Actions.layerIssueSync(() => Effect.succeed(client)),
       Interpreter.layer(Sync.Post),
       Interpreter.layer(Sync.Update),
-      Interpreter.layer(Sync.Delete)
+      Interpreter.layer(Sync.Delete),
+      Interpreter.layer(Sync.React)
     ).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, NodeCrypto.layer))
@@ -375,7 +384,12 @@ const memoryReplay = (server: { origin: string }) => {
     runtime.runPromise((flow.execute(payload, { executionId }) as Effect.Effect<any, any, any>).pipe(Effect.scoped))
   return {
     runtime,
-    execute: { post: run(Sync.Post), update: run(Sync.Update), delete: run(Sync.Delete) } as Executor
+    execute: {
+      post: run(Sync.Post),
+      update: run(Sync.Update),
+      delete: run(Sync.Delete),
+      react: run(Sync.React)
+    } as Executor
   }
 }
 it.each(["comment.created", "comment.edited", "comment.deleted"])(
@@ -459,6 +473,284 @@ it("lets a stale worker finish quietly after a lapsed claim was replayed and set
     expect(await hung).toBe(0)
     expect(server.requests).toHaveLength(1)
     expect(receipts).toEqual([expect.objectContaining({ state: "sent", token: "claim" })])
+  } finally {
+    await runtime.dispose()
+    await server.close()
+  }
+})
+
+const reactionUpdate = (patch: any = {}, id = 5) =>
+  Source.updateToEvents("source", {
+    update_id: id,
+    message_reaction: {
+      chat: { id: -100 },
+      message_id: 11,
+      user: { id: 42, is_bot: false },
+      date: 200,
+      old_reaction: [],
+      new_reaction: [{ type: "emoji", emoji: "👍" }],
+      ...patch
+    }
+  }, 0)[0]!
+const reactionIntake = (extra: any = {}) => {
+  const bodies: any[] = []
+  const wakes: any[] = []
+  const sync = makeSync({
+    ...options,
+    execute: executor(),
+    request: async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return Response.json({ issue_id: 42 })
+    },
+    onMessage: async (r) => {
+      wakes.push(r)
+    },
+    ...extra
+  })
+  return { sync, bodies, wakes }
+}
+it("maps issue reaction names to Telegram reactions and back", () => {
+  expect(Actions.toReaction("+1")).toEqual({ type: "emoji", emoji: "👍" })
+  expect(Actions.toReaction("thumbsup")).toEqual({ type: "emoji", emoji: "👍" })
+  expect(Actions.toReaction("telegram_custom_5368324170671202286")).toEqual({
+    type: "custom_emoji",
+    custom_emoji_id: "5368324170671202286"
+  })
+  for (const name of ["rocket", "telegram_custom_", "telegram_custom_x1", ""]) {
+    expect(Actions.toReaction(name)).toBeUndefined()
+  }
+  expect(Actions.fromReaction({ type: "emoji", emoji: "👍" })).toBe("+1")
+  expect(Actions.fromReaction({ type: "emoji", emoji: "\u2764\uFE0F" })).toBe("heart")
+  expect(Actions.fromReaction({ type: "custom_emoji", custom_emoji_id: "77" })).toBe("telegram_custom_77")
+  for (
+    const r of [
+      { type: "paid" },
+      { type: "emoji", emoji: "🚀" },
+      { type: "emoji", emoji: 1 },
+      { type: "custom_emoji", custom_emoji_id: "x" },
+      { type: "custom_emoji" },
+      null,
+      "👍"
+    ]
+  ) expect(Actions.fromReaction(r)).toBeUndefined()
+})
+it("ingests each added and removed reaction with actor attribution and durable identity", async () => {
+  const { sync, bodies, wakes } = reactionIntake()
+  const update = reactionUpdate({
+    old_reaction: [{ type: "emoji", emoji: "👍" }, { type: "emoji", emoji: "🚀" }],
+    new_reaction: [{ type: "emoji", emoji: "🔥" }, { type: "custom_emoji", custom_emoji_id: "77" }, { type: "paid" }]
+  })
+  expect(await sync.ingest(update)).toBe("applied")
+  // A duplicate update replays the same identities, which the backend dedupes.
+  expect(await sync.ingest(update)).toBe("applied")
+  const common = {
+    provider: "telegram",
+    connection_id: "bot",
+    scope_id: "123",
+    conversation_id: "-100",
+    thread_id: "",
+    message_id: "11",
+    version: "200.0000000005",
+    user_id: "42"
+  }
+  expect(bodies.slice(0, 3)).toEqual([
+    { ...common, kind: "reaction_remove", reaction: "+1", delivery_key: "telegram:123:5:reaction_remove:+1" },
+    { ...common, kind: "reaction_add", reaction: "fire", delivery_key: "telegram:123:5:reaction_add:fire" },
+    {
+      ...common,
+      kind: "reaction_add",
+      reaction: "telegram_custom_77",
+      delivery_key: "telegram:123:5:reaction_add:telegram_custom_77"
+    }
+  ])
+  expect(bodies.slice(3)).toEqual(bodies.slice(0, 3))
+  expect(wakes).toEqual([])
+})
+it("acknowledges a reaction the backend refuses", async () => {
+  const { sync } = reactionIntake({ request: async () => Response.json({ ignored: "external message not mapped" }) })
+  expect(await sync.ingest(reactionUpdate())).toBe("ignored")
+})
+it.each([
+  { user: { id: 123, is_bot: false } },
+  { user: { id: 42, is_bot: true } },
+  { user: { id: 42 } },
+  { user: undefined, actor_chat: { id: -100 } },
+  { chat: { id: -999 } },
+  { chat: null },
+  { message_id: 0 },
+  { date: 0 },
+  { old_reaction: undefined },
+  { new_reaction: null },
+  { new_reaction: [{ type: "paid" }] },
+  { new_reaction: [{ type: "emoji", emoji: "🚀" }] },
+  { old_reaction: [{ type: "emoji", emoji: "👍" }] }
+])("refuses unattributed, disallowed or unmapped reactions %j", async (patch) => {
+  const { sync, bodies } = reactionIntake()
+  const event = reactionUpdate()
+  expect(await sync.ingest({ ...event, payload: { ...(event.payload as object), ...patch } as any })).toBe("ignored")
+  expect(bodies).toHaveLength(0)
+})
+it("refuses reactions from users outside the allowlist and foreign identities", async () => {
+  expect(await reactionIntake({ allowedUserIds: ["99"] }).sync.ingest(reactionUpdate())).toBe("ignored")
+  const { sync, bodies } = reactionIntake()
+  expect(await sync.ingest({ ...reactionUpdate(), dedupeKey: "foreign" })).toBe("ignored")
+  expect(await sync.ingest({ ...reactionUpdate(), payload: null as any })).toBe("ignored")
+  expect(bodies).toHaveLength(0)
+})
+it("retries a reaction that beats its outbound receipt, then fails without acknowledging", async () => {
+  let calls = 0
+  const { sync } = reactionIntake({
+    request: async () => {
+      calls++
+      return calls < 3 ? new Response(null, { status: 409 }) : Response.json({ issue_id: 42 })
+    }
+  })
+  expect(await sync.ingest(reactionUpdate())).toBe("applied")
+  expect(calls).toBe(3)
+})
+it.each([
+  { reaction: { name: "+1", active: true }, sent: { type: "emoji", emoji: "👍" } },
+  { reaction: { name: "telegram_custom_77", active: false }, sent: { type: "custom_emoji", custom_emoji_id: "77" } }
+])("delivers reaction $reaction.name on the first chunk", async ({ reaction, sent }) => {
+  const captured: any[] = []
+  const { sync, receipts } = fixture(
+    [row({ event: "comment.reaction", payload: { comment: { id: 7 }, reaction } })],
+    executor({
+      react: async (p) => {
+        captured.push(p)
+        return { status: "applied" }
+      }
+    })
+  )
+  expect(await sync.drain()).toBe(1)
+  expect(captured).toEqual([{
+    connectionId: "bot",
+    chatId: "-100",
+    messageId: 10,
+    reaction: sent,
+    active: reaction.active
+  }])
+  expect(receipts[0]).toMatchObject({ state: "sent", message_id: "10,11" })
+})
+it("settles unsupported reactions explicitly without calling Telegram", async () => {
+  let reacted = 0
+  const react = async () => {
+    reacted++
+    return { status: "unsupported" as const }
+  }
+  const { sync, receipts } = fixture([
+    row({ event: "comment.reaction", payload: { comment: { id: 7 }, reaction: { name: "rocket", active: true } } }),
+    row({ id: 2, event: "comment.reaction", payload: { comment: { id: 7 }, reaction: { name: "+1", active: true } } })
+  ], executor({ react }))
+  expect(await sync.drain()).toBe(2)
+  expect(reacted).toBe(1)
+  expect(receipts).toEqual([
+    expect.objectContaining({ state: "unsupported", error: "Telegram has no rocket reaction", message_id: "10,11" }),
+    expect.objectContaining({ state: "unsupported", error: "Telegram chat refuses the +1 reaction" })
+  ])
+})
+it.each([
+  row({
+    event: "comment.reaction",
+    message_id: "",
+    payload: { comment: { id: 7 }, reaction: { name: "+1", active: true } }
+  }),
+  row({ event: "comment.reaction", payload: { comment: { id: 7 } } })
+])("keeps a reaction without identity or name unknown", async (d) => {
+  const { sync, receipts } = fixture([d])
+  expect(await sync.drain()).toBe(0)
+  expect(receipts[0].state).toBe("outcome_unknown")
+})
+const reactPayload = {
+  connectionId: "bot",
+  chatId: "-100",
+  messageId: 10,
+  reaction: { type: "emoji", emoji: "👍" },
+  active: true
+}
+it("sets and clears the bot reaction through the real Bot API", async () => {
+  const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: true }))
+  try {
+    const client = Client.make({ botToken: "fixture", apiBaseUrl: server.origin }, {})
+    expect(await runAction("react", reactPayload, client)).toEqual({ status: "applied" })
+    expect(await runAction("react", { ...reactPayload, active: false }, client)).toEqual({ status: "applied" })
+    expect(server.requests.map((r) => [r.url, JSON.parse(r.body)])).toEqual([
+      ["/botfixture/setMessageReaction", {
+        chat_id: "-100",
+        message_id: 10,
+        reaction: [{ type: "emoji", emoji: "👍" }]
+      }],
+      ["/botfixture/setMessageReaction", { chat_id: "-100", message_id: 10, reaction: [] }]
+    ])
+  } finally {
+    await server.close()
+  }
+})
+it.each(["Bad Request: REACTION_INVALID", "Bad Request: REACTIONS_TOO_MANY"])(
+  "reports a chat that refuses the reaction (%s) as unsupported",
+  async (description) => {
+    const server = await startFixture((_req, res) => json(res, 400, { ok: false, error_code: 400, description }))
+    try {
+      const client = Client.make({ botToken: "fixture", apiBaseUrl: server.origin }, {})
+      expect(await runAction("react", reactPayload, client)).toEqual({ status: "unsupported" })
+    } finally {
+      await server.close()
+    }
+  }
+)
+it("fails a permission refusal as known and a lost response as unknown", async () => {
+  let calls = 0
+  const server = await startFixture((req, res) => {
+    calls++
+    if (calls === 1) json(res, 403, { ok: false, error_code: 403, description: "Forbidden: not enough rights" })
+    else if (calls === 2) json(res, 400, { ok: false, error_code: 400, description: "Bad Request: message not found" })
+    else res.destroy()
+  })
+  try {
+    const client = Client.make({ botToken: "fixture", apiBaseUrl: server.origin }, {})
+    const denied: any = await runAction("react", reactPayload, client).catch((e) => e)
+    expect(denied.cause?.error ?? denied.error ?? denied).toMatchObject({ reason: "permission-denied" })
+    expect((denied.cause?.error ?? denied.error ?? denied).outcomeUnknown).not.toBe(true)
+    const missing: any = await runAction("react", reactPayload, client).catch((e) => e)
+    expect(missing.cause?.error ?? missing.error ?? missing).toMatchObject({ reason: "decode-failed" })
+    expect((missing.cause?.error ?? missing.error ?? missing).outcomeUnknown).not.toBe(true)
+    const lost: any = await runAction("react", reactPayload, client).catch((e) => e)
+    expect(lost.cause?.error ?? lost.error ?? lost).toMatchObject({ outcomeUnknown: true })
+    await expect(runAction("react", reactPayload, client, true)).rejects.toBeDefined()
+  } finally {
+    await server.close()
+  }
+})
+it("recovers a reaction whose receipt was lost, without setting it again", async () => {
+  const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: true }))
+  const { runtime, execute } = memoryReplay(server)
+  try {
+    let state = "pending", token = "", lost = true
+    const receipts: any[] = []
+    const reaction = { name: "+1", active: true }
+    const request = async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/deliveries")) {
+        return Response.json([
+          row({ event: "comment.reaction", payload: { comment: { id: 7 }, reaction }, state, claim_token: token })
+        ])
+      }
+      if (init?.method === "POST") {
+        state = "dispatching"
+        token = "claim"
+        return Response.json({ state, token })
+      }
+      if (lost) throw new Error("host died before the receipt committed")
+      const r = JSON.parse(String(init?.body))
+      receipts.push(r)
+      state = r.state
+      return Response.json({})
+    }
+    await makeSync({ ...options, request, execute }).drain().catch(() => undefined)
+    expect(server.requests).toHaveLength(1)
+    lost = false
+    expect(await makeSync({ ...options, request, execute }).drain()).toBe(1)
+    expect(server.requests).toHaveLength(1)
+    expect(receipts).toEqual([expect.objectContaining({ state: "sent", token: "claim", message_id: "10,11" })])
   } finally {
     await runtime.dispose()
     await server.close()
