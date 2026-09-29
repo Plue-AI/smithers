@@ -73,6 +73,24 @@ test("a selected Plue document boots through the application target runtime", as
   })).resolves.toMatchObject({ mode: "web-plue", shell: "web", ownership: "plue" })
 })
 
+for (const [origin, expectedOrigin] of [
+  [" HTTPS://SMITHERS.SH:443/ ", PAGE_ORIGIN],
+  ["", ""]
+] as const) {
+  test(`a bearer switch to the serving origin ${origin || "(empty)"} boots through the app runtime`, async () => {
+    switchBackendTarget(origin, " next-inert-token ", PAGE_ORIGIN)
+    expect(selectedBackendTarget(PAGE_ORIGIN)).toMatchObject({
+      mode: "web-plue", apiOrigin: expectedOrigin, auth: { kind: "bearer" }, cors: "same-origin"
+    })
+    expect(selectedBackendToken()).toBe("next-inert-token")
+    await expect(loadApplicationTarget({
+      document,
+      pageOrigin: PAGE_ORIGIN,
+      native: async () => selectedBackendTarget(PAGE_ORIGIN)
+    })).resolves.toMatchObject({ mode: "web-plue", baseUrl: "" })
+  })
+}
+
 for (const { name, operation, nextOrigin, nextToken } of [
   { name: "bearer switch when token removal fails", operation: "token removal", nextOrigin: SECOND_BACKEND, nextToken: "second-token" },
   { name: "bearer switch when target write fails", operation: "target write", nextOrigin: SECOND_BACKEND, nextToken: "second-token" },

@@ -25,12 +25,17 @@ export const selectedBackendToken = (): string | undefined => sessionStorage.get
 /** A switch lasts only for this tab/window and never reuses the old backend's credential. */
 export const switchBackendTarget = (origin: string, token: string, pageOrigin: string): void => {
   const credential = token.trim()
+  const requestedOrigin = origin.trim()
+  const sameOrigin = requestedOrigin === "" || (
+    URL.canParse(requestedOrigin) && URL.canParse(pageOrigin) &&
+    new URL(requestedOrigin).origin === new URL(pageOrigin).origin
+  )
   const target = resolveApplicationTarget({
     apiVersion: 1,
     mode: credential ? "web-plue" : "web-selfhost",
-    apiOrigin: origin.trim(),
+    apiOrigin: requestedOrigin,
     auth: { kind: credential ? "bearer" : "session" },
-    cors: credential ? "credentialed" : "same-origin",
+    cors: credential && !sameOrigin ? "credentialed" : "same-origin",
     developerExternal: credential !== ""
   }, pageOrigin)
   const { apiVersion, mode, apiOrigin, auth, cors, developerExternal } = target
