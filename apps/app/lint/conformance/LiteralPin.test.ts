@@ -132,14 +132,9 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "Native gateway call facts exercise the harness wire format outside the app vocabulary, including cursor positions before duplicate telemetry."
   },
   {
-    literal: "data-id",
-    file: "e2e/graph/flow-graph.spec.ts",
-    reason: "React Flow writes each edge's `from->to` into its own `data-id`; the app renders the edge, not the attribute, and it is the only per-edge identity in the DOM"
-  },
-  {
-    literal: "data-id",
-    file: "e2e/graph/flow-graph-a11y.spec.ts",
-    reason: "React Flow writes each NODE's id into its own `data-id` on the wrapper it focuses; the a11y spec reads that wrapper, because it is the element a keyboard reaches and the one the accessible name sits on"
+    literal: "registry.npmjs.org",
+    file: "e2e/playwright/factory.spec.ts",
+    reason: "the npm registry host a fixture secret is scoped to, served by the stubbed agent-environment route and echoed in the drawer; a network host, not a flow name"
   },
   {
     literal: "smthrs-flow-graph-",

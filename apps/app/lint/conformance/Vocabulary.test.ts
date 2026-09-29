@@ -184,3 +184,10 @@ test("health checker IDs are external data; the same literal used as a flow is s
   expect(reports.filter(report => report.rule === "dotted-identifier")).toHaveLength(1)
   expect(reports.filter(report => report.rule === "flow")).toHaveLength(1)
 })
+
+test("React Flow's own wrapper attributes resolve; an attribute nothing renders still does not", () => {
+  // The canvas wraps every node the app draws in a React Flow element carrying `data-id`.
+  expect(vocabularies.dataAttributes.has("data-id")).toBe(true)
+  expect(vocabularies.dataAttributes.has("data-forest")).toBe(true)
+  expect(vocabularies.dataAttributes.has("data-retired-marker")).toBe(false)
+})

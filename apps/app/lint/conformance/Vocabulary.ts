@@ -47,6 +47,8 @@ export const CONFORMANCE = from(".")
 export const SHARED_SRC = from("../../../../packages/rpc/src")
 /** The shipped component library the app renders through. */
 export const COMPONENT_LIBRARY = from("../../node_modules/@smthrs/ui/src")
+/** React Flow's published bundle: the graph canvas wraps every node and edge the app draws in its own element. */
+export const REACT_FLOW_BUNDLE = from("../../node_modules/@xyflow/react/dist/esm/index.mjs")
 /**
  * The gateway the app reads the world through. Since the rc.0 retarget the app
  * binds projections the gateway folds, so the journal event kinds those
@@ -186,7 +188,9 @@ export const manifestFlowNames = async (): Promise<ReadonlySet<string>> => {
  * Every `data-*` attribute the rendered DOM can carry. There are three ways to
  * put one there and all three are read: a JSX attribute, a `setAttribute`/`toggleAttribute`
  * call, and a `dataset` property write. Sources are the app's own components
- * and the component library the app renders through — a CDP selector naming
+ * and the component library the app renders through, plus the `data-*` props
+ * React Flow's compiled bundle writes on the node and edge wrappers it owns
+ * (`"data-id": id`), since the graph canvas renders those — a CDP selector naming
  * anything else matches nothing, which is exactly what seventeen stale
  * `data-command` selectors did after the rename. Tests are left out for the
  * same reason they are left out of the source corpus: an attribute only a
@@ -233,6 +237,7 @@ export const emittedDataAttributes = (): ReadonlySet<string> => {
     }
     visit(parsed)
   }
+  for (const match of readFileSync(REACT_FLOW_BUNDLE, "utf8").matchAll(/"(data-[a-z][a-z-]*)":/g)) emitted.add(match[1]!)
   return emitted
 }
 

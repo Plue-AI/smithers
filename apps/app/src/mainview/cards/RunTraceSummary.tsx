@@ -66,7 +66,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
     {action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Answer</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
     {takeover === undefined ? null : (
-      <button type="button" className="run-trace-filter" data-testid={`flow-run-${takeover === "release" ? "release" : "takeover"}-${runId}`}
+      <button type="button" className="run-trace-filter" data-testid={takeover === "release" ? `flow-run-release-${runId}` : `flow-run-takeover-${runId}`}
         {...flowAction(onRunCommand, takeoverDoor.flow, takeoverDoor.args)}>
         {takeover === "release" ? "Release" : "Take over"}
       </button>

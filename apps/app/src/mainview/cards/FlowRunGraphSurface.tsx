@@ -238,7 +238,7 @@ const FlowRunNode = memo(({ data }: NodeProps) => {
       data-node={node.id}
       data-tier={node.tier}
       data-state={word}
-      {...(forest ? { "data-forest": node.kind } : {})}
+      data-forest={forest ? node.kind : undefined}
       {...(selected === undefined ? {} : { "data-selected": selected ? "true" : "false" })}
     >
       <Handle type="target" position={Position.Top} isConnectable={false} className="flow-graph-handle" />
