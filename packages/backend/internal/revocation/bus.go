@@ -34,7 +34,9 @@ type Checker interface {
 }
 
 // Watcher hands a long-lived handler a channel that yields the first event
-// revoking its principal.
+// revoking its principal. Watch must register before checking retained token
+// and account revocations, including revocations completed before the call.
+// Resource authorization must be validated by the caller after registration.
 type Watcher interface {
 	Watch(ctx context.Context, principal Principal) <-chan Event
 }
@@ -412,8 +414,9 @@ func (b *Bus) Subscribe(fn func(Event)) func() {
 }
 
 // Watch returns a channel that yields the first event revoking principal. The
-// subscription ends when ctx is done. A nil bus returns a channel that never
-// yields, so callers can select on it unconditionally.
+// subscription ends when ctx is done. Registration precedes checking retained
+// credential revocations, so a completed revocation cannot fall into the gap
+// between authentication and watching. A nil bus never yields.
 func (b *Bus) Watch(ctx context.Context, principal Principal) <-chan Event {
 	ch := make(chan Event, 1)
 	if b == nil {
@@ -421,7 +424,7 @@ func (b *Bus) Watch(ctx context.Context, principal Principal) <-chan Event {
 	}
 	var once sync.Once
 	done := make(chan struct{})
-	unsubscribe := b.Subscribe(func(event Event) {
+	deliver := func(event Event) {
 		if !event.Affects(principal) {
 			return
 		}
@@ -431,7 +434,14 @@ func (b *Bus) Watch(ctx context.Context, principal Principal) <-chan Event {
 			// this watcher.
 			close(done)
 		})
-	})
+	}
+	unsubscribe := b.Subscribe(deliver)
+	if b.IsTokenRevoked(principal.TokenHash) {
+		deliver(Event{Kind: KindTokenRevoked, TokenHash: principal.TokenHash})
+	}
+	if b.IsUserDisabled(principal.UserID) {
+		deliver(Event{Kind: KindUserDisabled, UserID: principal.UserID})
+	}
 	go func() {
 		select {
 		case <-ctx.Done():

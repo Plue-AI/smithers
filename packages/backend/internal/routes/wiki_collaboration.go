@@ -177,11 +177,39 @@ func (h *WikiCollaborationHandler) Stream(w http.ResponseWriter, r *http.Request
 		writeRouteError(w, r, err)
 		return
 	}
-	if _, err = h.Service.ListWikiUpdates(r.Context(), actor, owner, repo, slug, page, after); err != nil {
+	repository := middleware.RepoFromContext(r.Context())
+	// Watch before authorization and broker admission. The child context also
+	// releases the watcher when admission fails before streaming starts.
+	watchCtx, stopWatching := context.WithCancel(r.Context())
+	defer stopWatching()
+	principal := requestPrincipal(r, revocation.Principal{UserID: actor.ID})
+	if repository != nil {
+		principal.RepositoryID = repository.ID
+	}
+	var revoked <-chan revocation.Event
+	if source := currentRevocationSource(); source != nil {
+		revoked = source.Watch(watchCtx, principal)
+	}
+	refuseRevoked := func() bool {
+		select {
+		case <-revoked:
+			writeRouteError(w, r, pkgerrors.Forbidden("stream authorization revoked"))
+			return true
+		default:
+			return false
+		}
+	}
+	if refuseRevoked() {
+		return
+	}
+	_, err = h.Service.ListWikiUpdates(r.Context(), actor, owner, repo, slug, page, after)
+	if refuseRevoked() {
+		return
+	}
+	if err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
-	repository := middleware.RepoFromContext(r.Context())
 	if repository == nil || h.Broker == nil {
 		writeRouteError(w, r, pkgerrors.Internal("wiki streaming unavailable"))
 		return
@@ -197,9 +225,8 @@ func (h *WikiCollaborationHandler) Stream(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer h.Broker.Unsubscribe(sub)
-	var revoked <-chan revocation.Event
-	if source := currentRevocationSource(); source != nil {
-		revoked = source.Watch(r.Context(), requestPrincipal(r, revocation.Principal{RepositoryID: repository.ID, UserID: actor.ID}))
+	if refuseRevoked() {
+		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

@@ -111,9 +111,9 @@ func ServeBrokerSSE(w http.ResponseWriter, r *http.Request, cfg BrokerStreamConf
 			principal.UserID = cfg.UserID
 		}
 		rawRevoked := cfg.Revocations.Watch(streamCtx, principal)
-		// The bus Watch API observes future events only. Recheck its existing
-		// token/user cache after subscribing to close those auth-before-watch
-		// races. Repository/organization authorization remains the route gate's
+		// Check the token/user cache after subscribing to refuse admission
+		// before opening the stream, even when Watch already queued an event.
+		// Repository/organization authorization remains the route gate's
 		// responsibility; this cache does not retain their current permissions.
 		if checker, ok := cfg.Revocations.(revocation.Checker); ok &&
 			(checker.IsTokenRevoked(principal.TokenHash) || checker.IsUserDisabled(principal.UserID)) {
