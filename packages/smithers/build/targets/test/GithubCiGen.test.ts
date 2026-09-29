@@ -974,7 +974,7 @@ describe("render", () => {
     // command it names is asserted on its own.
     expect(commands.has(Verb.command(Verb.Review))).toBe(true)
     const emitted = new Set<string>()
-    for (const verb of [...Verb.all, Verb.Review, Verb.Ci]) {
+    for (const verb of [...Verb.all, Verb.Ci]) {
       const rendered = render(attrsOf({
         ...goldenAttrs,
         gates: [],
@@ -990,6 +990,21 @@ describe("render", () => {
     expect([...emitted].filter((verb) => !commands.has(verb))).toEqual([])
   })
 
+  it("refuses to render review on a candidate checkout outside a trusted review host", () => {
+    expect(() =>
+      render(attrsOf({
+        ...goldenAttrs,
+        gates: [],
+        jobs: [{
+          id: "review",
+          runsOn: "ubuntu-latest",
+          toolchain: CiToolchain.Needs({ runtimes: [node] }),
+          steps: [{ verb: Verb.Review, pattern: "//..." }]
+        }]
+      }))
+    ).toThrow(/trusted review host/)
+  })
+
   it("renders the declared checkout depth, beside submodules and never on its own default", () => {
     // `actions/checkout` fetches ONE commit by default, which leaves a pull
     // request with no `refs/remotes/origin/main`. A target expanding
@@ -1001,11 +1016,11 @@ describe("render", () => {
       ...goldenAttrs,
       gates: [],
       jobs: [{
-        id: "review-lints",
+        id: "deep-history",
         runsOn: "ubuntu-latest",
         continueOnError: true,
         toolchain: CiToolchain.Needs({ runtimes: [node], fetchDepth: 0 }),
-        steps: [{ name: "Review lints", verb: Verb.Review, pattern: "//..." }]
+        steps: [{ name: "Full history tests", verb: Verb.Test, pattern: "//..." }]
       }]
     }))
     expect(withDepth).toContain(
@@ -1014,7 +1029,7 @@ describe("render", () => {
           "fetch-depth": "0"
 `
     )
-    expect(withDepth).toContain("        run: \"pnpm exec smthrs review '//...' --verbose\"\n")
+    expect(withDepth).toContain("        run: \"pnpm exec smthrs test '//...' --verbose\"\n")
 
     const both = render(attrsOf({
       ...goldenAttrs,

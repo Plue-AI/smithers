@@ -3916,6 +3916,9 @@ importers:
       '@smthrs/flow':
         specifier: 1.0.0-rc.1
         version: link:../../flows/flow
+      '@smthrs/model':
+        specifier: 1.0.0-rc.1
+        version: link:../../agent/model
       '@smthrs/plan':
         specifier: 1.0.0-rc.1
         version: link:../../flows/plan

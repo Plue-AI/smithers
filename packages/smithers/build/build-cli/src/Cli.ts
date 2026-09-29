@@ -40,6 +40,7 @@ import * as Query from "./Query.ts"
 import * as RepoResolution from "./RepoResolution.ts"
 import * as Reporter from "./Reporter.ts"
 import * as TargetIndex from "./TargetIndex.ts"
+import * as TrustedReview from "./TrustedReview.ts"
 import * as Watch from "./Watch.ts"
 import { type RemoteCacheAccess, remoteCacheOf, type ResolvedRemoteCache } from "./Workspace.ts"
 
@@ -1524,19 +1525,31 @@ const makeCommands = (config: RuntimeConfig) =>
         )
     })
     .command("review", {
-      description:
-        "Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)",
-      mcp: { annotations: { readOnlyHint: false } },
+      description: "Review committed source using policy from an approved commit",
+      mcp: { annotations: { readOnlyHint: true } },
       args: patternsArgument,
-      options: executionOptions,
-      alias: executionAlias,
-      run: (context) =>
-        executeCommand(
-          context,
-          config,
-          "review_failed",
-          (reporter) => runVerb("review", context.args.patterns, context.options, config, reporter)
-        )
+      options: workspaceOption.extend({
+        policyRevision: z.string().describe("Full approved commit SHA containing the trusted review index"),
+        revision: z.string().default("HEAD").describe("Committed source revision: HEAD or a full commit SHA"),
+        plan: z.boolean().default(false).describe("Show pinned policy and source selection without inference")
+      }),
+      alias: { workspace: "w" },
+      async run(context) {
+        let result: Awaited<ReturnType<typeof TrustedReview.run>>
+        try {
+          result = await TrustedReview.run({
+            workspace: context.options.workspace,
+            policyRevision: context.options.policyRevision,
+            revision: context.options.revision,
+            patterns: context.args.patterns,
+            plan: context.options.plan
+          })
+        } catch (cause) {
+          return context.error({ code: "review_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+        }
+        if (!result.ok) return context.error({ code: "review_failed", exitCode: 1, message: JSON.stringify(result) })
+        return result
+      }
     })
     .command("run", {
       description: "Execute run targets selected by a pattern",

@@ -977,31 +977,3 @@ jobs:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
-  "review-lints":
-    name: "model reviews (advisory)"
-    runs-on: "ubuntu-latest"
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-        with:
-          "fetch-depth": "0"
-      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
-      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
-        with:
-          "node-version-file": ".node-version"
-          "cache": "pnpm"
-      - name: "Install certified npm"
-        run: |
-          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
-          test "$(npm --version)" = '11.16.0'
-        shell: "bash"
-      - id: setup
-        run: "pnpm install --frozen-lockfile --ignore-scripts"
-      - name: "Review lints"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs review '//...' --known-red '.github/ci-known-red.json' --verbose"
-        env:
-          "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
-          "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
-          "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"

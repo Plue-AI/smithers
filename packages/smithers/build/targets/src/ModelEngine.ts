@@ -16,11 +16,9 @@ import * as Schema from "effect/Schema"
 /**
  * The model CLI a target runs a prompt through.
  *
- * `claude` spawns a non-persistent, tool-free safe-mode print session and
- * reads its JSON envelope. `codex` spawns an ephemeral read-only exec session
- * with user configuration and targets disabled and reads the last
- * `agent_message` item of its JSONL event stream. Both prompts travel over
- * stdin, never argv.
+ * Reviews use tool-free provider requests: `claude` selects Anthropic Messages
+ * and `codex` selects OpenAI Responses. The generic `promptEngine` utility
+ * and explicit trusted-host executable overrides use the corresponding CLI.
  *
  * @category schemas
  * @since 0.1.0

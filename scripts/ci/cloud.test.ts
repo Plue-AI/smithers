@@ -99,7 +99,6 @@ describe("Smithers Cloud CI", () => {
 
   test("covers all non-publishing Linux commands except canonical-host wasm rebuild", () => {
     const excluded = new Set([
-      "pnpm exec smthrs review '//...' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --known-red '.github/ci-known-red.json' --verbose"
     ])
     const commands = Array.from(github.matchAll(/run: "(pnpm exec [^"]+)"/g), ([, command]) => command!)

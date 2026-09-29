@@ -13331,7 +13331,7 @@ export const Package = S.Package({ targets: { test, reviewChangedFiles } })
 ```
 
 Run `smthrs test //packages/core:test` for the tests and
-`smthrs review //packages/core:reviewChangedFiles` for the review.
+`smthrs review //packages/core:reviewChangedFiles --policy-revision <approved-commit-sha>` for the review.
 
 ## See also
 

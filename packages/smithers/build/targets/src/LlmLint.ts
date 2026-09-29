@@ -2,9 +2,9 @@
  * Model-assisted lint over changed files.
  *
  * This module also declares the shared llm-review action: one sealed model
- * call per target that diffs, batches, and reviews changed files through a
- * model CLI. Two engines are supported, `claude` and `codex`, each with its
- * own argv and response envelope.
+ * call per target that diffs, batches, and reviews source through tool-free
+ * provider requests. Explicit trusted-host executable overrides and the generic
+ * promptEngine utility use bounded CLI invocations.
  *
  * @since 0.1.0
  */
@@ -20,6 +20,7 @@ import { minimatch } from "minimatch"
 import * as NodePath from "node:path"
 import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
+import { reviewModel } from "./internal/ReviewModel.ts"
 import { Engine } from "./ModelEngine.ts"
 import * as SafeFs from "./SafeFs.ts"
 import * as Target from "./Target.ts"
@@ -497,11 +498,16 @@ const spawnEnvironment = (
   sensitiveEnv: ReadonlyArray<string>,
   git: boolean
 ): NodeJS.ProcessEnv => {
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  delete env["NODE_OPTIONS"]
-  delete env["NODE_PATH"]
-  delete env["SMITHERS_CACHE_URL"]
-  delete env["SMITHERS_CACHE_TOKEN"]
+  // Start empty: a denylist cannot know the names of an operator's secrets.
+  // The CLI still needs its runtime and its own authentication configuration;
+  // this environment boundary is not filesystem or network confinement.
+  const env: NodeJS.ProcessEnv = {}
+  const names = ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SystemRoot", "WINDIR", "TMPDIR", "TMP", "TEMP"]
+  if (!git) names.push("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR")
+  for (const name of names) {
+    const value = process.env[name]
+    if (value !== undefined) env[name] = value
+  }
   for (const name of sensitiveEnv) delete env[name]
   env["CLICOLOR"] = "0"
   env["FORCE_COLOR"] = "0"
@@ -761,7 +767,20 @@ const chunk = (paths: ReadonlyArray<string>, batchSize: number): ReadonlyArray<R
   return output
 }
 
+/**
+ * One immutable snapshot file supplied by a trusted host, never executed.
+ * @category models
+ * @since 1.0.0
+ */
+export interface SnapshotFile {
+  readonly path: string
+  readonly contents: string
+  readonly changed: boolean
+  readonly deleted?: boolean
+}
+
 interface BatchFile {
+  readonly deleted?: boolean
   readonly path: string
   readonly contents: string
   readonly bytes: number
@@ -773,7 +792,8 @@ const readBatch = (
   workspaceRoot: string,
   paths: ReadonlyArray<string>,
   totalLimit: number,
-  missing: "skip" | "fail"
+  missing: "skip" | "fail",
+  snapshot?: ReadonlyMap<string, SnapshotFile>
 ): Effect.Effect<ReadonlyArray<BatchFile>, LlmReviewError> =>
   Effect.tryPromise({
     try: async (signal) => {
@@ -782,23 +802,32 @@ const readBatch = (
       for (const path of paths) {
         signal.throwIfAborted()
         reviewPath(path)
-        const contents = await SafeFs.readText(NodePath.join(workspaceRoot, path), {
-          root: workspaceRoot,
-          signal,
-          symlinks: "reject",
-          limit: maximumReviewFileBytes,
-          what: "LLM review file"
-        })
+        const contents = snapshot === undefined ?
+          await SafeFs.readText(NodePath.join(workspaceRoot, path), {
+            root: workspaceRoot,
+            signal,
+            symlinks: "reject",
+            limit: maximumReviewFileBytes,
+            what: "LLM review file"
+          }) :
+          snapshot.get(path)?.contents
         if (contents === undefined) {
           if (missing === "fail") throw new Error(`LLM review file disappeared after discovery: ${path}`)
           continue
         }
+        usableText(contents, "LLM review file", maximumReviewFileBytes, false)
         const bytes = Buffer.byteLength(contents, "utf8")
         total += bytes
         if (total > totalLimit) {
           throw new Error(`LLM review file contents exceed their ${totalLimit}-byte aggregate limit`)
         }
-        output.push({ path, contents, bytes, lines: contents.split("\n").length })
+        output.push({
+          path,
+          contents,
+          bytes,
+          lines: contents.split("\n").length,
+          ...(snapshot?.get(path)?.deleted ? { deleted: true } : {})
+        })
       }
       return output
     },
@@ -835,7 +864,12 @@ const contextPaths = (
 
 /** Renders one labelled file section of the prompt. */
 const renderFiles = (label: string, files: ReadonlyArray<BatchFile>): string =>
-  files.map((file) => `--- ${label}: ${JSON.stringify(file.path)} ---\n${file.contents}`).join("\n\n")
+  files.map((file) =>
+    `--- ${label}: ${JSON.stringify(file.path)} ---\n${
+      JSON.stringify({ ...(file.deleted ? { deleted: true } : {}), contents: file.contents })
+    }`
+  )
+    .join("\n\n")
 
 /** Renders the deterministic review prompt for one batch. */
 const renderPrompt = (
@@ -1061,6 +1095,7 @@ const sensitiveNames = (names: ReadonlyArray<string> | undefined): ReadonlyArray
 }
 
 interface RuntimeOptions {
+  readonly cliOverride: boolean
   readonly workspaceRoot: string
   readonly executable: string
   readonly timeoutMs: number
@@ -1083,6 +1118,7 @@ const runtimeOptions = async (
   )
   signal.throwIfAborted()
   return {
+    cliOverride: options.executable !== undefined,
     workspaceRoot,
     executable: usableText(
       options.executable ?? adapters[engine].executable,
@@ -1098,11 +1134,9 @@ const runtimeOptions = async (
 /**
  * Runs one prompt through a model CLI and returns the model's answer text.
  *
- * This is the same invocation {@link review} performs — the same executables,
- * the same argv, the same envelopes — with the findings parser replaced by the
- * plain text extractor, so every target that needs a model call goes through one
- * spawn, one missing-executable failure, and one non-zero-exit failure.
- * `executable` overrides the engine's default binary name.
+ * This generic utility invokes a trusted caller's CLI, independently of the
+ * default tool-free review transport. It does not establish filesystem or
+ * network confinement. `executable` overrides the engine's binary name.
  *
  * @category execution
  * @since 0.1.0
@@ -1213,7 +1247,19 @@ const reviewBatch = (
       try: () => renderPrompt(payload, batch, context),
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     }),
-    (prompt) => invokeEngine(runtime, payload.engine, payload.model, prompt, payload.securityChecks !== undefined)
+    (prompt) =>
+      runtime.cliOverride
+        ? invokeEngine(runtime, payload.engine, payload.model, prompt, payload.securityChecks !== undefined)
+        : reviewModel(
+          payload.engine,
+          payload.model,
+          prompt,
+          runtime.timeoutMs,
+          maximumModelOutputBytes,
+          `${payload.prompt}\nRubric:\n${payload.rubric}`
+        ).pipe(
+          Effect.mapError((error) => new LlmReviewError({ phase: "review", message: error.message }))
+        )
   ).pipe(
     Effect.flatMap((text) =>
       payload.securityChecks === undefined ? parseFindings(text) : Effect.try({
@@ -1422,11 +1468,12 @@ const securityBatch = (
   })
 
 /**
- * Diffs, batches, reviews, and applies the failOn gate.
+ * Batches source, reviews it, and applies the failOn gate.
  *
- * This is the body {@link LlmReviewLive} installs, exported so a host can run
- * one review without building a runtime. `executable` overrides the engine's
- * default binary name.
+ * Hosts may supply an immutable in-memory snapshot. Otherwise this library
+ * function reads the trusted caller's workspace. Default inference has no
+ * tools; `executable` is an explicit trusted-host extension/test seam outside
+ * the review command's containment contract.
  *
  * @category execution
  * @since 0.1.0
@@ -1434,6 +1481,7 @@ const securityBatch = (
 export const review = (
   options: {
     readonly workspaceRoot: string
+    readonly snapshot?: ReadonlyArray<SnapshotFile> | undefined
     readonly executable?: string | undefined
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
@@ -1467,12 +1515,29 @@ export const review = (
       try: (signal) => runtimeOptions(options, payload.engine, signal),
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     })
-    const files = yield* changedFiles(
-      runtime.workspaceRoot,
-      payload,
-      runtime.timeoutMs,
-      runtime.sensitiveEnv
-    )
+    const snapshot = yield* Effect.try({
+      try: () => {
+        if (options.snapshot === undefined) return undefined
+        if (options.snapshot.length > maximumReviewFiles + maximumContextFiles) {
+          throw new Error("Review snapshot has too many files")
+        }
+        const files = new Map<string, SnapshotFile>()
+        for (const file of options.snapshot) {
+          const path = reviewPath(file.path)
+          if (files.has(path)) throw new Error("Review snapshot has duplicate paths")
+          usableText(file.contents, "LLM review file", maximumReviewFileBytes, false)
+          files.set(path, { ...file })
+        }
+        return files
+      },
+      catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
+    })
+    const files = snapshot === undefined
+      ? yield* changedFiles(runtime.workspaceRoot, payload, runtime.timeoutMs, runtime.sensitiveEnv)
+      : [...snapshot.values()].filter((file) =>
+        (payload.scope === "all" || file.changed) &&
+        payload.include.some((glob) => matchesGlob(file.path, glob))
+      ).map((file) => file.path).sort()
     if (files.length === 0) {
       return { files: [], findings: [], ...(payload.securityChecks === undefined ? {} : { attempts: [] }) }
     }
@@ -1485,12 +1550,20 @@ export const review = (
         })
       )
     }
-    const paths = yield* contextPaths(runtime.workspaceRoot, payload.context)
+    const paths = snapshot === undefined
+      ? yield* contextPaths(runtime.workspaceRoot, payload.context)
+      : [...snapshot.keys()].filter((path) => payload.context.some((glob) => matchesGlob(path, glob))).sort()
+    if (payload.context.length > 0 && paths.length === 0) {
+      return yield* Effect.fail(
+        new LlmReviewError({ phase: "read", message: "Review context matched no snapshot files" })
+      )
+    }
     const context = yield* readBatch(
       runtime.workspaceRoot,
       paths,
       maximumContextContentBytes,
-      "fail"
+      "fail",
+      snapshot
     )
     const reviewed: Array<string> = []
     const findings: Array<Finding> = []
@@ -1502,7 +1575,8 @@ export const review = (
         runtime.workspaceRoot,
         batchPaths,
         maximumBatchContentBytes,
-        "skip"
+        "skip",
+        snapshot
       )
       if (batch.length === 0) {
         continue
@@ -1559,22 +1633,12 @@ export const review = (
   })
 
 /**
- * Implements {@link LlmReview} with `git diff` and a model CLI.
+ * Implements {@link LlmReview} with bounded source reads and tool-free inference.
  *
- * The layer lists changed paths with a configuration-isolated, NUL-delimited
- * `git diff` in
- * `workspaceRoot`, keeps the paths matching at least one include glob, batches
- * them by `batchSize`, and reviews each batch with one engine CLI call.
- * `payload.engine` selects the isolated argv and response envelope. Prompts
- * are bounded and written over stdin so source contents never enter a process
- * listing or hit the host's argv limit. Every `context` glob is expanded and
- * appended to every batch prompt whether or not it changed. Reads are bounded,
- * descriptor-stable, valid UTF-8, and confined to real workspace files. Paths
- * deleted since the base revision are skipped. A missing executable fails with
- * {@link ModelCliMissing}; findings whose severity meets `failOn` fail with
- * {@link FindingsError}. Each subprocess has a deadline and bounded output;
- * interruption kills its process group. `executable` overrides the engine's
- * binary name.
+ * Provider credentials are required; failures never become skipped reviews.
+ * Programmatic hosts are responsible for approving the payload's policy before
+ * execution. The review command reads its policy from an operator-pinned commit
+ * without evaluating candidate declarations.
  *
  * @category layers
  * @since 0.1.0
@@ -1656,7 +1720,7 @@ export type Attrs = typeof Attrs.Type
  * is read afresh at execution; model reviews are non-cacheable. Execution runs
  * through
  * {@link LlmReviewLive}: changed paths filtered by `include`, batched by
- * `batchSize`, one `engine` CLI call per batch selecting `model`, the context
+ * `batchSize`, one tool-free model call per batch selecting `model`, the context
  * files appended to every batch prompt, findings parsed as
  * `{file, line, severity, message}`. Key material also contains dependency
  * keys, include and context patterns, prompt, rubric, engine, model and
@@ -1667,20 +1731,10 @@ export type Attrs = typeof Attrs.Type
  * The target participates in `review` ALONE, and is gated to it. `lint`,
  * `build`, `test`, `docs`, and the aggregate `ci` therefore never plan one,
  * over any pattern, and cannot reach one through a dependency edge either.
- * Two facts about this target make that the only workable posture. It expands
- * `Smithers.gitDiff(base)` at PLAN time, so a checkout without the base
- * revision — every `actions/checkout` without `fetch-depth: 0` on a pull
- * request — kills the whole plan, not just this node. And it spawns a model
- * CLI, which a hosted runner has neither the binary nor the credential for. A
- * pipeline runs the reviews by asking for them:
- * `smithers-build review '//...'`. An exact label under another verb is an
- * `UnsupportedVerbError`, and the bare-label form
- * (`smithers-build target //pkg:review`) still runs it.
- *
- * An explicitly supplied model CLI missing from a generic lint host returns
- * {@link ModelCliMissing}, which the build CLI can report as skipped. Security
- * reviews always fail when any required pass cannot complete, including missing
- * credentials or a missing host-supplied executable. ENOENT is not retried.
+ * The review command requires `--policy-revision <trusted-commit-sha>` and
+ * consumes the approved target index as data. It does not run declaration
+ * modules. Library hosts invoking the target directly must approve its policy
+ * themselves. Missing provider credentials fail the review.
  *
  * @category targets
  * @since 0.1.0

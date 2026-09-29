@@ -688,8 +688,11 @@ const installArgv = (attrs: Attrs): ReadonlyArray<string> =>
  * @category rendering
  * @since 0.1.0
  */
-export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.NixSetup | undefined): string =>
-  [
+export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.NixSetup | undefined): string => {
+  if (step.verb.name === "review") {
+    throw new Error("GithubCiGen: model review requires a trusted review host and an explicitly pinned policy")
+  }
+  return [
     ...developPrefix(nix),
     ...PackageManager.exec(attrs.packageManager, ["smthrs", Verb.command(step.verb)]),
     shellArgument(step.pattern),
@@ -697,6 +700,7 @@ export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.Ni
     ...(attrs.knownRed === undefined ? [] : ["--known-red", shellArgument(attrs.knownRed)]),
     "--verbose"
   ].join(" ")
+}
 
 /**
  * Whether a string is a workspace-relative file path that renders as one

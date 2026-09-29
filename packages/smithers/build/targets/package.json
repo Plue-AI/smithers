@@ -1089,6 +1089,7 @@
   "dependencies": {
     "@smthrs/build": "1.0.0-rc.1",
     "@smthrs/flow": "1.0.0-rc.1",
+    "@smthrs/model": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
     "@smthrs/platform-node": "1.0.0-rc.1",
     "ignore": "7.0.8",

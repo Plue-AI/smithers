@@ -192,11 +192,7 @@ export const releaseGateExclusions = [
     commands: ["pnpm exec smthrs test '//packages/...' --jobs 2 --verbose"],
     reason: "test '//packages/...' repeats the Workspace targets gate's test targets on macOS and Windows; one release runner has no OS matrix, and ci '//packages/...' already runs them on Linux."
   },
-  {
-    job: "review-lints",
-    commands: ["pnpm exec smthrs review '//...' --verbose"],
-    reason: "Advisory model reviews (continue-on-error) that need model credentials; the pipeline never gates on them, so neither does the release."
-  }
+
 ]
 
 /**

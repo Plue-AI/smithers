@@ -28,15 +28,15 @@ const securityReview = S.SecurityReview({
 export const Package = S.Package({ targets: { ...securityReview } })
 ```
 
-| Target          | Reviews                               | Selected by                                         |
-| --------------- | ------------------------------------- | --------------------------------------------------- |
-| `security`      | included files changed against `base` | `smithers-build review '//...'` and any label       |
-| `securityAudit` | every included file, changed or not   | a label or `//pkg/...:securityAudit`, never `//...` |
+| Target          | Reviews                               | Selected by                                             |
+| --------------- | ------------------------------------- | ------------------------------------------------------- |
+| `security`      | included files changed against `base` | `smithers-build review '//...' --policy-revision <sha>` |
+| `securityAudit` | every included file, changed or not   | a label or `//pkg/...:securityAudit`, never `//...`     |
 
 Run a full audit of a package and every nested package with:
 
 ```sh
-smithers-build review '//packages/uploads/...:securityAudit' --verbose
+smithers-build review '//packages/uploads/...:securityAudit' --policy-revision <sha>
 ```
 
 ## Checks
@@ -143,5 +143,7 @@ larger package.
 
 The aggregate `ci` verb never plans a review. The `review` verb plans
 `security`, which reads only changed files. `securityAudit` is manual: a bare
-wildcard skips it, so it runs only when someone names it. A host without the
-engine CLI reports the review as skipped, not failed.
+wildcard skips it, so it runs only when someone names it. Missing provider
+credentials fail the review. The CLI reads policy from the pinned commit and
+reviews committed source without evaluating candidate declarations. See
+[review isolation](review-isolation.md) for the trust and authentication contract.

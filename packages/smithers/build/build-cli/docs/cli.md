@@ -35,7 +35,7 @@ in the workspace declaration, then `.flows`. See
 
 ## Execution options
 
-`affected`, `clean`, `watch`, `build`, `test`, `lint`, `docs`, `review`, `run`,
+`affected`, `clean`, `watch`, `build`, `test`, `lint`, `docs`, `run`,
 `target`, and `ci` add these to the workspace options.
 
 | Option                   | Alias | Type       | Default          | Meaning                                                           |
@@ -144,8 +144,9 @@ rest on every command: `--help`, `--version`, `--json`,
 
 ## Execution commands
 
-Each of these takes one or more patterns, the workspace options, and the
-execution options. Several patterns run their union in one plan.
+Each takes one or more patterns and workspace options. Commands other than
+`review` also accept the execution options. Several patterns run their union
+in one plan.
 
 | Command  | Argument        | Own options                                                   |
 | -------- | --------------- | ------------------------------------------------------------- |
@@ -153,7 +154,7 @@ execution options. Several patterns run their union in one plan.
 | `test`   | `<patterns...>` |                                                               |
 | `lint`   | `<patterns...>` | `--fix`                                                       |
 | `docs`   | `<patterns...>` | `--write`                                                     |
-| `review` | `<patterns...>` |                                                               |
+| `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`        |
 | `ci`     | `<patterns...>` |                                                               |
 | `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`       |
 | `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i` |
@@ -200,15 +201,23 @@ pnpm exec smithers-build docs '//:pageCheck' --write
 
 ### review
 
-Executes the model-review targets a pattern selects. A review expands a git
-diff against a base revision at plan time and then spawns a model CLI, so it
-participates in this verb alone.
+Reviews committed source with policy read as data from an approved commit.
+The command never imports candidate `PACKAGE.ts`, `WORKSPACE.ts`, or policy modules.
 
-A target whose engine executable is not installed on the host is reported
-skipped, under its own glyph, with a notice naming the executable. A skip
-leaves the run green because `ok` counts failures alone, and nothing claims
-the review passed. That is the honest report: a machine with no `codex` on
-`PATH` cannot say whether the change is clean.
+```sh
+smithers-build review '//...' --policy-revision <approved-commit-sha> --revision <candidate-commit-sha>
+```
+
+`--policy-revision` is required and accepts only a full commit SHA. The approved
+commit must contain a generated `.smithers/target-index.json` with review policy.
+`--revision` defaults to `HEAD`; dirty files are excluded. `--plan` shows selected
+files, policy labels, and pinned revisions without inference. Proposed declaration
+and index policy changes receive separate reviews and never replace approved policy.
+
+Both engines use tool-free provider requests. Claude requires `ANTHROPIC_API_KEY`;
+Codex requires `OPENAI_API_KEY`. Missing credentials and incomplete reviews fail.
+Run an installed, approved CLI from a trusted host; executing the candidate's CLI
+or installing its dependencies would cross the trust boundary before review starts.
 
 ### ci
 
@@ -229,10 +238,9 @@ Services are acquired by their consumers after readiness succeeds and released
 when those consumers finish; they are not scheduled as ordinary CI targets.
 The same rule applies to `affected ci` selections.
 
-`review` and `run` are absent for the same reason. Planning a review on a
-shallow pull-request checkout kills the aggregate before any target runs, and
-executing one needs a binary and a credential no hosted runner has. `run`
-mutates the tree, which is a decision, not a check. Ask for either by name.
+`review` requires an explicitly approved policy revision and provider credentials
+on a trusted host. `run` can mutate the tree. Neither is part of the aggregate;
+ask for either by name.
 
 If a verb has no targets under the pattern, `ci` continues with the rest. If
 none of the four has any, the command fails with the first refusal.
@@ -436,7 +444,7 @@ report. `show workspace` and `info` report resolved workspace and host
 configuration. These commands do not execute targets or probe the remote
 cache. `targets` lists the available target surface and defaults to `//...`.
 
-`affected` accepts `build`, `test`, `lint`, `docs`, `review`, `run`, or `ci`.
+`affected` accepts `build`, `test`, `lint`, `docs`, `run`, or `ci`.
 It compares `--base` (default `HEAD`) with `--head`, or with the working tree
 and untracked files when `--head` is absent. Repeatable `--files` bypasses Git
 discovery, and `--list` explains the selection without executing it. Unknown

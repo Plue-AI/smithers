@@ -232,7 +232,11 @@ describe("LlmLint.review context files", () => {
       const prompt = call.stdin
       expect(prompt).toContain("=== CHANGED FILES (under review) ===")
       expect(prompt).toContain("=== CONTEXT FILES (shared reference material) ===")
-      expect(prompt).toContain("--- CONTEXT FILE: \"docs/reference/a.md\" ---\nThe `a` export returns 1.")
+      expect(prompt).toContain(`--- CONTEXT FILE: "docs/reference/a.md" ---\n${
+        JSON.stringify({
+          contents: "The `a` export returns 1.\n"
+        })
+      }`)
       expect(prompt.match(/--- CONTEXT FILE:/g)).toHaveLength(1)
       expect(prompt).not.toContain("excluded reference")
       expect(prompt).not.toContain("ignored reference")
@@ -277,7 +281,7 @@ describe("LlmLint.review context files", () => {
     )
     expect(report.files).toEqual(["src/a.ts"])
     const calls = await cli.calls()
-    expect(calls[0]?.stdin).toContain("--- CONTEXT FILE: \"README.md\" ---\n# base")
+    expect(calls[0]?.stdin).toContain(`--- CONTEXT FILE: "README.md" ---\n${JSON.stringify({ contents: "# base\n" })}`)
   })
 })
 

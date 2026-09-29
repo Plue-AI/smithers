@@ -154,6 +154,7 @@ export const build = async (
       package: row.packagePath,
       name: row.label.slice(row.label.lastIndexOf(":") + 1),
       rule: metadata.target,
+      ...(metadata.target === "LlmLint" ? { reviewPolicy: JSON.stringify(metadata.attrs) } : {}),
       kinds: await RepoResolution.effectiveKinds(resolver, row.target, signal),
       ...(metadata.summary === undefined ? {} : { summary: metadata.summary }),
       ...(metadata.featured ? { featured: true as const } : {}),

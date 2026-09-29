@@ -107,6 +107,8 @@ export const Row = Schema.Struct({
   /** The target name after the colon. */
   name: Schema.NonEmptyString,
   rule: Schema.NonEmptyString,
+  /** Serialized review attributes; read as data from an operator-pinned revision. */
+  reviewPolicy: Schema.optional(Schema.String),
   kinds: Schema.Array(Target.Kind),
   summary: Schema.optional(Schema.String),
   featured: Schema.optional(Schema.Literal(true)),
