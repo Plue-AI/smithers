@@ -33,14 +33,15 @@ func TestHandlerCountsEveryOutcomeAndLogsRelayDenials(t *testing.T) {
 		return recorder.Code
 	}
 
-	served := NewHandler(&testDialer{}, suffixes, logger)
-	require.Equal(t, http.StatusOK, serve(served, "/__preview/demo.preview.jjhub.tech/", nil))
+	relay := http.Header{RelayTokenHeader: []string{"relay-secret"}}
+	withToken := func(handler *Handler) *Handler { handler.SetRelayToken("relay-secret"); return handler }
+	served := withToken(NewHandler(&testDialer{}, suffixes, logger))
+	require.Equal(t, http.StatusOK, serve(served, "/__preview/demo.preview.jjhub.tech/", relay))
 	require.Equal(t, http.StatusNotFound, serve(served, "/__preview/metadata.google.internal/", nil))
-	served.SetRelayToken("relay-secret")
 	forged := http.Header{RelayTokenHeader: []string{"forged-token-value"}}
 	require.Equal(t, http.StatusUnauthorized, serve(served, "/__preview/smithers-gw-vm-1.preview.jjhub.tech/health", forged))
-	require.Equal(t, http.StatusServiceUnavailable, serve(NewHandler(nil, suffixes, logger), "/__preview/demo.preview.jjhub.tech/", nil))
-	require.Equal(t, http.StatusServiceUnavailable, serve(NewHandler(failingDialer{}, suffixes, logger), "/__preview/demo.preview.jjhub.tech/", nil))
+	require.Equal(t, http.StatusServiceUnavailable, serve(withToken(NewHandler(nil, suffixes, logger)), "/__preview/demo.preview.jjhub.tech/", relay))
+	require.Equal(t, http.StatusServiceUnavailable, serve(withToken(NewHandler(failingDialer{}, suffixes, logger)), "/__preview/demo.preview.jjhub.tech/", relay))
 
 	for outcome, want := range map[string]float64{
 		outcomeServed: 1, outcomeNotFound: 1, outcomeUnauthorized: 1, outcomeUnavailable: 1, outcomeUpstreamError: 1,
@@ -56,7 +57,8 @@ func TestHandlerCountsEveryOutcomeAndLogsRelayDenials(t *testing.T) {
 
 func TestHandlerWithoutMetricsStillServes(t *testing.T) {
 	handler := NewHandler(&testDialer{}, []string{".preview.jjhub.tech"}, nil)
+	handler.SetRelayToken("relay-secret")
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/__preview/demo.preview.jjhub.tech/", nil))
+	handler.ServeHTTP(recorder, relayRequest("/__preview/demo.preview.jjhub.tech/"))
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }

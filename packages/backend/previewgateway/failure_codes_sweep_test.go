@@ -51,8 +51,9 @@ func TestPreviewGatewayAnswersTheOneEnvelope(t *testing.T) {
 
 	t.Run("gateway has no dialer", func(t *testing.T) {
 		handler := NewHandler(nil, []string{".preview.test"}, nil)
+		handler.SetRelayToken("relay-secret")
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/__preview/box.preview.test/", nil))
+		handler.ServeHTTP(rec, relayRequest("/__preview/box.preview.test/"))
 
 		body := decode(t, rec)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -62,8 +63,9 @@ func TestPreviewGatewayAnswersTheOneEnvelope(t *testing.T) {
 
 	t.Run("box port unreachable", func(t *testing.T) {
 		handler := NewHandler(failingDialer{}, []string{".preview.test"}, nil)
+		handler.SetRelayToken("relay-secret")
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/__preview/box.preview.test/", nil))
+		handler.ServeHTTP(rec, relayRequest("/__preview/box.preview.test/"))
 
 		body := decode(t, rec)
 		// preview_unavailable is registered at 503, and the registry is the

@@ -3,11 +3,14 @@ package previewgateway
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
@@ -40,7 +43,8 @@ func (d *testDialer) Dial(ctx context.Context, domain string) (net.Conn, error) 
 func TestHandlerProxiesMappedPreviewPath(t *testing.T) {
 	dialer := &testDialer{}
 	handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
-	request := httptest.NewRequest(http.MethodGet, "/__preview/demo.preview.jjhub.tech/hello?x=1", nil)
+	handler.SetRelayToken("relay-secret")
+	request := relayRequest("/__preview/demo.preview.jjhub.tech/hello?x=1")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -132,7 +136,8 @@ func newBufferedReader(reader io.Reader) *bufio.Reader { return bufio.NewReader(
 func TestHandlerRoutesPreviewHostWithoutPathPrefix(t *testing.T) {
 	dialer := &testDialer{requests: make(chan *http.Request, 1)}
 	handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
-	request := httptest.NewRequest(http.MethodGet, "https://3000-ws-1.preview.jjhub.tech:443/hello?x=1", nil)
+	handler.SetRelayToken("relay-secret")
+	request := relayRequest("https://3000-ws-1.preview.jjhub.tech:443/hello?x=1")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -194,12 +199,186 @@ func TestHandlerRequiresRelayTokenForPlatformDomains(t *testing.T) {
 		assert.Empty(t, dialer.domain)
 	})
 
-	t.Run("user previews stay public", func(t *testing.T) {
-		dialer := &testDialer{}
-		handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
-		handler.SetRelayToken("relay-secret")
+}
+
+func relayRequest(target string) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Header.Set(RelayTokenHeader, "relay-secret")
+	return request
+}
+
+// fakePreviewAPI answers the API's grant check (POST
+// /internal/workspace-previews/authorize) the way routes'
+// WorkspacePreviewTicketHandler does: 204 while the grant holds, 403 once the
+// share is removed or the user suspended.
+type fakePreviewAPI struct {
+	revoked bool
+	down    bool
+	checks  int
+}
+
+func (a *fakePreviewAPI) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	a.checks++
+	var body AuthorizeRequest
+	switch {
+	case a.down:
+		writer.WriteHeader(http.StatusBadGateway)
+	case request.Header.Get("Authorization") != "Bearer relay-secret":
+		writer.WriteHeader(http.StatusUnauthorized)
+	case json.NewDecoder(request.Body).Decode(&body) != nil || body.Ticket == "":
+		writer.WriteHeader(http.StatusBadRequest)
+	case a.revoked:
+		writer.WriteHeader(http.StatusForbidden)
+	default:
+		writer.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// TestUserPreviewHostRequiresTicket pins audit W2: a user preview host
+// (<port>-<workspace-id>.preview...) is served only to a viewer holding an
+// API-minted ticket whose grant the API still confirms.
+func TestUserPreviewHostRequiresTicket(t *testing.T) {
+	const domain = "3000-11111111-1111-4111-8111-111111111111.preview.jjhub.tech"
+	grant := Grant{Domain: domain, WorkspaceID: "11111111-1111-4111-8111-111111111111", RepositoryID: 7, UserID: 42}
+	api := &fakePreviewAPI{}
+	apiServer := httptest.NewServer(api)
+	defer apiServer.Close()
+	dialer := &testDialer{requests: make(chan *http.Request, 4)}
+	handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
+	handler.SetRelayToken("relay-secret")
+	handler.SetGrantAuthorizer(&APIAuthorizer{URL: apiServer.URL, RelayToken: "relay-secret", HTTPClient: apiServer.Client()})
+	now := time.Now()
+	handler.now = func() time.Time { return now }
+	serve := func(request *http.Request) *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, RoutePrefix+"3000-ws-1.preview.jjhub.tech/", nil))
-		assert.Equal(t, http.StatusOK, recorder.Code)
-	})
+		handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	// Anonymous: refused before the box is dialed, by Host and by path.
+	for _, target := range []string{"https://" + domain + "/hello?x=1", RoutePrefix + domain + "/hello"} {
+		recorder := serve(httptest.NewRequest(http.MethodGet, target, nil))
+		assert.Equal(t, http.StatusUnauthorized, recorder.Code, target)
+		assert.Empty(t, dialer.domain, "%s: anonymous request dialed the workspace", target)
+	}
+
+	// A ticket for another preview, a tampered ticket, and a session ticket
+	// in the exchange slot are all refused.
+	exchange, err := handler.tickets.Issue(grant, PurposeExchange, ExchangeTicketTTL)
+	require.NoError(t, err)
+	other := grant
+	other.Domain = "3001-11111111-1111-4111-8111-111111111111.preview.jjhub.tech"
+	otherTicket, err := handler.tickets.Issue(other, PurposeExchange, ExchangeTicketTTL)
+	require.NoError(t, err)
+	sessionTicket, err := handler.tickets.Issue(grant, PurposeSession, SessionTicketTTL)
+	require.NoError(t, err)
+	forged, err := NewTickets("another-secret").Issue(grant, PurposeExchange, ExchangeTicketTTL)
+	require.NoError(t, err)
+	for name, ticket := range map[string]string{"other domain": otherTicket, "session as exchange": sessionTicket,
+		"forged": forged, "tampered": exchange[:len(exchange)-2] + "AA"} {
+		recorder := serve(httptest.NewRequest(http.MethodGet, "https://"+domain+"/?"+TicketQueryParameter+"="+url.QueryEscape(ticket), nil))
+		assert.Equal(t, http.StatusUnauthorized, recorder.Code, name)
+	}
+	assert.Empty(t, dialer.domain)
+
+	// A valid exchange ticket becomes a host-only session cookie and a
+	// redirect to the same URL without the ticket.
+	recorder := serve(httptest.NewRequest(http.MethodGet, "https://"+domain+"/app/page?x=1&"+TicketQueryParameter+"="+url.QueryEscape(exchange), nil))
+	require.Equal(t, http.StatusFound, recorder.Code)
+	assert.Equal(t, "/app/page?x=1", recorder.Header().Get("Location"))
+	assert.Empty(t, dialer.domain, "the exchange itself never reaches the box")
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	session := cookies[0]
+	assert.Equal(t, SessionCookieName, session.Name)
+	assert.True(t, session.Secure)
+	assert.True(t, session.HttpOnly)
+	assert.Empty(t, session.Domain, "the session cookie must be host-only")
+
+	// The session cookie serves the preview; the guest sees its own cookies
+	// but never the preview session.
+	request := httptest.NewRequest(http.MethodGet, "https://"+domain+"/app/page?x=1", nil)
+	request.AddCookie(&http.Cookie{Name: "app", Value: "guest"})
+	request.AddCookie(session)
+	recorder = serve(request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "preview", recorder.Body.String())
+	assert.Equal(t, domain, dialer.domain)
+	upstream := <-dialer.requests
+	assert.Equal(t, "app=guest", upstream.Header.Get("Cookie"))
+	assert.Equal(t, "/app/page?x=1", upstream.URL.RequestURI())
+
+	// The session is bound to its host.
+	request = httptest.NewRequest(http.MethodGet, "https://"+other.Domain+"/", nil)
+	request.AddCookie(session)
+	assert.Equal(t, http.StatusUnauthorized, serve(request).Code)
+
+	// Revoked (share removed, user suspended): refused within the recheck
+	// interval, long before the ticket expires.
+	api.revoked = true
+	now = now.Add(grantRecheckInterval + time.Second)
+	dialer.domain = ""
+	request = httptest.NewRequest(http.MethodGet, "https://"+domain+"/app/page", nil)
+	request.AddCookie(session)
+	assert.Equal(t, http.StatusUnauthorized, serve(request).Code)
+	assert.Empty(t, dialer.domain, "a revoked grant dialed the workspace")
+
+	// The API unreachable: fail closed, as unavailable rather than denied.
+	api.revoked, api.down = false, true
+	request = httptest.NewRequest(http.MethodGet, "https://"+domain+"/", nil)
+	request.AddCookie(session)
+	assert.Equal(t, http.StatusServiceUnavailable, serve(request).Code)
+	assert.Empty(t, dialer.domain)
+
+	// An expired session is refused without asking the API.
+	api.down = false
+	now = now.Add(SessionTicketTTL + time.Hour)
+	handler.tickets.now = handler.now
+	checks := api.checks
+	request = httptest.NewRequest(http.MethodGet, "https://"+domain+"/", nil)
+	request.AddCookie(session)
+	assert.Equal(t, http.StatusUnauthorized, serve(request).Code)
+	assert.Equal(t, checks, api.checks)
+}
+
+func TestUserPreviewWithoutGrantAuthorizerFailsClosed(t *testing.T) {
+	const domain = "3000-ws-1.preview.jjhub.tech"
+	dialer := &testDialer{}
+	handler := NewHandler(dialer, []string{".preview.jjhub.tech"}, nil)
+	handler.SetRelayToken("relay-secret")
+	session, err := handler.tickets.Issue(Grant{Domain: domain, WorkspaceID: "ws-1", RepositoryID: 1, UserID: 1}, PurposeSession, SessionTicketTTL)
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodGet, "https://"+domain+"/", nil)
+	request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: session})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+	assert.Empty(t, dialer.domain)
+}
+
+func TestUserPreviewGuestCannotSetSessionCookie(t *testing.T) {
+	const domain = "3000-ws-1.preview.jjhub.tech"
+	guest := &setCookieDialer{}
+	handler := NewHandler(guest, []string{".preview.jjhub.tech"}, nil)
+	handler.SetRelayToken("relay-secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, relayRequest(RoutePrefix+domain+"/"))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, []string{"app=1"}, recorder.Header().Values("Set-Cookie"))
+}
+
+type setCookieDialer struct{}
+
+func (setCookieDialer) Dial(context.Context, string) (net.Conn, error) {
+	client, server := net.Pipe()
+	go func() {
+		defer server.Close()
+		request, err := http.ReadRequest(newBufferedReader(server))
+		if err != nil {
+			return
+		}
+		_ = request.Body.Close()
+		_, _ = io.WriteString(server, "HTTP/1.1 200 OK\r\nSet-Cookie: "+SessionCookieName+"=x; Path=/\r\nSet-Cookie: app=1\r\nContent-Length: 2\r\n\r\nok")
+	}()
+	return client, nil
 }

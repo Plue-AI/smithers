@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,12 +22,11 @@ import (
 
 const RoutePrefix = "/__preview/"
 
-// RelayTokenHeader carries the shared relay credential on requests for
-// platform domains (isPlatformDomain). The gateway is reachable from the
-// public internet for user previews, so those domains, whose only authorized
-// caller is the API relay (which has already checked the desktop session
-// token), are refused without it. The header is stripped before the box sees
-// the request.
+// RelayTokenHeader carries the shared relay credential. Platform domains
+// (isPlatformDomain), whose only authorized caller is the API relay (which
+// has already checked the desktop session token), are refused without it;
+// user previews accept it or a preview session (see ticket.go). The header is
+// stripped before the box sees the request.
 const RelayTokenHeader = "X-Plue-Preview-Relay-Token"
 
 type PortDialer interface {
@@ -72,17 +72,41 @@ type Handler struct {
 	dialer          PortDialer
 	allowedSuffixes []string
 	relayToken      string
+	tickets         *Tickets
+	authorizer      GrantAuthorizer
 	logger          *slog.Logger
 	metrics         *Metrics
+
+	// grantsMu guards grants: session tickets the API confirmed, until when.
+	// A preview page loads many assets; one API check covers a burst of them
+	// and still bounds how long a revoked grant keeps working.
+	grantsMu sync.Mutex
+	grants   map[string]time.Time
+	now      func() time.Time
 }
+
+// grantRecheckInterval bounds how long a confirmed grant is trusted before
+// the API is asked again.
+const grantRecheckInterval = 5 * time.Second
+
+const maxCachedGrants = 4096
 
 // SetMetrics records every request's outcome and latency. Nil disables it.
 func (h *Handler) SetMetrics(metrics *Metrics) { h.metrics = metrics }
 
-// SetRelayToken installs the credential platform domains must present. An
-// empty token fails closed: every platform-domain request is refused, never
-// served to an unauthenticated caller.
-func (h *Handler) SetRelayToken(token string) { h.relayToken = strings.TrimSpace(token) }
+// SetRelayToken installs the credential platform domains must present and
+// the secret preview tickets are signed with. An empty token fails closed:
+// every platform-domain and user-preview request is refused, never served to
+// an unauthenticated caller.
+func (h *Handler) SetRelayToken(token string) {
+	h.relayToken = strings.TrimSpace(token)
+	h.tickets = NewTickets(h.relayToken)
+}
+
+// SetGrantAuthorizer installs the live recheck of a viewer's access (the
+// API, see APIAuthorizer). Without one every user preview is refused: a
+// signature alone cannot notice a removed share or a suspended user.
+func (h *Handler) SetGrantAuthorizer(authorizer GrantAuthorizer) { h.authorizer = authorizer }
 
 func NewHandler(dialer PortDialer, allowedSuffixes []string, logger *slog.Logger) *Handler {
 	if logger == nil {
@@ -95,7 +119,8 @@ func NewHandler(dialer PortDialer, allowedSuffixes []string, logger *slog.Logger
 			clean = append(clean, strings.TrimPrefix(suffix, "*"))
 		}
 	}
-	return &Handler{dialer: dialer, allowedSuffixes: clean, logger: logger}
+	return &Handler{dialer: dialer, allowedSuffixes: clean, logger: logger,
+		grants: map[string]time.Time{}, now: time.Now}
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -131,6 +156,25 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		pkgerrors.WriteError(writer, pkgerrors.Unauthorized("preview relay credential required"))
 		return
 	}
+	if !isPlatformDomain(domain) && !h.relayAuthorized(request) {
+		if ticket := request.URL.Query().Get(TicketQueryParameter); ticket != "" {
+			if !h.exchangeTicket(writer, request, domain, ticket) {
+				outcome = outcomeUnauthorized
+			}
+			return
+		}
+		if status := h.authorizeSession(request, domain); status != http.StatusOK {
+			if status == http.StatusServiceUnavailable {
+				outcome = outcomeUnavailable
+				pkgerrors.WriteError(writer, pkgerrors.New(pkgerrors.CodeServiceUnavailable,
+					"preview authorization unavailable"))
+				return
+			}
+			outcome = outcomeUnauthorized
+			pkgerrors.WriteError(writer, pkgerrors.Unauthorized("preview credential required"))
+			return
+		}
+	}
 	if h.dialer == nil {
 		outcome = outcomeUnavailable
 		h.logger.Error("preview gateway has no port dialer", "domain", domain)
@@ -160,7 +204,22 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			proxyRequest.Out.Header.Del("X-Plue-Access-Token")
 			proxyRequest.Out.Header.Del(RelayTokenHeader)
 			proxyRequest.Out.Header.Del("X-Plue-Placement-Generation")
+			removeSessionCookie(proxyRequest.Out.Header)
 			proxyRequest.SetXForwarded()
+		},
+		// The guest may not overwrite or clear the viewer's preview session.
+		ModifyResponse: func(response *http.Response) error {
+			var kept []string
+			for _, value := range response.Header.Values("Set-Cookie") {
+				if name, _, _ := strings.Cut(strings.TrimSpace(value), "="); name != SessionCookieName {
+					kept = append(kept, value)
+				}
+			}
+			response.Header.Del("Set-Cookie")
+			for _, value := range kept {
+				response.Header.Add("Set-Cookie", value)
+			}
+			return nil
 		},
 		ErrorHandler: func(response http.ResponseWriter, _ *http.Request, err error) {
 			outcome = outcomeUpstreamError
@@ -172,6 +231,118 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		},
 	}
 	proxy.ServeHTTP(writer, request)
+}
+
+// exchangeTicket turns the API's short-lived URL ticket into the host-only
+// session cookie and redirects to the same URL without the ticket, so it
+// never reaches guest code, a Referer, or the page's history entry.
+func (h *Handler) exchangeTicket(writer http.ResponseWriter, request *http.Request, domain, ticket string) bool {
+	grant, err := h.tickets.Verify(ticket, PurposeExchange, domain)
+	if err != nil {
+		h.logger.Warn("preview ticket refused", "domain", domain, "tickets_configured", h.tickets != nil)
+		pkgerrors.WriteError(writer, pkgerrors.Unauthorized("preview credential required"))
+		return false
+	}
+	session, err := h.tickets.Issue(grant, PurposeSession, SessionTicketTTL)
+	if err != nil {
+		pkgerrors.WriteError(writer, pkgerrors.Unauthorized("preview credential required"))
+		return false
+	}
+	http.SetCookie(writer, &http.Cookie{
+		Name: SessionCookieName, Value: session, Path: "/",
+		MaxAge: int(SessionTicketTTL / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	location := url.URL{Path: request.URL.Path, RawPath: request.URL.RawPath, RawQuery: withoutTicket(request.URL.RawQuery)}
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(writer, request, location.String(), http.StatusFound)
+	return true
+}
+
+// authorizeSession returns 200 when the request carries a session cookie for
+// domain whose grant the API still confirms, 503 when the API cannot answer,
+// and 401 otherwise.
+func (h *Handler) authorizeSession(request *http.Request, domain string) int {
+	cookie, err := request.Cookie(SessionCookieName)
+	if err != nil {
+		return http.StatusUnauthorized
+	}
+	if _, err := h.tickets.Verify(cookie.Value, PurposeSession, domain); err != nil {
+		h.logger.Warn("preview session refused", "domain", domain, "tickets_configured", h.tickets != nil)
+		return http.StatusUnauthorized
+	}
+	if h.authorizer == nil {
+		h.logger.Error("preview gateway has no grant authorizer: refusing user previews", "domain", domain)
+		return http.StatusUnauthorized
+	}
+	now := h.now()
+	h.grantsMu.Lock()
+	until, cached := h.grants[cookie.Value]
+	h.grantsMu.Unlock()
+	if cached && now.Before(until) {
+		return http.StatusOK
+	}
+	if err := h.authorizer.AuthorizeGrant(request.Context(), cookie.Value); err != nil {
+		h.grantsMu.Lock()
+		delete(h.grants, cookie.Value)
+		h.grantsMu.Unlock()
+		if errors.Is(err, ErrGrantRevoked) {
+			h.logger.Info("preview grant revoked", "domain", domain)
+			return http.StatusUnauthorized
+		}
+		h.logger.Warn("preview grant check failed", "domain", domain, "error", err)
+		return http.StatusServiceUnavailable
+	}
+	h.grantsMu.Lock()
+	if len(h.grants) >= maxCachedGrants {
+		for ticket, expiry := range h.grants {
+			if !now.Before(expiry) {
+				delete(h.grants, ticket)
+			}
+		}
+		if len(h.grants) >= maxCachedGrants {
+			h.grants = map[string]time.Time{}
+		}
+	}
+	h.grants[cookie.Value] = now.Add(grantRecheckInterval)
+	h.grantsMu.Unlock()
+	return http.StatusOK
+}
+
+// withoutTicket drops the ticket from a raw query and keeps every other
+// parameter exactly as the client sent it, order and encoding included.
+func withoutTicket(rawQuery string) string {
+	kept := make([]string, 0, strings.Count(rawQuery, "&")+1)
+	for _, pair := range strings.Split(rawQuery, "&") {
+		key, _, _ := strings.Cut(pair, "=")
+		if unescaped, err := url.QueryUnescape(key); pair == "" || (err == nil && unescaped == TicketQueryParameter) {
+			continue
+		}
+		kept = append(kept, pair)
+	}
+	return strings.Join(kept, "&")
+}
+
+// removeSessionCookie drops the preview session from a Cookie header and
+// keeps the guest application's own cookies.
+func removeSessionCookie(header http.Header) {
+	values := header.Values("Cookie")
+	if len(values) == 0 {
+		return
+	}
+	var kept []string
+	for _, value := range values {
+		for _, pair := range strings.Split(value, ";") {
+			pair = strings.TrimSpace(pair)
+			if name, _, _ := strings.Cut(pair, "="); pair != "" && name != SessionCookieName {
+				kept = append(kept, pair)
+			}
+		}
+	}
+	header.Del("Cookie")
+	if len(kept) > 0 {
+		header.Set("Cookie", strings.Join(kept, "; "))
+	}
 }
 
 func (h *Handler) relayAuthorized(request *http.Request) bool {
