@@ -82,6 +82,18 @@ operating systems, or every possible terminal configuration. Report skips and
 failures with the result. The audit is tracked in
 [#2074](https://github.com/smithersai/smithers/issues/2074).
 
+## Parked worker retry controls
+
+```bash
+bun test ./test/parked-retry-controls.test.ts
+```
+
+This regression suite delegates and retries through the runtime bindings with
+real session files. A controlled host delays the cancelled worker's completion
+until before or after its replacement finishes. It checks Stop, Steer, saved
+outcomes, and cancellation intent across retries. This proves lifecycle ordering,
+not live provider or terminal behavior.
+
 ## Audit: 2026-09-27
 
 Executed on macOS 26.6.2 arm64 with Node 26.5.0, Bun 1.4.2, tmux 3.5a,

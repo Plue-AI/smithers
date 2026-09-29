@@ -701,6 +701,7 @@ export class Workspace {
   }
   private launch(tab: Tab, writer: Session.Writer, history: ReadonlyArray<Context.Entry>, agent?: Agents.Profile) {
     if (this.closed || this.tabs.get(tab.id)?.status !== "requested") return
+    this.cancelRequested.delete(tab.id)
     const at = Date.now()
     this.transcripts.set(
       tab.id,
@@ -837,10 +838,11 @@ export class Workspace {
       if (this.tabs.get(tab.id)?.driver !== undefined) steering.hijack()
       this.tabs.move({ ...(this.tabs.get(tab.id) ?? tab), launchedAt: at }, "launch")
       void handle.done.then((outcome) => {
+        // A parked retry can replace this execution before its cancellation settles.
+        if (this.closed || this.tabs.get(tab.id)?.file !== writer.file) return
         this.handles.delete(tab.id)
         this.steering.delete(tab.id)
         const requestedCancel = this.cancelRequested.delete(tab.id)
-        if (this.closed || this.tabs.get(tab.id)?.file !== writer.file) return
         const current = this.tabs.get(tab.id)
         if (outcome._tag === "cancelled" && current?.status === "parked" && !requestedCancel) {
           this.scheduleResume(current)
@@ -1026,8 +1028,10 @@ export class Workspace {
   }
   /** Settles the tab, its timeline and its worker file as failed. */
   private fail(tab: Tab, writer: Session.Writer, error: unknown) {
+    if (this.closed || this.tabs.get(tab.id)?.file !== writer.file) return
     this.handles.delete(tab.id)
     this.steering.delete(tab.id)
+    this.cancelRequested.delete(tab.id)
     const at = Date.now()
     const message = String(error)
     const failure = FailureCopy.describe(error, this.tabs.get(tab.id)?.activeSeat ?? tab.seat)
