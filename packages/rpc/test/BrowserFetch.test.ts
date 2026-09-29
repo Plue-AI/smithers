@@ -834,38 +834,42 @@ describe("resolveHostOverHttps", () => {
     expect(cancelled).toBeGreaterThan(0)
   })
 
-  test("pending resolver body cleanup preserves the received HTTP failure without waiting for the read deadline", async () => {
-    const cancelled: Array<string> = []
-    let pageFetches = 0
-    vi.stubGlobal("fetch", async (input: string) =>
-      new Response(
-        new ReadableStream({
-          cancel() {
-            cancelled.push(input)
-            return new Promise(() => {})
-          }
-        }),
-        { status: 503 }
-      ))
-    const outcome = await browserFetch("https://example.com/", {
-      timeoutMs: 20,
-      resolveHost: resolveHostOverHttps,
-      fetchImpl: async () => {
-        pageFetches += 1
-        return new Response("unexpected")
-      }
-    })
-    expect(cancelled).toEqual([
-      "https://cloudflare-dns.com/dns-query?name=example.com&type=A",
-      "https://cloudflare-dns.com/dns-query?name=example.com&type=AAAA"
-    ])
-    expect(pageFetches).toBe(0)
-    expect(outcome).toEqual({
-      ok: false,
-      code: "resolver_unavailable",
-      message: "The name resolver did not answer (status 503); try again."
-    })
-  }, 1000)
+  test(
+    "pending resolver body cleanup preserves the received HTTP failure without waiting for the read deadline",
+    async () => {
+      const cancelled: Array<string> = []
+      let pageFetches = 0
+      vi.stubGlobal("fetch", async (input: string) =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              cancelled.push(input)
+              return new Promise(() => {})
+            }
+          }),
+          { status: 503 }
+        ))
+      const outcome = await browserFetch("https://example.com/", {
+        timeoutMs: 20,
+        resolveHost: resolveHostOverHttps,
+        fetchImpl: async () => {
+          pageFetches += 1
+          return new Response("unexpected")
+        }
+      })
+      expect(cancelled).toEqual([
+        "https://cloudflare-dns.com/dns-query?name=example.com&type=A",
+        "https://cloudflare-dns.com/dns-query?name=example.com&type=AAAA"
+      ])
+      expect(pageFetches).toBe(0)
+      expect(outcome).toEqual({
+        ok: false,
+        code: "resolver_unavailable",
+        message: "The name resolver did not answer (status 503); try again."
+      })
+    },
+    1000
+  )
 
   test.each([429, 503])("rejecting resolver cleanup preserves HTTP %i", async (status) => {
     vi.stubGlobal("fetch", async () =>

@@ -721,8 +721,8 @@ const nulPaths = (output: string): ReadonlyArray<string> => output.split("\0").f
 const patchPath = (header: string): string | undefined => {
   if (header === "/dev/null") return undefined
   let name: string
-  if (header.startsWith('"')) {
-    if (!header.endsWith('"')) throw new Error("unterminated quoted Git patch path")
+  if (header.startsWith("\"")) {
+    if (!header.endsWith("\"")) throw new Error("unterminated quoted Git patch path")
     const quoted = header.slice(1, -1)
     const bytes: Array<number> = []
     for (let index = 0; index < quoted.length;) {
@@ -742,7 +742,15 @@ const patchPath = (header: string): string | undefined => {
         index += 4
       } else {
         const escapes: Record<string, number> = {
-          a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92
+          a: 7,
+          b: 8,
+          t: 9,
+          n: 10,
+          v: 11,
+          f: 12,
+          r: 13,
+          "\"": 34,
+          "\\": 92
         }
         const byte = escapes[escape]
         if (byte === undefined) throw new Error("invalid Git patch path escape")

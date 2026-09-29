@@ -167,14 +167,24 @@ describe("service shutdown observation", () => {
         const shutdown = exit === null
           ? "return;"
           : `writeFileSync(${JSON.stringify(receipt)}, ${JSON.stringify(String(exit))}); process.exit(${exit});`
-        await Fs.writeFile(cli, `import { writeFileSync } from "node:fs";
+        await Fs.writeFile(
+          cli,
+          `import { writeFileSync } from "node:fs";
 process.on("SIGTERM", () => { ${shutdown} });
 console.log("listening on 4000");
 setInterval(() => {}, 1000);
-`)
+`
+        )
         const report = await runSweep({
-          workspace, cli, expectationsPath, invoke: "run {label}",
-          heavy: false, services: true, only: [], timeoutSeconds: 5, reset: false
+          workspace,
+          cli,
+          expectationsPath,
+          invoke: "run {label}",
+          heavy: false,
+          services: true,
+          only: [],
+          timeoutSeconds: 5,
+          reset: false
         })
         const result = report.results[0]!
         if (exit !== null) expect(await Fs.readFile(receipt, "utf8")).toBe(String(exit))

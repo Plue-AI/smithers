@@ -193,7 +193,8 @@ describe("the mythical stack contract", () => {
 
   test("future stack, change and wiki states decode without losing the snapshot", () => {
     const decoded = MythicalStackSchema.parse({
-      ...snapshot, state: "future_state",
+      ...snapshot,
+      state: "future_state",
       changes: [{ ...snapshot.changes[0], kind: "future_kind" }, ...snapshot.changes.slice(1)],
       wiki: { state: "future_wiki", pages: 2, edited: 1, attempt: 0 }
     })
