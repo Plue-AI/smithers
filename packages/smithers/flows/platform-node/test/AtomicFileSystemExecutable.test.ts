@@ -29,6 +29,9 @@ import {
 
 const roots: Array<string> = []
 const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
+// Windows has no POSIX modes: Node reports every writable directory as 0o666,
+// and the staging directory's privacy is the per-user profile ACL instead.
+const privateDirectoryMode = process.platform === "win32" ? 0o666 : 0o700
 const fixture = async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "atomic-executable-")))
   const stageBase = await realpath(await mkdtemp(join(tmpdir(), "atomic-stage-")))
@@ -102,7 +105,7 @@ describe("default atomic helper resolution", () => {
     expect(await readdir(base)).toEqual([`.smthrs-atomic-helper-${digest}`])
     expect(await readdir(join(base, `.smthrs-atomic-helper-${digest}`))).toEqual([helperName])
     expect([...selected]).toEqual([join(base, `.smthrs-atomic-helper-${digest}`, helperName)])
-    expect((await stat(join(base, `.smthrs-atomic-helper-${digest}`))).mode & 0o777).toBe(0o700)
+    expect((await stat(join(base, `.smthrs-atomic-helper-${digest}`))).mode & 0o777).toBe(privateDirectoryMode)
     expect(process.rawListeners("exit").filter((listener) => !previous.has(listener))).toEqual([])
   })
 
@@ -120,7 +123,7 @@ describe("default atomic helper resolution", () => {
     expect(selected).toBe(join(directory, helperName))
     expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
     expect(await readdir(directory)).toEqual([helperName])
-    expect((await stat(directory)).mode & 0o777).toBe(0o700)
+    expect((await stat(directory)).mode & 0o777).toBe(privateDirectoryMode)
   })
 
   it("refuses a planted link in place of the staging directory", async () => {
