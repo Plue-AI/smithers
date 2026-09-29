@@ -28,10 +28,6 @@ The export must be the default one. Every directory segment of the route obeys
 the route grammar, so `app/Settings/page.tsx` and `app/v1.2/page.tsx` are
 refused with `invalid_name`.
 
-When a space next to a JSX expression must render, write `{" "}` explicitly:
-`<span>{name}{" "}</span>`. The pinned dprint TypeScript plugin drops a literal
-edge space such as `<span>{name} </span>` during formatting.
-
 Regenerate:
 
 ```bash

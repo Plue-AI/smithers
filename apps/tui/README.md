@@ -526,6 +526,10 @@ Every refusal is a code and one line:
 
 ## Tests
 
+When editing TUI JSX, write rendered edge spaces as `{" "}`. The pinned dprint
+TypeScript plugin drops literal spaces beside expressions such as
+`<span>{mark} </span>`; see [dprint/dprint-plugin-typescript#476](https://github.com/dprint/dprint-plugin-typescript/issues/476).
+
 | Command           | What                                                                      |
 | ----------------- | ------------------------------------------------------------------------- |
 | `bun test ./test` | Transcript fold over a recorded run, and the pure modules and tmux driver |
