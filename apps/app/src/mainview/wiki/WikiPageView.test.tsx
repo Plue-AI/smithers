@@ -129,7 +129,7 @@ describe("wiki page view", () => {
     const markup = renderToStaticMarkup(<WikiPageView body={body} links={links} index={index} repo="org/repo" space="public" onOpen={() => {}} />)
     expect(markup).toContain(`href="${wikiLinkHref("Guides/Start.md", "Install")}"`)
     expect(markup).toContain(">start</a>")
-    expect(markup).toContain('<img src="/api/repos/org/repo/wiki/history/3/1/content?visibility=public" alt="assets/logo.png"')
+    expect(markup).toContain("Attachment unavailable.")
     expect(markup).toContain(`href="${UNRESOLVED_HREF}Nowhere"`)
     expect(markup).toContain('data-testid="wiki-embed"')
     expect(markup).not.toContain("[[Guides/Start#Install")

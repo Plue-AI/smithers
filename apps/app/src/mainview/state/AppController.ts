@@ -1,3 +1,4 @@
+import { createWikiAttachmentStore, type WikiAttachmentStore } from "../wiki/WikiAttachmentStore"
 import { identityProviderFor, ownerCredentials, signInByHandoff } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
@@ -238,6 +239,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
   readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>
   readonly attachCloudWiki: (slug: string, path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
+  /** Ephemeral authenticated attachment handles shared by Wiki views. */
+  readonly wikiAttachments: WikiAttachmentStore
   /** The live wiki navigation indexes the Wiki views read (#1922), one per repository and space; never an act. */
   readonly wikiIndexes: WikiIndexStore
   readonly attachWorldEditor: (id: string, slot: string, editor: MarkdownEditorHandle | null) => void
@@ -799,6 +802,9 @@ export const createAppController = (
     void ctx.dispose().catch(() => {})
   }))
   const { baseUrl, http } = ctx
+  const wikiAttachments = createWikiAttachmentStore({ http, baseUrl })
+  ctx.onDispose(ctx.onAccountChange(wikiAttachments.clear))
+  ctx.onDispose(wikiAttachments.dispose)
   const features: Required<AppFeatures> = {
     pluginLibrary: services.features?.pluginLibrary ?? false,
     suggestionPills: services.features?.suggestionPills ?? services.bootstrap?.host === "cloud"
@@ -2158,6 +2164,7 @@ export const createAppController = (
     localAuth,
     stackSnapshots: stackSeam.snapshots,
     wikiIndexes,
+    wikiAttachments,
     commands,
     slashItems: (needle) => commands.slashItems(needle),
     slashTree: (needle) => commands.slashTree(needle),

@@ -125,7 +125,7 @@ test("the Wiki pane lists a space's index as a tree with folders, tags and serve
   await store.dispatch({ type: "world.document.selected", actor: "user", id: "wiki:org/repo:3" }).isPersisted.promise
   flushSync(() => root.render(<ControllerContext value={controller}><WorldSurface documents={[...store.collections.worldDocuments.values()]} /></ControllerContext>))
   await tick()
-  expect(host.querySelector('[data-testid="wiki-attachment"] img')?.getAttribute("src")).toBe("/api/repos/org/repo/wiki/history/3/1/content?visibility=public")
+  expect(host.querySelector('[data-testid="wiki-attachment"] [role="alert"]')?.textContent).toBe("Attachment unavailable.")
   flushSync(() => root.unmount())
   host.remove()
   await store.dispose?.()

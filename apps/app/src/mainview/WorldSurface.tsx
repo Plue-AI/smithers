@@ -13,7 +13,8 @@ import { useController } from "./ControllerContext"
 import { WIKI_DISPLAY_NAME, WIKI_GRAPH_ALL_SCOPE } from "./state/AppState"
 import type { WorldDocument } from "./state/AppState"
 import { SurfaceHeader } from "./SurfaceChrome"
-import { attachmentUrl, indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
+import { indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
+import { WikiAttachment } from "./wiki/WikiAttachment"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
 import { useStackSnapshot } from "./cards/StackCard"
 import { wikiTone } from "@smthrs/rpc/StackView"
@@ -164,10 +165,10 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                 </div>
                 <div className="world-attachment" data-testid="wiki-attachment">
                   {attachment.attachment !== undefined && /^image\//.test(attachment.attachment.mediaType)
-                    ? <img src={attachmentUrl(repo, space, attachment)} alt={attachment.path} />
-                    : <a href={attachmentUrl(repo, space, attachment)} download={attachment.path.split("/").pop()} target="_blank" rel="noreferrer">
+                    ? <WikiAttachment repo={repo} space={space} page={attachment} alt={attachment.path} />
+                    : <WikiAttachment repo={repo} space={space} page={attachment}>
                       {attachment.path.split("/").pop()} · {attachment.attachment?.mediaType} · {attachment.attachment?.size} B
-                    </a>}
+                    </WikiAttachment>}
                 </div>
               </>
             ) :

@@ -2,7 +2,7 @@ import { Markdown } from "@smthrs/ui"
 import { noteHref, parseWikilinks, pathFromHref } from "@smthrs/ui/vault"
 import { useCallback, type ReactNode } from "react"
 import type { WikiIndexPage, WikiIndexRow, WikiSpace } from "../state/AppState"
-import { attachmentUrl } from "./WikiNavigation"
+import { WikiAttachment } from "./WikiAttachment"
 import type { RunCommand } from "../cards/CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 
@@ -144,7 +144,7 @@ export const WikiPageView = ({ body, links, index, repo, space, focusHeading, on
     <div className="wiki-page" data-testid="wiki-page" ref={bind}>
       {segments.map((segment, at) => segment.kind === "image"
         ? <figure key={at} className="wiki-embed" data-testid="wiki-embed">
-          <img src={attachmentUrl(repo, space, segment.page)} alt={segment.alt} />
+          <WikiAttachment repo={repo} space={space} page={segment.page} alt={segment.alt} />
         </figure>
         : <Markdown key={at} className="wiki-page-markdown" content={segment.text} onLinkClick={onLinkClick} />)}
     </div>
