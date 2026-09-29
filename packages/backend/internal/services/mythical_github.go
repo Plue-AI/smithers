@@ -77,8 +77,9 @@ type mythicalGitHub interface {
 	// Merge squash-merges a pull request only while its head is head, and
 	// answers the merge commit.
 	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
-	// LabelApplier answers who applied label to an issue as it stands now:
-	// nil when the latest event for it removed it or none applied it.
+	// LabelApplier answers who last applied label to an issue, or removed
+	// it (Removed), as the issue's labels stand now: nil when none ever
+	// applied it. It errs while GitHub's history trails the labels.
 	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error)
 	// Comment posts one comment on an issue.
 	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
@@ -338,17 +339,57 @@ func (g *mythicalGitHubAPI) RemoveLabel(ctx context.Context, gh mythicalGitHubRe
 type mythicalLabelApplier struct {
 	Actor  gitHubActor
 	ViaApp bool
+	// EventID is the labeled event's GitHub id: one per application, so a
+	// replayed delivery of it is told from a new application.
+	EventID int64
+	// Removed marks the label's last event as its removal, by Actor.
+	Removed bool
 }
 
-// LabelApplier reads the issue's whole event history (at most 10 pages of
+// present reports whether the label is on the issue now.
+func (a *mythicalLabelApplier) present() bool { return a != nil && !a.Removed }
+
+// LabelApplier reads who last applied or removed label (nil: never), from
+// the issue's whole event history (at most 10 pages of
 // 100); a longer history is refused rather than read in part.
 func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	// The issue's labels as they are now decide; the history only names who
+	// applied or removed one. When the two disagree the history trails the
+	// labels, and nothing is answered until it catches up.
+	var issue struct {
+		Labels []gitHubLabel `json:"labels"`
+	}
+	status, err := g.api.request(ctx, gh.Token, http.MethodGet, landingGitHubRepoPath(gh.Owner, gh.Name)+"/issues/"+strconv.FormatInt(number, 10), nil, &issue)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read the issue")
+	}
+	present := false
+	for _, current := range issue.Labels {
+		present = present || strings.EqualFold(current.Name, label)
+	}
+	applier, err := g.labelHistory(ctx, gh, number, label)
+	if err != nil {
+		return nil, err
+	}
+	if present != applier.present() {
+		return nil, errors.New("GitHub's label history trails the issue's labels; read again later")
+	}
+	return applier, nil
+}
+
+// labelHistory answers the last application or removal of label in the
+// issue's event history, nil when there is none.
+func (g *mythicalGitHubAPI) labelHistory(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
 	var applier *mythicalLabelApplier
 	for page := 1; ; page++ {
 		if page > 10 {
 			return nil, errors.New("the issue's label history is too long to read whole")
 		}
 		var events []struct {
+			ID     int64            `json:"id"`
 			Event  string           `json:"event"`
 			Actor  gitHubActor      `json:"actor"`
 			ViaApp *json.RawMessage `json:"performed_via_github_app"`
@@ -370,9 +411,9 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 			}
 			switch event.Event {
 			case "labeled":
-				applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null"}
+				applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null", EventID: event.ID}
 			case "unlabeled":
-				applier = nil
+				applier = &mythicalLabelApplier{Actor: event.Actor, EventID: event.ID, Removed: true}
 			}
 		}
 		if len(events) < 100 {
@@ -420,6 +461,42 @@ const (
 	mythicalCIRed     = "red"
 )
 
+// headSuites reads one page of the commit's check suites: red on a failed
+// suite, pending while one that is CI has not finished, and whether the
+// page was full.
+func (g *mythicalGitHubAPI) headSuites(ctx context.Context, token string, gh mythicalGitHubRepo, commit string, page int) (string, bool, error) {
+	var suites struct {
+		CheckSuites []struct {
+			Status     string  `json:"status"`
+			Conclusion *string `json:"conclusion"`
+			Runs       int     `json:"latest_check_runs_count"`
+			App        *struct {
+				Slug string `json:"slug"`
+			} `json:"app"`
+		} `json:"check_suites"`
+	}
+	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/check-suites?per_page=100&page="+strconv.Itoa(page), nil, &suites)
+	if err != nil {
+		return "", false, err
+	}
+	if status != http.StatusOK {
+		return "", false, landingGitHubStatusError(status, gh.Owner, gh.Name, "read check suites")
+	}
+	verdict := mythicalCIGreen
+	for _, suite := range suites.CheckSuites {
+		actions := suite.App != nil && suite.App.Slug == "github-actions"
+		switch {
+		case suite.Runs == 0 && !actions && suite.Status != "completed":
+			// An App's placeholder suite: it never ran here.
+		case suite.Status != "completed" || suite.Conclusion == nil:
+			verdict = mythicalCIPending
+		case *suite.Conclusion != "success" && *suite.Conclusion != "neutral" && *suite.Conclusion != "skipped":
+			return mythicalCIRed, false, nil
+		}
+	}
+	return verdict, len(suites.CheckSuites) == 100, nil
+}
+
 // HeadChecks is green only when at least one check reported on the commit
 // and every check run and commit status on it finished successfully
 // (success, neutral or skipped). A failed one is red; one still running, or
@@ -432,7 +509,11 @@ func (g *mythicalGitHubAPI) HeadChecks(ctx context.Context, gh mythicalGitHubRep
 	}
 	commit := landingGitHubRepoPath(gh.Owner, gh.Name) + "/commits/" + url.PathEscape(sha)
 	reported, pending := 0, false
-	for page := 1; page <= 10; page++ {
+	for page := 1; ; page++ {
+		if page > 10 {
+			// Runs past what is read could be red: never green on a part.
+			return mythicalCIPending, nil
+		}
 		var runs struct {
 			CheckRuns []struct {
 				Status     string  `json:"status"`
@@ -461,32 +542,29 @@ func (g *mythicalGitHubAPI) HeadChecks(ctx context.Context, gh mythicalGitHubRep
 	}
 	// A workflow whose later jobs have no check run yet still has a suite
 	// that has not completed: CI is green only once every suite finished.
-	var suites struct {
-		CheckSuites []struct {
-			Status     string  `json:"status"`
-			Conclusion *string `json:"conclusion"`
-		} `json:"check_suites"`
-	}
-	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/check-suites?per_page=100", nil, &suites)
-	if err != nil {
-		return "", err
-	}
-	if status != http.StatusOK {
-		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read check suites")
-	}
-	for _, suite := range suites.CheckSuites {
-		switch {
-		case suite.Status != "completed" || suite.Conclusion == nil:
-			pending = true
-		case *suite.Conclusion != "success" && *suite.Conclusion != "neutral" && *suite.Conclusion != "skipped":
-			return mythicalCIRed, nil
+	// GitHub also opens a suite on every push for each installed App that
+	// may write checks, and one whose App never runs on the commit stays
+	// queued with no runs forever: such a suite is not CI. A GitHub Actions
+	// suite always counts, so a workflow whose jobs are not created yet
+	// (ci.yml's required jobs among them) keeps the head pending.
+	for page := 1; ; page++ {
+		if page > 10 {
+			return mythicalCIPending, nil
+		}
+		verdict, full, err := g.headSuites(ctx, token, gh, commit, page)
+		if err != nil || verdict == mythicalCIRed {
+			return verdict, err
+		}
+		pending = pending || verdict == mythicalCIPending
+		if !full {
+			break
 		}
 	}
 	var combined struct {
 		State      string `json:"state"`
 		TotalCount int    `json:"total_count"`
 	}
-	status, err = g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
+	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
 	if err != nil {
 		return "", err
 	}

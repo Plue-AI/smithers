@@ -34,7 +34,7 @@ type factoryGitHubPolicy struct {
 	// before it never becomes a TODO on its own.
 	TodoSince string `json:"todoSince"`
 	// DailyTokens bounds the tokens the factory's lanes spend per UTC day;
-	// 0 is no bound.
+	// 0 (none declared) launches nothing: the factory never spends unbounded.
 	DailyTokens int64 `json:"dailyTokens"`
 }
 

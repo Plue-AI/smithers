@@ -102,7 +102,7 @@ func TestMythicalGitHubHeadChecksNeedsEveryReportGreen(t *testing.T) {
 			t.Parallel()
 			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_runs": tc.runs}),
-				"GET /repos/o/r/commits/abc/check-suites?per_page=100": answer(http.StatusOK, map[string]any{
+				"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{
 					"check_suites": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
 				"GET /repos/o/r/commits/abc/status": answer(http.StatusOK, tc.combined),
 			}}
@@ -147,6 +147,8 @@ func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 			{"event": "labeled", "actor": map[string]any{"login": "last"}, "label": map[string]any{"name": "TODO"}},
 		}),
 		"GET /repos/o/r/issues/4/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
+		"GET /repos/o/r/issues/3":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "todo"}, {"name": "bug"}}}),
+		"GET /repos/o/r/issues/4":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
 	}}
 	api := github.api(t)
 	ctx := context.Background()
@@ -178,14 +180,25 @@ func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
 		}
 		return out
 	}
+	withID := func(event map[string]any, id int64) map[string]any {
+		event["id"] = id
+		return event
+	}
 	full := make([]map[string]any, 100)
 	for i := range full {
 		full[i] = event("labeled", "roninjin10", false)
 	}
 	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 		"GET /repos/o/r/issues/1/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
-			event("labeled", "roninjin10", false), event("unlabeled", "roninjin10", false)}),
+			event("labeled", "roninjin10", false), withID(event("unlabeled", "roninjin10", false), 12)}),
 		"GET /repos/o/r/issues/2/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{event("labeled", "roninjin10", true)}),
+		"GET /repos/o/r/issues/1":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
+		"GET /repos/o/r/issues/2":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "automerge"}}}),
+		"GET /repos/o/r/issues/3":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "automerge"}}}),
+		// The labels moved on and the history has not caught up yet: the
+		// label is gone although its last event applied it.
+		"GET /repos/o/r/issues/4":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
+		"GET /repos/o/r/issues/4/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{event("labeled", "roninjin10", false)}),
 	}}
 	for page := 1; page <= 10; page++ {
 		github.routes["GET /repos/o/r/issues/3/events?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, full)
@@ -194,38 +207,94 @@ func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
 	ctx := context.Background()
 	applier, err := api.LabelApplier(ctx, stackRepo, 1, "automerge")
 	require.NoError(t, err)
-	assert.Nil(t, applier, "a removed label has no applier")
+	assert.False(t, applier.present(), "a removed label is not on the issue")
+	assert.Equal(t, &mythicalLabelApplier{Actor: gitHubActor{Login: "roninjin10"}, EventID: 12, Removed: true}, applier, "its remover is named")
 	applier, err = api.LabelApplier(ctx, stackRepo, 2, "automerge")
 	require.NoError(t, err)
 	assert.True(t, applier.ViaApp, "an App's application is marked")
 	_, err = api.LabelApplier(ctx, stackRepo, 3, "automerge")
 	require.ErrorContains(t, err, "too long to read whole", "a history read in part is refused")
+	_, err = api.LabelApplier(ctx, stackRepo, 4, "automerge")
+	require.ErrorContains(t, err, "trails the issue's labels", "a label gone from the issue never answers its former applier")
 }
 
 // Between a workflow's stages every run so far finished while its suite has
 // not: that is not green yet, and a failed suite is red.
 func TestMythicalGitHubHeadChecksWaitsForEverySuite(t *testing.T) {
 	t.Parallel()
+	suite := func(app, status string, conclusion any, runs int) map[string]any {
+		return map[string]any{"status": status, "conclusion": conclusion, "latest_check_runs_count": runs, "app": map[string]any{"slug": app}}
+	}
+	// The shape GitHub answered on smithersai/smithers PR heads (#2625,
+	// #1673): Apps that may write checks but never run leave a queued suite
+	// with no runs beside the Actions suite.
+	placeholders := []map[string]any{suite("cursor", "queued", nil, 0), suite("mintlify", "queued", nil, 0)}
 	for _, tc := range []struct {
-		name  string
-		suite map[string]any
-		want  string
+		name   string
+		suites []map[string]any
+		want   string
 	}{
-		{"a suite still running", map[string]any{"status": "in_progress", "conclusion": nil}, mythicalCIPending},
-		{"a failed suite", map[string]any{"status": "completed", "conclusion": "failure"}, mythicalCIRed},
-		{"a finished suite", map[string]any{"status": "completed", "conclusion": "success"}, mythicalCIGreen},
+		{"a suite still running", []map[string]any{suite("github-actions", "in_progress", nil, 3)}, mythicalCIPending},
+		{"a failed suite", []map[string]any{suite("github-actions", "completed", "failure", 3)}, mythicalCIRed},
+		{"a finished suite", []map[string]any{suite("github-actions", "completed", "success", 3)}, mythicalCIGreen},
+		{"placeholder suites beside a green Actions suite", append(placeholders[:2:2], suite("github-actions", "completed", "success", 13)), mythicalCIGreen},
+		{"placeholder suites beside a failed Actions suite", append(placeholders[:2:2], suite("github-actions", "completed", "failure", 13)), mythicalCIRed},
+		{"an Actions suite whose jobs are not created yet", append(placeholders[:2:2], suite("github-actions", "queued", nil, 0)), mythicalCIPending},
+		{"another App's suite that runs", []map[string]any{suite("buildkite", "in_progress", nil, 1)}, mythicalCIPending},
+		{"another App's failed suite with no runs", []map[string]any{suite("buildkite", "completed", "failure", 0)}, mythicalCIRed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{
 					"check_runs": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
-				"GET /repos/o/r/commits/abc/check-suites?per_page=100": answer(http.StatusOK, map[string]any{"check_suites": []map[string]any{tc.suite}}),
-				"GET /repos/o/r/commits/abc/status":                    answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0}),
+				"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_suites": tc.suites}),
+				"GET /repos/o/r/commits/abc/status":                           answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0}),
 			}}
 			verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, verdict)
 		})
 	}
+}
+
+// CI is never green on a part of it: a second page of suites is read, and
+// runs past the tenth page keep the head pending (Astra r3 1).
+func TestMythicalGitHubHeadChecksReadsEveryPage(t *testing.T) {
+	t.Parallel()
+	green := map[string]any{"status": "completed", "conclusion": "success", "latest_check_runs_count": 1, "app": map[string]any{"slug": "github-actions"}}
+	suites := make([]map[string]any, 100)
+	runs := make([]map[string]any, 100)
+	for i := range suites {
+		suites[i] = green
+		runs[i] = map[string]any{"status": "completed", "conclusion": "success"}
+	}
+	status := answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0})
+
+	t.Run("a failed suite on the second page", func(t *testing.T) {
+		t.Parallel()
+		github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+			"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1":   answer(http.StatusOK, map[string]any{"check_runs": runs[:1]}),
+			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"total_count": 101, "check_suites": suites}),
+			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=2": answer(http.StatusOK, map[string]any{"total_count": 101, "check_suites": []map[string]any{
+				{"status": "completed", "conclusion": "failure", "latest_check_runs_count": 1, "app": map[string]any{"slug": "github-actions"}}}}),
+			"GET /repos/o/r/commits/abc/status": status,
+		}}
+		verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
+		require.NoError(t, err)
+		assert.Equal(t, mythicalCIRed, verdict)
+	})
+	t.Run("more runs than ten pages", func(t *testing.T) {
+		t.Parallel()
+		github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_suites": suites[:1]}),
+			"GET /repos/o/r/commits/abc/status":                           status,
+		}}
+		for page := 1; page <= 10; page++ {
+			github.routes["GET /repos/o/r/commits/abc/check-runs?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, map[string]any{"check_runs": runs})
+		}
+		verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
+		require.NoError(t, err)
+		assert.Equal(t, mythicalCIPending, verdict, "an unread eleventh page could be red")
+	})
 }

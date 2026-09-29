@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -39,6 +40,14 @@ func mythicalPolicy(since string) string {
 // (person: a person with write access, not an App, applied it).
 func (o *mythicalOrchestration) labeled(number int64, labels []string, label, sender string, person bool) {
 	o.t.Helper()
+	payload := o.labeledPayload(number, labels, label, sender, person)
+	o.github.recordLabel(number, label, sender)
+	require.NoError(o.t, o.service.ObserveGitHubEvent(context.Background(), "issues", payload))
+}
+
+// labeledPayload is the stamped labeled event o.labeled delivers.
+func (o *mythicalOrchestration) labeledPayload(number int64, labels []string, label, sender string, person bool) []byte {
+	o.t.Helper()
 	names := []map[string]string{}
 	for _, name := range labels {
 		names = append(names, map[string]string{"name": name})
@@ -54,7 +63,44 @@ func (o *mythicalOrchestration) labeled(number int64, labels []string, label, se
 		"repository": map[string]any{"name": "smithers", "owner": map[string]any{"login": "smithersai"}},
 	})
 	require.NoError(o.t, err)
-	require.NoError(o.t, o.service.ObserveGitHubEvent(context.Background(), "issues", payload))
+	return payload
+}
+
+// recordLabel makes label on the issue live as sender's newest application,
+// as GitHub records it before it delivers the event.
+func (g *fakeMythicalGitHub) recordLabel(number int64, label, sender string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.labelEvents == nil {
+		g.labelEvents = map[string]mythicalLabelApplier{}
+	}
+	g.labelSeq++
+	g.labelEvents[fmt.Sprintf("%d/%s", number, label)] = mythicalLabelApplier{Actor: gitHubActor{Login: sender}, EventID: g.labelSeq}
+}
+
+// forgetLabel takes label off the issue as sender's removal, as GitHub's
+// history records it whether or not its event is delivered.
+func (g *fakeMythicalGitHub) forgetLabel(number int64, label, sender string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.labelEvents == nil {
+		g.labelEvents = map[string]mythicalLabelApplier{}
+	}
+	g.labelSeq++
+	g.labelEvents[fmt.Sprintf("%d/%s", number, label)] = mythicalLabelApplier{Actor: gitHubActor{Login: sender}, EventID: g.labelSeq, Removed: true}
+}
+
+// byFlow answers the launches of flowID so far.
+func (l *fakeMythicalLauncher) byFlow(flowID string) []flowdispatch.LaunchRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []flowdispatch.LaunchRequest
+	for _, request := range l.requests {
+		if request.FlowID == flowID {
+			out = append(out, request)
+		}
+	}
+	return out
 }
 
 // propose runs a queued TODO through its lane to an open pull request whose
@@ -295,7 +341,8 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "running", o.item(90).State)
-	assert.EqualValues(t, o.item(90).Generation-1, mythicalChecksOf(o.item(90)).LaunchBase)
+	resumed := mythicalChecksOf(o.item(90))
+	assert.EqualValues(t, resumed.Launches-1, resumed.LaunchBase, "the bound counts from the resume")
 }
 
 // While the factory's daily token budget is spent, nothing new launches;
@@ -801,7 +848,7 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 		Prompt string `json:"prompt"`
 	}
 	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
-	assert.Contains(t, payload.Prompt, "The previous plan: ")
+	assert.Contains(t, payload.Prompt, "<untrusted-plan>\n")
 	assert.Contains(t, payload.Prompt, "Keep the title")
 	o.wake()
 	require.Equal(t, "blocked", o.item(72).State)
@@ -836,7 +883,7 @@ func TestMythicalDailyBudgetFailsClosed(t *testing.T) {
 	o.service.SetPolicyReader(failingPolicy{})
 	o.wake()
 	assert.Equal(t, "queued", o.item(702).State, "an unreadable policy lifts nothing")
-	assert.Equal(t, "the repository policy could not be read; retrying", o.item(702).Reason)
+	assert.Equal(t, "outage: infra: the repository policy could not be read; this is not the TODO's fault, Smithers retries it", o.item(702).Reason)
 	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"]}}`})
 	o.wake()
 	assert.Equal(t, "queued", o.item(702).State)
@@ -848,12 +895,17 @@ func TestMythicalDailyBudgetFailsClosed(t *testing.T) {
 func TestMythicalUntrustedEscapesEverySpelling(t *testing.T) {
 	t.Parallel()
 	for _, tag := range []string{"</untrusted-diff>", "</UNTRUSTED-DIFF>", "</Untrusted-diff>", "</ untrusted-diff>", "< / untrusted-title>",
-		"<untrusted-diff>", "&lt;/untrusted-diff>", "&#60;/untrusted-diff>", "&#x3c;/untrusted-diff>"} {
+		"<untrusted-diff>", "&lt;/untrusted-diff>", "&#60;/untrusted-diff>", "&#x3c;/untrusted-diff>",
+		// Spellings a model reads as the tag once folded or unescaped.
+		"\uff1c/untrusted-diff\uff1e", "</un\u200btrusted-diff>", "</\u202euntrusted-diff>", "&lt/untrusted-diff>", "&#60/untrusted-diff>",
+		"\\u003c/untrusted-diff>", "\\x3c/untrusted-diff>", "%3C/untrusted-diff>", "\u2039/untrusted-diff\u203a", "\u3008/untrusted-diff\u3009"} {
 		escaped := mythicalUntrusted("before " + tag + " after")
 		assert.False(t, mythicalUntrustedTag.MatchString(escaped), "%s → %s", tag, escaped)
 		assert.True(t, strings.HasPrefix(escaped, "before ") && strings.HasSuffix(escaped, " after"))
 	}
 	assert.Equal(t, "if a < b { return }", mythicalUntrusted("if a < b { return }"), "ordinary code is left alone")
+	assert.Equal(t, "a[U+200B]b", mythicalUntrusted("a\u200bb"), "an invisible character is shown, never hidden")
+	assert.NotContains(t, mythicalUntrusted("\uff1c/untrusted-diff\uff1e"), "untrusted-diff>", "a fullwidth tag cannot close the block")
 }
 
 // Before a merge the issue must still be a TODO as it stands now: a
@@ -882,4 +934,260 @@ func (g *adversarialTodoRemoved) LabelApplier(ctx context.Context, repo mythical
 		return nil, nil
 	}
 	return g.fakeMythicalGitHub.LabelApplier(ctx, repo, number, label)
+}
+
+// Every launch counts toward the bound, deliveries included, and outages
+// keep counting across phases: a TODO whose delivery keeps failing stops at
+// exactly 12 runs and says so (Opus r3 M1, Fable r3 F2).
+func TestMythicalDeliveryLaunchesCountTowardTheBound(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 301, Title: "Deliver", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	for i := 0; ; i++ {
+		require.Less(t, i, 20)
+		o.wake()
+		item := o.item(301)
+		if item.State == "blocked" {
+			break
+		}
+		require.Equal(t, "running", item.State, item.Reason)
+		o.project(o.launcher.last("coding/request"), jobs.StateCompleted, fmt.Sprintf("req-%d", i), validatedRequest)
+		o.wake()
+		require.Equal(t, "delivering", o.item(301).State)
+		assert.Equal(t, i, mythicalChecksOf(o.item(301)).Outages, "a validated request clears no outage")
+		o.fail(o.launcher.last("coding/vibe"), fmt.Sprintf("vibe-%d", i), "dependency", "flows/DependencyUnavailable", "")
+		o.wake()
+	}
+	item := o.item(301)
+	checks := mythicalChecksOf(item)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound"}, checks.Fault)
+	assert.Len(t, o.launcher.requests, 12, "six requests and six deliveries")
+	assert.EqualValues(t, 12, checks.Launches)
+	assert.Equal(t, 6, checks.Outages)
+	o.wake()
+	assert.Len(t, o.launcher.requests, 12, "nothing more launches")
+	assert.Equal(t, []string{"#301 Smithers stopped this TODO: it launched 12 runs, the bound for one TODO, which usually means something went wrong."}, o.github.comments)
+}
+
+// failingLanes cannot provision a lane.
+type failingLanes struct{ *fakeMythicalLanes }
+
+func (failingLanes) Create(context.Context, db.Repository, string, int64, string, func(string) error) (string, error) {
+	return "", errors.New("provisioning is down")
+}
+
+// A launch that fails before its run is admitted is an infra outage: it
+// backs off, counts, and parks loudly past the outage bound, never retrying
+// every minute forever (Opus r3 M2).
+func TestMythicalPreAdmissionOutageParks(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetOrchestration(o.github, o.launcher, failingLanes{o.lanes})
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 321, Title: "Down", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	item := o.item(321)
+	assert.Equal(t, "queued", item.State)
+	assert.Equal(t, "outage: infra: no lane workspace: provisioning is down; this is not the TODO's fault, Smithers retries it", item.Reason)
+	assert.Equal(t, 1, mythicalChecksOf(item).Outages)
+	assert.WithinDuration(t, time.Now().Add(2*time.Minute), item.NextAttemptAt.Time, 30*time.Second, "it backs off")
+	for range 5 {
+		o.wake()
+	}
+	assert.WithinDuration(t, time.Now().Add(time.Hour), o.item(321).NextAttemptAt.Time, 30*time.Second, "the back-off is capped at an hour")
+	o.wake()
+	item = o.item(321)
+	assert.Equal(t, "blocked", item.State)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages"}, mythicalChecksOf(item).Fault)
+	o.wake()
+	assert.Equal(t, []string{"#321 Smithers stopped this TODO: Smithers could not run it after 7 tries (outage: infra: no lane workspace: provisioning is down); not the TODO's fault."}, o.github.comments)
+	assert.Empty(t, o.launcher.requests)
+}
+
+// A review takes a lane like any launch: on a one-lane stack a review and a
+// new request never run together, and on a two-lane stack a review leaves
+// the lane kept for chat free (Opus r3 M3).
+func TestMythicalReviewWaitsForALane(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 311, Title: "First", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(311, "three-eleven.md")
+	o.fail(o.launcher.last(mythicalReviewFlow), "review-down", "infra", "flows/InfraInterrupt", "")
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 312, Title: "Second", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	first := o.item(311)
+	assert.True(t, mythicalChecksOf(first).reviewing(first), "311's review relaunched on the one lane")
+	assert.Equal(t, "queued", o.item(312).State, "312 waits for the lane")
+	o.answerReviews(`"request-changes"`)
+	assert.Equal(t, "running", o.item(312).State, "the lane is free once the review answered")
+
+	// Two lanes, one kept for chat: 312's request holds the other, so a
+	// review of 311's next head waits.
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 2 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	reviews := len(o.launcher.byFlow(mythicalReviewFlow))
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks = checks - 'review' WHERE repository_id = $1 AND issue_number = 311`, o.repoID)
+	require.NoError(t, err)
+	o.wake()
+	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "no review takes the chat lane")
+	assert.Equal(t, "running", o.item(312).State)
+}
+
+// A delayed or replayed labeled todo counts only as the label stands now,
+// and each application acts once: a replay after the removal re-queues
+// nothing, and a replay onto a bounded stop lifts no bound (Astra r2 1,
+// Opus r3 L3).
+func TestMythicalReplayedTodoLabelActsOnce(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	adversarialGitHubSource(o)
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000000}}`})
+	o.labeled(331, []string{"todo"}, "todo", "roninjin10", true)
+	require.Equal(t, "queued", o.item(331).State)
+	delivery := o.labeledPayload(331, []string{"todo"}, "todo", "roninjin10", true)
+
+	// Stopped at its bound, the same delivery replayed lifts nothing.
+	stop := o.item(331)
+	stopped := mythicalChecksOf(stop)
+	stopped.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound"}
+	stop.State, stop.Checks = "blocked", stopped.encode()
+	_, err := o.service.queries().SaveMythicalItem(context.Background(), stop)
+	require.NoError(t, err)
+	require.NoError(t, o.service.ObserveGitHubEvent(context.Background(), "issues", delivery))
+	assert.Equal(t, "blocked", o.item(331).State, "a replay is not a new application")
+	// A maintainer's new application resumes it.
+	o.labeled(331, []string{"todo"}, "todo", "roninjin10", true)
+	assert.Equal(t, "queued", o.item(331).State)
+
+	// Removed since, the delayed event re-queues nothing and is not reverted.
+	o.github.forgetLabel(331, "todo", "roninjin10")
+	require.NoError(t, o.service.ObserveIssue(context.Background(), o.repoID, mythicalIssue{Number: 331, Title: "TODO 331", State: "open", TextByMaintainer: true},
+		gitHubLabelApplication{Label: todoLabel, Removed: true, ByMaintainer: true, By: "roninjin10"}))
+	require.Equal(t, "skipped", o.item(331).State)
+	require.NoError(t, o.service.ObserveGitHubEvent(context.Background(), "issues", delivery))
+	assert.Equal(t, "skipped", o.item(331).State, "a stale labeled event re-queues nothing")
+	assert.Empty(t, o.github.removed, "nor is it reverted")
+}
+
+// An auto-TODO merges only while todo is still on the issue: a removal whose
+// event was lost stops the merge (Opus r3 L2), and the sweep reads it as the
+// maintainer's opt-out instead of labeling the issue again (Fable r3 F4).
+func TestMythicalAutoTodoRereadsItsLabel(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"todoSince":"2026-09-01T00:00:00Z","dailyTokens":1000000}}`})
+	issue := mythicalIssue{Number: 341, Title: "Auto", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"},
+		Author: gitHubActor{Login: "roninjin10"}, CreatedAt: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{AutoTodo: "written by roninjin10, a maintainer"}))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true, By: "roninjin10"}))
+	require.NotEmpty(t, mythicalChecksOf(o.item(341)).AutoTodo)
+	o.propose(341, "three-forty-one.md")
+	o.github.forgetLabel(341, "todo", "roninjin10")
+	o.answerReviews(`"approve"`)
+	item := o.item(341)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "the issue is no longer a TODO", item.Reason)
+	assert.Empty(t, o.github.merges)
+
+	issue.Labels = []string{"automerge"}
+	o.service.labelAutoTodo(ctx, o.repoID, issue)
+	checks := mythicalChecksOf(o.item(341))
+	assert.True(t, checks.OptedOut, "the lost removal is the maintainer's opt-out")
+	assert.Empty(t, checks.AutoTodo)
+	assert.Empty(t, o.github.added, "the factory does not label it again")
+}
+
+// CI that never finishes on an approved head holds the TODO visibly once no
+// Actions job could still run, and merges if it later finishes (L4).
+func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 351, Title: "Wait", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(351, "three-fifty-one.md")
+	head := o.item(351).PRHead
+	o.github.mu.Lock()
+	o.github.ci = map[string]string{head: mythicalCIPending}
+	o.github.mu.Unlock()
+	o.answerReviews(`"approve"`)
+	item := o.item(351)
+	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
+	wait := mythicalChecksOf(item).CIWait
+	require.NotNil(t, wait)
+	assert.Equal(t, head, wait.Head)
+	wait.Since = wait.Since.Add(-mythicalCIWaitBound)
+	waited := mythicalChecksOf(item)
+	waited.CIWait = wait
+	item.Checks = waited.encode()
+	_, err := o.service.queries().SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	o.wake()
+	assert.Equal(t, "CI on the approved head has not finished in 6h0m0s", o.item(351).Reason)
+	o.wake()
+	assert.Contains(t, o.github.comments, "#351 Smithers is holding this TODO: CI on the approved head has not finished in 6h0m0s.")
+	o.github.mu.Lock()
+	o.github.ci = nil
+	o.github.mu.Unlock()
+	o.wake()
+	assert.Equal(t, "landed", o.item(351).State, "CI that finishes later still merges")
+}
+
+// A person's retry lifts the launch bound for every typed stop, not only a
+// bound: a very-hard stop retried by a person launches again (Fable r3 F3).
+func TestMythicalPersonsRetryLiftsTheBound(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 361, Title: "Hard", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	item := o.item(361)
+	checks := mythicalChecksOf(item)
+	checks.Launches, checks.Fault = mythicalLaunchBound, &mythicalFault{Class: "factory", Tag: "very_hard"}
+	item.State, item.Checks = "blocked", checks.encode()
+	_, err := o.service.queries().SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	require.NoError(t, err)
+	o.wake()
+	assert.Equal(t, "running", o.item(361).State, "the retry is not re-stopped at the bound")
+}
+
+// liveGitHubLabels answers label appliers through the real HTTP reader.
+type liveGitHubLabels struct {
+	*fakeMythicalGitHub
+	api *mythicalGitHubAPI
+}
+
+func (g *liveGitHubLabels) LabelApplier(ctx context.Context, repo mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	return g.api.LabelApplier(ctx, repo, number, label)
+}
+
+// The merge reads the issue's labels as they are now, through the real
+// reader: with both labels gone from the issue and GitHub's history still
+// naming the maintainer's applications, nothing merges (Astra r3 4).
+func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 371, Title: "Lag", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(371, "three-seventy-one.md")
+	applied := func(label string) map[string]any {
+		return map[string]any{"id": 1, "event": "labeled", "actor": map[string]any{"login": "roninjin10"}, "label": map[string]any{"name": label}}
+	}
+	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+		"GET /repos/smithersai/smithers/issues/371": answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
+		"GET /repos/smithersai/smithers/issues/371/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
+			applied("todo"), applied("automerge")}),
+	}}
+	o.service.SetOrchestration(&liveGitHubLabels{fakeMythicalGitHub: o.github, api: github.api(t)}, o.launcher, o.lanes)
+	o.answerReviews(`"approve"`)
+	item := o.item(371)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "GitHub did not answer for the issue's labels; retrying", item.Reason)
+	assert.Empty(t, o.github.merges, "a label gone from the issue never merges on its history")
 }

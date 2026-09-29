@@ -53,6 +53,10 @@ type fakeMythicalGitHub struct {
 	// marks an application an App made.
 	labelers map[int64]string
 	viaApp   map[int64]bool
+	// labelEvents is the live labeled event per "<issue>/<label>", as a
+	// label event recorded it (o.labeled); it answers ahead of labelers.
+	labelEvents map[string]mythicalLabelApplier
+	labelSeq    int64
 	// comments are the issue comments Comment posted, as "#<issue> <body>";
 	// added the labels AddLabel put on, as "#<issue> <label>".
 	comments []string
@@ -84,11 +88,15 @@ func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, numb
 	return pull.MergeCommit, nil
 }
 
-// LabelApplier answers labelers[number], else the issue's author, else
-// roninjin10; viaApp marks an App's application.
-func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRepo, number int64, _ string) (*mythicalLabelApplier, error) {
+// LabelApplier answers the live labeled event a label event recorded, else
+// labelers[number], else the issue's author, else roninjin10; viaApp marks
+// an App's application.
+func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if event, ok := g.labelEvents[fmt.Sprintf("%d/%s", number, label)]; ok {
+		return &event, nil
+	}
 	login := "roninjin10"
 	for _, issue := range g.issues {
 		if issue.Number == number && issue.Author.Login != "" {
