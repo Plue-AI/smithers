@@ -53,23 +53,30 @@ export interface RunForest {
  * thousands of rows and the forest is asked again whenever any card in the
  * conversation changes, so the fold lives exactly as long as the payload.
  *
- * The whole journal is read, never the scrub cursor: the graph fold beside it
- * (`foldRunGraph`) reads the whole journal too, and the two must agree.
+ * The retained cursor bounds both this evidence and the graph fold beside it.
  */
 interface ForestEvidence {
   readonly executions: ReadonlyArray<EngineExecutionEvidence>
   readonly drawable: ReadonlySet<string>
   readonly children: ReadonlyArray<ChildRun>
 }
+/** Records visible at the retained trace cursor; Latest reads the whole journal. */
+export const graphEventsOf = (card: RunCard): NonNullable<RunCard["payload"]["events"]> => {
+  const events = card.payload.events ?? []
+  const cursor = card.payload.cursorSeq
+  return cursor === undefined ? events : events.filter((record) => (typeof record.sequence === "number" ? record.sequence : 0) <= cursor)
+}
+
 const evidence = new WeakMap<RunCard["payload"], ForestEvidence>()
 const evidenceOf = (card: RunCard): ForestEvidence => {
   const held = evidence.get(card.payload)
   if (held !== undefined) return held
-  const events = card.payload.events ?? []
+  const events = graphEventsOf(card)
+  const visible = events === card.payload.events ? card : { ...card, payload: { ...card.payload, events } }
   const made: ForestEvidence = {
     executions: engineRunEvidence(events, card.payload.runId).executions,
     drawable: new Set(foldRunGraph(events).executions.filter((execution) => execution.nodes.length > 0).map((execution) => execution.executionId)),
-    children: childRuns(card, true)
+    children: childRuns(visible, true)
   }
   evidence.set(card.payload, made)
   return made
@@ -90,7 +97,7 @@ export const drawnGraphOf = (card: RunCard): {
   readonly defaultExecutionId: string | undefined
 } => {
   const planNodeIds = (card.payload.plan?.nodes ?? []).map((node) => node.id)
-  const fold = foldRunGraph(card.payload.events)
+  const fold = foldRunGraph(graphEventsOf(card))
   const byDefault = runGraphOf(fold, { ...(planNodeIds.length === 0 ? {} : { planNodeIds }), flow: card.payload.workflow })
   const wanted = card.payload.graph?.execution
   const opened = wanted === undefined ? undefined
@@ -194,7 +201,7 @@ export const runForestOf = (
   }
 
   /* What started it: a push or a schedule is a root of the forest. */
-  runTriggersOf(card).forEach((trigger, index) => {
+  runTriggersOf({ ...card, payload: { ...card.payload, events: graphEventsOf(card) } }).forEach((trigger, index) => {
     if (trigger.kind === "approval") return
     const id = `origin:${index}`
     nodes.push({ id, kind: "trigger", dependsOn: [], tier: "sealed", forest: true,

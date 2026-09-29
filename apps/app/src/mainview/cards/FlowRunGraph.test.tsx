@@ -21,6 +21,7 @@ import { FlowRunGraph, focusedRunNode, observedAtOf, runGraphOfCard } from "./Fl
 import { FlowRunGraphSurface, layoutRunGraph, stateWord } from "./FlowRunGraphSurface"
 import type { NodeRun, RunGraphEdge, RunGraphNode } from "./FlowGraphStatus"
 import { RunTraceBody } from "./RunTraceCard"
+import { graphEventsOf } from "./RunForest"
 
 GlobalRegistrator.register()
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -85,6 +86,46 @@ const node = (id: string, dependsOn: ReadonlyArray<string> = [], over: Partial<R
   dependsOn,
   tier: "sealed",
   ...over
+})
+
+test("graph at a retained cursor shows only evidence available before settlement", () => {
+  const nodeId = "root.flow.then.map.all.steady"
+  const card = runCard({ plan: RECORDED.plan, events: RECORDED.rows, cursorSeq: 37, liveTail: false, traceView: "graph" })
+  const view = runGraphOfCard(card)!
+  expect(view.status.get(nodeId)?.status).toBe("running")
+  expect(view.status.get(nodeId)?.result).toBeUndefined()
+  const visible = graphEventsOf(card)
+  expect(visible.every((row) => typeof row.sequence === "number" && row.sequence <= 37)).toBe(true)
+  expect(visible.length).toBeLessThan(RECORDED.rows.length)
+  expect(visible.some((row) => row.sequence === 38)).toBe(false)
+  expect(observedAtOf(visible)).toBeLessThan(observedAtOf(RECORDED.rows)!)
+  const host = render(<FlowRunGraphSurface nodes={view.nodes} edges={view.edges} status={view.status} />)
+  expect(host.querySelector(`[data-node="${nodeId}"]`)?.getAttribute("data-state")).toBe("running")
+  const latest = runGraphOfCard(runCard({ ...card.payload, cursorSeq: undefined, liveTail: true }))!
+  expect(latest.status.get(nodeId)?.outcome).toBe("built")
+})
+
+test("a selected node keeps its historical events on reload and returns to Latest", () => {
+  const nodeId = "root.flow.then.map.all.steady"
+  const payload = { plan: RECORDED.plan, events: RECORDED.rows, cursorSeq: 37, liveTail: false, traceView: "graph" as const,
+    graph: { node: nodeId, tab: "events" as const } }
+  const card = runCard(payload)
+  const view = runGraphOfCard(card)!
+  const records = graphEventsOf(card)
+  const host = render(<FlowRunGraphSurface nodes={view.nodes} edges={view.edges} status={view.status}
+    records={records} observedAt={observedAtOf(records)} frozenClock
+    executionId={view.executionId}
+    drill={{ repo: card.payload.repo, doors: { select: "runs.graph.select", tab: "runs.graph.tab", target: "run-1" },
+      selected: nodeId, tab: "events", files: [], onRunCommand: () => {} }} />)
+  expect(host.querySelector(`[data-node="${nodeId}"]`)?.getAttribute("data-state")).toBe("running")
+  expect([...host.querySelectorAll(".flow-graph-events li")].map((row) => row.querySelector(".flow-graph-event-type")?.textContent))
+    .toEqual(["node-scheduled"])
+  expect(host.textContent).not.toContain("steady:recorded")
+  const reloaded = runGraphOfCard(runCard({ ...payload }))!
+  expect(reloaded.status.get(nodeId)?.status).toBe("running")
+  const latest = runGraphOfCard(runCard({ ...payload, cursorSeq: undefined, liveTail: true }))!
+  expect(latest.status.get(nodeId)?.outcome).toBe("built")
+  expect(graphEventsOf(runCard({ ...payload, cursorSeq: undefined })).some((row) => row.sequence === 38)).toBe(true)
 })
 
 test("a running node ticks without another engine event and stops when it settles", () => {

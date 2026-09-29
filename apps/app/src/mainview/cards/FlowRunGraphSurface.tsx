@@ -273,6 +273,7 @@ export const FlowRunGraphSurface = ({
   focusId,
   durations = EMPTY_DURATIONS,
   observedAt,
+  frozenClock = false,
   records,
   executionId,
   inputs,
@@ -289,6 +290,8 @@ export const FlowRunGraphSurface = ({
   readonly durations?: ReadonlyArray<FlowDurationsRow>
   /** The newest moment the engine emitted a row this card read; a running node measures against it. */
   readonly observedAt?: number | undefined
+  /** A retained cursor measures only against its recorded timestamp. */
+  readonly frozenClock?: boolean
   /** The run's journal, which the open node's Events and Code read. */
   readonly records?: ReadonlyArray<JournalRecord> | undefined
   /** The execution these nodes were recorded under, so the journal read is that execution's. */
@@ -302,7 +305,7 @@ export const FlowRunGraphSurface = ({
   const topologyKey = JSON.stringify([nodes.map(node => node.id), edges])
   const topology = useMemo(() => layoutTopology(nodes, edges), [topologyKey])
   const running = [...status.values()].some(run => run.status === "running")
-  const clock = useObservedClock(observedAt, running)
+  const clock = useObservedClock(observedAt, running && !frozenClock)
   const laidOut = useMemo(
     () => decorateGraph(topology, nodes, status, measured, clock),
     [topology, nodes, status, measured, clock]
