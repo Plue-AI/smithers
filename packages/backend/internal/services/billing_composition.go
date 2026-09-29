@@ -105,7 +105,8 @@ func (*UnlimitedBillingPolicy) AuthorizeSandboxStart(context.Context, int64) err
 
 func (*UnlimitedBillingPolicy) SandboxEntitlement(context.Context, int64) (SandboxEntitlement, error) {
 	return SandboxEntitlement{
-		PlanKey: BillingPlanCustom,
+		PlanKey:           BillingPlanCustom,
+		EgressBytesPerDay: -1,
 		// Billing admission is unlimited; fleet/provider capacity guards are
 		// independent and continue to run after this policy authorizes a start.
 		ConcurrentSandboxes: unlimitedBillingQuantity,

@@ -377,13 +377,25 @@ func ValidEgressHost(host string) bool {
 	return egressHostPattern.MatchString(host)
 }
 
+// EgressQuota is a billing user's aggregate grant for each UTC day.
+// DailyBytes counts proxy bytes in both directions; -1 is unlimited, 0 denies.
+type EgressQuota struct {
+	BillingUserID int64 `json:"billingUserId"`
+	DailyBytes    int64 `json:"dailyBytes"`
+}
+
+// DefaultEgressDailyQuotaBytes bounds infrastructure sandboxes with no billing user.
+const DefaultEgressDailyQuotaBytes int64 = 10 << 30
+
 // EgressProxyPolicy asks the provider to run a credential-substituting egress
 // proxy dedicated to this sandbox. The provider makes that proxy the guest's
 // only egress path: guest firewall default deny, allow only the proxy
 // endpoint, HTTP(S)_PROXY and CA-bundle env injected into every service and
 // exec, CA written to EgressProxyCAGuestPath.
 type EgressProxyPolicy struct {
-	Enabled bool `json:"enabled"`
+	// Quota, when present, overrides the provider default.
+	Quota   *EgressQuota `json:"quota,omitempty"`
+	Enabled bool         `json:"enabled"`
 	// AllowDomains is the proxy-level domain allowlist. Empty leaves the list
 	// to the provider: the hosted Microsandbox worker uses its deployment
 	// allowlist, else a default-deny list of package registries and model
@@ -465,6 +477,9 @@ func ConversationWithheldHostRules() []EgressHostRule {
 func (p *EgressProxyPolicy) Validate() error {
 	if p == nil || !p.Enabled {
 		return nil
+	}
+	if p.Quota != nil && (p.Quota.BillingUserID <= 0 || p.Quota.DailyBytes < -1) {
+		return fmt.Errorf("invalid egress quota")
 	}
 	seen := make(map[string]struct{}, len(p.Secrets))
 	for _, secret := range p.Secrets {

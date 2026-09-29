@@ -9,6 +9,7 @@ import (
 )
 
 type SandboxEntitlement struct {
+	EgressBytesPerDay   int64     `json:"egress_bytes_per_day"`
 	PlanKey             string    `json:"plan_key"`
 	ConcurrentSandboxes int64     `json:"concurrent_sandboxes"`
 	ConcurrentInUse     int64     `json:"concurrent_in_use"`
@@ -28,6 +29,7 @@ type BillingPlanSummary struct {
 }
 
 type BillingPlanLimitSummary struct {
+	EgressBytesPerDay   int64 `json:"egress_bytes_per_day"`
 	ConcurrentSandboxes int64 `json:"concurrent_sandboxes"`
 	IdleTimeoutSecs     int64 `json:"idle_timeout_secs"`
 	HoursPerDay         int64 `json:"hours_per_day"`
@@ -63,7 +65,7 @@ func (s *BillingService) GetUserPlans(ctx context.Context, user *db.User) (Billi
 		l := plan.Limits
 		out.Plans = append(out.Plans, BillingPlanSummary{
 			Key: key, DisplayName: billingPlanDisplayName(key), PriceCents: plan.PriceCents, Interval: BillingIntervalMonthly,
-			Limits:            BillingPlanLimitSummary{ConcurrentSandboxes: l.ConcurrentSandboxes, IdleTimeoutSecs: l.SandboxIdleTimeoutSecs, HoursPerDay: sandboxJSONQuantity(l.SandboxHoursPerDay), PrivateRepos: l.PrivateRepos, StorageBytes: l.StorageBytes, CIMinutes: l.CIMinutes, AgentRuns: l.AgentRuns, Seats: l.Seats},
+			Limits:            BillingPlanLimitSummary{EgressBytesPerDay: l.EgressBytesPerDay, ConcurrentSandboxes: l.ConcurrentSandboxes, IdleTimeoutSecs: l.SandboxIdleTimeoutSecs, HoursPerDay: sandboxJSONQuantity(l.SandboxHoursPerDay), PrivateRepos: l.PrivateRepos, StorageBytes: l.StorageBytes, CIMinutes: l.CIMinutes, AgentRuns: l.AgentRuns, Seats: l.Seats},
 			CheckoutAvailable: s.stripe != nil && plan.PriceID != "",
 		})
 	}

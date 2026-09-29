@@ -713,7 +713,11 @@ func (d *agentDispatch) agentPath() string {
 // with the run's egress bindings merged into the VM's proxy policy.
 func (d *agentDispatch) createAgentWorkspaceVM() error {
 	d.vmReq = sandbox.CreateRequest{}
-	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
+	quota, quotaErr := egressQuotaForUser(d.ctx, d.svc.billing, d.input.UserID)
+	if quotaErr != nil {
+		return quotaErr
+	}
+	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Quota: quota, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
 	if err := d.vmReq.EgressProxy.Validate(); err != nil {
 		return d.markInfraFailed("egress proxy bindings: " + err.Error())
 	}
@@ -1116,7 +1120,11 @@ func (d *agentDispatch) createVM() error {
 	// request, to the worker that seeds the proxy process. The controller
 	// redacts them before any durable write (SanitizeCreateRequest); the
 	// guest never sees them.
-	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
+	quota, quotaErr := egressQuotaForUser(d.ctx, d.svc.billing, d.input.UserID)
+	if quotaErr != nil {
+		return quotaErr
+	}
+	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Quota: quota, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
 	if err := d.vmReq.EgressProxy.Validate(); err != nil {
 		return d.markInfraFailed("egress proxy bindings: " + err.Error())
 	}

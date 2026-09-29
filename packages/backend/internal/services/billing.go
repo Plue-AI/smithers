@@ -193,6 +193,7 @@ type billingOwnerRef struct {
 }
 
 type billingPlanLimits struct {
+	EgressBytesPerDay      int64
 	ConcurrentSandboxes    int64
 	SandboxIdleTimeoutSecs int64
 	SandboxHoursPerDay     int64
@@ -395,6 +396,7 @@ func NewBillingService(q BillingBaseQuerier, stripeClient StripeBillingClient, c
 
 func (s *BillingService) bootstrapCatalog() {
 	freeLimits := billingPlanLimits{
+		EgressBytesPerDay:   1 << 30,
 		ConcurrentSandboxes: 1, SandboxIdleTimeoutSecs: 1800, SandboxHoursPerDay: 4,
 		PrivateRepos: 100,
 		StorageBytes: 100 * 1024 * 1024 * 1024,
@@ -403,6 +405,7 @@ func (s *BillingService) bootstrapCatalog() {
 		Seats:        250,
 	}
 	personalLimits := billingPlanLimits{
+		EgressBytesPerDay:   5 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 250,
 		StorageBytes: 250 * 1024 * 1024 * 1024,
@@ -414,6 +417,7 @@ func (s *BillingService) bootstrapCatalog() {
 	// every quota but stays Seats:1 (user-owned, like personal). Pro
 	// workspaces sleep after 1 hour idle.
 	proLimits := billingPlanLimits{
+		EgressBytesPerDay:   10 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 3600, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 500,
 		StorageBytes: 500 * 1024 * 1024 * 1024,
@@ -422,6 +426,7 @@ func (s *BillingService) bootstrapCatalog() {
 		Seats:        1,
 	}
 	teamLimits := billingPlanLimits{
+		EgressBytesPerDay:   100 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 1000,
 		StorageBytes: 1024 * 1024 * 1024 * 1024,
@@ -430,6 +435,7 @@ func (s *BillingService) bootstrapCatalog() {
 		Seats:        250,
 	}
 	enterpriseLimits := billingPlanLimits{
+		EgressBytesPerDay:   1000 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: unlimitedBillingQuantity,
 		StorageBytes: unlimitedBillingQuantity,
@@ -442,6 +448,7 @@ func (s *BillingService) bootstrapCatalog() {
 	// is unlisted (not purchasable); the definition stays for any existing
 	// subscription.
 	maxLimits := proLimits
+	maxLimits.EgressBytesPerDay = 100 << 30
 	maxLimits.ConcurrentSandboxes = 64
 	maxLimits.SandboxIdleTimeoutSecs = 0
 	s.checkoutPlans[BillingOwnerTypeUser] = map[string]billingPlanDefinition{}
@@ -2363,11 +2370,12 @@ func (s *BillingService) defaultPlan(ownerType string) billingPlanDefinition {
 		Key:          BillingPlanFree,
 		AllowedOwner: ownerType,
 		Limits: billingPlanLimits{
-			PrivateRepos: unlimitedBillingQuantity,
-			StorageBytes: unlimitedBillingQuantity,
-			CIMinutes:    unlimitedBillingQuantity,
-			AgentRuns:    unlimitedBillingQuantity,
-			Seats:        unlimitedBillingQuantity,
+			EgressBytesPerDay: 1 << 30,
+			PrivateRepos:      unlimitedBillingQuantity,
+			StorageBytes:      unlimitedBillingQuantity,
+			CIMinutes:         unlimitedBillingQuantity,
+			AgentRuns:         unlimitedBillingQuantity,
+			Seats:             unlimitedBillingQuantity,
 		},
 	}
 }
@@ -2393,6 +2401,7 @@ func (s *BillingService) planForSubscription(ownerType string, subscription *db.
 		// attached to that tier even if its former Stripe price is no longer configured.
 		catalog, ok := s.checkoutPlans[ownerType][subscription.PlanKey+":"+interval]
 		if ok {
+			plan.Limits.EgressBytesPerDay = catalog.Limits.EgressBytesPerDay
 			plan.Limits.ConcurrentSandboxes = catalog.Limits.ConcurrentSandboxes
 			plan.Limits.SandboxIdleTimeoutSecs = catalog.Limits.SandboxIdleTimeoutSecs
 			plan.Limits.SandboxHoursPerDay = catalog.Limits.SandboxHoursPerDay

@@ -7,6 +7,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 func (s *WorkspaceService) sandboxIdleTimeout(ctx context.Context, userID, repositoryID int64) (int32, error) {
@@ -72,4 +73,20 @@ func (s *WorkspaceService) withWorkspaceIdleTimeout(workspace db.Workspace) *Wor
 	scoped := *s
 	scoped.workspaceIdleTimeoutSeconds = int64(workspace.IdleTimeoutSecs)
 	return &scoped
+}
+
+// egressQuotaForUser keeps the same billing user for workspace and standalone agents.
+func egressQuotaForUser(ctx context.Context, policy BillingPolicy, userID int64) (*sandbox.EgressQuota, error) {
+	if policy == nil {
+		return nil, nil
+	}
+	entitlement, err := policy.SandboxEntitlement(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	quota := &sandbox.EgressQuota{BillingUserID: userID, DailyBytes: entitlement.EgressBytesPerDay}
+	if err := (&sandbox.EgressProxyPolicy{Enabled: true, Quota: quota}).Validate(); err != nil {
+		return nil, err
+	}
+	return quota, nil
 }

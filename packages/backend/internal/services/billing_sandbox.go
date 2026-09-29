@@ -38,7 +38,8 @@ func (s *BillingService) SandboxEntitlement(ctx context.Context, userID int64) (
 		return SandboxEntitlement{}, err
 	}
 	return SandboxEntitlement{
-		PlanKey: plan.Key, ConcurrentSandboxes: plan.Limits.ConcurrentSandboxes,
+		EgressBytesPerDay: plan.Limits.EgressBytesPerDay,
+		PlanKey:           plan.Key, ConcurrentSandboxes: plan.Limits.ConcurrentSandboxes,
 		ConcurrentInUse: int64(live) + agents, IdleTimeoutSecs: plan.Limits.SandboxIdleTimeoutSecs,
 		HoursPerDay: sandboxJSONQuantity(plan.Limits.SandboxHoursPerDay), SecondsUsedToday: seconds,
 		DayResetsAt: midnight.AddDate(0, 0, 1),

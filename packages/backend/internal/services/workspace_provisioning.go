@@ -481,6 +481,16 @@ func (s *WorkspaceService) inheritOutsiderMark(ctx context.Context, child, sourc
 // bake) binds nothing so the baked disk never carries a repository's secrets.
 func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryID int64, workspaceID string) (*sandbox.EgressProxyPolicy, error) {
 	policy := &sandbox.EgressProxyPolicy{Enabled: true}
+	if s.billing != nil && workspaceID != "" {
+		workspace, err := s.q.GetWorkspace(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		policy.Quota, err = egressQuotaForUser(ctx, s.billing, workspace.UserID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// A workspace that ran work started from an outsider's text reaches
 	// GitHub only for code: that work reads its approved copy, never the
 	// live issue or conversation.
