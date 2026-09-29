@@ -55,6 +55,7 @@
  * @since 0.1.0
  */
 
+import * as Capability from "@smthrs/capability/Capability"
 import * as Effects from "@smthrs/plan/Effects"
 import { GraphBuildError, isFatalDiagnostic } from "@smthrs/plan/GraphBuildError"
 import * as KeyMaterial from "@smthrs/plan/KeyMaterial"
@@ -68,6 +69,7 @@ import * as Schema from "effect/Schema"
 import type * as Action from "./Action/Action.ts"
 import { TypeId as ActionTypeId } from "./Action/TypeId.ts"
 import * as Annotations from "./Flow/Annotations.ts"
+import { capabilityCeilings } from "./Flow/CapabilityCeiling.ts"
 import type * as Flow from "./Flow/Flow.ts"
 import { TypeId as FlowTypeId } from "./Flow/TypeId.ts"
 import * as DeclarationSite from "./internal/DeclarationSite.ts"
@@ -113,6 +115,7 @@ export interface GraphNode {
   readonly kind: Node.Ast["_tag"]
   readonly dependencies: ReadonlyArray<string>
   readonly capabilities: ReadonlyArray<string>
+  readonly capabilityCeilings: ReadonlyArray<ReadonlyArray<string>>
   readonly placement: unknown
   readonly draft: Plan.NodeDraft
   /**
@@ -964,6 +967,7 @@ export const build = (
     readonly tier: KeyMaterial.KeyMaterial["kind"]
     readonly nondeterministic?: true | undefined
     readonly body: unknown
+    readonly capabilityCeilings?: ReadonlyArray<ReadonlyArray<string>>
     readonly inputs: ReadonlyArray<KeyMaterial.InputRef>
     readonly ast: Node.Ast
     readonly payload: unknown
@@ -983,7 +987,9 @@ export const build = (
     const material: KeyMaterial.KeyMaterial = {
       version: KeyMaterial.version,
       kind: entry.tier,
-      body: entry.body,
+      body: entry.capabilityCeilings?.length
+        ? { ...entry.body as object, capabilityCeilings: entry.capabilityCeilings }
+        : entry.body,
       inputs: entry.inputs,
       layers: sorted(
         options.resolveLayers?.({
@@ -1004,6 +1010,7 @@ export const build = (
       kind: entry.kind,
       dependencies: entry.dependencies,
       capabilities: entry.capabilities,
+      capabilityCeilings: entry.capabilityCeilings ?? [],
       placement: entry.placement,
       // Priority reaches the compiled plan through the draft and stays OUT of
       // `material`: it orders ready work without changing what the work
@@ -1064,6 +1071,19 @@ export const build = (
    * Expands the node a flow call becomes, shared by the entry point and by
    * every `FlowCall` in a body.
    */
+  const coveredCapability = (stack: ReadonlyArray<Flow.Any>, text: string): boolean => {
+    const groups = stack.flatMap((flow) => capabilityCeilings(flow.annotations))
+    if (groups.length === 0) return true
+    const candidate = Capability.parsePattern(text)
+    if (Option.isNone(candidate)) return false
+    return groups.every((group) =>
+      group.some((text) => {
+        const grant = Capability.parsePattern(text)
+        return Option.isSome(grant) && Capability.subsumes(grant.value, candidate.value)
+      })
+    )
+  }
+
   const expandFlowCall = (call: {
     readonly id: string
     readonly depth: number
@@ -1089,7 +1109,7 @@ export const build = (
     const dependencies = call.dependencies
     const inputs: Array<KeyMaterial.InputRef> = [...payloadInputs(call.payload, call.id), ...call.inputs]
     const target = call.mode === "inline" ? call.declaration : undefined
-    const ceiling = sorted(Context.get(annotations, Annotations.Capabilities))
+    const ceiling = sorted(capabilityCeilings(annotations)[0] ?? call.capabilities)
     const placement = declaredPlacement(annotations)
     const envelope = declaredEnvelope(annotations)
     // The authority checks are recorded, not thrown: a graph whose callee
@@ -1102,7 +1122,7 @@ export const build = (
     // the rule `@smthrs/core`'s graph applies to a call whose body it does not
     // splice.
     const calleeEnvelope = admitEnvelope(call.envelope, envelope, { id: call.id, flow: call.flow })
-    const dropped = ceiling.filter((capability) => !call.capabilities.includes(capability))
+    const dropped = ceiling.filter((capability) => !coveredCapability(call.stack, capability))
     if (dropped.length > 0) {
       observedDiagnostics.push(
         new GraphBuildError({
@@ -1110,7 +1130,7 @@ export const build = (
           node: call.id,
           path: dropped,
           message: `Flow "${call.flow}" at "${call.id}" requires ${dropped.join(", ")}, which the calling flow ` +
-            "does not hold. The call runs without them, so declare them on the caller or stop requiring them here."
+            "does not provably grant. Execution intersects this declaration with every caller ceiling."
         })
       )
     }
@@ -1137,6 +1157,10 @@ export const build = (
         kind: "FlowCall",
         dependencies,
         capabilities: call.capabilities,
+        capabilityCeilings: [
+          ...call.stack.flatMap((flow) => capabilityCeilings(flow.annotations)),
+          ...capabilityCeilings(annotations)
+        ],
         effects: declaredEffects(annotations),
         placement,
         priority: call.priority,
@@ -1188,7 +1212,7 @@ export const build = (
           ast: built.ast,
           id: spliced,
           depth: call.depth + 1,
-          capabilities: ceiling.filter((capability) => call.capabilities.includes(capability)),
+          capabilities: ceiling.filter((capability) => coveredCapability(call.stack, capability)),
           // Inside the spliced body the callee's own placement is the one to
           // satisfy; a callee that declared none keeps running under the
           // caller's.
@@ -1325,7 +1349,7 @@ export const build = (
         // and adds nothing to its key, so every declaration written before the
         // literal existed keys exactly where it did.
         const ceiling = sorted(Context.get(annotations, Annotations.Capabilities))
-        const dropped = ceiling.filter((capability) => !capabilities.includes(capability))
+        const dropped = ceiling.filter((capability) => !coveredCapability(stack, capability))
         if (dropped.length > 0) {
           observedDiagnostics.push(
             new GraphBuildError({
@@ -1333,8 +1357,7 @@ export const build = (
               node: id,
               path: dropped,
               message: `Action "${ast.action}" at "${id}" requires ${dropped.join(", ")}, which the calling ` +
-                "flow does not hold. The dispatch runs without them, so declare them on the caller or stop " +
-                "requiring them here."
+                "flow does not provably grant. Execution intersects this declaration with every caller ceiling."
             })
           )
         }
@@ -1343,6 +1366,10 @@ export const build = (
           kind: ast._tag,
           dependencies,
           capabilities,
+          capabilityCeilings: [
+            ...stack.flatMap((flow) => capabilityCeilings(flow.annotations)),
+            ...capabilityCeilings(annotations)
+          ],
           effects: declaredEffects(annotations),
           placement: declaredPlacement(annotations),
           priority,

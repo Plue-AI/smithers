@@ -13,6 +13,7 @@
  * @since 0.1.0
  */
 
+import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Schema from "effect/Schema"
 
 /** @private */
@@ -61,6 +62,10 @@ export const RunState = Schema.Struct({
   version: Schema.Literal(1),
   flowName: Schema.NonEmptyString,
   payload: Schema.Unknown,
+  capabilityCeilings: Schema.optionalKey(Schema.Array(Schema.Array(CapabilityPattern))),
+  // Key origins are immutable fork metadata, independent of the chosen frame.
+  // Copied attempts, not ancestry alone, authorize reuse of an origin's key.
+  forkKeyRunIds: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
   parentExecutionId: Schema.optionalKey(Schema.NonEmptyString),
   onParentExit: Schema.optionalKey(OnParentExit),
   maxRounds: Schema.optionalKey(PositiveSafeInt),

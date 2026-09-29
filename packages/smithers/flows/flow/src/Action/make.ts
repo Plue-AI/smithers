@@ -94,7 +94,7 @@ interface DeclaredOptions<
    *
    * {@link module:Graph.build} records a `capability_outside_grant` refusal for
    * every capability named here that the calling flow does not hold. The
-   * refusal is advisory, because the dispatch runs with the capability dropped.
+   * refusal is advisory: execution intersects this ceiling with every caller ceiling.
    */
   readonly capabilities?: ReadonlyArray<string> | undefined
   /**

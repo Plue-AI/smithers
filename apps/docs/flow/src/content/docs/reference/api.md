@@ -99,6 +99,29 @@ Scope helpers are `scope`, `provideScope`, `addFinalizer`, `withRollback`, and `
 
 The declared form takes the same two literals `Flow.make` does, lowered into the annotation bag by the same code: `capabilities`, the capability ceiling the dispatch runs under, and `effects`, the effect envelope from [`@smthrs/plan`](https://plan.smithers.sh/reference/api/#effects). They are literals so a catalog can project a declaration's authority from source text without importing the module. An action is a leaf, so its envelope encloses nothing: `Graph.build` checks it against the envelope the calling flow granted, and records `capability_outside_grant` for every capability the caller does not hold.
 
+Omitting `capabilities` inherits the caller's authority. Declaring `capabilities: []`
+denies every guarded host operation. Each declaration intersects with every
+ancestor and the ambient host ceiling; `*` permits any capability within those
+limits. Use full patterns such as `fs:write:**` or `net:get:https://example.com/**`;
+unrecognized patterns grant nothing. Capability declarations constrain guarded
+host services, not arbitrary JavaScript or unguarded services.
+
+Actions, inline calls, child runs, and handoffs keep these ceilings. Admission
+records authority for replay and recovery; an execution ID retains its first
+admission ceiling, and resuming from a broader host cannot widen it. Existing
+durable runs without recorded authority refuse further dispatch: re-keying an
+old action could repeat a completed effect. Inspect existing effects before
+starting replacement work with a new execution ID.
+Graph diagnostics are advisory conservative checks of glob coverage; execution
+checks the exact intersection with the kernel matcher. Cross-run cache keys include
+this effective authority. Remote execution and resume refuse restricted callers or flows
+until the remote protocol can preserve their ceilings; local execution remains
+available and remote cancellation still works.
+
+`Flow.capabilityCeilings(annotations)` reads explicitly declared groups, preserving
+omission. `Flow.attenuateCapabilities(groups)(effect)` applies their parsed patterns
+to the shared kernel authority without widening it.
+
 | Export                                                                           | Purpose                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Tier`                                                                           | `sealed`, `compensable`, or `irreversible`                                                                                                                                                                                                                                                   |

@@ -413,7 +413,8 @@
     "@smthrs/plan": "1.0.0-rc.1",
     "@smthrs/plan-store": "1.0.0-rc.1",
     "@smthrs/run-store": "1.0.0-rc.1",
-    "@smthrs/step-cache": "1.0.0-rc.1"
+    "@smthrs/step-cache": "1.0.0-rc.1",
+    "@smthrs/capability": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -74,6 +75,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
     const flows = new Map<string, Array<Registration>>()
 
     type ExecutionState = {
+      readonly capabilityCeilings: CapabilitySet.CapabilitySet["groups"]
       readonly payload: unknown
       readonly parent: string | undefined
       readonly rootExecutionId: Round.RootExecutionId
@@ -337,6 +339,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
       state.instance = instance
       state.fiber = yield* snapshot(instance.flow, state.payload).pipe(
         Effect.flatMap((payload) => entry.execute(payload as object, instance.executionId)),
+        CapabilitySet.attenuateGroups(state.capabilityCeilings),
         // Runs as the forked body fiber's first instruction: it hands
         // `interrupt` the fiber the body runs in, and it answers a
         // cancellation that landed BEFORE the body started — the flag is
@@ -480,6 +483,9 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 // rebuilds its own copy, so caller and handler mutation cannot
                 // alter a replay.
                 payload: storedPayload,
+                capabilityCeilings:
+                  (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
+                    .groups,
                 instance,
                 rootExecutionId,
                 fiber: undefined,

@@ -1,4 +1,3 @@
-import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 /**
  * Standard package targets plus cross-package and dependency-policy edges.
  *
@@ -6,13 +5,18 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
  * package's `lib`, so the dependency runs first and contributes its content
  * key. `dependencyPolicy` adds the package's explicit knip check.
  */
+import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
 import { docsWriter, referenceStyle } from "../../../../PACKAGE.ts"
+import { Package as capabilityPackage } from "../capability/PACKAGE.ts"
 import { Package as flowPackage } from "../flow/PACKAGE.ts"
 
 const flow = flowPackage.lib
 
-const standard = BuildAndCheckTypeScriptPackage({ deps: [flow], cwd: "packages/smithers/flows/engine" })
+const standard = BuildAndCheckTypeScriptPackage({
+  deps: [flow, capabilityPackage.lib],
+  cwd: "packages/smithers/flows/engine"
+})
 
 const lib = standard.lib
 const check = standard.check

@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow, FlowRuntime } from "@smthrs/flow"
@@ -1643,6 +1644,10 @@ export const make = (
           version: 1,
           flowName: seam.handoff.flow,
           payload,
+          capabilityCeilings: [
+            ...(seam.state.capabilityCeilings ?? [[]]),
+            ...(seam.handoff.capabilityCeilings ?? [[]])
+          ],
           ...(seam.state.parentExecutionId === undefined
             ? {}
             : { parentExecutionId: seam.state.parentExecutionId }),
@@ -1981,7 +1986,12 @@ export const make = (
             const result = yield* Effect.scoped(
               Effect.raceFirst(
                 Effect.raceFirst(
-                  registration.execute(payload as object, executionId).pipe(
+                  Effect.suspend(() =>
+                    activeState.capabilityCeilings === undefined
+                      ? Effect.die(new Error("Missing persisted capabilityCeilings; execution cannot safely resume"))
+                      : registration.execute(payload as object, executionId)
+                  ).pipe(
+                    CapabilitySet.attenuateGroups(activeState.capabilityCeilings ?? [[]]),
                     Flow.intoResult,
                     Effect.provideService(FlowRuntime.FlowInstance, instance),
                     Effect.provideService(FlowRuntime.FlowRuntime, flowEngine)
@@ -2378,6 +2388,9 @@ export const make = (
             version: 1,
             flowName: flow._tag,
             payload,
+            capabilityCeilings:
+              (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
+                .groups,
             ...(options.parent === undefined
               ? {}
               : { parentExecutionId: options.parent.executionId, onParentExit }),

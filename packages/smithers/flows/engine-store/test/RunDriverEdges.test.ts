@@ -53,7 +53,8 @@ const owner: Ownership.OwnerId = { hostId: "edge-host", pid: 7, nonce: "edge" }
 
 const fakeEngine = {} as unknown as FlowRuntime.FlowRuntime["Service"]
 
-const stateJson = (flowName: string, payload: unknown = {}) => JSON.stringify({ version: 1, flowName, payload })
+const stateJson = (flowName: string, payload: unknown = {}) =>
+  JSON.stringify({ version: 1, flowName, payload, capabilityCeilings: [] })
 
 const makeDriver = (
   isAlive: (owner: Ownership.OwnerId) => Effect.Effect<boolean> = () => Effect.succeed(false)

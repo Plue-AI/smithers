@@ -485,38 +485,38 @@ describe("Graph.build composition", () => {
       payload: {},
       success: Schema.Number,
       body: () => Increment.call({ path: "counter.txt" })
-    }).annotate(Flow.Capabilities, ["fs:read"])
+    }).annotate(Flow.Capabilities, ["fs:read:**"])
     const Wide = Flow.make("caps/wide", {
       payload: {},
       success: Schema.Number,
       body: () => Narrow.call({})
-    }).annotate(Flow.Capabilities, ["fs:read", "fs:write"])
+    }).annotate(Flow.Capabilities, ["fs:read:**", "fs:write:**"])
     const graph = Graph.build(Wide, {})
 
-    expect(node(graph, "root").capabilities).toEqual(["fs:read", "fs:write"])
-    expect(node(graph, "root.flow").capabilities).toEqual(["fs:read", "fs:write"])
-    expect(node(graph, "root.flow.flow").capabilities).toEqual(["fs:read"])
-    expect(material(graph, "root.flow.flow").capabilities).toEqual(["fs:read"])
-    expect(body(graph, "root.flow").declaration).toMatchObject({ capabilities: ["fs:read"] })
+    expect(node(graph, "root").capabilities).toEqual(["fs:read:**", "fs:write:**"])
+    expect(node(graph, "root.flow").capabilities).toEqual(["fs:read:**", "fs:write:**"])
+    expect(node(graph, "root.flow.flow").capabilities).toEqual(["fs:read:**"])
+    expect(material(graph, "root.flow.flow").capabilities).toEqual(["fs:read:**"])
+    expect(body(graph, "root.flow").declaration).toMatchObject({ capabilities: ["fs:read:**"] })
   })
 
   it("carries an action's declared capability ceiling into its graph node", () => {
     const Restricted = Action.make("caps/restricted", {
       payload: { path: Schema.String },
       success: Schema.Number,
-      capabilities: ["fs:write", "fs:read"]
+      capabilities: ["fs:write:**", "fs:read:**"]
     })
     const Holder = Flow.make("caps/holder", {
       payload: {},
       success: Schema.Number,
-      capabilities: ["fs:read", "fs:write"],
+      capabilities: ["fs:read:**", "fs:write:**"],
       body: () => Restricted.call({ path: "counter.txt" })
     })
 
     const graph = Graph.build(Holder, {})
 
     // Sorted and deduped exactly as a flow declaration's ceiling is.
-    expect(body(graph, "root.flow").declaration).toMatchObject({ capabilities: ["fs:read", "fs:write"] })
+    expect(body(graph, "root.flow").declaration).toMatchObject({ capabilities: ["fs:read:**", "fs:write:**"] })
     expect(Graph.diagnostics(graph)).toEqual([])
   })
 
@@ -525,7 +525,7 @@ describe("Graph.build composition", () => {
       Flow.make("caps/unceilinged", {
         payload: {},
         success: Schema.Number,
-        capabilities: ["fs:read"],
+        capabilities: ["fs:read:**"],
         body: () => Increment.call({ path: "counter.txt" })
       }),
       {}

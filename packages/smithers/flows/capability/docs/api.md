@@ -661,3 +661,13 @@ when a yieldable error instance is required.
   decorating layers, and grant handling.
 - [Handle a permission failure](./guides/handle-a-permission-failure.md): the
   procedure these three failures are built for.
+
+## Capability ceilings
+
+`@smthrs/capability/CapabilitySet` provides the shared authority implementation
+also exported by `@smthrs/kernel/CapabilitySet`. `current` reads the fiber's
+ceiling. `attenuate(patterns)(effect)` intersects one any-of group;
+`attenuateGroups(groups)(effect)` intersects every group, including persisted
+ceilings during recovery. Neither can widen the current authority. An empty
+outer array inherits; an empty group denies all capabilities. `fromPatterns`,
+`intersect`, `allows`, `equals`, and `none` operate on the same immutable values.

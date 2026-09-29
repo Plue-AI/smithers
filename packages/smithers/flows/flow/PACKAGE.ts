@@ -3,16 +3,18 @@
  * six target calls.
  *
  * These targets are executable and must stay equivalent to what
- * `BuildAndCheckTypeScriptPackage({ cwd: "packages/smithers/flows/flow", deps: [plan, crypto, keys, canonical] })`
+ * `BuildAndCheckTypeScriptPackage({ cwd: "packages/smithers/flows/flow", deps: [plan, crypto, keys, canonical, capability] })`
  * emits; the file exists to show the expansion, not to diverge from it.
  */
 import { Smithers } from "@smthrs/targets"
 import { docsWriter, referenceStyle, rootInvariantsConfig, rootJSDocConfig } from "../../../../PACKAGE.ts"
 import { Package as canonicalPackage } from "../canonical/PACKAGE.ts"
+import { Package as capabilityPackage } from "../capability/PACKAGE.ts"
 import { Package as cryptoPackage } from "../crypto/PACKAGE.ts"
 import { Package as keysPackage } from "../keys/PACKAGE.ts"
 import { Package as planPackage } from "../plan/PACKAGE.ts"
 
+const capability = capabilityPackage.lib
 const plan = planPackage.lib
 const crypto = cryptoPackage.lib
 const keys = keysPackage.lib
@@ -25,7 +27,7 @@ const tests = Smithers.glob("test/**/*.test.ts")
 const lib = Smithers.TsBuild({
   srcs: [sources],
   entries: [Smithers.file("src/index.ts")],
-  deps: [plan, crypto, keys, canonical],
+  deps: [plan, crypto, keys, canonical, capability],
   tsconfig: Smithers.file("tsconfig.json"),
   tool: { name: "program", entry: Smithers.file("scripts/build.mjs") },
   format: "dual",
@@ -35,7 +37,7 @@ const lib = Smithers.TsBuild({
 
 const check = Smithers.Typecheck({
   srcs: [sources, Smithers.glob("test/**/*.ts")],
-  deps: [lib, plan, crypto, keys, canonical],
+  deps: [lib, plan, crypto, keys, canonical, capability],
   tsconfig: Smithers.file("tsconfig.test.json"),
   buildMode: false,
   incremental: false,
@@ -45,7 +47,7 @@ const check = Smithers.Typecheck({
 const test = Smithers.Vitest({
   tests: [tests],
   sources: [sources],
-  deps: [lib, plan, crypto, keys, canonical],
+  deps: [lib, plan, crypto, keys, canonical, capability],
   config: Smithers.file("vitest.config.ts"),
   environment: "node",
   passWithNoTests: false,

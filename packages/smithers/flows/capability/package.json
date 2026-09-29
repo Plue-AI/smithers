@@ -39,7 +39,8 @@
     "./*/index": null,
     "./Capability": "./src/Capability.ts",
     "./Permission": "./src/Permission.ts",
-    "./index": "./src/index.ts"
+    "./index": "./src/index.ts",
+    "./CapabilitySet": "./src/CapabilitySet.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -98,6 +99,16 @@
         "require": {
           "types": "./dist/cjs/index.d.ts",
           "default": "./dist/cjs/index.js"
+        }
+      },
+      "./CapabilitySet": {
+        "import": {
+          "types": "./dist/esm/CapabilitySet.d.ts",
+          "default": "./dist/esm/CapabilitySet.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CapabilitySet.d.ts",
+          "default": "./dist/cjs/CapabilitySet.js"
         }
       }
     }

@@ -309,7 +309,8 @@
     "@smthrs/crypto": "1.0.0-rc.1",
     "@smthrs/keys": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
-    "@smthrs/canonical": "1.0.0-rc.1"
+    "@smthrs/canonical": "1.0.0-rc.1",
+    "@smthrs/capability": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

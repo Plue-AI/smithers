@@ -83,13 +83,19 @@ export const makeActionExecute = (options: Encoded) => {
     // the string-form sealed identity folds the compiled declaration
     // (issue #120); every action built by `Action.make` carries them,
     // only the `Schema.Constraint` type parameters resist the assignment.
-    const keyResult = yield* Effect.result(actionKey(
-      action as unknown as Action.AnyWithProps,
-      instance.executionId,
-      ordinal,
-      environment,
-      scope
-    ))
+    const deriveKey = (executionId: string, runScoped: boolean) =>
+      actionKey(
+        action as unknown as Action.AnyWithProps & Pick<Action.Any, "annotations">,
+        executionId,
+        ordinal,
+        runScoped ? undefined : environment,
+        scope
+      )
+    const keyResult = yield* Effect.result(
+      options.actionReplayKey === undefined
+        ? deriveKey(instance.executionId, false)
+        : options.actionReplayKey(deriveKey)
+    )
     // The scope can be valid while this subsequent Crypto digest fails.
     if (Result.isFailure(keyResult)) {
       return uncanonicalKey(action.name, keyResult.failure)
@@ -215,8 +221,14 @@ export const makeActionExecute = (options: Encoded) => {
           return snapshot
         })
         const dispatch = durableSnapshot === undefined
-          ? prepare.pipe(Effect.andThen(options.actionExecute(input)))
-          : options.actionExecute({ ...input, snapshot: prepare })
+          ? prepare.pipe(
+            Effect.andThen(
+              options.actionExecute(input).pipe(Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations)))
+            )
+          )
+          : options.actionExecute({ ...input, snapshot: prepare }).pipe(
+            Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations))
+          )
         result = yield* dispatch.pipe(
           Effect.ensuring(Effect.suspend(() =>
             Option.isSome(captured)
@@ -229,6 +241,8 @@ export const makeActionExecute = (options: Encoded) => {
         )
       } else {
         result = yield* options.actionExecute(input).pipe(
+          Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations))
+        ).pipe(
           Effect.provideService(Action.CurrentAttempt, currentAttempt),
           Effect.provideService(CurrentActionParent, { executionId: instance.executionId, key }),
           // DECIDED: the dispatch's own key is

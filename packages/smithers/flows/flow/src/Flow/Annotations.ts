@@ -45,7 +45,9 @@ export type Effects = Plan.NodeEffects
 export type PlacementDirective = PlanPlacement.Placement
 
 /**
- * Capability names a flow may require, defaulting to none.
+ * Capability ceiling. An omitted annotation inherits; an explicit empty array denies.
+ * The reference default remains an empty metadata projection for catalog readers;
+ * execution distinguishes an absent annotation from an explicitly stored one.
  *
  * @category annotations
  * @since 0.1.0

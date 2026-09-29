@@ -102,6 +102,16 @@ describe("CapabilitySet", () => {
     expect(CapabilitySets.intersect(left, right).groups).toHaveLength(1)
   })
 
+  it("compares both the number and contents of authority groups", () => {
+    const read = new CapabilityPattern({ action: "fs:read", resource: "src/**" })
+    const write = new CapabilityPattern({ action: "fs:write", resource: "src/**" })
+    const one = CapabilitySets.fromPatterns([read])
+    const two = CapabilitySets.intersect(one, CapabilitySets.fromPatterns([write]))
+    const different = CapabilitySets.fromPatterns([write])
+    expect(CapabilitySets.equals(one, two)).toBe(false)
+    expect(CapabilitySets.equals(one, different)).toBe(false)
+  })
+
   it("snapshots and freezes every authority pattern", () => {
     const input = new CapabilityPattern({ action: "net:get", resource: "safe.example" })
     const set = CapabilitySets.fromPatterns([input])
@@ -282,6 +292,39 @@ describe("CapabilitySet", () => {
       expect(CapabilitySets.equals(result.parent, unrestricted)).toBe(true)
     }))
 
+  it.effect("attenuateGroups intersects every group and preserves the parent scope", () =>
+    Effect.gen(function*() {
+      const read = new Capability({ action: "fs:read", resource: "src/index.ts" })
+      const write = new Capability({ action: "fs:write", resource: "src/index.ts" })
+      const other = new Capability({ action: "fs:read", resource: "test/index.ts" })
+      const parent = [new CapabilityPattern({ action: "fs:*", resource: "src/**" })]
+      const groups = [
+        [new CapabilityPattern({ action: "fs:read", resource: "**" })],
+        [new CapabilityPattern({ action: "*", resource: "src/index.ts" })]
+      ]
+      const scoped = yield* CapabilitySets.attenuate(parent)(
+        CapabilitySets.attenuateGroups(groups)(CapabilitySets.current)
+      )
+      expect(CapabilitySets.allows(scoped, read)).toBe(true)
+      expect(CapabilitySets.allows(scoped, write)).toBe(false)
+      expect(CapabilitySets.allows(scoped, other)).toBe(false)
+      expect(CapabilitySets.equals(yield* CapabilitySets.current, unrestricted)).toBe(true)
+    }))
+
+  it.effect("an empty group denies, while zero groups inherit", () =>
+    Effect.gen(function*() {
+      const allowed = new Capability({ action: "fs:read", resource: "src/index.ts" })
+      const parent = [new CapabilityPattern({ action: "fs:read", resource: "src/**" })]
+      const inherited = yield* CapabilitySets.attenuate(parent)(
+        CapabilitySets.attenuateGroups([])(CapabilitySets.current)
+      )
+      const denied = yield* CapabilitySets.attenuate(parent)(
+        CapabilitySets.attenuateGroups([[]])(CapabilitySets.current)
+      )
+      expect(CapabilitySets.allows(inherited, allowed)).toBe(true)
+      expect(CapabilitySets.equals(denied, CapabilitySets.none)).toBe(true)
+    }))
+
   it("allows every capability on a fiber with no ambient capability set (B8)", () => {
     // Recorded as intended, not merely observed. The default is `unrestricted`
     // because it is the identity element of `intersect`, and `intersect` is the
@@ -312,6 +355,7 @@ describe("CapabilitySet", () => {
     expect(Object.keys(CapabilitySets).sort()).toEqual([
       "allows",
       "attenuate",
+      "attenuateGroups",
       "current",
       "equals",
       "fromPatterns",

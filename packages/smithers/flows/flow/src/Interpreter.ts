@@ -43,6 +43,7 @@
  */
 
 import { isRecord } from "@smthrs/canonical/Record"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { DerivedKey, digest } from "@smthrs/keys"
 import { isFatalDiagnostic } from "@smthrs/plan/GraphBuildError"
 import * as KeyMaterial from "@smthrs/plan/KeyMaterial"
@@ -61,6 +62,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import { type Implementation, Implementations, layerImplementations } from "./Action/Implementations.ts"
 import { DispatchReport, DispatchSite } from "./Action/StepIdentity.ts"
+import { attenuateCapabilities } from "./Flow/CapabilityCeiling.ts"
 import type { Any as AnyFlow, AnyStructSchema, AnyWithProps, Flow } from "./Flow/Flow.ts"
 import * as Outcome from "./Flow/Outcome.ts"
 import { Handoff } from "./Flow/Result.ts"
@@ -904,7 +906,8 @@ const interpretWithPolicy = (
             // node address is durable dispatch identity, scoped to this one
             // implementation call; it never comes from fiber arrival order.
             return yield* implementations.get(ast.action)!.action(resolve(node.payload)).pipe(
-              Effect.provideService(DispatchSite, node.id)
+              Effect.provideService(DispatchSite, node.id),
+              attenuateCapabilities(node.capabilityCeilings)
             )
           case "Succeed":
             return resolve(node.payload)
@@ -959,10 +962,12 @@ const interpretWithPolicy = (
                     Schema.encodeEffect(Schema.toCodecJson(declaration.payloadSchema))(decoded)
                   )
               ) as unknown as Effect.Effect<unknown, never, Services>
+              const ceiling = (yield* attenuateCapabilities(node.capabilityCeilings)(CapabilitySet.current)).groups
               const outcome = {
                 _tag: "To",
                 flow: ast.flow,
-                payload
+                payload,
+                ...(ceiling.length === 0 ? {} : { capabilityCeilings: ceiling })
               } satisfies Outcome.To<unknown>
               Object.defineProperty(outcome, OutcomeValueTypeId, {
                 configurable: false,
@@ -996,7 +1001,7 @@ const interpretWithPolicy = (
               ) as unknown as Effect.Effect<string, never, Services>)
               return yield* (declaration.execute(childPayload, {
                 executionId
-              }) as Effect.Effect<unknown, unknown, Services>)
+              }) as Effect.Effect<unknown, unknown, Services>).pipe(attenuateCapabilities(node.capabilityCeilings))
             }
             const spliced = children[0]
             if (spliced === undefined) {
@@ -1083,13 +1088,15 @@ const settleOutcome = (value: unknown): Effect.Effect<unknown, never, FlowInstan
     case "Done":
       return Effect.succeed(value.value)
     case "To":
-      return Effect.flatMap(
-        FlowInstance,
-        (instance) =>
-          Effect.sync(() => {
-            instance.handoff = new Handoff({ flow: value.flow, payload: value.payload })
-          })
-      )
+      return Effect.gen(function*() {
+        const instance = yield* FlowInstance
+        const current = yield* CapabilitySet.current
+        instance.handoff = new Handoff({
+          flow: value.flow,
+          payload: value.payload,
+          capabilityCeilings: [...current.groups, ...(value.capabilityCeilings ?? [])]
+        })
+      })
     case "Park":
       return Effect.andThen(
         annotateWaiting(value.reason),

@@ -41715,6 +41715,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/engine:lib",
       "//packages/smithers/flows/flow:lib"
     ],
@@ -41935,6 +41936,7 @@
       "packages/smithers/flows/engine/dist/esm"
     ],
     "dependencies": [
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/flow:lib"
     ],
     "source": {
@@ -42138,6 +42140,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/engine:lib",
       "//packages/smithers/flows/flow:lib"
     ],
@@ -42204,6 +42207,7 @@
     "outputs": [],
     "dependencies": [
       "//packages/smithers/flows/canonical:lib",
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/crypto:lib",
       "//packages/smithers/flows/flow:lib",
       "//packages/smithers/flows/keys:lib",
@@ -42382,6 +42386,7 @@
     ],
     "dependencies": [
       "//packages/smithers/flows/canonical:lib",
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/crypto:lib",
       "//packages/smithers/flows/keys:lib",
       "//packages/smithers/flows/plan:lib"
@@ -42587,6 +42592,7 @@
     "outputs": [],
     "dependencies": [
       "//packages/smithers/flows/canonical:lib",
+      "//packages/smithers/flows/capability:lib",
       "//packages/smithers/flows/crypto:lib",
       "//packages/smithers/flows/flow:lib",
       "//packages/smithers/flows/keys:lib",

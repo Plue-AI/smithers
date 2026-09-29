@@ -412,7 +412,7 @@ const degrade = (result: Flow.Result<unknown, unknown>, projection: ResultProjec
   try {
     if (!isProxy(result) && ownData(result, "_tag") === "Handoff") {
       const flow = ownData(result, "flow")
-      if (typeof flow === "string") return { _tag: "Handoff", flow, payload: projection }
+      if (typeof flow === "string") return { _tag: "Handoff", flow, payload: projection, capabilityCeilings: [[]] }
     }
   } catch {
     // The terminal Complete below is the fail-closed representation.

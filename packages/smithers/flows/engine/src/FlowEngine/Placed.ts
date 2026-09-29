@@ -9,15 +9,42 @@
  * @since 1.0.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError"
 import * as FlowProxy from "../FlowProxy.ts"
 import { type Binding, Hosts } from "../Hosts.ts"
+
+/**
+ * The remote protocol cannot carry a restricted caller's authority.
+ * @category errors
+ * @since 1.0.0
+ */
+export class RemoteCapabilityCeilingUnsupported extends Schema.TaggedError<RemoteCapabilityCeilingUnsupported>()(
+  "@smthrs/engine/RemoteCapabilityCeilingUnsupported",
+  { flowName: Schema.String, message: Schema.String }
+) {}
+
+/** Refuses before connecting, because dropping any ceiling would widen authority. */
+const requireRemoteAuthority = (flow: Flow.Any): Effect.Effect<void> =>
+  Effect.flatMap(
+    Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current),
+    (set) =>
+      set.groups.every((group) => group.some((pattern) => pattern.action === "*" && pattern.resource === "**"))
+        ? Effect.void
+        : Effect.die(
+          new RemoteCapabilityCeilingUnsupported({
+            flowName: flow._tag,
+            message: `Remote execution of ${flow._tag} cannot preserve the caller's capability ceiling; run locally`
+          })
+        )
+  )
 
 /**
  * A binding to another engine.
@@ -94,28 +121,33 @@ export const callRemote = (
   flow: Flow.Any,
   request: { readonly executionId: string; readonly payload: unknown; readonly discard?: boolean | undefined }
 ): Effect.Effect<unknown, unknown> =>
-  remote(binding, flow, (client, operation) =>
-    Effect.gen(function*() {
-      const parent = yield* Effect.serviceOption(FlowRuntime.FlowInstance)
-      if (Option.isSome(parent)) {
-        yield* Effect.addFinalizer(() =>
-          parent.value.interrupted
-            ? Effect.ignore(
-              client[operation.interrupt]!({ executionId: request.executionId }).pipe(
-                Effect.interruptible,
-                Effect.timeout("5 seconds")
-              ),
-              { log: "Warn" }
-            ).pipe(Effect.annotateLogs({ flow: flow._tag, executionId: request.executionId }))
-            : Effect.void
-        )
-      }
-      const wire = { payload: request.payload, executionId: request.executionId }
-      const ask = request.discard === true
-        ? Effect.as(client[operation.discard]!(wire), request.executionId)
-        : client[operation.execute]!(wire)
-      return yield* Effect.retry(ask, { while: isTransport, schedule: transportRetry })
-    }))
+  Effect.andThen(
+    requireRemoteAuthority(flow),
+    Effect.suspend(() =>
+      remote(binding, flow, (client, operation) =>
+        Effect.gen(function*() {
+          const parent = yield* Effect.serviceOption(FlowRuntime.FlowInstance)
+          if (Option.isSome(parent)) {
+            yield* Effect.addFinalizer(() =>
+              parent.value.interrupted
+                ? Effect.ignore(
+                  client[operation.interrupt]!({ executionId: request.executionId }).pipe(
+                    Effect.interruptible,
+                    Effect.timeout("5 seconds")
+                  ),
+                  { log: "Warn" }
+                ).pipe(Effect.annotateLogs({ flow: flow._tag, executionId: request.executionId }))
+                : Effect.void
+            )
+          }
+          const wire = { payload: request.payload, executionId: request.executionId }
+          const ask = request.discard === true
+            ? Effect.as(client[operation.discard]!(wire), request.executionId)
+            : client[operation.execute]!(wire)
+          return yield* Effect.retry(ask, { while: isTransport, schedule: transportRetry })
+        }))
+    )
+  )
 
 /**
  * `execute` for a placed flow: `inner` when it runs here; otherwise
@@ -144,7 +176,12 @@ export const placeResume = (
   Effect.flatMap(bindingOf(flow), (binding) =>
     binding._tag === "Here"
       ? inner(flow, executionId)
-      : remote(binding, flow, (client, operation) => Effect.orDie(client[operation.resume]!({ executionId }))))
+      : Effect.andThen(
+        requireRemoteAuthority(flow),
+        Effect.suspend(() =>
+          remote(binding, flow, (client, operation) => Effect.orDie(client[operation.resume]!({ executionId })))
+        )
+      ))
 
 /**
  * `interrupt` for a placed flow: here, or the remote engine's interrupt.

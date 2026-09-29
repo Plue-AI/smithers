@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Capability from "@smthrs/capability/Capability"
 import { Action, Flow, Graph } from "@smthrs/flow"
 import { Effects, GraphBuildError } from "@smthrs/plan"
 import { Context, Option, Schema } from "effect"
@@ -184,16 +185,17 @@ describe("Graph.build effect envelope", () => {
   })
 
   it("records a capability the caller does not grant, and still compiles", () => {
+    expect(Option.isSome(Capability.parsePattern("net:get:**"))).toBe(true)
     const Callee = Flow.make("envelope/capability-callee", {
       payload: {},
       success: Schema.Number,
-      capabilities: ["fs:write", "net"],
+      capabilities: ["fs:write:**", "net:get:**"],
       body: () => Touch.call({ path: "src/a.ts" })
     })
     const Caller = Flow.make("envelope/capability-caller", {
       payload: {},
       success: Schema.Number,
-      capabilities: ["fs:write"],
+      capabilities: ["fs:write:**"],
       body: () => Callee.call({})
     })
 
@@ -201,7 +203,7 @@ describe("Graph.build effect envelope", () => {
     const refusal = recorded(graph, "capability_outside_grant")
 
     expect(refusal?.node).toBe("root.flow")
-    expect(refusal?.path).toEqual(["net"])
+    expect(refusal?.path).toEqual(["net:get:**"])
     // Advisory: the callee runs with LESS authority, which is the safe
     // direction, so the drafts are still handed over.
     expect(Graph.drafts(graph).length).toBeGreaterThan(0)
@@ -211,12 +213,12 @@ describe("Graph.build effect envelope", () => {
     const Privileged = Action.make("envelope/privileged-action", {
       payload: { path: Schema.String },
       success: Schema.Number,
-      capabilities: ["fs:write", "net"]
+      capabilities: ["fs:write:**", "net:get:**"]
     })
     const Caller = Flow.make("envelope/action-capability-caller", {
       payload: {},
       success: Schema.Number,
-      capabilities: ["fs:write"],
+      capabilities: ["fs:write:**"],
       body: () => Privileged.call({ path: "src/a.ts" })
     })
 
@@ -224,7 +226,7 @@ describe("Graph.build effect envelope", () => {
     const refusal = recorded(graph, "capability_outside_grant")
 
     expect(refusal?.node).toBe("root.flow")
-    expect(refusal?.path).toEqual(["net"])
+    expect(refusal?.path).toEqual(["net:get:**"])
     // Advisory for an action exactly as for a flow: the dispatch runs with
     // less authority, so the drafts are still handed over.
     expect(Graph.drafts(graph).length).toBeGreaterThan(0)

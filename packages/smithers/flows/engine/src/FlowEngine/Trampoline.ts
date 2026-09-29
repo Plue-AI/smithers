@@ -10,6 +10,7 @@
  * @since 0.1.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
@@ -114,6 +115,7 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         | undefined
     }
   ) {
+    let capabilityCeilings = (yield* CapabilitySet.current).groups
     const executionId = opts.executionId
     const lineageBudget = self.maxRounds
     const suspendedRetryPolicy = opts.suspendedRetryPolicy ?? RetryPolicy.defaultRetryPolicy
@@ -180,7 +182,9 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
           ? step.round
           : { ...step.round, previousExecutionId },
         ...(follow ? { follow } : {})
-      }) as Effect.Effect<Flow.Result<Success["Type"], Error["Type"]>>
+      }).pipe(CapabilitySet.attenuateGroups(capabilityCeilings)) as Effect.Effect<
+        Flow.Result<Success["Type"], Error["Type"]>
+      >
     // A discarded execution was admitted below, so its follower's first
     // dispatch already follows the round.
     let current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, opts.discard === true)
@@ -238,6 +242,7 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
           const decoded = yield* Effect.orDie(
             Schema.decodeUnknownEffect(Schema.toCodecJson(target.payloadSchema))(wrapped.payload)
           ) as Effect.Effect<object>
+          capabilityCeilings = [...capabilityCeilings, ...(wrapped.capabilityCeilings ?? [[]])]
           const previousExecutionId = lineage.executionId
           lineage = {
             flow: target,

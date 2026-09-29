@@ -10,7 +10,7 @@
  * @since 0.1.0
  */
 
-import { type DurableClock, type DurableDeferred, type Flow, FlowRuntime } from "@smthrs/flow"
+import { type DurableClock, type DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import type * as Exit from "effect/Exit"
@@ -104,6 +104,7 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
                   ? Effect.as(Effect.orDie(flow.successSchema.makeEffect(value)), value)
                   : Effect.succeed(value))
           }).pipe(
+            Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations)),
             Effect.updateContext(
               (input) => Context.merge(services, input) as Context.Context<any>
             )

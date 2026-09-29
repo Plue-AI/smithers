@@ -6,6 +6,7 @@
  */
 
 import { firstPath as schemaErrorPath } from "@smthrs/canonical/IssuePath"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Action, Flow, StepIdentity } from "@smthrs/flow"
 import { DerivedKey, type StoredKey } from "@smthrs/keys"
 import type * as Crypto from "effect/Crypto"
@@ -157,7 +158,7 @@ const boundaryDigest = Effect.fnUntraced(function*(metadata: unknown) {
  * @since 0.1.0
  */
 export const actionKey = Effect.fnUntraced(function*(
-  action: Action.AnyWithProps,
+  action: Action.AnyWithProps & Pick<Action.Any, "annotations">,
   executionId: string,
   ordinal: number,
   environment: Action.CacheEnvironment | undefined,
@@ -215,8 +216,17 @@ export const actionKey = Effect.fnUntraced(function*(
     // tolerant declaration could consume a strict row (or the reverse) under
     // an identity whose conflict policy was never part of the claim. Omitting
     // it emits no field and preserves every deterministic key byte-for-byte.
+    // Cache hits disclose the output without re-running guarded host operations.
+    // Partition both key forms by effective authority; run-local replay identity
+    // remains stable and cannot be turned into a second execution by a ceiling.
+    const ceiling = environment === undefined ?
+      [] :
+      (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(action.annotations))(CapabilitySet.current)).groups
     return yield* Schema.decodeUnknownEffect(DerivedKey)({
       kind: environment === undefined ? "run" : "cache",
+      ...(ceiling.length === 0 ? {} : {
+        capabilityCeilings: ceiling.map((group) => group.map(({ action, resource }) => ({ action, resource })))
+      }),
       form,
       input,
       // This is outside caller-owned input, retaining object-key rename

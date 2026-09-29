@@ -6,6 +6,7 @@
  * @since 0.1.0
  */
 
+import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import type * as Exit from "effect/Exit"
@@ -213,6 +214,7 @@ export class Handoff extends Schema.Class<Handoff>(
 )({
   _tag: Schema.tag("Handoff"),
   flow: Schema.NonEmptyString,
+  capabilityCeilings: Schema.optionalKey(Schema.Array(Schema.Array(CapabilityPattern))),
   payload: Schema.Unknown
 }) {
   /**
