@@ -177,9 +177,11 @@ describe("default atomic helper resolution", () => {
   it("names the variable and the install hint when the configured helper is unusable", async () => {
     const { root } = await fixture()
     const absent = join(root, "absent")
+    // A Windows path's backslashes are regex escapes; match the path literally.
+    const literal = absent.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
     expect(() => resolveConfiguredExecutable(absent, undefined)).toThrow(
       new RegExp(
-        `^smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${absent}: .*ENOENT.*` +
+        `^smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${literal}: .*ENOENT.*` +
           "cargo build --locked --release -p smithers-ffi --bin smithers-jj-export"
       )
     )
