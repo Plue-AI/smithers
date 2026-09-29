@@ -1,4 +1,14 @@
-import { Cause, Effect, Exit, FileSystem, Option, PlatformError } from "effect"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
+import { CapabilityPattern } from "@smthrs/capability/Capability"
+import { Rule } from "@smthrs/capability/Permission"
+import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as Workspace from "@smthrs/kernel/Workspace"
+import { Cause, Effect, Exit, FileSystem, Layer, Option, PlatformError } from "effect"
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Write from "../src/Write.ts"
 import { fileInfo, layer } from "./TestLayers.ts"
@@ -207,8 +217,57 @@ describe("Write", () => {
     expect(failureOf(exit)).toMatchObject({ code: "permission_denied", path: "/file.txt" })
   })
 
+  it("honors declared grants for creation and replacement under the guarded host", async () => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "std-write-grants-")))
+    const target = join(workspace, "file.txt")
+    const guarded = (actions: ReadonlyArray<"fs:read" | "fs:write">) =>
+      KernelFileSystem.layer.pipe(
+        Layer.provide(
+          Layer.effect(FileSystem.FileSystem, Effect.map(FileSystem.FileSystem, KernelFileSystem.withIsolatedFileSystem))
+            .pipe(Layer.provide(NodeFileSystem.layer))
+        ),
+        Layer.provide(GrantStore.layer({
+          attended: false,
+          rules: actions.flatMap((action) => [
+            new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource: workspace }) }),
+            new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource: join(workspace, "**") }) })
+          ])
+        })),
+        Layer.provide(Workspace.layer(workspace)),
+        Layer.provideMerge(NodePath.layer)
+      )
+    const run = (actions: ReadonlyArray<"fs:read" | "fs:write">, content: string) =>
+      Effect.runPromiseExit(Effect.scoped(
+        Write.run({ path: target, content }).pipe(Effect.provide(guarded(actions)))
+      ))
+    try {
+      writeFileSync(target, "original")
+      const denied = await run(["fs:write"], "refused")
+      expect(failureOf(denied)).toMatchObject({ code: "permission_denied", path: target })
+      expect(readFileSync(target, "utf8")).toBe("original")
+
+      const declared: ReadonlyArray<"fs:read" | "fs:write"> = Write.capabilities.includes("fs:read:/**")
+        ? ["fs:read", "fs:write"]
+        : ["fs:write"]
+      const replaced = await run(declared, "replacement")
+      expect(Exit.isSuccess(replaced)).toBe(true)
+      if (Exit.isSuccess(replaced)) expect(replaced.value.created).toBe(false)
+      expect(readFileSync(target, "utf8")).toBe("replacement")
+
+      rmSync(target)
+      const created = await run(declared, "created")
+      expect(Exit.isSuccess(created)).toBe(true)
+      if (Exit.isSuccess(created)) expect(created.value.created).toBe(true)
+      expect(readFileSync(target, "utf8")).toBe("created")
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
   it("declares compensable hermetic effects and narrows each invocation", () => {
     expect(Write.effects).toMatchObject({ tier: "compensable", mode: "hermetic" })
+    expect(Write.effects.reads).toEqual(["/**"])
+    expect(Write.effectsFor({ path: "/file.txt", content: "new" }).reads).toEqual(["/file.txt"])
     expect(Write.effectsFor({ path: "/file.txt", content: "new" }).writes).toEqual(["/file.txt"])
   })
 })

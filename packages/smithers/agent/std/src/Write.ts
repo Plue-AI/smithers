@@ -76,7 +76,7 @@ export type Output = typeof Output.Type
  * @category effects
  * @since 1.0.0
  */
-export const effects = envelope({ tier: "compensable", mode: "hermetic", reads: [], writes: ["/**"] })
+export const effects = envelope({ tier: "compensable", mode: "hermetic", reads: ["/**"], writes: ["/**"] })
 
 /**
  * Narrows the write effect envelope to one input path.
@@ -85,7 +85,7 @@ export const effects = envelope({ tier: "compensable", mode: "hermetic", reads: 
  * @since 1.0.0
  */
 export const effectsFor = (input: typeof Input.Type) =>
-  envelope({ tier: "compensable", mode: "hermetic", reads: [], writes: [input.path] })
+  envelope({ tier: "compensable", mode: "hermetic", reads: [input.path], writes: [input.path] })
 
 /**
  * Capabilities required by the write flow.
@@ -93,7 +93,7 @@ export const effectsFor = (input: typeof Input.Type) =>
  * @category capabilities
  * @since 1.0.0
  */
-export const capabilities = [capability("fs:write", "/**")]
+export const capabilities = [capability("fs:read", "/**"), capability("fs:write", "/**")]
 
 /**
  * Declaration-only write flow.
