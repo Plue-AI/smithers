@@ -17,15 +17,15 @@ const session = JSON.stringify({ tokens: { access_token: "a", refresh_token: "r"
 const ids = (
   environment: Readonly<Record<string, string | undefined>>,
   files: Readonly<Record<string, string>> = {}
-): ReadonlyArray<string> =>
+): Promise<ReadonlyArray<string>> =>
   NodeControl.seatCandidates({ environment, homeDirectory: "/home/op", readFile: (path) => files[path] })
 
 describe("NodeControl.seatCandidates", () => {
-  it("offers the Claude seats for an Anthropic key", () => {
-    expect(ids({ ANTHROPIC_API_KEY: "sk-ant-secret-value" })).toEqual(["opus", "fable", "sonnet"])
+  it("offers the Claude seats for an Anthropic key", async () => {
+    expect(await ids({ ANTHROPIC_API_KEY: "sk-ant-secret-value" })).toEqual(["opus", "fable", "sonnet"])
   })
 
-  it("offers the Claude seats for a Claude subscription signed in to Claude Code, never as claude-code seats", () => {
+  it("offers the Claude seats for a Claude subscription signed in to Claude Code, never as claude-code seats", async () => {
     const login = { executable: "/bin/claude", loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }
     const candidates = (environment: Readonly<Record<string, string | undefined>>, signedIn = login) =>
       NodeControl.seatCandidates({
@@ -34,25 +34,25 @@ describe("NodeControl.seatCandidates", () => {
         readFile: () => undefined,
         claudeCode: () => signedIn
       })
-    expect(candidates({})).toEqual(["opus", "fable", "sonnet"])
-    expect(candidates({ ANTHROPIC_API_KEY: "a" })).toEqual(["opus", "fable", "sonnet"])
-    expect(candidates({}, { ...login, authMethod: "api_key" })).toEqual([])
+    expect(await candidates({})).toEqual(["opus", "fable", "sonnet"])
+    expect(await candidates({ ANTHROPIC_API_KEY: "a" })).toEqual(["opus", "fable", "sonnet"])
+    expect(await candidates({}, { ...login, authMethod: "api_key" })).toEqual([])
     // A subscription token in the environment is Claude Code's, never a route of ours.
-    expect(ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual([])
+    expect(await ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual([])
   })
 
-  it("offers the OpenAI aliases for the Codex subscription the resolver signs with", () => {
+  it("offers the OpenAI aliases for the Codex subscription the resolver signs with", async () => {
     const auth = join("/codex", "auth.json")
-    expect(ids({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([
+    expect(await ids({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([
       "luna",
       "sol",
       "astra"
     ])
     // Without the mode the resolver signs `openai:` seats with OPENAI_API_KEY.
-    expect(ids({ CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([])
+    expect(await ids({ CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([])
   })
 
-  it("offers a provider's aliases through an account pool configured for its route, only with the pool credential", () => {
+  it("offers a provider's aliases through an account pool configured for its route, only with the pool credential", async () => {
     const pool = {
       SMITHERS_ACCOUNT_POOL_URL: "https://pool.example/provider-pool",
       SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt,anthropic"
@@ -60,37 +60,40 @@ describe("NodeControl.seatCandidates", () => {
     // The pool is asked which routes have accounts when a seat resolves, so a
     // configured route is offered without a key of the provider's own.
     // A Claude subscription has no pool route: only Claude Code signs with it.
-    expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["luna", "sol", "astra"])
-    expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" }))
+    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["luna", "sol", "astra"])
+    expect(
+      await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" })
+    )
       .toEqual(["luna", "sol", "astra"])
     // The configured subscription pool takes precedence over stale API-key mode.
-    expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual([
-      "luna",
-      "sol",
-      "astra"
-    ])
-    expect(ids(pool)).toEqual([])
+    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" }))
+      .toEqual([
+        "luna",
+        "sol",
+        "astra"
+      ])
+    expect(await ids(pool)).toEqual([])
   })
 
-  it("offers the OpenAI aliases behind the model proxy only with its credential", () => {
+  it("offers the OpenAI aliases behind the model proxy only with its credential", async () => {
     const proxied = { SMITHERS_OPENAI_AUTH: "chatgpt", SMITHERS_MODEL_PROXY_URL: "https://proxy.example" }
-    expect(ids({ ...proxied, OPENAI_API_KEY: "proxy-credential" })).toEqual(["luna", "sol", "astra"])
-    expect(ids(proxied)).toEqual([])
+    expect(await ids({ ...proxied, OPENAI_API_KEY: "proxy-credential" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids(proxied)).toEqual([])
   })
 
-  it("offers the OpenAI aliases for an API key in api-key mode only", () => {
-    expect(ids({ OPENAI_API_KEY: "sk" })).toEqual(["luna", "sol", "astra"])
-    expect(ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual(["luna", "sol", "astra"])
-    expect(ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "bogus" })).toEqual([])
+  it("offers the OpenAI aliases for an API key in api-key mode only", async () => {
+    expect(await ids({ OPENAI_API_KEY: "sk" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "bogus" })).toEqual([])
   })
 
-  it("offers no seat off the routing graph, and nothing on a bare machine", () => {
-    expect(ids({ CEREBRAS_API_KEY: "c", GEMINI_API_KEY: "g" })).toEqual([])
-    expect(ids({})).toEqual([])
+  it("offers no seat off the routing graph, and nothing on a bare machine", async () => {
+    expect(await ids({ CEREBRAS_API_KEY: "c", GEMINI_API_KEY: "g" })).toEqual([])
+    expect(await ids({})).toEqual([])
   })
 
-  it("offers every graph seat, and never Jev, when every provider has a key", () => {
-    const all = ids({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o", MOONSHOT_API_KEY: "m", CEREBRAS_API_KEY: "c" })
+  it("offers every graph seat, and never Jev, when every provider has a key", async () => {
+    const all = await ids({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o", MOONSHOT_API_KEY: "m", CEREBRAS_API_KEY: "c" })
     expect(all).toEqual(SeatRouter.seats)
     expect(all.some((id) => Providers.isDecisionSeat(id) || Providers.isDecisionSeat(Providers.expandSeat(id)))).toBe(
       false

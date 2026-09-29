@@ -323,6 +323,33 @@ describe("NodeControl.seatResolver Claude subscriptions", () => {
   let cleanup = () => {}
   afterEach(() => cleanup())
 
+  it("shares one in-flight status probe across two concurrent seat resolves", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-code-seat-"))
+    cleanup = () => rmSync(directory, { recursive: true, force: true })
+    writeFileSync(
+      join(directory, "claude"),
+      `#!/bin/sh\necho probe >> "\${0%/*}/probes"\n/bin/sleep 0.1\necho '{"loggedIn":true,"authMethod":"claude.ai"}'\n`,
+      { mode: 0o755 }
+    )
+    const environment = { PATH: directory }
+    const [opus, fable] = await Promise.all([
+      Effect.runPromise(resolve(environment, "claude-code:opus")),
+      Effect.runPromise(resolve(environment, "claude-code:fable"))
+    ])
+    expect([opus.modelId, fable.modelId]).toEqual(["claude-opus-5-5", "claude-fable-5-1"])
+    expect(readFileSync(join(directory, "probes"), "utf8")).toBe("probe\n")
+  })
+
+  it("puts executable stderr in the typed refusal when status JSON is empty", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-code-seat-"))
+    cleanup = () => rmSync(directory, { recursive: true, force: true })
+    writeFileSync(join(directory, "claude"), "#!/bin/sh\necho 'workspace unreachable' >&2\nexit 1\n", { mode: 0o755 })
+    const error = await Effect.runPromise(Effect.flip(resolve({ PATH: directory }, "claude-code:opus")))
+    expect(error).toBeInstanceOf(Seat.SeatUnresolved)
+    expect(error.message).toContain("workspace unreachable")
+    expect(error.message).toContain("claude auth login")
+  })
+
   // Anthropic lets only Claude Code sign with a subscription credential, so
   // the direct Messages route never takes one, whatever variable holds it.
   it.each(["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"] as const)(

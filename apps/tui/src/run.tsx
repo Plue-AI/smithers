@@ -73,7 +73,7 @@ if (harness !== undefined && !Cli.validBox(harness)) {
   console.error("SMITHERS_HARNESS needs owner/repo/workspace-id")
   process.exit(1)
 }
-const available = Models.detect(
+const available = await Models.detect(
   harness === undefined
     ? process.env
     : Harness.install(process.env, harness, dirname(Log.path()))
@@ -92,6 +92,7 @@ const spending = budget === undefined
 const host = Host.make({
   cwd,
   environment: available.environment,
+  available,
   approvals,
   // Replay is an explicit offline fixture; its claims still receive evidence checks.
   ...(seat.startsWith("replay:") ? { judge: ScriptedJudge.layerAll } : {}),

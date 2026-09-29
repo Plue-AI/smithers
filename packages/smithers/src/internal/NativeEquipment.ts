@@ -117,9 +117,9 @@ export const seatResolver = (
  * that a Claude alias runs on Claude Code (`claude-code:<alias>`) when no
  * Anthropic key is set. Anything else is returned unchanged.
  */
-const aliasSeat = (declared: string, host: Providers.Host): string => {
+const aliasSeat = async (declared: string, host: Providers.Host): Promise<string> => {
   const seat = Providers.expandSeat(declared)
-  return seat !== declared && seat.startsWith("anthropic:") && credential("anthropic", host)._tag === "Refused"
+  return seat !== declared && seat.startsWith("anthropic:") && (await credential("anthropic", host))._tag === "Refused"
     ? `claude-code:${declared}`
     : seat
 }
@@ -131,15 +131,18 @@ const aliasSeat = (declared: string, host: Providers.Host): string => {
  */
 const withAliases = (base: SeatResolver.Service, host: Providers.Host): SeatResolver.Service =>
   SeatResolver.make({
-    resolve: (declared) => {
-      if (Providers.isDecisionSeat(declared)) {
-        return Effect.fail(new Seat.SeatUnresolved({ seat: declared, message: Providers.seatRefusal(declared)! }))
-      }
-      const seat = aliasSeat(declared, host)
-      return seat === declared
-        ? base.resolve(seat)
-        : base.resolve(seat).pipe(Effect.map((resolved) => Seat.make({ ...resolved, id: declared })))
-    }
+    resolve: (declared) =>
+      Effect.gen(function*() {
+        if (Providers.isDecisionSeat(declared)) {
+          return yield* Effect.fail(
+            new Seat.SeatUnresolved({ seat: declared, message: Providers.seatRefusal(declared)! })
+          )
+        }
+        const seat = yield* Effect.promise(() => aliasSeat(declared, host))
+        return yield* (seat === declared
+          ? base.resolve(seat)
+          : base.resolve(seat).pipe(Effect.map((resolved) => Seat.make({ ...resolved, id: declared }))))
+      })
   })
 
 /**
@@ -172,7 +175,7 @@ const hostOf = (environment: Readonly<Record<string, string | undefined>>): Prov
   claudeCode: () => Providers.claudeCodeLogin(environment)
 })
 
-const credential = (provider: string, host: Providers.Host): Credential => {
+const credential = async (provider: string, host: Providers.Host): Promise<Credential> => {
   const environment = host.environment
   // The OpenAI-compatible Chat Completions providers are routed by table
   // (`Providers.compatible`). `Object.hasOwn`, so `constructor:x` finds no
@@ -184,7 +187,7 @@ const credential = (provider: string, host: Providers.Host): Credential => {
       : { _tag: "Compatible", key: found.key }
   }
   if (provider === "claude-code") {
-    const found = Providers.claudeCode(host)
+    const found = await Providers.claudeCode(host)
     return found.executable === undefined
       ? refused((seat) => `${found.reason}, so the ${seat} seat cannot run: ${found.setupHint}`)
       : { _tag: "ClaudeCode", executable: found.executable }
@@ -300,7 +303,7 @@ const providerSeats = (
             message: "The configured subscription pool has no available account for this seat."
           })
         }
-        const signed = credential(provider, host)
+        const signed = yield* Effect.promise(() => credential(provider, host))
         switch (signed._tag) {
           case "Refused":
             return yield* new Seat.SeatUnresolved({ seat, message: signed.refusal(seat) })
@@ -485,17 +488,18 @@ export const layerSeatResolver = (
  * @category constructors
  * @since 1.0.0
  */
-export const seatCandidates = (host: Providers.Host): ReadonlyArray<string> => {
+export const seatCandidates = async (host: Providers.Host): Promise<ReadonlyArray<string>> => {
   const pool = accountPoolOf(host.environment)
-  return SeatRouter.seats.filter((alias) => {
-    const seat = aliasSeat(alias, host)
+  const available = await Promise.all(SeatRouter.seats.map(async (alias) => {
+    const seat = await aliasSeat(alias, host)
     const provider = seat.slice(0, seat.indexOf(":"))
     // A route the pool is configured for is offered: the pool is asked which
     // routes have accounts when the seat resolves.
     const route = poolRouteOf(provider, host.environment)
     if (pool !== undefined && route !== undefined) return pool.routes.includes(route)
-    return credential(provider, host)._tag !== "Refused"
-  })
+    return (await credential(provider, host))._tag !== "Refused"
+  }))
+  return SeatRouter.seats.filter((_, index) => available[index])
 }
 
 /**
@@ -510,7 +514,7 @@ export const layerSeatCatalog = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<SeatRouter.Catalog> =>
   SeatRouter.layer({
-    candidates: Effect.sync(() => seatCandidates(hostOf(environment))),
+    candidates: Effect.promise(() => seatCandidates(hostOf(environment))),
     variants: SeatRouter.defaultVariants
   })
 
@@ -556,16 +560,17 @@ export const layerSeatEvaluator = (
     // Luna judges on a subscription only, as the judge always has: through the
     // account pool or a ChatGPT session, never on a provider API key. Read at
     // each judgment, so a `codex login` after startup counts.
-    const subscribed = () => {
+    const subscribed = async () => {
       const pool = accountPoolOf(environment)
       const route = poolRouteOf("openai", environment)
-      const signed = credential("openai", hostOf(environment))
+      const signed = await credential("openai", hostOf(environment))
       return (pool !== undefined && route !== undefined && pool.routes.includes(route)) ||
         signed._tag === "Session" || signed._tag === "Pooled"
     }
     const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>
-        Effect.suspend(() => subscribed() ? resolver.resolve("luna") : Effect.fail(undefined)).pipe(
+        Effect.promise(subscribed).pipe(
+          Effect.flatMap((ready) => ready ? resolver.resolve("luna") : Effect.fail(undefined)),
           Effect.mapError(() =>
             new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
           ),

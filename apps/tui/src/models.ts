@@ -68,19 +68,31 @@ export interface Available {
   readonly environment: Record<string, string | undefined>
 }
 
-export const detect = (environment: NodeJS.ProcessEnv): Available => {
-  const host: Providers.Host = {
-    environment,
-    homeDirectory: homedir(),
-    readFile: (path) => {
-      try {
-        return readFileSync(path, "utf8")
-      } catch {
-        return undefined
-      }
-    },
-    claudeCode: () => Providers.claudeCodeLogin(environment)
-  }
+const hostOf = (environment: NodeJS.ProcessEnv): Providers.Host => ({
+  environment,
+  homeDirectory: homedir(),
+  readFile: (path) => {
+    try {
+      return readFileSync(path, "utf8")
+    } catch {
+      return undefined
+    }
+  },
+  claudeCode: () => Providers.claudeCodeLogin(environment)
+})
+
+export const detect = async (environment: NodeJS.ProcessEnv): Promise<Available> => {
+  const base = detectWithoutClaude(environment)
+  if (!(await Providers.claudeCode(hostOf(base.environment))).available) return base
+  return withModels(
+    [...base.models, ...claudeCode.map((model) => ({ ...model, provider: "Claude Code" }))],
+    base.environment
+  )
+}
+
+/** The key-backed seats when a synchronous host is built without a startup scan. */
+export const detectWithoutClaude = (environment: NodeJS.ProcessEnv): Available => {
+  const host = hostOf(environment)
   const detections = Providers.detect(host).filter((detection) => detection.available)
   const subscribed = detections.some((detection) => detection.id === "codex-subscription")
   const models: Array<Model> = []
@@ -91,21 +103,21 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
   }
   if ((environment.ANTHROPIC_API_KEY ?? "") !== "") {
     for (const model of anthropic) models.push({ ...model, provider: "Anthropic" })
-  } else if (Providers.claudeCode(host).available) {
-    for (const model of claudeCode) models.push({ ...model, provider: "Claude Code" })
   }
-  return {
-    models,
-    defaultSeat: environment.SMITHERS_TUI_SEAT ?? models.find((model) => model.seat.startsWith("cerebras:"))?.seat ??
-      models.find((model) => model.seat === delegateModels.sol)?.seat ?? models[0]?.seat,
-    workerSeat: environment.SMITHERS_TUI_WORKER_SEAT ??
-      models.find((model) => !model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
-    environment: {
-      ...environment,
-      ...(subscribed && environment.SMITHERS_OPENAI_AUTH === undefined ? { SMITHERS_OPENAI_AUTH: "chatgpt" } : {})
-    }
-  }
+  return withModels(models, {
+    ...environment,
+    ...(subscribed && environment.SMITHERS_OPENAI_AUTH === undefined ? { SMITHERS_OPENAI_AUTH: "chatgpt" } : {})
+  })
 }
+
+const withModels = (models: ReadonlyArray<Model>, environment: NodeJS.ProcessEnv): Available => ({
+  models,
+  defaultSeat: environment.SMITHERS_TUI_SEAT ?? models.find((model) => model.seat.startsWith("cerebras:"))?.seat ??
+    models.find((model) => model.seat === delegateModels.sol)?.seat ?? models[0]?.seat,
+  workerSeat: environment.SMITHERS_TUI_WORKER_SEAT ??
+    models.find((model) => !model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
+  environment
+})
 
 /**
  * A worker's fallbacks after a provider failure: `SMITHERS_TUI_WORKER_SEATS`
@@ -211,11 +223,13 @@ export const seatOf = (declared: string, available: ReadonlyArray<Model>): strin
  */
 export const delegable = (available: ReadonlyArray<Model>): ReadonlyArray<DelegateModel> => {
   const providers = new Set(available.map((model) => providerOf(model.seat)))
-  return [...new Set([
-    ...Object.keys(delegateModels),
-    ...Object.keys(aliases),
-    ...available.map((model) => model.seat)
-  ])].filter((name) => {
+  return [
+    ...new Set([
+      ...Object.keys(delegateModels),
+      ...Object.keys(aliases),
+      ...available.map((model) => model.seat)
+    ])
+  ].filter((name) => {
     const seat = aliases[name] ?? delegateSeat(name)
     const provider = providerOf(seat)
     return providers.has(provider) || (provider === "anthropic" && providers.has("claude-code"))

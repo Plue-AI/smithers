@@ -21,9 +21,10 @@
  * @since 1.0.0-rc.0
  */
 
+import * as Redaction from "@smthrs/journal/Redaction"
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { execFileSync } from "node:child_process"
+import { execFile } from "node:child_process"
 import { accessSync, constants } from "node:fs"
 import { delimiter, join } from "node:path"
 import * as CodexAuth from "./CodexAuth.ts"
@@ -101,7 +102,7 @@ export interface Host {
    * This machine's Claude Code login, usually {@link claudeCodeLogin}. Absent,
    * or answering `undefined`, means Claude Code is not installed.
    */
-  readonly claudeCode?: (() => ClaudeCodeLogin | undefined) | undefined
+  readonly claudeCode?: (() => Promise<ClaudeCodeLogin | undefined> | ClaudeCodeLogin | undefined) | undefined
 }
 
 /**
@@ -366,33 +367,36 @@ export interface ClaudeCodeLogin {
   /** `claude.ai` for `claude auth login`, `oauth_token` for `claude setup-token`, `api_key` for a key. */
   readonly authMethod: string
   readonly subscriptionType?: string | undefined
+  /** Diagnostic from `claude auth status` when it printed no valid status. */
+  readonly error?: string | undefined
 }
 
 /** What changes the answer of `claude auth status`: the binary, and the variables that pick its login. */
 const loginVariables = [
   "HOME",
-  "CLAUDE_CONFIG_DIR",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN"
+  "CLAUDE_CONFIG_DIR"
 ]
 
-/** Signed-in statuses, per process: `claude auth status` costs about 0.2 s and every seat resolve asks. */
-const signedIn = new Map<string, ClaudeCodeLogin>()
+/** One probe per binary and login environment. Failed answers expire so login can be retried. */
+type LoginCache = Map<string, { readonly result: Promise<ClaudeCodeLogin>; expiresAt?: number }>
+const loginCache: LoginCache = new Map()
+// Token-backed environments never share a result across callers. The token value is not read.
+const tokenLoginCache = new WeakMap<Environment.Source, LoginCache>()
+const signedOutTtl = 30_000
 
 /**
  * The `claude` on `environment`'s `PATH` and what `claude auth status`
- * reports, or `undefined` when there is no `claude` or it prints no status.
+ * reports, or `undefined` when there is no `claude`.
  * It runs the binary, so it is the one impure reading a {@link Host} makes.
  *
- * A signed-in status is remembered for the life of the process, per binary and
- * login variables. A signed-out or missing status is never remembered, so
- * `claude auth login` takes effect without a restart.
+ * In-flight and subscription statuses are shared per binary and login variables.
+ * Other statuses expire after 30 seconds, so `claude auth login`
+ * takes effect without a restart.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const claudeCodeLogin = (environment: Environment.Source): ClaudeCodeLogin | undefined => {
+export const claudeCodeLogin = (environment: Environment.Source): Promise<ClaudeCodeLogin | undefined> => {
   const executable = (Environment.read(environment, "PATH") ?? "").split(delimiter).filter((dir) => dir !== "")
     .map((dir) => join(dir, "claude")).find((file) => {
       try {
@@ -402,30 +406,61 @@ export const claudeCodeLogin = (environment: Environment.Source): ClaudeCodeLogi
         return false
       }
     })
-  if (executable === undefined) return undefined
+  if (executable === undefined) return Promise.resolve(undefined)
   const key = JSON.stringify([executable, ...loginVariables.map((name) => Environment.read(environment, name))])
-  const known = signedIn.get(key)
-  if (known !== undefined) return known
-  let text: string
-  try {
-    text = execFileSync(executable, ["auth", "status"], { env: { ...environment }, encoding: "utf8", timeout: 15_000 })
-  } catch (error) {
-    // A signed-out Claude Code exits 1 and still prints its status.
-    text = String((error as { readonly stdout?: unknown }).stdout ?? "")
+  const tokenBacked = Object.hasOwn(environment, "CLAUDE_CODE_OAUTH_TOKEN") ||
+    Object.hasOwn(environment, "ANTHROPIC_AUTH_TOKEN")
+  let cache = loginCache
+  if (tokenBacked) {
+    cache = tokenLoginCache.get(environment) ?? new Map()
+    tokenLoginCache.set(environment, cache)
   }
-  try {
-    const status = JSON.parse(text) as { loggedIn?: unknown; authMethod?: unknown; subscriptionType?: unknown }
-    const login: ClaudeCodeLogin = {
-      executable,
-      loggedIn: status.loggedIn === true,
-      authMethod: typeof status.authMethod === "string" ? status.authMethod : "none",
-      subscriptionType: typeof status.subscriptionType === "string" ? status.subscriptionType : undefined
+  const known = cache.get(key)
+  if (known !== undefined && (known.expiresAt === undefined || known.expiresAt > Date.now())) return known.result
+  const result = new Promise<ClaudeCodeLogin>((resolve) => {
+    try {
+      execFile(
+        executable,
+        ["auth", "status"],
+        { env: { ...environment }, encoding: "utf8", timeout: 15_000 },
+        (error, stdout, stderr) => {
+          // A signed-out Claude Code exits 1 and still prints its JSON status.
+          let status: { loggedIn?: unknown; authMethod?: unknown; subscriptionType?: unknown } | undefined
+          try {
+            const parsed: unknown = JSON.parse(stdout)
+            if (typeof parsed === "object" && parsed !== null) status = parsed
+          } catch { /* The executable's stderr explains an invalid or empty status. */ }
+          resolve(
+            status === undefined
+              ? {
+                executable,
+                loggedIn: false,
+                authMethod: "none",
+                error: String(
+                  Redaction.redact(stderr.trim() || error?.message || "claude auth status returned no valid JSON")
+                )
+              }
+              : {
+                executable,
+                loggedIn: status.loggedIn === true,
+                authMethod: typeof status.authMethod === "string" ? status.authMethod : "none",
+                subscriptionType: typeof status.subscriptionType === "string" ? status.subscriptionType : undefined
+              }
+          )
+        }
+      )
+    } catch {
+      resolve({ executable, loggedIn: false, authMethod: "none", error: "claude auth status could not start" })
     }
-    if (login.loggedIn) signedIn.set(key, login)
-    return login
-  } catch {
-    return undefined
-  }
+  })
+  const entry: { readonly result: Promise<ClaudeCodeLogin>; expiresAt?: number } = { result }
+  cache.set(key, entry)
+  void result.then((login) => {
+    entry.expiresAt = login.loggedIn && (login.authMethod === "claude.ai" || login.authMethod === "oauth_token")
+      ? Infinity
+      : Date.now() + signedOutTtl
+  })
+  return result
 }
 
 /**
@@ -459,12 +494,12 @@ export const claudeCodeModel = (model: string): string => {
  * @category constructors
  * @since 1.0.0
  */
-export const claudeCode = (host: Host): {
+export const claudeCode = async (host: Host): Promise<{
   readonly available: boolean
   readonly reason: string
   readonly setupHint: string
   readonly executable?: string | undefined
-} => {
+}> => {
   if (Environment.read(host.environment, "ANTHROPIC_API_KEY") !== undefined) {
     return {
       available: false,
@@ -472,7 +507,7 @@ export const claudeCode = (host: Host): {
       setupHint: "use an anthropic:<model> seat, or unset ANTHROPIC_API_KEY to use your Claude subscription"
     }
   }
-  const login = host.claudeCode?.()
+  const login = await host.claudeCode?.()
   if (login === undefined) {
     return {
       available: false,
@@ -483,7 +518,9 @@ export const claudeCode = (host: Host): {
   if (!login.loggedIn || (login.authMethod !== "claude.ai" && login.authMethod !== "oauth_token")) {
     return {
       available: false,
-      reason: "Claude Code is not signed in with a Claude subscription",
+      reason: login.error === undefined
+        ? "Claude Code is not signed in with a Claude subscription"
+        : `Claude Code auth status failed: ${login.error}`,
       setupHint: "run `claude auth login`"
     }
   }

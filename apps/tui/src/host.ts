@@ -54,7 +54,7 @@ import * as Approvals from "./approvals.ts"
 import * as Box from "./box.ts"
 import * as Changes from "./changes.ts"
 import * as Context from "./context.ts"
-import { delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
+import { type Available, delegateModels, detectWithoutClaude, routing, workerFallbackSeats } from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
@@ -241,6 +241,8 @@ export const make = (options: {
   readonly cwd: string
   /** The credentials environment; see `models.ts` `detect`. */
   readonly environment: Readonly<Record<string, string | undefined>>
+  /** The startup seat scan, including Claude Code, when one was performed. */
+  readonly available?: Available
   /** How consequential flow calls are approved; see `approvals.ts`. Default `ask`. */
   readonly approvals?: Approvals.Mode
   /** Test seam for the ordinary flow-call ceiling. */
@@ -260,7 +262,7 @@ export const make = (options: {
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
-  const available = detect(env)
+  const available = options.available ?? detectWithoutClaude(env)
   const judge = options.judge ?? NodeControl.layerSeatEvaluator(env).pipe(Layer.provide(executor))
   const catalog = routing(available, env, true)
   // The operator's stance, validated where `smithers run` validates it.

@@ -18,7 +18,7 @@ if (prompt === undefined) {
 // SMITHERS_TUI_RECORD=file.jsonl records every event with its arrival time.
 const record = process.env.SMITHERS_TUI_RECORD
 if (record !== undefined) writeFileSync(record, "")
-const available = Models.detect(process.env)
+const available = await Models.detect(process.env)
 const approvals = Approvals.mode(process.env, { print: true })
 if (typeof approvals === "object") {
   console.error(approvals.error)
@@ -32,6 +32,7 @@ if (budget !== undefined && "error" in budget) {
 const host = Host.make({
   cwd: process.cwd(),
   environment: available.environment,
+  available,
   approvals,
   ...(budget === undefined ? {} : { budget, ledger: Spend.ledger() })
 })

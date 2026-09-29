@@ -2,7 +2,7 @@ import * as NodeControl from "@smthrs/cli/NodeControl"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Models from "../src/models.ts"
@@ -38,14 +38,16 @@ describe("seatOf", () => {
 })
 
 describe("default chat seat", () => {
-  test("prefers Cerebras, then Sol, then another available provider", () => {
-    expect(Models.detect({ CEREBRAS_API_KEY: "test", OPENAI_API_KEY: "test" }).defaultSeat).toBe(
+  test("prefers Cerebras, then Sol, then another available provider", async () => {
+    expect((await Models.detect({ CEREBRAS_API_KEY: "test", OPENAI_API_KEY: "test" })).defaultSeat).toBe(
       Models.delegateModels.cerebras
     )
-    expect(Models.detect({ OPENAI_API_KEY: "test", MOONSHOT_API_KEY: "test" }).defaultSeat).toBe(
+    expect((await Models.detect({ OPENAI_API_KEY: "test", MOONSHOT_API_KEY: "test" })).defaultSeat).toBe(
       Models.delegateModels.sol
     )
-    expect(Models.detect({ OPENAI_API_KEY: "test", SMITHERS_TUI_SEAT: "custom:chat" }).defaultSeat).toBe("custom:chat")
+    expect((await Models.detect({ OPENAI_API_KEY: "test", SMITHERS_TUI_SEAT: "custom:chat" })).defaultSeat).toBe(
+      "custom:chat"
+    )
   })
 })
 
@@ -82,14 +84,14 @@ describe("routing", () => {
 })
 
 describe("delegable", () => {
-  test("names aliases and detected seats whose provider is reachable", () => {
+  test("names aliases and detected seats whose provider is reachable", async () => {
     const openai = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }]
     expect(Models.delegable(openai)).not.toContain("cerebras")
     expect(Models.delegable(openai)).toContain("sol")
     expect(Models.delegable(openai)).toContain("openai:gpt-6-sol")
     expect(Models.delegable([{ seat: Models.delegateModels.cerebras, label: "Qwen 3.8", provider: "Cerebras" }]))
       .toEqual(["cerebras", "qwen", Models.delegateModels.cerebras])
-    const claude = Models.detect({ ANTHROPIC_API_KEY: "test" }).models
+    const claude = (await Models.detect({ ANTHROPIC_API_KEY: "test" })).models
     expect(Models.delegable(claude)).toEqual(expect.arrayContaining(["opus", "sonnet", "fable"]))
     expect(Models.delegable(claude)).not.toContain("claude-code:opus")
     expect(Models.delegable([])).toEqual([])
@@ -103,20 +105,27 @@ describe("Claude Code seats", () => {
     return directory
   }
 
-  test("offers claude-code seats for a Claude Code subscription, and Anthropic seats instead for a key", () => {
+  test("offers claude-code seats for a Claude Code subscription, and Anthropic seats instead for a key", async () => {
     const directory = claudeOnPath({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" })
     try {
       const claude = (models: ReadonlyArray<Models.Model>) =>
         models.filter((model) => model.seat.startsWith("claude-code:") || model.seat.startsWith("anthropic:"))
-      expect(claude(Models.detect({ PATH: directory }).models)).toEqual([
+      expect(claude((await Models.detect({ PATH: directory })).models)).toEqual([
         { seat: "claude-code:opus", label: "Claude Opus 5.5", provider: "Claude Code" },
         { seat: "claude-code:sonnet", label: "Claude Sonnet 5.5", provider: "Claude Code" },
         { seat: "claude-code:fable", label: "Claude Fable 5.1", provider: "Claude Code" }
       ])
-      expect(Models.delegable(Models.detect({ PATH: directory }).models)).toEqual(expect.arrayContaining([
-        "opus", "sonnet", "fable", "claude-code:opus", "claude-code:sonnet", "claude-code:fable"
+      expect(Models.delegable((await Models.detect({ PATH: directory })).models)).toEqual(expect.arrayContaining([
+        "opus",
+        "sonnet",
+        "fable",
+        "claude-code:opus",
+        "claude-code:sonnet",
+        "claude-code:fable"
       ]))
-      const keyed = claude(Models.detect({ PATH: directory, ANTHROPIC_API_KEY: "k" }).models).map((model) => model.seat)
+      const keyed = claude((await Models.detect({ PATH: directory, ANTHROPIC_API_KEY: "k" })).models).map((model) =>
+        model.seat
+      )
       expect(keyed).toEqual(["anthropic:claude-opus-5-5", "anthropic:claude-sonnet-5-5", "anthropic:claude-fable-5-1"])
       expect(Models.seatOf("claude-code:opus", [])).toBe("claude-code:opus")
       expect(Models.labelOf("claude-code:fable", [])).toBe("Claude Fable 5.1")
@@ -129,7 +138,7 @@ describe("Claude Code seats", () => {
     const directory = claudeOnPath({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" })
     try {
       const environment = { PATH: directory }
-      const seat = Models.seatOf("opus", Models.detect(environment).models)!
+      const seat = Models.seatOf("opus", (await Models.detect(environment)).models)!
       expect(seat).toBe("opus")
       // The Anthropic route would refuse without a key; Claude Code runs it.
       const resolved = await Effect.runPromise(NodeControl.seatResolver(environment, unusedExecutor).resolve(seat))
@@ -139,10 +148,27 @@ describe("Claude Code seats", () => {
     }
   })
 
-  test("offers none when Claude Code is signed out", () => {
+  test("uses the startup probe for a token-backed seat resolve", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "tui-claude-"))
+    writeFileSync(
+      join(directory, "claude"),
+      `#!/bin/sh\necho probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"oauth_token"}'\n`,
+      { mode: 0o755 }
+    )
+    try {
+      const available = await Models.detect({ PATH: directory, CLAUDE_CODE_OAUTH_TOKEN: "test-token" })
+      await Effect.runPromise(NodeControl.seatResolver(available.environment, unusedExecutor).resolve("opus"))
+      expect(readFileSync(join(directory, "probes"), "utf8")).toBe("probe\n")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("offers none when Claude Code is signed out", async () => {
     const directory = claudeOnPath({ loggedIn: false, authMethod: "none" })
     try {
-      expect(Models.detect({ PATH: directory }).models.filter((model) => model.provider === "Claude Code")).toEqual([])
+      expect((await Models.detect({ PATH: directory })).models.filter((model) => model.provider === "Claude Code"))
+        .toEqual([])
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

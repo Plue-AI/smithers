@@ -340,9 +340,9 @@ describe("ClaudeCode.route", () => {
 // subscription, so it never runs by default.
 describe.runIf(process.env.SMITHERS_CLAUDE_CODE_SMOKE === "1")("ClaudeCode against the installed Claude Code", () => {
   it("runs cell frames on one session and obeys steering sent as a user turn", { timeout: 300_000 }, async () => {
-    const login = Providers.claudeCodeLogin(process.env)
+    const login = await Providers.claudeCodeLogin(process.env)
     expect(
-      Providers.claudeCode({
+      await Providers.claudeCode({
         environment: process.env,
         homeDirectory: "",
         readFile: () => undefined,

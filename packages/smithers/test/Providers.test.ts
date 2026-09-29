@@ -6,7 +6,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import * as Providers from "../src/Providers.ts"
 
 const session = JSON.stringify({ tokens: { access_token: "a", refresh_token: "r", account_id: "acct" } })
@@ -253,8 +253,8 @@ describe("Providers.claudeCode", () => {
 
   it.each(["claude.ai", "oauth_token"])(
     "offers the seats for a subscription Claude Code signed in with %s",
-    (method) => {
-      expect(detected({}, login({ authMethod: method }))).toEqual({
+    async (method) => {
+      expect(await detected({}, login({ authMethod: method }))).toEqual({
         available: true,
         reason: "Claude Code is signed in with a Claude max",
         setupHint: "run `claude auth login`",
@@ -263,9 +263,9 @@ describe("Providers.claudeCode", () => {
     }
   )
 
-  it("keeps Claude on the API when ANTHROPIC_API_KEY is set, without asking Claude Code", () => {
+  it("keeps Claude on the API when ANTHROPIC_API_KEY is set, without asking Claude Code", async () => {
     let asked = false
-    const result = Providers.claudeCode({
+    const result = await Providers.claudeCode({
       ...host({ ANTHROPIC_API_KEY: "sk-ant" }),
       claudeCode: () => {
         asked = true
@@ -276,7 +276,7 @@ describe("Providers.claudeCode", () => {
     expect(result.reason).toBe("$ANTHROPIC_API_KEY is set, so Claude seats run on the API")
     expect(asked).toBe(false)
     // An exported-but-empty key is unset.
-    expect(detected({ ANTHROPIC_API_KEY: "" }, login()).available).toBe(true)
+    expect((await detected({ ANTHROPIC_API_KEY: "" }, login())).available).toBe(true)
   })
 
   it.each(
@@ -285,16 +285,16 @@ describe("Providers.claudeCode", () => {
       ["signed out", login({ loggedIn: false, authMethod: "none" }), "not signed in", "`claude auth login`"],
       ["signed in with an API key", login({ authMethod: "api_key" }), "not signed in", "`claude auth login`"]
     ] as const
-  )("refuses when Claude Code is %s, naming the fix", (_case, found, reason, hint) => {
-    const result = detected({}, found)
+  )("refuses when Claude Code is %s, naming the fix", async (_case, found, reason, hint) => {
+    const result = await detected({}, found)
     expect(result.available).toBe(false)
     expect(result.reason).toContain(reason)
     expect(result.setupHint).toContain(hint)
     expect(result.executable).toBeUndefined()
   })
 
-  it("treats a host that cannot look for Claude Code as one without it", () => {
-    expect(Providers.claudeCode(host({})).reason).toBe("Claude Code is not installed")
+  it("treats a host that cannot look for Claude Code as one without it", async () => {
+    expect((await Providers.claudeCode(host({}))).reason).toBe("Claude Code is not installed")
   })
 
   it("names one seat per Anthropic alias, each running the model its alias names", () => {
@@ -313,12 +313,12 @@ describe("Providers.claudeCodeLogin", () => {
     return directory
   }
 
-  it("reads only the status `claude auth status` prints, from the claude on PATH", () => {
+  it("reads only the status `claude auth status` prints, from the claude on PATH", async () => {
     const directory = onPath(
       `[ "$1 $2" = "auth status" ] || exit 9\necho '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro","email":"a@b.c"}'`
     )
     try {
-      expect(Providers.claudeCodeLogin({ PATH: `/nonexistent${delimiter}${directory}` })).toEqual({
+      expect(await Providers.claudeCodeLogin({ PATH: `/nonexistent${delimiter}${directory}` })).toEqual({
         executable: join(directory, "claude"),
         loggedIn: true,
         authMethod: "claude.ai",
@@ -329,30 +329,111 @@ describe("Providers.claudeCodeLogin", () => {
     }
   })
 
-  it("probes a signed-in Claude Code once per process, and a signed-out one every time", () => {
+  it("shares a signed-in Claude Code status per process and caches a signed-out one briefly", async () => {
     const count = (directory: string) => readFileSync(join(directory, "probes"), "utf8").split("\n").length - 1
     const signedInDirectory = onPath(
       `echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"claude.ai"}'`
     )
     const signedOutDirectory = onPath(`echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":false}'\nexit 1`)
     try {
-      for (let index = 0; index < 5; index++) Providers.claudeCodeLogin({ PATH: signedInDirectory })
+      await Promise.all(Array.from({ length: 5 }, () => Providers.claudeCodeLogin({ PATH: signedInDirectory })))
       expect(count(signedInDirectory)).toBe(1)
       // Another login (config directory) is another answer.
-      Providers.claudeCodeLogin({ PATH: signedInDirectory, CLAUDE_CONFIG_DIR: "/other" })
+      await Providers.claudeCodeLogin({ PATH: signedInDirectory, CLAUDE_CONFIG_DIR: "/other" })
       expect(count(signedInDirectory)).toBe(2)
-      for (let index = 0; index < 3; index++) Providers.claudeCodeLogin({ PATH: signedOutDirectory })
-      expect(count(signedOutDirectory)).toBe(3)
+      await Promise.all(Array.from({ length: 3 }, () => Providers.claudeCodeLogin({ PATH: signedOutDirectory })))
+      expect(count(signedOutDirectory)).toBe(1)
     } finally {
       rmSync(signedInDirectory, { recursive: true, force: true })
       rmSync(signedOutDirectory, { recursive: true, force: true })
     }
   })
 
-  it("reads a signed-out status from a non-zero exit", () => {
+  it("isolates token-backed environments without inspecting their tokens", async () => {
+    const directory = onPath(
+      `echo probe >> "\${0%/*}/probes"\nif [ "$CLAUDE_CODE_OAUTH_TOKEN" = one ]; then\n` +
+        `  echo '{"loggedIn":true,"authMethod":"oauth_token"}'\nelse\n` +
+        `  echo '{"loggedIn":false,"authMethod":"none"}'\nfi`
+    )
+    try {
+      const first = { PATH: directory, CLAUDE_CODE_OAUTH_TOKEN: "one" }
+      const second = { PATH: directory, CLAUDE_CODE_OAUTH_TOKEN: "two" }
+      expect((await Providers.claudeCodeLogin(first))?.loggedIn).toBe(true)
+      expect((await Providers.claudeCodeLogin(second))?.loggedIn).toBe(false)
+      expect((await Providers.claudeCodeLogin(first))?.loggedIn).toBe(true)
+      expect(readFileSync(join(directory, "probes"), "utf8")).toBe("probe\nprobe\n")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("re-reads a signed-out answer after 30 seconds and keeps a signed-in answer", async () => {
+    const directory = onPath(`echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":false}'\nexit 1`)
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000)
+    const count = () => readFileSync(join(directory, "probes"), "utf8").trim().split("\n").length
+    try {
+      expect((await Providers.claudeCodeLogin({ PATH: directory }))?.loggedIn).toBe(false)
+      writeFileSync(
+        join(directory, "claude"),
+        `#!/bin/sh\necho probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"claude.ai"}'\n`
+      )
+      clock.mockReturnValue(30_999)
+      expect((await Providers.claudeCodeLogin({ PATH: directory }))?.loggedIn).toBe(false)
+      expect(count()).toBe(1)
+      clock.mockReturnValue(31_000)
+      expect((await Providers.claudeCodeLogin({ PATH: directory }))?.loggedIn).toBe(true)
+      expect(count()).toBe(2)
+      clock.mockReturnValue(1_000_000)
+      expect((await Providers.claudeCodeLogin({ PATH: directory }))?.loggedIn).toBe(true)
+      expect(count()).toBe(2)
+    } finally {
+      clock.mockRestore()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["failed", `echo probe >> "\${0%/*}/probes"\necho 'workspace unreachable' >&2\nexit 1`],
+    ["API-key", `echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"api_key"}'`]
+  ])("re-reads a %s answer after 30 seconds", async (_kind, script) => {
+    const directory = onPath(script)
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000)
+    const count = () => readFileSync(join(directory, "probes"), "utf8").trim().split("\n").length
+    try {
+      const first = await Providers.claudeCodeLogin({ PATH: directory })
+      expect(first?.loggedIn && first.authMethod === "claude.ai").toBe(false)
+      writeFileSync(
+        join(directory, "claude"),
+        `#!/bin/sh\necho probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"claude.ai"}'\n`
+      )
+      clock.mockReturnValue(30_999)
+      expect(await Providers.claudeCodeLogin({ PATH: directory })).toEqual(first)
+      expect(count()).toBe(1)
+      clock.mockReturnValue(31_000)
+      expect((await Providers.claudeCodeLogin({ PATH: directory }))?.authMethod).toBe("claude.ai")
+      expect(count()).toBe(2)
+    } finally {
+      clock.mockRestore()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("turns a synchronous spawn error into a cached failed status", async () => {
+    const directory = onPath(`echo '{"loggedIn":true,"authMethod":"claude.ai"}'`)
+    try {
+      const environment = { PATH: directory, BAD: "invalid\0value" }
+      const first = Providers.claudeCodeLogin(environment)
+      expect(Providers.claudeCodeLogin(environment)).toBe(first)
+      expect(await first).toMatchObject({ loggedIn: false, error: "claude auth status could not start" })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("reads a signed-out status from a non-zero exit", async () => {
     const directory = onPath(`echo '{"loggedIn":false,"authMethod":"none"}'\nexit 1`)
     try {
-      expect(Providers.claudeCodeLogin({ PATH: directory })).toEqual({
+      expect(await Providers.claudeCodeLogin({ PATH: directory })).toEqual({
         executable: join(directory, "claude"),
         loggedIn: false,
         authMethod: "none",
@@ -363,11 +444,14 @@ describe("Providers.claudeCodeLogin", () => {
     }
   })
 
-  it("finds nothing without a claude on PATH, or with one that prints no status", () => {
-    expect(Providers.claudeCodeLogin({})).toBeUndefined()
+  it("finds nothing without a claude on PATH, and reports invalid status", async () => {
+    expect(await Providers.claudeCodeLogin({})).toBeUndefined()
     const directory = onPath("echo not json")
     try {
-      expect(Providers.claudeCodeLogin({ PATH: directory })).toBeUndefined()
+      expect(await Providers.claudeCodeLogin({ PATH: directory })).toMatchObject({
+        loggedIn: false,
+        error: "claude auth status returned no valid JSON"
+      })
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

@@ -434,8 +434,8 @@ Which seats this machine can run.
 | --- | --- | --- |
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
-| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => ClaudeCodeLogin \| undefined` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. A signed-in status is remembered per process; a signed-out one is re-read. |
-| `claudeCode` | `(host) => { available, reason, setupHint, executable? }` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
+| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
 | `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
 | `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
