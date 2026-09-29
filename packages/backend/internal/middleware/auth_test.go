@@ -744,6 +744,7 @@ func TestAuthLoader_InvalidTokenDoesNotFallBackToSession(t *testing.T) {
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Equal(t, "invalid or expired token", apiErrorMessage(t, rec))
+	assert.Equal(t, "unauthorized", apiErrorCode(t, rec))
 	assert.Nil(t, capturedAuth)
 	assert.Equal(t, 1, q.getAuthInfoByTokenHashHit)
 	assert.Equal(t, 1, q.getOAuth2AccessTokenByHashHit)
@@ -1133,7 +1134,7 @@ func TestAuthLoader_DoesNotReissueExistingCSRFCookie(t *testing.T) {
 func TestAuthLoader_BearerTokenRequestNeverGetsCSRFCookie(t *testing.T) {
 	t.Parallel()
 
-	token := "smithers_ddddddddddddddddddddddddddddddddddddddd"
+	token := "smithers_dddddddddddddddddddddddddddddddddddddddd"
 
 	q := &mockAuthLoaderQuerier{
 		getAuthInfoByTokenHashFn: func(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error) {

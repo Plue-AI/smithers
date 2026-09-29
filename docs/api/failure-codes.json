@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:ab27e1e1113c4b6aa0efcc5ae6c4e4ea6b9437f9e8b00e22bc955d9183376b4e",
+  "digest": "sha256:e1ece2c87db8f8282d22045d5fd644fcaa7267e858c7e642891431145f1a7e4a",
   "faults": [
     "user",
     "wait",
@@ -472,6 +472,13 @@
       "status": 400,
       "retry_after": 0,
       "doc": "The resource link on the request does not name a resource this controller owns."
+    },
+    {
+      "code": "invalid_token",
+      "fault": "user",
+      "status": 401,
+      "retry_after": 0,
+      "doc": "The presented token has an unrecognized format or is no longer valid."
     },
     {
       "code": "invalid_worker",

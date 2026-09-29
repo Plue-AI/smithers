@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	stdErrors "errors"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
@@ -80,11 +82,11 @@ func RequireAuth(next http.Handler) http.Handler {
 }
 
 // AuthLoader loads session/cookie or token auth information if available.
-// This middleware is a soft gate: a request with no credential, or with a
-// session cookie that names no live session, continues as anonymous. A
-// presented bearer token that resolves to nothing is refused with 401, a
-// suspended owner with 403, and a credential store that cannot answer with
-// 503, so an outage is never mistaken for a logged-out user.
+// Requests without a user credential, or with a session cookie that names no
+// live session, continue anonymously. Presented user credentials with an
+// unrecognized format or no matching token return 401. Route-specific LFS,
+// Worker, OAuth client, and build-cache credentials pass to their own gates.
+// Suspended owners return 403; a credential store outage returns 503.
 func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.OwnerAuthorizer) func(http.Handler) http.Handler {
 	sessionCookieName := strings.TrimSpace(cfg.SessionCookieName)
 	if sessionCookieName == "" {
@@ -115,10 +117,18 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if authorizationDelegated(r, cfg.WorkerExchangeToken) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			ctx := r.Context()
 			now := time.Now().UTC()
 
 			token := ExtractToken(r)
+			if token == "" && len(r.Header.Values("Authorization")) > 0 {
+				writeInvalidToken(w, "unrecognized token")
+				return
+			}
 			if token != "" {
 				authInfo, err := loadTokenAuth(ctx, queries, token)
 				switch {
@@ -207,6 +217,37 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+var delegatedLFSAPIPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/lfs/(objects/batch|verify)$`)
+var delegatedLFSGitPath = regexp.MustCompile(`^/[^/]+/[^/]+\.git/info/lfs/objects/batch$`)
+var delegatedBuildCachePath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/build-cache(/|$)`)
+
+// authorizationDelegated preserves credentials that a later, route-specific
+// gate verifies. Only these exact routes may bypass user-token parsing.
+func authorizationDelegated(r *http.Request, workerExchangeToken string) bool {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 {
+		return false
+	}
+	path := r.URL.Path
+	switch strings.ToLower(parts[0]) {
+	case "lfs":
+		return delegatedLFSAPIPath.MatchString(path) || delegatedLFSGitPath.MatchString(path)
+	case "basic":
+		return path == "/api/oauth2/token" || path == "/api/oauth2/revoke"
+	case "bearer":
+		workerRoute := path == "/api/auth/github/token-exchange" || path == "/api/telemetry/errors"
+		return (workerRoute && subtle.ConstantTimeCompare([]byte(parts[1]), []byte(workerExchangeToken)) == 1) ||
+			(delegatedBuildCachePath.MatchString(path) && buildcache.IsReadToken(parts[1]))
+	default:
+		return false
+	}
+}
+
+func writeInvalidToken(w http.ResponseWriter, message string) {
+	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+	errors.WriteError(w, errors.New(errors.CodeInvalidToken, message))
 }
 
 func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.OwnerAuthorizer) bool {
