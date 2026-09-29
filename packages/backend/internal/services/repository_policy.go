@@ -38,8 +38,18 @@ type factoryGitHubPolicy struct {
 	DailyTokens int64 `json:"dailyTokens"`
 }
 
-// maintains reports whether login is one of the policy's maintainers.
+// namesMaintainers reports whether the owner committed a maintainers list.
+// Without one, every person with write access keeps counting (the ingress
+// stamp's rule), and no issue becomes a TODO on its own.
+func (p factoryGitHubPolicy) namesMaintainers() bool { return p.Maintainers != nil }
+
+// maintains reports whether login may apply todo and automerge: one of the
+// named maintainers, or, with no list committed, anyone (the caller has
+// already required a person with write access).
 func (p factoryGitHubPolicy) maintains(login string) bool {
+	if !p.namesMaintainers() {
+		return strings.TrimSpace(login) != ""
+	}
 	for _, maintainer := range p.Maintainers {
 		if login != "" && strings.EqualFold(strings.TrimSpace(maintainer), strings.TrimSpace(login)) {
 			return true

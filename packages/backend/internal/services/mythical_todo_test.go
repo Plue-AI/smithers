@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -687,4 +688,133 @@ func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 	deferred.Labels = []string{"todo"}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, deferred, gitHubLabelApplication{}))
 	assert.Equal(t, "queued", o.item(88).State, "taking deferred off wakes it")
+}
+
+// failingPolicy is a repository host that cannot answer.
+type failingPolicy struct{}
+
+func (failingPolicy) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+	return nil, "", errors.New("repo host unavailable")
+}
+
+func (failingPolicy) GetFileAtChange(context.Context, string, string, string, string) (repohost.FileContent, error) {
+	return repohost.FileContent{}, errors.New("repo host unavailable")
+}
+
+// An unreadable policy changes nothing: the maintainer's todo event is
+// retried rather than reverted, and a merge waits rather than dropping the
+// automerge with a false comment.
+func TestMythicalUnreadablePolicyActsOnNothing(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	adversarialGitHubSource(o)
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	o.labeled(92, []string{"todo"}, "todo", "roninjin10", true)
+	require.Equal(t, "queued", o.item(92).State)
+
+	o.service.SetPolicyReader(failingPolicy{})
+	payload := adversarialIssueEvent(t, 93, "labeled", "todo", "roninjin10", []string{"todo"}, true)
+	require.ErrorContains(t, o.service.ObserveGitHubEvent(ctx, "issues", payload), "repo host unavailable",
+		"the delivery fails so the webhook job is retried")
+	_, err = db.New(o.pool).GetMythicalItemByIssue(ctx, o.repoID, 93)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "nothing is recorded")
+	assert.Empty(t, o.github.removed, "the maintainer's label is never taken off")
+
+	// The merge path: an approved automerge TODO waits for the policy.
+	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
+	issue := mythicalIssue{Number: 94, Title: "Policy", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(94, "ninety-four.md")
+	o.service.SetPolicyReader(failingPolicy{})
+	o.answerReviews(`"approve"`)
+	item := o.item(94)
+	assert.Equal(t, "the repository policy could not be read; retrying", item.Reason)
+	assert.True(t, mythicalChecksOf(item).Automerge, "the automerge stays")
+	assert.Empty(t, o.github.merges)
+	o.wake()
+	assert.Empty(t, o.github.comments, "no false comment")
+	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
+	o.wake()
+	assert.Equal(t, "landed", o.item(94).State, "once the policy reads, it merges")
+}
+
+// A maintainer taking todo off an auto-TODO opts it out: the factory never
+// puts the label back, and a maintainer re-applying todo makes it a TODO.
+func TestMythicalMaintainerOptsOutOfAnAutoTodo(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	adversarialGitHubSource(o)
+	o.service.SetPolicyReader(policyHost{mythicalPolicy("2026-09-28T00:00:00Z")})
+	after := "2026-09-29T10:00:00Z"
+	o.opened(70, "roninjin10", true, after, false)
+	require.Equal(t, "queued", o.item(70).State)
+	require.Equal(t, []string{"#70 todo"}, o.github.added)
+
+	unlabeled := adversarialIssueEvent(t, 70, "unlabeled", "todo", "roninjin10", nil, true)
+	require.NoError(t, o.service.ObserveGitHubEvent(ctx, "issues", unlabeled))
+	item := o.item(70)
+	assert.Equal(t, "skipped", item.State)
+	checks := mythicalChecksOf(item)
+	assert.True(t, checks.OptedOut)
+	assert.Empty(t, checks.AutoTodo)
+	o.opened(70, "roninjin10", true, after, false)
+	assert.Equal(t, []string{"#70 todo"}, o.github.added, "the factory never puts it back")
+	assert.Equal(t, "skipped", o.item(70).State)
+
+	o.labeled(70, []string{"todo"}, "todo", "roninjin10", true)
+	assert.Equal(t, "queued", o.item(70).State, "a maintainer re-applying todo makes it a TODO")
+}
+
+// A run cannot relaunch a TODO a person's cancel stopped; the very-hard
+// continuation carries the previous plan and its stop says how to resume.
+func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 71, Title: "Cancel", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	o.project(o.launcher.last("coding/request"), jobs.StateCancelled, "run-71", "")
+	o.wake()
+	require.Equal(t, "blocked", o.item(71).State)
+	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(71).ID))
+	requireRunCredentialRefused(t, err)
+
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 72, Title: "Hard", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	for i := range mythicalAttempts + 1 {
+		o.wake()
+		require.Equal(t, "running", o.item(72).State, o.item(72).Reason)
+		if i == 0 {
+			o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-72-plan", `{"plan":{"changes":[{"title":"Keep the title",
+"atoms":[{"changeId":null,"message":"🐛 fix: keep the title"}],"checks":[]}]},"outcome":{"status":"changes-requested"}}`)
+		} else {
+			o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-72-%d", i), "factory", "coding/Error/stalled", "")
+		}
+		o.wake()
+	}
+	var payload struct {
+		Prompt string `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
+	assert.Contains(t, payload.Prompt, "The previous plan: ")
+	assert.Contains(t, payload.Prompt, "Keep the title")
+	o.wake()
+	require.Equal(t, "blocked", o.item(72).State)
+	assert.Contains(t, o.github.comments, "#72 Smithers stopped this TODO: it is very hard (the lane's request ended failed: coding/Error/stalled). Press Retry on it in Smithers to go on.")
+}
+
+// With no maintainers list committed, a person with write access still
+// makes a TODO (the stamp's rule), and no issue becomes one on its own.
+func TestMythicalNoMaintainerListKeepsTheWriteAccessRule(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	adversarialGitHubSource(o)
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","todoSince":"2026-09-28T00:00:00Z"}}`})
+	o.labeled(73, []string{"todo"}, "todo", "other-writer", true)
+	assert.Equal(t, "queued", o.item(73).State)
+	o.labeled(74, []string{"todo"}, "todo", "stranger", false)
+	assert.Equal(t, "skipped", o.item(74).State)
+	o.opened(75, "roninjin10", true, "2026-09-29T10:00:00Z", false)
+	assert.Equal(t, "skipped", o.item(75).State, "only a named maintainer's issue is a TODO on its own")
 }

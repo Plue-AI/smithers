@@ -172,7 +172,12 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		checks := mythicalChecksOf(existing)
 		// The owner's policy makes an issue a TODO once, without the label;
 		// the label then keeps it one like any other.
-		auto := applied.AutoTodo != "" && checks.AutoTodo == ""
+		if applied.Removed && applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
+			// A maintainer took todo off: the factory never puts it back, and
+			// the issue is a TODO again only when a maintainer re-applies it.
+			checks.AutoTodo, checks.Todo, checks.OptedOut = "", false, true
+		}
+		auto := applied.AutoTodo != "" && checks.AutoTodo == "" && !checks.OptedOut
 		if auto {
 			checks.AutoTodo = applied.AutoTodo
 		}
@@ -307,7 +312,10 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 		}
 	}
 	open := make(map[int64]bool, len(issues))
-	policy := s.stackPolicy(ctx, repositoryID)
+	policy, err := s.stackPolicy(ctx, repositoryID)
+	if err != nil {
+		return counts, err
+	}
 	for _, issue := range issues {
 		open[issue.Number] = true
 		// A listing names no writer. Text the item already holds keeps the
@@ -858,7 +866,10 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 			fmt.Sprintf("it launched %d runs, the bound for one TODO, which usually means something went wrong", launched))
 	}
 	if st.policy == nil {
-		policy := st.s.stackPolicy(ctx, st.r.row.RepositoryID)
+		policy, err := st.s.stackPolicy(ctx, st.r.row.RepositoryID)
+		if err != nil {
+			return mythicalLater(item, "the repository policy could not be read; retrying", st.now)
+		}
 		st.policy = &policy
 	}
 	if st.policy.DailyTokens <= 0 {
@@ -1045,7 +1056,7 @@ func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 		next.Attempt = item.Attempt - 1 // start runs this last attempt again
 	default:
 		checks.Fault = &mythicalFault{Class: "factory", Tag: "very_hard"}
-		checks.notice("blocked:very-hard", "Smithers stopped this TODO: it is very hard ("+reason+"). Edit the issue or retry it to go on.")
+		checks.notice("blocked:very-hard", "Smithers stopped this TODO: it is very hard ("+reason+"). Press Retry on it in Smithers to go on.")
 		next.State, next.Reason = "blocked", mythicalVeryHard+reason
 		next.Checks = checks.encode()
 		return &next
@@ -1419,6 +1430,9 @@ func (st *mythicalItemStep) prompt(item db.MythicalItem, attempt int32) string {
 	switch {
 	case mythicalChecksOf(item).VeryHard:
 		fmt.Fprintf(&b, "\nThis is very hard: %s. Continue the previous plan.\n", strings.TrimPrefix(item.Reason, mythicalVeryHard))
+		if len(item.Plan) > 0 && len(item.Plan) <= 4<<10 {
+			fmt.Fprintf(&b, "The previous plan: %s\n", item.Plan)
+		}
 	case attempt > 1 && item.Reason != "" && mythicalChecksOf(item).Outages == 0:
 		fmt.Fprintf(&b, "\nAn earlier attempt did not finish: %s\n", item.Reason)
 	}
@@ -1994,7 +2008,18 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	if err != nil {
 		return mythicalLater(item, "GitHub did not answer for the issue's labels; retrying", st.now)
 	}
-	if applier == nil || applier.ViaApp || !s.stackPolicy(ctx, st.r.row.RepositoryID).maintains(applier.Actor.Login) {
+	policy, err := s.stackPolicy(ctx, st.r.row.RepositoryID)
+	if err != nil {
+		return mythicalLater(item, "the repository policy could not be read; retrying", st.now)
+	}
+	authorized := applier != nil && !applier.ViaApp && policy.maintains(applier.Actor.Login)
+	if authorized && !policy.namesMaintainers() {
+		// With no list, the applier must still be a person with write access.
+		if authorized, err = s.github.Maintainer(ctx, gh, applier.Actor); err != nil {
+			return mythicalLater(item, "GitHub did not answer for the label's applier; retrying", st.now)
+		}
+	}
+	if !authorized {
 		next := item
 		checks := mythicalChecksOf(next)
 		checks.Automerge = false
@@ -2194,7 +2219,7 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item is retried")
 		}
 		// A person, never a run, retries past a bound.
-		if item.State != "blocked" || mythicalChecksOf(item).bounded() {
+		if item.State != "blocked" || mythicalChecksOf(item).bounded() || mythicalChecksOf(item).personal() {
 			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
 				return MythicalItemView{}, err
 			}
@@ -2244,6 +2269,7 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 		Action     string               `json:"action"`
 		Issue      *mythicalGitHubIssue `json:"issue"`
 		Sender     gitHubActor          `json:"sender"`
+		Label      *gitHubLabel         `json:"label"`
 		Repository *struct {
 			Name  string `json:"name"`
 			Owner struct {
@@ -2256,20 +2282,34 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	}
 	applied := gitHubLabelApplied(event.Action, payload)
 	applied.By = event.Sender.Login
+	if strings.EqualFold(strings.TrimSpace(event.Action), "unlabeled") && event.Label != nil {
+		applied.Label, applied.Removed = event.Label.Name, true
+	}
 	ids, err := s.queries().ListRepositoryIDsForGitHubSource(ctx, event.Repository.Owner.Login, event.Repository.Name)
 	if err != nil {
 		return err
 	}
 	issue := event.Issue.issue()
 	for _, id := range ids {
-		policy := s.stackPolicy(ctx, id)
+		// Only a repository with a stack reads its policy: another
+		// repository's outage never holds this delivery.
+		if _, err := s.queries().GetMythicalStack(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		policy, err := s.stackPolicy(ctx, id)
+		if err != nil {
+			// The webhook job is retried later; nothing is changed meanwhile.
+			return err
+		}
 		applied := mythicalAuthorize(policy, applied, issue)
 		if err := s.ObserveIssue(ctx, id, issue, applied); err != nil {
 			return err
 		}
 		// Only todo is reverted: it is the one GitHub write before landing
 		// the rules allow. Anyone else's automerge is ignored, never merged.
-		if !applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
+		if !applied.Removed && !applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
 			s.revertLabel(ctx, id, event.Issue.Number, applied.Label)
 		}
 		s.labelAutoTodo(ctx, id, issue)
@@ -2283,28 +2323,33 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 // without write access), and the event says why the policy makes the issue a
 // TODO without one.
 func mythicalAuthorize(policy factoryGitHubPolicy, applied gitHubLabelApplication, issue mythicalIssue) gitHubLabelApplication {
-	applied.ByMaintainer = applied.ByMaintainer && policy.maintains(applied.By)
+	if applied.Removed {
+		// A removal is never stamped: a named maintainer's counts.
+		applied.ByMaintainer = policy.namesMaintainers() && policy.maintains(applied.By)
+	} else {
+		applied.ByMaintainer = applied.ByMaintainer && policy.maintains(applied.By)
+	}
 	applied.AutoTodo = mythicalAutoTodo(policy, issue)
 	return applied
 }
 
-// stackPolicy reads the owner's committed policy on the default bookmark. An
-// unreadable or absent policy names no maintainer, so no label counts and no
-// issue becomes a TODO.
-func (s *MythicalService) stackPolicy(ctx context.Context, repositoryID int64) factoryGitHubPolicy {
+// stackPolicy reads the owner's committed policy on the default bookmark.
+// A policy that cannot be read is an error, and every caller acts on nothing
+// until it can: an outage never reverts a maintainer's label or clears an
+// automerge. A repository with no projection has the empty policy.
+func (s *MythicalService) stackPolicy(ctx context.Context, repositoryID int64) (factoryGitHubPolicy, error) {
 	if s.policy == nil {
-		return factoryGitHubPolicy{}
+		return factoryGitHubPolicy{}, errors.New("the repository policy reader is not configured")
 	}
 	repository, owner, err := s.repository(ctx, repositoryID)
 	if err != nil {
-		return factoryGitHubPolicy{}
+		return factoryGitHubPolicy{}, err
 	}
 	policy, err := readRepositoryPolicy(ctx, s.policy, owner, repository.Name, repository.DefaultBookmark)
 	if err != nil {
-		s.logger.Warn("mythical.policy_unreadable", "repository_id", repositoryID, "error", err)
-		return factoryGitHubPolicy{}
+		return factoryGitHubPolicy{}, fmt.Errorf("read the repository policy: %w", err)
 	}
-	return policy
+	return policy, nil
 }
 
 // mythicalAutoTodo is why the policy makes an issue a TODO without the
@@ -2313,7 +2358,7 @@ func (s *MythicalService) stackPolicy(ctx context.Context, repositoryID int64) f
 // before never qualify.
 func mythicalAutoTodo(policy factoryGitHubPolicy, issue mythicalIssue) string {
 	since, err := time.Parse(time.RFC3339, policy.TodoSince)
-	if err != nil || issue.PullRequest || !issue.TextByMaintainer || issue.CreatedAt.Before(since) || !policy.maintains(issue.Author.Login) {
+	if err != nil || !policy.namesMaintainers() || issue.PullRequest || !issue.TextByMaintainer || issue.CreatedAt.Before(since) || !policy.maintains(issue.Author.Login) {
 		return ""
 	}
 	return "written by " + issue.Author.Login + ", a maintainer"
@@ -2446,8 +2491,11 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // request's head.
 type mythicalChecks struct {
 	Todo bool `json:"todo,omitempty"`
-	// AutoTodo is why the factory made the issue a TODO without the label.
+	// AutoTodo is why the factory made the issue a TODO without the label;
+	// OptedOut records a maintainer taking todo off such an issue, after
+	// which the factory never makes it one again on its own.
 	AutoTodo  string          `json:"autoTodo,omitempty"`
+	OptedOut  bool            `json:"optedOut,omitempty"`
 	Automerge bool            `json:"automerge,omitempty"`
 	Review    *mythicalReview `json:"review,omitempty"`
 	// ForeignHead is the pull request head someone other than Smithers
@@ -2478,6 +2526,12 @@ type mythicalFault struct {
 // bounded reports whether the item stopped at a bound a person lifts.
 func (c mythicalChecks) bounded() bool {
 	return c.Fault != nil && c.Fault.Class == "policy"
+}
+
+// personal reports whether the item stopped by a person's own act (a
+// cancelled run): only a person resumes it.
+func (c mythicalChecks) personal() bool {
+	return c.Fault != nil && c.Fault.Class == "user"
 }
 
 // resume lifts the bounds when a person resumes the item at generation.
