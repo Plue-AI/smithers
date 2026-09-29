@@ -53,7 +53,9 @@ describe("Providers.detect", () => {
   })
 
   it("reads $CODEX_HOME/auth.json instead when it is set", () => {
-    const [codex] = Providers.detect(host({ CODEX_HOME: "/elsewhere", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/elsewhere/auth.json": session }))
+    const [codex] = Providers.detect(
+      host({ CODEX_HOME: "/elsewhere", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/elsewhere/auth.json": session })
+    )
 
     expect(codex!.available).toBe(true)
     expect(codex!.reason).toBe("/elsewhere/auth.json holds a ChatGPT session")

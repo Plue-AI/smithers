@@ -793,7 +793,9 @@ const settle = <A extends Outcome>(
   const failed = isSummary(outcome) ? outcome.results.filter((row) => row.status === "failed") : []
   const firstLabel = failed[0]?.label ?? (isSummary(outcome) ? outcome.results[0]?.label : undefined)
   const workspace = context.options?.workspace
-  const commandOptions: Record<string, string> = workspace === undefined ? {} : { workspace: `'${workspace.replaceAll("'", "'\\''")}'` }
+  const commandOptions: Record<string, string> = workspace === undefined
+    ? {}
+    : { workspace: `'${workspace.replaceAll("'", "'\\''")}'` }
   const commands: Array<NextCommand> = [
     ...(firstLabel === undefined
       ? []

@@ -33,7 +33,7 @@ import * as Sidecar from "../src/Sidecar.ts"
 import * as Supervisor from "../src/Supervisor.ts"
 import * as Trellis from "../src/Trellis.ts"
 import * as TryCatchFinally from "../src/TryCatchFinally.ts"
-import { approval, check, fail, flow, roles, scripted, settleRun, type Pattern } from "./Parity.ts"
+import { approval, check, fail, flow, type Pattern, roles, scripted, settleRun } from "./Parity.ts"
 
 const drift: Pattern<{ readonly alerts: boolean }> = {
   make: (members, { alerts }) =>
@@ -795,13 +795,18 @@ it("durable Supervisor requires input tasks even when the boss plans them", asyn
   })
   const options = { maxRounds: 2, maxTasks: 16, concurrency: 1 }
   const input = { goal: "ship" }
-  expect(() => Graph.build(Supervisor.make({
-    plan: forms.members.plan!,
-    workers: { coder: forms.members.coder!, tester: forms.members.tester! },
-    review: forms.members.review!,
-    finalize: forms.members.finalize!,
-    ...options
-  }), { input })).toThrow(
+  expect(() =>
+    Graph.build(
+      Supervisor.make({
+        plan: forms.members.plan!,
+        workers: { coder: forms.members.coder!, tester: forms.members.tester! },
+        review: forms.members.review!,
+        finalize: forms.members.finalize!,
+        ...options
+      }),
+      { input }
+    )
+  ).toThrow(
     expect.objectContaining({ code: "invalid_input", message: "Supervisor input must contain a tasks array" })
   )
   expect(roles(forms.declaredTape)).toEqual([])
