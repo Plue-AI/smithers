@@ -199,7 +199,7 @@ func (h *BranchLockHandler) ListBranchLockJoinRequests(w http.ResponseWriter, r 
 
 // DecideBranchLockJoin handles POST /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide.
 func (h *BranchLockHandler) DecideBranchLockJoin(w http.ResponseWriter, r *http.Request) {
-	_, userID, _, ok := repoAndUser(w, r)
+	repositoryID, userID, _, ok := repoAndUser(w, r)
 	if !ok {
 		return
 	}
@@ -227,6 +227,7 @@ func (h *BranchLockHandler) DecideBranchLockJoin(w http.ResponseWriter, r *http.
 	}
 
 	resp, svcErr := h.Service.DecideBranchLockJoin(r.Context(), services.DecideBranchLockJoinInput{
+		RepositoryID:  repositoryID,
 		JoinRequestID: joinRequestID,
 		ResolverID:    userID,
 		Approve:       approve,

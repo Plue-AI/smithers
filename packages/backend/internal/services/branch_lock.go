@@ -429,6 +429,7 @@ func (s *BranchLockService) ListPendingBranchLockJoinRequests(ctx context.Contex
 }
 
 type DecideBranchLockJoinInput struct {
+	RepositoryID  int64
 	JoinRequestID int64
 	ResolverID    int64
 	Approve       bool
@@ -443,6 +444,9 @@ func (s *BranchLockService) DecideBranchLockJoin(ctx context.Context, input Deci
 			return BranchLockJoinRequestResponse{}, pkgerrors.NotFound("join request not found")
 		}
 		return BranchLockJoinRequestResponse{}, pkgerrors.Internal("failed to load join request").WithCause(err)
+	}
+	if request.RepositoryID != input.RepositoryID {
+		return BranchLockJoinRequestResponse{}, pkgerrors.NotFound("join request not found")
 	}
 	lock, err := s.queries.GetBranchLock(ctx, db.GetBranchLockParams{
 		RepositoryID: request.RepositoryID,

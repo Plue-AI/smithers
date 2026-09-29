@@ -23,7 +23,7 @@ func TestBranchLockJoinOnMigratedProductDatabase(t *testing.T) {
 	request, err := s.RequestBranchLockJoin(ctx, RequestBranchLockJoinInput{RepositoryID: repo, Branch: "main", UserID: 2, Username: "bob"})
 	require.NoError(t, err)
 	require.Equal(t, "pending", request.Status)
-	_, err = s.DecideBranchLockJoin(ctx, DecideBranchLockJoinInput{JoinRequestID: request.ID, ResolverID: 1, Approve: true})
+	_, err = s.DecideBranchLockJoin(ctx, DecideBranchLockJoinInput{RepositoryID: repo, JoinRequestID: request.ID, ResolverID: 1, Approve: true})
 	require.NoError(t, err)
 	shared, err := s.AcquireBranchLock(ctx, AcquireBranchLockInput{RepositoryID: repo, Branch: "main", UserID: 2})
 	require.NoError(t, err)

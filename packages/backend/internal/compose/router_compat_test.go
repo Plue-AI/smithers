@@ -82,12 +82,15 @@ func buildRouterCompat(
 ) http.Handler {
 	var importHandler *routes.GitHubImportHandler
 	var providerConnectionHandler *routes.ProviderConnectionHandler
+	var branchLockHandler *routes.BranchLockHandler
 	for _, handler := range optional {
 		switch h := handler.(type) {
 		case *routes.GitHubImportHandler:
 			importHandler = h
 		case *routes.ProviderConnectionHandler:
 			providerConnectionHandler = h
+		case *routes.BranchLockHandler:
+			branchLockHandler = h
 		}
 	}
 	return buildRouter(
@@ -130,8 +133,8 @@ func buildRouterCompat(
 		agentInternalHandler,
 		agentSessionHandler,
 		agentSessionStreamHandler,
-		nil,             // approvalsHandler
-		nil,             // branchLockHandler
+		nil, // approvalsHandler
+		branchLockHandler,
 		pushHookHandler, // canaryReportHandler
 		workflowHandler,
 		nil, // workflowCacheHandler

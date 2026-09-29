@@ -339,7 +339,7 @@ func TestDecideBranchLockJoin_OnlyHolder(t *testing.T) {
 		},
 	}
 	svc := NewBranchLockService(q)
-	_, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{JoinRequestID: 5, ResolverID: 7, Approve: true})
+	_, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{RepositoryID: 1, JoinRequestID: 5, ResolverID: 7, Approve: true})
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
 	assert.Equal(t, 403, apiErr.Status)
@@ -360,7 +360,7 @@ func TestDecideBranchLockJoin_ApproveNotifiesRequester(t *testing.T) {
 	}
 	notifier := &mockBranchLockNotifier{}
 	svc := NewBranchLockService(q, WithBranchLockNotifier(notifier))
-	resp, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{JoinRequestID: 5, ResolverID: 9, Approve: true})
+	resp, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{RepositoryID: 1, JoinRequestID: 5, ResolverID: 9, Approve: true})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", resp.Status)
 	require.Len(t, notifier.created, 1)
@@ -445,7 +445,7 @@ func TestDecideBranchLockJoin_RequestToEarlierHolderIsMoot(t *testing.T) {
 		},
 	}
 	svc := NewBranchLockService(q)
-	_, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{JoinRequestID: 5, ResolverID: 9, Approve: true})
+	_, err := svc.DecideBranchLockJoin(context.Background(), DecideBranchLockJoinInput{RepositoryID: 1, JoinRequestID: 5, ResolverID: 9, Approve: true})
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
 	assert.Equal(t, 409, apiErr.Status)
