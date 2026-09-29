@@ -93,6 +93,25 @@ unchanged on a host that is the deploy machine.
 `agent/spawn` of a `Proxy` flow is not supported: the spawner confirms the child
 by reading its run row on this engine, and a remote child has none.
 
+## Where the child can run
+
+The remote engine is one you compose and serve yourself, as the steps above
+do, with the flow registered on it. The Smithers hosts cannot be that engine
+yet:
+
+- `smthrs serve` drives prompt flows only. A flow whose body is a module
+  (`flow.ts`) runs on the host program that registers it, so a served execute
+  of one has no executor.
+- A host that registers module flows, such as the coding host, runs one only
+  under a plan its Control plane approved. A served execute has no such plan,
+  and the host refuses it with "Module execution has no recorded control
+  ancestor".
+
+Placing a child on a Smithers host therefore needs that host's Control plane to
+admit the run: plan it, approve it for the calling principal, charge its
+budget, and run it under the id the caller names. Until it does, place the
+child on an engine you serve, or run the whole flow on the host.
+
 ## Place one action instead of a flow
 
 When only one action must run elsewhere, implement it with
