@@ -45,6 +45,13 @@ func TestWorkspaceCodingRoutes_StrictJSONAndAuth(t *testing.T) {
 }
 
 func TestWorkspaceCodingRoutes_ReadNativeSelectors(t *testing.T) {
+	queryless := httptest.NewRequest(http.MethodGet, "/coding/revisions", nil)
+	queryless = withAuth(withWorkspaceRepoCtx(withRouteParams(queryless, map[string]string{"id": "ws"}), "alice", "demo"), 1, "alice")
+	querylessRec := httptest.NewRecorder()
+	(&WorkspaceHandler{Service: &codingRouteTestService{mockWorkspaceRouteService: &mockWorkspaceRouteService{}}}).ReadCodingRevisions(querylessRec, queryless)
+	require.Equal(t, http.StatusOK, querylessRec.Code)
+	require.Contains(t, querylessRec.Body.String(), `"status":"read"`)
+
 	h := &WorkspaceHandler{Service: &codingRouteTestService{mockWorkspaceRouteService: &mockWorkspaceRouteService{}}}
 	req := httptest.NewRequest(http.MethodGet, "/coding/revisions?change_id=one&change_id=two", nil)
 	req = withAuth(withWorkspaceRepoCtx(withRouteParams(req, map[string]string{"id": "ws"}), "alice", "demo"), 1, "alice")

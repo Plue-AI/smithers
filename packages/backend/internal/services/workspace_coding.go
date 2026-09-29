@@ -228,6 +228,9 @@ func (s *WorkspaceService) ReadCodingRevisions(ctx context.Context, workspaceID 
 			return WorkspaceCodingResult{}, pkgerrors.BadRequest("full native change IDs are required")
 		}
 	}
+	if changeIDs == nil {
+		changeIDs = []string{}
+	}
 	return s.executeCoding(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead,
 		map[string]any{"operation": "read", "changeIds": changeIDs})
 }

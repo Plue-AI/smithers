@@ -91,6 +91,41 @@ func TestWorkspaceCoding_FileRecoveryReceiptSurvivesCloudBoundary(t *testing.T) 
 	require.Equal(t, "value", recovery.Files[0].Path)
 }
 
+func TestWorkspaceCoding_ReadSelectorsEncodeAsArrays(t *testing.T) {
+	changeID := strings.Repeat("k", 32)
+	for _, test := range []struct {
+		name string
+		ids  []string
+		want []string
+	}{
+		{name: "absent", want: []string{}},
+		{name: "explicit", ids: []string{changeID}, want: []string{changeID}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			vm := &mockWorkspaceSandboxVMClient{execAwaitFn: func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+				const marker = "<<'SMITHERS_CODING_JSON'\n"
+				parts := strings.SplitN(req.Command, marker, 2)
+				require.Len(t, parts, 2)
+				raw := strings.TrimSuffix(parts[1], "\nSMITHERS_CODING_JSON")
+				var payload struct {
+					Operation string   `json:"operation"`
+					ChangeIDs []string `json:"changeIds"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(raw), &payload))
+				require.Equal(t, "read", payload.Operation)
+				require.Contains(t, raw, `"changeIds":[`, "native helper requires an array, not null")
+				require.Equal(t, test.want, payload.ChangeIDs)
+				zero := int32(0)
+				return sandbox.ExecResult{StatusCode: &zero, Stdout: `{"status":"read","operationId":"` + strings.Repeat("a", 128) + `"}`}, nil
+			}}
+			result, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).
+				ReadCodingRevisions(context.Background(), "ws-1", 101, 1, test.ids)
+			require.NoError(t, err)
+			require.Equal(t, "read", result.Status)
+		})
+	}
+}
+
 func TestWorkspaceCoding_ReadShareCannotMutate(t *testing.T) {
 	q := &mockWorkspaceQuerier{getWorkspaceShareFn: func(context.Context, db.GetWorkspaceShareParams) (db.WorkspaceShare, error) {
 		return db.WorkspaceShare{Level: "read"}, nil
