@@ -755,3 +755,9 @@ UTF-8 decoding retains the existing replacement-character policy for malformed
 sequences. SSE drops an incomplete final event; NDJSON emits its partial final
 line so JSON decoding can report truncation. Transport failures propagate;
 retry directives in SSE do not terminate the response or discard later events.
+
+## Live test gate
+
+The model test suite uses local fixtures by default. Live evaluator, Gemini,
+and Cerebras cases require `SMITHERS_LIVE_MODEL_TESTS=1` and their matching
+provider key. An ambient key alone does not enable provider traffic.

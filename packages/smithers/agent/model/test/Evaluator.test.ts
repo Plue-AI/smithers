@@ -776,13 +776,16 @@ describe("Evaluator.Question", () => {
 describe("Evaluator over the live gateway", () => {
   const apiKey = process.env["AI_GATEWAY_API_KEY"]
 
-  /** Skips with the missing credential named, never with a bare skipped count. */
-  const requireKey = (ctx: TestContext): void => {
+  /** Live traffic requires both an explicit opt-in and a credential. */
+  const requireLiveGateway = (ctx: TestContext): void => {
+    if (process.env["SMITHERS_LIVE_MODEL_TESTS"] !== "1") {
+      ctx.skip("live provider tests require SMITHERS_LIVE_MODEL_TESTS=1")
+    }
     if (apiKey === undefined || apiKey === "") ctx.skip("AI_GATEWAY_API_KEY is unset")
   }
 
   it("answers the three question shapes", async (ctx) => {
-    requireKey(ctx)
+    requireLiveGateway(ctx)
     const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make(apiKey ?? ""), timeoutMs: 10_000 }).pipe(
       Layer.provide(FetchHttpClient.layer)
     )

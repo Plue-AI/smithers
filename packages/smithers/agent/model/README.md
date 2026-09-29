@@ -132,7 +132,7 @@ having provider credentials in the environment does not enable live calls.
 
 Live integration tests consume provider quota and may incur charges. To run
 them intentionally, set `SMITHERS_LIVE_MODEL_TESTS=1` and the relevant
-`GEMINI_API_KEY` or `CEREBRAS_API_KEY`, then run
+`AI_GATEWAY_API_KEY`, `GEMINI_API_KEY`, or `CEREBRAS_API_KEY`, then run
 `pnpm --filter @smthrs/model test run test/GeminiChatCompletions.integration.test.ts --coverage.enabled=false`
-or the corresponding Cerebras integration file. Keep credentials out of command
+or the corresponding Cerebras or evaluator test file. Keep credentials out of command
 arguments and test output. The live tier is separate from deterministic coverage.
