@@ -23,7 +23,9 @@ const setup = async (web = true, storage = memoryStorage(), initiallySignedIn = 
     ...(web ? { bootstrap: WEB } : {}),
     fetchImpl: async input => {
       const path = new URL(String(input), "https://app.test").pathname
-      if (path === "/api/auth/session") return Response.json(identity ? signedIn : signedOut)
+      if (path === "/api/user") return identity
+        ? Response.json({ id: 1, username: "codeplanesmithers", is_admin: false })
+        : new Response(null, { status: 401 })
       if (path === "/api/cloud-auth/session") return cloud === "offline" ? new Response(null, { status: 503 })
         : Response.json({ state: cloud === "degraded" ? "signed-in" : cloud,
           username: cloud === "signed-out" ? null : "codeplanesmithers", expiresAt: null,
@@ -73,17 +75,17 @@ for (const producer of producers) {
 }
 
 for (const web of [true, false]) {
-  test(`${web ? "web" : "native"} Cloud prompt waits for usable Cloud access, independently of identity`, async () => {
+  test(`${web ? "web" : "native"} Cloud prompt follows the selected user and later Cloud access changes`, async () => {
     const h = await setup(web)
     await h.controller.commands.runForAgent("cloud.prompt")
     const prompt = [...h.store.collections.messages.values()].at(-1)!
     expect(prompt.action?.flow).toBe(web ? "auth.sign-in" : "cloud.sign-in")
     await h.signIn()
-    expect(h.store.collections.messages.get(prompt.id)?.action).toBeDefined()
+    expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
     await h.cloud("degraded")
-    expect(h.store.collections.messages.get(prompt.id)?.action).toBeDefined()
+    expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
     await h.cloud("offline")
-    expect(h.store.collections.messages.get(prompt.id)?.action).toBeDefined()
+    expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
     await h.cloud("signed-in")
     expect(h.store.collections.messages.get(prompt.id)).toMatchObject({ text: prompt.text,
       answeredAction: { answer: "Signed in to Smithers Cloud as @codeplanesmithers." } })
@@ -290,10 +292,11 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`a 
   })
 })
 
-test("a refused Cloud seam on web still offers reauthentication when GitHub is already connected", async () => {
+test("a signed-out Cloud session on web still offers reauthentication when GitHub is already connected", async () => {
   const h = await setup()
   await h.signIn()
-  await h.controller.commands.run("box.list")
+  await h.cloud("signed-out")
+  await h.controller.commands.runForAgent("cloud.prompt")
   const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "auth.sign-in")
   expect(prompt).toBeDefined()
   await h.cloud("signed-in")

@@ -163,9 +163,8 @@ describe("disposing a controller releases what it opened", () => {
         await createAppStore({ kind: "localStorage", storage: memoryStorage() }),
         agent,
         {
-          fetchImpl: (input) => {
-            const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-            if (url.includes("/api/auth/session")) sessionReads += 1
+          applicationIdentity: { current: async () => { sessionReads += 1; return null } },
+          fetchImpl: () => {
             return Promise.resolve(
               new Response(JSON.stringify({ status: "signed-out" }), {
                 status: 200,

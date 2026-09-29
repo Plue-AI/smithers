@@ -30,7 +30,7 @@ const heldIdentity = (answer: () => Promise<Response> = async () => json(401, { 
     release: () => release(),
     fetchImpl: async (input: unknown): Promise<Response> => {
       const path = new URL(String(input), "https://app.test").pathname
-      if (path.endsWith("/auth/session")) {
+      if (path.endsWith("/api/user")) {
         await held
         return answer()
       }
@@ -76,7 +76,7 @@ test("an identity read no boot closure watches still settles the first-run choic
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, {
     fetchImpl: async (input: unknown) => {
-      if (new URL(String(input), "https://app.test").pathname.endsWith("/auth/session")) throw new Error("identity seam unreachable")
+      if (new URL(String(input), "https://app.test").pathname.endsWith("/api/user")) throw new Error("identity seam unreachable")
       return json(404, { status: "error" })
     },
     firstRunSettleMs: 60_000

@@ -75,11 +75,8 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const calls: string[] = []
   const ctx = createControllerContext(store, agent, {
-    fetchImpl: async (input) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-      const body = new URL(url, "https://app.test").pathname.endsWith("/auth/session")
-        ? sessionAnswer
-        : {
+    fetchImpl: async () => {
+      const body = {
           state: "ok",
           allowedToStartWork: true,
           balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 }
@@ -103,7 +100,10 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
     return work()
   }
 
-  const controller = createAuthBillingController(ctx, () => 0)
+  const controller = createAuthBillingController(ctx, () => 0, {
+    current: async () => ({ username: String(sessionAnswer.login), admin: sessionAnswer.admin === true, scopes: null }),
+    signInPath: "/api/auth/github"
+  })
   if (entry === "load") await controller.loadSession()
   else await controller.adoptSession(signedIn)
   await new Promise((resolve) => setTimeout(resolve, 0))
@@ -119,9 +119,9 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
 }
 
 describe("signed-in session adoption", () => {
-  test("an authority-admitted public session resumes the app without inheriting admin", async () => {
-    const publicSession = await runSignedInEntry("load", { login: "new-user", allowlisted: false, admission: "public", admin: true })
-    expect(publicSession.transitions[0]?.payload).toMatchObject({ login: "new-user", allowlisted: true, admin: false })
+  test("a selected backend identity supplies its own admin authority", async () => {
+    const publicSession = await runSignedInEntry("load", { login: "new-user", admin: true })
+    expect(publicSession.transitions[0]?.payload).toMatchObject({ login: "new-user", allowlisted: true, admin: true })
     expect(publicSession.calls).toContain("resumeWorkflowRuns")
   })
   test("live and server-resolved sessions share every transition and follow-on call", async () => {
@@ -129,13 +129,19 @@ describe("signed-in session adoption", () => {
     const adopted = await runSignedInEntry("adopt")
 
     expect(adopted.transitions).toEqual(live.transitions)
-    expect(live.transitions).toEqual([
-      {
+    expect(live.transitions.map(({ type }) => type)).toEqual([
+      "identity.session.loaded", "cloud.session.loaded", "billing.refreshed"
+    ])
+    expect(live.transitions).toContainEqual({
         actor: "system",
         type: "identity.session.loaded",
         payload: { ...signedIn, scopesPlain: null, provider: "github" }
-      },
-      {
+      })
+    expect(live.transitions).toContainEqual({
+        actor: "system", type: "cloud.session.loaded",
+        payload: { state: "signed-in", username: "will", expiresAt: null, scopes: null }
+      })
+    expect(live.transitions).toContainEqual({
         actor: "system",
         type: "billing.refreshed",
         payload: {
@@ -145,8 +151,7 @@ describe("signed-in session adoption", () => {
           lifetimeChargedUsd: "0",
           chargeCount: 0
         }
-      }
-    ])
+      })
     expect(adopted.calls).toEqual(live.calls)
     expect(live.calls).toEqual([
       "identityChanged",
@@ -226,7 +231,7 @@ describe("sign-in return path", () => {
     const ctx = createControllerContext(store, agent, {
       fetchImpl: async () => Response.json({})
     })
-    const controller = createAuthBillingController(ctx, () => 0, undefined, undefined, {
+    const controller = createAuthBillingController(ctx, () => 0, {
       current: async () => null,
       signInPath: "/api/auth/github"
     })
@@ -265,7 +270,7 @@ test("selected backend identity also supplies the Cloud capability session", asy
   })
   ctx.withToast = async (_key, _title, _done, work) => work()
   const settled: string[] = []
-  const controller = createAuthBillingController(ctx, () => 0, undefined, undefined, {
+  const controller = createAuthBillingController(ctx, () => 0, {
     current: async () => ({ username: "owner", admin: true, scopes: "degraded" }),
     signInPath: "/api/auth/github",
     settled: () => settled.push("settled")
@@ -285,7 +290,7 @@ test("selected backend identity also supplies the Cloud capability session", asy
     scopes: "degraded"
   })
   expect(settled).toEqual(["settled"])
-  expect(requested.some((url) => url.includes("/api/auth/session") || url.includes("/api/cloud-auth/session"))).toBe(false)
+  expect(requested.some((url) => url.includes("/api/user") || url.includes("/api/cloud-auth/session"))).toBe(false)
 })
 
 describe("native sign-in handoff ownership", () => {
@@ -320,7 +325,7 @@ describe("native sign-in handoff ownership", () => {
         const path = new URL(String(input)).pathname
         requests.push(path)
         const stage = pause.replace("-body", "")
-        if (path.endsWith(`/auth/native/${stage}`) || (stage === "session" && path.endsWith("/auth/session"))) {
+        if (path.endsWith(`/auth/native/${stage}`)) {
           requestSignal = init?.signal
           // Deliberately ignore abort: late answers still need continuation fences.
           // boundedFetch buffers the body at the seam, so a stalled body is a
@@ -356,7 +361,21 @@ describe("native sign-in handoff ownership", () => {
     }
     store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn,
       state: "signed-out", login: null, scopesPlain: null })
-    const controller = createAuthBillingController(ctx, () => 0)
+    const controller = createAuthBillingController(ctx, () => 0, {
+      current: async signal => {
+        requests.push("/api/user")
+        requestSignal = signal
+        if (!pause.startsWith("session")) return { username: "will", admin: false, scopes: null }
+        reached.resolve()
+        const aborted = new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+        })
+        const answer = await Promise.race([response.promise, aborted])
+        const body = await answer.json() as { status?: string; username?: string; login?: string; admin?: boolean }
+        return body.status === "signed-out" ? null : { username: body.username ?? body.login ?? "will", admin: body.admin === true, scopes: null }
+      },
+      signInPath: "/api/auth/github"
+    })
     const transitions = () => [...store.collections.transitions.values()]
     return { ctx, controller, store, reached, response, reopened, opened, requests, transitions,
       signal: () => requestSignal }
@@ -488,7 +507,7 @@ describe("native sign-in handoff ownership", () => {
       expect(h.store.collections.toasts.get("toast-auth.sign-in.handoff")?.detail)
         .toContain("the sign-in cookie never reached it")
       expect(h.store.collections.identitySessions.get("identity")?.state).toBe("signed-out")
-      expect(h.requests).toEqual(["/api/auth/native/start", "/api/auth/native/claim", "/api/auth/session", "/api/auth/scopes"])
+      expect(h.requests).toEqual(["/api/auth/native/start", "/api/auth/native/claim", "/api/user"])
     } finally { await h.ctx.dispose(); await h.store.dispose?.() }
   })
 })
@@ -539,29 +558,27 @@ describe("a balance refresh the account outlives", () => {
   })
 })
 
-for (const entry of ["load", "adopt"] as const) {
-  test(`${entry} waits for the web Cloud session before resuming a parked act`, async () => {
+test("a selected identity read completes before resuming a parked act", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const ctx = createControllerContext(store, agent, {
       fetchImpl: async () => Response.json(signedIn)
     })
     ctx.withToast = async (_key, _title, _done, work) => work()
     const calls: string[] = []
-    let release!: () => void
-    const cloud = new Promise<void>(resolve => { release = resolve })
+    let release!: (identity: { username: string; admin: boolean; scopes: null }) => void
+    const identity = new Promise<{ username: string; admin: boolean; scopes: null }>(resolve => { release = resolve })
     ctx.resumeDeferredCommand = () => calls.push("resume")
-    const controller = createAuthBillingController(ctx, () => 0, async () => {
-      calls.push("cloud")
-      await cloud
+    const controller = createAuthBillingController(ctx, () => 0, {
+      current: async () => { calls.push("identity"); return identity },
+      signInPath: "/api/auth/github"
     })
-    const loading = entry === "load" ? controller.loadSession() : controller.adoptSession(signedIn)
+    const loading = controller.loadSession()
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(calls).toEqual(["cloud"])
-    release()
+    expect(calls).toEqual(["identity"])
+    release({ username: "will", admin: false, scopes: null })
     await loading
-    expect(calls).toEqual(["cloud", "resume"])
+    expect(calls).toEqual(["identity", "resume"])
   })
-}
 
 /*
  * A balance read nobody asked for says nothing at all: the reads a session
@@ -582,11 +599,8 @@ describe("automatic balance refreshes", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const pending: Array<(response: Response) => void> = []
     const ctx = createControllerContext(store, agent, {
-      fetchImpl: (input) => {
-        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-        return new URL(url, "https://app.test").pathname.endsWith("/auth/session")
-          ? Promise.resolve(Response.json(signedIn))
-          : new Promise<Response>((resolve) => {
+      fetchImpl: () => {
+        return new Promise<Response>((resolve) => {
             pending.push(resolve)
           })
       },
@@ -603,11 +617,12 @@ describe("automatic balance refreshes", () => {
     }
     return {
       ctx,
-      controller: createAuthBillingController(ctx, () => 0),
+      controller: createAuthBillingController(ctx, () => 0, {
+        current: async () => ({ username: "will", admin: false, scopes: null }), signInPath: "/api/auth/github"
+      }),
       toast,
       balance: () => store.collections.billingAccounts.get("billing"),
-      // Every request this harness holds open is a balance read; the session
-      // probe answers from the branch above and never reaches the array.
+      // Every request this harness holds open is a balance read.
       reads: () => pending.length,
       // The read is held open until the test answers it, so "while it runs" is
       // an observable window and not a race with the answer.
@@ -770,18 +785,19 @@ describe("automatic balance refreshes", () => {
 describe("identity re-probes", () => {
   const probes = async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const answers: Array<(response: Response) => void> = []
+    const answers: Array<(identity: { username: string; admin: boolean; scopes: null }) => void> = []
     const ctx = createControllerContext(store, agent, {
       fetchImpl: (input, init) => {
         const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "https://app.test").pathname
-        if (path.endsWith("/auth/session")) return new Promise<Response>(resolve => { answers.push(resolve) })
         if (path.endsWith("/auth/logout") && init?.method === "POST") return Promise.resolve(Response.json({}))
         // The balance read a signed-in answer starts is not under test: it never answers.
         return new Promise<Response>(() => {})
       }
     })
     ctx.withToast = async (_key, _title, _done, work) => work()
-    const controller = createAuthBillingController(ctx, () => 0)
+    const controller = createAuthBillingController(ctx, () => 0, {
+      current: () => new Promise(resolve => { answers.push(resolve) }), signInPath: "/api/auth/github"
+    })
     const until = async (ready: () => boolean) => {
       for (let attempt = 0; attempt < 100 && !ready(); attempt += 1) await new Promise(resolve => setTimeout(resolve, 0))
       expect(ready()).toBe(true)
@@ -792,7 +808,7 @@ describe("identity re-probes", () => {
       probe: async (answer: Record<string, unknown>) => {
         const loading = controller.loadSession()
         await until(() => answers.length > 0)
-        answers.shift()!(Response.json(answer))
+        answers.shift()!({ username: String(answer.login), admin: answer.admin === true, scopes: null })
         await loading
       },
       held: async (count: number) => { await until(() => answers.length >= count); return answers.splice(0) },
@@ -821,9 +837,9 @@ describe("identity re-probes", () => {
       const first = h.controller.loadSession()
       const second = h.controller.loadSession()
       const [older, newer] = await h.held(2)
-      newer!(Response.json({ ...signedIn, login: "newer" }))
+      newer!({ username: "newer", admin: false, scopes: null })
       await second
-      older!(Response.json({ ...signedIn, login: "older" }))
+      older!({ username: "older", admin: false, scopes: null })
       await first
       expect(h.identity()).toMatchObject({ state: "signed-in", login: "newer" })
     } finally { await h.dispose() }
@@ -838,7 +854,7 @@ describe("identity re-probes", () => {
       const [late] = await h.held(1)
       expect(await h.controller.signOut()).toBeUndefined()
       expect(h.ctx.accountEpoch).toBe(epoch + 1)
-      late!(Response.json(signedIn))
+      late!({ username: "will", admin: false, scopes: null })
       await reading
       expect(h.identity()).toMatchObject({ state: "signed-out", login: null })
       expect(h.ctx.accountEpoch).toBe(epoch + 1)
@@ -1228,34 +1244,26 @@ test("an unreachable queue reread reports failure without replacing the last con
 })
 
 test.each([
-  { name: "upstream 401", answer: () => new Response(null, { status: 401 }), state: "signed-out", scopes: true },
-  { name: "explicit signed-out", answer: () => Response.json({ status: "signed-out" }), state: "signed-out", scopes: true },
-  { name: "forbidden upstream", answer: () => new Response(null, { status: 403 }), state: "unavailable", scopes: false },
-  { name: "malformed JSON", answer: () => new Response("not json", { status: 200 }), state: "unavailable", scopes: false },
-  { name: "wrong session shape", answer: () => Response.json({ status: "signed-in", login: "  " }), state: "unavailable", scopes: false },
-  { name: "network error", answer: () => { throw Error("offline") }, state: "unavailable", scopes: false }
-] as const)("$name session probe records $state without starting billing", async ({ answer, state, scopes }) => {
+  { name: "signed-out", current: async () => null, state: "signed-out" },
+  { name: "provider error", current: async () => { throw Error("offline") }, state: "unavailable" }
+] as const)("$name selected identity records $state without waiting for scopes or billing", async ({ current, state }) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const paths: string[] = []
   const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
     const path = String(input)
     paths.push(path)
-    if (path.endsWith("/api/auth/session")) return answer()
     if (path.endsWith("/api/auth/scopes")) return Response.json({ scopes: [
       { plain: "See your GitHub profile." }, { plain: "Read your repositories." }
     ] })
     throw Error("Unexpected request")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx, store.nextOrdinal, { current, signInPath: "/api/auth/github" })
   try {
     await controller.loadSession()
     expect(store.collections.identitySessions.get("identity")?.state).toBe(state)
     expect(store.collections.identitySessions.get("identity")?.login).toBeNull()
-    expect(store.collections.identitySessions.get("identity")?.scopesPlain).toBe(scopes
-      ? "Before GitHub asks, here is what Smithers will use: See your GitHub profile. Read your repositories."
-      : null)
-    expect(paths.filter(path => path.endsWith("/api/auth/scopes"))).toHaveLength(scopes ? 1 : 0)
-    expect(paths.some(path => path.includes("/billing/"))).toBe(false)
+    expect(store.collections.identitySessions.get("identity")?.scopesPlain).toBeNull()
+    expect(paths).toEqual([])
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
@@ -1297,7 +1305,7 @@ test("three refused native claims end sign-in with the host's error", async () =
       const path = String(input)
       if (path.endsWith("/auth/native/start")) return Response.json({ handoffId: "handoff", pollSecret: "secret" })
       if (path.endsWith("/auth/native/claim")) { claims++; return Response.json({ message: "Identity is unavailable" }, { status: 503 }) }
-      if (path.endsWith("/auth/session")) { sessionReads++; return Response.json(signedIn) }
+      if (path.endsWith("/api/user")) { sessionReads++; return Response.json(signedIn) }
       throw Error("Unexpected route")
     } })
   ctx.resolveToast = createFailureController(ctx).resolveToast
@@ -1340,7 +1348,7 @@ test("a selected identity provider that cannot answer leaves the session unavail
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let settledCalls = 0, requests = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async () => { requests++; throw Error("Unexpected web probe") } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, undefined, undefined, {
+  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
     current: async () => { throw Error("provider offline") }, signInPath: "/api/auth/github", settled: () => { settledCalls++ }
   })
   try {
@@ -1392,29 +1400,27 @@ const withVisibleHost = async (
 
 test("tab focus coalesces one session read and disposal removes its observer", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const answers: Array<(response: Response) => void> = []
+  const answers: Array<(identity: null) => void> = []
   let sessionReads = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
-    const path = String(input)
-    if (path.endsWith("/api/auth/session")) {
-      sessionReads++
-      return new Promise<Response>(resolve => { answers.push(resolve) })
-    }
-    if (path.endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
+    if (String(input).endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
     throw Error("Unexpected route")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+    current: () => { sessionReads++; return new Promise(resolve => { answers.push(resolve) }) },
+    signInPath: "/api/auth/github"
+  })
   await withVisibleHost(async ({ doc, win }) => {
     controller.watchIdentityAcrossTabs()
     win.dispatchEvent(new Event("focus"))
     win.dispatchEvent(new Event("focus"))
     doc.dispatchEvent(new Event("visibilitychange"))
     expect(sessionReads).toBe(1)
-    answers.shift()!(Response.json({ status: "signed-out" }))
+    answers.shift()!(null)
     await waitFor(() => store.collections.identitySessions.get("identity")?.state === "signed-out")
     win.dispatchEvent(new Event("focus"))
     await waitFor(() => sessionReads === 2)
-    answers.shift()!(Response.json({ status: "signed-out" }))
+    answers.shift()!(null)
     await settle()
     await ctx.dispose()
     win.dispatchEvent(new Event("focus"))
@@ -1426,18 +1432,20 @@ test("tab focus coalesces one session read and disposal removes its observer", a
 
 test("a failed focus refresh reports its callback error while keeping the signed-in answer", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const ctx = createControllerContext(store, agent, { fetchImpl: async input => String(input).endsWith("/api/auth/session")
-    ? Response.json(signedIn)
-    : Response.json({ state: "ok", allowedToStartWork: true,
+  const ctx = createControllerContext(store, agent, { fetchImpl: async () => Response.json({ state: "ok", allowedToStartWork: true,
       balance: { totalUsd: "25", lifetimeChargedUsd: "0", chargeCount: 0 } }) })
   ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, async () => { throw Error("Cloud refresh failed") })
+  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+    current: async () => ({ username: "will", admin: false, scopes: null }),
+    signInPath: "/api/auth/github",
+    settled: () => { throw Error("Selected identity callback failed") }
+  })
   await withVisibleHost(async ({ win }) => {
     controller.watchIdentityAcrossTabs()
     win.dispatchEvent(new Event("focus"))
     await waitFor(() => ctx.failures.recent().some(failure => failure.seam === "command.boundary"))
     expect(ctx.failures.recent().filter(failure => failure.seam === "command.boundary"))
-      .toEqual([expect.objectContaining({ subject: "identity.refresh", message: expect.stringContaining("Cloud refresh failed") })])
+      .toEqual([expect.objectContaining({ subject: "identity.refresh", message: expect.stringContaining("Selected identity callback failed") })])
     expect(store.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "will" })
     expect(ctx.disposed).toBe(false)
   }, async () => { await ctx.dispose(); await store.dispose?.() })
@@ -1445,15 +1453,15 @@ test("a failed focus refresh reports its callback error while keeping the signed
 
 test("a sibling identity signal rereads the session and closes its channel on dispose", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const answer = Promise.withResolvers<Response>()
+  const answer = Promise.withResolvers<null>()
   let reads = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
-    const path = String(input)
-    if (path.endsWith("/api/auth/session")) { reads++; return answer.promise }
-    if (path.endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
+    if (String(input).endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
     throw Error("Unexpected route")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+    current: () => { reads++; return answer.promise }, signInPath: "/api/auth/github"
+  })
   await withVisibleHost(async ({ channels }) => {
     controller.watchIdentityAcrossTabs()
     expect(channels).toHaveLength(1)
@@ -1462,7 +1470,7 @@ test("a sibling identity signal rereads the session and closes its channel on di
     expect(channels[0]?.posted).toEqual(["changed"])
     channels[0]?.onmessage?.({ data: { login: "impostor" } } as MessageEvent)
     await waitFor(() => reads === 1)
-    answer.resolve(Response.json({ status: "signed-out" }))
+    answer.resolve(null)
     await waitFor(() => store.collections.identitySessions.get("identity")?.state === "signed-out")
     expect(store.collections.identitySessions.get("identity")?.login).toBeNull()
     await ctx.dispose()
@@ -1470,5 +1478,5 @@ test("a sibling identity signal rereads the session and closes its channel on di
     expect(channels[0]?.onmessage).toBeNull()
     ctx.identityChanged()
     expect(channels[0]?.posted).toEqual(["changed"])
-  }, async () => { answer.resolve(Response.json({ status: "signed-out" })); await ctx.dispose(); await store.dispose?.() }, true)
+  }, async () => { answer.resolve(null); await ctx.dispose(); await store.dispose?.() }, true)
 })

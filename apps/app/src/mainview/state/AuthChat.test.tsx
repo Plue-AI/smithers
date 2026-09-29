@@ -79,8 +79,9 @@ describe("auth is a conversation state — the chat is the only page", () => {
   test("signed-out: the chat stays available and sign-in has an explicit embedded door", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
+      bootstrap: WEB,
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, {
           scopes: [{ scope: "read:user", plain: "See your GitHub profile.", why: "Sign-in." }]
         })
@@ -106,20 +107,16 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(host.querySelector("textarea")?.placeholder).toBe("Ask Smithers to work on something…")
   })
 
-  test("an adopted signed-out session (the server-rendered web boot) still names the scopes", async () => {
+  test("an adopted signed-out web session keeps the sign-in door without a scopes read", async () => {
     /*
      * Live on canary: the Start build resolves the session on the server and
-     * the client adopts it, so the scopes read the client-probe path makes
-     * never ran — every signed-out web visitor read "The identity service
-     * isn't configured on this deployment" on a deployment where it is.
+     * the client adopts it. The sign-in door must remain available even
+     * without another identity probe.
      */
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/auth/scopes": json(200, {
-          scopes: [{ scope: "read:user", plain: "See your GitHub profile.", why: "Sign-in." }]
-        })
-      })
+      bootstrap: WEB,
+      ...backend({ "/api/user": json(401, {}) })
     })
     await controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
     await settled()
@@ -131,7 +128,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(html).not.toContain("sign in with GitHub to continue")
     expect(html).not.toContain("The identity service isn't configured")
     expect(host.querySelector("[data-flow=\"auth.sign-in\"]")).not.toBeNull()
-    expect(store.collections.identitySessions.get("identity")?.scopesPlain).toContain("See your GitHub profile.")
+    expect(store.collections.identitySessions.get("identity")?.scopesPlain).toBeNull()
   })
 
   test("signed-out: a send reaches the agent; the chat is not gated on identity", async () => {
@@ -139,7 +136,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       features: { suggestionPills: true },
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -162,7 +159,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -190,7 +187,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -229,7 +226,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -248,7 +245,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
       firstRunSettleMs: 60_000,
       fetchImpl: async (input: unknown): Promise<Response> => {
         const path = new URL(String(input), "https://smithers.sh").pathname
-        if (path === "/api/auth/session") {
+        if (path === "/api/user") {
           await held
           return json(401, { status: "error" })
         }
@@ -275,7 +272,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
       window.history.replaceState(null, "", `/${repo}/`)
       const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
       const http = backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] }),
         "/api/public/repos": json(200, { repos: [{ name: "smithersai/smithers" }] })
       })
@@ -311,7 +308,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
       repositoryApp: requestedRepo(window.location) ?? undefined,
-      ...backend({ "/api/auth/session": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) })
+      ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) })
     })
     await controller.loadSession()
     store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "catalog", repo: "alpha/one", phase: "pending" } })
@@ -341,7 +338,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     test(`an unknown repository boot shows its notice after a persisted repository selection (saved sign-in: ${savedSignIn})`, async () => {
       const storage = memoryStorage()
       const http = backend({
-        "/api/auth/session": json(401, {}),
+        "/api/user": json(401, {}),
         "/api/auth/scopes": json(200, { scopes: [] }),
         "/api/public/repos": json(200, { repos: [{ name: "smithersai/smithers" }] }),
         "/api/repos/smithersai/smithers": json(200, { default_bookmark: "main" }),
@@ -385,7 +382,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -422,7 +419,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -452,7 +449,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: { ...WEB, host: "local", capabilities: [...WEB.capabilities, "native.shell"], authFlow: "native-handoff", sandbox: { platform: "darwin", mode: "enforced" } },
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -467,11 +464,9 @@ describe("auth is a conversation state — the chat is the only page", () => {
   test("signed-in but not allowlisted: the same chat carries the request-access message", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false })
-      })
+      ...backend({})
     })
-    await controller.loadSession()
+    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
     await settled()
 
     const { host, markup } = mount(controller)
@@ -487,11 +482,9 @@ describe("auth is a conversation state — the chat is the only page", () => {
   test("a failed access request adds one fixed sentence and never the server's refusal", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false })
-      })
+      ...backend({})
     })
-    await controller.loadSession()
+    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
     await settled()
     const raw = "HTTP 500 access_queue_unavailable: pq: relation does not exist"
     store.dispatch({ type: "identity.access.failed", actor: "system", message: raw })
@@ -509,7 +502,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "will", allowlisted: true, admin: false }),
+        "/api/user": json(200, { id: 1, username: "will", is_admin: false }),
         "/api/billing/balance": json(200, {
           user: "will",
           balance: { totalUsd: "0", totalNanos: 0, lifetimeChargedUsd: "500", chargeCount: 3 },
@@ -569,7 +562,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
 test("an unknown repository's explicit sign-in prompt replaces the web opening card", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { bootstrap: WEB,
-    ...backend({ "/api/auth/session": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
+    ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
   await controller.loadSession()
   await controller.commands.run("auth.prompt")
   await settled()
@@ -581,7 +574,7 @@ test("an unknown repository's explicit sign-in prompt replaces the web opening c
 test("the web wiki empty state offers Create Wiki through the registered flow", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { bootstrap: WEB,
-    ...backend({ "/api/auth/session": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
+    ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
   // Select the repository before opening its Wiki: changing scope replaces the transcript.
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: "smithersai/smithers", org: "smithersai", name: "smithers", ownerKind: "org", head: null, catalog: true } }).isPersisted.promise

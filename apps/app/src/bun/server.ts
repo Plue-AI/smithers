@@ -15,7 +15,6 @@ import {
   AUTH_CALLBACK_PATH,
   AUTH_NATIVE_CLAIM_PATH,
   AUTH_ROUTE_PREFIX,
-  AUTH_SESSION_PATH,
   AUTH_SIGN_IN_PATH,
   CANCEL_PATH,
   CHAT_CANCEL_PATH,
@@ -406,13 +405,9 @@ const PRODUCT_PROXY_PREFIXES: ReadonlyArray<string> = [
   "/api/admin/"
 ]
 
-/** The stand-in for the identity seam where this build forwards to none: signed out, nothing else configured. */
-const stubIdentity = (pathname: string): Response =>
-  pathname === AUTH_SESSION_PATH
-    ? json({ status: "signed-out" })
-    // The identity routes are the Worker's too, so this refusal speaks the
-    // Worker's vocabulary with `origin: "local"`, like every other shared site.
-    : refuse("feature_unavailable_here", "The identity seam is stubbed in this build.")
+/** The identity routes are the Worker's too, so an offline refusal uses its vocabulary. */
+const stubIdentity = (): Response =>
+  refuse("feature_unavailable_here", "The identity seam is stubbed in this build.")
 
 /*
  * Re-scope an upstream Set-Cookie to this origin. The identity seam serves
@@ -1125,8 +1120,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
           ? refuse("feature_unavailable_here", "The cloud seam is disabled in this build.")
           : proxyCloud(request, url, cloudUpstream, cloudAuth?.token(), upstreamTimeoutMs, log)
       }
+      if (pathname === "/api/auth/session") return jsonError("not_found", `No route for ${request.method} ${pathname}.`)
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
-        return identityUpstream === null ? stubIdentity(pathname) : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
+        return identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
       }
       /*
        * The product API. The cloud client is served BY the Worker, so every

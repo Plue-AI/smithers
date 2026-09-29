@@ -1014,21 +1014,18 @@ export const createAppController = (
   } = actors.pair(ctx, (context) => createAuthBillingController(
     context,
     store.nextOrdinal,
-    applicationIdentity === undefined && services.bootstrap !== undefined && hasCapability(services.bootstrap, "cloud")
-      ? loadCloudSession
-      : undefined,
-    () => {
-      if (localAuth === undefined) return false
-      localAuth.open()
-      return true
-    },
     applicationIdentity === undefined
       ? undefined
       : {
         current: applicationIdentity.current,
         signInPath: signInByHandoff(services.bootstrap) ? AUTH_SIGN_IN_PATH : APPLICATION_SIGN_IN_PATH,
         settled: reloadRepositoriesWhenSignedIn
-      }
+      },
+    () => {
+      if (localAuth === undefined) return false
+      localAuth.open()
+      return true
+    }
   ))
   if (ownerCredentials(services) && services.localIdentity !== undefined) {
     localAuth = createLocalAuthController(services.localIdentity, loadSession, services.localBootstrapToken)

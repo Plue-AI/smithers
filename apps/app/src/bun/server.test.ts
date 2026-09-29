@@ -189,7 +189,7 @@ describe("the local origin", () => {
       expect(response.status).toBe(501) // the stub seam: reached, and honest about being stubbed
     }
     // Everything else under /api/ still needs the capability.
-    expect((await fetch(`${server.origin}/api/auth/session`)).status).toBe(401)
+    expect((await fetch(`${server.origin}/api/user`)).status).toBe(401)
     expect((await fetch(`${server.origin}/api/auth/github/start`, { method: "POST" })).status).toBe(401)
   })
 
@@ -354,6 +354,7 @@ describe("the local origin", () => {
       // The Worker authenticates by the identity session cookie; the Origin follows the upstream like every identity call.
       expect(seen.every((entry) => entry.cookie === "smithers_identity=sealed")).toBe(true)
       expect(seen.every((entry) => entry.origin === `http://127.0.0.1:${upstream.port}`)).toBe(true)
+      expect((await fetch(`${proxied.origin}/api/auth/session`, { headers })).status).toBe(404)
       const unknown = await fetch(`${proxied.origin}/api/nothing/here`, { headers })
       expect(unknown.status).toBe(404)
       for (const path of ["/api/linear", "/api/integrations/linear", "/api/auth/linear", "/api/repos/a/b/issues/1/linear-link", "/api/cloud/api/linear", "/api/cloud/api/auth/linear", "/api/cloud/api/repos/a/b/issues/1/linear-link"]) {
@@ -373,9 +374,9 @@ describe("the local origin", () => {
     expect(response.status).toBe(501)
   })
 
-  test("the stub identity seam answers signed-out and nothing else", async () => {
-    const session = await apiFetch("/api/auth/session")
-    expect(await session.json()).toEqual({ status: "signed-out" })
+  test("offline identity has no user session or legacy session route", async () => {
+    expect((await apiFetch("/api/user")).status).toBe(501)
+    expect((await apiFetch("/api/auth/session")).status).toBe(404)
     expect((await apiFetch("/api/auth/native/start", { method: "POST" })).status).toBe(501)
   })
 })

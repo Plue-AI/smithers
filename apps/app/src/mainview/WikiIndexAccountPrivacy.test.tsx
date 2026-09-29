@@ -29,14 +29,16 @@ const fixture = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let answer: () => Promise<Response> = async () => Response.json(index)
   const requests: string[] = []
-  const controller = createController(store, silentAgent, { fetchImpl: async input => {
-    const path = new URL(String(input), "https://app.test").pathname
-    requests.push(path)
-    if (path.endsWith("/wiki/navigation/index")) return answer()
-    if (path === "/api/auth/logout") return new Response(null, { status: 204 })
-    if (path === "/api/auth/session") return Response.json(signedIn("alice"))
-    return Response.json({})
-  } })
+  const controller = createController(store, silentAgent, {
+    applicationIdentity: undefined,
+    fetchImpl: async input => {
+      const path = new URL(String(input), "https://app.test").pathname
+      requests.push(path)
+      if (path.endsWith("/wiki/navigation/index")) return answer()
+      if (path === "/api/auth/logout") return new Response(null, { status: 204 })
+      return Response.json({})
+    }
+  })
   await controller.adoptSession(signedIn("alice"))
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
     { id: repo, org: "org", ownerKind: "user", name: "repo", head: null }
@@ -151,7 +153,20 @@ test("disposing a controller clears its index and refuses a held response", asyn
   } finally { held.resolve(Response.json(index)); await f.close() }
 })
 
-for (const status of [401, 403, 404, 410, 451] as const) test(`a denied private read (${status}) clears old metadata and a retry replaces it`, async () => {
+test("a 401 private read fences the old account before its Wiki can render", async () => {
+  const f = await fixture()
+  try {
+    await f.controller.loadWikiIndex(repo, "private")
+    await waitFor(() => f.host.textContent?.includes("ALICE PRIVATE INCIDENT") === true)
+    f.answer(async () => Response.json({ message: "Access unavailable" }, { status: 401 }))
+    expect(await f.controller.loadWikiIndex(repo, "private")).toBe("The account or conversation changed while the Wiki was loading.")
+    expect(f.store.collections.identitySessions.get("identity")?.state).toBe("unavailable")
+    expect(f.controller.wikiIndexes.get(repo, "private")?.pages ?? []).toEqual([])
+    expect(f.host.textContent).not.toContain("ALICE PRIVATE INCIDENT")
+  } finally { await f.close() }
+})
+
+for (const status of [403, 404, 410, 451] as const) test(`a denied private read (${status}) clears old metadata and a retry replaces it`, async () => {
   const f = await fixture()
   try {
     await f.controller.loadWikiIndex(repo, "private")

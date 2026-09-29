@@ -134,7 +134,7 @@ instead of becoming a fact the UI believes.
   47331.
 - **A wedged wrangler on 8788 is not this.** Port 8788 belongs to the site dev
   proxy and nothing here uses it. If a request seems to hang, check the two
-  ports this command prints, with `curl -m 5 <relay>/api/auth/session`.
+  ports this command prints, with `curl -m 5 <relay>/api/user`.
 - **Never run `bun test` over `apps/app/src/bun`.** It orphans
   `e2e/native/MainProcess.ts` daemons, about ten per run.
 - **A decision refused as `unauthorized` is the approval authority.** Every

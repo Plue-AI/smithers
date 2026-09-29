@@ -14,6 +14,7 @@ const setup = async (fetchImpl?: import("./AppController").AppServices["fetchImp
   const redirects: string[] = []
   const requests: string[] = []
   const controller = createAppController(store, unavailableAgent, {
+    bootstrap: WEB,
     openExternal: async url => { redirects.push(url); return true },
     fetchImpl: async (input, init) => {
       requests.push(String(input))

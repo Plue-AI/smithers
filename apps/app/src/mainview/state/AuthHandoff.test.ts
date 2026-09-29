@@ -83,9 +83,9 @@ const harness = async (options: {
         const next = claims.length > 1 ? claims.shift() : claims[0]
         return json(next?.status ?? 404, next?.body ?? { status: "error", message: "expired" })
       }
-      if (path === "/api/auth/session") {
+      if (path === "/api/user") {
         // After a ready claim the cookie is in the jar: the probe answers signed-in.
-        const answer = options.sessionAnswer ?? { status: 200, body: { login: "will", allowlisted: true, admin: false } }
+        const answer = options.sessionAnswer ?? { status: 200, body: { id: 1, username: "will", is_admin: false } }
         return json(answer.status, answer.body)
       }
       return json(404, { status: "error", message: `no stub for ${path}` })
@@ -106,7 +106,7 @@ describe("the native sign-in handoff", () => {
     })
     await h.signIn()
     await until(() => h.store.collections.identitySessions.get("identity")?.state === "signed-in")
-    expect(h.opened).toEqual(["https://app.test/api/auth/github/start?handoff=handoff-1"])
+    expect(h.opened).toEqual(["https://app.test/api/auth/github?handoff=handoff-1"])
     expect(h.requests).toContain("POST /api/auth/native/start")
     expect(h.requests.filter((line) => line === "POST /api/auth/native/claim").length).toBeGreaterThanOrEqual(2)
     const identity = h.store.collections.identitySessions.get("identity")
@@ -186,8 +186,8 @@ describe("the native sign-in handoff", () => {
     held = false
     // Same handoff, same browser page — never a second start.
     expect(h.opened).toEqual([
-      "https://app.test/api/auth/github/start?handoff=handoff-1",
-      "https://app.test/api/auth/github/start?handoff=handoff-1"
+      "https://app.test/api/auth/github?handoff=handoff-1",
+      "https://app.test/api/auth/github?handoff=handoff-1"
     ])
     expect(h.requests.filter((line) => line === "POST /api/auth/native/start")).toHaveLength(1)
     await until(() => h.store.collections.identitySessions.get("identity")?.state === "signed-in")
@@ -207,7 +207,7 @@ describe("the native sign-in handoff", () => {
   test("a ready claim whose session never lands says so instead of 'Signed in'", async () => {
     const h = await harness({
       claims: [{ status: 200, body: { status: "ready" } }],
-      sessionAnswer: { status: 200, body: { status: "signed-out" } }
+      sessionAnswer: { status: 401, body: { code: "unauthenticated" } }
     })
     await h.signIn()
     await until(() =>

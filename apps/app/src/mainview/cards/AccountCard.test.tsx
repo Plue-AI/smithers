@@ -5,7 +5,7 @@ import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
-import { memoryStorage, unavailableAgent, waitFor } from "../state/TestFixtures"
+import { memoryStorage, unavailableAgent } from "../state/TestFixtures"
 import { AccountCardBody } from "./AccountCard"
 
 GlobalRegistrator.register()
@@ -13,7 +13,7 @@ afterAll(async () => { await GlobalRegistrator.unregister() })
 const createController = scopedControllers()
 
 for (const provider of ["local", "github"] as const) {
-  test(`${provider} account reports only its provider and survives reload`, async () => {
+  test(`${provider} selected account reports only its provider and survives reload`, async () => {
     const storage = memoryStorage()
     const store = await createAppStore({ kind: "localStorage", storage })
     const paths: string[] = []
@@ -36,16 +36,15 @@ for (const provider of ["local", "github"] as const) {
     })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
     const result = await controller.showAccount()
-    if (provider === "github") await waitFor(() => { const card = store.collections.cards.get("account"); return card?.kind === "account" && card.payload.refresh?.state === "complete" })
     await store.settled?.()
-    expect(paths.includes("/api/auth/scopes")).toBe(provider === "github")
-    if (provider === "github") expect(result).toEqual({ value: "Requested" })
-    else expect(JSON.stringify(result)).not.toContain("GitHub")
+    expect(paths).toEqual([])
+    expect(result).toEqual({ value: "account: @owner; access allowed; 0 box(es) listed" })
     const restored = await createAppStore({ kind: "localStorage", storage })
     try {
       const card = restored.collections.cards.get("account")!
       if (card.kind !== "account") throw new Error("Missing account card")
       expect(card.payload).toMatchObject({ provider, login: "owner" })
+      expect(card.payload.refresh).toBeUndefined()
       const html = renderToStaticMarkup(<AccountCardBody card={card} onRunCommand={() => {}} />)
       expect(html.includes("GitHub")).toBe(provider === "github")
       expect(html.includes("read:user")).toBe(provider === "github")

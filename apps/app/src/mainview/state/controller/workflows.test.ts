@@ -26,7 +26,7 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number } = {}) 
   const calls: Array<{ procedure: string; payload: Record<string, unknown>; repo: string; workspaceId?: string }> = []
   let provision = async () => json(200, { status: "ready" })
   let provisions = 0
-  let session = (): Response => json(200, { login: "owner", allowlisted: true, admin: false })
+  let session = (): Response => json(200, { id: 1, username: "owner", is_admin: false })
   let run = async () => json(200, { ok: true, payload: { runId: "run-1" } })
   let status: RunSummaryRow["status"] = "running"
   let summaryRunId = "run-1"
@@ -37,7 +37,7 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number } = {}) 
   const chat = scriptedToolAgent([() => [{ type: "delta", kind: "text", text: "Still here." }, { type: "done", reason: "stop" }]])
   const services = { workflowPollMs: 5, workflowPreparationTimeoutMs: options.workflowPreparationTimeoutMs, toastAutoDismissMs: 60_000, fetchImpl: async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url)
-    if (path.endsWith("/api/auth/session")) return session()
+    if (path.endsWith("/api/user")) return session()
     if (path.endsWith("/api/workflow/provision")) { provisions += 1; return provision() }
     if (!path.endsWith("/api/workflow/rpc")) return json(404, {})
     const body = JSON.parse(String(init?.body))
@@ -379,7 +379,7 @@ test("a focus re-read naming another owner supersedes the launch without prepari
   try {
     await t.controller.commands.run("flow.run", `review ${repo}`)
     await waitFor(() => t.provisions() === 1 && t.toasts()[0]?.status === "running")
-    t.session(() => json(200, { login: "different-owner", allowlisted: true, admin: false }))
+    t.session(() => json(200, { id: 2, username: "different-owner", is_admin: false }))
     await t.controller.loadSession()
     gate.resolve(json(200, { status: "ready" }))
     await settle()

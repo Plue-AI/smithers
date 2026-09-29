@@ -1,10 +1,11 @@
 import { createElement } from "react"
 import { createRoot } from "react-dom/client"
+import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import { CardView } from "../../ChatCards"
 import type { CardViewProps } from "../../ChatCards"
 import { createAppStore } from "../../state/AppStore"
 import { createAppController } from "../../state/AppController"
-import { silentAgent } from "../../state/TestFixtures"
+import { applicationIdentityFromFetch, silentAgent } from "../../state/TestFixtures"
 import type { FlowName } from "../../flows/FlowName"
 import { SubagentBatch, SubagentFinished } from "../../SubagentGrid"
 import { fixtureCards, fixtureSubagents } from "./UiSurfaces"
@@ -26,8 +27,12 @@ for (const card of fixtureCards()) {
 }
 store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null })
 const seededAgents = JSON.stringify(store.collections.cards.get("agents")?.payload)
+const fetchImpl: FetchLike = async input => new URL(String(input), location.origin).pathname === "/api/user"
+  ? Response.json({ id: 1, username: "owner", is_admin: false })
+  : new Response("{}", { status: 404 })
 const controller = createAppController(store, silentAgent, {
-  fetchImpl: async () => new Response("{}", { status: 404 }),
+  fetchImpl,
+  applicationIdentity: applicationIdentityFromFetch(fetchImpl, location.origin),
   cloudSocketUrl: () => undefined,
   cloudLspSocketUrl: () => undefined
 })

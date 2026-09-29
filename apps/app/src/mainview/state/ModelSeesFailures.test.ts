@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
@@ -136,7 +137,11 @@ describe("the model is told the numbers it is asked about", () => {
         cancelTurn: async () => {},
         subscribe: () => () => {}
       },
-      backend()
+      {
+        ...backend(),
+        bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null,
+          capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false, balance: true }) }
+      }
     )
     store.dispatch({
       type: "identity.session.loaded",

@@ -13,6 +13,10 @@ import { json, memoryStorage, settled, silentAgent, TEST_BOX } from "./TestFixtu
 const createAppController = scopedControllers()
 
 const webStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
+const githubBootstrap: NonNullable<AppServices["bootstrap"]> = {
+  apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null,
+  capabilities: cloudCapabilities({ identity: true, cloud: true, agent: false, checkout: false, terminal: false })
+}
 /*
  * The card a test names, or a failure. `if (card?.kind === "x")` around a
  * block of assertions turns a missing card into a silent pass: the block
@@ -55,10 +59,10 @@ const balanceBody = (totalUsd: string, chargeCount = 0) => ({
 })
 
 describe("identity session record", () => {
-  test("a signed-in allowlisted answer drives the record (actor: system)", async () => {
+  test("a canonical user answer drives the signed-in record (actor: system)", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
-      ...backend({ "/api/auth/session": json(200, { login: "will", allowlisted: true, admin: false }) })
+      ...backend({ "/api/user": json(200, { id: 1, username: "will", is_admin: false }) })
     })
     await controller.loadSession()
     const identity = store.collections.identitySessions.get("identity")
@@ -69,38 +73,23 @@ describe("identity session record", () => {
     expect(journal.some((r) => r.type === "identity.session.loaded" && r.actor === "system")).toBe(true)
   })
 
-  test("a 401 is signed-out and the scope list is fetched for the opening chat message", async () => {
+  test("a 401 signs out without waiting for a scopes read", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
-        // The real /api/auth/scopes shape: one whole sentence per scope.
-        "/api/auth/scopes": json(200, {
-          provider: "github",
-          requestedScopes: ["read:user", "repo"],
-          scopes: [
-            { scope: "read:user", plain: "See your GitHub profile.", why: "Sign-in." },
-            { scope: "repo", plain: "Read access to your repositories.", why: "The connector." }
-          ]
-        })
-      })
+      bootstrap: githubBootstrap,
+      ...backend({ "/api/user": json(401, { status: "error" }) })
     })
     await controller.loadSession()
     const identity = store.collections.identitySessions.get("identity")
     expect(identity?.state).toBe("signed-out")
-    expect(identity?.scopesPlain).toBe(
-      "Before GitHub asks, here is what Smithers will use: See your GitHub profile. Read access to your repositories."
-    )
+    expect(identity?.scopesPlain).toBeNull()
   })
 
-  // Wave 8: the product Worker's seam restates the expected signed-out 401 as
-  // a resolved 200 (the browser logs any 4xx as a console error regardless of
-  // how calmly the client handles it). Same resolved state, no error path.
-  test("the seam's 200 signed-out answer resolves the same state as a 401", async () => {
+  test("the user route's malformed 200 answer leaves identity unavailable", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { status: "signed-out" }),
+        "/api/user": json(200, { status: "signed-out" }),
         "/api/auth/scopes": json(200, {
           provider: "github",
           requestedScopes: ["read:user"],
@@ -110,17 +99,15 @@ describe("identity session record", () => {
     })
     await controller.loadSession()
     const identity = store.collections.identitySessions.get("identity")
-    expect(identity?.state).toBe("signed-out")
-    expect(identity?.scopesPlain).toBe(
-      "Before GitHub asks, here is what Smithers will use: See your GitHub profile."
-    )
+    expect(identity?.state).toBe("unavailable")
+    expect(identity?.scopesPlain).toBeNull()
   })
 
   test("a signed-in answer drives the balance read from the session answer, not a blind boot probe", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "will", allowlisted: true, admin: false }),
+        "/api/user": json(200, { id: 1, username: "will", is_admin: false }),
         "/api/billing/balance": json(200, balanceBody("500"))
       })
     })
@@ -146,11 +133,10 @@ describe("identity session record", () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false }),
         "/api/identity/request-access": json(200, { status: "requested" })
       })
     })
-    await controller.loadSession()
+    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
     await controller.requestAccess()
     const identity = store.collections.identitySessions.get("identity")
     expect(identity?.accessRequested).toBe(true)
@@ -165,11 +151,10 @@ describe("identity session record", () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false }),
         "/api/identity/request-access": json(500, { status: "error", message: "queue unavailable" })
       })
     })
-    await controller.loadSession()
+    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
     await controller.requestAccess()
     const identity = store.collections.identitySessions.get("identity")
     expect(identity?.accessRequested).toBe(false)
@@ -180,7 +165,7 @@ describe("identity session record", () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "will", allowlisted: true, admin: false }),
+        "/api/user": json(200, { id: 1, username: "will", is_admin: false }),
         "/api/auth/logout": json(200, { status: "ok" })
       })
     })
@@ -204,7 +189,7 @@ describe("identity session record", () => {
     }
     const controller = createAppController(store, countingAgent, {
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })
@@ -219,7 +204,7 @@ describe("identity session record", () => {
     expect(reply).toBeUndefined()
   })
 
-  test("a non-allowlisted send reaches the backend too", async () => {
+  test("a selected backend user can send without an access gate", async () => {
     const store = await webStore()
     let turns = 0
     const countingAgent: AgentPort = {
@@ -231,7 +216,7 @@ describe("identity session record", () => {
     }
     const controller = createAppController(store, countingAgent, {
       ...backend({
-        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false })
+        "/api/user": json(200, { id: 1, username: "newcomer", is_admin: false })
       })
     })
     await controller.loadSession()
@@ -664,7 +649,7 @@ describe("turn cost + stop discipline", () => {
 })
 
 for (const state of ["signed-in", "signed-out", "degraded"] as const) {
-  test(`web identity refresh also loads Cloud before returning: ${state}`, async () => {
+  test(`selected user identity mirrors Cloud without a cloud-auth session read: ${state}`, async () => {
     const store = await webStore()
     const requests: string[] = []
     let signedOut = state === "signed-out"
@@ -676,7 +661,9 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
       fetchImpl: async input => {
         const path = new URL(String(input), "https://web.test").pathname
         requests.push(path)
-        if (path === "/api/auth/session") return json(200, signedOut ? { status: "signed-out" } : { login: "will", allowlisted: true })
+        if (path === "/api/user") return signedOut
+          ? json(401, { code: "unauthenticated" })
+          : json(200, { id: 1, username: "will", is_admin: false, ...(state === "degraded" ? { token_scopes: [] } : {}) })
         if (path === "/api/auth/scopes") return json(200, { scopes: [] })
         if (path === CLOUD_AUTH_SESSION_PATH) return json(200, {
           state: signedOut ? "signed-out" : "signed-in", username: signedOut ? null : "will", expiresAt: null,
@@ -686,7 +673,8 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
       }
     })
     await controller.loadSession()
-    expect(requests).toContain(CLOUD_AUTH_SESSION_PATH)
+    expect(requests).toContain("/api/user")
+    expect(requests).not.toContain(CLOUD_AUTH_SESSION_PATH)
     expect(store.collections.cloudSessions.get("cloud")).toMatchObject({
       state: signedOut ? "signed-out" : "signed-in", username: signedOut ? null : "will",
       scopes: state === "degraded" ? "degraded" : null

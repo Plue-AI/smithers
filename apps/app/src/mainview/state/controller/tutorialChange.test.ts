@@ -29,7 +29,7 @@ const fixture = async (box = true, wrap: (store: Store) => Store = store => stor
   const controller = createAppController(wrap(store), silentAgent, {
     fetchImpl: async (input) => {
       const path = new URL(String(input), "https://app.test").pathname
-      if (path.endsWith("/api/auth/session")) return json(200, { login, allowlisted: true, admin: false })
+      if (path.endsWith("/api/user")) return json(200, { id: 1, username: login, is_admin: false })
       if (path.startsWith("/api/tutorial/change/")) {
         posts.push(path)
         // The start is proven admitted by reaching preflight; what follows is not under test.

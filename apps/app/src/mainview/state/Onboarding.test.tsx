@@ -131,7 +131,7 @@ describe("onboarding — the opening entry", () => {
     const controller = createAppController(store, silentAgent, {
       features: { suggestionPills: true },
       ...backend({
-        "/api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+        "/api/user": json(200, { id: 1, username: "will", is_admin: false })
       })
     })
     await controller.loadSession()
@@ -170,7 +170,7 @@ describe("onboarding — the opening entry", () => {
     const controller = createAppController(store, silentAgent, {
       bootstrap: { ...localBootstrap, authFlow: "both" },
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] }),
         "/api/repos": json(200, { repos: [] })
       })
@@ -192,7 +192,7 @@ describe("onboarding — the opening entry", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })
       })
     })

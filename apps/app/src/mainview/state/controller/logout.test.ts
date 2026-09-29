@@ -11,7 +11,7 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
   await identity("old-owner")
   const logout = Promise.withResolvers<Response>(), session = Promise.withResolvers<Response>()
   const paths: string[] = []
-  const sessionPath = provider === "local" ? "/api/user" : "/api/auth/session"
+  const sessionPath = "/api/user"
   let settlements = 0
   const applicationIdentity = { current: async () => {
     paths.push(sessionPath)
@@ -29,12 +29,12 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
       const path = new URL(String(input), "https://app.test").pathname
       paths.push(path)
       if (path === "/api/auth/logout") return logout.promise
-      if (path === "/api/auth/session") return session.promise
+      if (path === "/api/user") return session.promise
       return Response.json({ scopes: [] })
     }
   })
-  const auth = createAuthBillingController(ctx, store.nextOrdinal, undefined, undefined, provider === "local"
-    ? { ...applicationIdentity, signInPath: "/login", settled: () => { settlements++ } } : undefined)
+  const auth = createAuthBillingController(ctx, store.nextOrdinal,
+    { ...applicationIdentity, signInPath: provider === "local" ? "/login" : "/api/auth/github", settled: () => { settlements++ } })
   return { store, identity, ctx, auth, paths, logout, session, sessionPath, settlements: () => settlements, dispose: async () => {
     await ctx.dispose(); logout.resolve(Response.json({})); session.resolve(Response.json({ state: "signed-out" })); await store.dispose?.()
   } }
@@ -219,4 +219,3 @@ test("a refused save of the rechecked sign-out reports incomplete local state", 
     expect(refused).toBe(1)
   } finally { armed = false; await t.dispose() }
 })
-

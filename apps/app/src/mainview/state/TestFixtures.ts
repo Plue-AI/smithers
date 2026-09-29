@@ -1,7 +1,11 @@
 import type { StorageApi } from "@tanstack/db"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import type { FetchLike } from "@smthrs/rpc/NativeAgent"
+import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
+import type { ApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 
 import type { AgentPort } from "../runtime/AgentPort"
+import { createApplicationClient } from "../runtime/ApplicationClient"
 import type { AppStore } from "./AppStore"
 
 /**
@@ -111,6 +115,20 @@ export const waitFor = async (condition: () => boolean, timeoutMs = 2_000): Prom
 
 export const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+
+/** Run identity fixtures through the same selected-backend `/api/user` parser as the browser. */
+export const applicationIdentityFromFetch = (
+  fetchImpl: FetchLike, pageOrigin = "https://app.test", target?: ApplicationTarget
+) => createApplicationClient(target ?? resolveApplicationTarget({
+    apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" },
+    cors: "same-origin", developerExternal: false
+  }, pageOrigin), {
+    // Some test doubles accept only absolute URLs; browser fetch resolves the
+    // selected origin's relative `/api/user` request before reaching them.
+    fetchImpl: (input, init) => fetchImpl(typeof input === "string" && input.startsWith("/")
+      ? new URL(input, pageOrigin).toString() : input, init),
+    pageOrigin
+  }).identity
 
 /** A fetch double that answers by pathname and 404s everything else. */
 export const backend = (

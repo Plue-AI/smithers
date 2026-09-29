@@ -10,7 +10,6 @@ AUTH_NATIVE_CLAIM_PATH,
 AUTH_NATIVE_START_PATH,
 AUTH_RETURN_TO_PARAM,
 AUTH_SCOPES_PATH,
-AUTH_SESSION_PATH,
 AUTH_SIGN_IN_PATH,
 AUTH_SIGNED_IN_PARAM,
 BILLING_BALANCE_PATH,
@@ -73,9 +72,8 @@ export interface SelectedBackendIdentity extends ApplicationIdentityClient {
 export const createAuthBillingController = (
   ctx: ControllerContext,
   nextTranscriptOrdinal: () => number,
-  refreshCloudSession?: () => Promise<void>,
-  openLocalAuth?: () => boolean,
-  selectedIdentity?: SelectedBackendIdentity
+  selectedIdentity?: SelectedBackendIdentity,
+  openLocalAuth?: () => boolean
 ): AuthBillingController => {
   const { store, services, baseUrl, boundedFetch: http, errorMessageOf, unref } = ctx
   const balanceAvailable = services.bootstrap?.capabilities.includes("billing.balance") ?? true
@@ -205,7 +203,6 @@ export const createAuthBillingController = (
     // that returned at its probe guard has none to make, so a boot read raced
     // by a focus re-read (watchIdentityAcrossTabs) leaves no command parked.
     settleFirstRunTarget()
-    await refreshCloudSession?.()
   }
 
   const dispatchUnavailable = (): void => {
@@ -250,9 +247,6 @@ export const createAuthBillingController = (
     // boot: signed out it could only come back 401 — the expected state,
     // logged by the browser as a console error anyway.
     void refreshBalanceSilently()
-    // On the web GitHub OAuth is also the Cloud login. Recheck its scope
-    // verdict before a parked workspace act resumes, including tab refreshes.
-    await refreshCloudSession?.()
     if (disposed || probe !== mine) return
     if (session.allowlisted) {
       // Wave 11: a live run card's event pump resumes from its lastSeq.
@@ -312,52 +306,7 @@ export const createAuthBillingController = (
       }, previous, mine)
       return
     }
-    let response: Response
-    try {
-      response = await http(`${baseUrl}${AUTH_SESSION_PATH}`, { signal })
-    } catch {
-      if (probe !== mine || signal?.aborted) return
-      dispatchUnavailable()
-      return
-    }
-    if (probe !== mine || signal?.aborted) return
-    // Signed-out is the expected resolved answer, never an error path: the
-    // identity upstream states it as 401, the product Worker's seam restates
-    // it as 200 { status: "signed-out" } so the browser never logs the
-    // expected answer as a console error. Both shapes resolve the same. A 403
-    // is not one of them: the Worker passes it through on purpose (forbidden
-    // origin, an edge rule), and a signed-out answer for a row that names an
-    // owner erases the account's local state, so it falls to unavailable.
-    if (response.status === 401) {
-      await response.body?.cancel()
-      await dispatchSignedOut(mine, signal)
-      return
-    }
-    if (!response.ok) {
-      await response.body?.cancel()
-      if (probe !== mine || signal?.aborted) return
-      dispatchUnavailable()
-      return
-    }
-    const body = (await response.json().catch(() => undefined)) as
-      | { status?: unknown; state?: unknown; login?: unknown; allowlisted?: unknown; admission?: unknown; admin?: unknown }
-      | undefined
-    if (probe !== mine || signal?.aborted) return
-    if (body?.status === "signed-out" || body?.state === "signed-out") {
-      await dispatchSignedOut(mine, signal)
-      return
-    }
-    if (body == null || typeof body.login !== "string" || body.login.trim() === "" ||
-      (body.status !== undefined && body.status !== "signed-in") ||
-      (body.state !== undefined && body.state !== "signed-in")) {
-      dispatchUnavailable()
-      return
-    }
-    await finishSignedInSession(
-      { login: body.login, allowlisted: body.allowlisted === true || body.admission === "public", admin: body.admin === true && body.allowlisted === true },
-      previous,
-      mine
-    )
+    dispatchUnavailable()
   }
   ctx.loadSession = loadSession
 
@@ -1160,7 +1109,7 @@ export const createAuthBillingController = (
   /*
    * §2.5 / §23.4 — identity is shared between tabs; the app's copy of it was
    * not. The session cookie is per-origin, so signing in on one tab signs in
-   * every tab, yet a tab that had already read `/api/auth/session` kept
+   * every tab, yet a tab that had already read `/api/user` kept
    * rendering the signed-out card until someone reloaded it by hand — and the
    * same asymmetry ran the other way after a sign-out.
    *

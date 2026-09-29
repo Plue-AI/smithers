@@ -79,7 +79,7 @@ describe("wave 14 §1 — the opening message is never filler", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/auth/session": json(401, { status: "error" }),
+        "/api/user": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, {
           scopes: [{ scope: "repo", plain: "Read your repositories.", why: "To see your work." }]
         })

@@ -17,7 +17,7 @@
  *   - a local stand-in for the box's flow route (`scripts/workerRelay.ts`,
  *     frames in `scripts/gatewayFrames.ts`), which holds that bearer.
  *
- * The relay answers `provision` as ready and `/api/auth/session` as the scoped
+ * The relay answers `provision` as ready and `/api/user` as the scoped
  * test user, so nothing here needs a GitHub session, a Cloud workspace, or a
  * provider key. Both halves die with the command that started them.
  *
@@ -252,7 +252,6 @@ const startRelay = (gatewayUrl: string): Promise<{ url: string; close: () => Pro
           try {
             const url = new URL(request.url ?? "/", "http://relay.local")
             if (url.pathname === AUTHENTICATED_USER_PATH) return json(response, 200, { id: 1, username: SCOPED_TEST_USER.login, is_admin: false })
-            if (url.pathname === "/api/auth/session") return json(response, 200, SCOPED_TEST_USER)
             if (url.pathname === "/api/auth/scopes") return json(response, 200, { scopes: [] })
             if (url.pathname === "/api/workflow/provision") {
               return json(response, 200, { status: "ready", repo: REPO })

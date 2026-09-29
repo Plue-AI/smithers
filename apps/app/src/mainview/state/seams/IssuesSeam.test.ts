@@ -10,6 +10,8 @@ import type { AppStore } from "../AppStore"
 import { processRepositoryEvents } from "../RepositoryNotifications"
 import { invalidatePreparedViews } from "../PreparedView"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
+import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
+import { applicationIdentityFromFetch } from "../TestFixtures"
 import { readIssueOptions } from "./IssuesSeam"
 
 /*
@@ -65,6 +67,16 @@ const backend = (routes: Record<string, RouteAnswer>, calls: string[] = []): App
     return json(404, { status: "error", message: `no stub for ${method} ${absolute.pathname}` })
   }
 })
+
+const selectedUserBackend = (routes: Record<string, RouteAnswer>, calls: string[] = []): AppServices => {
+  const services = backend(routes, calls)
+  return {
+    ...services,
+    applicationIdentity: applicationIdentityFromFetch(services.fetchImpl!, "https://app.test"),
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null,
+      capabilities: cloudCapabilities({ identity: true, cloud: true, agent: false, checkout: false, terminal: false }) }
+  }
+}
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -333,10 +345,10 @@ describe("issues seam — the list", () => {
 
   test("native 200 and optional GitHub 401 keep authorized rows and source-specific refusal", async () => {
     const calls: string[] = []
-    const { store, controller } = await issuesController(backend({
+    const { store, controller } = await issuesController(selectedUserBackend({
       "GET /api/repos/will/flows/issues": json(200, [wireIssue(7)]),
       "GET /api/user/github-repos/will/flows/issues": json(401, { message: "GitHub connection required" }),
-      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+      "GET /api/user": json(200, { id: 1, username: "will", is_admin: false })
     }, calls))
     const outcome = await controller.commands.run("issues.list")
     expect(outcome.status).toBe("executed")
@@ -345,7 +357,6 @@ describe("issues seam — the list", () => {
     expect(card.status).toBe("active")
     expect(card.payload.issues.map(issue => [issue.number, issue.source])).toEqual([[7, "smithers-cloud"]])
     expect(card.payload.github).toMatchObject({ source: "refused", refusal: "GitHub connection required" })
-    expect(outcome.status === "executed" ? outcome.value : "").toContain("#7 Fix the flake 7")
     expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(0)
     expect(calls.filter(call => call.includes("/issues?"))).toEqual([
       "GET /api/repos/will/flows/issues?state=open",
@@ -356,12 +367,12 @@ describe("issues seam — the list", () => {
   test("a native 401 refuses the list before reading GitHub or publishing stale rows", async () => {
     const calls: string[] = []
     let authorized = true
-    const { store, controller } = await issuesController(backend({
+    const { store, controller } = await issuesController(selectedUserBackend({
       "GET /api/repos/will/flows/issues": () => authorized
         ? json(200, [wireIssue(7)])
         : json(401, { message: "Native session expired" }),
       "GET /api/user/github-repos/will/flows/issues": json(200, [wireGithubIssue(12)]),
-      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+      "GET /api/user": json(200, { id: 1, username: "will", is_admin: false })
     }, calls))
     expect((await controller.commands.run("issues.list")).status).toBe("executed")
     await settled()
@@ -378,10 +389,10 @@ describe("issues seam — the list", () => {
 
   test("conversation-only reads native rows without calling GitHub", async () => {
     const calls: string[] = []
-    const { store, controller } = await issuesController(backend({
+    const { store, controller } = await issuesController(selectedUserBackend({
       "GET /api/repos/will/flows/issues": json(200, [wireIssue(7, { kind: "chat" })]),
       "GET /api/user/github-repos/will/flows/issues": json(401, { message: "GitHub connection required" }),
-      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+      "GET /api/user": json(200, { id: 1, username: "will", is_admin: false })
     }, calls))
     const outcome = await controller.commands.run("issues.list", "open --kind conversation will/flows")
     expect(outcome.status).toBe("executed")

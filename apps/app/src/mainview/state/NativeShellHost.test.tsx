@@ -133,6 +133,7 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`th
   await controller.loadSession()
   await settled()
   expect(identityReads).toBeGreaterThan(0)
+  expect(requests.some(url => url.includes("/api/user"))).toBe(true)
   expect(requests.some(url => url.includes("/api/auth/session"))).toBe(false)
   expect(controller.identityProvider).toBe("github")
   expect(store.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "github-owner", provider: "github" })

@@ -1068,7 +1068,7 @@ export type ConnectorOperation = z.infer<typeof ConnectorOperationSchema>
 
 /*
  * The identity session record: one row, driven only by real answers from the
- * identity seam (GET /api/auth/session). "unknown" is pre-load; "unavailable"
+ * identity seam (GET /api/user). "unknown" is pre-load; "unavailable"
  * is an honest seam failure — neither changes the chat, because neither is a
  * definitive answer about the person. Signed-out and non-allowlisted are
  * definitive and change what the chat CONTAINS (the opening Smithers message

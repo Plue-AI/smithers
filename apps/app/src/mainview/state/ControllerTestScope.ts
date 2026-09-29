@@ -1,6 +1,9 @@
 import { afterEach } from "bun:test"
 import { createAppController } from "./AppController"
 import type { AppController, AppFeatures } from "./AppController"
+import { applicationIdentityFromFetch } from "./TestFixtures"
+
+const defaultOrigin = "https://app.test"
 
 /**
  * Call once at a test file's top level to register that file's cleanup hook.
@@ -27,8 +30,14 @@ export const scopedControllers = (features: AppFeatures = {}): typeof createAppC
   })
   return (...args) => {
     const [store, agent, services] = args
+    const pageOrigin = new URL(services?.baseUrl || defaultOrigin, defaultOrigin).origin
+    const applicationIdentity = services !== undefined && "applicationIdentity" in services
+      ? services.applicationIdentity
+      : services?.fetchImpl === undefined
+      ? undefined
+      : applicationIdentityFromFetch(services.fetchImpl, pageOrigin, services.applicationTarget)
     const controller = createAppController(store, agent, {
-      ...services, features: { ...features, ...services?.features }
+      ...services, applicationIdentity, features: { ...features, ...services?.features }
     })
     controllers.add(controller)
     return controller

@@ -71,5 +71,6 @@ test("the controller reads the cloud fixture's identity from /api/user", async (
   const user = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user")
   await page.goto("/")
   expect(await (await user).json()).toMatchObject({ username: "codeplanesmithers", is_admin: false })
+  expect(reads).toContain("/api/user")
   expect(reads).not.toContain("/api/auth/session")
 })

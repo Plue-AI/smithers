@@ -143,7 +143,7 @@ test("change.request returns before an unresolved launch, keeps Chat usable, ded
   const chat = scriptedToolAgent([() => [{ type: "delta", kind: "text", text: "Still here." }, { type: "done", reason: "stop" }]])
   const controller = createAppController(store, chat.agent, { workflowPollMs: 5, toastAutoDismissMs: 60_000, fetchImpl: async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url)
-    if (path.endsWith("/api/auth/session")) return json(200, { login: "owner", allowlisted: true, admin: false })
+    if (path.endsWith("/api/user")) return json(200, { username: "owner", is_admin: false })
     if (path.endsWith("/api/workflow/provision")) return json(200, { status: "ready" })
     // A backend without the route: the change starts from the workspace as it is.
     if (path.endsWith(`/workspaces/${workspaceId}/user-source`)) return json(404, {})
@@ -186,7 +186,7 @@ test("change.request starts from the caller's pushed ref: pinned once as coding/
   const pins: Array<Record<string, unknown>> = []
   const controller = createAppController(store, scriptedToolAgent([]).agent, { workflowPollMs: 5, toastAutoDismissMs: 60_000, fetchImpl: async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url)
-    if (path.endsWith("/api/auth/session")) return json(200, { login: "owner", allowlisted: true, admin: false })
+    if (path.endsWith("/api/user")) return json(200, { username: "owner", is_admin: false })
     if (path.endsWith("/api/workflow/provision")) return json(200, { status: "ready" })
     if (path.endsWith(`/api/repos/owner/repo/workspaces/${workspaceId}/user-source`)) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>

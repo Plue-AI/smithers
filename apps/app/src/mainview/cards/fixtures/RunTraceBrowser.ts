@@ -1,8 +1,9 @@
 import { createElement } from "react"
 import { createRoot } from "react-dom/client"
+import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import { createAppStore } from "../../state/AppStore"
 import { createAppController } from "../../state/AppController"
-import { silentAgent } from "../../state/TestFixtures"
+import { applicationIdentityFromFetch, silentAgent } from "../../state/TestFixtures"
 import type { Card } from "../../state/AppState"
 import type { FlowName } from "../../flows/FlowName"
 import { RunTraceBody } from "../RunTraceCard.tsx"
@@ -105,8 +106,12 @@ if (!store.collections.cards.has(cardId)) {
   }
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
 }
+const fetchImpl: FetchLike = async input => new URL(String(input), location.origin).pathname === "/api/user"
+  ? new Response(null, { status: 401 })
+  : new Response("{}", { status: 404 })
 const controller = createAppController(store, silentAgent, {
-  fetchImpl: async () => new Response("{}", { status: 404 }),
+  fetchImpl,
+  applicationIdentity: applicationIdentityFromFetch(fetchImpl, location.origin),
   cloudSocketUrl: () => undefined,
   cloudLspSocketUrl: () => undefined
 })

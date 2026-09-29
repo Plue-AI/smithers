@@ -119,7 +119,7 @@ describe("signing out leaves nothing of the account behind", () => {
     const controller = createAppController(
       store,
       unavailableAgent,
-      backend({ "/api/auth/session": () => json(200, { status: "signed-out" }) })
+      backend({ "/api/user": () => json(401, { code: "unauthenticated" }) })
     )
     signedIn(store)
     seedAccountState(store)
@@ -167,7 +167,7 @@ describe("signing out leaves nothing of the account behind", () => {
     const controller = createAppController(
       store,
       unavailableAgent,
-      backend({ "/api/auth/session": () => json(500, { message: "down" }) })
+      backend({ "/api/user": () => json(500, { message: "down" }) })
     )
     signedIn(store)
     seedAccountState(store)
@@ -183,7 +183,7 @@ describe("signing out leaves nothing of the account behind", () => {
     const controller = createAppController(
       store,
       unavailableAgent,
-      backend({ "/api/auth/session": () => json(403, { message: "forbidden" }) })
+      backend({ "/api/user": () => json(403, { message: "forbidden" }) })
     )
     signedIn(store)
     seedAccountState(store)
@@ -201,7 +201,7 @@ describe("signing out leaves nothing of the account behind", () => {
       unavailableAgent,
       backend({
         "/api/auth/logout": () => json(403, { message: "forbidden" }),
-        "/api/auth/session": () => json(200, { state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false })
+        "/api/user": () => json(200, { id: 1, username: "codeplanesmithers", is_admin: false })
       })
     )
     signedIn(store)

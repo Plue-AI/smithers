@@ -94,7 +94,7 @@ describe("an upstream that never answers", () => {
     const upstream = hangingUpstream()
     const host = await identityHost(`http://127.0.0.1:${upstream.port}`)
     try {
-      const response = await fetch(`${host.origin}/api/auth/session`, {
+      const response = await fetch(`${host.origin}/api/user`, {
         headers: { [LOCAL_SESSION_HEADER]: host.sessionToken }
       })
       expect(response.status).toBe(504)
@@ -188,7 +188,7 @@ describe("an upstream that refuses", () => {
     })
     const host = await identityHost(`http://127.0.0.1:${upstream.port}`)
     try {
-      const response = await fetch(`${host.origin}/api/auth/session`, {
+      const response = await fetch(`${host.origin}/api/user`, {
         headers: { [LOCAL_SESSION_HEADER]: host.sessionToken, accept: "application/json" }
       })
       expect(response.status).toBe(500)

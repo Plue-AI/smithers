@@ -30,7 +30,7 @@ test("boot resumes a persisted model test after loading identity and keeps its d
     fetchImpl: async (input) => {
       const path = new URL(String(input), "http://app.test").pathname
       if (path === MODEL_TEST_PATH) { calls += 1; return new Promise<Response>((resolve) => { releaseTest = resolve }) }
-      if (path.endsWith("/auth/session")) return new Promise<Response>((resolve) => { releaseIdentity = resolve })
+      if (path.endsWith("/api/user")) return new Promise<Response>((resolve) => { releaseIdentity = resolve })
       if (path === MODEL_CATALOG_PATH) return Response.json(catalog)
       return Response.json({ scopes: [] })
     }
@@ -39,7 +39,7 @@ test("boot resumes a persisted model test after loading identity and keeps its d
   const loading = controller.loadSession()
   await controller.observeModels()
   expect(calls).toBe(0)
-  releaseIdentity(Response.json({ status: "signed-out" }))
+  releaseIdentity(new Response(null, { status: 401 }))
   await loading
   await controller.observeModels()
   await controller.observeModels()
@@ -125,7 +125,7 @@ test("a same-owner focus re-read while a model test is out sends no second provi
     fetchImpl: async (input) => {
       const path = new URL(String(input), "http://app.test").pathname
       if (path === MODEL_TEST_PATH) { calls += 1; return new Promise<Response>((resolve) => { releaseTest = resolve }) }
-      if (path.endsWith("/auth/session")) return Response.json({ login: "will", allowlisted: true, admin: false })
+      if (path.endsWith("/api/user")) return Response.json({ id: 1, username: "will", is_admin: false })
       if (path === MODEL_CATALOG_PATH) return Response.json(catalog)
       return new Promise<Response>(() => {})
     }
