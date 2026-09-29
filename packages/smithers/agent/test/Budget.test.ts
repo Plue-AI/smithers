@@ -227,7 +227,7 @@ describe("the accumulator", () => {
     expect(observed.loose).toEqual(observed.usage)
   })
 
-  it("adds the parts when the provider reported no total", async () => {
+  it("counts reasoning within output when the provider reported no total", async () => {
     const observed = await Effect.runPromise(
       Effect.gen(function*() {
         const budget = yield* Budget.make({})
@@ -236,7 +236,7 @@ describe("the accumulator", () => {
       })
     )
 
-    expect(observed.tokens).toBe(17)
+    expect(observed.tokens).toBe(15)
   })
 
   it("counts what a provider left out as nothing, not as a missing number", () => {

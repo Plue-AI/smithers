@@ -1395,7 +1395,7 @@ const tokensOf: (usage: ModelEvent.Usage) => number
 ```
 
 The tokens one model call cost. The provider's total wins when present;
-otherwise the input, output, and reasoning parts are summed.
+otherwise input and output are summed. Reasoning is already included in output.
 Every supplied counter, including cache counters, must be finite and
 non-negative even when a total is supplied. Malformed components return `NaN`:
 they cannot cancel each other or be concealed by total precedence. `record`

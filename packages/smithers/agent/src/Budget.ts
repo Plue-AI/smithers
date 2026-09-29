@@ -743,8 +743,7 @@ export const tokensOf = (usage: ModelEvent.Usage, weights?: typeof TokenWeights.
     return (usage.inputTokens - cached) * weights.input + cached * weights.cachedInput +
       usage.outputTokens * weights.output
   }
-  return usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) +
-      (usage.reasoningTokens ?? 0)
+  return usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
 }
 
 interface State {
