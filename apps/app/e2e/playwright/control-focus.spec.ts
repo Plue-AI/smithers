@@ -31,8 +31,13 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/* The page the card embeds: this host's own health route, so the frame loads same-origin and reaches no network. */
-const PAGE_URL = "/api/health"
+/*
+ * The page the card embeds. A browser card frames only an absolute http(s)
+ * URL on another origin (packages/rpc Cards.ts, ConversationCards.tsx
+ * `foreignHttpUrl`), so it is a foreign origin this spec answers itself: the
+ * frame reaches no network.
+ */
+const PAGE_URL = "https://embedded.example/"
 
 /** Open a browser card showing its embedded page: the surface control focus dresses. */
 const openControlledSurface = async (page: Page) => {
@@ -48,6 +53,8 @@ const openControlledSurface = async (page: Page) => {
   })
   await page.route("**/api/tools/browser-fetch", (route) =>
     route.fulfill({ json: { status: 200, finalUrl: PAGE_URL, contentType: "application/json", text: "ok", frameable: true, blockReason: null } }))
+  await page.route(PAGE_URL, (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Embedded</title><p>Embedded page</p>" }))
   await page.goto("/")
   await expect(page.locator(".app-shell")).toBeVisible()
   await page.keyboard.press("Control+k")

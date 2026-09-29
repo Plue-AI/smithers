@@ -137,10 +137,19 @@ const runFixture = async (page: Page): Promise<string> => {
   return runId
 }
 
+/*
+ * A run's canvas draws the plan's own nodes and, around them, the run forest
+ * (`RunForest.ts`): the Gate child execution the run launched is hung off the
+ * node whose action names its flow, as a node of the same grammar.
+ */
+const planNodesOf = (page: Page) => canvasOf(page).locator("[data-node]:not([data-forest])")
+const childExecutionsOf = (page: Page) => canvasOf(page).locator('[data-node^="exec:"][data-forest="flow"]')
+
 /** The run's graph, opened on the run card the launch left behind. */
 const openRunGraph = async (page: Page, runId: string): Promise<void> => {
   await page.locator(`[data-flow="runs.trace.view"][data-flow-args="${runId} graph"]`).click()
-  await expect(canvasOf(page).locator("[data-node]")).toHaveCount(GRAPH_NODE_IDS.length)
+  await expect(planNodesOf(page)).toHaveCount(GRAPH_NODE_IDS.length)
+  await expect(childExecutionsOf(page)).toHaveCount(1)
 }
 
 /** The node the graph card has open, and the tab it is showing. */
@@ -412,7 +421,7 @@ test.describe("the flow builder's plan door", () => {
 
     await page.locator(`[data-flow="runs.trace.view"][data-flow-args="${runId} graph"]`).click()
     const canvas = canvasOf(page)
-    await expect(canvas.locator("[data-node]")).toHaveCount(GRAPH_NODE_IDS.length)
+    await expect(planNodesOf(page)).toHaveCount(GRAPH_NODE_IDS.length)
 
     // Running: the gate is the node the engine scheduled and has not settled.
     await expect(canvas.locator(`[data-node="${GRAPH_GATE}"]`)).toHaveAttribute("data-state", "running")
@@ -460,6 +469,7 @@ test.describe("the flow builder's plan door", () => {
         .toHaveAttribute("data-state", id === GRAPH_FAILING_NODE ? "failed" : "built")
     }
     await expect(canvas.locator('[data-node][data-state="failed"]')).toHaveCount(1)
+    await expect(childExecutionsOf(page)).toHaveCount(1)
     await expect(page.getByTestId(`run-outcome-${runId}`)).toContainText("Finished")
     finished += 1
   })

@@ -56,7 +56,8 @@ export default showcase({
     await app.click(page.getByTestId("chrome-history"))
     const card = page.locator('[data-kind="stack"]')
     await expect(card.getByTestId("stack-lane-count")).toHaveText("0/2 lanes")
-    await expect(card.getByTestId("stack-landed")).toHaveText("2 landed")
+    // The counts row states the stack's changes; landed-of-decided is the issue metrics line.
+    await expect(card.getByTestId("stack-counts")).toContainText("2 changes")
     await expect(card.getByTestId("stack-change-kfoldchange00")).toContainText("ci: pin the browser")
     const wikiRow = card.getByTestId("stack-wiki")
     await expect(wikiRow.locator(".stack-state")).toHaveAttribute("data-state", "refreshing")

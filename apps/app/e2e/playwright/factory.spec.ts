@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
 import { controlTabKey, expect, test, type Locator, type Page } from "./browserTest"
 import { boxRunCardId, FIXTURE_BOX, installCloudFixture, runningBox } from "./cloudFixture"
@@ -15,14 +15,14 @@ import { boxRunCardId, FIXTURE_BOX, installCloudFixture, runningBox } from "./cl
  * (src/mainview/cards/fixtures/GraphRunJournal.json) plus three agent rows
  * that give the meter a seat and two settled model calls.
  *
- * EVIDENCE_DIR (default below) receives one PNG per state.
+ * EVIDENCE_DIR, when set, receives one PNG per state; otherwise each lands in
+ * the test's own Playwright output directory, which CI keeps as an artifact.
  */
 
 const REPO = "smithersai/smithers"
 const RUN_ID = "run-1"
 const FLOW = "gateway/GraphFixture"
 const GATE = "c7eac2d2567599c2bcbcbaa35ac4e07acf21e6e01c23753262361a60a7e0f07d"
-const EVIDENCE = process.env.EVIDENCE_DIR ?? "/Users/williamcory/Desktop/smithers-program-20260928/evidence/S5"
 
 type Row = Record<string, unknown>
 const RECORDED: { readonly rows: ReadonlyArray<Row> } =
@@ -211,9 +211,11 @@ const inCanvas = (node: Locator): Promise<boolean> => node.evaluate((element) =>
 })
 
 const shot = async (page: Page, target: Locator | Page, name: string): Promise<void> => {
-  mkdirSync(EVIDENCE, { recursive: true })
+  const evidence = process.env.EVIDENCE_DIR
+  const path = evidence === undefined ? test.info().outputPath(name) : join(evidence, name)
+  mkdirSync(dirname(path), { recursive: true })
   await page.mouse.move(0, 0)
-  await target.screenshot({ path: join(EVIDENCE, name), animations: "disabled" })
+  await target.screenshot({ path, animations: "disabled" })
 }
 
 test.beforeEach(async ({ page }) => {
