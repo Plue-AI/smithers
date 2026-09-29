@@ -158,7 +158,8 @@
   },
   "dependencies": {
     "@smthrs/jj": "1.0.0-rc.1",
-    "@smthrs/kernel": "1.0.0-rc.1"
+    "@smthrs/kernel": "1.0.0-rc.1",
+    "undici": "8.10.2"
   },
   "peerDependencies": {
     "@effect/platform-node": "4.0.0-rc.115",

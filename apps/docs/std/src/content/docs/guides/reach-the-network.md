@@ -17,7 +17,9 @@ kernel sees the request.
 | `http-post` | `irreversible` | `net:post:*` | Sending data. The remote side may already have acted. |
 | `websearch` | `sealed`       | `net:post:*` | A search through a configured provider.               |
 
-Provide the host's `GrantStore` alongside `HttpClient`. Every destination,
+Provide the host's `GrantStore` alongside the pin-capable `HttpClient` from
+`@smthrs/platform-node/EgressHttpClient.layer(process.env)` (also used by the
+Bun host bundle). Unsupported transports fail closed. Every destination,
 including redirects, is checked before DNS or transport. Private destinations
 also need an exact `net:private` action grant for the normalized URL origin.
 See [HTTP destination permissions](/reference/flows/#http-destination-permissions).

@@ -26,8 +26,8 @@ Three of the raw bundle's five slots use shared implementations:
   itself, the same value [`@smthrs/platform-node`](https://platform-node.smithers.sh/reference/api/) puts in
   its own slot.
 
-`effect/Path` is runtime independent, and the network slot is Effect's
-fetch-backed client, which both runtimes provide natively.
+`effect/Path` is runtime independent, and the network slot is the shared Undici egress client, including the same
+connection-pinning and proxy policy on both runtimes.
 
 Contained POSIX variants substitute `ProcessReaper.layerSpawner`. It combines
 the shared native process adapter with a supervisor started by the current

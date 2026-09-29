@@ -16,6 +16,7 @@ const Fetch = {
   ...FetchModule,
   run: (input: FetchModule.Input) =>
     FetchModule.run(input).pipe(
+      Effect.updateService(HttpClient.HttpClient, HttpClient.withDestinationPinning),
       Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"])),
       Effect.provide(
         GrantStore.layer({

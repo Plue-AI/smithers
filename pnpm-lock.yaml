@@ -5673,6 +5673,9 @@ importers:
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../kernel
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2

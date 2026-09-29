@@ -6,7 +6,12 @@
 
 import * as Capability from "@smthrs/capability/Capability"
 import { GrantStore } from "@smthrs/kernel/GrantStore"
-import { authorizePreflight, Destination, DestinationPinning, fromHttpClientError } from "@smthrs/kernel/HttpClient"
+import {
+  authorizePreflight,
+  Destination,
+  fromHttpClientError,
+  supportsDestinationPinning
+} from "@smthrs/kernel/HttpClient"
 import { Context, Effect, Option } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
@@ -58,10 +63,13 @@ const isPublic = (address: string): boolean => {
 
 const failure = (code: StdError.Code, message: string, path: string) => new StdError.StdError({ code, message, path })
 
-const check = Effect.fn("HttpNetwork.check")(function*(value: string) {
+const check = Effect.fn("HttpNetwork.check")(function*(value: string, client: HttpClient.HttpClient) {
   const url = parseHttpUrl(value)
   if (url === undefined) {
     return yield* Effect.fail(failure("invalid_input", "URL must use http or https without user information", value))
+  }
+  if (!supportsDestinationPinning(client)) {
+    return yield* Effect.fail(failure("unsupported", "HTTP host must support destination pinning", value))
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "")
   const local = hostname.replace(/\.$/, "").toLowerCase()
@@ -76,20 +84,21 @@ const check = Effect.fn("HttpNetwork.check")(function*(value: string) {
       catch: () => failure("invalid_input", "Private HTTP origin exceeds the capability resource limit", value)
     })
     yield* store.check(capability).pipe(
-      Effect.mapError(() => failure("permission_denied", "Private HTTP destination requires a net:private grant", value))
+      Effect.mapError(() =>
+        failure("permission_denied", "Private HTTP destination requires a net:private grant", value)
+      )
     )
   })
   if (localhost) yield* privateGrant
-  const addresses = literal ? [hostname] : [...yield* resolve(hostname).pipe(
-    Effect.mapError(() => failure("request_failed", "Could not resolve HTTP destination", value))
-  )]
+  const addresses = literal ? [hostname] : [
+    ...yield* resolve(hostname).pipe(
+      Effect.mapError(() => failure("request_failed", "Could not resolve HTTP destination", value))
+    )
+  ]
   if (addresses.length === 0 || addresses.some((address) => isIP(address) === 0)) {
     return yield* Effect.fail(failure("request_failed", "HTTP destination has no valid addresses", value))
   }
   if (!localhost && !addresses.every(isPublic)) yield* privateGrant
-  if (!(yield* DestinationPinning)) {
-    return yield* Effect.fail(failure("unsupported", "HTTP host must support destination pinning", value))
-  }
   return Object.freeze({ origin: url.origin, addresses: Object.freeze(addresses) })
 })
 
@@ -107,17 +116,19 @@ export const guarded = (
     (execute, request) =>
       authorizePreflight(
         request,
-        check(request.url).pipe(
+        check(request.url, client).pipe(
           Effect.mapError((cause) =>
             new HttpClientError.HttpClientError({
               reason: new HttpClientError.TransportError({ request, cause, description: cause.message })
             })
           ),
-          Effect.flatMap((destination) => Effect.updateContext(execute, (context: Context.Context<never>) =>
-            Context.add(Context.add(context, Destination, destination), FetchHttpClient.RequestInit, {
-              ...Context.getOrUndefined(context, FetchHttpClient.RequestInit),
-              redirect: "manual"
-            })))
+          Effect.flatMap((destination) =>
+            Effect.updateContext(execute, (context: Context.Context<never>) =>
+              Context.add(Context.add(context, Destination, destination), FetchHttpClient.RequestInit, {
+                ...Context.getOrUndefined(context, FetchHttpClient.RequestInit),
+                redirect: "manual"
+              }))
+          )
         )
       )
   )

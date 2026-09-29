@@ -2,7 +2,7 @@
  * `@smthrs/platform-bun`, the Bun Host bundle.
  *
  * `BunHost.layer` composes the closed five-tag Host surface for Bun out of
- * `@effect/platform-bun`'s child-process spawner and fetch-backed `HttpClient`,
+ * `@effect/platform-bun`'s child-process spawner and the shared egress `HttpClient`,
  * Effect's runtime-independent `Path`, the Bun `Jj` adapter from
  * `@smthrs/jj`, and `@smthrs/platform-node`'s `AtomicFileSystem`, which is the
  * very layer the Node bundle puts in its own filesystem slot.

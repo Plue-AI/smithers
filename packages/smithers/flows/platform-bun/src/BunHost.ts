@@ -9,13 +9,10 @@
  * `@effect/platform-node-shared`'s re-exported: the same code on both
  * runtimes, so no runtime detection is needed here.
  *
- * There is no Bun HTTP module either: outgoing requests are Effect's
- * `HttpClient`, and `@effect/platform-bun/BunHttpClient` is Effect's own
- * fetch-backed implementation. Bun reaches for it directly rather than
- * borrowing a browser package to get at `fetch`. The one thing configured here
- * is `redirect: "manual"`, so the runtime never walks to a second origin
- * behind the capability kernel's back; following a redirect is
- * `@smthrs/kernel`'s guarded `HttpClient.layer`, which rechecks every hop.
+ * Outgoing HTTP uses the shared EgressHttpClient on both runtimes. Web
+ * requests pin approved addresses; ordinary requests retain the shared pool.
+ * Redirects remain visible to the capability kernel, and proxy routing follows
+ * the host environment.
  *
  * The filesystem slot is `@smthrs/platform-node`'s `AtomicFileSystem`, byte for
  * byte the layer `NodeHost` uses, so a guarded path operation is
@@ -26,19 +23,20 @@
 
 import * as BunChildProcessSpawner from "@effect/platform-bun/BunChildProcessSpawner"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
-import * as BunHttpClient from "@effect/platform-bun/BunHttpClient"
 import * as BunPath from "@effect/platform-bun/BunPath"
 import type { Jj, JjError } from "@smthrs/jj"
 import * as BunJj from "@smthrs/jj/bun/BunJj"
 import type { HostServiceIds } from "@smthrs/kernel/HostServices"
 import type * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
+import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import * as HostLiveness from "@smthrs/platform-node/HostLiveness"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import type * as Crypto from "effect/Crypto"
 import type { FileSystem } from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import type * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import type { HttpClient } from "effect/unstable/http/HttpClient"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { isAbsolute } from "node:path"
@@ -96,13 +94,11 @@ export type BunHostErrorCode = "invalid_repository_root"
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class BunHostError extends Error {
+export class BunHostError extends Schema.TaggedError<BunHostError>()("@smthrs/platform-bun/BunHostError", {
+  code: Schema.Literal("invalid_repository_root"),
+  message: Schema.String
+}) {
   override readonly name = "BunHostError"
-  readonly code: BunHostErrorCode
-  constructor(options: { readonly code: BunHostErrorCode; readonly message: string }) {
-    super(options.message)
-    this.code = options.code
-  }
 }
 
 /** The longest message a factory refuses with, in UTF-16 code units. */
@@ -183,7 +179,7 @@ export const implementationIds: Readonly<Record<(typeof HostServiceIds)[number],
   "effect/Path": "@effect/platform-bun/BunPath",
   "effect/process/ChildProcessSpawner": "@effect/platform-bun/BunChildProcessSpawner",
   "@smthrs/jj/Jj": "@smthrs/jj/bun/BunJj",
-  "effect/HttpClient": "@effect/platform-bun/BunHttpClient"
+  "effect/HttpClient": "@smthrs/platform-node/EgressHttpClient"
 }
 
 /**
@@ -213,7 +209,7 @@ const reaping = (options?: ContainedOptions): ProcessReaper.Options => ({
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer, BunCrypto.layer)
 
 /**
- * The network slot on its own: Effect's fetch client, told never to follow a
+ * The network slot on its own: the shared egress client, which never follows a
  * redirect. A `3xx` comes back to the caller with its `location` intact and the
  * second origin uncontacted; following a redirect is `@smthrs/kernel`'s guarded
  * `HttpClient.layer`, which rechecks every hop.
@@ -221,10 +217,7 @@ const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer, BunCrypto.la
  * @category layers
  * @since 1.0.0-rc.0
  */
-export const layerHttpClient: Layer.Layer<HttpClient> = Layer.provide(
-  BunHttpClient.layer,
-  Layer.succeed(BunHttpClient.RequestInit)({ redirect: "manual" })
-)
+export const layerHttpClient: Layer.Layer<HttpClient> = EgressHttpClient.layer(process.env)
 
 /**
  * Provides all five Bun Host services, including the runtime-independent Path

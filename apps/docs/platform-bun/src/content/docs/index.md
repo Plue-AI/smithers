@@ -27,7 +27,7 @@ already has:
   against file descriptors and refuses to follow a link, rather than failing
   closed. A symlink swapped in after authorization cannot redirect the write.
 - **An HTTP client that stops at a redirect.** The bundle configures Effect's
-  fetch-backed client with `RequestInit { redirect: "manual" }`, so a `302`
+  egress client without automatic redirects, so a `302`
   comes back to you as a `302` and the second origin is never contacted. A
   client that follows redirects on its own reaches a host nobody authorized.
 

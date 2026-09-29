@@ -1,7 +1,7 @@
 import { CapabilityPattern, make } from "@smthrs/capability/Capability"
 import { PermissionDenied, Rule } from "@smthrs/capability/Permission"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
-import * as HttpClient from "@smthrs/kernel/HttpClient"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
@@ -12,6 +12,13 @@ import * as Fetch from "../src/Fetch.ts"
 import * as HttpPost from "../src/HttpPost.ts"
 import { guarded, refusal, ResolveHost } from "../src/internal/HttpNetwork.ts"
 import * as WebFetch from "../src/WebFetch.ts"
+
+// Mock clients perform no I/O; explicitly opt these policy fixtures into the contract.
+const HttpClient = {
+  ...KernelHttpClient,
+  make: (...args: Parameters<typeof KernelHttpClient.make>) =>
+    KernelHttpClient.withDestinationPinning(KernelHttpClient.make(...args))
+}
 
 const cases = [
   ["loopback IPv4", "http://127.0.0.1/private"],

@@ -97,8 +97,7 @@ than reaching it through a link.
 **Symptom.** `HttpClient.execute` returns status `302` with a `location`
 header, and the destination never receives a request.
 
-**Cause.** The bundle configures Effect's fetch-backed client with
-`RequestInit { redirect: "manual" }`, deliberately. A client that follows a
+**Cause.** The bundle uses the shared egress client without automatic redirects. A client that follows a
 redirect on its own reaches a second origin the capability kernel never
 authorized.
 

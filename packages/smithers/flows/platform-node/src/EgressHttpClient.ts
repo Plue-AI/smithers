@@ -12,8 +12,8 @@
  *
  * This module is the one place that decision is made. {@link layer} is the
  * client every Node host composition installs; it honours the proxy the
- * environment names and is exactly `NodeHttpClient.layerUndici` when the
- * environment names none, so an unproxied host is unchanged.
+ * environment names. Requests without a web destination use a shared pool;
+ * web requests receive a fresh pinned dispatcher.
  *
  * The rule for loopback is fixed here, not by the environment: `localhost`,
  * `127.0.0.1` and `[::1]` are always reached directly, even when the
@@ -31,12 +31,17 @@ import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient"
 import type * as Undici from "@effect/platform-node/Undici"
 import { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import { Destination, withDestinationPinning } from "@smthrs/kernel/HttpClient"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { HttpClient } from "effect/unstable/http/HttpClient"
+import * as EffectHttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientError from "effect/unstable/http/HttpClientError"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import { isIP } from "node:net"
 
 /**
  * The hosts a proxy is never for. A proxy is how a process leaves its machine;
@@ -87,7 +92,6 @@ export const dispatcher = (
     const httpProxy = environment.http_proxy ?? environment.HTTP_PROXY ?? ""
     const httpsProxy = environment.https_proxy ?? environment.HTTPS_PROXY ?? ""
     const noProxy = exclusions(environment.no_proxy ?? environment.NO_PROXY ?? "")
-    if (!httpProxy && !httpsProxy) return NodeHttpClient.makeDispatcher
     // Explicit empty values prevent Undici from falling back to a different
     // ambient environment. Each replacement pool uses the same proxy policy.
     //
@@ -96,10 +100,11 @@ export const dispatcher = (
     // by `NodeHost` and every bundle built on it. A static import pulls the
     // whole of Undici into any process that merely composes a host, whose
     // side effects a host bundle must not carry: it reddened the Node host's
-    // own `FileSystem` contract case, which never makes a request.
+    // own `FileSystem` contract case, which never makes a request. The explicit
+    // package entry also avoids Bun's incomplete built-in "undici" substitute.
     return Effect.acquireRelease(
       Effect.map(
-        Effect.promise(() => import("@effect/platform-node/Undici")),
+        Effect.promise(() => import("undici/index.js")),
         (undici) => new undici.EnvHttpProxyAgent({ httpProxy, httpsProxy, noProxy })
       ),
       (dispatcher) => Effect.promise(() => dispatcher.destroy())
@@ -123,8 +128,105 @@ export const dispatcher = (
 export const layer = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<HttpClient> =>
-  NodeHttpClient.layerUndiciNoDispatcher.pipe(
-    Layer.provide(Layer.effect(NodeHttpClient.Dispatcher)(dispatcher(environment)))
+  Layer.effect(
+    HttpClient,
+    Effect.gen(function*() {
+      const shared = yield* dispatcher(environment)
+      const ordinary = yield* NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, shared))
+      return withDestinationPinning(EffectHttpClient.transform(ordinary, (execute, request) =>
+        Effect.gen(function*() {
+          const destination = yield* Destination
+          if (destination === undefined) return yield* execute
+          const url = new URL(request.url)
+          if (
+            url.origin !== destination.origin || destination.addresses.length === 0 ||
+            destination.addresses.some((address) => isIP(address) === 0)
+          ) {
+            return yield* Effect.fail(
+              new HttpClientError.HttpClientError({
+                reason: new HttpClientError.TransportError({
+                  request,
+                  description: "Invalid pinned HTTP destination"
+                })
+              })
+            )
+          }
+          const proxies = [
+            environment.http_proxy ?? environment.HTTP_PROXY,
+            environment.https_proxy ?? environment.HTTPS_PROXY
+          ]
+          const validProxies = proxies.every((proxy) => {
+            if (!proxy) return true
+            try {
+              return ["http:", "https:"].includes(new URL(proxy).protocol)
+            } catch {
+              return false
+            }
+          })
+          if (!validProxies) {
+            return yield* Effect.fail(
+              new HttpClientError.HttpClientError({
+                reason: new HttpClientError.TransportError({
+                  request,
+                  description: "Pinned HTTP requests require HTTP or HTTPS proxies"
+                })
+              })
+            )
+          }
+          const undici = yield* Effect.promise(() => import("undici/index.js"))
+          const addresses = destination.addresses.map((address) => ({ address, family: isIP(address) }))
+          const pinned = new undici.EnvHttpProxyAgent({
+            httpProxy: environment.http_proxy ?? environment.HTTP_PROXY ?? "",
+            httpsProxy: environment.https_proxy ?? environment.HTTPS_PROXY ?? "",
+            noProxy: exclusions(environment.no_proxy ?? environment.NO_PROXY ?? ""),
+            // Tunnelling HTTP too prevents the proxy resolving the target hostname.
+            proxyTunnel: true,
+            connect: {
+              lookup: (_hostname, options, callback) => {
+                const candidates = options.family
+                  ? addresses.filter((item) => item.family === options.family)
+                  : addresses
+                const first = candidates[0]
+                if (first === undefined) return callback(new Error("No approved address for family"), "", 4)
+                if (options.all) callback(null, candidates)
+                else callback(null, first.address, first.family)
+              }
+            },
+            clientFactory: (origin, options) => {
+              const proxy = new undici.Pool(origin, options)
+              const connect = proxy.connect.bind(proxy)
+              // EnvHttpProxyAgent selects the route using the ORIGINAL hostname.
+              // Only the proxy tunnel destination changes; endpoint TLS still uses
+              // the original hostname for SNI and certificate verification.
+              proxy.connect = (options: Undici.Dispatcher.ConnectOptions) => {
+                const address = addresses[0]!.address
+                const host = isIP(address) === 6 ? `[${address}]` : address
+                const authority = `${host}:${url.port || (url.protocol === "https:" ? "443" : "80")}`
+                return connect({ ...options, path: authority, headers: { ...options.headers, host: authority } })
+              }
+              return proxy
+            }
+          })
+          const client = yield* NodeHttpClient.makeUndici.pipe(
+            Effect.provideService(NodeHttpClient.Dispatcher, pinned)
+          )
+          const pinnedRequest = request.pipe(
+            HttpClientRequest.setHeader("host", url.host),
+            HttpClientRequest.removeHeader("proxy-authorization"),
+            HttpClientRequest.removeHeader("connection"),
+            HttpClientRequest.removeHeader("transfer-encoding"),
+            HttpClientRequest.removeHeader("content-length")
+          )
+          return yield* client.execute(pinnedRequest).pipe(Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Effect.promise(() => pinned.destroy())
+              // close prevents reuse immediately, but lets the active body drain.
+              : Effect.sync(() => {
+                void pinned.close().catch(() => pinned.destroy())
+              })
+          ))
+        })))
+    })
   )
 
 /**

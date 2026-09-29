@@ -356,7 +356,7 @@ export const layer: Layer.Layer<
         )
     )
     const followed = EffectHttpClient.followRedirects(guarded)
-    return EffectHttpClient.makeWith(
+    const result = EffectHttpClient.makeWith(
       (request) =>
         Effect.withFiber((fiber) =>
           // Read caller policy before the guard forces manual transport.
@@ -366,6 +366,7 @@ export const layer: Layer.Layer<
         ),
       guarded.preprocess
     )
+    return supportsDestinationPinning(client) ? withDestinationPinning(result) : result
   })
 )
 
@@ -376,17 +377,30 @@ export const layer: Layer.Layer<
  * @category references
  * @since 1.0.0
  */
-export const Destination = Context.Reference<{
-  readonly origin: string
-  readonly addresses: ReadonlyArray<string>
-} | undefined>("@smthrs/kernel/HttpClient/Destination", { defaultValue: () => undefined })
+export const Destination = Context.Reference<
+  {
+    readonly origin: string
+    readonly addresses: ReadonlyArray<string>
+  } | undefined
+>("@smthrs/kernel/HttpClient/Destination", { defaultValue: () => undefined })
+
+const pinnedClients = new WeakSet<EffectHttpClient.HttpClient>()
 
 /**
- * Host assertion that its ordinary HttpClient enforces Destination. Custom
- * transports must implement the contract before enabling this reference.
- * @category references
+ * Marks a trusted transport that enforces Destination on every connection.
+ * The assertion belongs to this client instance, not ambient context. A
+ * replacement client must establish its own transport guarantee.
+ * @category constructors
  * @since 1.0.0
  */
-export const DestinationPinning = Context.Reference<boolean>("@smthrs/kernel/HttpClient/DestinationPinning", {
-  defaultValue: () => false
-})
+export const withDestinationPinning = <A extends EffectHttpClient.HttpClient>(client: A): A => {
+  pinnedClients.add(client)
+  return client
+}
+
+/**
+ * Whether this exact client implements the Destination transport contract.
+ * @category predicates
+ * @since 1.0.0
+ */
+export const supportsDestinationPinning = (client: EffectHttpClient.HttpClient): boolean => pinnedClients.has(client)

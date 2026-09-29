@@ -49,7 +49,7 @@ BunHost.implementationIds
 //   "effect/Path": "@effect/platform-bun/BunPath",
 //   "effect/process/ChildProcessSpawner": "@effect/platform-bun/BunChildProcessSpawner",
 //   "@smthrs/jj/Jj": "@smthrs/jj/bun/BunJj",
-//   "effect/HttpClient": "@effect/platform-bun/BunHttpClient"
+//   "effect/HttpClient": "@smthrs/platform-node/EgressHttpClient"
 // }
 ```
 
@@ -83,16 +83,13 @@ program, and where the parity stops.
 **The network** is Effect's `HttpClient`. There is no Smithers transport port
 beneath it, because a raw port would be a second way to reach the network
 whose contract never mentions permission. The bundle provides
-`@effect/platform-bun`'s fetch-backed client, and configures exactly one thing
-about it.
+`@smthrs/platform-node`'s egress client, with hostname-based proxy routing
+and connection pinning for web tools.
 
-## The one thing configured about the network: manual redirects
+## Redirects and connection pinning
 
 ```ts
-const layerHttpClient: Layer.Layer<HttpClient> = Layer.provide(
-  BunHttpClient.layer,
-  Layer.succeed(BunHttpClient.RequestInit)({ redirect: "manual" })
-)
+const layerHttpClient: Layer.Layer<HttpClient> = EgressHttpClient.layer(process.env)
 ```
 
 A `302` therefore comes back to the caller as a `302`, with its `location`

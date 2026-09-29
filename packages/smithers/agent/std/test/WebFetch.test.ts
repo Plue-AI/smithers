@@ -16,6 +16,7 @@ const WebFetch = {
   ...WebFetchModule,
   run: (input: WebFetchModule.Input) =>
     WebFetchModule.run(input).pipe(
+      Effect.updateService(HttpClient.HttpClient, HttpClient.withDestinationPinning),
       Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"])),
       Effect.provide(
         GrantStore.layer({
@@ -269,7 +270,7 @@ describe("WebFetch", () => {
     const result = await Effect.runPromise(
       WebFetchModule.run({ url: "https://first.test/start", format: "text" }).pipe(
         Effect.provide(HttpClient.layer),
-        Effect.provideService(HttpClient.HttpClient, raw),
+        Effect.provideService(HttpClient.HttpClient, HttpClient.withDestinationPinning(raw)),
         Effect.provideService(GrantStore.GrantStore, grants),
         Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )
@@ -310,7 +311,7 @@ describe("WebFetch", () => {
     const failure = await Effect.runPromise(Effect.flip(
       WebFetchModule.run({ url: "https://first.test/start" }).pipe(
         Effect.provide(HttpClient.layer),
-        Effect.provideService(HttpClient.HttpClient, raw),
+        Effect.provideService(HttpClient.HttpClient, HttpClient.withDestinationPinning(raw)),
         Effect.provideService(GrantStore.GrantStore, grants),
         Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )
@@ -349,7 +350,7 @@ describe("WebFetch", () => {
     const result = await Effect.runPromise(
       WebFetchModule.run({ url: "https://first.test/start" }).pipe(
         Effect.provide(HttpClient.layer),
-        Effect.provideService(HttpClient.HttpClient, raw),
+        Effect.provideService(HttpClient.HttpClient, HttpClient.withDestinationPinning(raw)),
         Effect.provideService(GrantStore.GrantStore, grants),
         Effect.provideService(ResolveHost, () => Effect.succeed(["93.184.216.34"]))
       )

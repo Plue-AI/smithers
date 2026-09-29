@@ -551,7 +551,7 @@ export const layerSeatEvaluator = (
   environment: Readonly<Record<string, string | undefined>>,
   jevHttp: Layer.Layer<HttpClient.HttpClient> = process.versions.bun === undefined
     ? EgressHttpClient.layer(environment)
-    // Undici cannot run under Bun; Bun's fetch honours the proxy variables itself.
+    // Keep the evaluator's existing Bun fetch transport and its native proxy policy.
     : FetchHttpClient.layer
 ): Layer.Layer<Evaluator.Evaluator, never, RequestExecutor.RequestExecutor> =>
   Layer.effect(Evaluator.Evaluator)(Effect.gen(function*() {

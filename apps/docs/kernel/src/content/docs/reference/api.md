@@ -1402,3 +1402,16 @@ See [Capabilities and the host kernel](https://smithers.sh/docs/concepts/kernel/
 bundles that satisfy these ports: [`@smthrs/platform-node`](https://platform-node.smithers.sh/reference/api/),
 [`@smthrs/platform-browser`](https://platform-browser.smithers.sh/reference/api/), and
 [`@smthrs/platform-bun`](https://platform-bun.smithers.sh/reference/api/).
+
+## Web destination pinning
+
+`HttpClient.Destination` carries an immutable `{ origin, addresses }` snapshot
+for one authorized web request. `HttpClient.withDestinationPinning(client)` marks only the exact trusted
+client instance that
+rejects origin mismatches, pins every socket and proxy tunnel to the approved
+addresses, preserves HTTP Host and TLS verification, and prevents reuse of
+connections from another admission. Custom clients must implement this
+contract before marking the client. Replacing the client does not inherit the assertion;
+the kernel guard preserves it when wrapping a supported client. The standard Node and Bun host
+bundles implement it. `HttpClient.supportsDestinationPinning(client)` reports
+whether that exact client is marked. Model requests leave `Destination` unset.

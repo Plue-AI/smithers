@@ -92,7 +92,7 @@ filesystem slot carries `@smthrs/platform-node`'s `AtomicFileSystem`, so under
 `@smthrs/kernel`'s guard an authorized path operation runs against file
 descriptors and refuses to follow a link: a symlink swapped in after
 authorization cannot redirect the write. And the HTTP slot is Effect's
-fetch-backed client configured with `RequestInit { redirect: "manual" }`, so a
+shared egress client without automatic redirects, so a
 `302` comes back to you as a `302` and the second origin is never contacted.
 
 ## Runtimes

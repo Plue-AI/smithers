@@ -4,10 +4,10 @@ import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Cause, Effect, Exit, Layer } from "effect"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { createServer, type RequestListener, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterEach, describe, expect, it } from "vitest"
+import * as EgressHttpClient from "../../../flows/platform-node/src/EgressHttpClient.ts"
 import * as Fetch from "../src/Fetch.ts"
 import * as HttpPost from "../src/HttpPost.ts"
 import * as WebFetch from "../src/WebFetch.ts"
@@ -68,7 +68,7 @@ describe("HTTP private network with real sockets", () => {
     const url = `${origin}/private`
     const denied = await Effect.runPromise(Effect.exit(
       run(url).pipe(
-        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(EgressHttpClient.layer({})),
         Effect.provide(grant())
       )
     ))
@@ -77,7 +77,7 @@ describe("HTTP private network with real sockets", () => {
 
     const allowed = await Effect.runPromise(
       run(url).pipe(
-        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(EgressHttpClient.layer({})),
         Effect.provide(grant(origin))
       )
     )
@@ -98,7 +98,7 @@ describe("HTTP private network with real sockets", () => {
     })
     const exit = await Effect.runPromise(Effect.exit(
       run(`${first}/start`).pipe(
-        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(EgressHttpClient.layer({})),
         Effect.provide(grant(first))
       )
     ))
@@ -123,7 +123,7 @@ describe("HTTP private network with real sockets", () => {
     const result = await Effect.runPromise(
       Fetch.run({ url: `${origin}/private` }).pipe(
         Effect.provide(HttpClient.layer),
-        Effect.provide(FetchHttpClient.layer),
+        Effect.provide(EgressHttpClient.layer({})),
         Effect.provide(store)
       )
     )

@@ -374,10 +374,18 @@ host must expose its `GrantStore` to every web tool, alongside `HttpClient`. DNS
 grant waits, redirects, and body reads share the request deadline. Model
 transports are unaffected.
 
-The host client must honor manual redirects. DNS validation is a preflight
-check; the host transport must also constrain connection-time resolution or
-use an egress policy to prevent DNS rebinding. Connection pinning is tracked
-in [#2844](https://github.com/smithersai/smithers/issues/2844).
+Web tools require a host that enforces connection pinning, such as
+`EgressHttpClient.layer(process.env)` from `@smthrs/platform-node`, which both
+Node and Bun host bundles install. Other transports return `unsupported`
+unless they implement the kernel's destination-pinning contract. Preflight
+DNS validation alone does not prevent DNS rebinding.
+
+Every redirect resolves and authorizes its destination again. A request uses
+only its approved address snapshot, with no shared connection pool. HTTP Host
+and TLS hostname verification retain the requested hostname. Proxy selection
+uses that hostname and `NO_PROXY`; proxy CONNECT names the approved IP even
+for HTTP. A proxy that refuses IP tunnels fails closed. Model requests do not
+set the web destination policy and keep their ordinary host transport.
 
 ## fetch
 
@@ -533,3 +541,7 @@ included: both are available to a handler that needs them, and the handlers
 shipped here have no occasion to raise either.
 
 For what to do about each one, see [Troubleshooting](/troubleshooting/).
+
+Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
+fail closed. The transport sets Host from the URL and discards caller-supplied
+proxy authorization and connection framing headers.

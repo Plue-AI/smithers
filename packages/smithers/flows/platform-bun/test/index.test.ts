@@ -114,7 +114,7 @@ describe("@smthrs/platform-bun barrel", () => {
       "effect/Path": "@effect/platform-bun/BunPath",
       "effect/process/ChildProcessSpawner": "@effect/platform-bun/BunChildProcessSpawner",
       "@smthrs/jj/Jj": "@smthrs/jj/bun/BunJj",
-      "effect/HttpClient": "@effect/platform-bun/BunHttpClient"
+      "effect/HttpClient": "@smthrs/platform-node/EgressHttpClient"
     })
     // Every slot in the closed list is named, and nothing else is.
     expect(Object.keys(BunHost.implementationIds).sort()).toEqual([...HostServiceIds].sort())
