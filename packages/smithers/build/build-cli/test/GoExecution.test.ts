@@ -34,6 +34,24 @@ const hasGo = await (async () => {
   }
 })()
 
+// Use an installed older launcher; the test never installs a toolchain or
+// relies on a download while the target is running in its closed sandbox.
+const olderGo = await (async (): Promise<string | undefined> => {
+  const candidates = [goPath, NodePath.join(Os.homedir(), "go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.6." +
+    `${process.platform}-${process.arch === "x64" ? "amd64" : process.arch}/bin/go`)]
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue
+    try {
+      const version = NodeChildProcess.execFileSync(candidate, ["version"], {
+        encoding: "utf8",
+        env: { ...process.env, GOTOOLCHAIN: "local" }
+      })
+      if (/go version go1\.(?:[0-9]|1[0-9]|2[0-5])\./.test(version)) return candidate
+    } catch { /* This launcher is not installed. */ }
+  }
+  return undefined
+})()
+
 /**
  * Plans against only the named host tools, regardless of optional tools
  * installed on the host. `stubs` writes extra executables into the same
@@ -132,6 +150,34 @@ export const Package = S.Package({ targets: { all, binary, fetch, fuzz, generate
   NodeChildProcess.execFileSync("git", ["-C", root, "tag", "v1.2.3"])
   return root
 }
+
+describe.runIf(olderGo !== undefined)("Go selected SDK execution", () => {
+  it("builds with the already selected SDK rather than the older Go launcher", async () => {
+    const root = await fixture()
+    const selected = JSON.parse(NodeChildProcess.execFileSync(olderGo!, ["env", "-json", "GOROOT", "GOTOOLDIR"], {
+      cwd: root,
+      encoding: "utf8"
+    })) as { GOROOT: string; GOTOOLDIR: string }
+    const sdkGo = NodePath.join(selected.GOROOT, "bin/go")
+    expect(selected.GOROOT).not.toBe(NodePath.dirname(NodePath.dirname(olderGo!)))
+    expect(await Fs.stat(sdkGo)).toBeDefined()
+    const control = await serve(await fixture(), ["build", "//:binary"], {
+      environment: {
+        ...process.env,
+        PATH: `${NodePath.dirname(sdkGo)}${NodePath.delimiter}${process.env.PATH ?? ""}`
+      }
+    })
+    expect(control.exitCode, control.logs).toBe(0)
+    expect(control.logs).toContain("//:binary  ran")
+    const environment = {
+      ...process.env,
+      PATH: `${NodePath.dirname(olderGo!)}${NodePath.delimiter}${process.env.PATH ?? ""}`
+    }
+    const launched = await serve(root, ["build", "//:binary"], { environment })
+    expect(launched.exitCode, launched.logs).toBe(0)
+    expect(launched.logs).toContain("//:binary  ran")
+  }, 120_000)
+})
 
 describe.runIf(hasGo)("Go package execution", () => {
   it("loads, plans without NotImplemented, executes tests/build/tool edge/stamps, and hits", async () => {
