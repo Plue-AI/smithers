@@ -53197,6 +53197,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/installer-release.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/restore-release.test.mjs"
       },
       {

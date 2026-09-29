@@ -569,6 +569,7 @@ const thirdPartyNoticesUnit = Smithers.NodeTest({
 const releaseIntegrity = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//scripts/publish-release.test.mjs"),
+    Smithers.file("//scripts/installer-release.test.mjs"),
     Smithers.file("//scripts/restore-release.test.mjs"),
     Smithers.file("//scripts/workspace-packages.test.mjs")
   ]),

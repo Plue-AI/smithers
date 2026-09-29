@@ -960,3 +960,132 @@ jobs:
       # and Alchemy reads anything after it as the main file.
       - name: Deploy every docs site
         run: pnpm docs:deploy --yes
+
+  installer-archive:
+    name: installed npm CLI (${{ matrix.platform }})
+    needs: publish
+    # A sourceRef rehearsal has no release tag and cannot earn a tag receipt.
+    if: inputs.sourceRef == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - runner: macos-15-intel
+            platform: darwin-amd64
+          - runner: macos-15
+            platform: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-packs
+      - name: Install CLI consumer tools
+        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b
+        with:
+          tool: jj-cli@0.39.0,ripgrep@14.1.1
+      - name: Build and execute relocated installer
+        env:
+          PACK_DIR: ${{ runner.temp }}/release-packs
+          INSTALLER_DIR: ${{ runner.temp }}/installer
+        run: |
+          test "$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.PACK_DIR + "/release-manifest.json")).source.sha')" = "$(git rev-parse HEAD)"
+          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
+          node scripts/installer-release.mjs pack "$PACK_DIR" "$RELEASE_TAG" "$INSTALLER_DIR"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installer-${{ matrix.platform }}
+          path: ${{ runner.temp }}/installer
+          if-no-files-found: error
+          retention-days: 30
+  installer-publish:
+    name: sign and publish installer archives
+    needs: installer-archive
+    if: github.event_name != 'workflow_dispatch' || !inputs.dryRun
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: installer-publish
+    concurrency:
+      group: installer-publication
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
+    steps:
+      - name: Require the exact tag-bound signing identity
+        run: |
+          test "$GITHUB_REPOSITORY" = smithersai/smithers
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          test "$GITHUB_WORKFLOW_REF" = "smithersai/smithers/.github/workflows/release.yml@refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/installer
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-packs
+      - name: Install trusted Cosign v3
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0, embedded checksums
+        with:
+          cosign-release: v3.0.2
+      - name: Sign and self-verify the complete archive set
+        env:
+          INSTALLER_DIR: ${{ runner.temp }}/installer
+          PACK_DIR: ${{ runner.temp }}/release-packs
+        run: |
+          INSTALLER_CANDIDATE_INTEGRITY="$(node --input-type=module -e '
+            import { readFile } from "node:fs/promises";
+            import { candidateIntegrity, verifyLocalCandidate } from "./scripts/publish-release.mjs";
+            const candidate = JSON.parse(await readFile(process.env.PACK_DIR + "/release-manifest.json", "utf8"));
+            await verifyLocalCandidate(process.env.PACK_DIR, candidate);
+            console.log(candidateIntegrity(candidate));
+          ')"
+          export INSTALLER_CANDIDATE_INTEGRITY
+          INSTALLER_SOURCE_SHA="$(git rev-parse HEAD)"
+          export INSTALLER_SOURCE_SHA
+          node scripts/installer-release.mjs sign "$INSTALLER_DIR" "$RELEASE_TAG"
+      - name: Retain signed installer evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-installer-${{ github.run_id }}
+          path: ${{ runner.temp }}/installer
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish verified archives and update latest last
+        env:
+          INSTALLER_DIR: ${{ runner.temp }}/installer
+          # Configure only after Plue #702 supports atomic directory installs.
+          INSTALLER_FORMAT: ${{ vars.SMITHERS_INSTALLER_FORMAT }}
+          INSTALLER_BUCKET: ${{ vars.SMITHERS_INSTALLER_BUCKET }}
+          INSTALLER_S3_ENDPOINT: ${{ vars.SMITHERS_INSTALLER_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SMITHERS_INSTALLER_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SMITHERS_INSTALLER_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          test "$INSTALLER_FORMAT" = npm-directory-v1
+          test -n "$AWS_ACCESS_KEY_ID"
+          test -n "$AWS_SECRET_ACCESS_KEY"
+          node scripts/installer-release.mjs publish "$INSTALLER_DIR" "$RELEASE_TAG"
