@@ -1,6 +1,6 @@
 import { CapabilityPattern, make as makeCapability } from "@smthrs/capability/Capability"
 import { PermissionRequired, Rule } from "@smthrs/capability/Permission"
-import { Effect, Fiber, Layer } from "effect"
+import { Effect, Fiber, Layer, Option } from "effect"
 import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
@@ -53,6 +53,28 @@ const awaitPending = (store: GrantStore.Service): Effect.Effect<GrantStore.Pendi
   )
 
 describe("HTTP preflight admission", () => {
+  it("refuses preflight before running network work and preserves the permission failure", async () => {
+    const request = HttpClientRequest.get("https://api.test/path")
+    let ran = false
+    const failure = await Effect.runPromise(
+      HttpClient.authorizePreflight(
+        request,
+        Effect.sync(() => {
+          ran = true
+        })
+      ).pipe(
+        Effect.flip,
+        Effect.provide(GrantStore.layer({ attended: false, rules: [] })),
+        Effect.provide(Workspace.layer("/workspace"))
+      )
+    )
+    expect(ran).toBe(false)
+    expect(Option.getOrThrow(HttpClient.fromHttpClientError(failure))).toMatchObject({
+      code: "permission_required",
+      capability: { action: "net:get", resource: "api.test" }
+    })
+  })
+
   it("does not turn a wildcard ceiling and wildcard configured grant into private authority", async () => {
     const failure = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
       const store = yield* GrantStore.make({
@@ -176,5 +198,28 @@ describe("HTTP preflight admission", () => {
     )
     expect(store.checked).toEqual(["net:get:first.test", "net:get:second.test"])
     expect(host.sent).toEqual(["https://second.test/path"])
+  })
+})
+
+describe("HTTP destination pinning", () => {
+  it("starts without a destination and preserves pinning only for the trusted transport", async () => {
+    const destination = Effect.runSync(
+      Effect.withFiber((fiber) => Effect.succeed(fiber.getRef(HttpClient.Destination)))
+    )
+    expect(destination).toBeUndefined()
+    const trusted = raw().client
+    const other = raw().client
+    expect(HttpClient.supportsDestinationPinning(trusted)).toBe(false)
+    expect(HttpClient.withDestinationPinning(trusted)).toBe(trusted)
+    expect(HttpClient.supportsDestinationPinning(trusted)).toBe(true)
+    expect(HttpClient.supportsDestinationPinning(other)).toBe(false)
+    const isGuardedPinned = (client: EffectHttpClient.HttpClient) =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          return HttpClient.supportsDestinationPinning(yield* EffectHttpClient.HttpClient)
+        }).pipe(Effect.provide(guardedLayer(client, recordingStore().service)))
+      )
+    expect(await isGuardedPinned(trusted)).toBe(true)
+    expect(await isGuardedPinned(other)).toBe(false)
   })
 })
