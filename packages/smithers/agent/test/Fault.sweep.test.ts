@@ -72,6 +72,12 @@ describe("the owners' classes", () => {
     expect(Fault.of(wrapped)).toEqual({ class: "wait", tag: "flows/model/ModelError/quota_exceeded" })
   })
 
+  it("hands spent hosted credit to the person, since waiting never refills it", () => {
+    const credit = new ModelError.ModelError({ code: "out_of_credit", message: "no credit" })
+    const wrapped = new Harness.HarnessError({ code: "model_failed", message: "model", cause: credit })
+    expect(Fault.of(wrapped)).toEqual({ class: "user", tag: "flows/model/ModelError/out_of_credit" })
+  })
+
   it("blames the factory, never the person, for a request our agent built", () => {
     expect(Fault.of(new ModelError.ModelError({ code: "invalid_request", message: "bad" })).class).toBe("factory")
     expect(Fault.of(new ModelError.ModelError({ code: "context_overflow", message: "full" })).class).toBe("factory")
