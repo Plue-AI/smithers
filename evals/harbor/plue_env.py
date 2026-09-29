@@ -804,7 +804,7 @@ class _PlueOps:
         except BaseException as error:
             if self._workspace_id:
                 # Reclaim known IDs immediately, retaining failed deletions.
-                await asyncio.shield(self._plue_stop())
+                await asyncio.shield(self._plue_stop(handoff=False))
             elif not (isinstance(error, PlueError) and (
                 error.code in ("ownership_unavailable", "cli_unavailable") or is_capacity_error(error)
             )):
@@ -923,12 +923,12 @@ class _PlueOps:
             if data.get("status") not in ("running", "failed", "error", "stopped", "suspended", "deleted"):
                 await asyncio.sleep(min(2, max(0, deadline - asyncio.get_event_loop().time())))
 
-    async def _plue_stop(self) -> None:
+    async def _plue_stop(self, *, handoff: bool = True) -> None:
         """Delete the workspace and free the slot. Never raises: a workspace
         that survives every attempt is logged to PLUE_LEAK_LOG, because an
         undeleted workspace is not the trial's failure."""
         workspace = self._workspace_id
-        heir = self._plue_heir()
+        heir = self._plue_heir() if handoff else None
         try:
             last: PlueError | None = None
             for attempt in range(_DELETE_ATTEMPTS if workspace else 0):

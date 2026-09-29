@@ -246,6 +246,7 @@ def check_missing_create_id_logs_ambiguous_resource() -> None:
                         "o.session_id='trial__one__env'; o.task_env_config=types.SimpleNamespace(cpus=2); "
                         "o._plue_image='image'; o._plue_network=lambda: ('none', []); "
                         "o._plue_reserved=False; o._plue_ledger=lambda: None; "
+                        "o._plue_heir=lambda: (_ for _ in ()).throw(AssertionError('failed boot cannot hand off')); "
                         "asyncio.run(o._plue_reserve())", env)
         assert result.returncode != 0 and "no id" in result.stderr, result.stderr
         assert leak_log.is_file(), "ambiguous create must leave an operator receipt"

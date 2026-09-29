@@ -75,7 +75,10 @@ def _reap(trials: list[str] | None) -> list[str]:
         if trials is None:
             detail = subprocess.run([cli, "workspace", "view", ident, "--repo", repo, "--format", "json"],
                                     capture_output=True, text=True, timeout=120, check=False)
-            data = json.loads(detail.stdout)
+            try:
+                data = json.loads(detail.stdout)
+            except ValueError as error:
+                raise RuntimeError(f"invalid workspace view for {ident}; receipt retained") from error
             if detail.returncode:
                 error = data.get("error") or {}
                 if workspace_ownership.is_missing(error.get("code", ""), error.get("message", "")):
