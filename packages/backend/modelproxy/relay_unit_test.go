@@ -163,11 +163,22 @@ func TestAnthropicUsageRefusesInvalidCacheSplit(t *testing.T) {
 	haiku, _ := modelprice.Lookup("claude-haiku-4-5")
 	for _, split := range []string{
 		`"cache_creation":{"ephemeral_1h_input_tokens":-1}`,
+		`"cache_creation":{"ephemeral_5m_input_tokens":-1,"ephemeral_1h_input_tokens":4}`,
 		`"cache_creation_input_tokens":1,"cache_creation":{"ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":2}`,
+		`"cache_creation_input_tokens":9223372036854775807,"cache_creation":{"ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":2}`,
 	} {
 		usage, ok := usageFromJSON([]byte(`{"usage":{"input_tokens":1,` + split + `}}`))
 		require.True(t, ok)
 		_, err := modelprice.CostNanos(haiku, usage)
+		require.Error(t, err, split)
+
+		// A later valid frame in a stream does not hide the invalid one.
+		body := `data: {"type":"message_start","message":{"usage":{"input_tokens":1,` + split + `}}}` + "\n" +
+			`data: {"type":"message_delta","usage":{"output_tokens":5,"cache_creation_input_tokens":4,"cache_creation":{"ephemeral_1h_input_tokens":4}}}` + "\n" +
+			`data: {"type":"message_stop"}` + "\n"
+		streamed, final := relayStream(httptest.NewRecorder(), strings.NewReader(body))
+		require.True(t, final)
+		_, err = modelprice.CostNanos(haiku, streamed)
 		require.Error(t, err, split)
 	}
 }

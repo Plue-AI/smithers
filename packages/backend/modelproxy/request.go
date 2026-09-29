@@ -416,11 +416,15 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 	pick(&out.CacheReadTokens, u.CacheRead, u.PromptDetails.Cached, u.InputDetails.Cached)
 	pick(&out.CacheWriteTokens, u.CacheWrite, u.PromptDetails.CacheWrite, u.InputDetails.CacheWrite)
 	// Anthropic's cache_creation_input_tokens counts both cache lifetimes;
-	// cache_creation splits them. A total below its parts is raised to them.
+	// cache_creation splits them. A total below its parts is raised to them;
+	// a negative or overflowing split is marked invalid so it is never priced.
 	var fiveMinute int64
 	pick(&fiveMinute, u.CacheCreation.FiveMinute)
 	pick(&out.CacheWrite1hTokens, u.CacheCreation.OneHour)
-	if fiveMinute >= 0 && out.CacheWrite1hTokens >= 0 && out.CacheWriteTokens < fiveMinute+out.CacheWrite1hTokens {
+	switch {
+	case fiveMinute < 0 || out.CacheWrite1hTokens < 0 || fiveMinute > math.MaxInt64-out.CacheWrite1hTokens:
+		out.CacheWriteTokens = -1
+	case out.CacheWriteTokens < fiveMinute+out.CacheWrite1hTokens:
 		out.CacheWriteTokens = fiveMinute + out.CacheWrite1hTokens
 	}
 	if !found {
@@ -440,13 +444,20 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 }
 
 // mergeUsage keeps the largest value per field: Anthropic streams report
-// input on message_start and cumulative output on every message_delta.
+// input on message_start and cumulative output on every message_delta. A
+// negative (invalid) value is kept, so the merged usage is never priced.
 func mergeUsage(a, b modelprice.Usage) modelprice.Usage {
+	merge := func(x, y int64) int64 {
+		if x < 0 || y < 0 {
+			return min(x, y)
+		}
+		return max(x, y)
+	}
 	return modelprice.Usage{
-		InputTokens:        max(a.InputTokens, b.InputTokens),
-		OutputTokens:       max(a.OutputTokens, b.OutputTokens),
-		CacheReadTokens:    max(a.CacheReadTokens, b.CacheReadTokens),
-		CacheWriteTokens:   max(a.CacheWriteTokens, b.CacheWriteTokens),
-		CacheWrite1hTokens: max(a.CacheWrite1hTokens, b.CacheWrite1hTokens),
+		InputTokens:        merge(a.InputTokens, b.InputTokens),
+		OutputTokens:       merge(a.OutputTokens, b.OutputTokens),
+		CacheReadTokens:    merge(a.CacheReadTokens, b.CacheReadTokens),
+		CacheWriteTokens:   merge(a.CacheWriteTokens, b.CacheWriteTokens),
+		CacheWrite1hTokens: merge(a.CacheWrite1hTokens, b.CacheWrite1hTokens),
 	}
 }
