@@ -296,8 +296,8 @@ describe("AppSession turns", () => {
       kind: "flow-run",
       id: executionId,
       phase: "completed",
-      // Read from the plan the flow returned; a step left running settles done.
-      steps: [{ name: "describe", status: "done" }, { name: "validate", status: "done" }],
+      // Read from the plan the flow returned, including an unfinished step.
+      steps: [{ name: "describe", status: "done" }, { name: "validate", status: "running" }],
       result: { name: "arb" }
     })
     expect(app.session(INDEX_SESSION).sessions()).toMatchObject([{ id: "s1", status: "ready", stage: "build" }])

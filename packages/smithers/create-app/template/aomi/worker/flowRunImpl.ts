@@ -56,20 +56,12 @@ class RunCard {
     private readonly emit: (frame: TurnFrame) => void
   ) {}
 
-  /**
-   * Ends the run.
-   *
-   * A step still marked `running` when the run ends would leave a spinner the
-   * shell has no way to clear, so an unsettled step inherits the run's fate.
-   */
+  /** Ends the run without changing the stages the flow actually reported. */
   settle(
     phase: Phase,
     extra: { readonly result?: unknown; readonly error?: string; readonly steps?: ReadonlyArray<Step> } = {}
   ): Phase {
-    const settled: Step["status"] = phase === "completed" ? "done" : "failed"
-    this.steps = (extra.steps ?? this.steps).map((step) =>
-      step.status === "pending" || step.status === "running" ? { name: step.name, status: settled } : step
-    )
+    this.steps = extra.steps ?? this.steps
     this.update(phase, extra)
     return phase
   }

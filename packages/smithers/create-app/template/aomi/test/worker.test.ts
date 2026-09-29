@@ -366,7 +366,12 @@ describe("runFlowRun", () => {
     name: "arb",
     summary: "An arbitrage scanner.",
     files: [],
-    steps: [{ name: "plan", status: "done" }, { name: "smoke", status: "pending" }]
+    steps: [
+      { name: "plan", status: "done" },
+      { name: "smoke", status: "pending" },
+      { name: "ship", status: "running" },
+      { name: "validate", status: "failed" }
+    ]
   })`))
 
   const runCards = async (
@@ -396,7 +401,12 @@ describe("runFlowRun", () => {
       id: "exec-1",
       executionId: "exec-1",
       phase: "completed",
-      steps: [{ name: "plan", status: "done" }, { name: "smoke", status: "done" }],
+      steps: [
+        { name: "plan", status: "done" },
+        { name: "smoke", status: "pending" },
+        { name: "ship", status: "running" },
+        { name: "validate", status: "failed" }
+      ],
       result: { name: "arb" }
     })
     expect(cards[0]?.error).toBeUndefined()

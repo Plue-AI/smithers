@@ -166,6 +166,10 @@ is marked running. A pipeline run in the same state settles its `flow-run` card
 A turn is one request on the in-memory flow engine. An eviction mid-turn ends
 it; the messages and cards already written stay.
 
+The Build run card shows each stage status returned by the build flow. A
+completed run can still show a pending, running, or failed stage; its run status
+does not change what the flow reported for individual stages.
+
 ### What it needs to run
 
 `.dev.vars.example` lists four values, and the template's own README explains
