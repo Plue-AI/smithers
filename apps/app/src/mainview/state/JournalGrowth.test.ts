@@ -827,3 +827,173 @@ for (const kind of ["diagnostics", "waiting", "closed"] as const) {
     } finally { seam.dispose() }
   })
 }
+
+test.each(["commit", "reject"] as const)("identical quiet issue-poll failures do not grow the committed journal or SQLite: %s", async outcome => {
+  const { createIssuesSeam } = await import("./seams/IssuesSeam")
+  const { createFailureController } = await import("./controller/failures")
+  const fixture = await open(), { store } = fixture
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  const issue: Extract<Card, { kind: "issue" }> = { id: "issue-growth", kind: "issue", title: "Growth", status: "active", createdAt: 1, ordinal: 1, payload: {
+    repo: "will/flows", number: 8, kind: "chat", visibility: "private", title: "Growth", state: "open", author: "will", issueBody: "", labels: [], comments: []
+  } }
+  await store.dispatch({ type: "card.upsert", actor: "user", card: issue }).isPersisted.promise
+  // The seam reschedules its read every two seconds; the test drives each read.
+  const polls: Array<() => void> = []
+  const realSetTimeout = globalThis.setTimeout
+  const timers = spyOn(globalThis, "setTimeout").mockImplementation(((work: () => void, delay?: number, ...rest: unknown[]) => {
+    if (delay === 2_000) { polls.push(work); return 0 as unknown as ReturnType<typeof setTimeout> }
+    return realSetTimeout(work, delay, ...rest)
+  }) as typeof setTimeout)
+  const ctx = createControllerContext(store, unavailableAgent, {})
+  contexts.push(ctx)
+  const failures = createFailureController(ctx)
+  let message = "Issues unavailable", reads = 0
+  const releases: Array<() => void> = []
+  const seam = createIssuesSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: () => 2,
+    withToast: failures.withToast, isDisposed: () => ctx.disposed,
+    http: async () => { reads++; return Response.json({ message }, { status: 503 }) } })
+  const waitFor = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 2_000
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Issue poll did not settle")
+      await new Promise(resolve => realSetTimeout(resolve, 1))
+    }
+  }
+  const poll = async () => {
+    const count = reads, work = polls.shift()!
+    work()
+    await waitFor(() => reads === count + 1 && polls.length === 1)
+  }
+  const toastId = "toast-issue.sync:issue-growth"
+  const storageFailures: Error[] = []
+  store.onStorageFailure(error => { storageFailures.push(error) })
+  try {
+    seam.subscribe(release => { releases.push(release) })
+    await waitFor(() => polls.length === 1)
+    await poll()
+    await store.settled?.()
+    const first = store.committedToast(toastId)
+    expect(first).toMatchObject({ status: "failed", title: "Syncing messages" })
+    expect(first?.detail).toContain("Issues unavailable")
+    const before = await store.eventHistory(), physical = fixture.footprint()
+    for (let index = 0; index < 10; index++) await poll()
+    await store.settled?.()
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    expect(fixture.footprint()).toEqual(physical)
+    // A changed failure is a new fact; identical reads during its held write add nothing.
+    message = "Issues maintenance"
+    const held = fixture.pauseNextWrite()
+    await poll()
+    await held.entered
+    for (let index = 0; index < 3; index++) await poll()
+    expect(store.committedToast(toastId)?.detail).toContain("Issues unavailable")
+    expect(store.collections.toasts.get(toastId)?.detail).toContain("Issues maintenance")
+    if (outcome === "reject") {
+      held.fail(new Error("Toast write refused"))
+      await waitFor(() => storageFailures.length === 1)
+      await expect(Promise.resolve(store.dispose?.())).rejects.toThrow("Toast write refused")
+      stores.splice(stores.indexOf(store), 1)
+      // Toasts never survive a restart; the journal up to the refused write does.
+      const reopened = await open(fixture.path)
+      expect(reopened.store.committedToast(toastId)).toBeUndefined()
+      expect((await reopened.store.eventHistory()).head.sequence).toBeGreaterThanOrEqual(before.head.sequence)
+      expect((await reopened.store.verifyState()).valid).toBe(true)
+      return
+    }
+    held.release()
+    await store.settled?.()
+    const changed = await store.eventHistory()
+    expect(changed.head.sequence).toBe(before.head.sequence + 2)
+    for (let index = 0; index < 3; index++) await poll()
+    await store.settled?.()
+    expect((await store.eventHistory()).head).toEqual(changed.head)
+    // A dismissed failure is shown again by the next failed read.
+    failures.dismissToast(toastId)
+    await poll()
+    await store.settled?.()
+    expect(store.committedToast(toastId)).toMatchObject({ status: "failed" })
+    expect(store.committedToast(toastId)?.detail).toContain("Issues maintenance")
+    expect((await store.eventHistory()).head.sequence).toBe(changed.head.sequence + 3)
+    const reopened = await open(fixture.path)
+    expect((await reopened.store.verifyState()).valid).toBe(true)
+  } finally {
+    for (const release of releases) release()
+    timers.mockRestore()
+  }
+})
+
+test("identical running repository-setup receipts do not grow SQLite", async () => {
+  const { createRepositorySetupController } = await import("./controller/repositorySetup")
+  const { createFailureController } = await import("./controller/failures")
+  const { initialSetup } = await import("@smthrs/rpc/RepositorySetup")
+  const { createOperationalFailureReporter } = await import("./OperationalFailures")
+  const fixture = await open(), { store } = fixture
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "card.upsert", actor: "user", card: {
+    id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
+    payload: { ...initialSetup("example/repo", "issues", "maintainer"), inspectedAt: 1 }
+  } }).isPersisted.promise
+  const workspaceId = "de29f26b-e593-4ec2-99fc-583d4711f20a"
+  type Body = { requestId: string; revision: number; digest: string }
+  let body!: Body
+  const answer = (phase: string, updatedAt = 1) => Response.json({ requestId: body.requestId, revision: body.revision, digest: body.digest, workspaceId,
+    receipt: { requestId: body.requestId, runId: "run-1", revision: body.revision, digest: body.digest,
+      operation: "evaluate", phase, updatedAt, results: [], evidence: ["run:run-1"] } })
+  const reads: Array<ReturnType<typeof Promise.withResolvers<Response>>> = []
+  const disposers: Array<() => void> = [], background: Promise<unknown>[] = []
+  const ctx = { failures: createOperationalFailureReporter(), store, commandActor: "user", baseUrl: "", workflowPollMs: 1, toastRuns: new Map(),
+    commands: { runAsAgent: async (name: string) => ({ status: "form" as const, flow: name, cardId: `form-${name}`, fields: ["choice"] }) },
+    toastDebounceMs: 1, toastAutoDismissMs: 10_000, accountEpoch: 0, disposed: false, unref: () => {},
+    onDispose: (close: () => void) => { disposers.push(close) },
+    errorMessageOf: async () => "The host refused the request.",
+    boundedFetch: async (url: string, init?: RequestInit) => {
+      if (url.includes("/state?")) return Response.json({ owner: "maintainer", repo: "example/repo", job: "issues", registration: { state: "known" }, setup: { state: "none" } })
+      if (init?.method === "POST") { body = JSON.parse(String(init.body)) as Body; return answer("running") }
+      const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise
+    }
+  } as unknown as ControllerContext
+  const failures = createFailureController(ctx)
+  ctx.withToast = ((...args: Parameters<typeof failures.withToast>) => {
+    const work = failures.withToast(...args); background.push(work); return work
+  }) as typeof ctx.withToast
+  const setup = createRepositorySetupController(ctx)
+  const waitFor = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 2_000
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Setup observation did not settle")
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  try {
+    await setup.runRepositorySetup("setup", "evaluate")
+    await waitFor(() => reads.length === 1)
+    reads[0]!.resolve(answer("running"))
+    await waitFor(() => reads.length === 2)
+    await store.settled?.()
+    const before = await store.eventHistory(), physical = fixture.footprint()
+    for (let index = 1; index <= 10; index++) {
+      reads[index]!.resolve(answer("running"))
+      await waitFor(() => reads.length === index + 2)
+    }
+    await store.settled?.()
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    expect(fixture.footprint()).toEqual(physical)
+    reads[11]!.resolve(answer("running", 2))
+    await waitFor(() => reads.length === 13)
+    await store.settled?.()
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    const progressed = store.committedCard("setup")
+    expect(progressed?.kind === "repository-setup" && progressed.payload.evaluation).toMatchObject({ phase: "running", updatedAt: 2 })
+    reads[12]!.resolve(answer("completed", 3))
+    await Promise.all(background)
+    await store.settled?.()
+    const committed = store.committedCard("setup")
+    expect(committed?.kind === "repository-setup" && committed.payload).toMatchObject({ request: { state: "completed" }, evaluation: { phase: "completed" } })
+    const reopened = await open(fixture.path)
+    expect(reopened.store.collections.cards.get("setup")).toMatchObject({ payload: { request: { state: "completed" } } })
+    expect((await reopened.store.verifyState()).valid).toBe(true)
+  } finally {
+    for (const read of reads) read.resolve(answer("completed"))
+    disposers.forEach(dispose => dispose())
+  }
+})

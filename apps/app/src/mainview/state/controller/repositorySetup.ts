@@ -7,9 +7,10 @@ import {
 import { refusalCode } from "@smthrs/rpc/Refusal"
 import { Data } from "effect"
 import { accountOwnerOf } from "../AccountOwner"
-import type { Card } from "../AppState"
+import { CardSchema, type Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import { browserWriteRefusal } from "../BrowserWriteFailure"
+import { canonicalStoredJsonValue } from "../EventValue"
 import { resolveTargetRepo } from "../RepoContext"
 import { setupTrialPr } from "../RepositorySetupTrial"
 import { setupFailureSentence } from "../RunFailure"
@@ -298,6 +299,13 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
   const refreshed = (id: string) => { const latest = get(id); if (latest) scheduleRefresh(latest) }
   const upsert = (card: SetupCard, actor: "user" | "smithers" | "system" = ctx.commandActor) =>
     persist(card, actor).then(() => refreshed(card.id))
+  /** A repeated running receipt is an observation: write it only when the visible or committed card differs. */
+  const observe = async (card: SetupCard): Promise<void> => {
+    const value = (row: Card | undefined) => row === undefined ? undefined : canonicalStoredJsonValue(CardSchema.parse(row))
+    const next = value({ ...card, payload: reconcileSetupHistory(card.payload) })
+    if (value(get(card.id)) === next && value(ctx.store.committedCard(card.id)) === next) return refreshed(card.id)
+    await upsert(card, "system")
+  }
   /*
    * A sentence the person reads where they are still looking, not only on a
    * toast that leaves. `spoken` is the door saying it said this ({@link
@@ -566,7 +574,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
             }
           }
           const updated: SetupCard = { ...latest, status: receipt.phase === "failed" ? "error" : "active", payload: next }
-          await upsert(updated, "system")
+          await (terminal ? upsert(updated, "system") : observe(updated))
           if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
           attachRun(updated)
           if (terminal) {

@@ -96,6 +96,9 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
   // TanStack replaces row objects and virtual sync metadata on persistence.
   // Compare only the schema's domain fields when observing external changes.
   const toastSnapshot = (toast: Toast): string => JSON.stringify(ToastSchema.parse(toast))
+  const quietFailures = new Map<string, { readonly value: string }>()
+  const quietFailureValue = (toast: Pick<Toast, "key" | "title" | "status" | "detail" | "sourceCard" | "action" | "answeredAction">): string =>
+    JSON.stringify([toast.key, toast.title, toast.status, toast.detail, toast.sourceCard ?? null, toast.action ?? null, toast.answeredAction ?? null])
   const cancelDismissal = (id: string): void => {
     const pending = dismissals.get(id)
     if (pending === undefined) return
@@ -117,6 +120,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     for (const timer of timers) clearTimeout(timer)
     timers.clear()
     dismissals.clear()
+    quietFailures.clear()
     ctx.toastRuns.clear()
   })
   /*
@@ -127,11 +131,12 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
    * scheduled settlement and any intervening toast change. Wall-clock timestamps
    * cannot identify a settlement: two results can share a millisecond.
    */
-  const resolveToast: FailureController["resolveToast"] = (key, outcome) => {
+  const resolveToast: FailureController["resolveToast"] = (key, outcome) => { resolveWithReceipt(key, outcome) }
+  const resolveWithReceipt = (key: string, outcome: Parameters<FailureController["resolveToast"]>[1]): ReturnType<typeof ctx.store.dispatch> | undefined => {
     if (ctx.disposed) return
     const id = `toast-${key}`
     if (ctx.store.collections.toasts.get(id) === undefined) return
-    ctx.store.dispatch({
+    const receipt = ctx.store.dispatch({
       type: "toast.resolved",
       actor: "system",
       key,
@@ -142,9 +147,9 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     })
     cancelDismissal(id)
     const delay = noticeDismissDelay(outcome.status, ctx.toastAutoDismissMs, outcome.autoDismissMs)
-    if (delay === undefined) return
+    if (delay === undefined) return receipt
     const resolved = ctx.store.collections.toasts.get(id)
-    if (resolved === undefined) return
+    if (resolved === undefined) return receipt
     const snapshot = toastSnapshot(resolved)
     if (stopObservingToasts === undefined) {
       const subscription = ctx.store.collections.toasts.subscribeChanges(changes => {
@@ -165,6 +170,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
       ctx.store.dispatch({ type: "toast.dismissed", actor: "system", id })
     }, delay)
     dismissals.set(id, { timer, snapshot })
+    return receipt
   }
   /** A thrown flow is still an honest failure — never a toast stuck "running". */
   const unexpectedFailure = (title: string): string =>
@@ -208,8 +214,22 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
       }
       return outcome
     }
+    // A repeated quiet failure is an observation, not a new fact: skip it when
+    // the visible toast already says it and either the committed toast or this
+    // controller's own pending receipt does too. Intervening edits still write.
+    const failure = quietFailureValue({ key, title, status: "failed", detail: outcome })
+    const visible = ctx.store.collections.toasts.get(id), committed = ctx.store.committedToast(id)
+    if (visible !== undefined && quietFailureValue(visible) === failure && (committed !== undefined && quietFailureValue(committed) === failure
+      || quietFailures.get(id)?.value === failure)) return outcome
     ctx.store.dispatch({ type: "toast.shown", actor: "system", key, title })
-    resolveToast(key, { status: "failed", detail: outcome })
+    const receipt = resolveWithReceipt(key, { status: "failed", detail: outcome })
+    if (receipt !== undefined) {
+      const pending = { value: failure }
+      quietFailures.set(id, pending)
+      // An older receipt must not clear a newer pending failure with the same value.
+      const clear = () => { if (quietFailures.get(id) === pending) quietFailures.delete(id) }
+      void receipt.isPersisted.promise.then(clear, clear)
+    }
     return outcome
   }
   /*
