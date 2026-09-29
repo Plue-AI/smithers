@@ -2778,7 +2778,14 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       payloadField: z.string().optional(),
       inputSchema: z.unknown().optional(),
       /** The last submit's honest refusal, kept on the card. */
-      error: z.string().optional()
+      error: z.string().optional(),
+      /**
+       * Where `error` came from when it is not the form's own sentence about
+       * the input: `read` (a choice list could not be read) or `run` (the
+       * flow refused or failed). Such an error is raw detail, never shown as
+       * the sentence. Absent: `error` is the form's own sentence.
+       */
+      errorKind: z.enum(["read", "run"]).optional()
     })
   }).superRefine(({ payload }, context) => {
     const given = payload.payloadField === undefined ? payload.given : payload.given[payload.payloadField]

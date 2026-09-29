@@ -89,9 +89,17 @@ describe("the Agents card", () => {
     expect(calls).toEqual([["runs.list", JSON.stringify({ flow: "checks/review" })]])
   })
 
-  test("the last act's refusal stays on the card", () => {
+  test("the last act's refusal reads as one sentence; the server's words stay behind Details", () => {
     const host = mount(<AgentsCardBody onRunCommand={() => {}} card={agentsCard({ native: true, agents: [orchestrator], error: "The server answered 500" })} />)
-    expect(host.querySelector("[role=alert]")?.textContent).toBe("The server answered 500")
+    const alert = host.querySelector<HTMLElement>("[role=alert]")
+    expect(alert?.dataset.testid).toBe("agents-failure")
+    expect(alert?.dataset.fault).toBe("infra")
+    expect(alert?.dataset.failure).toBe("AgentsFailed")
+    expect(alert?.querySelector("p")?.textContent).toBe("Smithers could not update your agents. Not your fault.")
+    expect(alert?.querySelector("p")?.textContent).not.toContain("500")
+    expect(alert?.querySelector("details pre")?.textContent).toBe("The server answered 500")
+    expect(alert?.querySelector("details")?.open).toBe(false)
+    expect(alert?.querySelector("button")).toBeNull()
   })
 })
 
@@ -183,7 +191,11 @@ describe("the agent card's cloud variant", () => {
       transcript: [],
       error: "agent session already has an active run"
     }))
-    expect(host.querySelector("[role=alert]")?.textContent).toBe("agent session already has an active run")
+    const alert = host.querySelector<HTMLElement>("[role=alert]")
+    expect(alert?.dataset.testid).toBe("agent-session-failure")
+    expect(alert?.querySelector("p")?.textContent).toBe("Smithers lost touch with this running agent session. Not your fault.")
+    expect(alert?.querySelector("p")?.textContent).not.toContain("active run")
+    expect(alert?.querySelector("details pre")?.textContent).toBe("agent session already has an active run")
     const pill = (state: string): string => agentCardFamily.agent.pill(cloudCard({
       cloud: true, displayName: "", sessionId: "sess-1", repo: "will/smithers", provider: null, workspaceId: null, state, transcript: []
     }))
@@ -194,6 +206,57 @@ describe("the agent card's cloud variant", () => {
   })
 })
 
+
+describe("the agent card's cloud refusal, keyed by the session's state", () => {
+  type AgentCard = Extract<Card, { kind: "agent" }>
+  const raw = "Agent sessions are not enabled here — the backend answered 403: forbidden"
+  const failed = (state: string): HTMLElement => mount(<>{agentCardFamily.agent.render({
+    ...base, id: `agent-session-${state}`, kind: "agent", title: "Session",
+    payload: { cloud: true, displayName: "Session", sessionId: "sess-1", repo: "will/smithers", provider: null, workspaceId: null, state, transcript: [], error: raw }
+  } as AgentCard, { onRunCommand: () => {} } as never)}</>).querySelector<HTMLElement>("[data-testid=agent-session-failure]")!
+  const cases: ReadonlyArray<readonly [string, string, string]> = [
+    ["active", "agent.session.active", "Smithers lost touch with this running agent session. Not your fault."],
+    ["completed", "agent.session.completed", "Smithers could not update this finished agent session. Not your fault."],
+    ["failed", "agent.session.failed", "This agent session failed on Smithers' side. Not your fault."],
+    ["cancelled", "agent.session.cancelled", "Smithers could not update this stopped agent session. Not your fault."],
+    ["archived", "agent.session.completed", "Smithers could not update this finished agent session. Not your fault."]
+  ]
+  for (const [state, tag, sentence] of cases) {
+    test(`${state}: its own sentence, the 403 body only in Details`, () => {
+      const notice = failed(state)
+      expect(notice.getAttribute("role")).toBe("alert")
+      expect(notice.dataset.fault).toBe("infra")
+      expect(notice.dataset.failure).toBe(tag)
+      expect(notice.querySelector("p")?.textContent).toBe(sentence)
+      expect(notice.querySelector("p")?.textContent).not.toContain("403")
+      expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+    })
+  }
+})
+
+describe("the explain card's failure", () => {
+  type ExplainCard = Extract<Card, { kind: "explain" }>
+  const explain = (payload: ExplainCard["payload"]): HTMLElement => mount(<>{agentCardFamily.explain.render(
+    { ...base, id: "explain-1", kind: "explain", title: "Explain", payload }, { onRunCommand: () => {} } as never
+  )}</>)
+
+  test("a failed answer reads one sentence; the error message stays behind Details", () => {
+    const host = explain({ question: "What is a lane?", answer: "", phase: "failed", answeredBy: "Explainer", error: "TypeError: fetch failed (500)" })
+    const notice = host.querySelector<HTMLElement>("[data-testid=explain-failure]")
+    expect(notice?.getAttribute("role")).toBe("alert")
+    expect(notice?.dataset.fault).toBe("infra")
+    expect(notice?.dataset.failure).toBe("ExplainFailed")
+    expect(notice?.querySelector("p")?.textContent).toBe("Smithers could not answer this. Not your fault.")
+    expect(notice?.querySelector("p")?.textContent).not.toContain("500")
+    expect(notice?.querySelector("details pre")?.textContent).toBe("TypeError: fetch failed (500)")
+  })
+
+  test("an error on an answer that did not fail draws no notice", () => {
+    const host = explain({ question: "What is a lane?", answer: "A lane.", phase: "answered", answeredBy: "Explainer", error: "late frame" })
+    expect(host.querySelector("[data-testid=explain-failure]")).toBeNull()
+    expect(host.textContent).not.toContain("late frame")
+  })
+})
 
 describe("cloud session inventory", () => {
   test("Open carries the repository; only active sessions offer Stop", () => {

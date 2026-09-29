@@ -27,7 +27,12 @@ test("a started plan shows the run it became and a door to it, never a stale Sta
   const stopped = { ...card, payload: { ...card.payload, error: "HEAD moved; request a new plan." } }
   const withError = renderToStaticMarkup(<CodingPlanBody card={stopped} onRunCommand={(name, args) => sent.push({ name, args })} />)
   expect(withError).toContain('role="alert"')
-  expect(withError).toContain("HEAD moved; request a new plan.")
+  expect(withError).toContain('data-failure="CodingStartFailed"')
+  expect(withError).toContain('data-fault="infra"')
+  /* The stop's own words wait behind a closed Details; the sentence is the product's. */
+  expect(withError).toContain("<p>Smithers could not start this change. Not your fault.</p>")
+  expect(withError).not.toContain("<p>HEAD moved; request a new plan.</p>")
+  expect(withError).toContain("<details><summary>Details</summary><pre tabindex=\"0\">HEAD moved; request a new plan.</pre></details>")
   expect(withError).toContain('data-flow="agent.change.start"')
   /* The plan card never repeats itself as a predicted-changes outline. */
   expect(html).not.toContain('aria-label="Predicted Changes"')

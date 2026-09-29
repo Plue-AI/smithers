@@ -2375,7 +2375,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       submitLabel: "Run flow",
       payloadField: "input",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-      error: "the submit refused (500)"
+      error: "the submit refused (500)",
+      errorKind: "run"
     }
   },
   "search-results": {

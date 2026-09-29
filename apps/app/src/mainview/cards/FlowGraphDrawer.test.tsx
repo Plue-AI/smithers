@@ -512,8 +512,14 @@ describe("the Code tab", () => {
         onRunCommand={(name, args) => ran.push([name, args])}
       />
     )
-    expect(host.querySelector(".flow-graph-code-error")?.textContent)
-      .toBe("Path not found: flows/graph-fixture/flow.ts in o/r")
+    const notice = host.querySelector<HTMLElement>(".flow-graph-code-error")!
+    /* The reader's words are detail: the sentence is the product's, the text waits behind Details. */
+    expect(notice.querySelector("p")?.textContent).toBe("Smithers could not read this file. Not your fault.")
+    expect(notice.querySelector("p")?.textContent).not.toContain("Path not found")
+    expect(notice.querySelector("details:not([open]) pre")?.textContent).toBe("Path not found: flows/graph-fixture/flow.ts in o/r")
+    expect(notice.dataset.failure).toBe("FlowGraphCodeReadFailed")
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.querySelectorAll("button")).toHaveLength(0)
     ;(host.querySelector(".flow-graph-code-open") as HTMLButtonElement).click()
     /* Asking again is asking the SAME question: this tab, at its revision. */
     expect(ran).toEqual([[DOORS.tab, `${DOORS.target} code`]])

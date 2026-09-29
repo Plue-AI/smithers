@@ -87,7 +87,8 @@ for (const stage of ["import", "launch"] as const) test(`a late ${stage} failure
 
     failCurrent = true
     await expect(registration.locator(".registration-go")).toHaveText("Failed", { timeout: 15_000 })
-    await expect(registration.locator(".registration-error")).toHaveText("Current import failed.")
+    await expect(registration.locator(".registration-error > p")).toHaveText("Smithers could not import this repository. Not your fault.")
+    await expect(registration.locator(".registration-error details pre")).toHaveText("Current import failed.")
     failCurrent = false
     await command(page, `/repository.register ${repo}`)
     await expect.poll(() => imports).toBe(3)

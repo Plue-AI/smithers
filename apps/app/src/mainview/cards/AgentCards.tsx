@@ -6,8 +6,38 @@ import { findAgentRole } from "@smthrs/rpc/AgentRoles"
 import { Monogram } from "../AgentMark"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
 type AgentsCard = Extract<Card, { kind: "agents" }>
+
+/* The agents listing's last refusal: one sentence; the seam's words stay behind Details. */
+const AGENTS_FAILED: UserFailureCopy = {
+  fault: "infra",
+  sentence: "Smithers could not update your agents. Not your fault.",
+  actions: []
+}
+
+/* plue's session states the card knows; any other word reads as a settled session. */
+type SessionState = "active" | "completed" | "failed" | "cancelled"
+
+/* A cloud session's last refusal, keyed by the session's state; the refusal itself is only the detail. */
+const SESSION_FAILURES: Readonly<Record<SessionState, UserFailureCopy>> = {
+  active: { fault: "infra", sentence: "Smithers lost touch with this running agent session. Not your fault.", actions: [] },
+  completed: { fault: "infra", sentence: "Smithers could not update this finished agent session. Not your fault.", actions: [] },
+  failed: { fault: "infra", sentence: "This agent session failed on Smithers' side. Not your fault.", actions: [] },
+  cancelled: { fault: "infra", sentence: "Smithers could not update this stopped agent session. Not your fault.", actions: [] }
+}
+
+const sessionState = (state: string): SessionState =>
+  state === "active" || state === "failed" || state === "cancelled" ? state : "completed"
+
+/* The explainer's failed answer. */
+const EXPLAIN_FAILED: UserFailureCopy = {
+  fault: "infra",
+  sentence: "Smithers could not answer this. Not your fault.",
+  actions: []
+}
 
 const CloudAgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCard & { readonly payload: Extract<AgentsCard["payload"], { cloud: true }> }; readonly onRunCommand: RunCommand }) => (
   <ul className="workflow-list" data-testid="agent-sessions-list">
@@ -60,11 +90,7 @@ export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCa
         {agents.map((agent) => <ProfileRowView key={agent.id} agent={agent} native={native} onRunCommand={onRunCommand} />)}
       </ul>
       {error !== undefined ?
-        (
-          <p className="sui-approval-error" role="alert">
-            {error}
-          </p>
-        ) :
+        <FailureNotice className="sui-approval-error" data-testid="agents-failure" failure={describedFailure("AgentsFailed", AGENTS_FAILED, error)} /> :
         null}
     </div>
   )
@@ -120,9 +146,8 @@ const CloudAgentCardBody = ({
       )}
       {error !== undefined ?
         (
-          <p className="sui-approval-error" role="alert">
-            {error}
-          </p>
+          <FailureNotice className="sui-approval-error" data-testid="agent-session-failure"
+            failure={describedFailure(`agent.session.${sessionState(state)}`, SESSION_FAILURES[sessionState(state)], error)} />
         ) :
         null}
       {live ?
@@ -196,11 +221,7 @@ const ExplainCardBody = ({ card }: { readonly card: Extract<Card, { kind: "expla
       {answer !== "" ? <Markdown className="smithers-card-markdown" content={answer} /> : null}
       {phase === "asking" ? <p className="sui-approval-pending">Explaining…</p> : null}
       {phase === "failed" && error !== undefined ?
-        (
-          <p className="sui-approval-error" role="alert">
-            {error}
-          </p>
-        ) :
+        <FailureNotice className="sui-approval-error" data-testid="explain-failure" failure={describedFailure("ExplainFailed", EXPLAIN_FAILED, error)} /> :
         null}
       <p className="smithers-card-note explain-card-by">{answeredBy}</p>
     </div>

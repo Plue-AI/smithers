@@ -73,3 +73,70 @@ test("a large account shows the recent eight, marks the selection, and finds the
     expect(calls.some(([name]) => name === "repo.create")).toBe(false)
   } finally { flushSync(() => root.unmount()); host.remove() }
 })
+
+test("an inventory failure reads one sentence with Retry; GitHub's words stay behind Details", () => {
+  const raw = "Error: GitHub read unavailable (500)."
+  const calls: Array<[string, string | undefined]> = []
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<RepositoryChoiceCard payload={{ ...payload, partial: true, repositories: [], error: raw }}
+      onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+    const notice = host.querySelector<HTMLElement>("[data-testid=repository-choice-failure]")!
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.dataset.failure).toBe("RepositoryChoiceFailed")
+    expect(notice.querySelector("p")?.textContent).toBe("Smithers could not list your GitHub repositories. Not your fault.")
+    expect(notice.querySelector("p")?.textContent).not.toContain("500")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+    const retry = [...notice.querySelectorAll<HTMLButtonElement>("button")]
+    expect(retry.map(button => button.textContent)).toEqual(["Retry"])
+    flushSync(() => retry[0]!.click())
+    expect(calls).toEqual([["repo.choose", undefined]])
+  } finally { flushSync(() => root.unmount()); host.remove() }
+})
+
+test("a row's failure reads one quiet sentence and no button; the row still chooses its repository", () => {
+  const raw = "commits read refused (HTTP 502)"
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<RepositoryChoiceCard payload={{ ...payload, repositories: [{ ...payload.repositories[0]!, error: raw }] }}
+      onRunCommand={() => {}} />))
+    const notice = host.querySelector<HTMLElement>("[data-testid=repository-choice-row-failure]")!
+    expect(notice.getAttribute("role")).toBe("status")
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.dataset.failure).toBe("RepositoryChoiceRowFailed")
+    expect(notice.querySelector("p")?.textContent).toBe("Smithers could not read this repository's activity. Not your fault.")
+    expect(notice.querySelector("p")?.textContent).not.toContain("502")
+    expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+    expect(notice.querySelector("button")).toBeNull()
+    expect(host.querySelector("[data-testid=repository-choice-failure]")).toBeNull()
+    expect(host.querySelector('button[data-flow="repo.choose"]')).not.toBeNull()
+  } finally { flushSync(() => root.unmount()); host.remove() }
+})
+
+test("signed out, the list failure is the person's to fix: one sentence and the sign-in door, no infra claim", () => {
+  const calls: Array<[string, string | undefined]> = []
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<RepositoryChoiceCard signedIn={false}
+      payload={{ ...payload, partial: true, repositories: [], error: "Sign in to list GitHub repositories." }}
+      onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+    const notice = host.querySelector<HTMLElement>("[data-testid=repository-choice-failure]")!
+    expect(notice.dataset.fault).toBe("user")
+    expect(notice.dataset.failure).toBe("RepositoryChoiceSignedOut")
+    expect(notice.querySelector("p")?.textContent).toBe("Sign in to list your GitHub repositories.")
+    expect(notice.textContent).not.toContain("Not your fault")
+    expect(notice.querySelector("details")).toBeNull()
+    const buttons = [...notice.querySelectorAll<HTMLButtonElement>("button")]
+    expect(buttons.map(button => [button.textContent, button.dataset.flow])).toEqual([["Sign in", "auth.sign-in"]])
+    flushSync(() => buttons[0]!.click())
+    expect(calls).toEqual([["auth.sign-in", undefined]])
+  } finally { flushSync(() => root.unmount()); host.remove() }
+})

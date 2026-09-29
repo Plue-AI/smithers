@@ -9,9 +9,22 @@ import { codingVibeAvailable, codingVibeRequestOf, type WorkflowCatalog } from "
 import { flowArgs } from "../flows/FlowArgs"
 import type { RunCommand } from "./CardFamily"
 import { ChangeCommitStrip } from "./ChangeCommitStrip"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { decodeChangeReceipt, receiptMatchesPlan } from "./tutorial2-agent_change-contract"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
+
+/*
+ * A blocked correction and a plan that did not start each say one sentence;
+ * the recorded cause stays behind Details. The card's own doors (Inspect
+ * failed execution, Start the change) are the next step, so neither offers
+ * another button.
+ */
+const CODING_FAILURES: Readonly<Record<"blocked" | "start", UserFailureCopy>> = {
+  blocked: { fault: "infra", sentence: "Smithers stopped this change before it passed its checks. Not your fault.", actions: [] },
+  start: { fault: "infra", sentence: "Smithers could not start this change. Not your fault.", actions: [] }
+}
 
 /** Where a started plan went: the run id the controller recorded on the plan card, and that run's card when it holds one. */
 export const startedRunOf = (card: RunCard): { readonly runId: string; readonly cardId?: string } | undefined => {
@@ -75,7 +88,10 @@ export const CodingPlanBody = ({ card, onRunCommand: sendRunCommand, workflowCat
             {outcome.status === "validated" ? "Validated" : outcome.status === "changes-requested" ? "Changes requested" : "Blocked"}
             {` after ${outcome.rounds} ${outcome.rounds === 1 ? "round" : "rounds"}.`}
           </p>
-          {outcome.blocked === null ? null : <p>{outcome.blocked.message}</p>}
+          {outcome.blocked === null ? null : (
+            <FailureNotice data-testid="coding-plan-blocked" data-execution={outcome.blocked.executionId}
+              failure={describedFailure("CodingBlocked", CODING_FAILURES.blocked, outcome.blocked.message)} />
+          )}
           {vibeRequest === undefined ? null : canVibe ? (
             <button type="button" className="run-trace-filter" 
               {...flowAction(onRunCommand, "flow.run", flowArgs("flow.run", {
@@ -111,7 +127,10 @@ export const CodingPlanBody = ({ card, onRunCommand: sendRunCommand, workflowCat
       {planCard ? (
         card.status === "active" ? (
           <div className="coding-plan-door">
-            {card.payload.error === undefined ? null : <p className="sui-approval-error" role="alert">{card.payload.error}</p>}
+            {card.payload.error === undefined ? null : (
+              <FailureNotice className="sui-approval-error" data-testid="coding-plan-start-failure"
+                failure={describedFailure("CodingStartFailed", CODING_FAILURES.start, card.payload.error)} />
+            )}
             <button type="button" className="coding-plan-start"  {...flowAction(onRunCommand, "agent.change.start", card.id)}>Start the change</button>
           </div>
         ) : (

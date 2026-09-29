@@ -51,7 +51,8 @@ import { workspaceCardFamily } from "./WorkspaceCard"
 /* The tutorial's two embedded surfaces: the ranked repository chooser and the Library shelf. */
 const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
   "repository-choice": {
-    render: (card, actions) => <RepositoryChoiceCard payload={card.payload} onRunCommand={actions.onRunCommand} />,
+    render: (card, actions) => <RepositoryChoiceCard payload={card.payload} onRunCommand={actions.onRunCommand}
+      signedIn={signedInFor(actions)} />,
     pill: card => card.payload.created === null ? "" : "done"
   }
 }
@@ -161,6 +162,12 @@ export const pillStatus = (card: Card): string => {
   if (isRetiredCard(card)) return ""
   if (card.status === "error" && card.kind !== "flow-form") return "failed"
   return cardRenderer(card.kind).pill(card)
+}
+
+/* The repository list reads GitHub only for a signed-in identity (tutorialRepository.ts); without a store, assume it did. */
+const signedInFor = (actions: CardActions): boolean => {
+  const identities = actions.projectionStore?.collections.identitySessions
+  return identities === undefined || identities.get("identity")?.state === "signed-in"
 }
 
 /** The card's body, from the family that owns its kind. */

@@ -16,8 +16,33 @@ import type { Card } from "../state/AppState"
 import { useCardRows } from "../state/useCardRows"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { outcomeOf, registrationRun, type Report, reportOf, statusOf } from "./Registration"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
 type RegistrationCard = Extract<Card, { kind: "registration" }>
+
+/* Where a registration stopped: no Smithers Cloud repository yet means the import failed, else the launch did. */
+type RegistrationStage = "import" | "launch"
+
+/* What each stage's failure says; the import job's or launch's own words stay behind Details. */
+const REGISTRATION_FAILURES: Readonly<Record<RegistrationStage, UserFailureCopy>> = {
+  import: { fault: "infra", sentence: "Smithers could not import this repository. Not your fault.", actions: ["retry"] },
+  launch: { fault: "infra", sentence: "Smithers could not start setting up this repository. Not your fault.", actions: ["retry"] }
+}
+
+/** The registration's failure: its stage's sentence, Retry registers the same link again. */
+export const RegistrationFailure = ({ payload, onRunCommand }: {
+  readonly payload: Pick<RegistrationCard["payload"], "link" | "error" | "cloudRepo">
+  readonly onRunCommand: RunCommand
+}) => {
+  if (payload.error === null) return null
+  const stage: RegistrationStage = payload.cloudRepo === null ? "import" : "launch"
+  return (
+    <FailureNotice className="registration-error" data-stage={stage}
+      failure={describedFailure(`registration.${stage}`, REGISTRATION_FAILURES[stage], payload.error)}
+      actions={{ retry: flowAction(onRunCommand, "repository.register", flowArgs("repository.register", { link: payload.link })) }} />
+  )
+}
 
 /** Each recorded answer lands a beat after the one before. */
 const BEAT_MS = 420
@@ -213,7 +238,7 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
   const controller = useController()
   const cards = useCardRows(controller.store.collections.cards)
   const { data: runs } = useLiveQuery(controller.store.collections.runtimeRuns)
-  const { repo, link, error, cloudRepo, replay, startedAt } = card.payload
+  const { repo, link, cloudRepo, replay, startedAt } = card.payload
   const newest = registrationRun(cards, repo, runs)
   // A run from an earlier attempt is not this attempt's answer.
   const run = newest !== undefined && newest.createdAt >= startedAt ? newest : undefined
@@ -236,7 +261,7 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
         <span className="registration-input registration-mono">{link}</span>
         <span className="registration-go">{status}</span>
       </div>
-      {error === null ? null : <p className="registration-error">{error}</p>}
+      <RegistrationFailure payload={card.payload} onRunCommand={onRunCommand} />
       <div key={replay} className="registration-body" data-stagger={stagger ? "" : undefined}>
         <div className="registration-questions">
           {hidden.has("license") ? null : <Question label="License" options={license?.options ?? []} chosen={license?.chosen} index={stagger ? 0 : -1} />}

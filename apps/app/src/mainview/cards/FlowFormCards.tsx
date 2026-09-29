@@ -6,6 +6,8 @@ import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { writeOnlyGesture } from "../flows/CommandGesture"
 import { flowArgs } from "../flows/FlowArgs"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
 /*
  * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md): the
@@ -259,15 +261,27 @@ export const FlowFormCardBody = ({
         </div>
       )}
       {error !== undefined ?
-        (
-          <p className="sui-approval-error" role="alert">
-            {error}
-          </p>
-        ) :
+        <FailureNotice className="sui-approval-error" data-testid="flow-form-failure" failure={formFailure(error, card.payload.errorKind)} /> :
         null}
     </form>
   )
 }
+
+type FlowFormErrorKind = NonNullable<Extract<Card, { kind: "flow-form" }>["payload"]["errorKind"]>
+
+/*
+ * A read or a run that failed says one sentence; its text stays behind
+ * Details. Submit stays the retry, so neither offers one of its own.
+ */
+const FORM_FAILURES: Readonly<Record<FlowFormErrorKind, UserFailureCopy>> = {
+  read: { fault: "infra", sentence: "Smithers could not load the choices for this form. Not your fault.", actions: [] },
+  run: { fault: "infra", sentence: "Smithers could not run this. Not your fault.", actions: [] }
+}
+
+/** With no kind, the text is the form's own sentence about the input (controller/forms.ts), shown as is. */
+const formFailure = (text: string, kind: FlowFormErrorKind | undefined): UserFailure => kind === undefined
+  ? { tag: "FlowFormInput", fault: "user", sentence: text, actions: [], detail: "" }
+  : describedFailure(kind === "read" ? "FlowFormReadFailed" : "FlowFormRunFailed", FORM_FAILURES[kind], text)
 
 export const flowFormCardFamily: CardFamily<"flow-form"> = {
   "flow-form": {

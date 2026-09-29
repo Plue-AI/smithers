@@ -205,7 +205,8 @@ export function PaletteOverlay({ id, answer, rows, highlighted, slashBranch, onH
   const chip = parsed.mode === "flows" ? "/" : prefixRow(parsed.mode).label
   const groupAt = new Map(rows.groups.map((group) => [group.start, group.label]))
   const showHead = rows.actionsFor !== undefined || (parsed.mode !== "all" && parsed.mode !== "flows")
-  const refusal = answer.refusal ?? (parsed.mode === "flows" && rows.rows.length === 0 && /^\S+$/.test(parsed.query)
+  /* Authored copy only: the registry's absent-door reason, the seam's fixed mode notes, or this line. */
+  const absentNote = answer.refusal ?? (parsed.mode === "flows" && rows.rows.length === 0 && /^\S+$/.test(parsed.query)
     ? `There is no /${parsed.query} flow. Type / to see everything Smithers can do.` : undefined)
   return (
     <div id={listboxId} className="slash-menu" data-keyboard-pane="Search results" role="listbox" aria-label="Search palette" data-branch={slashBranch} data-mode={parsed.mode} data-testid="palette" onKeyDown={event => {
@@ -223,7 +224,7 @@ export function PaletteOverlay({ id, answer, rows, highlighted, slashBranch, onH
         </div>
       ) : null}
       <div className="slash-menu-body" ref={revealHighlighted}>
-        {refusal === undefined ? null : <p className="palette-refusal" role="status" data-testid="palette-refusal">{refusal}</p>}
+        {absentNote === undefined ? null : <p className="palette-refusal" role="status" data-testid="palette-refusal">{absentNote}</p>}
         {rows.rows.map((row, index) => {
           const label = groupAt.get(index)
           const highlightedRow = index === highlighted

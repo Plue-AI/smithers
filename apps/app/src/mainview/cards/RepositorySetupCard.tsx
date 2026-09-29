@@ -3,7 +3,9 @@ import { setupActivationProblems, storedSetupCandidate, type RepositoryJob, type
 import { useLiveQuery } from "@tanstack/react-db"
 import { flowArgs } from "../flows/FlowArgs"
 import { repositoryCiConfigured, repositoryJobState } from "../state/RepositoryJobs"
-import { setupFailureSentence } from "../state/RunFailure"
+import { setupFailureSentence, setupVerdict } from "../state/RunFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { setupTrialPr } from "../state/RepositorySetupTrial"
 import type { CardFamily, CardOf, CardProjectionAuthority, RunCommand } from "./CardFamily"
 import "./RepositorySetupCard.css"
@@ -18,6 +20,23 @@ const jobActions: Record<RepositoryJob, { trial: string; enable: string; update:
   ci: { trial: "Test CI checks", enable: "Enable CI checks", update: "Update CI checks", title: "CI trial", body: "Change to check", scope: "This test change only" },
   feature: { trial: "Try feature flow", enable: "Enable feature flow", update: "Update feature flow", title: "Test feature", body: "Feature request", scope: "This test feature only" },
   chores: { trial: "Run test chore", enable: "Enable chore", update: "Update chore", title: "Test chore", body: "Routine maintenance", scope: "This test chore only" }
+}
+
+/* An earlier operation's failure, keyed by the operation; its host receipt's words stay behind Details. */
+const PREVIOUS_FAILURES: Readonly<Record<SetupReceipt["operation"], UserFailureCopy>> = {
+  inspect: { fault: "infra", sentence: "Smithers could not inspect this draft. Not your fault.", actions: [] },
+  evaluate: { fault: "infra", sentence: "Smithers could not run these evals. Not your fault.", actions: [] },
+  trial: { fault: "infra", sentence: "Smithers could not run this test. Not your fault.", actions: [] },
+  apply: { fault: "infra", sentence: "Smithers could not apply this draft. Not your fault.", actions: [] },
+  pause: { fault: "infra", sentence: "Smithers could not pause this flow. Not your fault.", actions: [] },
+  run: { fault: "infra", sentence: "Smithers could not run this flow. Not your fault.", actions: [] }
+}
+
+/* A receipt code the person answers keeps its setup sentence; any other failure reads its operation's copy. */
+const previousFailure = (receipt: SetupReceipt & { readonly error: string }) => {
+  const verdict = setupVerdict(receipt.error)
+  const copy: UserFailureCopy = verdict?.fault === "user" ? { fault: "user", sentence: verdict.message, actions: [] } : PREVIOUS_FAILURES[receipt.operation]
+  return describedFailure(`setup.${receipt.operation}`, copy, receipt.error)
 }
 
 // Keep the most recent edit until its durable projection arrives, including
@@ -138,7 +157,8 @@ export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigure
         <summary>Draft {previous.revision} · {previous.operation} · {previous.phase}</summary>
         {runAccess(previous)}
         {previous.results.map(result => <div key={result.caseId}><strong>{result.caseId} · {result.status}</strong><p>{result.observed}</p><ul>{result.evidence.map((evidence, index) => <li key={index}><code>{evidence}</code></li>)}</ul></div>)}
-        {previous.error && <p>{previous.error}</p>}
+        {previous.error && <FailureNotice role="status" className="setup-previous-error" data-testid="setup-previous-failure"
+          failure={previousFailure({ ...previous, error: previous.error })} />}
         {previous.evidence.length > 0 && <ul>{previous.evidence.map((evidence, index) => <li key={index}><code>{evidence}</code></li>)}</ul>}
       </details>)}</details>}
     </>}

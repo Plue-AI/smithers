@@ -32,6 +32,8 @@ import { Suspense, useContext } from "react"
 import { CodeSurface } from "../ViewModules"
 import { ControllerContext } from "../ControllerContext"
 import { ViewSkeleton } from "../ViewSkeleton"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { flowAction } from "../flows/FlowAction"
 import { graphSelectArgs, graphTabArgs } from "../flows/FlowArgs"
 import type { FlowName } from "../flows/FlowName"
@@ -46,6 +48,10 @@ import { describeSchedule } from "./TriggerEvents"
 import type { DurationDisplay } from "./flowGraph/Durations"
 import { durationWords } from "./RunTrace"
 import { drawerTabAct } from "./flowGraph/TabKeys"
+
+/* A refused declaration read: one sentence where the file would be; the reader's words stay behind Details and Open file asks again. */
+const CODE_READ_FAILED: UserFailureCopy = { fault: "infra", sentence: "Smithers could not read this file. Not your fault.", actions: [] }
+const codeReadFailure = (refused: { readonly message: string }) => describedFailure("FlowGraphCodeReadFailed", CODE_READ_FAILED, refused.message)
 
 /** Which of a node's tabs the drawer is showing. */
 export type DrawerTab = "in" | "declaration" | "code" | "output" | "events" | "attempts"
@@ -778,7 +784,8 @@ export const FlowGraphDrawer = ({
             {file === undefined
               ? codeError === undefined || codeError.path !== node.declaredAt.path
                 ? null
-                : <p className="flow-graph-code-error">{codeError.message}</p>
+                : <FailureNotice className="flow-graph-code-error" role="status"
+                    failure={codeReadFailure(codeError)} />
               : <DrawerCode file={file} line={node.declaredAt.line} onRunCommand={onRunCommand} />}
           </div>
         ) : shown === "output" && node.result !== undefined ? (

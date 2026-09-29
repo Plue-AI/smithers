@@ -60,16 +60,16 @@ export const ApprovalAnswerForm = ({
     pendingText.current = undefined
     if (node.value !== draft.text) node.value = draft.text
   }
-  const [refusal, setRefusal] = useState<string | undefined>(undefined)
+  const [answerNote, setAnswerNote] = useState<string | undefined>(undefined)
   const attempt = attemptWords(question)
 
   const send = (): void => {
     const shaped = answerValue(question, box.current?.value ?? "")
     if ("error" in shaped) {
-      setRefusal(shaped.error)
+      setAnswerNote(shaped.error)
       return
     }
-    setRefusal(undefined)
+    setAnswerNote(undefined)
     onAnswer(shaped.value)
   }
 
@@ -133,9 +133,9 @@ export const ApprovalAnswerForm = ({
             </div>
           </>
         )}
-      {refusal === undefined ? null : (
+      {answerNote === undefined ? null : (
         <p className="sui-approval-error" role="alert">
-          {refusal}
+          {answerNote}
         </p>
       )}
     </div>

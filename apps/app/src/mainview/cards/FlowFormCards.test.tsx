@@ -307,6 +307,32 @@ describe("the flow form card", () => {
     expect(refused.querySelector<HTMLInputElement>("[data-testid=flow-form-id]")?.disabled).toBe(false)
     expect(refused.querySelector<HTMLButtonElement>("[data-testid=flow-form-submit]")?.disabled).toBe(false)
   })
+
+  test("the form's own sentence about the input stands as is; a failed read or run says one sentence and keeps its text behind Details", () => {
+    const own = mount(<FlowFormCardBody card={formCard({ error: "The form still needs: Id." }, "error")} onRunCommand={() => {}} />)
+      .querySelector<HTMLElement>("[data-testid=flow-form-failure]")!
+    expect(own.querySelector("p")?.textContent).toBe("The form still needs: Id.")
+    expect(own.dataset.fault).toBe("user")
+    expect(own.dataset.failure).toBe("FlowFormInput")
+    expect(own.querySelector("details")).toBeNull()
+    const cases = [
+      { kind: "read", status: "active", tag: "FlowFormReadFailed", sentence: "Smithers could not load the choices for this form. Not your fault.", raw: "Listing issues for o/r failed (500): upstream timeout" },
+      { kind: "run", status: "error", tag: "FlowFormRunFailed", sentence: "Smithers could not run this. Not your fault.", raw: "TypeError: Cannot read properties of undefined (reading 'id')" }
+    ] as const
+    for (const { kind, status, tag, sentence, raw } of cases) {
+      const host = mount(<FlowFormCardBody card={formCard({ draft: { id: "ui", harness: "codex", bookmark: "work" }, error: raw, errorKind: kind }, status)} onRunCommand={() => {}} />)
+      const notice = host.querySelector<HTMLElement>("[data-testid=flow-form-failure]")!
+      expect(notice.getAttribute("role")).toBe("alert")
+      expect(notice.dataset.fault).toBe("infra")
+      expect(notice.dataset.failure).toBe(tag)
+      expect(notice.querySelector("p")?.textContent).toBe(sentence)
+      expect(notice.querySelector("p")?.textContent).not.toContain(raw)
+      expect(notice.querySelector("details:not([open]) pre")?.textContent).toBe(raw)
+      /* Submit is the retry: the notice adds no button of its own, and the form stays editable. */
+      expect(notice.querySelectorAll("button")).toHaveLength(0)
+      expect(host.querySelector<HTMLButtonElement>("[data-testid=flow-form-submit]")?.disabled).toBe(false)
+    }
+  })
 })
 
  test("a user form receives focus from its invoking button without stealing unrelated editing focus", () => {

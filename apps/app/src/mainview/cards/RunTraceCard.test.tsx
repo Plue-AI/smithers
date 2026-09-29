@@ -120,12 +120,10 @@ const REFUSAL = 'Add a model to "nightly-lint" to schedule it.'
 const VERDICT = `failed — invalid_receipt: ${REFUSAL.slice(0, 20)}`
 const failedJournal = (cause: string) =>
   [{ sequence: 1, kind: "control.run.failed", runId: "run-1", occurredAt: 1, payload: { runId: "run-1", status: "failed", cause } }]
-/* The run's failure notice (FailureNotice): its sentence <p>, its fault, and the raw text inside its collapsed Details. */
-const notice = (host: HTMLElement): Element => host.querySelector(".run-failure[data-fault]")!
-const refusal = (host: HTMLElement): Element => notice(host).querySelector(":scope > p")!
-const faultOf = (host: HTMLElement): string | null => notice(host).getAttribute("data-fault")
+const refusal = (host: HTMLElement): Element => host.querySelector("[data-refusal-fault]")!
 const technical = (host: HTMLElement): string | undefined =>
-  notice(host).querySelector("details")?.querySelector("pre")?.textContent ?? undefined
+  [...host.querySelectorAll("details")].find(node => node.querySelector("summary")?.textContent === "Technical details")
+    ?.querySelector("pre")?.textContent ?? undefined
 
 const chips = (host: HTMLElement): Array<string | null> =>
   [...host.querySelectorAll("[data-filter]")].map((chip) => chip.getAttribute("data-filter"))
@@ -140,12 +138,11 @@ describe("the run card as a trace", () => {
   test("a failed run uses typed infra copy and keeps raw errors inside a closed disclosure", () => {
     const raw = "failed — Error: Error: git exited 1"
     const { host } = renderRun({ phase: "failed", error: raw })
-    const alert = host.querySelector('.run-failure[role="alert"]')!
-    expect(refusal(host).textContent).toContain("Not your fault")
-    expect(refusal(host).textContent).not.toContain(raw)
-    expect(alert.getAttribute("data-fault")).toBe("infra")
-    const detail = alert.querySelector("details")!
-    expect(detail.querySelector("summary")?.textContent).toBe("Details")
+    const alert = host.querySelector('[role="alert"]')!
+    expect(alert.textContent).toContain("Not your fault")
+    expect(alert.textContent).not.toContain(raw)
+    expect(alert.getAttribute("data-refusal-fault")).toBe("infra")
+    const detail = [...host.querySelectorAll("details")].find(node => node.querySelector("summary")?.textContent === "Technical details")!
     expect(detail.open).toBe(false)
     expect(detail.querySelector("pre")?.textContent).toBe(raw)
   })
@@ -154,13 +151,13 @@ describe("the run card as a trace", () => {
     const refused = renderRun({ workflow: "repository/trigger", phase: "failed", error: VERDICT, events: failedJournal(cause) })
     expect(refusal(refused.host).textContent).toBe(REFUSAL)
     expect(refusal(refused.host).textContent).not.toContain("Not your fault")
-    expect(faultOf(refused.host)).toBe("user")
+    expect(refusal(refused.host).getAttribute("data-refusal-fault")).toBe("user")
     expect(technical(refused.host)).toBe(`invalid_receipt: ${REFUSAL}`)
 
     const engine = renderRun({ workflow: "coding/request", phase: "failed", error: VERDICT,
       events: failedJournal("invalid_receipt: Native source creation returned an invalid receipt") })
     expect(refusal(engine.host).textContent).toContain("Not your fault")
-    expect(faultOf(engine.host)).toBe("infra")
+    expect(refusal(engine.host).getAttribute("data-refusal-fault")).toBe("infra")
     expect(technical(engine.host)).toBe(VERDICT)
   })
   test("a setup refusal the person must answer leads with the host's sentence; the bridge's own invalid_receipt does not", () => {
@@ -171,13 +168,13 @@ describe("the run card as a trace", () => {
       events: failedJournal(`invalid_receipt: ${trial}\n    at repository/Setup (flows/repository/receipts.ts:109)`) })
     expect(refusal(refused.host).textContent).toBe(trial)
     expect(refusal(refused.host).textContent).not.toContain("invalid_receipt")
-    expect(faultOf(refused.host)).toBe("user")
+    expect(refusal(refused.host).getAttribute("data-refusal-fault")).toBe("user")
     expect(technical(refused.host)).toBe(`invalid_receipt: ${trial}`)
 
     const bridge = renderRun({ workflow: "repository/setup", phase: "failed", error: setupVerdict,
       events: failedJournal("invalid_receipt: Setup output failed the shared response contract") })
     expect(refusal(bridge.host).textContent).toContain("Not your fault")
-    expect(faultOf(bridge.host)).toBe("infra")
+    expect(refusal(bridge.host).getAttribute("data-refusal-fault")).toBe("infra")
     expect(technical(bridge.host)).toBe(setupVerdict)
   })
   test("a refusal written to the stream before this change replays, and the reopened card still leads with it", async () => {
@@ -203,7 +200,7 @@ describe("the run card as a trace", () => {
     const restored = reopened.collections.cards.get(card.id) as typeof card
     expect(restored.payload.error).toBe(VERDICT)
     const { host } = renderRun(restored.payload)
-    expect(faultOf(host)).toBe("user")
+    expect(refusal(host).getAttribute("data-refusal-fault")).toBe("user")
     expect(refusal(host).textContent).toBe(REFUSAL)
     await reopened.dispose?.()
   })
@@ -227,9 +224,7 @@ describe("the run card as a trace", () => {
       onStopRun={noop} onRetryRun={(id) => retried.push(id)} onRunCommand={noop}
     />)
     expect(host.textContent).toContain("Finished the implementation.")
-    const observed = host.querySelector("[data-failure='run.observe.completed']")!
-    expect(observed.querySelector(":scope > p")?.textContent).toBe("This run finished, but Smithers could not read all of its record. Not your fault.")
-    expect(observed.querySelector("details pre")?.textContent).toBe("Engine evidence could not be read.")
+    expect(host.querySelector("[role='alert']")?.textContent).toContain("Engine evidence could not be read.")
     const retry = host.querySelector("[data-flow='flow.run.retry']") as HTMLButtonElement
     retry.focus()
     expect(document.activeElement).toBe(retry)
@@ -280,13 +275,7 @@ describe("the run card as a trace", () => {
     const selected = renderTrace({ events: JOURNAL, traceView: "turns", selection: "call-1", liveTail: false, cursorSeq: 8 })
     expect([...selected.host.querySelectorAll("[data-evidence-span]")].map((row) => row.getAttribute("data-evidence-span"))).toEqual(["cell-2", "call-1"])
     expect(selected.host.querySelector("[aria-label='Recorded call path']")).toBeNull()
-    const callFailure = selected.host.querySelector("[data-testid='run-trace-failure']")!
-    expect(callFailure.getAttribute("role")).toBe("alert")
-    expect(callFailure.getAttribute("data-failure")).toBe("run.trace.call")
-    expect(callFailure.getAttribute("data-fault")).toBe("factory")
-    expect(callFailure.querySelector(":scope > p")?.textContent).toBe("This call failed. Not your fault.")
-    expect((callFailure.querySelector("details") as HTMLDetailsElement).open).toBe(false)
-    expect(callFailure.querySelector("details pre")?.textContent).toBe("12 fps at 500 nodes")
+    expect(selected.host.querySelector("[role='alert']")?.textContent).toBe("12 fps at 500 nodes")
     click(selected.host.querySelector("[data-flow='runs.trace.live']"))
     expect(selected.dispatched).toEqual([{ name: "runs.trace.live", args: "sourceCard=flow-run-run-1 run-1" }])
     expect(selected.host.textContent).toContain("At #8")
@@ -383,9 +372,7 @@ describe("the run card as a trace", () => {
     expect(callPane?.getAttribute("data-span")).toBe("call-1")
     expect(callPane?.textContent).toContain("call · target.run")
     expect(callPane?.textContent).toContain("//apps/app:e2e-smoke")
-    expect(callPane?.querySelector("[role='alert'] > p")?.textContent).toBe("This call failed. Not your fault.")
-    expect(callPane?.querySelector("[role='alert'] > p")?.textContent).not.toContain("12 fps")
-    expect(callPane?.querySelector("[role='alert'] details pre")?.textContent).toBe("12 fps at 500 nodes")
+    expect(callPane?.querySelector("[role='alert']")?.textContent).toBe("12 fps at 500 nodes")
     expect(callPane?.textContent).toContain("duration3.0s")
     expect(selectedCall.host.querySelector("[data-trace-span='call-1']")?.getAttribute("aria-pressed")).toBe("true")
     expect(selectedCall.host.querySelector("[data-trace-bar='call-1'] .run-trace-water-bar")?.getAttribute("aria-pressed")).toBe("true")
@@ -596,7 +583,14 @@ describe("predicted coding Changes in the same run card", () => {
     const shown = renderTrace({ workflow: "coding", phase: "completed", input: { prompt: CODING_PLAN.prompt }, events: blockedCodingJournal(), traceView: undefined })
     const outcome = shown.host.querySelector("[aria-label='Coding outcome']")!
     expect(outcome.textContent).toContain("Blocked after 1 round.")
-    expect(outcome.textContent).toContain("The required fast check failed.")
+    /* The recorded cause is detail: one sentence in product words, the cause behind a closed Details. */
+    const blocked = outcome.querySelector<HTMLElement>("[data-testid='coding-plan-blocked']")!
+    expect(blocked.querySelector("p")?.textContent).toBe("Smithers stopped this change before it passed its checks. Not your fault.")
+    expect(blocked.querySelector("p")?.textContent).not.toContain("The required fast check failed.")
+    expect(blocked.querySelector("details:not([open]) pre")?.textContent).toBe("The required fast check failed.")
+    expect(blocked.dataset.failure).toBe("CodingBlocked")
+    expect(blocked.dataset.fault).toBe("infra")
+    expect(blocked.dataset.execution).toBe("failed-round")
     expect(outcome.textContent).not.toContain("Validated")
     const inspect = outcome.querySelector<HTMLButtonElement>("[data-flow='runs.trace.select']")!
     inspect.focus()

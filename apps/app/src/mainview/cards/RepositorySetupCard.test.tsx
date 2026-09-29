@@ -597,3 +597,48 @@ test("every setup button identifies the flow its click dispatches", () => {
     } finally { t.close() }
   }
 })
+
+test("an earlier operation's failure reads its operation's sentence; the host receipt's words stay behind Details", () => {
+  const raw = "failed — execution: bridge exited 137 (HTTP 500)"
+  const cases: ReadonlyArray<readonly [SetupReceipt["operation"], string]> = [
+    ["inspect", "Smithers could not inspect this draft. Not your fault."],
+    ["evaluate", "Smithers could not run these evals. Not your fault."],
+    ["trial", "Smithers could not run this test. Not your fault."],
+    ["apply", "Smithers could not apply this draft. Not your fault."],
+    ["pause", "Smithers could not pause this flow. Not your fault."],
+    ["run", "Smithers could not run this flow. Not your fault."]
+  ]
+  const card = makeCard()
+  card.payload.view = "evals"
+  card.payload.previousReceipts = cases.map(([operation], index) => ({ requestId: `old-${operation}`, operation, revision: 1, digest: "old",
+    phase: "failed" as const, updatedAt: index, results: [], evidence: [], error: raw }))
+  const t = mount(card)
+  try {
+    const notices = [...t.host.querySelectorAll<HTMLElement>("[data-testid=setup-previous-failure]")]
+    expect(notices.map(notice => notice.dataset.failure)).toEqual(cases.map(([operation]) => `setup.${operation}`))
+    notices.forEach((notice, index) => {
+      expect(notice.getAttribute("role")).toBe("status")
+      expect(notice.dataset.fault).toBe("infra")
+      expect(notice.querySelector("p")?.textContent).toBe(cases[index]![1])
+      expect(notice.querySelector("p")?.textContent).not.toContain("137")
+      expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+      expect(notice.querySelector("button")).toBeNull()
+    })
+  } finally { t.close() }
+})
+
+test("an earlier refusal the person answers keeps its setup sentence, marked as theirs", () => {
+  const raw = "failed — invalid_receipt: Setup input must match the reviewed candidate digest"
+  const card = makeCard()
+  card.payload.view = "evals"
+  card.payload.previousReceipts = [{ requestId: "old", operation: "apply", revision: 1, digest: "old", phase: "failed", updatedAt: 1, results: [], evidence: [], error: raw }]
+  const t = mount(card)
+  try {
+    const notice = t.host.querySelector<HTMLElement>("[data-testid=setup-previous-failure]")!
+    expect(notice.dataset.fault).toBe("user")
+    expect(notice.dataset.failure).toBe("setup.apply")
+    expect(notice.querySelector("p")?.textContent).toBe("This setup changed after it was reviewed. Test this draft again, then apply it.")
+    expect(notice.querySelector("p")?.textContent).not.toContain("invalid_receipt")
+    expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+  } finally { t.close() }
+})
