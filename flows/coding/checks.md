@@ -128,6 +128,21 @@ or an unsure answer fails the receipt with a finding; more than 256 questions
 or a diff over 1 MB fails without asking. An unreachable Jev fails the check;
 no other model answers in its place. See `flows/checks/lint/flow.mdx`.
 
+## Review on a second provider
+
+`review-check.ts` registers `coding/ReviewCheck`. Its body's first line declares
+up to eight lenses, `{"lenses":[{"id","focus"}]}`; `flows/checks/review/flow.mdx`
+declares this repository's. The check reads the same immutable parent..head
+diff as the Jev check, drops private repository-job paths, and asks one
+evidence-only completion per lens on the `coding/review` role, which the host
+defaults to a seat on a provider other than the effective implementer's
+(`reviewDefault` in `host.ts`; `SMITHERS_CODING_REVIEW_MODEL` or the project's
+`seats` pin one). Every lens's findings land on the owning Change and its
+commit, so a lens that requests changes fails the receipt; the evidence records
+the role, each lens's verdict and its finding count. A diff over 200 KB or one
+the check cannot read unambiguously fails without asking any lens. The lenses
+change the check's execution digest, so a plan replans when they change.
+
 ## Check only the affected targets
 
 The command receives the Change's written paths in `SMITHERS_CHECK_FILES`,

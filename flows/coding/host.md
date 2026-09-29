@@ -98,7 +98,9 @@ never requires it. Wiki generation and semantic review register only with
 The same verified catalog is injected into those action layers before they
 register. Planning, prototype and wiki review receive their configured
 `planningModel`, `pocModel` and `wikiModel`, each falling back to the explicit
-implementation model, through the existing seat resolver. All these model roles
+implementation model, through the existing seat resolver; the review check's
+`coding/review` role takes `reviewModel`, falling back to a seat on another
+provider than the effective implementer's. All these model roles
 use the evidence-only authority recipe. When Wiki is enabled, its required `reviewer` policy,
 and selected wiki model participate in review reuse identity. The same identity
 includes the running host's review task: a digest of the wiki review policy

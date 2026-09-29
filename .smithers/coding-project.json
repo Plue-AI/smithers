@@ -621,6 +621,13 @@
       "required": false
     },
     {
+      "id": "review",
+      "target": ".",
+      "flow": "checks/review",
+      "tier": "slow",
+      "required": false
+    },
+    {
       "id": "affected-lint",
       "target": ".",
       "flow": "checks/affected-lint",

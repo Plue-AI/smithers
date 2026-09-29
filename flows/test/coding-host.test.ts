@@ -10,7 +10,8 @@ import { realpath } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
-import { configuredCodingRoutes, layer, roleResolver, roleSeats } from "../coding/host.ts"
+import { expandSeat } from "../../packages/smithers/src/Providers.ts"
+import { configuredCodingRoutes, layer, reviewDefault, roleResolver, roleSeats } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
@@ -262,4 +263,52 @@ test("an undeclared or auto flow routes by the graph over the host's seats, and 
   assert.equal(declared.decision.decidedBy, "declared")
   assert.equal(declared.seat.id, "coding/plan")
   assert.equal(declared.seat.modelId, "luna")
+})
+
+test("coding/review defaults to a provider different from the effective implementer", async () => {
+  const model = Model.make({
+    stream: () => {
+      throw new Error("seat resolution must not invoke a provider")
+    }
+  })
+  const base: SeatResolver.Service = {
+    resolve: (id) =>
+      Effect.succeed({
+        id,
+        model,
+        modelId: expandSeat(id),
+        contextWindowTokens: 16_000,
+        route: {
+          prepare: () => {
+            throw new Error("seat resolution must not prepare provider requests")
+          }
+        }
+      })
+  }
+  const provider = (seat: string) => expandSeat(seat).split(":")[0]
+  const resolve = (implementationModel: string, models?: Parameters<typeof roleResolver>[2]) =>
+    Effect.runPromise(
+      Effect.all({
+        implement: roleResolver(base, implementationModel, models).resolve("coding/implement"),
+        review: roleResolver(base, implementationModel, models).resolve("coding/review")
+      })
+    )
+  // The literal role is replaced by a model seat whose provider differs from the implementer's.
+  for (const implementationModel of ["luna", "sol", "opus", "fable", "qwen", "openai:gpt-6-luna"]) {
+    const { implement, review } = await resolve(implementationModel)
+    assert.equal(review.id, "coding/review")
+    assert.notEqual(review.modelId, "coding/review", "the role resolves to a model seat")
+    assert.notEqual(provider(review.modelId), provider(implement.modelId), `review beside ${implementationModel}`)
+  }
+  assert.equal(reviewDefault("luna"), "opus")
+  assert.equal(reviewDefault("anthropic:claude-opus-5-5"), "sol")
+  // The repository's implementer override moves the default with it.
+  const overridden = await resolve("luna", { seats: { "coding/implement": "opus" } })
+  assert.equal(overridden.implement.modelId, "anthropic:claude-opus-5-5")
+  assert.equal(provider(overridden.review.modelId), "openai")
+  // An explicit review seat, from the environment or the repository, is kept as declared.
+  const pinned = await resolve("luna", { reviewModel: "astra" })
+  assert.equal(pinned.review.modelId, "openai:gpt-6-astra")
+  const declared = await resolve("luna", { reviewModel: "astra", seats: { "coding/review": "fable" } })
+  assert.equal(declared.review.modelId, "anthropic:claude-fable-5-1")
 })

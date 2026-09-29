@@ -31,11 +31,10 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/release-redaction.test.ts"),
     Smithers.file("//flows/test/release-io.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
-    Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts")
   ]),
-  srcs: [sources, scripts, Smithers.file("//flows/review/flow.mdx"), Smithers.file("//pnpm-workspace.yaml")],
+  srcs: [sources, scripts, Smithers.file("//pnpm-workspace.yaml")],
   deps: [],
   cwd
 })
@@ -213,6 +212,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-wiki-registry.test.ts"),
     Smithers.file("//flows/test/coding-create-flow-registry.test.ts"),
     Smithers.file("//flows/test/coding-jev-check.test.ts"),
+    Smithers.file("//flows/test/coding-review-check.test.ts"),
     Smithers.file("//flows/test/coding-wiki-memory.test.ts"),
     Smithers.file("//flows/test/coding-catalog-refresh.test.ts"),
     Smithers.file("//flows/test/coding-vibe-evidence.test.ts"),

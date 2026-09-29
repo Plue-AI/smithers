@@ -270,8 +270,17 @@
         "path": "factory/flows/harness.test.ts"
       },
       {
+        "kind": "file",
+        "path": "factory/queue/queue.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "factory/flows/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "factory/queue/*.md",
         "exclude": []
       },
       {
@@ -17105,6 +17114,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/failures.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/files.ts"
       },
       {
@@ -17262,6 +17275,10 @@
       {
         "kind": "file",
         "path": "apps/tui/src/tab-command.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/tab-error.ts"
       },
       {
         "kind": "file",
@@ -17502,6 +17519,10 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/UpstreamProse.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/UserFailure.ts"
       },
       {
         "kind": "file",
@@ -18881,6 +18902,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/std/src/internal/FileMutation.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/std/src/internal/FsFailure.ts"
       },
       {
@@ -18898,6 +18923,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/std/src/internal/Http.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/std/src/internal/HttpNetwork.ts"
       },
       {
         "kind": "file",
@@ -19374,6 +19403,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/build/build-cli/src/internal/rules/FetchRule.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/build-cli/src/internal/rules/NativeArtifactOutput.ts"
       },
       {
         "kind": "file",
@@ -20146,6 +20179,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/capability/src/CapabilityPattern.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/capability/src/CapabilitySet.ts"
       },
       {
         "kind": "file",
@@ -20990,6 +21027,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/flow/src/Flow/Annotations.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/src/Flow/CapabilityCeiling.ts"
       },
       {
         "kind": "file",
@@ -29033,6 +29074,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-review-check.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-wiki-memory.test.ts"
       },
       {
@@ -30520,10 +30565,6 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/review-flow.test.ts"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/workflows.test.ts"
       },
       {
@@ -30539,10 +30580,6 @@
         "kind": "glob",
         "pattern": "scripts/*.mjs",
         "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "flows/review/flow.mdx"
       },
       {
         "kind": "file",
