@@ -80,6 +80,14 @@ export interface ActionInput {
    */
   readonly nondeterministic?: true | undefined
   readonly metadata?: BoundaryMetadata | undefined
+  /**
+   * The engine's `SnapshotBoundary` preparation for a compensable attempt:
+   * restore the retry sequence's original handle, then take this attempt's.
+   * Evaluated only when the attempt actually executes, after the journal and
+   * cache lookups, and its handle is persisted in the attempt row before the
+   * body runs.
+   */
+  readonly snapshot?: Effect.Effect<unknown> | undefined
 }
 
 /**
@@ -354,6 +362,12 @@ const AttemptMeta = Schema.Struct({
    * `describe`, and `abandon` that a tree restore leaves in place.
    */
   snapshotOperationId: Schema.optional(Schema.String),
+  /**
+   * The engine `SnapshotBoundary` handle taken before this attempt executed.
+   * Wrapped so an opaque `null` or `undefined` handle stays distinguishable
+   * from no handle; `handle` is absent when the handle was `undefined`.
+   */
+  boundarySnapshot: Schema.optional(Schema.Struct({ handle: Schema.optionalKey(Schema.Unknown) })),
   // The incarnation that admitted the running row. Since issues #102/#103
   // the adoption decision rests on the admission permit rather than this
   // nonce — a live same-key fiber of this process would be holding the
@@ -389,6 +403,29 @@ const decodeMeta = (value: unknown): AttemptMeta | undefined => {
   const decoded = Schema.decodeUnknownResult(AttemptMeta)(value)
   return decoded._tag === "Success" ? decoded.success : undefined
 }
+
+/**
+ * The earliest boundary snapshot handle persisted for an action key's
+ * surviving attempts, walking `earliest` through `latest`. An attempt row
+ * without one (it crashed before its snapshot was persisted) is skipped.
+ *
+ * @since 0.1.0
+ * @category combinators
+ */
+export const earliestBoundarySnapshot = (
+  attempts: AttemptStore.Service,
+  runId: string,
+  stepKeyDigest: string,
+  range: { readonly earliest: number; readonly latest: number }
+): Effect.Effect<Option.Option<unknown>> =>
+  Effect.gen(function*() {
+    for (let attempt = range.earliest; attempt <= range.latest; attempt++) {
+      const row = yield* attempts.get({ runId, stepKeyDigest, attempt }).pipe(Effect.orDie)
+      const persisted = Option.isSome(row) ? decodeMeta(row.value.meta)?.boundarySnapshot : undefined
+      if (persisted !== undefined) return Option.some(persisted.handle)
+    }
+    return Option.none()
+  })
 
 const CauseJson = Schema.Struct({
   reasons: Schema.Array(Schema.Union([
@@ -2041,7 +2078,7 @@ export const make = (deps: Dependencies) => {
               JournalRecords.snapshotIdentified(attemptSource("snapshot"), { ...attemptId, ...fields.announced })
             )
           let snapshotId: string | undefined
-          let snapshotMeta: { readonly snapshotId?: string; readonly snapshotOperationId?: string } = {}
+          let snapshotMeta: Pick<AttemptMeta, "snapshotId" | "snapshotOperationId" | "boundarySnapshot"> = {}
           if (input.tier !== "compensable") {
             /**
              * THE TIER-2 ANCHOR FOR AN ORDINARY FRAME.
@@ -2068,6 +2105,25 @@ export const make = (deps: Dependencies) => {
           }
           if (input.tier === "compensable") {
             const jj = deps.engineJj === undefined ? yield* Jj.Jj : deps.engineJj
+            /**
+             * THE ENGINE'S BOUNDARY HANDLE (issue #1805). The engine restores
+             * the retry sequence's original handle inside `input.snapshot` and
+             * hands back this attempt's pre-image. It runs only here, past the
+             * journal and cache lookups, so a replayed attempt never touches
+             * the boundary. An adopted attempt keeps the handle its dead
+             * incarnation persisted: that one predates any partial mutation.
+             * Every meta write below carries it, so it reaches the row before
+             * the body can run.
+             */
+            const boundaryHandle = input.snapshot === undefined ? undefined : yield* input.snapshot
+            const boundarySnapshot = runningMeta?.boundarySnapshot ?? (
+              input.snapshot === undefined
+                ? undefined
+                : boundaryHandle === undefined
+                ? {}
+                : { handle: boundaryHandle }
+            )
+            const boundaryMeta = boundarySnapshot === undefined ? {} : { boundarySnapshot }
             if (adopted && runningMeta?.snapshotId !== undefined) {
               // The dead incarnation persisted this attempt's own pre-image
               // before mutating the workspace (issue #87): restore it so the
@@ -2076,7 +2132,7 @@ export const make = (deps: Dependencies) => {
               yield* jj.restore(runningMeta.snapshotId)
               snapshotId = runningMeta.snapshotId
               const fields = snapshotFields(snapshotId, runningMeta.snapshotOperationId)
-              snapshotMeta = fields.meta
+              snapshotMeta = { ...fields.meta, ...boundaryMeta }
               // Re-announcing a pre-image the row already records durably:
               // there is no state write to pair this announcement with.
               yield* announceSnapshot(fields)
@@ -2096,7 +2152,7 @@ export const make = (deps: Dependencies) => {
               // pre-image change (`jj squash`) and restore the step's edits.
               snapshotId = snapshot.commitId
               const fields = snapshotFields(snapshotId, snapshot.operationId)
-              snapshotMeta = fields.meta
+              snapshotMeta = { ...fields.meta, ...boundaryMeta }
               // Persist the pre-image into the running row before announcing it
               // (issue #87): a SIGKILL mid-attempt must not lose the only
               // reference to the clean tree, or adoption re-executes on top of
@@ -2106,7 +2162,9 @@ export const make = (deps: Dependencies) => {
               // outside: a host call must never run inside a write transaction.
               yield* atomically(
                 attempts.patch(attemptId, {
-                  meta: { ...declarationMeta, admittedBy: deps.owner, ...snapshotMeta } satisfies AttemptMeta
+                  meta: attemptPayload(
+                    { ...declarationMeta, admittedBy: deps.owner, ...snapshotMeta } satisfies AttemptMeta
+                  )
                 }, deps.owner).pipe(Effect.andThen(announceSnapshot(fields)))
               )
             }
@@ -2363,11 +2421,13 @@ export const make = (deps: Dependencies) => {
               state: "failed",
               finishedAtMs,
               error: attemptPayload(persistCause(outcome.cause)),
-              meta: {
-                ...declarationMeta,
-                ...(violation ? { hardViolation: true as const } : {}),
-                ...snapshotMeta
-              }
+              meta: attemptPayload(
+                {
+                  ...declarationMeta,
+                  ...(violation ? { hardViolation: true as const } : {}),
+                  ...snapshotMeta
+                } satisfies AttemptMeta
+              )
             }, [
               ...(violation
                 ? [

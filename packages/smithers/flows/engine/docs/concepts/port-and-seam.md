@@ -93,9 +93,9 @@ opaque. Same-key in-flight actions share one settlement, so a concurrent
 duplicate dispatch waits rather than executing twice.
 
 [`@smthrs/engine-store`](/api/engine-store) implements the same seam over a
-durable journal. Its current adapter supplies the retry, wake, conditional
-completion, and node-record hooks; `actionSnapshot` remains absent, so snapshot
-restoration uses the process-local fallback. Swapping the layer supplies
+durable journal. Its adapter supplies the retry, wake, conditional completion,
+snapshot, and node-record hooks, so a compensable retry restores its original
+pre-image after a restart. Swapping the layer supplies
 persistence without changing the authored flow.
 
 ## Related

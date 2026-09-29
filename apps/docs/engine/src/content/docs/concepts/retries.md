@@ -91,8 +91,8 @@ the earliest snapshot before a retry. This survives a process restart only
 when the driver implements `Encoded.actionSnapshot` and persists the supplied
 `ActionExecuteOptions.snapshot` handle before executing the action. That
 contract also skips boundary work for journal replay. Without it, restoration
-is process-local; the current `layerMemory` and `@smthrs/engine-store` adapters
-use that fallback. See
+is process-local; `layerMemory` uses that fallback, and `@smthrs/engine-store`
+implements the durable contract. See
 [Run a compensable action](/guides/compensable-actions/).
 
 ## What is not a retry

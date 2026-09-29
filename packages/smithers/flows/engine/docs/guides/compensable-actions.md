@@ -91,9 +91,10 @@ attempt that actually executed.
 
 Without `actionSnapshot`, handles remain in the execution's in-process map.
 Restore does not survive a restart, and replay still invokes snapshot and diff.
-`layerMemory` and the current `@smthrs/engine-store` adapter use this fallback;
-a boundary implementation alone does not make the handle durable. If stored
-handles are pruned, the engine cannot recover the original world.
+`layerMemory` uses this fallback; a boundary implementation alone does not make
+the handle durable. `@smthrs/engine-store` persists the handle in the attempt
+row, so its handles must be JSON values. If stored handles are pruned, the
+engine cannot recover the original world.
 
 ## The refusal
 

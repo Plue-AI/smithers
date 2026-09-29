@@ -78,6 +78,11 @@ attempt rows rather than from a counter held in memory:
   sequence rather than restarting at 1.
 - When did retrying start? `actionRetryOrigin` degrades to the earliest
   surviving attempt row when a retention pass pruned attempt 1.
+- What did the world look like before retrying started? `actionSnapshot`
+  returns the earliest `SnapshotBoundary` handle a surviving compensable
+  attempt row persisted, so a restarted retry restores that pre-image. The
+  handle is written into the running row before the body runs, and a replayed
+  attempt never touches the boundary.
 
 `DurableEngineState.attemptSurvivors` answers both in one range read, returning
 `{ earliestAttempt, earliestStartedAtMs, latest }`. It is optional on the

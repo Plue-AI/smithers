@@ -312,6 +312,11 @@ const makeWithEngineJj = (
         tier: input.tier
       }
       yield* Effect.logTrace("action dispatch started", logContext)
+      // The boundary preparation runs under the dispatching parent, not the
+      // action's own instance, exactly as the engine would run it itself.
+      const snapshot = input.snapshot === undefined
+        ? undefined
+        : Effect.provideContext(input.snapshot, yield* Effect.context<FlowRuntime.FlowInstance | Crypto.Crypto>())
       const result = yield* ActionPersistence.make({
         runId: parent.executionId,
         owner,
@@ -331,7 +336,8 @@ const makeWithEngineJj = (
         ...(input.nondeterministic === undefined ? {} : { nondeterministic: input.nondeterministic }),
         ...(isBoundaryMetadata(input.metadata)
           ? { metadata: input.metadata }
-          : {})
+          : {}),
+        ...(snapshot === undefined ? {} : { snapshot })
       }).pipe(
         Flow.intoResult,
         Effect.provideService(FlowRuntime.FlowInstance, instance),
@@ -482,6 +488,26 @@ const makeWithEngineJj = (
           yield* Schema.decodeUnknownEffect(Sha256)(input.key).pipe(Effect.orDie)
         )
         return Option.map(survivors, ({ latest }) => latest)
+      }),
+      // The durable restore-before-retry handle (issue #1805): the earliest
+      // boundary snapshot persisted in the key's surviving attempt rows, so a
+      // restarted process restores the original pre-image before a retry.
+      actionSnapshot: Effect.fnUntraced(function*(input: {
+        readonly key: string
+      }) {
+        const parent = yield* FlowRuntime.FlowInstance
+        const stepKeyDigest = yield* Schema.decodeUnknownEffect(Sha256)(input.key).pipe(Effect.orDie)
+        const survivors = yield* AttemptProbe.probeAttempts(
+          attemptStore,
+          attemptSurvivors,
+          parent.executionId,
+          stepKeyDigest
+        )
+        if (Option.isNone(survivors)) return Option.none()
+        return yield* ActionPersistence.earliestBoundarySnapshot(attemptStore, parent.executionId, stepKeyDigest, {
+          earliest: survivors.value.earliestAttempt,
+          latest: survivors.value.latest
+        })
       }),
       deferredResult: deferred.deferredResult,
       deferredDone: deferred.deferredDone,
