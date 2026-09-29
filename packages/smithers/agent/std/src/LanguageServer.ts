@@ -40,7 +40,19 @@ export interface LanguageServer {
   readonly prepareCallHierarchy: (position: Position) => Effect.Effect<unknown, StdError.StdError>
   readonly callHierarchyIncoming: (position: Position) => Effect.Effect<unknown, StdError.StdError>
   readonly callHierarchyOutgoing: (position: Position) => Effect.Effect<unknown, StdError.StdError>
+  /**
+   * The file's diagnostics as a document report, `{ kind: "full", items }`.
+   * A server without pull diagnostics answers with what it last published for
+   * the latest synced text.
+   */
   readonly diagnostics: (path: string) => Effect.Effect<unknown, StdError.StdError>
+  /**
+   * Tells the server a file now holds `text`: opens it on first sync and sends
+   * the full new text on every later one.
+   */
+  readonly sync: (path: string, text: string) => Effect.Effect<void, StdError.StdError>
+  /** Tells the server a synced file is gone; a file never synced is a no-op. */
+  readonly close: (path: string) => Effect.Effect<void, StdError.StdError>
 }
 /**
  * The {@link LanguageServer} service tag.
@@ -78,7 +90,9 @@ export const makeNoop = (): LanguageServer =>
     prepareCallHierarchy: unsupported,
     callHierarchyIncoming: unsupported,
     callHierarchyOutgoing: unsupported,
-    diagnostics: unsupported
+    diagnostics: unsupported,
+    sync: unsupported,
+    close: unsupported
   })
 /**
  * Provides {@link makeNoop}.

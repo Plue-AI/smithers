@@ -14,6 +14,8 @@
  * 3. **The hunk comes back.** The result carries the applied region as raw text
  *    with its line range, so a mis-indented edit costs one glance instead of an
  *    investigation (sphinx-7233 lost its verdict to a hunk nobody could see).
+ *    With a `LanguageServer` bound, the file's errors after the edit come back
+ *    too.
  *
  * @since 1.0.0
  */
@@ -23,6 +25,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as Diagnostics from "./internal/Diagnostics.ts"
 import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import * as Match from "./internal/Match.ts"
@@ -92,6 +95,9 @@ export const Output = Schema.Struct({
   endLine: Schema.Number.annotate({ description: "Last 1-based line of the returned hunk" }),
   hunk: Schema.String.annotate({
     description: "The edited region as it now stands, raw and with its exact indentation, plus two lines of context"
+  }),
+  errors: Schema.optional(Schema.Array(Diagnostics.Problem)).annotate({
+    description: "Errors the language server reports in the file after the edit; absent when no server answered"
   })
 })
 
@@ -251,7 +257,7 @@ export const run = Effect.fn("Edit.run")(function*(
   if (byLines && input.replaceAll !== undefined) {
     return yield* Effect.fail(invalid(input.path, "replaceAll cannot be used with startLine/endLine"))
   }
-  return yield* Effect.scoped(Effect.gen(function*() {
+  const edited = yield* Effect.scoped(Effect.gen(function*() {
     yield* FileMutation.acquire(fileSystem, [input.path])
     const bytes = yield* fileSystem.readFile(input.path).pipe(
       Effect.mapError(FsFailure.reading(input.path, `File not found: ${input.path}`))
@@ -332,14 +338,21 @@ export const run = Effect.fn("Edit.run")(function*(
             )
       )
     )
+    // Synced under the file lock, so a later edit's text never reaches the
+    // server before this one's.
+    const server = yield* Diagnostics.sync(input.path, replaced)
     const first = targets[0]!
     const applied = Match.hunk(replaced, first.start, first.start + input.newString.length)
-    return {
+    const output: typeof Output.Type = {
       path: input.path,
       replacements: targets.length,
       startLine: applied.startLine,
       endLine: applied.endLine,
       hunk: applied.text
     }
+    return { output, server }
   }))
+  // Without a synced text the server can only describe the file as it was.
+  const errors = edited.server === undefined ? undefined : yield* Diagnostics.errorsOf(edited.server, input.path)
+  return errors === undefined ? edited.output : { ...edited.output, errors }
 })

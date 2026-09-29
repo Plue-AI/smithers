@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as Diagnostics from "./internal/Diagnostics.ts"
 import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import * as Preserve from "./internal/Preserve.ts"
@@ -176,6 +177,7 @@ export const run = Effect.fn("Write.run")(function*(
           : FsFailure.denied(input.path, () => writeError(input.path, `Could not write ${input.path}`))(error)
       )
     )
+    yield* Diagnostics.sync(path.resolve(input.path), input.content)
     return {
       path: input.path,
       bytesWritten: new TextEncoder().encode(input.content).byteLength,

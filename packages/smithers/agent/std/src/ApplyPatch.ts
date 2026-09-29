@@ -17,6 +17,7 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as ApplyPatchText from "./internal/ApplyPatch.ts"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as Diagnostics from "./internal/Diagnostics.ts"
 import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import * as Preserve from "./internal/Preserve.ts"
@@ -367,6 +368,7 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
             Effect.mapError(mutationFailure("command_failed", `Failed to write file ${hunk.path}`, hunk.path))
           )
           added.push(hunk.path)
+          yield* Diagnostics.sync(path.resolve(hunk.path), hunk.contents)
           break
         }
         case "delete": {
@@ -374,6 +376,7 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
             Effect.mapError(mutationFailure("not_found", `Failed to delete file ${hunk.path}`, hunk.path))
           )
           deleted.push(hunk.path)
+          yield* Diagnostics.close(path.resolve(hunk.path))
           break
         }
         case "update": {
@@ -391,10 +394,12 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
             )
           )
           modified.push(destination)
+          yield* Diagnostics.sync(path.resolve(destination), contents)
           if (hunk.movePath !== undefined && (yield* identity(hunk.movePath)) !== (yield* identity(hunk.path))) {
             yield* fileSystem.remove(hunk.path).pipe(
               Effect.mapError(mutationFailure("command_failed", `Failed to remove original ${hunk.path}`, hunk.path))
             )
+            yield* Diagnostics.close(path.resolve(hunk.path))
           }
           break
         }

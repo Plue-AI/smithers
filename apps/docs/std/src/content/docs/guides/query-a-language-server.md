@@ -74,6 +74,37 @@ plugins only beside its own install.
 A host with no server binds `LanguageServer.layerNoop`, and every operation
 fails with `unsupported`.
 
+### One server per language
+
+Pass several configs and each file goes to the server whose `extensions`
+include its extension. A config without `extensions` takes every file no other
+server claims; a file nobody claims fails with `unsupported`.
+`workspaceSymbols` asks every server and concatenates the answers.
+
+```ts
+const servers = NodeLanguageServer.layer([
+  { command: "typescript-language-server", args: ["--stdio"], cwd: "/workspace", extensions: [".ts", ".tsx"] },
+  { command: "pyright-langserver", args: ["--stdio"], cwd: "/workspace", extensions: [".py"] }
+])
+```
+
+## Edits reach the server
+
+With a `LanguageServer` bound, `edit`, `write` and `apply_patch` send each file
+they write to its server: `textDocument/didOpen` the first time, then
+`textDocument/didChange` with the full text. A file `apply_patch` deletes or
+moves away gets `textDocument/didClose`. `edit` then returns `errors`, the
+error-severity diagnostics in the file after the edit (at most 20, 1-based
+positions). `errors` is absent when no server is bound or it did not answer;
+the edit itself never fails because of the server.
+
+`diagnostics` pulls `textDocument/diagnostic`. A server that answers
+`MethodNotFound` is read from its `textDocument/publishDiagnostics`
+notifications instead: the client opens the file if it is not open yet and waits
+up to `settleMs` (5 seconds by default) for a publish for the latest synced
+text, then fails with `timeout`. Either way the answer is a report,
+`{ kind: "full", items }`.
+
 ## Run a query
 
 ```ts
@@ -149,9 +180,10 @@ at most 64 KiB. Initialization failures and exits retain this diagnostic context
 
 ## Bring your own server
 
-`LanguageServer` is an ordinary service interface with ten methods, each taking
-a `Position` (`path`, `line`, `character`) or a string. A host with its own
-client, in-process index, or remote service implements those ten methods and
+`LanguageServer` is an ordinary service interface: ten query methods, each
+taking a `Position` (`path`, `line`, `character`) or a string, plus
+`sync(path, text)` and `close(path)`. A host with its own client, in-process
+index, or remote service implements those twelve methods and
 binds them with `LanguageServer.make`. Nothing above the service knows which one
 answered.
 

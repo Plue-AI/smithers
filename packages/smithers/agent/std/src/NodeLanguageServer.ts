@@ -11,7 +11,7 @@
 
 import * as ChildProcessEnvironment from "@smthrs/kernel/ChildProcessEnvironment"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
-import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Option, Queue, type Scope, Semaphore, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as NodeFs from "node:fs"
 import * as NodePath from "node:path"
@@ -43,6 +43,8 @@ export const MAX_QUEUED_FRAMES = 256
  */
 export const MAX_PENDING_REQUESTS = 512
 
+const DEFAULT_SETTLE_MS = 5_000
+
 /**
  * One host language-server process.
  *
@@ -53,6 +55,11 @@ export const MAX_PENDING_REQUESTS = 512
  * @since 1.0.0
  */
 export interface Config {
+  /**
+   * The file extensions this server answers for, such as `[".ts", ".tsx"]`.
+   * A server without `extensions` answers every file no other server claims.
+   */
+  readonly extensions?: ReadonlyArray<string> | undefined
   readonly command: string
   readonly args?: ReadonlyArray<string> | undefined
   readonly cwd: string
@@ -66,12 +73,51 @@ export interface Config {
    */
   readonly initializationOptions?: unknown
   readonly timeoutMs?: number | undefined
+  /**
+   * How long `diagnostics` waits for a server without pull diagnostics to
+   * publish for the latest synced text. Defaults to 5 seconds.
+   */
+  readonly settleMs?: number | undefined
 }
 
 interface JsonRpcMessage {
   readonly id?: unknown
+  readonly method?: unknown
+  readonly params?: unknown
   readonly result?: unknown
   readonly error?: unknown
+}
+
+/** JSON-RPC's code for a method the server does not implement. */
+const METHOD_NOT_FOUND = -32601
+
+const LANGUAGE_IDS: Readonly<Record<string, string>> = {
+  ".ts": "typescript",
+  ".mts": "typescript",
+  ".cts": "typescript",
+  ".tsx": "typescriptreact",
+  ".js": "javascript",
+  ".mjs": "javascript",
+  ".cjs": "javascript",
+  ".jsx": "javascriptreact",
+  ".py": "python",
+  ".rs": "rust",
+  ".go": "go",
+  ".rb": "ruby",
+  ".sh": "shellscript",
+  ".md": "markdown",
+  ".yml": "yaml",
+  ".cc": "cpp",
+  ".cpp": "cpp",
+  ".hpp": "cpp",
+  ".cs": "csharp"
+}
+
+const extensionOf = (path: string): string => NodePath.extname(path).toLowerCase()
+
+const languageId = (path: string): string => {
+  const extension = extensionOf(path)
+  return LANGUAGE_IDS[extension] ?? (extension.slice(1) || "plaintext")
 }
 
 interface FrameDecoder {
@@ -286,11 +332,6 @@ const frame = (message: unknown): Uint8Array => {
   return concatenate(header, body)
 }
 
-const positionParams = (position: LanguageServer.Position) => ({
-  textDocument: { uri: pathToFileURL(position.path).href },
-  position: { line: position.line, character: position.character }
-})
-
 const firstCallHierarchyItem = (value: unknown): unknown | undefined => Array.isArray(value) ? value[0] : undefined
 
 const isFile = (path: string): boolean => {
@@ -433,18 +474,19 @@ const workspaceProgram = (
   return undefined
 }
 
-/**
- * Constructs one scoped host language-server client.
- *
- * Fails with `permission_denied`, before spawning, when the resolved program or
- * a file or directory named by an argument lies under `config.cwd`, or when the command is a
- * launcher (a shell, `env`, a package runner such as `npx` or `pnpm`, or `node`
- * and `bun` given inline code or a preload) whose arguments choose what runs.
- *
- * @category constructors
- * @since 1.0.0
- */
-export const make = (
+interface PublishedDiagnostics {
+  readonly version: number | undefined
+  readonly sequence: number
+  readonly diagnostics: ReadonlyArray<unknown>
+}
+
+interface OpenDocument {
+  readonly version: number
+  /** The publish sequence number when this version was sent. */
+  readonly sentAt: number
+}
+
+const makeClient = (
   config: Config
 ): Effect.Effect<
   LanguageServer.LanguageServer,
@@ -454,6 +496,7 @@ export const make = (
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const timeoutMs = config.timeoutMs ?? 30_000
+    const settleMs = config.settleMs ?? DEFAULT_SETTLE_MS
     const env = ChildProcessEnvironment.make(process.env, config.environment)
     const refused = yield* Effect.sync(() => workspaceProgram(config, env.PATH))
     if (refused !== undefined) return yield* Effect.fail(refused)
@@ -527,8 +570,42 @@ export const make = (
         yield* failPending(terminalError)
       })
 
+    const uriOf = (path: string): string => pathToFileURL(NodePath.resolve(config.cwd, path)).href
+    const documents = new Map<string, OpenDocument>()
+    // Versions keep climbing across a close and reopen, so a late publish for
+    // the closed text never passes for the reopened one.
+    const versions = new Map<string, number>()
+    const published = new Map<string, PublishedDiagnostics>()
+    const listeners = new Map<string, Set<Deferred.Deferred<void>>>()
+    let publishSequence = 0
+    let pullUnsupported = false
+
+    const publish = (params: unknown): Effect.Effect<void> => {
+      const notification = asMessage(params) as {
+        readonly uri?: unknown
+        readonly version?: unknown
+        readonly diagnostics?: unknown
+      } | undefined
+      if (typeof notification?.uri !== "string" || !Array.isArray(notification.diagnostics)) return Effect.void
+      const uri = notification.uri
+      const version = typeof notification.version === "number" ? notification.version : undefined
+      const previous = published.get(uri)?.version
+      // A late publish for an older version never replaces a newer one.
+      if (version !== undefined && previous !== undefined && version < previous) return Effect.void
+      published.set(uri, {
+        version,
+        sequence: ++publishSequence,
+        diagnostics: notification.diagnostics
+      })
+      const waiting = listeners.get(uri)
+      if (waiting === undefined) return Effect.void
+      listeners.delete(uri)
+      return Effect.forEach(waiting, (listener) => Deferred.succeed(listener, undefined), { discard: true })
+    }
+
     const receive = (value: unknown): Effect.Effect<void> => {
       const message = asMessage(value)
+      if (message?.method === "textDocument/publishDiagnostics") return publish(message.params)
       if (message === undefined || typeof message.id !== "number") return Effect.void
       const deferred = pending.get(message.id)
       if (deferred === undefined) return Effect.void
@@ -653,10 +730,117 @@ export const make = (
     yield* request("initialize", {
       processId: null,
       rootUri: pathToFileURL(config.cwd).href,
-      capabilities: {},
+      capabilities: {
+        textDocument: {
+          synchronization: { dynamicRegistration: false },
+          publishDiagnostics: { versionSupport: true },
+          diagnostic: { dynamicRegistration: false }
+        }
+      },
       ...(config.initializationOptions === undefined ? {} : { initializationOptions: config.initializationOptions })
     })
     yield* notify("initialized", {})
+
+    const positionParams = (position: LanguageServer.Position) => ({
+      textDocument: { uri: uriOf(position.path) },
+      position: { line: position.line, character: position.character }
+    })
+
+    // One sync at a time, so versions reach the server in the order they are numbered.
+    const syncLock = yield* Semaphore.make(1)
+    const sync = (path: string, text: string): Effect.Effect<void, StdError.StdError> =>
+      syncLock.withPermit(Effect.suspend(() => {
+        const uri = uriOf(path)
+        const open = documents.get(uri)
+        const version = (versions.get(uri) ?? 0) + 1
+        const sentAt = publishSequence
+        const message = open === undefined
+          ? notify("textDocument/didOpen", {
+            textDocument: { uri, languageId: languageId(path), version, text }
+          })
+          : notify("textDocument/didChange", { textDocument: { uri, version }, contentChanges: [{ text }] })
+        return message.pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              versions.set(uri, version)
+              documents.set(uri, { version, sentAt })
+            })
+          )
+        )
+      }))
+
+    const close = (path: string): Effect.Effect<void, StdError.StdError> =>
+      syncLock.withPermit(Effect.suspend(() => {
+        const uri = uriOf(path)
+        if (!documents.has(uri)) return Effect.void
+        documents.delete(uri)
+        published.delete(uri)
+        return notify("textDocument/didClose", { textDocument: { uri } })
+      }))
+
+    /** What the server published for the document's latest synced text, if it has. */
+    const current = (uri: string): PublishedDiagnostics | undefined => {
+      const entry = published.get(uri)
+      const open = documents.get(uri)
+      if (entry === undefined || open === undefined) return undefined
+      const fresh = entry.version === undefined ? entry.sequence > open.sentAt : entry.version >= open.version
+      return fresh ? entry : undefined
+    }
+
+    const awaitPublished = (uri: string): Effect.Effect<PublishedDiagnostics> =>
+      Effect.suspend(() => {
+        const entry = current(uri)
+        if (entry !== undefined) return Effect.succeed(entry)
+        return Effect.flatMap(Deferred.make<void>(), (listener) => {
+          const waiting = listeners.get(uri) ?? new Set()
+          waiting.add(listener)
+          listeners.set(uri, waiting)
+          return Deferred.await(listener).pipe(
+            Effect.ensuring(Effect.sync(() => {
+              listeners.get(uri)?.delete(listener)
+            })),
+            Effect.flatMap(() => awaitPublished(uri))
+          )
+        })
+      })
+
+    const pushedDiagnostics = (path: string): Effect.Effect<unknown, StdError.StdError> =>
+      Effect.gen(function*() {
+        const uri = uriOf(path)
+        if (!documents.has(uri)) {
+          // A push-only server publishes only for open documents.
+          const text = yield* Effect.try({
+            try: () => NodeFs.readFileSync(NodePath.resolve(config.cwd, path), "utf8"),
+            catch: () => new StdError.StdError({ code: "not_found", message: `File not found: ${path}`, path })
+          })
+          yield* sync(path, text)
+        }
+        const entry = yield* awaitPublished(uri).pipe(Effect.timeoutOption(settleMs))
+        if (Option.isNone(entry)) {
+          return yield* Effect.fail(
+            new StdError.StdError({
+              code: "timeout",
+              message: `Language server published no diagnostics for ${path} within ${settleMs}ms`,
+              method: "textDocument/publishDiagnostics",
+              path
+            })
+          )
+        }
+        return { kind: "full", items: entry.value.diagnostics }
+      })
+
+    const diagnostics = (path: string): Effect.Effect<unknown, StdError.StdError> =>
+      pullUnsupported
+        ? pushedDiagnostics(path)
+        : request("textDocument/diagnostic", { textDocument: { uri: uriOf(path) } }).pipe(
+          Effect.catchIf(
+            (error) => error.rpcError?.code === METHOD_NOT_FOUND,
+            () => {
+              pullUnsupported = true
+              return pushedDiagnostics(path)
+            }
+          )
+        )
 
     const prepareCallHierarchy = (position: LanguageServer.Position) =>
       request("textDocument/prepareCallHierarchy", positionParams(position))
@@ -680,13 +864,99 @@ export const make = (
           context: { includeDeclaration: true }
         }),
       implementation: (position) => request("textDocument/implementation", positionParams(position)),
-      documentSymbols: (path) =>
-        request("textDocument/documentSymbol", { textDocument: { uri: pathToFileURL(path).href } }),
+      documentSymbols: (path) => request("textDocument/documentSymbol", { textDocument: { uri: uriOf(path) } }),
       workspaceSymbols: (query) => request("workspace/symbol", { query }),
       prepareCallHierarchy,
       callHierarchyIncoming: (position) => callHierarchy("callHierarchy/incomingCalls", position),
       callHierarchyOutgoing: (position) => callHierarchy("callHierarchy/outgoingCalls", position),
-      diagnostics: (path) => request("textDocument/diagnostic", { textDocument: { uri: pathToFileURL(path).href } })
+      diagnostics,
+      sync,
+      close
+    })
+  })
+
+const normalizeExtension = (extension: string): string =>
+  (extension.startsWith(".") ? extension : `.${extension}`).toLowerCase()
+
+/**
+ * Constructs scoped host language-server clients, one process per config, and
+ * routes each file to the server whose `extensions` include its extension, or
+ * else to the server that declares none. `workspaceSymbols` asks every server
+ * and concatenates their answers.
+ *
+ * Every client opens a file on its first `sync` and sends the full text on
+ * each later one. `diagnostics` pulls `textDocument/diagnostic`; a server that
+ * answers `MethodNotFound` is read from its `textDocument/publishDiagnostics`
+ * notifications instead, waiting up to `settleMs` for the latest synced text.
+ *
+ * Fails with `permission_denied`, before spawning, when the resolved program or
+ * a file or directory named by an argument lies under `config.cwd`, or when the command is a
+ * launcher (a shell, `env`, a package runner such as `npx` or `pnpm`, or `node`
+ * and `bun` given inline code or a preload) whose arguments choose what runs.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const make = (
+  config: Config | ReadonlyArray<Config>
+): Effect.Effect<
+  LanguageServer.LanguageServer,
+  StdError.StdError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> =>
+  Effect.gen(function*() {
+    const configs: ReadonlyArray<Config> = Array.isArray(config) ? config : [config as Config]
+    if (configs.length === 0) {
+      return yield* Effect.fail(failure("invalid_input", "At least one language server must be configured"))
+    }
+    const clients = yield* Effect.forEach(configs, makeClient)
+    const claims = configs.map((entry) => entry.extensions?.map(normalizeExtension))
+    const fallback = claims.findIndex((claimed) => claimed === undefined)
+    const route = (path: string): Effect.Effect<LanguageServer.LanguageServer, StdError.StdError> => {
+      const extension = extensionOf(path)
+      const claimed = claims.findIndex((entry) => entry?.includes(extension) === true)
+      const index = claimed >= 0 ? claimed : fallback
+      return index >= 0
+        ? Effect.succeed(clients[index]!)
+        : Effect.fail(
+          new StdError.StdError({
+            code: "unsupported",
+            message: `No language server is configured for ${extension || "extensionless"} files`,
+            path
+          })
+        )
+    }
+    const byPosition = (
+      method:
+        | "hover"
+        | "definition"
+        | "references"
+        | "implementation"
+        | "prepareCallHierarchy"
+        | "callHierarchyIncoming"
+        | "callHierarchyOutgoing"
+    ) =>
+    (position: LanguageServer.Position) => Effect.flatMap(route(position.path), (client) => client[method](position))
+    return LanguageServer.make({
+      hover: byPosition("hover"),
+      definition: byPosition("definition"),
+      references: byPosition("references"),
+      implementation: byPosition("implementation"),
+      prepareCallHierarchy: byPosition("prepareCallHierarchy"),
+      callHierarchyIncoming: byPosition("callHierarchyIncoming"),
+      callHierarchyOutgoing: byPosition("callHierarchyOutgoing"),
+      documentSymbols: (path) => Effect.flatMap(route(path), (client) => client.documentSymbols(path)),
+      diagnostics: (path) => Effect.flatMap(route(path), (client) => client.diagnostics(path)),
+      sync: (path, text) => Effect.flatMap(route(path), (client) => client.sync(path, text)),
+      close: (path) => Effect.flatMap(route(path), (client) => client.close(path)),
+      workspaceSymbols: (query) =>
+        clients.length === 1 ?
+          clients[0]!.workspaceSymbols(query) :
+          Effect.forEach(clients, (client) => client.workspaceSymbols(query), { concurrency: "unbounded" }).pipe(
+            Effect.map((answers) =>
+              answers.flatMap((answer) => Array.isArray(answer) ? answer : answer == null ? [] : [answer])
+            )
+          )
     })
   })
 
@@ -697,6 +967,6 @@ export const make = (
  * @since 1.0.0
  */
 export const layer = (
-  config: Config
+  config: Config | ReadonlyArray<Config>
 ): Layer.Layer<LanguageServer.LanguageServer, StdError.StdError, ChildProcessSpawner.ChildProcessSpawner> =>
   Layer.effect(LanguageServer.LanguageServer, make(config))
