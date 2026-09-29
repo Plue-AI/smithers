@@ -66,7 +66,7 @@ const unitTests = Smithers.NodeTest({
  */
 const securityReview = Smithers.SecurityReview({
   cwd,
-  include: ["src/**", "scripts/**", "wrangler.jsonc", "wrangler.edge.jsonc"],
+  include: ["src/**", "scripts/**", "wrangler.jsonc"],
   boundaries: [{
     id: "repository-flow-invocation",
     actors: ["Browser user", "Worker gateway", "Backend authenticated user"],
@@ -267,7 +267,7 @@ const securityReview = Smithers.SecurityReview({
         "A token from process.env printed, written to a receipt, or passed in argv to a spawned process.",
         "A spawned hook or command whose path or arguments come from environment or file content without validation."
       ],
-      paths: ["scripts/**", "wrangler.jsonc", "wrangler.edge.jsonc"]
+      paths: ["scripts/**", "wrangler.jsonc"]
     }
   ]
 })
