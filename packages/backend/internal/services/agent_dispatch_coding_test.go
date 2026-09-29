@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -143,7 +144,8 @@ func TestAdmitCodingTurnRecordsTheAuthenticatedMessageTrigger(t *testing.T) {
 			SessionID: "session-1", RepositoryID: 5, UserID: 9, TriggerMessageID: 314,
 			MessageAuthor: "alice", RepoOwner: "org", RepoName: "repo",
 		},
-		payload: payload,
+		payload:     payload,
+		triggerText: text,
 	}
 	dispatch.run.ID = 42
 
@@ -175,7 +177,7 @@ func TestCodingTurnRecordsNoTriggerWithoutAnAuthenticatedMessage(t *testing.T) {
 		"negative message": {SessionID: "session-1", TriggerMessageID: -1, MessageAuthor: "alice"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			dispatch := &agentDispatch{payload: payload, input: input}
+			dispatch := &agentDispatch{payload: payload, input: input, triggerText: "A reviewer returned landing request #3 to you."}
 			turn, err := dispatch.codingTurnRequest()
 			require.NoError(t, err)
 			assert.Nil(t, turn.Trigger)
@@ -184,6 +186,43 @@ func TestCodingTurnRecordsNoTriggerWithoutAnAuthenticatedMessage(t *testing.T) {
 			assert.NotContains(t, string(encoded), "trigger")
 		})
 	}
+}
+
+func TestAgentTriggerMessageTextIsTheAdmittedUserMessageVerbatim(t *testing.T) {
+	window := []AgentMessageResponse{
+		{ID: 1, Role: "user", Parts: []AgentPartResponse{{Type: "text", Content: map[string]any{"value": "older"}}}},
+		{ID: 2, Role: "assistant", Parts: []AgentPartResponse{{Type: "text", Content: map[string]any{"value": "reply"}}}},
+		{ID: 3, Role: "user", Parts: []AgentPartResponse{
+			{Type: "text", Content: map[string]any{"value": "  first line\n"}},
+			{Type: "tool_result", Content: map[string]any{"output": "not text"}},
+			{Type: "text", Content: "second  "},
+		}},
+		{ID: 4, Role: "user", Parts: []AgentPartResponse{{Type: "text", Content: map[string]any{"value": "posted later"}}}},
+	}
+	assert.Equal(t, "  first line\n\nsecond  ", agentTriggerMessageText(window, 3))
+	assert.Equal(t, "older", agentTriggerMessageText(window, 1))
+	assert.Empty(t, agentTriggerMessageText(window, 2), "an assistant message is never a message trigger")
+	assert.Empty(t, agentTriggerMessageText(window, 9), "a message outside the window records nothing")
+	assert.Empty(t, agentTriggerMessageText(window, 0))
+
+	// The trigger names the admitted message, not whichever user message is last.
+	dispatch := &agentDispatch{
+		input:       DispatchAgentRunInput{SessionID: "s", TriggerMessageID: 3, MessageAuthor: "alice"},
+		triggerText: agentTriggerMessageText(window, 3),
+	}
+	require.NotNil(t, dispatch.messageTrigger())
+	assert.Equal(t, "  first line\n\nsecond  ", dispatch.messageTrigger().Text)
+	dispatch.triggerText = "   "
+	assert.Nil(t, dispatch.messageTrigger())
+
+	// The flow's schema bound, counted in UTF-16 units: at the limit it is recorded, past it nothing is.
+	dispatch.triggerText = strings.Repeat("a", codingTriggerTextLimit)
+	assert.NotNil(t, dispatch.messageTrigger())
+	dispatch.triggerText = strings.Repeat("😀", codingTriggerTextLimit/2+1)
+	assert.Nil(t, dispatch.messageTrigger())
+	dispatch.triggerText = "hi"
+	dispatch.input.MessageAuthor = strings.Repeat("a", 257)
+	assert.Nil(t, dispatch.messageTrigger())
 }
 
 func TestCodingDispatchEnabledNeedsDispatcherAndWorkspace(t *testing.T) {

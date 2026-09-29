@@ -57,6 +57,10 @@ type agentDispatch struct {
 	jjhubToken    temporaryRepoCloneToken
 	hasJJHubToken bool
 
+	// triggerText is the exact text of the admitted message this run
+	// answers (TriggerMessageID), empty when the window does not hold it.
+	triggerText string
+
 	// Egress-proxy state: secrets the guest must never hold. egressSecrets is
 	// handed to the provider once in createVM; egressNames lets the
 	// credential guard recognize a placeholder. Both are empty when the
@@ -499,6 +503,7 @@ func (d *agentDispatch) loadMessageHistory() error {
 
 	d.repositoryPath = ""
 	serializedHistory := serializeAgentTaskMessageHistory(messageHistory)
+	d.triggerText = agentTriggerMessageText(messageHistory, d.input.TriggerMessageID)
 
 	payload, err := agentDispatchJSONMarshal(agentTaskPayload{
 		Kind:           "agent",

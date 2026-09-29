@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -107,15 +108,55 @@ func (dispatch *agentDispatch) codingTurnRequest() (codingTurnInput, error) {
 		Prompt:  prompt,
 		History: history,
 		Role:    codingDispatchRole,
-		Trigger: dispatch.messageTrigger(prompt),
+		Trigger: dispatch.messageTrigger(),
 	}, nil
 }
 
+// codingTriggerTextLimit is flows/coding/dispatch.ts MessageTrigger.text's
+// maximum length, in the UTF-16 code units the schema counts.
+const codingTriggerTextLimit = 32_768
+
+func utf16Length(text string) int {
+	return len(utf16.Encode([]rune(text)))
+}
+
+// agentTriggerMessageText is the exact text a user posted as the message
+// with the given id: its text parts verbatim, untrimmed. It is empty when
+// the window does not hold that user message.
+func agentTriggerMessageText(messages []AgentMessageResponse, messageID int64) string {
+	if messageID <= 0 {
+		return ""
+	}
+	for _, message := range messages {
+		if message.ID != messageID {
+			continue
+		}
+		if message.Role != "user" {
+			return ""
+		}
+		texts := make([]string, 0, len(message.Parts))
+		for _, part := range message.Parts {
+			if part.Type == "text" {
+				texts = append(texts, renderAgentTaskPartContent(part.Content))
+			}
+		}
+		return strings.Join(texts, "\n")
+	}
+	return ""
+}
+
 // messageTrigger records the authenticated message a turn answers. A turn
-// with no authenticated author or no admitted message records none.
-func (dispatch *agentDispatch) messageTrigger(text string) *codingTurnTrigger {
+// with no authenticated author, or whose admitted message the loaded window
+// does not hold, records none.
+func (dispatch *agentDispatch) messageTrigger() *codingTurnTrigger {
 	author := strings.TrimSpace(dispatch.input.MessageAuthor)
-	if author == "" || dispatch.input.TriggerMessageID <= 0 || dispatch.input.SessionID == "" {
+	text := dispatch.triggerText
+	if author == "" || dispatch.input.TriggerMessageID <= 0 || dispatch.input.SessionID == "" || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	// The flow's MessageTrigger bounds; a record it would refuse must not
+	// fail the turn it only describes.
+	if utf16Length(text) > codingTriggerTextLimit || utf16Length(author) > 256 || utf16Length(dispatch.input.SessionID) > 256 {
 		return nil
 	}
 	return &codingTurnTrigger{
