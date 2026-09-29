@@ -19,8 +19,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
+import * as Fiber from "effect/Fiber"
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { chmodSync, existsSync, readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -43,6 +44,8 @@ describe.skipIf(!jjInstalled)("NodeJj workspaces and restore", () => {
 
   const run = <A, E>(effect: Effect.Effect<A, E, Jj>) => Effect.provide(effect, budgeted(NodeJj.layer))
   const workspaces = () => execFileSync("jj", ["workspace", "list"], { cwd: repository, encoding: "utf8" })
+  const shellEffect = it.effect.skipIf(process.platform === "win32")
+  const shellLive = it.live.skipIf(process.platform === "win32")
 
   beforeAll(async () => {
     previousCwd = process.cwd()
@@ -111,4 +114,256 @@ describe.skipIf(!jjInstalled)("NodeJj workspaces and restore", () => {
       expect(workspaces()).not.toContain("unwritable")
       expect(existsSync(lane)).toBe(false)
     }))
+
+  it.effect("rejects an ambiguous revset before creating a lane, then accepts the same name", () =>
+    Effect.gen(function*() {
+      const lane = join(repository, "..", `ambiguous-revset-${process.pid}`)
+      const failure = yield* run(Effect.flip(Effect.flatMap(Jj, (jj) => jj.workspaceAdd("ambiguous", lane, "@|@-"))))
+
+      expect(isJjError(failure) && failure.code).toBe("invalid_ref")
+      expect(failure.message).toContain("is not a commit id or change id")
+      expect(workspaces()).not.toContain("ambiguous:")
+      expect(existsSync(lane)).toBe(false)
+
+      yield* run(Effect.flatMap(Jj, (jj) => jj.workspaceAdd("ambiguous", lane, "@")))
+      expect(workspaces()).toContain("ambiguous:")
+      yield* run(Effect.flatMap(Jj, (jj) => jj.workspaceForget("ambiguous")))
+      yield* Effect.promise(() => rm(lane, { recursive: true, force: true }))
+    }))
+
+  shellEffect(
+    "forgets a new lane when pinning fails and preserves the pin error",
+    () =>
+      Effect.gen(function*() {
+        const shim = join(repository, "..", `jj-pin-failure-${process.pid}.sh`)
+        const failedLane = join(repository, "..", `failed-pin-${process.pid}`)
+        const retryLane = join(repository, "..", `retry-pin-${process.pid}`)
+        const previousBinary = process.env.SMITHERS_JJ_PATH
+        // Every successful operation uses real jj. The one-shot restore failure
+        // occurs only after real jj has registered the new workspace.
+        yield* Effect.promise(() =>
+          writeFile(
+            shim,
+            `#!/bin/sh
+if [ "$1" = restore ] && [ -e "$0.fail" ]; then
+  rm "$0.fail"
+  printf 'pin failed on purpose\\n' >&2
+  exit 1
+fi
+exec jj "$@"
+`
+          )
+        )
+        chmodSync(shim, 0o755)
+        yield* Effect.promise(() => writeFile(`${shim}.fail`, ""))
+        process.env.SMITHERS_JJ_PATH = shim
+        try {
+          yield* Effect.gen(function*() {
+            const jj = yield* Jj
+            const failure = yield* Effect.flip(jj.workspaceAdd("failed-pin", failedLane, "@"))
+
+            expect(failure).toMatchObject({
+              _tag: "@smthrs/jj/JjError",
+              module: "NodeJj",
+              method: "workspaceAdd"
+            })
+            expect(isJjError(failure) && failure.command).toContain("jj restore")
+            expect(failure.message).toContain("pin failed on purpose")
+            expect(workspaces()).not.toContain("failed-pin:")
+
+            yield* jj.workspaceAdd("failed-pin", retryLane, "@")
+            expect(workspaces()).toContain("failed-pin:")
+            yield* jj.workspaceForget("failed-pin")
+          }).pipe(Effect.provide(budgeted(NodeJj.layerAt(repository))))
+        } finally {
+          if (previousBinary === undefined) delete process.env.SMITHERS_JJ_PATH
+          else process.env.SMITHERS_JJ_PATH = previousBinary
+          yield* Effect.promise(() =>
+            Promise.all([
+              rm(shim, { force: true }),
+              rm(`${shim}.fail`, { force: true }),
+              rm(failedLane, { recursive: true, force: true }),
+              rm(retryLane, { recursive: true, force: true })
+            ]).then(() => undefined)
+          )
+        }
+      })
+  )
+
+  shellEffect(
+    "keeps the pin error when forgetting the failed lane also fails",
+    () =>
+      Effect.gen(function*() {
+        const shim = join(repository, "..", `jj-forget-failure-${process.pid}.sh`)
+        const lane = join(repository, "..", `failed-forget-${process.pid}`)
+        const previousBinary = process.env.SMITHERS_JJ_PATH
+        yield* Effect.promise(() =>
+          writeFile(
+            shim,
+            `#!/bin/sh
+if [ "$1" = restore ]; then
+  printf 'pin failed on purpose\\n' >&2
+  exit 1
+fi
+if [ "$1" = workspace ] && [ "$2" = forget ]; then
+  printf 'forget failed on purpose\\n' >&2
+  exit 1
+fi
+exec jj "$@"
+`
+          )
+        )
+        chmodSync(shim, 0o755)
+        process.env.SMITHERS_JJ_PATH = shim
+        try {
+          const failure = yield* Effect.gen(function*() {
+            const jj = yield* Jj
+            return yield* Effect.flip(jj.workspaceAdd("failed-forget", lane, "@"))
+          }).pipe(Effect.provide(budgeted(NodeJj.layerAt(repository))))
+
+          expect(failure).toMatchObject({
+            _tag: "@smthrs/jj/JjError",
+            module: "NodeJj",
+            method: "workspaceAdd"
+          })
+          expect(isJjError(failure) && failure.command).toContain("jj restore")
+          expect(failure.message).toContain("pin failed on purpose")
+          expect(failure.message).not.toContain("forget failed on purpose")
+          expect(workspaces()).toContain("failed-forget:")
+        } finally {
+          if (previousBinary === undefined) delete process.env.SMITHERS_JJ_PATH
+          else process.env.SMITHERS_JJ_PATH = previousBinary
+          execFileSync("jj", ["workspace", "forget", "--", "failed-forget"], { cwd: repository, stdio: "ignore" })
+          yield* Effect.promise(() =>
+            Promise.all([
+              rm(shim, { force: true }),
+              rm(lane, { recursive: true, force: true })
+            ]).then(() => undefined)
+          )
+        }
+        expect(workspaces()).not.toContain("failed-forget:")
+      })
+  )
+
+  shellLive(
+    "returns the pin error when forgetting stalls",
+    () =>
+      Effect.gen(function*() {
+        const shim = join(repository, "..", `jj-stalled-forget-${process.pid}.sh`)
+        const forgetting = `${shim}.forgetting`
+        const lane = join(repository, "..", `stalled-forget-${process.pid}`)
+        const previousBinary = process.env.SMITHERS_JJ_PATH
+        yield* Effect.promise(() =>
+          writeFile(
+            shim,
+            `#!/bin/sh
+if [ "$1" = restore ]; then
+  printf 'pin failed on purpose\\n' >&2
+  exit 1
+fi
+if [ "$1" = workspace ] && [ "$2" = forget ]; then
+  : > "$0.forgetting"
+  exec /bin/sleep 12
+fi
+exec jj "$@"
+`
+          )
+        )
+        chmodSync(shim, 0o755)
+        process.env.SMITHERS_JJ_PATH = shim
+        try {
+          const startedAt = Date.now()
+          const failure = yield* Effect.gen(function*() {
+            const jj = yield* Jj
+            return yield* Effect.flip(jj.workspaceAdd("stalled-forget", lane, "@"))
+          }).pipe(Effect.provide(budgeted(NodeJj.layerAt(repository))))
+
+          expect(Date.now() - startedAt).toBeLessThan(9_000)
+          expect(existsSync(forgetting)).toBe(true)
+          expect(failure).toMatchObject({
+            _tag: "@smthrs/jj/JjError",
+            module: "NodeJj",
+            method: "workspaceAdd"
+          })
+          expect(isJjError(failure) && failure.command).toContain("jj restore")
+          expect(failure.message).toContain("pin failed on purpose")
+          expect(workspaces()).toContain("stalled-forget:")
+        } finally {
+          if (previousBinary === undefined) delete process.env.SMITHERS_JJ_PATH
+          else process.env.SMITHERS_JJ_PATH = previousBinary
+          execFileSync("jj", ["workspace", "forget", "--", "stalled-forget"], { cwd: repository, stdio: "ignore" })
+          yield* Effect.promise(() =>
+            Promise.all([
+              rm(shim, { force: true }),
+              rm(forgetting, { force: true }),
+              rm(lane, { recursive: true, force: true })
+            ]).then(() => undefined)
+          )
+        }
+        expect(workspaces()).not.toContain("stalled-forget:")
+      }),
+    20_000
+  )
+
+  shellLive(
+    "interrupts a stalled pin and forgets its registered lane",
+    () =>
+      Effect.gen(function*() {
+        const shim = join(repository, "..", `jj-stalled-pin-${process.pid}.sh`)
+        const started = `${shim}.started`
+        const lane = join(repository, "..", `stalled-pin-${process.pid}`)
+        const previousBinary = process.env.SMITHERS_JJ_PATH
+        yield* Effect.promise(() =>
+          writeFile(
+            shim,
+            `#!/bin/sh
+if [ "$1" = restore ]; then
+  : > "$0.started"
+  exec /bin/sleep 8
+fi
+exec jj "$@"
+`
+          )
+        )
+        chmodSync(shim, 0o755)
+        process.env.SMITHERS_JJ_PATH = shim
+        try {
+          yield* Effect.gen(function*() {
+            const jj = yield* Jj
+            const fiber = yield* Effect.forkChild(jj.workspaceAdd("stalled-pin", lane, "@"), {
+              startImmediately: true
+            })
+            try {
+              yield* Effect.promise(async () => {
+                const deadline = Date.now() + 5_000
+                while (!existsSync(started)) {
+                  if (Date.now() > deadline) throw new Error("jj restore never started")
+                  await new Promise((resolve) => setTimeout(resolve, 10))
+                }
+              })
+              expect(workspaces()).toContain("stalled-pin:")
+
+              const interruptedAt = Date.now()
+              yield* Fiber.interrupt(fiber)
+              expect(Date.now() - interruptedAt).toBeLessThan(3_000)
+              expect(workspaces()).not.toContain("stalled-pin:")
+            } finally {
+              yield* Fiber.interrupt(fiber)
+            }
+          }).pipe(Effect.provide(budgeted(NodeJj.layerAt(repository))))
+        } finally {
+          if (previousBinary === undefined) delete process.env.SMITHERS_JJ_PATH
+          else process.env.SMITHERS_JJ_PATH = previousBinary
+          execFileSync("jj", ["workspace", "forget", "--", "stalled-pin"], { cwd: repository, stdio: "ignore" })
+          yield* Effect.promise(() =>
+            Promise.all([
+              rm(shim, { force: true }),
+              rm(started, { force: true }),
+              rm(lane, { recursive: true, force: true })
+            ]).then(() => undefined)
+          )
+        }
+      }),
+    30_000
+  )
 })

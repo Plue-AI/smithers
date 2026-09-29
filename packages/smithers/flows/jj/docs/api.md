@@ -374,8 +374,7 @@ operation reports `not_installed`, the same code the Node adapter reports for a
 missing binary, so a caller needs no browser-specific branch. The command each
 failure names is the one `NodeJj` would have run.
 
-Three places where the browser backend answers differently from the CLI, each
-because the frozen wasm ABI has no operation or field for it:
+Three places where the frozen wasm ABI shapes browser behavior:
 
 - `revert` is defined and always fails `not_installed`, with the message "jj is
   not available in the browser". The ABI has no revert operation. The method
@@ -388,8 +387,8 @@ because the frozen wasm ABI has no operation or field for it:
   the lane directory on disk, which is what `workspaceForget` does everywhere.
   If the rollback itself fails, the lane can stay registered. The caller still
   receives the pin failure, which is the one it can act on. Only a single ABI
-  operation can make the pair atomic; the CLI adapter's single command needs no
-  rollback.
+  operation can make the pair atomic. The Node CLI adapter also adds then
+  restores a pinned lane and makes the same compensating forget attempt.
 - `root(from)` answers the configured slice root, and fails when `from` is not
   inside it rather than answering for an unrelated tree.
 

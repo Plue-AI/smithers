@@ -29,6 +29,7 @@
 
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
 import * as Semaphore from "effect/Semaphore"
@@ -47,6 +48,9 @@ import { resolveJjBinary } from "./resolveJjBinary.ts"
 
 /** The `module` every failure this adapter produces names. */
 const MODULE = "NodeJj"
+
+/** The pin's compensating forget must not keep a cancelled caller waiting forever. */
+const workspaceCleanupTimeoutMs = 5_000
 
 /**
  * Minimum jj CLI version supported by the Node and Bun adapters.
@@ -815,6 +819,9 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
         )
     )
 
+  const workspaceForget = (name: string) =>
+    Effect.asVoid(inRepository("workspaceForget", ["workspace", "forget", "--", name]))
+
   /**
    * `--name=` and the `--` terminator are what make the claim "a workspace name
    * is opaque argv" true for a value that starts with `-`. Without them clap
@@ -832,34 +839,47 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
       revision === undefined
         ? inRepository("workspaceAdd", ["workspace", "add", `--name=${name}`, "--", path])
         : Effect.flatMap(requireRevision("workspaceAdd", "jj workspace add", revision), (pinned) =>
-          inRepository("workspaceAdd", [
-            "workspace",
-            "add",
-            `--name=${name}`,
-            `--revision=parents(${pinned})`,
-            "--",
-            path
-          ]).pipe(
-            Effect.andThen(
-              run(
-                "workspaceAdd",
-                [
-                  "restore",
-                  "--from",
-                  pinned,
-                  "--color=never",
-                  "--config",
-                  "snapshot.max-new-file-size=0",
-                  ...HOST_ONLY_CONFIG
-                ],
-                resolve(repositoryRoot ?? process.cwd(), path)
+          // The commands remain cancellable; only the handoff from a completed
+          // add to the pin's cleanup finalizer is protected from interruption.
+          Effect.uninterruptibleMask((restore) =>
+            restore(inRepository("workspaceAdd", [
+              "workspace",
+              "add",
+              `--name=${name}`,
+              `--revision=parents(${pinned})`,
+              "--",
+              path
+            ])).pipe(
+              Effect.andThen(
+                restore(run(
+                  "workspaceAdd",
+                  [
+                    "restore",
+                    "--from",
+                    pinned,
+                    "--color=never",
+                    "--config",
+                    "snapshot.max-new-file-size=0",
+                    ...HOST_ONLY_CONFIG
+                  ],
+                  resolve(repositoryRoot ?? process.cwd(), path)
+                )).pipe(
+                  Effect.onExit((exit) =>
+                    Exit.isSuccess(exit)
+                      ? Effect.void
+                      : Effect.interruptible(workspaceForget(name)).pipe(
+                        Effect.timeout(workspaceCleanupTimeoutMs),
+                        // Keep the pin failure as the result if cleanup also fails.
+                        Effect.catch((cleanupFailure) =>
+                          Effect.logWarning("Failed to forget workspace after pinning failed", cleanupFailure)
+                        )
+                      )
+                  )
+                )
               )
             )
           ))
     )
-
-  const workspaceForget = (name: string) =>
-    Effect.asVoid(inRepository("workspaceForget", ["workspace", "forget", "--", name]))
 
   const status = () => inRepository("status", ["status"])
 
