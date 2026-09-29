@@ -18,6 +18,8 @@ import { useContext, useSyncExternalStore } from "react"
 import { ControllerContext } from "../ControllerContext"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import type { Card } from "../state/AppState"
 import type { StackSnapshot } from "../state/seams/StackSeam"
 import { elapsedLabel } from "../Timestamps"
@@ -227,16 +229,27 @@ const WikiRow = ({ wiki, repo, onRunCommand }: {
 
 const RETRY_FLOW = { bootstrap: "history.bootstrap", backfill: "history.backfill", parallel: "history.parallel", retry: "history.retry" } as const
 
-const FailureRow = ({ message, act, args, onRunCommand }: {
-  readonly message: string
+/* What each stack act's failure says; the seam's own words stay behind Details. */
+const STACK_ACT_FAILURES: Readonly<Record<Failure["act"] | "read", UserFailureCopy>> = {
+  bootstrap: { fault: "infra", sentence: "Smithers could not create this history.", actions: ["retry"] },
+  backfill: { fault: "infra", sentence: "Smithers could not backfill open issues.", actions: ["retry"] },
+  parallel: { fault: "infra", sentence: "Smithers could not change the number of lanes.", actions: ["retry"] },
+  retry: { fault: "infra", sentence: "Smithers could not retry this change.", actions: ["retry"] },
+  read: { fault: "infra", sentence: "Smithers could not read this history.", actions: ["retry"] }
+}
+
+/* A stored act failure: its act picks the sentence, its text is only ever the detail. */
+const storedFailure = (stored: Failure) => ({ act: stored.act, args: stored.args, detail: stored.message })
+
+const FailureRow = ({ detail, act, args, onRunCommand }: {
+  readonly detail: string
   readonly act: Failure["act"] | "read"
   readonly args: string
   readonly onRunCommand: RunCommand
 }) => (
-  <div role="alert" className="world-card-row stack-failure" data-testid="stack-failure" data-act={act}>
-    <span>{message}</span>
-    <Button size="sm" {...flowAction(onRunCommand, act === "read" ? "history.show" : RETRY_FLOW[act], args)}>Retry</Button>
-  </div>
+  <FailureNotice className="world-card-row stack-failure" data-testid="stack-failure" data-act={act}
+    failure={describedFailure(`stack.${act}`, STACK_ACT_FAILURES[act], detail)}
+    actions={{ retry: flowAction(onRunCommand, act === "read" ? "history.show" : RETRY_FLOW[act], args) }} />
 )
 
 /** Below the issues: the stack's size, main and lanes, the admin doors, the Wiki, the lanes and the stack's changes tip first. */
@@ -323,8 +336,8 @@ export const StackBody = ({ repo, snapshot, failure, bootstrapping, view, onRunC
   const now = useClock(running)
   const failures = (
     <>
-      {failure === null ? null : <FailureRow message={failure.message} act={failure.act} args={failure.args} onRunCommand={onRunCommand} />}
-      {snapshot?.error == null ? null : <FailureRow message={snapshot.error} act="read" args={repo} onRunCommand={onRunCommand} />}
+      {failure === null ? null : <FailureRow {...storedFailure(failure)} onRunCommand={onRunCommand} />}
+      {snapshot?.error == null ? null : <FailureRow detail={snapshot.error} act="read" args={repo} onRunCommand={onRunCommand} />}
     </>
   )
   if (stack === null || stack.state === "absent") {

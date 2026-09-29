@@ -13,6 +13,9 @@ import { memo, useCallback, useRef } from "react"
 import type { CardActions } from "./cards/CardFamily"
 import { isRetiredCard, pillStatus, renderCardBody } from "./cards/CardRenderers"
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import { Data } from "effect"
+import { failureDetail, presentUserFailure, type UserFailure, type UserFailureCopy, type UserFailureRegistry } from "@smthrs/rpc/UserFailure"
+import { FailureNotice } from "./FailureNotice"
 
 /*
  * One card's body failing to render stays inside that card: a lazy viewer
@@ -21,6 +24,25 @@ import { Component, type ErrorInfo, type ReactNode } from "react"
  * Without this the error reaches the app's startup boundary and the whole
  * app reads "Smithers failed to start".
  */
+/** A card viewer chunk that no longer exists: the app was updated under this tab. */
+export class CardViewerOutdated extends Data.TaggedError("CardViewerOutdated")<{ readonly cause: unknown }> {}
+
+const STALE_CHUNK = /dynamically imported module|Loading chunk|Importing a module script failed/i
+
+const CARD_BODY_FAILURES: UserFailureRegistry<CardViewerOutdated> = {
+  CardViewerOutdated: { fault: "infra", sentence: "This card's viewer changed in an update. Reload the app to see it.", actions: ["retry"] }
+}
+
+/* A renderer that cannot read its payload fails the same way after a reload, so no Reload is offered. */
+const CARD_BODY_UNKNOWN: UserFailureCopy = { fault: "bug", sentence: "This card could not be shown. Not your fault.", actions: [] }
+
+/** What one card body's render failure shows. */
+export const presentCardBodyFailure = (error: unknown): UserFailure => {
+  const detail = failureDetail(error)
+  return presentUserFailure(CARD_BODY_FAILURES, STALE_CHUNK.test(detail) ? new CardViewerOutdated({ cause: error }) : error,
+    { unknown: CARD_BODY_UNKNOWN })
+}
+
 export class CardBodyBoundary extends Component<{ readonly cardId: string; readonly onRunCommand: CardActions["onRunCommand"]; readonly children: ReactNode }, { readonly error: Error | null }> {
   override state: { readonly error: Error | null } = { error: null }
   static getDerivedStateFromError(error: Error) { return { error } }
@@ -30,13 +52,9 @@ export class CardBodyBoundary extends Component<{ readonly cardId: string; reado
   override render() {
     const { error } = this.state
     if (error === null) return this.props.children
-    const chunk = /dynamically imported module|Loading chunk|Importing a module script failed/i.test(error.message)
     return (
-      <div className="world-card-empty" role="alert" data-card-error="">
-        <p>{chunk ? "This card's viewer did not load; the app was updated. Reload the app to see it." : `This card could not be shown: ${error.message}`}</p>
-        {chunk && <Button type="button" size="sm" variant="outline" {...flowProps("chat.reload")}
-          onClick={() => this.props.onRunCommand("chat.reload")}>Reload app</Button>}
-      </div>
+      <FailureNotice failure={presentCardBodyFailure(error)} className="world-card-empty"
+        actions={{ retry: { ...flowProps("chat.reload"), label: "Reload app", onClick: () => this.props.onRunCommand("chat.reload") } }} />
     )
   }
 }

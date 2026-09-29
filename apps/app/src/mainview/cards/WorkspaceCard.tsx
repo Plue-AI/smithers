@@ -37,13 +37,23 @@ import { useController } from "../ControllerContext"
 import type { Card } from "../state/AppState"
 import { readDesktopStream, subscribeDesktopStream } from "../state/seams/DesktopStream"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
-import { refusalDoors, refusalLead } from "@smthrs/rpc/RefusalCopy"
+import { refusalDoors, refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { EGRESS_PROXY_UNAVAILABLE } from "../state/seams/WorkspaceSeam"
 import { dayLabel, timeLabel } from "../Timestamps"
 import { shortId } from "../state/ids"
 import { FileListCardBody } from "./FileCards"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
+
+/** Why a box failed, typed by what survived on its payload. */
+export const BOX_FAILURE_COPY: Readonly<Record<"EgressProxyUnavailable" | "BoxFailed" | "BoxActRefused", UserFailureCopy>> = {
+  EgressProxyUnavailable: { fault: "infra", sentence: "This box could not start its network guard. Not your fault.", actions: [] },
+  BoxFailed: { fault: "infra", sentence: "This box failed. Not your fault.", actions: [] },
+  BoxActRefused: { fault: "infra", sentence: "Smithers could not finish that on this box.", actions: [] }
+}
 
 /** THE SEAM: the upgrade door uses the same typed flow as the plans card. */
 /*
@@ -219,15 +229,7 @@ const WorkspaceDesktopBody = ({
       <div className="world-card-list">
         {/* The one-command open's own line: where the box got to, and the way out of the wait. */}
         {stage === null ? null : <p className="world-card-path" role="status"><Spinner size="sm" aria-label="Starting desktop" />{payload.desktopProgress ?? DESKTOP_STAGE_LINE[stage]}</p>}
-        {refusal === null ? null : (
-          <>
-            <p className="world-card-empty" data-refusal-fault={refusal.fault}>{refusalLead(refusal)}</p>
-            <p className="world-card-path">
-              {refusal.rawCode != null ? `${refusal.rawCode} — ` : ""}
-              {refusal.message}
-            </p>
-          </>
-        )}
+        {refusal === null ? null : <FailureNotice failure={refusalUserFailure(refusal)} role="status" className="world-card-empty" />}
         {refusal !== null && refusal.fault === "wait" && refusal.retryAfter != null ?
           <p className="world-card-path">{`the server asked for ${refusal.retryAfter}s`}</p> :
           null}
@@ -456,11 +458,7 @@ const WorkspaceFacetBody = ({
         (
           <>
             <UpgradeDoor refusal={terminalRefusal} onRunCommand={onRunCommand} />
-            <p className="world-card-empty" data-refusal-fault={terminalRefusal.fault}>{refusalLead(terminalRefusal)}</p>
-            <p className="world-card-path">
-              {terminalRefusal.rawCode != null ? `${terminalRefusal.rawCode} — ` : ""}
-              {terminalRefusal.message}
-            </p>
+            <FailureNotice failure={refusalUserFailure(terminalRefusal)} role="status" className="world-card-empty" />
             {terminalRefusal.fault === "wait" && terminalRefusal.retryAfter != null ?
               <p className="world-card-path">{`the server asked for ${terminalRefusal.retryAfter}s`}</p> :
               null}
@@ -562,26 +560,21 @@ export const WorkspaceCardBody = ({
         <p className="world-card-path">Suspended {dayLabel(payload.suspendedAt)}</p> :
         null}
       {/*
-        plue's own contract code for a worker that could not start the
-        per-sandbox egress proxy and refused to boot the computer without its
-        credential boundary. The card says the code, exactly.
+        Why a box failed or refused an act: the egress proxy the worker would
+        not boot without (plue's contract code), the provider's failure
+        (plue#482), or an act's refusal. The code and the provider's own words
+        stay behind Details; the sentence says what happened.
       */}
-      {payload.egressProxyUnavailable === true ? <p className="world-card-empty">egress_proxy_unavailable</p> : null}
-      {/*
-        plue#482: why a failed computer failed, in the provider's own words.
-        The code is a machine verdict and survives plue's 5xx message
-        sanitizer, so both are shown and neither is paraphrased.
-      */}
-      {payload.failureCode != null || payload.failureMessage != null ?
-        (
-          <p className="world-card-empty">
-            {payload.failureCode ?? ""}
-            {payload.failureCode != null && payload.failureMessage != null ? " — " : ""}
-            {payload.failureMessage ?? ""}
-          </p>
-        ) :
+      {payload.egressProxyUnavailable === true ?
+        <FailureNotice className="world-card-empty" failure={describedFailure("EgressProxyUnavailable", BOX_FAILURE_COPY.EgressProxyUnavailable,
+          [EGRESS_PROXY_UNAVAILABLE, payload.error].filter(part => part !== undefined).join(" — "))} /> :
+        payload.error !== undefined ?
+        <FailureNotice className="world-card-empty" failure={describedFailure("BoxActRefused", BOX_FAILURE_COPY.BoxActRefused, payload.error)} /> :
         null}
-      {payload.error !== undefined ? <p className="world-card-empty">{payload.error}</p> : null}
+      {payload.failureCode != null || payload.failureMessage != null ?
+        <FailureNotice className="world-card-empty" failure={describedFailure("BoxFailed", BOX_FAILURE_COPY.BoxFailed,
+          [payload.failureCode, payload.failureMessage].filter(part => part != null).join(" — "))} /> :
+        null}
       {/*
         The card's create affordance (ADR 0002): one option surface, three
         kinds, each in plue's own words. The kind rides the invocation so it

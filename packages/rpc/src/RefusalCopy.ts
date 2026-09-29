@@ -44,6 +44,8 @@ import type { PlueFailureCode, PlueFault } from "./PlueFailureCodes.ts"
 import { isNativeFailureCode, isWorkerFailureCode, refusalCode, refusalEntry } from "./Refusal.ts"
 import type { Refusal, RefusalOrigin } from "./Refusal.ts"
 import type { WorkerFailureCode } from "./WorkerFailureCodes.ts"
+import { USER_FAILURE_ACTIONS } from "./UserFailure.ts"
+import type { UserFailure, UserFailureAction } from "./UserFailure.ts"
 
 /**
  * The line for a real shortage of infra, in one place so it can be reworded in
@@ -919,4 +921,28 @@ export const agentRefusalText = (refusal: Refusal): string => {
     `origin=${refusal.origin}`
   ].join(" ")
   return `failed: [${facts}] ${refusal.message} — ${refusalCopy(refusal).agent}`
+}
+
+const USER_ACTIONS: ReadonlySet<string> = new Set(USER_FAILURE_ACTIONS)
+
+/**
+ * A refusal as a `UserFailure`, for a surface that renders failures through
+ * the one presenter: the lead is the sentence, the doors that are also user
+ * failure actions are the actions, and the code with the refusing party's own
+ * words is the detail a surface keeps behind Details. Doors with no action
+ * (`upgrade`, `resume`, `new-box`, `report`) stay the surface's to draw.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const refusalUserFailure = (refusal: Refusal): UserFailure => {
+  const copy = refusalCopy(refusal)
+  const words = refusal.message.trim()
+  return {
+    tag: refusal.rawCode,
+    fault: refusal.fault,
+    sentence: copy.lead,
+    actions: copy.doors.filter((door): door is RefusalDoor & UserFailureAction => USER_ACTIONS.has(door)),
+    detail: refusal.rawCode === null ? words : words === "" ? refusal.rawCode : `${refusal.rawCode} — ${words}`
+  }
 }

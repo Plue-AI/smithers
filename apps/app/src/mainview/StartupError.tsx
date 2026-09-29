@@ -1,10 +1,12 @@
 import { isWriterOwnershipError, StorageWriteFailedError, type WriterOwnershipError } from "./state/StorageRecoveryContract"
 import { useSmithersHere } from "./state/WriterOwnership"
 import { useMemo, useState, type CSSProperties } from "react"
-import { failureDetail, type UserFailure } from "@smthrs/rpc/UserFailure"
+import { Data } from "effect"
+import { failureDetail, presentUserFailure, type UserFailure, type UserFailureCopy, type UserFailureRegistry } from "@smthrs/rpc/UserFailure"
+import { FailureNotice } from "./FailureNotice"
 import { createStartupRecovery } from "./StartupRecovery"
 import { presentStartupFailure } from "./StartupFailure"
-import { BootstrapFailure } from "./runtime/Runtime"
+import { BootstrapFailure, type BootstrapFailureKind } from "./runtime/Runtime"
 import { switchBackendTarget } from "./runtime/BackendTargetSelection"
 
 /*
@@ -84,19 +86,59 @@ const nativeBackendSwitch: BackendSwitch = async (origin, token) => {
   window.location.reload()
 }
 
+/** The backend address is not a bare http(s) origin. */
+export class BackendOriginInvalid extends Data.TaggedError("BackendOriginInvalid")<{ readonly origin: string }> {}
+
+const httpOrigin = (origin: string): string => {
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    throw new BackendOriginInvalid({ origin })
+  }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new BackendOriginInvalid({ origin })
+  }
+  return url.origin
+}
+
 /** A tokenless switch navigates to the origin; a token switch lasts for this tab only. */
 export const webBackendSwitch: BackendSwitch = async (origin, token) => {
+  const target = httpOrigin(origin)
   if (token === "") {
-    const url = new URL(origin)
-    if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
-      throw new Error("Backend URL must be an http(s) origin.")
-    }
-    window.location.assign(url.origin)
+    window.location.assign(target)
     return
   }
-  switchBackendTarget(origin, token, window.location.origin)
+  switchBackendTarget(target, token, window.location.origin)
   window.location.reload()
 }
+
+const BACKEND_SWITCH_FAILURES: UserFailureRegistry<BackendOriginInvalid> = {
+  BackendOriginInvalid: { fault: "user", sentence: "Enter an http or https origin, like https://backend.example.", actions: [] }
+}
+
+const BACKEND_SWITCH_UNKNOWN: UserFailureCopy = { fault: "infra", sentence: "Smithers could not switch to that backend. Not your fault.", actions: [] }
+
+/** What a failed backend switch shows. */
+export const presentBackendSwitchFailure = (error: unknown): UserFailure =>
+  presentUserFailure(BACKEND_SWITCH_FAILURES, error, { unknown: BACKEND_SWITCH_UNKNOWN })
+
+/* Every bootstrap failure is the backend's, never the person's. */
+export const BOOTSTRAP_SENTENCES: Readonly<Record<BootstrapFailureKind, string>> = {
+  unreachable: "Smithers could not reach its backend. Not your fault.",
+  missing: "This backend does not serve Smithers. Not your fault.",
+  server: "The backend could not start Smithers. Not your fault.",
+  invalid: "The backend sent a startup reply Smithers cannot read. Not your fault."
+}
+
+/** What a bootstrap failure shows. Its kind is the whole story, so it has no detail. */
+export const presentBootstrapFailure = (failure: BootstrapFailure): UserFailure => ({
+  tag: `BootstrapFailure:${failure.kind}`,
+  fault: "infra",
+  sentence: BOOTSTRAP_SENTENCES[failure.kind],
+  actions: ["retry"],
+  detail: ""
+})
 
 /** Hosted builds offer Retry only; switching backends is a native and dev tool. */
 const shellBackendSwitch = (): BackendSwitch | undefined =>
@@ -109,31 +151,32 @@ function BootstrapErrorPanel({ failure, switchBackend }: {
   readonly switchBackend: BackendSwitch | undefined
 }) {
   const [choosing, setChoosing] = useState(false)
-  const [error, setError] = useState<string>()
+  const [switchFailure, setSwitchFailure] = useState<UserFailure>()
   return <main style={PANEL_STYLE}>
     <h1>Backend unavailable</h1>
-    <p>{failure.message} Not your fault.</p>
-    <button type="button" onClick={() => window.location.reload()}>Retry</button>
-    {switchBackend !== undefined && <>
-      {" "}<button type="button" onClick={() => setChoosing(true)}>Switch backend</button>
-      {choosing && <form onSubmit={async (event) => {
-        event.preventDefault()
-        setError(undefined)
-        const data = new FormData(event.currentTarget)
-        const origin = String(data.get("origin") ?? "").trim()
-        const token = String(data.get("token") ?? "").trim()
-        try {
-          await switchBackend(origin, token)
-        } catch (cause) {
-          setError(cause instanceof Error ? cause.message : String(cause))
-        }
-      }}>
-        <label>Backend URL <input name="origin" type="url" required placeholder="https://backend.example" /></label>
-        <label>Access token <input name="token" type="password" autoComplete="off" /></label>
-        <button type="submit">Connect</button>
-        {error !== undefined && <p role="alert">{error}</p>}
-      </form>}
-    </>}
+    <FailureNotice failure={presentBootstrapFailure(failure)} role="status"
+      actions={{ retry: { onClick: () => window.location.reload() } }}>
+      {switchBackend !== undefined && <>
+        {" "}<button type="button" onClick={() => setChoosing(true)}>Switch backend</button>
+      </>}
+    </FailureNotice>
+    {switchBackend !== undefined && choosing && <form onSubmit={async (event) => {
+      event.preventDefault()
+      setSwitchFailure(undefined)
+      const data = new FormData(event.currentTarget)
+      const origin = String(data.get("origin") ?? "").trim()
+      const token = String(data.get("token") ?? "").trim()
+      try {
+        await switchBackend(origin, token)
+      } catch (thrown) {
+        setSwitchFailure(presentBackendSwitchFailure(thrown))
+      }
+    }}>
+      <label>Backend URL <input name="origin" type="url" required placeholder="https://backend.example" /></label>
+      <label>Access token <input name="token" type="password" autoComplete="off" /></label>
+      <button type="submit">Connect</button>
+      {switchFailure !== undefined && <FailureNotice failure={switchFailure} />}
+    </form>}
   </main>
 }
 

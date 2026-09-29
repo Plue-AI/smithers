@@ -3,7 +3,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
-import { createStartupErrorElement, StartupErrorPanel, webBackendSwitch } from "./StartupError"
+import { BOOTSTRAP_SENTENCES, createStartupErrorElement, StartupErrorPanel, webBackendSwitch } from "./StartupError"
 import { presentStartupFailure, STARTUP_UNKNOWN_FAILURE, StartupTimedOut } from "./StartupFailure"
 import { PRIVACY_RETIREMENT_COPY } from "./chain/PrivacyRetirementCopy"
 import {
@@ -231,6 +231,10 @@ for (const kind of ["unreachable", "missing", "server", "invalid"] as const) {
     expect(host.querySelector("h1")?.textContent).toBe("Backend unavailable")
     expect(host.textContent).not.toContain("404")
     expect(host.textContent).toContain("Not your fault.")
+    expect(host.querySelector<HTMLElement>("[data-failure]")?.dataset.failure).toBe(`BootstrapFailure:${kind}`)
+    expect(host.querySelector("[data-failure] p")?.textContent).toBe(BOOTSTRAP_SENTENCES[kind])
+    expect(host.textContent).not.toContain("Backend is unreachable")
+    expect(host.textContent).not.toContain("bootstrap")
     expect(buttonLabels(host)).toEqual(["Retry"])
     expect(host.querySelector("form")).toBeNull()
   })
@@ -252,33 +256,45 @@ for (const kind of ["unreachable", "missing", "server", "invalid"] as const) {
 
 /*
  * The defect this pins: any throw rendered "Invalid backend URL." and the
- * alert never cleared. The real web switch rejects each input with its own
- * reason, and each submit shows only the reason it produced.
+ * alert never cleared; later, each input's raw exception text reached the
+ * panel. A bad origin now reads as the person's to fix, anything else as
+ * ours with the raw text behind Details, and each submit shows only its own.
  */
-test("a failed backend switch reports its real error, fresh on every submit", async () => {
+test("a failed backend switch presents its typed cause, fresh on every submit", async () => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   roots.add(root)
+  const switchBackend = async (origin: string, token: string) => {
+    if (origin === "https://down.example") throw new Error("socket closed by native bridge")
+    await webBackendSwitch(origin, token)
+  }
   flushSync(() => root.render(
-    <StartupErrorPanel reason={new BootstrapFailure("unreachable")} switchBackend={webBackendSwitch} />
+    <StartupErrorPanel reason={new BootstrapFailure("unreachable")} switchBackend={switchBackend} />
   ))
   flushSync(() => host.querySelector<HTMLButtonElement>("button:last-of-type")!.click())
-  const submit = async (origin: string, token: string): Promise<string | null | undefined> => {
+  const alert = () => host.querySelector<HTMLElement>('form [role="alert"]')
+  const submit = async (origin: string, token: string): Promise<HTMLElement | null> => {
     host.querySelector<HTMLInputElement>('input[name="origin"]')!.value = origin
     host.querySelector<HTMLInputElement>('input[name="token"]')!.value = token
-    const before = host.querySelector('[role="alert"]')?.textContent
-    const alert = () => host.querySelector('[role="alert"]')?.textContent
     flushSync(() => host.querySelector("form")!.requestSubmit())
-    for (let turn = 0; turn < 50 && (alert() === undefined || alert() === before); turn += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let turn = 0; turn < 50 && alert() === null; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0))
     return alert()
   }
-  expect(await submit("https://backend.example/path", "")).toBe("Backend URL must be an http(s) origin.")
-  expect(await submit("ftp://backend.example", "secret"))
-    .toBe("Application API origin must use HTTP(S).")
-  expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1)
+  for (const [origin, token] of [["https://backend.example/path", ""], ["ftp://backend.example", "secret"], ["not a url", ""]] as const) {
+    const shown = await submit(origin, token)
+    expect(shown?.dataset.failure).toBe("BackendOriginInvalid")
+    expect(shown?.dataset.fault).toBe("user")
+    expect(shown?.querySelector("p")?.textContent).toBe("Enter an http or https origin, like https://backend.example.")
+  }
+  const down = await submit("https://down.example", "")
+  expect(down?.dataset.failure).toBeUndefined()
+  expect(down?.dataset.fault).toBe("infra")
+  expect(down?.querySelector("p")?.textContent).toBe("Smithers could not switch to that backend. Not your fault.")
+  expect(down?.querySelector("details")?.open).toBe(false)
+  expect(down?.querySelector("details pre")?.textContent).toContain("socket closed by native bridge")
+  expect(host.querySelectorAll('form [role="alert"]')).toHaveLength(1)
   expect(host.textContent).not.toContain("Invalid backend URL")
 })
 

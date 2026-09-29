@@ -11,7 +11,8 @@ import {
   refusalCopy,
   refusalDoors,
   refusalLead,
-  refusalSentence
+  refusalSentence,
+  refusalUserFailure
 } from "../src/RefusalCopy.ts"
 import { WORKER_FAILURE_CODES, WORKER_FAILURES } from "../src/WorkerFailureCodes.ts"
 import type { WorkerFailureCode } from "../src/WorkerFailureCodes.ts"
@@ -415,5 +416,32 @@ describe("the agent's tool result", () => {
     expect(text).toContain("nothing is full")
     expect(text).toContain("do NOT say Smithers ran out of infra")
     expect(text).toContain("open a new box")
+  })
+})
+
+describe("refusalUserFailure", () => {
+  test("the lead is the sentence and the server's words stay in the detail", () => {
+    const refusal = forCode("no_capacity", "fleet full: 0 of 40 slots free")
+    const failure = refusalUserFailure(refusal)
+    expect(failure.sentence).toBe(refusalLead(refusal))
+    expect(failure.sentence).not.toContain("fleet full")
+    expect(failure.detail).toBe("no_capacity — fleet full: 0 of 40 slots free")
+    expect(failure.tag).toBe("no_capacity")
+    expect(failure.fault).toBe(refusal.fault)
+  })
+
+  test("only doors that are user failure actions become actions", () => {
+    for (const fault of PLUE_FAULTS) {
+      const refusal = { ...clientRefusal(new Error("socket hang up")), origin: "plue" as const, fault }
+      const doors = refusalDoors(refusal)
+      expect(refusalUserFailure(refusal).actions).toEqual(doors.filter(door => door === "retry" || door === "sign-in"))
+    }
+  })
+
+  test("a refusal with no code keeps its words, and nothing answering gets the connection sentence", () => {
+    const failure = refusalUserFailure(clientRefusal(new Error("Load failed")))
+    expect(failure.tag).toBeNull()
+    expect(failure.sentence).toBe(NOTHING_ANSWERED)
+    expect(failure.detail).toBe("Load failed")
   })
 })

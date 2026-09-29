@@ -2,7 +2,8 @@ import { timeLabel } from "../Timestamps"
 import { flowAction } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
-import { refusalLead } from "@smthrs/rpc/RefusalCopy"
+import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
+import { FailureNotice } from "../FailureNotice"
 import { useCallback, useSyncExternalStore } from "react"
 import { creditDollars } from "../state/seams/BillingSeam"
 import { UpgradeDoor, upgradePlanKey } from "./WorkspaceCard"
@@ -40,10 +41,9 @@ export const BillingPlansCardBody = ({ card, onRunCommand, creditBalanceCents = 
   const credited = columns.some(plan => plan.limits.monthly_credit_cents !== undefined)
   const resets = creditResetsAt === null || Number.isNaN(Date.parse(creditResetsAt)) ? null : creditResetsAt
   return <div className="world-card-list">
-    {refusal === null ? null : <div role="alert">
-      <p>{refusalLead(refusal)}</p><p>{refusal.message}</p>
+    {refusal === null ? null : <FailureNotice failure={refusalUserFailure(refusal)}>
       {checkout ? <UpgradeDoor refusal={refusal} onRunCommand={onRunCommand} disabled={ upgradePlanKey(refusal) === planKey || plans.find(plan => plan.key === upgradePlanKey(refusal))?.checkout_available === false} /> : null}
-    </div>}
+    </FailureNotice>}
     {creditBalanceCents === null ? null : <p data-testid="billing-credit-line">
       Credit left: <strong data-testid="billing-credit">{creditDollars(creditBalanceCents)}</strong>
       {included > 0 ? <> · Included: <span data-testid="billing-credit-included">{creditDollars(included)}</span> per month</> : null}

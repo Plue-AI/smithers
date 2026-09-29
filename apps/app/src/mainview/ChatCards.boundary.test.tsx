@@ -31,7 +31,10 @@ for (const message of ["Failed to fetch dynamically imported module: /assets/fil
   test(`a stale viewer offers the existing reload flow: ${message}`, () => {
     const { host, commands } = render(message)
     const reload = host.querySelector<HTMLButtonElement>('[data-flow="chat.reload"]')!
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("Reload the app")
+    const alert = host.querySelector<HTMLElement>('[role="alert"]')!
+    expect(alert.querySelector("p")?.textContent).toBe("This card's viewer changed in an update. Reload the app to see it.")
+    expect(alert.dataset.failure).toBe("CardViewerOutdated")
+    expect(alert.querySelector("details pre")?.textContent).toContain(message)
     expect(reload.textContent).toBe("Reload app")
     expect(reload.type).toBe("button")
     expect(reload.disabled).toBe(false)
@@ -47,6 +50,13 @@ test("healthy cards and payload errors do not claim the app was updated", () => 
   expect(healthy.host.textContent).toBe("Saved file")
   expect(healthy.host.querySelector('[data-flow="chat.reload"]')).toBeNull()
   const failed = render("Missing payload field")
-  expect(failed.host.textContent).toContain("Missing payload field")
-  expect(failed.host.querySelector('[data-flow="chat.reload"]')).toBeNull()
+  const alert = failed.host.querySelector<HTMLElement>('[role="alert"]')!
+  expect(alert.querySelector("p")?.textContent).toBe("This card could not be shown. Not your fault.")
+  expect(alert.dataset.fault).toBe("bug")
+  expect(alert.dataset.failure).toBeUndefined()
+  expect(alert.querySelector("p")?.textContent).not.toContain("Missing payload field")
+  const details = alert.querySelector("details")!
+  expect(details.open).toBe(false)
+  expect(details.querySelector("pre")?.textContent).toContain("Missing payload field")
+  expect(failed.host.querySelector("button")).toBeNull()
 })

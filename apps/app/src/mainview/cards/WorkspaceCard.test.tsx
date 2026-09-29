@@ -288,7 +288,7 @@ describe("the workspace card", () => {
         }
       })
     )
-    expect(host.textContent).toContain("guest_not_ready — service unavailable")
+    expect(host.querySelector("details pre")?.textContent).toBe("guest_not_ready — service unavailable")
     expect(host.textContent).toContain("the server asked for 3s")
     click(host, "Try the terminal again")
     expect(commands[0]).toEqual({ name: "box.terminal", args: "ws-1" })
@@ -437,7 +437,9 @@ describe("the workspace card", () => {
         failureMessage: "pulling nixos-2405-9f2b1c0d timed out after 300s"
       })
     )
-    expect(host.textContent).toContain("image_pull_failed — pulling nixos-2405-9f2b1c0d timed out after 300s")
+    const failed = host.querySelector<HTMLElement>('[data-failure="BoxFailed"]')!
+    expect(failed.querySelector("p")?.textContent).toBe("This box failed. Not your fault.")
+    expect(failed.querySelector("details pre")?.textContent).toBe("image_pull_failed — pulling nixos-2405-9f2b1c0d timed out after 300s")
     host.remove()
   })
 
@@ -521,8 +523,10 @@ describe("the workspace card", () => {
 
   test("a creation the worker refused for the missing egress proxy names plue's code, exactly", () => {
     const { host } = render(workspaceCard({ status: "failed", egressProxyUnavailable: true, error: "service unavailable" }))
-    expect(host.textContent).toContain("egress_proxy_unavailable")
-    expect(host.textContent).toContain("service unavailable")
+    const failed = host.querySelector<HTMLElement>('[data-failure="EgressProxyUnavailable"]')!
+    expect(failed.querySelector("p")?.textContent).toBe("This box could not start its network guard. Not your fault.")
+    expect(failed.querySelector("details pre")?.textContent).toBe("egress_proxy_unavailable — service unavailable")
+    expect(host.querySelectorAll("[data-failure]")).toHaveLength(1)
     host.remove()
     const ordinary = render(workspaceCard())
     expect(ordinary.host.textContent).not.toContain("egress_proxy_unavailable")
@@ -562,7 +566,10 @@ describe("the workspace card", () => {
 
   test("an act's refusal stays on the card", () => {
     const { host } = render(workspaceCard({ error: "driver exploded" }))
-    expect(host.textContent).toContain("driver exploded")
+    const refused = host.querySelector<HTMLElement>('[data-failure="BoxActRefused"]')!
+    expect(refused.querySelector("p")?.textContent).toBe("Smithers could not finish that on this box.")
+    expect(refused.querySelector("p")?.textContent).not.toContain("driver exploded")
+    expect(refused.querySelector("details pre")?.textContent).toBe("driver exploded")
     host.remove()
   })
 
@@ -719,10 +726,10 @@ describe("the workspace card's desktop facet", () => {
     expect(host.textContent).toContain(INFRA_NOT_YOUR_FAULT)
     expect(host.textContent).toContain("@fucory")
     /* Verbatim, underneath — never replaced by the lead line. */
-    expect(host.textContent).toContain("no_capacity — no sandbox slots are free")
+    expect(host.querySelector("details pre")?.textContent).toBe("no_capacity — no sandbox slots are free")
     /* An infra refusal is not a wait: no clock is offered, because no clock will empty the fleet. */
     expect(host.textContent).not.toContain("the server asked for 30s")
-    expect(host.querySelector("[data-refusal-fault=\"infra\"]")).not.toBeNull()
+    expect(host.querySelector("[data-fault=\"infra\"]")).not.toBeNull()
     host.remove()
   })
 
@@ -746,7 +753,7 @@ describe("the workspace card's desktop facet", () => {
     expect(host.textContent).not.toContain(INFRA_NOT_YOUR_FAULT)
     expect(host.textContent).toContain("Your account is at its cap")
     expect(host.textContent).toContain("you already have 5 boxes running")
-    expect(host.querySelector("[data-refusal-fault=\"user\"]")).not.toBeNull()
+    expect(host.querySelector("[data-fault=\"user\"]")).not.toBeNull()
     host.remove()
   })
 

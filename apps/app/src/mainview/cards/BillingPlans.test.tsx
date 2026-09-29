@@ -77,7 +77,9 @@ test("an out-of-credit refusal with no named plan offers Upgrade to Pro", () => 
   const card = fixture()
   card.payload.refusal = { status: 402, code: "out_of_credit", message: "Add credit to keep working." }
   const { host, calls, close } = render(card)
-  expect(host.textContent).toContain("Out of credit.")
+  expect(host.querySelector('[role="alert"] > p')?.textContent).toContain("Out of credit.")
+  expect(host.querySelector('[role="alert"] > p')?.textContent).not.toContain("Add credit to keep working.")
+  expect(host.querySelector('[role="alert"] details pre')?.textContent).toBe("out_of_credit — Add credit to keep working.")
   host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
   expect(calls).toEqual([["billing.upgrade", "pro"]])
   close()
