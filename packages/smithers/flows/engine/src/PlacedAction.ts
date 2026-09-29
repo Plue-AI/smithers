@@ -82,7 +82,6 @@ export const layer = <
       const binding = (yield* Hosts).resolve(placement)
       if (binding._tag === "Here") return yield* body(payload)
       const key = yield* Action.CurrentInvocationKey
-      /* v8 ignore next 5 -- every engine dispatch provides the key (`FlowEngine/Dispatch.ts`), so the guard only discharges the optional a runtime that has not adopted the seam would leave */
       if (key === undefined) {
         return yield* Effect.die(
           new Error(`${action.name} is placed elsewhere and was dispatched with no invocation key`)

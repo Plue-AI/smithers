@@ -8,7 +8,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { describe, expect, it } from "@effect/vitest"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Placement from "@smthrs/plan/Placement"
-import { Context, Deferred, Effect, Fiber, Layer, Schema } from "effect"
+import { Context, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
 import { HttpClient, HttpRouter } from "effect/unstable/http"
 import { HttpClientErrorSchema } from "effect/unstable/http/HttpClientError"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
@@ -118,6 +118,44 @@ describe("PlacedAction", () => {
         expect(result).toBe("holder signed contract")
         expect(signed).toEqual(["contract"])
         expect(local).toEqual([])
+      }).pipe(Effect.scoped)
+    ))
+
+  it.effect("refuses to reach the holder when the runtime dispatches the action with no invocation key", () =>
+    withCrypto(
+      Effect.gen(function*() {
+        const signed: Array<string> = []
+        const sent: Array<string> = []
+        const held = yield* holder(signed)
+        const http = Context.make(HttpClient.HttpClient, Context.get(held, HttpClient.HttpClient))
+        const callerContext = yield* Layer.build(caller({ holder: toHolder(http, sent) }, []))
+        const engine = Context.get(callerContext as Context.Context<FlowRuntime.FlowRuntime>, FlowRuntime.FlowRuntime)
+        // A runtime that runs an implementation without saying which dispatch it
+        // is. The ordinary path provides `CurrentInvocationKey` here; a
+        // remote run named without it would alias every call onto one run.
+        const unidentified = FlowRuntime.FlowRuntime.of({
+          ...engine,
+          actionExecute: ((action: Action.Any) =>
+            Effect.map(
+              Effect.exit(action.executeEncoded),
+              (settled) => new Flow.Complete({ exit: settled })
+            )) as FlowRuntime.FlowRuntime["Service"]["actionExecute"]
+        })
+        const implementation = yield* Effect.flatMap(
+          Context.get(callerContext as Context.Context<Action.Implementations>, Action.Implementations)
+            .get(Sign.name),
+          Effect.fromOption
+        )
+        const exit = yield* Effect.exit(implementation.action({ document: "will" })).pipe(
+          Effect.provideService(FlowRuntime.FlowInstance, FlowEngine.makeInstance(Signs, "unkeyed-1")),
+          Effect.provideService(FlowRuntime.FlowRuntime, unidentified)
+        )
+        expect(Exit.isFailure(exit) && exit.cause.reasons[0]).toMatchObject({
+          _tag: "Die",
+          defect: new Error("placed-action/sign is placed elsewhere and was dispatched with no invocation key")
+        })
+        expect(sent).toEqual([])
+        expect(signed).toEqual([])
       }).pipe(Effect.scoped)
     ))
 
