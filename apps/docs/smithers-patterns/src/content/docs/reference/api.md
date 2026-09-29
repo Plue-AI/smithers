@@ -507,14 +507,17 @@ an unbounded loop, use the `run` half under an external scheduler instead of
 unrolling it in `make`.
 
 A bound that unrolls into a sequenced chain is capped a second way. Core
-refuses a plan nested past `Graph.maximumGraphDepth`, which is 512 levels, and
-each chained call costs one level, so a chain reaches 511 declared calls, or
-255 when a unit declares two of them. `Loop.make` refuses a `maxIterations`
-past that limit at the declaration, with an `invalid_decorator` `PatternError`
-naming the option and the limit. Every other pattern reaches the ceiling as a
-`graph_too_deep` `GraphBuildError` from `Graph.build`, which names the node
-rather than the option. The limit counts the chain alone, so deeper member
-flows or an enclosing unrolled pattern lower it.
+refuses a plan nested past the exported `Graph.maximumGraphDepth` (currently
+1,000 levels). The declaration limit for a chain with `callsPerUnit` nested
+calls per unit is `Math.floor((Graph.maximumGraphDepth - 1) / callsPerUnit) - 1`:
+the root and settled value also spend depth. Constructors using this bound
+check refuse oversized options at declaration with an `invalid_decorator`
+`PatternError` naming the option and limit. This includes `Loop.make`,
+`Optimizer.make`, and `WithRetry.make`; see the boundary assertions in
+`Loop.test.ts` and `Optimizer.test.ts`. Other topology, including deeper
+member flows or an enclosing unrolled pattern, spends the same depth budget:
+even a declaration within its constructor's limit can fail at `Graph.build`
+with a `graph_too_deep` `GraphBuildError` naming the node.
 
 ## Entry points
 
