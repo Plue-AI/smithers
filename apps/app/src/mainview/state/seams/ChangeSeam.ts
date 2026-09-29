@@ -53,7 +53,8 @@ import { changeRowId } from "../AppState"
 import type { Card, ChangeInput } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import { createCloudClient } from "./CloudClient"
-import type { SeamContext } from "./SeamContext"
+import { captureCloudOwner, type SeamContext } from "./SeamContext"
+import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 
 export const DEGRADED_CHANGE_REFUSAL =
   "This Smithers Cloud sign-in can't dispatch agents — sign in again to enable them."
@@ -827,9 +828,11 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   /** The change DTO; the row is dispatched into the changes collection. */
   const loadChange = async (
     repoId: string,
-    changeId: string
+    changeId: string,
+    current = captureCloudOwner(ctx)
   ): Promise<{ readonly change: ChangeInput; readonly detail: ChangeDetail } | { readonly error: string }> => {
     const answer = await getJson(changePath(repoId, changeId))
+    if (!current()) return { error: SIGN_OUT_REFUSAL }
     if ("error" in answer) return { error: answer.error }
     const parsed = parseChangeWire(answer.body, repoId)
     if (parsed === null) return { error: `Smithers Cloud's answer for change ${changeId} was malformed.` }
@@ -1047,8 +1050,9 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   }
 
   /* The whole read: the change, then its auxiliaries in parallel, then the card. */
-  const surfaceChange = async (repoId: string, changeId: string, options: ViewOptions = {}): Promise<string | void> => {
-    const loaded = await loadChange(repoId, changeId)
+  const surfaceChange = async (repoId: string, changeId: string, options: ViewOptions = {}, current = captureCloudOwner(ctx)): Promise<string | void> => {
+    if (!current()) return SIGN_OUT_REFUSAL
+    const loaded = await loadChange(repoId, changeId, current)
     if ("error" in loaded) return loaded.error
     const { change, detail } = loaded
     const pins = resolvePins(
@@ -1084,6 +1088,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       loadWalkthrough(repoId, changeId, change.currentSeq),
       loadChecks(repoId, checksRevision === null ? change.commitId : checksRevision.commitId)
     ])
+    if (!current()) return SIGN_OUT_REFUSAL
     /* Threads live on the landing request: unread when its list was, [] when no request carries the change. */
     const hit = "unread" in landing ? null : landing.value
     const threads: Read<ReadonlyArray<ChangeThread>> = "unread" in landing
@@ -1091,6 +1096,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       : hit === null
       ? { value: [] }
       : await loadComments(repoId, hit.landing.number)
+    if (!current()) return SIGN_OUT_REFUSAL
     const stack: StackRow | null = hit === null ? null : {
       /* plue#485: the change GET's own `landing_request_number` when it states one; the list's number otherwise. */
       landingNumber: detail.stack?.landingRequestNumber ?? hit.landing.number,
@@ -1177,14 +1183,17 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const surfacePins = async (
     repoId: string,
     changeId: string,
-    pinned: { readonly from: string; readonly to: string }
+    pinned: { readonly from: string; readonly to: string },
+    current = captureCloudOwner(ctx)
   ): Promise<string | void> => {
+    if (!current()) return SIGN_OUT_REFUSAL
     const full: ViewOptions = { pins: pinned, facet: "diff" }
     const loaded = loadedChange(repoId, changeId)
-    if (loaded === null) return surfaceChange(repoId, changeId, full)
+    if (loaded === null) return surfaceChange(repoId, changeId, full, current)
     const pins = resolvePins(loaded.payload.revisions, loaded.payload.currentSeq, pinned.from, pinned.to, changeId)
-    if ("error" in pins) return surfaceChange(repoId, changeId, full)
+    if ("error" in pins) return surfaceChange(repoId, changeId, full, current)
     const diff = await loadDiff(repoId, changeId, pins)
+    if (!current()) return SIGN_OUT_REFUSAL
     renderChange(loaded.change, loaded.payload.revisions, {
       repos: "unread" in diff ? [] : [diff.value.stat],
       diff: "unread" in diff ? null : {
@@ -1201,13 +1210,15 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   }
 
   /** The Checks facet's picker, on the same one-panel rule as `surfacePins`. */
-  const surfaceChecksAt = async (repoId: string, changeId: string, seq: number): Promise<string | void> => {
+  const surfaceChecksAt = async (repoId: string, changeId: string, seq: number, current = captureCloudOwner(ctx)): Promise<string | void> => {
+    if (!current()) return SIGN_OUT_REFUSAL
     const loaded = loadedChange(repoId, changeId)
     const revision = loaded?.payload.revisions.find((candidate) => candidate.seq === seq)
     if (loaded === null || revision === undefined) {
-      return surfaceChange(repoId, changeId, { checksSeq: seq, facet: "checks" })
+      return surfaceChange(repoId, changeId, { checksSeq: seq, facet: "checks" }, current)
     }
     const checks = await loadChecks(repoId, revision.commitId)
+    if (!current()) return SIGN_OUT_REFUSAL
     renderChange(loaded.change, loaded.payload.revisions, {
       checks: "unread" in checks ? null : checks.value,
       checksAt: revision.seq,
@@ -1223,8 +1234,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     changeIds: string | ReadonlyArray<string>,
     value: string,
     options: ViewOptions = {},
-    workspaceId: string | null = null
+    workspaceId: string | null = null,
+    current = captureCloudOwner(ctx)
   ): Promise<{ readonly value: string }> => {
+    if (!current()) return { value }
     const warnings: Array<string> = []
     const refresh = async (label: string, read: () => Promise<unknown>): Promise<void> => {
       try {
@@ -1235,10 +1248,11 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       }
     }
     for (const changeId of typeof changeIds === "string" ? [changeIds] : changeIds) {
-      await refresh(`change ${changeId} on ${repoId}`, () => surfaceChange(repoId, changeId, options))
+      if (!current()) break
+      await refresh(`change ${changeId} on ${repoId}`, () => surfaceChange(repoId, changeId, options, current))
     }
     const viewWorkspace = deps.viewWorkspace
-    if (workspaceId !== null && viewWorkspace !== undefined) {
+    if (current() && workspaceId !== null && viewWorkspace !== undefined) {
       await refresh(`computer ${workspaceId}`, () => viewWorkspace(workspaceId))
     }
     return { value: warnings.length === 0 ? value : `${value} Refresh warning: ${warnings.join("; ")}. Refresh the cards to reconcile the result; the mutation already succeeded.` }
@@ -1250,15 +1264,18 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
    * NUMBER routes address, beside the DB id they always carried), and only
    * then the 100-row landings list.
    */
-  const landingNumberOf = async (repoId: string, changeId: string): Promise<{ readonly number: number } | { readonly error: string }> => {
+  const landingNumberOf = async (repoId: string, changeId: string, current = captureCloudOwner(ctx)): Promise<{ readonly number: number } | { readonly error: string }> => {
+    if (!current()) return { error: SIGN_OUT_REFUSAL }
     const card = ctx.store.collections.cards.get(cardIdOf(repoId, changeId))
     if (card?.kind === "change" && card.payload.stack !== null) return { number: card.payload.stack.landingNumber }
-    const loaded = await loadChange(repoId, changeId)
+    const loaded = await loadChange(repoId, changeId, current)
+    if (!current()) return { error: SIGN_OUT_REFUSAL }
     if (!("error" in loaded)) {
       const stated = loaded.detail.stack?.landingRequestNumber ?? null
       if (stated !== null) return { number: stated }
     }
     const landing = await loadLanding(repoId, changeId)
+    if (!current()) return { error: SIGN_OUT_REFUSAL }
     if ("unread" in landing) return { error: `The landing requests of ${repoId} weren't read (${landing.unread}).` }
     if (landing.value === null) return { error: `No landing request carries ${changeId} on ${repoId} — its review comments live on one.` }
     return { number: landing.value.landing.number }
@@ -1269,13 +1286,15 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const viewChange: ChangeSeam["viewChange"] = async (changeId, rev, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (changeId.trim() === "") return "change.view needs a change id: /change.view <changeId>"
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const error = await surfaceChange(
       resolved.repo,
       changeId,
-      rev === undefined ? {} : { pins: { from: "parent", to: String(rev) }, facet: "diff" }
+      rev === undefined ? {} : { pins: { from: "parent", to: String(rev) }, facet: "diff" },
+      current
     )
     if (error !== undefined) return error
     return {
@@ -1288,9 +1307,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const setPins: ChangeSeam["setPins"] = async (changeId, from, to, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const error = await surfacePins(resolved.repo, changeId, { from, to })
+    const error = await surfacePins(resolved.repo, changeId, { from, to }, current)
     if (error !== undefined) return error
     return { value: `Diff of ${changeId} pinned ${pinLabel(from)} → ${pinLabel(to)}.` }
   }
@@ -1298,11 +1318,12 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const sinceMyReview: ChangeSeam["sinceMyReview"] = async (changeId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const me = username()
     if (me === null) return refuseCloudSignIn(ctx, "The signed-in Smithers Cloud user isn't known. Sign in again to continue.")
-    const loaded = await loadChange(resolved.repo, changeId)
+    const loaded = await loadChange(resolved.repo, changeId, current)
     if ("error" in loaded) return loaded.error
     const mine = (loaded.detail.reviews ?? []).find((review) => review.reviewer === me && review.reviewerKind !== "agent")
     if (mine === undefined || mine.lastReviewedSeq === null) {
@@ -1315,7 +1336,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       pins: { from: String(mine.lastReviewedSeq), to: "current" },
       sinceReview: { reviewer: me, seq: mine.lastReviewedSeq },
       facet: "diff"
-    })
+    }, current)
     if (error !== undefined) return error
     return { value: `Diff of ${changeId} since your review at rev ${mine.lastReviewedSeq} → current.` }
   }
@@ -1323,9 +1344,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const checksAt: ChangeSeam["checksAt"] = async (changeId, seq, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const error = await surfaceChecksAt(resolved.repo, changeId, seq)
+    const error = await surfaceChecksAt(resolved.repo, changeId, seq, current)
     if (error !== undefined) return error
     return { value: `Checks of ${changeId} at rev ${seq}.` }
   }
@@ -1333,12 +1355,13 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const diffChange: ChangeSeam["diffChange"] = async (changeId, from, to, path, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (changeId.trim() === "") return "change.diff needs a change id: /change.diff <changeId>"
     const fromPin = from === undefined || from === "" ? DEFAULT_PINS.from : from
     const toPin = to === undefined || to === "" ? DEFAULT_PINS.to : to
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const loaded = await loadChange(resolved.repo, changeId)
+    const loaded = await loadChange(resolved.repo, changeId, current)
     if ("error" in loaded) return loaded.error
     const { change, detail } = loaded
     const pins = resolvePins(detail.revisions, change.currentSeq, fromPin, toPin, changeId)
@@ -1347,6 +1370,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       detail.conflicts === null ? loadConflicts(resolved.repo, changeId) : Promise.resolve({ value: detail.conflicts }),
       loadDiff(resolved.repo, changeId, pins, path === undefined || path === "" ? undefined : path)
     ])
+    if (!current()) return SIGN_OUT_REFUSAL
     if ("unread" in diff) return `The diff of change ${changeId} on ${resolved.repo} couldn't be read right now (${diff.unread}).`
     /* Unread conflicts mark no file; the change card is where an unread conflicts list is reported. */
     const conflicted = new Set(("unread" in conflicts ? [] : conflicts.value).map((conflict) => conflict.path))
@@ -1392,19 +1416,22 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
    * a land that refuses states the reason where the person is still looking.
    */
   const landChange: ChangeSeam["landChange"] = async (changeId, repo) => {
+    const current = captureCloudOwner(ctx, false)
     const answer = await land(changeId, repo)
-    if (typeof answer === "string") ctx.dispatch({ type: "message.appended", actor: "system", text: answer })
+    if (typeof answer === "string" && current()) ctx.dispatch({ type: "message.appended", actor: "system", text: answer })
     return answer
   }
 
   const land: ChangeSeam["landChange"] = async (changeId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const repoId = resolved.repo
     /* A changeset lands atomically through its own route — never partially; an unread list can't clear the change of one. */
     const changesetRead = await loadChangeset(repoId, changeId)
+    if (!current()) return SIGN_OUT_REFUSAL
     if ("unread" in changesetRead) {
       return `The changesets ${changeId} might belong to weren't read (${changesetRead.unread}) — nothing was landed.`
     }
@@ -1417,19 +1444,21 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
         return `Changeset ${changeset.id} already landed.`
       }
       const landed = await sendJson("POST", `/orgs/${encodeURIComponent(changeset.organization)}/changesets/${changeset.id}/land`)
+      if (!current() && "error" in landed) return SIGN_OUT_REFUSAL
       if ("error" in landed) {
         /* A 409 restores every member bookmark; the row's failure_reason is the honest line. */
-        await surfaceChange(repoId, changeId)
+        await surfaceChange(repoId, changeId, {}, current)
         return landed.error
       }
       const refreshed = parseChangeset(landed.body)
       return mutationResult(
         repoId, changeId,
         `Changeset ${changeset.id} landed — every member bookmark moved together.`,
-        refreshed === null ? {} : { overrides: { changeset: refreshed } }
+        refreshed === null ? {} : { overrides: { changeset: refreshed } }, null, current
       )
     }
     const landingRead = await loadLanding(repoId, changeId)
+    if (!current()) return SIGN_OUT_REFUSAL
     if ("unread" in landingRead) {
       return `The landing requests of ${repoId} weren't read (${landingRead.unread}) — nothing was landed.`
     }
@@ -1459,10 +1488,12 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
      * whose commit no longer matches), so the change is re-read for its
      * current commit right before the PUT — never a commit from an older card.
      */
-    const loaded = await loadChange(repoId, changeId)
+    const loaded = await loadChange(repoId, changeId, current)
     if ("error" in loaded) return `${changeId} couldn't be re-read before landing (${loaded.error}) — nothing was landed.`
+    if (!current()) return SIGN_OUT_REFUSAL
     if (loaded.change.commitId === null) return `${changeId} carries no commit id to land at — nothing was landed.`
     const queued = await sendJson("PUT", repoPath(repoId, `/landings/${landing.number}/land`), { commit_id: loaded.change.commitId })
+    if (!current() && "error" in queued) return SIGN_OUT_REFUSAL
     if ("error" in queued) return queued.error
     /*
      * 202/200: the land is QUEUED, never a terminal claim the platform hasn't
@@ -1470,7 +1501,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
      * names the scope the PUT covered.
      */
     const scope = size <= 1 ? `${changeId} alone` : `1 → ${size} together (${landing.changeIds.join(", ")})`
-    return mutationResult(repoId, changeId, `Landing request #${landing.number} is queued — it lands ${scope}; the card tracks it.`)
+    return mutationResult(repoId, changeId, `Landing request #${landing.number} is queued — it lands ${scope}; the card tracks it.`, {}, null, current)
   }
 
   const splitReady: ChangeSeam["splitReady"] = async (changeId, repo) => {
@@ -1501,6 +1532,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const splitChange: ChangeSeam["splitChange"] = async (changeId, paths, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const wanted = paths.map((path) => path.trim()).filter((path) => path !== "")
     if (wanted.length === 0) {
       return "change.split needs at least one path to move: /change.split <changeId> <path> [path…]"
@@ -1508,6 +1540,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const split = await sendJson("POST", changePath(resolved.repo, changeId, "/split"), { paths: wanted })
+    if (!current() && "error" in split) return SIGN_OUT_REFUSAL
     if ("error" in split) return split.error
     const body = isRecord(split.body) ? split.body : null
     const original = body !== null && isRecord(body.original) ? str(body.original.change_id) : null
@@ -1518,23 +1551,26 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     return mutationResult(
       resolved.repo, [original, created],
       `${wanted.join(", ")} moved out of ${original} into the new change ${created} — both cards track them.`,
-      { facet: "diff" }
+      { facet: "diff" }, null, current
     )
   }
 
   const resolveConflict: ChangeSeam["resolveConflict"] = async (changeId, path, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (degraded()) return refuseCloudSignIn(ctx, DEGRADED_CHANGE_REFUSAL)
     if (path.trim() === "") return "change.resolve needs the conflicted file's path: /change.resolve <changeId> <path>"
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const dispatched = await sendJson("POST", changePath(resolved.repo, changeId, "/conflicts/resolve"), { path })
+    if (!current() && "error" in dispatched) return SIGN_OUT_REFUSAL
     if ("error" in dispatched) return dispatched.error
     const sessionId = isRecord(dispatched.body) ? str(dispatched.body.agent_session_id) : null
     return mutationResult(
       resolved.repo, changeId,
-      `Dispatched an agent${sessionId === null ? "" : ` (session ${sessionId})`} to resolve ${path} in ${changeId} — the next revision carries the resolution.`
+      `Dispatched an agent${sessionId === null ? "" : ` (session ${sessionId})`} to resolve ${path} in ${changeId} — the next revision carries the resolution.`,
+      {}, null, current
     )
   }
 
@@ -1571,7 +1607,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const setFacet: ChangeSeam["setFacet"] = async (changeId, facet, repo) => {
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const row = [...ctx.store.collections.changes.values()].find((candidate) => candidate.changeId === changeId)
+    const row = ctx.store.collections.changes.get(changeRowId(resolved.repo, changeId))
     if (row === undefined) return `Change ${changeId} is not loaded — /change.view ${changeId} reads it first`
     renderChange(row, undefined, { facet })
     return
@@ -1584,19 +1620,21 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   async (changeId, threadId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (!Number.isInteger(threadId) || threadId <= 0) return `review.${verb} needs a comment id: /review.${verb} <changeId> <commentId>`
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const landing = await landingNumberOf(resolved.repo, changeId)
+    const landing = await landingNumberOf(resolved.repo, changeId, current)
     if ("error" in landing) return landing.error
     const answer = await sendJson("POST", repoPath(resolved.repo, `/landings/${landing.number}/threads/${threadId}/${verb}`))
+    if (!current() && "error" in answer) return SIGN_OUT_REFUSAL
     if ("error" in answer) return answer.error
     const thread = parseComment(answer.body)
     const state = thread?.state ?? null
     return mutationResult(
       resolved.repo, changeId,
       `Comment ${threadId} on ${changeId}${state === null ? "" : ` is ${state}`} — the card tracks it.`,
-      { facet: "review" }
+      { facet: "review" }, null, current
     )
   }
 
@@ -1613,6 +1651,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const pleaseFix: ChangeSeam["pleaseFix"] = async (changeId, findingId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (degraded()) return refuseCloudSignIn(ctx, DEGRADED_CHANGE_REFUSAL)
     if (!Number.isInteger(findingId) || findingId <= 0) {
       return "findings.please-fix needs a finding id: /findings.please-fix <changeId> <findingId>"
@@ -1620,6 +1659,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const dispatched = await sendJson("POST", changePath(resolved.repo, changeId, `/findings/${findingId}/dispatch`))
+    if (!current() && "error" in dispatched) return SIGN_OUT_REFUSAL
     if ("error" in dispatched) return dispatched.error
     const body = isRecord(dispatched.body) ? dispatched.body : null
     const sessionId = body === null ? null : str(body.id)
@@ -1629,7 +1669,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       `The agent is on finding ${findingId} of ${changeId}${sessionId === null ? "" : ` (session ${sessionId})`}${
         workspaceId === null ? "" : ` — the computer ${workspaceId} card tracks the run`
       }.`,
-      { facet: "findings" }, workspaceId
+      { facet: "findings" }, workspaceId, current
     )
   }
 
@@ -1642,6 +1682,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const notUseful: ChangeSeam["notUseful"] = async (changeId, findingId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (!Number.isInteger(findingId) || findingId <= 0) {
       return "findings.not-useful needs a finding id: /findings.not-useful <changeId> <findingId>"
     }
@@ -1652,11 +1693,12 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       changePath(resolved.repo, changeId, `/findings/${findingId}/feedback`),
       { useful: false }
     )
+    if (!current() && "error" in recorded) return SIGN_OUT_REFUSAL
     if ("error" in recorded) return recorded.error
     return mutationResult(
       resolved.repo, changeId,
       `Finding ${findingId} of ${changeId} is recorded not useful — the card dims it.`,
-      { facet: "findings" }
+      { facet: "findings" }, null, current
     )
   }
 
@@ -1669,11 +1711,12 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const requestReview: ChangeSeam["requestReview"] = async (changeId, reviewer, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const who = reviewer.trim()
     if (who === "") return "review.request needs a reviewer: /review.request <changeId> <login|agent:name>"
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const landing = await landingNumberOf(resolved.repo, changeId)
+    const landing = await landingNumberOf(resolved.repo, changeId, current)
     if ("error" in landing) return landing.error
     const agent = who.startsWith("agent:") ? who.slice("agent:".length).trim() : null
     if (agent === "") return "review.request's agent needs a name: /review.request <changeId> agent:<name>"
@@ -1682,11 +1725,12 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       repoPath(resolved.repo, `/landings/${landing.number}/review-requests`),
       agent === null ? { reviewer: who } : { agent }
     )
+    if (!current() && "error" in asked) return SIGN_OUT_REFUSAL
     if ("error" in asked) return asked.error
     return mutationResult(
       resolved.repo, changeId,
       `Review of ${changeId} requested from ${agent === null ? who : `agent ${agent}`} on landing request #${landing.number}.`,
-      { facet: "review" }
+      { facet: "review" }, null, current
     )
   }
 
@@ -1694,22 +1738,24 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const unrequestReview: ChangeSeam["unrequestReview"] = async (changeId, requestId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     if (!Number.isInteger(requestId) || requestId <= 0) {
       return "review.unrequest needs a review-request id: /review.unrequest <changeId> <requestId>"
     }
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    const landing = await landingNumberOf(resolved.repo, changeId)
+    const landing = await landingNumberOf(resolved.repo, changeId, current)
     if ("error" in landing) return landing.error
     const dismissed = await sendJson(
       "DELETE",
       repoPath(resolved.repo, `/landings/${landing.number}/review-requests/${requestId}`)
     )
+    if (!current() && "error" in dismissed) return SIGN_OUT_REFUSAL
     if ("error" in dismissed) return dismissed.error
     return mutationResult(
       resolved.repo, changeId,
       `Review request ${requestId} on landing request #${landing.number} is dismissed.`,
-      { facet: "review" }
+      { facet: "review" }, null, current
     )
   }
 

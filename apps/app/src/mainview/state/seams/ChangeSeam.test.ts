@@ -20,12 +20,13 @@ import type { SeamContext } from "./SeamContext"
  * not observed on the wire; the L1 REPORT marks them `unverified`.
  */
 
-const memoryStorage = (): StorageApi => {
+const memoryStorage = (): StorageApi & { snapshot: () => Array<[string, string]> } => {
   const data = new Map<string, string>()
   return {
     getItem: (key) => data.get(key) ?? null,
     setItem: (key, value) => void data.set(key, value),
-    removeItem: (key) => void data.delete(key)
+    removeItem: (key) => void data.delete(key),
+    snapshot: () => [...data.entries()].sort(([a], [b]) => a.localeCompare(b))
   }
 }
 
@@ -219,13 +220,14 @@ const viewRoutes: Record<string, Route> = {
   [`${REPO}/landings/42/comments?limit=100`]: json(200, { comments: COMMENTS })
 }
 
-type Route = (request: { readonly method: string; readonly body: string | null }) => Response
+type Route = (request: { readonly method: string; readonly body: string | null }) => Response | Promise<Response>
 
 const harness = async (
   routes: Record<string, Route>,
-  options: { readonly signedIn?: boolean; readonly degraded?: boolean; readonly ownerKind?: "user" | "org"; readonly workspaceError?: string } = {}
+  options: { readonly signedIn?: boolean; readonly degraded?: boolean; readonly ownerKind?: "user" | "org"; readonly workspaceError?: string; readonly isDisposed?: () => boolean } = {}
 ) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const storage = memoryStorage()
+  const store = await createAppStore({ kind: "localStorage", storage })
   const requests: Array<string> = []
   const bodies: Record<string, string | null> = {}
   const shownWorkspaces: Array<string> = []
@@ -244,6 +246,7 @@ const harness = async (
     baseUrl: "",
     store,
     dispatch: store.dispatch,
+    isDisposed: options.isDisposed,
     actor: () => "user",
     nextOrdinal: () => 0
   }
@@ -276,7 +279,7 @@ const harness = async (
       return options.workspaceError ?? { value: `shown ${workspaceId}` }
     }
   })
-  return { store, seam, requests, bodies, shownWorkspaces }
+  return { store, storage, seam, requests, bodies, shownWorkspaces }
 }
 
 const textOf = (result: unknown): string | undefined =>
@@ -294,6 +297,77 @@ const payloadOf = (store: AppStore) => {
 const diffPayloadOf = (store: AppStore) => {
   const card = diffCardOf(store)
   return card?.kind === "diff" ? card.payload : undefined
+}
+
+const deferred = <T>() => Promise.withResolvers<T>()
+
+for (const hold of ["DTO", "diff"] as const) {
+  for (const retirement of ["sign-out", "account B", "A to B to A", "identity sign-out", "identity account B", "controller disposal"] as const) {
+    test(`a ${hold} read cannot publish after ${retirement}`, async () => {
+      const entered = deferred<void>()
+      const release = deferred<Response>()
+      let disposed = false
+      const route = hold === "DTO" ? CHANGE_ROUTE : `${CHANGE_ROUTE}/diff`
+      const { store, storage, seam, requests } = await harness({ ...viewRoutes, [route]: () => {
+        entered.resolve()
+        return release.promise
+      } }, { isDisposed: () => disposed })
+      try {
+        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        const pending = seam.viewChange("qupxosqw")
+        await entered.promise
+        const cloud = (username: string | null) => store.dispatch({
+          type: "cloud.session.loaded", actor: "system", state: username === null ? "signed-out" : "signed-in",
+          username, expiresAt: null, scopes: null
+        }).isPersisted.promise
+        if (retirement === "sign-out") await cloud(null)
+        if (retirement === "account B") await cloud("other")
+        if (retirement === "A to B to A") { await cloud("other"); await cloud("will") }
+        if (retirement === "identity sign-out" || retirement === "identity account B") await store.dispatch({
+          type: "identity.session.loaded", actor: "system", state: retirement === "identity sign-out" ? "signed-out" : "signed-in",
+          login: retirement === "identity sign-out" ? null : "other", provider: "github", allowlisted: retirement !== "identity sign-out", admin: false, scopesPlain: null
+        }).isPersisted.promise
+        if (retirement === "controller disposal") disposed = true
+        await store.eventHistory()
+        const before = { changes: [...store.collections.changes.entries()], cards: [...store.collections.cards.entries()], bytes: storage.snapshot() }
+        release.resolve(json(200, hold === "DTO" ? CHANGE : DIFF)({ method: "GET", body: null }))
+        const result = await pending
+        await store.eventHistory()
+        expect(result).toBe(SIGN_OUT_REFUSAL)
+        expect({ changes: [...store.collections.changes.entries()], cards: [...store.collections.cards.entries()], bytes: storage.snapshot() }).toEqual(before)
+        if (hold === "DTO") expect(requests).not.toContain(`GET ${CHANGE_ROUTE}/diff`)
+      } finally {
+        release.resolve(json(404, {})({ method: "GET", body: null }))
+        await store.dispose?.()
+      }
+    })
+  }
+}
+
+for (const hold of ["DTO", "diff"] as const) {
+  test(`same-owner identity and cloud refresh retain a ${hold} read`, async () => {
+    const entered = deferred<void>()
+    const release = deferred<Response>()
+    const route = hold === "DTO" ? CHANGE_ROUTE : `${CHANGE_ROUTE}/diff`
+    const { store, seam } = await harness({ ...viewRoutes, [route]: () => {
+      entered.resolve()
+      return release.promise
+    } })
+    try {
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      const pending = seam.viewChange("qupxosqw")
+      await entered.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: "2099-01-01T00:00:00Z", scopes: null }).isPersisted.promise
+      release.resolve(json(200, hold === "DTO" ? CHANGE : DIFF)({ method: "GET", body: null }))
+      expect(textOf(await pending)).toContain("Change qupxosqw")
+      expect(changeCardOf(store)).toBeDefined()
+      expect(store.collections.changes.get("will/smithers#qupxosqw")).toBeDefined()
+    } finally {
+      release.resolve(json(404, {})({ method: "GET", body: null }))
+      await store.dispose?.()
+    }
+  })
 }
 
 describe("createChangeSeam", () => {
@@ -1557,6 +1631,56 @@ describe("createChangeSeam", () => {
 describe("committed change mutations", () => {
   const refreshFailure = json(503, { message: "refresh unavailable" })
 
+  test("a confirmed mutation keeps its acknowledgment after retirement without refreshing a card", async () => {
+    const entered = deferred<void>()
+    const release = deferred<Response>()
+    const route = `POST ${CHANGE_ROUTE}/conflicts/resolve`
+    const { store, storage, seam, requests } = await harness({ ...viewRoutes, [route]: () => {
+      entered.resolve()
+      return release.promise
+    } })
+    try {
+      const pending = seam.resolveConflict("qupxosqw", "src/app.ts")
+      await entered.promise
+      await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "other", expiresAt: null, scopes: null }).isPersisted.promise
+      await store.eventHistory()
+      const before = storage.snapshot()
+      release.resolve(json(201, { agent_session_id: "committed-session" })({ method: "POST", body: null }))
+      expect(textOf(await pending)).toContain("committed-session")
+      await store.eventHistory()
+      expect(storage.snapshot()).toEqual(before)
+      expect(requests).toEqual([route])
+    } finally {
+      release.resolve(json(503, {})({ method: "POST", body: null }))
+      await store.dispose?.()
+    }
+  })
+
+  test("retirement during landing preflight sends no mutation", async () => {
+    const entered = deferred<void>()
+    const release = deferred<Response>()
+    const route = `${REPO}/landings?limit=100`
+    const { store, storage, seam, requests } = await harness({ ...viewRoutes, [route]: () => {
+      entered.resolve()
+      return release.promise
+    } })
+    try {
+      const pending = seam.landChange("qupxosqw")
+      await entered.promise
+      await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null }).isPersisted.promise
+      await store.eventHistory()
+      const before = storage.snapshot()
+      release.resolve(json(200, { items: [LANDING] })({ method: "GET", body: null }))
+      expect(await pending).toBe(SIGN_OUT_REFUSAL)
+      await store.eventHistory()
+      expect(storage.snapshot()).toEqual(before)
+      expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
+    } finally {
+      release.resolve(json(503, {})({ method: "GET", body: null }))
+      await store.dispose?.()
+    }
+  })
+
   test("please-fix retains its session and opens its workspace after a failed change refresh", async () => {
     const { seam, requests, shownWorkspaces } = await harness({
       ...viewRoutes,
@@ -1673,6 +1797,16 @@ describe("committed change mutations", () => {
 })
 
 describe("change repository resolution", () => {
+  test("change.facet updates only the explicitly named repository's card", async () => {
+    const otherRoute = "api/repos/ana/other/changes/qupxosqw"
+    const { store, seam } = await harness({ ...viewRoutes, [otherRoute]: json(200, { ...CHANGE, description: "Other repository" }) })
+    await seam.viewChange("qupxosqw", undefined, "will/smithers")
+    await seam.viewChange("qupxosqw", undefined, "ana/other")
+    expect(await seam.setFacet("qupxosqw", "checks", "will/smithers")).toBeUndefined()
+    expect(store.collections.cards.get("change-ana/other-qupxosqw")?.kind).toBe("change")
+    expect((store.collections.cards.get("change-ana/other-qupxosqw") as Extract<import("../AppState").Card, { kind: "change" }>).payload.facet).toBeUndefined()
+    expect(payloadOf(store)?.facet).toBe("checks")
+  })
   test("bare mutations refuse duplicate change ids across repositories; explicit repositories still route", async () => {
     const otherRoute = "api/repos/ana/other/changes/qupxosqw"
     const { seam, requests } = await harness({

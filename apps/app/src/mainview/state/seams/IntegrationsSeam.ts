@@ -41,7 +41,8 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
     if (response.status === 404 || response.status === 405) return { id: "linear", state: "unavailable" }
     if (!response.ok) return { id: "linear", state: "error", error: await readErrorMessage(response, `Reading the Linear integrations failed (${response.status})`) }
     const body: unknown = await response.json().catch(() => null)
-    const rows = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.integrations) ? body.integrations : []
+    const rows = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.integrations) ? body.integrations : null
+    if (rows === null) return { id: "linear", state: "error", error: "Smithers Cloud's answer for the Linear integrations was malformed" }
     const [owner = "", name = ""] = repo.toLowerCase().split("/")
     const integration = rows.find((row): row is Record<string, unknown> => isRecord(row) && asString(row.repo_owner)?.toLowerCase() === owner && asString(row.repo_name)?.toLowerCase() === name)
     if (integration === undefined) return { id: "linear", state: "not-connected" }
@@ -65,7 +66,8 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
     if (response.status === 404 || response.status === 405) return { id: "slack", state: "unavailable" }
     if (!response.ok) return { id: "slack", state: "error", error: await readErrorMessage(response, `Reading the Slack channels failed (${response.status})`) }
     const body: unknown = await response.json().catch(() => null)
-    const rows = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.channels) ? body.channels : []
+    const rows = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.channels) ? body.channels : null
+    if (rows === null) return { id: "slack", state: "error", error: "Smithers Cloud's answer for the Slack channels was malformed" }
     const channels = rows.flatMap((row) => isRecord(row) && row.provider === "slack" ? [asString(row.conversation_id)] : []).filter((name): name is string => name !== undefined)
     return channels.length === 0 ? { id: "slack", state: "not-connected" } : { id: "slack", state: "connected", detail: channels.join(", ") }
   }

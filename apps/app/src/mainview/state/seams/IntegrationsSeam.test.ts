@@ -60,3 +60,33 @@ test("a route this server does not register is unavailable, not a disconnected a
     ])
   } finally { await store.dispose?.() }
 })
+
+test("malformed successful integration lists report a read error instead of claiming no connection", async () => {
+  const { seam, rows, store } = await setup(url => url === CHANNELS
+    ? Response.json({ channels: { provider: "slack", conversation_id: "C001" } })
+    : Response.json({ integrations: null }))
+  try {
+    await seam.listIntegrations("Owner/Repo")
+    expect(rows()?.map(row => row.state)).toEqual(["error", "error"])
+  } finally { await store.dispose?.() }
+})
+
+test("supported empty list wrappers remain disconnected", async () => {
+  const { seam, rows, store } = await setup(url => url === CHANNELS
+    ? Response.json({ channels: [] })
+    : Response.json({ integrations: [] }))
+  try {
+    await seam.listIntegrations("Owner/Repo")
+    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
+  } finally { await store.dispose?.() }
+})
+
+test("malformed rows inside valid list wrappers are filtered", async () => {
+  const { seam, rows, store } = await setup(url => url === CHANNELS
+    ? Response.json({ channels: [null, { provider: "slack", conversation_id: "" }] })
+    : Response.json({ integrations: [null, { repo_owner: "someone", repo_name: "else" }] }))
+  try {
+    await seam.listIntegrations("Owner/Repo")
+    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
+  } finally { await store.dispose?.() }
+})
