@@ -97,6 +97,24 @@ const change = (id: string, commit: string, parents: string[], description: stri
   timestamp: "2026-09-10T12:00:00Z",
   parent_change_ids: parents
 })
+const commitStatus = (id: number, context: string, status: string, createdAt: string) => ({
+  id,
+  repository_id: 1,
+  change_id: "c2",
+  commit_sha: "ccc2",
+  context,
+  status,
+  description: "",
+  target_url: "",
+  workflow_run_id: null,
+  targets_affected: 0,
+  targets_ran: 0,
+  targets_cached: 0,
+  duration_ms: 0,
+  workspace_id: null,
+  created_at: createdAt,
+  updated_at: createdAt
+})
 const ROOT = "/api/repos/will/flows"
 
 describe("commits seam — commits.list", () => {
@@ -151,8 +169,8 @@ describe("commits seam — commits.read", () => {
         { path: "logo.png", change_type: "added", is_binary: true, additions: 0, deletions: 0 }
       ] }),
       [`${ROOT}/commits/ccc2/statuses`]: json(200, [
-        { context: "ci", state: "success", created_at: "2026-09-10T12:05:00Z" },
-        { context: "ci", state: "failure", created_at: "2026-09-10T12:01:00Z" }
+        commitStatus(2, "ci", "success", "2026-09-10T12:05:00Z"),
+        commitStatus(1, "ci", "failure", "2026-09-10T12:01:00Z")
       ])
     }))
     expect((await controller.commands.run("commits.read", "c2 will/flows")).status).toBe("executed")
@@ -167,6 +185,25 @@ describe("commits seam — commits.read", () => {
       ["logo.png", "added", true, false]
     ])
     expect(card.payload.diffError).toBeUndefined()
+  })
+
+  test.each([
+    ["failure", [commitStatus(1, "ci", "success", "2026-09-10T12:01:00Z"), commitStatus(2, "ci", "failure", "2026-09-10T12:05:00Z"), commitStatus(3, "review", "pending", "2026-09-10T12:04:00Z")], "failure"],
+    ["pending", [commitStatus(1, "ci", "success", "2026-09-10T12:05:00Z"), commitStatus(2, "review", "pending", "2026-09-10T12:04:00Z")], "pending"],
+    ["error", [commitStatus(1, "ci", "error", "2026-09-10T12:05:00Z"), commitStatus(2, "review", "success", "2026-09-10T12:04:00Z")], "failure"]
+  ] as const)("canonical %s status appears on the persisted card and in the model answer", async (_case, rows, expected) => {
+    const { store, controller } = await ready(backend({
+      [`${ROOT}/changes/c2`]: json(200, change("c2", "ccc2", [], "Second")),
+      [`${ROOT}/changes/c2/diff`]: json(200, { change_id: "c2", file_diffs: [] }),
+      [`${ROOT}/commits/ccc2/statuses`]: json(200, rows)
+    }))
+    const outcome = await controller.commands.run("commits.read", "c2 will/flows")
+    expect(outcome.status).toBe("executed")
+    expect(outcome.status === "executed" ? outcome.value : undefined).toContain(`Status: ${expected}`)
+    await settled()
+    const card = store.collections.cards.get("commit-will/flows-c2")
+    if (card === undefined || card.kind !== "commit") throw new Error("expected the persisted commit card")
+    expect(card.payload.commit.status).toBe(expected)
   })
 
   test("an unreadable diff keeps the commit and says why", async () => {
@@ -193,7 +230,12 @@ describe("commits seam — pure rules", () => {
     expect(defaultBranch([row("landing/2"), row("dev")])?.name).toBe("dev")
     expect(defaultBranch([row("dev"), row("master")])?.name).toBe("master")
     expect(combinedStatus([])).toBeUndefined()
-    expect(combinedStatus([{ context: "a", state: "pending" }, { context: "b", state: "success" }])).toBe("pending")
-    expect(combinedStatus([{ context: "a", state: "error" }, { context: "b", state: "pending" }])).toBe("failure")
+    expect(combinedStatus([{ context: "legacy", state: "failure", created_at: "2026-09-10T12:05:00Z" }])).toBeUndefined()
+    expect(combinedStatus([
+      { context: "ci", state: "failure", created_at: "2026-09-10T12:05:00Z" },
+      { context: "ci", status: "success", created_at: "2026-09-10T12:01:00Z" }
+    ])).toBe("success")
+    expect(combinedStatus([{ context: "a", status: "pending" }, { context: "b", status: "success" }])).toBe("pending")
+    expect(combinedStatus([{ context: "a", status: "error" }, { context: "b", status: "pending" }])).toBe("failure")
   })
 })

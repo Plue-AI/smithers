@@ -127,7 +127,7 @@ export const combinedStatus = (body: unknown): CommitSummary["status"] => {
   for (const row of body) {
     if (!isRecord(row)) continue
     const context = str(row.context) ?? ""
-    const state = str(row.state)
+    const state = str(row.status)
     if (state === null) continue
     const at = str(row.created_at) ?? ""
     const seen = newest.get(context)
