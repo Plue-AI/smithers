@@ -97,6 +97,22 @@ const jevEvents: ReadonlyArray<AgentEvent.AgentEvent> = [
     confidence: 0.8,
     latencyMs: 70
   }),
+  new AgentEvent.SeatRouted({
+    eventType: "flows.harness.seat-routed.v1",
+    scope: "session-1",
+    declared: "auto",
+    seat: "fable",
+    modelId: "model-f",
+    variant: "review",
+    candidates: ["opus", "fable", "astra", "sol"],
+    decidedBy: "jev",
+    latencyMs: 90,
+    backups: ["astra"],
+    panel: {
+      seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: ["astra"] }, { seat: "astra", backups: [] }],
+      merger: "fable"
+    }
+  }),
   new AgentEvent.CompactionSettled({
     eventType: "flows.harness.compaction-settled.v1",
     replacedPrefixDigest: "prefix-digest",

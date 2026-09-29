@@ -160,10 +160,14 @@ export const answer: {
    */
   readonly compaction: Answerer
   /**
-   * `seat`, when asked: the first candidate, in sorted order, whose
-   * description shares a word with the task (0.9), else the first candidate
-   * (0.6). `system`, when asked: `change` when the task says fix or
-   * implement, else `investigate`.
+   * The routing graph's edge questions, from the task's words: `phase` is
+   * `review`, `plan`, or `ui` when the task says so, `implement` when it
+   * says fix, implement, rename, or refactor, else `other`; `size` is
+   * `important` when it says critical, architecture, or migrate, `middle`
+   * when it says refactor, else `simple`; `clarity` is `unknowns` when it
+   * says unfamiliar or unknown, else `clear`; `binary` is yes (0.9) when it
+   * says test, pass, or check, else no (0.1). `system`, when asked: `change`
+   * when the task says fix or implement, else `investigate`.
    */
   readonly route: Answerer
   /**
@@ -214,23 +218,29 @@ export const answer: {
       )
     ),
   route: (request) =>
-    decoded(SeatRouter.State, "route", request).pipe(Effect.flatMap(({ task }) => {
-      const system = /fix|implement/i.test(task) ? "change" : "investigate"
-      const variant: Readonly<Record<string, Evaluator.ScriptedAnswer>> = "system" in request.questions
-        ? { system: { choice: system, probabilities: { [system]: 0.9 } } }
-        : {}
-      const seat = request.questions["seat"]
-      if (seat === undefined) return Effect.succeed(variant)
-      if (seat.type !== "choice") return Effect.fail(unscripted("scripted route judge needs a seat choice"))
-      const criteria = seat.criteria
-      const candidates = Object.keys(criteria).sort()
-      const said = words(task)
-      const matched = candidates.find((id) => shares(words(criteria[id]!), said))
-      const chosen = matched ?? candidates[0]!
-      return Effect.succeed({
-        seat: { choice: chosen, probabilities: { [chosen]: matched === undefined ? 0.6 : 0.9 } },
-        ...variant
-      })
+    decoded(SeatRouter.State, "route", request).pipe(Effect.map(({ task }) => {
+      const says = (pattern: RegExp) => pattern.test(task)
+      const choose = (choice: string) => ({ choice, probabilities: { [choice]: 0.9 } })
+      const phase = says(/\breview/i)
+        ? "review"
+        : says(/\bplan/i)
+        ? "plan"
+        : says(/\b(?:ui|interface)\b/i)
+        ? "ui"
+        : says(/\b(?:fix|implement|rename|refactor)/i)
+        ? "implement"
+        : "other"
+      return {
+        ...("phase" in request.questions ? { phase: choose(phase) } : {}),
+        size: choose(
+          says(/\b(?:critical|architecture|migrate)/i) ? "important" : says(/\brefactor/i) ? "middle" : "simple"
+        ),
+        clarity: choose(says(/\b(?:unfamiliar|unknown)/i) ? "unknowns" : "clear"),
+        binary: { probability: says(/\b(?:test|pass|check)/i) ? 0.9 : 0.1 },
+        ...("system" in request.questions
+          ? { system: choose(says(/fix|implement/i) ? "change" : "investigate") }
+          : {})
+      }
     })),
   supervisor: (request) =>
     decoded(Supervisor.Snapshot, "supervisor", request).pipe(Effect.map((snapshot) => {
@@ -269,7 +279,7 @@ export const answererFor = (ids: ReadonlyArray<string>): Answerer | undefined =>
   if (isCompletion(ids)) return answer.completion
   if (every(ids, /^unnecessary_\d+$/)) return answer.relevance
   if (every(ids, /^(?:remove|keep)_\d+$/)) return answer.compaction
-  if (every(ids, /^(?:seat|system)$/)) return answer.route
+  if (every(ids, /^(?:phase|size|clarity|binary|system)$/) && ids.includes("size")) return answer.route
   const fixed = Object.keys(calm(0))
   if (
     fixed.every((id) => ids.includes(id)) &&

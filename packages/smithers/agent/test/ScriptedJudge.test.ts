@@ -205,50 +205,45 @@ describe("the offline judge for every classifier", () => {
     })
   })
 
-  const route = (task: string, candidates: ReadonlyArray<SeatRouter.Candidate>) =>
+  const route = (task: string, phase?: SeatRouter.Phase) =>
     SeatRouter.route({
       declared: Seat.auto,
-      state: { task, flow: "prompt", description: "", capabilities: [] }
+      state: { task, flow: "prompt", description: "", capabilities: [] },
+      phase
     }).pipe(
       Effect.provide(
-        SeatRouter.layer({ candidates: Effect.succeed(candidates), variants: SeatRouter.defaultVariants })
+        SeatRouter.layer({ candidates: Effect.succeed(SeatRouter.seats), variants: SeatRouter.defaultVariants })
       ),
       Effect.provide(ScriptedJudge.layerAll),
       Effect.runPromise
     )
 
-  it("routes to the sorted-first seat whose description shares a word with the task", async () => {
-    const candidates = [
-      { id: "strong", description: "Multi-file refactors and unfamiliar code." },
-      { id: "fast", description: "Small edits." },
-      { id: "cheap", description: "Quick lookups." }
-    ]
-    const change = await route("Fix the unfamiliar parser", candidates)
-    expect([change.seat, change.variant, change.decidedBy]).toEqual(["strong", "change", "jev"])
-    const fallback = await route("Explain the build", candidates)
-    expect([fallback.seat, fallback.variant]).toEqual(["cheap", "investigate"])
-    const only = await route("Fix the parser", [candidates[1]!])
-    expect([only.seat, only.variant, only.decidedBy]).toEqual(["fast", "change", "only"])
+  it("answers the routing graph's questions from the task's words", async () => {
+    const cases = [
+      ["Fix the unfamiliar parser", "opus", { phase: "implement", size: "simple", clarity: "unknowns" }, "change"],
+      ["Implement the critical migration", "opus", { phase: "implement", size: "important" }, "change"],
+      ["Refactor the parser", "sonnet", { phase: "implement", size: "middle", clarity: "clear" }, "investigate"],
+      ["Review the architecture change", "fable", { phase: "review", size: "important" }, "investigate"],
+      ["Plan the unknown rollout", "opus", { phase: "plan", size: "simple" }, "investigate"],
+      ["Explain the build", "opus", { phase: "other", binary: false }, "investigate"],
+      ["Check the tests pass", "opus", { phase: "other", binary: true, size: "simple" }, "investigate"]
+    ] as const
+    for (const [task, seat, answers, variant] of cases) {
+      const decision = await route(task)
+      expect({ task, seat: decision.seat, answers: decision.answers, variant: decision.variant }).toMatchObject({
+        task,
+        seat,
+        answers,
+        variant
+      })
+      expect(decision.decidedBy).toBe("jev")
+    }
+    expect((await route("Review the architecture change")).panel?.merger).toBe("fable")
   })
 
-  it("answers the seat alone when the catalog offers one variant, with its confidence", async () => {
-    const answered = await Effect.runPromise(evaluate({
-      state: { task: "Implement a feature", flow: "prompt", description: "", capabilities: [] },
-      questions: {
-        seat: new Evaluator.ChoiceQuestion({ instructions: "seat", criteria: { b: "Feature work.", a: "Docs." } })
-      }
-    }))
-    expect(answered.answers).toEqual({
-      seat: { type: "choice", choice: "b", probabilities: { b: 0.9 } }
-    })
-  })
-
-  it("refuses a seat that is not a choice", async () => {
-    const error = await refused({
-      state: { task: "Fix it", flow: "prompt", description: "", capabilities: [] },
-      questions: { seat: boolean("seat") }
-    })
-    expect(error.code).toBe("unreachable")
+  it("leaves a pinned phase unasked", async () => {
+    const decision = await route("Explain the build", "ui")
+    expect([decision.seat, decision.backups, decision.answers?.phase]).toEqual(["opus", ["kimi", "sol"], "ui"])
   })
 
   it.each([[0, 0.1], [2, 0.9]])("answers all eleven supervisor questions calmly at %s repeated frames", async (

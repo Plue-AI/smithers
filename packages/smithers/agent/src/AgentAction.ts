@@ -51,7 +51,6 @@ import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
-import * as Judgement from "@smthrs/harness/Judgement"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import type * as Steering from "@smthrs/harness/Steering"
 import * as StructuredOutput from "@smthrs/harness/StructuredOutput"
@@ -73,6 +72,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import type * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -308,12 +308,17 @@ export interface Options<
    * A callback is evaluated once per execution against the decoded payload.
    * The resolver owns seat names, including provider model ids and aliases.
    *
-   * `"auto"` ({@link Seat.auto}), written or returned, asks Jev through
-   * {@link module:SeatRouter} once per execution for the seat and the system
-   * variant, so each subagent routes on its own prompt. Every correction and
-   * the repair run on the routed seat unless {@link Repair.seat} names one.
+   * `"auto"` ({@link Seat.auto}), written or returned, routes through
+   * {@link module:SeatRouter} once per execution: Jev classifies the prompt
+   * and the routing graph picks the seat, its backups and the system variant,
+   * so each subagent routes on its own prompt. A route to a panel runs the
+   * step once per member seat and then on the merger, given the members'
+   * answers. Every correction and the repair run on the routed seat unless
+   * {@link Repair.seat} names one.
    */
   readonly seat: ModelSelection | ((payload: PayloadSchemaOf<Payload>["Type"]) => ModelSelection)
+  /** The phase of work an `auto` seat routes as; Jev classifies it when absent. */
+  readonly phase?: SeatRouter.Phase | undefined
   /** The task, built from the decoded payload. */
   readonly prompt: (payload: PayloadSchemaOf<Payload>["Type"]) => string
   /** Stable system teaching for this step, after the host's and before the schema's. */
@@ -397,7 +402,7 @@ const checkCorrections = (corrections: number, subject: string): void => {
  */
 export const structuredOutputRejectedEvent = "flows.agent.structured-output-rejected.v1"
 
-/** The recorded step that decides one park, so a replay waits the same deadline. */
+/** The recorded step that decides one park, so a replay waits the same deadline; suffixed by the session. */
 const quotaParkActivityName = "agent/quota-park"
 
 /** The journal source every record this module writes is attributed to. */
@@ -526,7 +531,8 @@ const routeSeat = (
   tag: string,
   task: string,
   executionId: string,
-  stepId: string | undefined
+  stepId: string | undefined,
+  phase: SeatRouter.Phase | undefined
 ) =>
   Effect.gen(function*() {
     const unrouted = (message: string) => new Seat.SeatUnrouted({ seat: Seat.auto, reason: "unconfigured", message })
@@ -535,7 +541,8 @@ const routeSeat = (
     const decision = yield* SeatRouter.durable(
       {
         declared: Seat.auto,
-        state: { task: Judgement.task(task), flow: tag, description: tag, capabilities: [] }
+        state: { task, flow: tag, description: tag, capabilities: [] },
+        phase
       },
       { executionId, purpose: stepId ?? tag }
     ).pipe(Effect.provideService(SeatRouter.Catalog, catalog.value))
@@ -626,12 +633,10 @@ export const make = <
       }
       // `auto` asks Jev once per execution, as a sealed step, so each subagent
       // routes on its own prompt and a replay is served the seat it ran on.
-      const routed = declaredSeat === Seat.auto ? yield* routeSeat(tag, task, instance.executionId, stepId) : undefined
-      const ids = routed === undefined ? declaredIds : [routed.decision.seat]
-      const seatId = ids[0]
-      const resolvedSeats = yield* Effect.forEach(ids, (id) => seats.resolve(id))
-      const seat = resolvedSeats[0]
-      const fallbackSeats = resolvedSeats.slice(1)
+      const routed = declaredSeat === Seat.auto
+        ? yield* routeSeat(tag, task, instance.executionId, stepId, options.phase)
+        : undefined
+      const ids = routed === undefined ? declaredIds : [routed.decision.seat, ...routed.decision.backups]
       /** The trace coordinates of one ask, when the dispatch has an identity. */
       const stepOf = (ask: StepFact.Step["ask"], retry: number, scope: string): StepFact.Step | undefined =>
         stepId === undefined ? undefined : {
@@ -646,7 +651,8 @@ export const make = <
       if (routed !== undefined && Option.isSome(sink)) {
         // The routing receipt reaches the sink ahead of the first ask's events.
         const step = stepOf(0, yield* Action.CurrentAttempt, sessionRoot)
-        for (const event of SeatRouter.events(routed.decision, { scope: sessionRoot, modelId: seat.modelId })) {
+        const modelId = (yield* seats.resolve(routed.decision.seat)).modelId
+        for (const event of SeatRouter.events(routed.decision, { scope: sessionRoot, modelId })) {
           yield* sink.value.emit(event, step)
         }
       }
@@ -704,7 +710,9 @@ export const make = <
                 // Recording it also puts the wake time and its source in the
                 // run's own evidence, where an operator reads them.
                 const decision = yield* Action.make({
-                  name: quotaParkActivityName,
+                  // Named per session, so concurrent panel members each park
+                  // under their own ordinals and replay deterministically.
+                  name: `${quotaParkActivityName}/${session}`,
                   success: Schema.NullOr(QuotaPolicy.Park),
                   tier: "sealed",
                   execute: Effect.gen(function*() {
@@ -748,171 +756,219 @@ export const make = <
       }
 
       /**
-       * One whole cell run, under its own session and prompt.
-       *
-       * `correction` is the ladder rung this ask is, and it travels into the
-       * engine port rather than only into the session string: the session is
-       * key material and is hashed, so a reader of the run's sealed steps
-       * could see three model calls and not which of them was the ask. The
-       * port stamps the ordinal onto each rung's own durable record.
+       * Runs the step's correction ladder, then its repair, under `root` on
+       * the seats `ids` name: the first is primary and the rest are its
+       * fallbacks.
        */
-      const ask = (
-        session: string,
-        prompt: string,
-        teaching: ReadonlyArray<string>,
-        askSeat: string,
-        correction: number | undefined
-      ): Effect.Effect<
-        string,
-        AgentFailure,
-        | FlowRuntime.FlowRuntime
-        | FlowRuntime.FlowInstance
-        | Sandbox.Sandbox
-        | Steering.Source
-        | Crypto.Crypto
-        | Budget.Budget
-        | QuotaPolicy.QuotaClassifier
-        | Evaluator.Evaluator
-      > =>
-        waitOutQuota(
-          session,
-          Effect.gen(function*() {
-            const step = stepOf(correction ?? "repair", yield* Action.CurrentAttempt, session)
-            const observe = (event: AgentEvent.AgentEvent): Effect.Effect<void> =>
-              Option.isNone(sink) ? Effect.void : sink.value.emit(event, step)
-            const atSource = Option.isSome(sink) && sink.value.atSource === true
-            const resolved = askSeat === seatId ? seat : yield* seats.resolve(askSeat)
-            const outcome = yield* agent.run({
-              instructions: host.instructions,
-              pinnedSources: host.pinnedSources,
-              contextWindowTokensFor: contextWindowResolver(seats),
+      const solve = (root: string, question: string, ids: ReadonlyArray<string>) =>
+        Effect.gen(function*() {
+          const seatId = ids[0]!
+          const resolvedSeats = yield* Effect.forEach(ids, (id) => seats.resolve(id))
+          const seat = resolvedSeats[0]!
+          const fallbackSeats = resolvedSeats.slice(1)
+
+          /**
+           * One whole cell run, under its own session and prompt.
+           *
+           * `correction` is the ladder rung this ask is, and it travels into the
+           * engine port rather than only into the session string: the session is
+           * key material and is hashed, so a reader of the run's sealed steps
+           * could see three model calls and not which of them was the ask. The
+           * port stamps the ordinal onto each rung's own durable record.
+           */
+          const ask = (
+            session: string,
+            prompt: string,
+            teaching: ReadonlyArray<string>,
+            askSeat: string,
+            correction: number | undefined
+          ): Effect.Effect<
+            string,
+            AgentFailure,
+            | FlowRuntime.FlowRuntime
+            | FlowRuntime.FlowInstance
+            | Sandbox.Sandbox
+            | Steering.Source
+            | Crypto.Crypto
+            | Budget.Budget
+            | QuotaPolicy.QuotaClassifier
+            | Evaluator.Evaluator
+          > =>
+            waitOutQuota(
               session,
-              seat: resolved,
-              ...(askSeat === seatId ? { fallbackSeats } : {}),
-              // This adapter owns its recorded quota park and replay decision.
-              capacity: { park: false },
-              prompt,
-              system: teaching,
-              registry: host.registry,
-              flows: host.flows,
-              implementations: host.implementations,
-              promptRunner: host.promptRunner,
-              plugins: host.plugins,
-              config: host.config,
-              modelParams: options.modelParams,
-              modelRetryPolicy: host.modelRetryPolicy,
-              capabilityEnvelope: host.capabilityEnvelope,
-              limits: host.limits,
-              modelCallMs: host.modelCallMs,
-              maxFrames: options.maxFrames ?? host.maxFrames,
-              readOnlyCap: options.readOnlyCap,
-              claimCap: host.claimCap,
-              serverTools: host.serverTools,
-              judged: host.judged,
-              supervisor: host.supervisor,
-              approvalChannel: host.approvalChannel
-            }).pipe(
-              Stream.provideService(AgentEvent.Observer, atSource ? observe : () => Effect.void),
-              (stream) => agentOutcome(stream, atSource ? () => Effect.void : observe)
+              Effect.gen(function*() {
+                const step = stepOf(correction ?? "repair", yield* Action.CurrentAttempt, session)
+                const observe = (event: AgentEvent.AgentEvent): Effect.Effect<void> =>
+                  Option.isNone(sink) ? Effect.void : sink.value.emit(event, step)
+                const atSource = Option.isSome(sink) && sink.value.atSource === true
+                const resolved = askSeat === seatId ? seat : yield* seats.resolve(askSeat)
+                const outcome = yield* agent.run({
+                  instructions: host.instructions,
+                  pinnedSources: host.pinnedSources,
+                  contextWindowTokensFor: contextWindowResolver(seats),
+                  session,
+                  seat: resolved,
+                  ...(askSeat === seatId ? { fallbackSeats } : {}),
+                  // This adapter owns its recorded quota park and replay decision.
+                  capacity: { park: false },
+                  prompt,
+                  system: teaching,
+                  registry: host.registry,
+                  flows: host.flows,
+                  implementations: host.implementations,
+                  promptRunner: host.promptRunner,
+                  plugins: host.plugins,
+                  config: host.config,
+                  modelParams: options.modelParams,
+                  modelRetryPolicy: host.modelRetryPolicy,
+                  capabilityEnvelope: host.capabilityEnvelope,
+                  limits: host.limits,
+                  modelCallMs: host.modelCallMs,
+                  maxFrames: options.maxFrames ?? host.maxFrames,
+                  readOnlyCap: options.readOnlyCap,
+                  claimCap: host.claimCap,
+                  serverTools: host.serverTools,
+                  judged: host.judged,
+                  supervisor: host.supervisor,
+                  approvalChannel: host.approvalChannel
+                }).pipe(
+                  Stream.provideService(AgentEvent.Observer, atSource ? observe : () => Effect.void),
+                  (stream) => agentOutcome(stream, atSource ? () => Effect.void : observe)
+                )
+                if (outcome._tag === "FramesExhausted") {
+                  return yield* new HarnessError({
+                    code: "model_failed",
+                    message:
+                      `The agent action "${tag}" ended without a completed answer after ${outcome.frames} frames`,
+                    cause: outcome
+                  })
+                }
+                return outcome.output
+              }).pipe(Effect.provideService(FlowEngineLike.Correction, correction))
             )
-            if (outcome._tag === "FramesExhausted") {
-              return yield* new HarnessError({
-                code: "model_failed",
-                message: `The agent action "${tag}" ended without a completed answer after ${outcome.frames} frames`,
-                cause: outcome
-              })
-            }
-            return outcome.output
-          }).pipe(Effect.provideService(FlowEngineLike.Correction, correction))
-        )
 
-      /**
-       * The bounded repair, or the exhausted failure when none was declared.
-       *
-       * It asks once. A repair that misses too reports its own failure rather
-       * than the correction ladder's: it is the last thing the boundary saw,
-       * and an operator reading the run needs to know the repair ran and what
-       * it answered, not what the third correction said.
-       */
-      const repair = (
-        failure: StructuredOutput.StructuredOutputFailure
-      ): Effect.Effect<
-        Output["Type"],
-        AgentFailure,
-        | FlowRuntime.FlowRuntime
-        | FlowRuntime.FlowInstance
-        | Sandbox.Sandbox
-        | Steering.Source
-        | Crypto.Crypto
-        | Budget.Budget
-        | QuotaPolicy.QuotaClassifier
-        | Evaluator.Evaluator
-        | Output["DecodingServices"]
-      > => {
-        const declaredRepair = options.repair
-        if (declaredRepair === undefined) return Effect.fail(failure)
-        return ask(
-          `${sessionRoot}#repair`,
-          declaredRepair.prompt(failure, payload),
-          declaredRepair.system === undefined ? system : [
-            ...(host.system ?? []),
-            ...variant,
-            ...declaredRepair.system,
-            StructuredOutput.instructions(options.output)
-          ],
-          declaredRepair.seat ?? seatId,
-          // The repair is not a rung of the ladder: it is the one ask that
-          // follows the ladder's exhaustion, and numbering it `limit + 1`
-          // would present it as a correction the policy never allowed.
-          undefined
-        ).pipe(
-          Effect.flatMap((answer) => StructuredOutput.decode(options.output, answer, { corrections: limit, limit }))
-        )
-      }
+          /**
+           * The bounded repair, or the exhausted failure when none was declared.
+           *
+           * It asks once. A repair that misses too reports its own failure rather
+           * than the correction ladder's: it is the last thing the boundary saw,
+           * and an operator reading the run needs to know the repair ran and what
+           * it answered, not what the third correction said.
+           */
+          const repair = (
+            failure: StructuredOutput.StructuredOutputFailure
+          ): Effect.Effect<
+            Output["Type"],
+            AgentFailure,
+            | FlowRuntime.FlowRuntime
+            | FlowRuntime.FlowInstance
+            | Sandbox.Sandbox
+            | Steering.Source
+            | Crypto.Crypto
+            | Budget.Budget
+            | QuotaPolicy.QuotaClassifier
+            | Evaluator.Evaluator
+            | Output["DecodingServices"]
+          > => {
+            const declaredRepair = options.repair
+            if (declaredRepair === undefined) return Effect.fail(failure)
+            return ask(
+              `${root}#repair`,
+              declaredRepair.prompt(failure, payload),
+              declaredRepair.system === undefined ? system : [
+                ...(host.system ?? []),
+                ...variant,
+                ...declaredRepair.system,
+                StructuredOutput.instructions(options.output)
+              ],
+              declaredRepair.seat ?? seatId,
+              // The repair is not a rung of the ladder: it is the one ask that
+              // follows the ladder's exhaustion, and numbering it `limit + 1`
+              // would present it as a correction the policy never allowed.
+              undefined
+            ).pipe(
+              Effect.flatMap((answer) => StructuredOutput.decode(options.output, answer, { corrections: limit, limit }))
+            )
+          }
 
-      // One attempt is one whole cell run. The correction re-prompt is a NEW
-      // run under a distinct session carrying the diagnostics, so its sealed
-      // step keys differ from the attempt it is correcting and a replay
-      // reproduces both rather than collapsing them onto one recorded model
-      // call.
-      const attempt = (
-        correction: number,
-        prompt: string
-      ): Effect.Effect<
-        Output["Type"],
-        AgentFailure,
-        | FlowRuntime.FlowRuntime
-        | FlowRuntime.FlowInstance
-        | Sandbox.Sandbox
-        | Steering.Source
-        | Crypto.Crypto
-        | Budget.Budget
-        | QuotaPolicy.QuotaClassifier
-        | Evaluator.Evaluator
-        | Output["DecodingServices"]
-      > =>
-        ask(`${sessionRoot}#${correction}`, prompt, system, seatId, correction).pipe(
-          Effect.flatMap((answer) =>
-            StructuredOutput.decode(options.output, answer, { corrections: correction, limit })
-          ),
-          Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
-            record(structuredOutputRejectedEvent, instance.executionId, {
-              action: tag,
-              attempt: correction,
-              limit,
-              schema: failure.schema,
-              candidate: failure.candidate,
-              issuesDigest: StructuredOutput.issuesDigest(failure)
-            }).pipe(
-              Effect.andThen(
-                correction >= limit
-                  ? repair(failure)
-                  : attempt(correction + 1, `${task}\n\n${StructuredOutput.correction(failure)}`)
-              )
-            ))
-        )
+          // One attempt is one whole cell run. The correction re-prompt is a NEW
+          // run under a distinct session carrying the diagnostics, so its sealed
+          // step keys differ from the attempt it is correcting and a replay
+          // reproduces both rather than collapsing them onto one recorded model
+          // call.
+          const attempt = (
+            correction: number,
+            prompt: string
+          ): Effect.Effect<
+            Output["Type"],
+            AgentFailure,
+            | FlowRuntime.FlowRuntime
+            | FlowRuntime.FlowInstance
+            | Sandbox.Sandbox
+            | Steering.Source
+            | Crypto.Crypto
+            | Budget.Budget
+            | QuotaPolicy.QuotaClassifier
+            | Evaluator.Evaluator
+            | Output["DecodingServices"]
+          > =>
+            ask(`${root}#${correction}`, prompt, system, seatId, correction).pipe(
+              Effect.flatMap((answer) =>
+                StructuredOutput.decode(options.output, answer, { corrections: correction, limit })
+              ),
+              Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
+                record(structuredOutputRejectedEvent, instance.executionId, {
+                  action: tag,
+                  attempt: correction,
+                  limit,
+                  schema: failure.schema,
+                  candidate: failure.candidate,
+                  issuesDigest: StructuredOutput.issuesDigest(failure)
+                }).pipe(
+                  Effect.andThen(
+                    correction >= limit
+                      ? repair(failure)
+                      : attempt(correction + 1, `${question}\n\n${StructuredOutput.correction(failure)}`)
+                  )
+                ))
+            )
 
-      return yield* attempt(0, task).pipe(
+          return yield* attempt(0, question)
+        })
+
+      // A panel's members answer in parallel, each under its own session, so
+      // each is its own durable scope and a replay serves each its own run.
+      // A member that fails after its backups is left out; the merger then
+      // answers with the survivors' answers in hand.
+      const panel = routed?.decision.panel
+      const solved = panel === undefined ? solve(sessionRoot, task, ids) : Effect.gen(function*() {
+        const results = yield* Effect.forEach(panel.seats, (member, index) =>
+          solve(`${sessionRoot}/panel/${index}`, task, [member.seat, ...member.backups]).pipe(
+            Effect.flatMap((answer) => Schema.encodeUnknownEffect(options.output)(answer)),
+            Effect.mapError((failure) =>
+              Schema.isSchemaError(failure)
+                ? new HarnessError({
+                  code: "model_failed",
+                  message: `The panel answer of ${member.seat} did not encode`
+                })
+                : failure
+            ),
+            Effect.result
+          ), { concurrency: "unbounded" })
+        const answered = panel.seats.flatMap((member, index) => {
+          const result = results[index]!
+          return Result.isSuccess(result) ? [[member.seat, JSON.stringify(result.success)] as const] : []
+        })
+        const failed = panel.seats.filter((_, index) =>
+          Result.isFailure(results[index]!)
+        ).map(({ seat }) => seat)
+        if (answered.length === 0) {
+          return yield* Effect.fail((results[0] as Result.Failure<never, AgentFailure>).failure)
+        }
+        return yield* solve(`${sessionRoot}/merge`, SeatRouter.mergePrompt(task, answered, failed), ids)
+      })
+
+      return yield* solved.pipe(
         Effect.mapError(budgetFailure),
         Effect.mapError(encodableFailure)
       )

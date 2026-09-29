@@ -731,7 +731,9 @@ export function App(props: AppProps) {
         return flushSync(() => answerWorker(tab.id))
       case "takeover":
         // The composer drives it from its own tab; ctrl+y releases.
-        if (!workspace.hijack(tab.id, "you")) return setStatus(`${tab.title} is not running`, "warning")
+        if (!workspace.hijack(tab.id, "you")) {
+          return setStatus(workspace.unsteerable(tab.id) ?? `${tab.title} is not running`, "warning")
+        }
         // A wrapped worker is driven in its vendor's own TUI; quitting it hands the worker back.
         if (tab.harness !== undefined) return void handOver(tab.id)
         return flushSync(() => {
@@ -1545,7 +1547,9 @@ export function App(props: AppProps) {
       return
     }
     if (route._tag === "steer") {
-      if (!workspace.steer(steering!.id, text)) setStatus(`${steering!.title} is not running`, "warning")
+      if (!workspace.steer(steering!.id, text)) {
+        setStatus(workspace.unsteerable(steering!.id) ?? `${steering!.title} is not running`, "warning")
+      }
       return
     }
     if (route._tag === "shell") {

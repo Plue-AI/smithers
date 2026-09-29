@@ -35,9 +35,15 @@ The four decisions every declaration makes:
 - `seat` is an opaque string the host's `SeatResolver` resolves. The resolver
   owns the vocabulary, so `anthropic:claude-sonnet-4-5`, a bare model id, and a
   logical name like `reviewer` are all legal declarations. `seat: "auto"`, or a
-  seat function that returns it, has Jev pick the seat and system variant once
-  per execution from the host's `SeatRouter.Catalog`; corrections and the repair
-  reuse that seat unless `repair.seat` names one.
+  seat function that returns it, routes once per execution: Jev classifies the
+  task's phase, size, clarity, and binary success, and the routing graph picks
+  the seat and its backups from the host's `SeatRouter.Catalog`. `phase` pins
+  the phase so Jev is not asked it. An important plan or review routes to a
+  panel: the step runs on Opus, Fable, and Astra in parallel, each with its own
+  backups, then Fable merges their answers. A member that fails is named to
+  the merger and left out; the step fails only when no member answers.
+  Corrections and the repair reuse the routed seat unless `repair.seat` names
+  one.
 - `prompt` builds the task from the decoded payload.
 - `system` is stable teaching for this step, placed after the host's and before
   the schema's.
@@ -134,8 +140,8 @@ A step fails with a member of `AgentAction.AgentFailure`:
 - `StructuredOutputFailure`: the model answered and the answer did not fit the
   schema after its correction budget. This is the one an author handles.
 - `SeatUnresolved`: the host has no model for the declared seat.
-- `SeatUnrouted`: Jev did not pick a seat for `auto`, or the host binds no
-  catalog (`unconfigured`).
+- `SeatUnrouted`: Jev could not answer for `auto`, the host binds no catalog
+  (`unconfigured`), or no seat the graph picked is available (`no_candidates`).
 - `BudgetExceeded` and `Budget.Skipped`: the run has spent what it was approved
   for. See [Park on quota refusals and limit model admission](./quota-and-budgets.md).
 - `HarnessError` and `PluginError`: the composition failed underneath the step.

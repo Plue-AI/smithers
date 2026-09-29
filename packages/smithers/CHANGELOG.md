@@ -143,6 +143,11 @@
 
 ### Changed
 
+- **Breaking:** `Providers.seatDescriptions` is removed. `seatCandidates`
+  returns the routing graph's seat ids that run here; a Claude seat is offered
+  on `ANTHROPIC_API_KEY` or on Claude Code, never as a `claude-code:` seat. The
+  `opus`, `sonnet` and `fable` aliases run on Claude Code when no Anthropic key
+  is set.
 - **Breaking:** `smthrs run` and `smthrs serve` judge completions and test
   failures on a subscription seat, not with `AI_GATEWAY_API_KEY`.
   `internal/NativeControl`'s `Platform.httpClient` is removed,

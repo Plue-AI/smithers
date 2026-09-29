@@ -11,7 +11,16 @@ import { Effect } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type * as Agents from "../src/agents.ts"
@@ -1061,9 +1070,9 @@ describe("Host.run seat routing", () => {
   }
 
   test("an auto worker journals seat-routed and decision-settled through onEvent and reports the seat", async () => {
-    const { host } = make(true)
+    const { host } = make(true, { ANTHROPIC_API_KEY: "sk-ant-test" })
     const events: Array<AgentEvent.AgentEvent> = []
-    const seats: Array<{ seat: string; variant: string | null }> = []
+    const seats: Array<{ seat: string; backups: ReadonlyArray<string>; variant: string | null }> = []
     try {
       expect(host.routes).toBe(true)
       const turn: Host.Turn = host.run({
@@ -1084,13 +1093,72 @@ describe("Host.run seat routing", () => {
     }
     const routed = events.find((event) => event._tag === "seat-routed")
     expect(routed?._tag === "seat-routed" && [routed.declared, routed.seat, routed.decidedBy, routed.modelId])
-      .toEqual([Seat.auto, "astra", "jev", "gpt-6-astra"])
-    expect(routed?._tag === "seat-routed" && routed.candidates).toEqual(["sol", "astra"])
+      .toEqual([Seat.auto, "opus", "jev", "claude-opus-5-5"])
+    // The routing graph's pick for a simple, clear task that is none of the named phases, with its backup.
+    expect(routed?._tag === "seat-routed" && routed.backups).toEqual(["sol"])
+    expect(routed?._tag === "seat-routed" && routed.candidates).toEqual([
+      "luna",
+      "sol",
+      "astra",
+      "opus",
+      "fable",
+      "sonnet"
+    ])
     // The system-prompt variant is picked in the same call.
     expect(routed?._tag === "seat-routed" && routed.variant).toBe("investigate")
     const decision = events.find((event) => event._tag === "decision-settled")
     expect(decision?._tag === "decision-settled" && decision.classifier).toBe("seat/route")
-    expect(seats).toEqual([{ seat: "astra", variant: "investigate" }])
+    expect(seats).toEqual([{ seat: "opus", backups: ["sol"], variant: "investigate" }])
+  })
+
+  test("a worker routed to a panel runs each member, then the merger on their answers", async () => {
+    const { cwd, host } = make(true)
+    const replay = (name: string, answer: string) => {
+      const directory = join(cwd, name)
+      mkdirSync(directory)
+      return `replay:${doneReplay(directory, `ctx.done(${JSON.stringify(answer)})`)}`
+    }
+    const first = replay("first", "first answer")
+    const second = replay("second", "second answer")
+    const merger = replay("merger", "merged answer")
+    const requests: Array<string> = []
+    try {
+      const outcome = await host.run({
+        prompt: "Review the change.",
+        role: "worker",
+        seat: merger,
+        // A resumed panel route; the last member's seat does not resolve here.
+        route: {
+          backups: [],
+          panel: {
+            seats: [
+              { seat: first, backups: [] },
+              { seat: second, backups: [] },
+              { seat: "nowhere:model", backups: [] }
+            ],
+            merger
+          }
+        },
+        history: [],
+        onEvent: (event) => {
+          // The replay's own recorded request rows carry no request.
+          if (event._tag === "model-requested" && event.request !== undefined) {
+            requests.push(
+              [...event.request.system.map((part) => part.text), JSON.stringify(event.request.messages)].join("\n")
+            )
+          }
+        }
+      }).done
+      expect(outcome).toEqual({ _tag: "done", answer: "merged answer" })
+    } finally {
+      await host.dispose()
+    }
+    // Only the merger's run reaches the tab; it was asked with both answers and the failed seat.
+    expect(requests.every((request) => request.includes("Independent answers"))).toBe(true)
+    const merge = requests.find((request) => request.includes("Independent answers"))!
+    expect(merge).toContain(`${first}: first answer`)
+    expect(merge).toContain(`${second}: second answer`)
+    expect(merge).toContain("These seats failed and gave no answer: nowhere:model.")
   })
 
   test("a retried or resumed worker is given its routed variant on its routed seat", async () => {

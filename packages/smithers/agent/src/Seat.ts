@@ -83,9 +83,9 @@ export const auto = "auto"
 
 /**
  * A seat Jev could not pick. `reason` is `unconfigured` when no catalog or
- * judge is bound, `no_candidates` or `too_many_candidates` when the catalog
- * offers none or more than one question can list, and otherwise the judge's
- * own failure. No default seat is ever chosen instead.
+ * judge is bound, `no_candidates` when the catalog offers no seat the routing
+ * graph picked, and otherwise the judge's own failure. No default seat is
+ * ever chosen instead.
  *
  * @category errors
  * @since 1.0.0-rc.0
@@ -98,7 +98,6 @@ export class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
       "unconfigured",
       "interrupted",
       "no_candidates",
-      "too_many_candidates",
       ...Evaluator.EvaluatorErrorCode.literals
     ]),
     message: Schema.String

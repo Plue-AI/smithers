@@ -1,10 +1,14 @@
-import * as Providers from "@smthrs/cli/Providers"
+import * as NodeControl from "@smthrs/cli/NodeControl"
+import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Models from "../src/models.ts"
+
+/** Claude Code signs its own requests, so resolving its seat never reaches the executor. */
+const unusedExecutor = {} as RequestExecutor.RequestExecutor
 
 describe("seatOf", () => {
   const available: ReadonlyArray<Models.Model> = [{ seat: "test:worker", label: "Test", provider: "Test" }]
@@ -13,8 +17,10 @@ describe("seatOf", () => {
       ["sol", "openai:gpt-6-sol"],
       ["astra", "openai:gpt-6-astra"],
       ["luna", Models.delegateModels.luna],
-      ["opus", "anthropic:claude-opus-5-5"],
-      ["fable", "anthropic:claude-fable-5-1"],
+      // A Claude alias stays an alias: the seat resolver runs it on a key or on Claude Code.
+      ["opus", "opus"],
+      ["fable", "fable"],
+      [" Sonnet ", "sonnet"],
       ["qwen", Models.delegateModels.cerebras],
       [" Sol ", "openai:gpt-6-sol"],
       ["openai:gpt-6-sol", "openai:gpt-6-sol"],
@@ -57,12 +63,16 @@ describe("routing", () => {
     environment: {}
   }
 
-  test("offers each non-Cerebras seat once, by its alias when it has one", () => {
+  test("offers the routing graph's seats whose provider runs here", () => {
     const service = Models.routing(available, {}, true)!
-    expect(Effect.runSync(service.candidates)).toEqual([
-      { id: "sol", description: Providers.seatDescriptions.sol! },
-      { id: "gemini:gemini-2.5-pro", description: "Gemini 2.5 Pro" }
-    ])
+    expect(Effect.runSync(service.candidates)).toEqual(["luna", "sol", "astra"])
+  })
+
+  test("offers the Claude seats on Claude Code as on an Anthropic key", () => {
+    for (const seat of ["claude-code:opus", "anthropic:claude-opus-5-5"]) {
+      const claude = { ...available, models: [{ seat, label: "Claude Opus 5.5", provider: "Claude" }] }
+      expect(Effect.runSync(Models.routing(claude, {}, true)!.candidates)).toEqual(["opus", "fable", "sonnet"])
+    }
   })
 
   test("routes nothing unjudged or when the operator named the worker seat", () => {
@@ -103,6 +113,20 @@ describe("Claude Code seats", () => {
       expect(keyed).toEqual(["anthropic:claude-opus-5-5", "anthropic:claude-sonnet-5-5", "anthropic:claude-fable-5-1"])
       expect(Models.seatOf("claude-code:opus", [])).toBe("claude-code:opus")
       expect(Models.labelOf("claude-code:fable", [])).toBe("Claude Fable 5.1")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("runs an agent file's `model: opus` on Claude Code when no Anthropic key is set", async () => {
+    const directory = claudeOnPath({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" })
+    try {
+      const environment = { PATH: directory }
+      const seat = Models.seatOf("opus", Models.detect(environment).models)!
+      expect(seat).toBe("opus")
+      // The Anthropic route would refuse without a key; Claude Code runs it.
+      const resolved = await Effect.runPromise(NodeControl.seatResolver(environment, unusedExecutor).resolve(seat))
+      expect([resolved.id, resolved.modelId]).toEqual(["opus", "claude-opus-5-5"])
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

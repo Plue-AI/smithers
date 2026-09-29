@@ -1,7 +1,6 @@
 /** Private deployment recipe. Existing native host, catalog, agents and JJ ports. */
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
-import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
 import { HumanTask, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
@@ -10,13 +9,7 @@ import { Context, Effect, FileSystem, Layer } from "effect"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
-import {
-  expandSeat,
-  isDecisionSeat,
-  seatAliases,
-  seatDescriptions,
-  seatRefusal
-} from "../../packages/smithers/src/Providers.ts"
+import { seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
@@ -246,28 +239,6 @@ export const roleResolver = (
   })
 }
 
-/**
- * The seats Jev may route an undeclared or `model: auto` flow to: one role per
- * configured model, keeping the first role that names it, so Jev picks only
- * among the models the operator configured.
- */
-export const roleCatalog = (implementationModel: string, models: RoleModels = {}): SeatRouter.Service => {
-  const roles = Object.entries(effectiveRoles(implementationModel, models)).map(([role, seat]) =>
-    [role, seat, expandSeat(seat)] as const
-  )
-  const described = new Map(Object.entries(seatAliases).map(([alias, seat]) => [seat, seatDescriptions[alias]]))
-  return {
-    variants: SeatRouter.defaultVariants,
-    candidates: Effect.succeed(
-      roles
-        .filter(([, , seat], index) =>
-          roles.findIndex(([, , other]) => other === seat) === index && !isDecisionSeat(seat)
-        )
-        .map(([role, declared, seat]) => ({ id: role, description: `${role}: ${described.get(seat) ?? declared}` }))
-    )
-  }
-}
-
 type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel"> & {
   readonly seats?: Readonly<Record<string, string>> | undefined
 }
@@ -278,7 +249,11 @@ const effectiveRoles = (implementationModel: string, models: RoleModels): Readon
   ...models.seats
 })
 
-/** The native host's seats: the role resolver over the credential route, and the role catalog beside it. */
+/**
+ * The native host's seats: the role resolver over the credential route, and
+ * the host's seat catalog beside it, so an undeclared or `model: auto` flow
+ * routes by the routing graph over the seats this host's credentials run.
+ */
 export const roleSeats = (options: Options, suppliedSeats?: SeatResolver.Service) => {
   const models = { ...options, seats: effectiveSeats(options) }
   return (environment: Readonly<Record<string, string | undefined>>) =>
@@ -292,7 +267,7 @@ export const roleSeats = (options: Options, suppliedSeats?: SeatResolver.Service
             : SeatResolver.layer(suppliedSeats)
         )
       ),
-      SeatRouter.layer(roleCatalog(options.implementationModel, models))
+      NativeEquipment.layerSeatCatalog(environment)
     )
 }
 

@@ -107,43 +107,71 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
   }
 }
 
-/** Worker fallback order, excluding Cerebras and the requested seat. */
+/**
+ * A worker's fallbacks after a provider failure: `SMITHERS_TUI_WORKER_SEATS`
+ * when the operator sets it, else `routed`, the backups the worker's route
+ * picked, else the routing graph's backups of `seat` (`SeatRouter.backupsOf`)
+ * that run here. Never Cerebras or `seat` itself.
+ */
 export const workerFallbackSeats = (
-  requested: string,
+  seat: string,
   available: Available,
-  environment: Readonly<Record<string, string | undefined>>
+  environment: Readonly<Record<string, string | undefined>>,
+  routed?: ReadonlyArray<string>
 ): ReadonlyArray<string> => {
   const override = environment.SMITHERS_TUI_WORKER_SEATS
-  const seats = override === undefined
-    ? available.models.map((model) => model.seat)
-    : override.split(",").map((seat) => seat.trim())
-  return [...new Set(seats.filter((seat) => seat !== "" && seat !== requested && !seat.startsWith("cerebras:")))]
+  if (override !== undefined) {
+    return [
+      ...new Set(
+        override.split(",").map((id) => id.trim()).filter((id) =>
+          id !== "" && id !== seat && !id.startsWith("cerebras:")
+        )
+      )
+    ]
+  }
+  if (routed !== undefined) return routed
+  const alias = graphSeatOf(seat)
+  if (alias === undefined) return []
+  const here = graphSeats(available)
+  return SeatRouter.backupsOf(alias, "other").filter((backup) => here.includes(backup))
 }
 
 /** The short names an agent file's `model:` may use instead of `provider:modelId`. */
 export const aliases: Readonly<Record<string, string>> = Providers.seatAliases
 
+/** The routing graph's name for `seat`: the alias itself, the alias it expands to, or a `claude-code:` alias. */
+const graphSeatOf = (seat: string): SeatRouter.GraphSeat | undefined => {
+  const name = seat.startsWith("claude-code:") ? seat.slice("claude-code:".length) : seat
+  return SeatRouter.seats.find((alias) => alias === name || aliases[alias] === name)
+}
+
 /**
- * The seats Jev picks a worker's among, when it may pick: the host is judged
+ * The routing graph's seats that run here: those whose provider serves an
+ * available seat. A Claude seat runs on an Anthropic key or on Claude Code,
+ * whichever `detect` found; the seat resolver picks the same route.
+ */
+const graphSeats = (available: Available): ReadonlyArray<SeatRouter.GraphSeat> => {
+  const providers = new Set(available.models.map((model) => providerOf(model.seat)))
+  return SeatRouter.seats.filter((alias) => {
+    const provider = providerOf(aliases[alias]!)
+    return providers.has(provider) || (provider === "anthropic" && providers.has("claude-code"))
+  })
+}
+
+/**
+ * The catalog a worker routes over, when it may route: the host is judged
  * and `SMITHERS_TUI_WORKER_SEAT`, an operator's explicit choice, is unset.
- * Each available non-Cerebras seat once, by its alias when it has one, and
- * the default system-prompt variants, picked in the same call.
+ * The routing graph's seats that run here, and the default system-prompt
+ * variants, picked in the same call.
  */
 export const routing = (
   available: Available,
   environment: Readonly<Record<string, string | undefined>>,
   judged: boolean
-): SeatRouter.Service | undefined => {
-  if (!judged || environment.SMITHERS_TUI_WORKER_SEAT !== undefined) return undefined
-  const candidates = [...new Map(available.models.flatMap((model) => {
-    if (model.seat.startsWith("cerebras:")) return []
-    const alias = Object.keys(aliases).find((name) => aliases[name] === model.seat)
-    const id = alias ?? model.seat
-    const description = alias === undefined ? undefined : Providers.seatDescriptions[alias]
-    return [[id, { id, description: description ?? model.label }] as const]
-  })).values()]
-  return { candidates: Effect.succeed(candidates), variants: SeatRouter.defaultVariants }
-}
+): SeatRouter.Service | undefined =>
+  !judged || environment.SMITHERS_TUI_WORKER_SEAT !== undefined
+    ? undefined
+    : { candidates: Effect.succeed(graphSeats(available)), variants: SeatRouter.defaultVariants }
 
 const providerOf = (seat: string): string => seat.slice(0, seat.indexOf(":"))
 /** Every provider a seat here names, plus the replay seat the tests drive. */
@@ -161,11 +189,13 @@ const knownProviders = new Set([
 /**
  * The seat an agent's declared `model:` names: an alias, or `provider:modelId`
  * for a provider this module knows or `available` lists. Undefined when unknown.
+ * A Claude alias stays an alias: the seat resolver runs it on an Anthropic key,
+ * or on Claude Code when no key is set.
  */
 export const seatOf = (declared: string, available: ReadonlyArray<Model>): string | undefined => {
   const value = declared.trim()
   const alias = aliases[value.toLowerCase()]
-  if (alias !== undefined) return alias
+  if (alias !== undefined) return alias.startsWith("anthropic:") ? value.toLowerCase() : alias
   const colon = value.indexOf(":")
   if (colon <= 0 || colon === value.length - 1) return undefined
   const provider = value.slice(0, colon)

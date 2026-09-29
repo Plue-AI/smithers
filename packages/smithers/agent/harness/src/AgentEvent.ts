@@ -1203,10 +1203,23 @@ export class RelevanceRestored extends Schema.TaggedClass<RelevanceRestored>(
 }) {}
 
 /**
+ * A panel a routed run fans out to: each member seat, with the backups it
+ * fails over to, answers the task, and `merger` merges their answers.
+ *
+ * @category schemas
+ * @since 1.0.0-rc.0
+ */
+export const SeatPanel = Schema.Struct({
+  seats: Schema.Array(Schema.Struct({ seat: Schema.String, backups: Schema.Array(Schema.String) })),
+  merger: Schema.String
+})
+
+/**
  * The seat a run with no declared model was routed to, and who chose it.
  *
- * `decidedBy` is `jev` when Jev chose among `candidates` and `only` when a
- * single candidate left nothing to choose.
+ * `decidedBy` is `jev` when Jev answered the routing questions. Rows written
+ * before the routing graph may say `only` and carry the seat choice's
+ * `confidence`.
  *
  * @category events
  * @since 1.0.0-rc.0
@@ -1231,7 +1244,11 @@ export class SeatRouted extends Schema.TaggedClass<SeatRouted>(
   /** The provider's own number, absent when it sent none. */
   confidence: Schema.optional(Schema.Number),
   /** Wall-clock milliseconds the routing took. */
-  latencyMs: NonNegativeSafeInt
+  latencyMs: NonNegativeSafeInt,
+  /** The seats `seat` fails over to, in order; absent when there are none. */
+  backups: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** The panel the task was routed to, whose merger is `seat`; absent for one seat. */
+  panel: Schema.optionalKey(SeatPanel)
 }) {}
 
 /**

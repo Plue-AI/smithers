@@ -74,8 +74,8 @@ export SMITHERS_OPENAI_AUTH=chatgpt
 ```
 
 For Codex, use `model: openai:gpt-6-astra`. For a Claude subscription, run
-`claude auth login` and use `model: claude-code:opus`; the seat runs on your
-own Claude Code, and only when `ANTHROPIC_API_KEY` is unset. Team hosts use
+`claude auth login` and use `model: opus`; with `ANTHROPIC_API_KEY` unset the
+seat runs on your own Claude Code, and with it set, on the Anthropic API. Team hosts use
 their connected accounts. The completion judge is Jev through the Vercel AI Gateway
 (`AI_GATEWAY_API_KEY`); when Jev is unreachable, times out, answers 5xx or 429,
 or has no key, GPT-6 Luna judges through the same subscription resolver.

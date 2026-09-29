@@ -2247,12 +2247,10 @@ describe("AgentSession", () => {
   })
 })
 
-const twoSeats: ReadonlyArray<SeatRouter.Candidate> = [
-  { id: "sol", description: "The strong seat." },
-  { id: "luna", description: "The cheap seat." }
-]
+// The graph's Opus is not here, so its backup Sol runs.
+const twoSeats: ReadonlyArray<string> = ["sol", "luna"]
 
-const catalogOf = (candidates: ReadonlyArray<SeatRouter.Candidate>): SeatRouter.Service => ({
+const catalogOf = (candidates: ReadonlyArray<string>): SeatRouter.Service => ({
   candidates: Effect.succeed(candidates),
   variants: SeatRouter.defaultVariants
 })
@@ -2260,17 +2258,24 @@ const catalogOf = (candidates: ReadonlyArray<SeatRouter.Candidate>): SeatRouter.
 const investigate = SeatRouter.defaultVariants.find((variant) => variant.id === "investigate")!.system
 
 /**
- * A judge that routes every run to `sol` for investigation, once `answered`
+ * A judge that routes every run to Opus, so `sol` here, for investigation, once `answered`
  * completes, and passes every completion claim. Nothing else is scripted.
  */
 const routingJudge = (
   calls: { routed: number },
-  answered: Effect.Effect<void, Evaluator.EvaluatorError> = Effect.void
+  answered: Effect.Effect<void, Evaluator.EvaluatorError> = Effect.void,
+  edges: { readonly phase: string; readonly size: string } = { phase: "implement", size: "simple" }
 ): Layer.Layer<Evaluator.Evaluator> =>
   Evaluator.layerScripted((request) => {
-    if ("seat" in request.questions) {
+    if ("size" in request.questions) {
       calls.routed += 1
-      return Effect.as(answered, { seat: { choice: "sol" }, system: { choice: "investigate" } })
+      return Effect.as(answered, {
+        phase: { choice: edges.phase },
+        size: { choice: edges.size },
+        clarity: { choice: "unknowns" },
+        binary: { probability: 0.1 },
+        system: { choice: "investigate" }
+      })
     }
     return { complete: { probability: 0.95 }, overclaims: { probability: 0.05 }, invented: { probability: 0.02 } }
   })
@@ -2441,6 +2446,32 @@ describe("AgentSession seat routing", () => {
     for (const line of investigate) expect(system.indexOf(line)).toBeGreaterThan(system.indexOf("Host rule."))
   })
 
+  it("starts on the routed seat with its backups as the fallbacks", async () => {
+    const run = await routedRun({
+      flowId: "agents/auto",
+      judge: routingJudge({ routed: 0 }),
+      catalog: catalogOf(["opus", "sol", "luna"]),
+      status: "completed"
+    })
+
+    expect(run.resolved).toEqual(["opus", "sol"])
+    expect(seatRouted(run.trail)[0]!.payload).toMatchObject({ seat: "opus", backups: ["sol"] })
+  })
+
+  it("starts a panel pick on its merger, and never records a panel it does not run", async () => {
+    const run = await routedRun({
+      flowId: "agents/auto",
+      judge: routingJudge({ routed: 0 }, Effect.void, { phase: "review", size: "important" }),
+      catalog: catalogOf(["opus", "fable", "astra", "sol"]),
+      status: "completed"
+    })
+
+    expect(run.resolved).toEqual(["fable", "astra"])
+    const payload = seatRouted(run.trail)[0]!.payload
+    expect(payload).toMatchObject({ seat: "fable", backups: ["astra"] })
+    expect(payload).not.toHaveProperty("panel")
+  })
+
   it("keeps the routed seat across a park, without asking again", async () => {
     const calls = { routed: 0 }
     let routedBeforePark = 0
@@ -2600,7 +2631,9 @@ describe("AgentSession profile instructions", () => {
   })
 })
 
-class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/agent/AgentSession/Unprovided") {}
+class Unprovided
+  extends Context.Service<Unprovided, { readonly value: string }>()("test/agent/AgentSession/Unprovided")
+{}
 
 /** Never called; tsc checks it (#2704). The session sites run `body.pipe(Effect.provide(stack(...)))` uncast. */
 const unprovidedServiceProbe = (gate: Deferred.Deferred<void>) => {

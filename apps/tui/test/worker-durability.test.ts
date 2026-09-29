@@ -43,22 +43,30 @@ const fixture = (
 }
 
 describe("worker durability", () => {
-  it("tries detected non-Cerebras seats in order and honors the override", () => {
+  it("fails a worker over to the routing graph's backups that run here, and honors the override", () => {
     const available = {
       models: [
         { seat: "openai:gpt-6-sol", provider: "ChatGPT", label: "Sol" },
-        { seat: "anthropic:claude", provider: "Anthropic", label: "Claude" },
+        { seat: "anthropic:claude-opus-5-5", provider: "Anthropic", label: "Opus" },
         { seat: "cerebras:qwen", provider: "Cerebras", label: "Qwen" }
       ],
       defaultSeat: "openai:gpt-6-sol",
       workerSeat: "openai:gpt-6-sol",
       environment: {}
     }
-    expect(workerFallbackSeats("openai:gpt-6-sol", available, {})).toEqual(["anthropic:claude"])
+    expect(workerFallbackSeats("anthropic:claude-opus-5-5", available, {})).toEqual(["sol"])
+    expect(workerFallbackSeats("claude-code:fable", available, {})).toEqual(["astra"])
+    // Kimi, Sol's backup, does not run here; a seat off the graph has none.
+    expect(workerFallbackSeats("openai:gpt-6-sol", available, {})).toEqual([])
+    expect(workerFallbackSeats("cerebras:qwen", available, {})).toEqual([])
     expect(
       workerFallbackSeats("openai:gpt-6-sol", available, { SMITHERS_TUI_WORKER_SEATS: "other:a,anthropic:claude" })
     )
       .toEqual(["other:a", "anthropic:claude"])
+    // A routed worker fails over along its route, and the operator's order still wins.
+    expect(workerFallbackSeats("opus", available, {}, ["kimi", "sol"])).toEqual(["kimi", "sol"])
+    expect(workerFallbackSeats("opus", available, { SMITHERS_TUI_WORKER_SEATS: "sol" }, ["kimi", "sol"]))
+      .toEqual(["sol"])
   })
 
   it("parks on retry-after, shows the wait, then runs again at wake", async () => {

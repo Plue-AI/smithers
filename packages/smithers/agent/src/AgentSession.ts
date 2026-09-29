@@ -66,7 +66,6 @@ import type * as CellCalls from "@smthrs/harness/CellCalls"
 import * as CellTurn from "@smthrs/harness/CellTurn"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as HarnessError from "@smthrs/harness/HarnessError"
-import * as Judgement from "@smthrs/harness/Judgement"
 import * as Notifications from "@smthrs/harness/Notifications"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
@@ -1132,8 +1131,9 @@ export const trace = (
           variant: event.variant,
           candidates: event.candidates,
           decidedBy: event.decidedBy,
-          ...(event.confidence === undefined ? {} : { confidence: event.confidence }),
-          latencyMs: event.latencyMs
+          latencyMs: event.latencyMs,
+          ...(event.backups === undefined ? {} : { backups: event.backups }),
+          ...(event.panel === undefined ? {} : { panel: event.panel })
         }
       }
     case "supervisor-memory-failed":
@@ -3013,18 +3013,20 @@ export const make = (
         const rendered = prompt(flowBody.text, plan.decodedInput)
         // Jev routes an `auto` seat once per run: the decision is a sealed
         // step keyed by this execution, so a resumed attempt is served the
-        // seat and variant it first started on and asks nothing.
+        // route and variant it first started on and asks nothing.
         const routing = seatId === Seat.auto
           ? yield* Effect.gen(function*() {
             const catalog = yield* routingCatalog(payload.runId)
             const decision = yield* SeatRouter.durable({
               declared: seatId,
               state: {
-                task: Judgement.task(rendered.text),
+                task: rendered.text,
                 flow: card.flowId,
                 description: descriptor.description,
                 capabilities: card.envelope.capabilities
-              }
+              },
+              // An interactive run does not fan out, so it routes to one seat.
+              panel: false
             }, { executionId: payload.runId, purpose: "run" }).pipe(
               Effect.provideService(SeatRouter.Catalog, catalog),
               Effect.provide(engineServices)
@@ -3041,7 +3043,7 @@ export const make = (
           })
           : undefined
         const resolvedSeats = yield* Effect.forEach(
-          routing === undefined ? seatIds : [routing.decision.seat],
+          routing === undefined ? seatIds : [routing.decision.seat, ...routing.decision.backups],
           (id) => seats.resolve(id)
         )
         const seat = resolvedSeats[0]!

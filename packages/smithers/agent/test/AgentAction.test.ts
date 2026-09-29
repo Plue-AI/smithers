@@ -28,8 +28,10 @@ import { Cause, Deferred, Effect, Fiber, Layer, ManagedRuntime, Option, Schedule
 import { describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentAction from "../src/AgentAction.ts"
+import * as Budget from "../src/Budget.ts"
 import * as EventSink from "../src/EventSink.ts"
 import type * as FlowEngineLike from "../src/FlowEngineLike.ts"
+import * as QuotaPolicy from "../src/QuotaPolicy.ts"
 import { layer as scriptedCompletionJudge } from "../src/ScriptedJudge.ts"
 import * as Seat from "../src/Seat.ts"
 import * as SeatResolver from "../src/SeatResolver.ts"
@@ -1269,17 +1271,29 @@ describe("AgentAction payload-chosen seats", () => {
 
 describe("AgentAction seat auto", () => {
   const decodes = answering(`{"approved":true,"issues":[]}`)
-  const candidates: ReadonlyArray<SeatRouter.Candidate> = [
-    { id: "anthropic:luna", description: "Cheap and fast." },
-    { id: "anthropic:sol", description: "Strong reasoning." }
-  ]
+  // Sonnet runs alone here; Opus fails over to Sol.
+  const candidates = ["sonnet", "opus", "sol", "fable", "astra"]
   const catalog = SeatRouter.layer({ candidates: Effect.succeed(candidates), variants: SeatRouter.defaultVariants })
+
+  /** Edge answers the graph routes to Sonnet, to Opus, and to the review panel. */
+  const edges = (phase: string, size: string, clarity: string): Readonly<Record<string, Evaluator.ScriptedAnswer>> => ({
+    phase: { choice: phase },
+    size: { choice: size },
+    clarity: { choice: clarity },
+    binary: { probability: 0.1 }
+  })
+  const toSonnet = edges("implement", "simple", "clear")
+  const toOpus = edges("implement", "simple", "unknowns")
+  const toPanel = edges("review", "important", "clear")
 
   /**
    * Jev: each `seat/route` request takes the next scripted pick and is
    * recorded; every other question goes to the offline completion judge.
    */
-  const judge = (picks: ReadonlyArray<string>, routed: Array<Evaluator.Request>) =>
+  const judge = (
+    picks: ReadonlyArray<Readonly<Record<string, Evaluator.ScriptedAnswer>>>,
+    routed: Array<Evaluator.Request>
+  ) =>
     Layer.effect(Evaluator.Evaluator)(Effect.gen(function*() {
       const completion = yield* Effect.provide(
         Effect.gen(function*() {
@@ -1293,37 +1307,48 @@ describe("AgentAction seat auto", () => {
         }),
         Evaluator.layerScripted((request) => {
           routed.push(request)
-          return { seat: { choice: picks[routed.length - 1]! }, system: { choice: "answer" } }
+          const pick = { ...picks[Math.min(routed.length, picks.length) - 1]!, system: { choice: "answer" } }
+          return Object.fromEntries(Object.entries(pick).filter(([id]) => id in request.questions))
         })
       )
       return Evaluator.Evaluator.of({
-        evaluate: (request) => "seat" in request.questions ? router.evaluate(request) : completion.evaluate(request)
+        evaluate: (request) => "size" in request.questions ? router.evaluate(request) : completion.evaluate(request)
       })
     }))
 
-  /** Records every seat id the step asked the host's resolver for. */
-  const resolving = (model: Model.Model, asked: Array<string>): Layer.Layer<SeatResolver.SeatResolver> =>
+  /** Records every seat id the step asked the host's resolver for; a function gives each seat its own model. */
+  const resolving = (
+    model: Model.Model | ((id: string) => Model.Model),
+    asked: Array<string>
+  ): Layer.Layer<SeatResolver.SeatResolver> =>
     SeatResolver.layer({
       resolve: (id) => {
         asked.push(id)
         return Effect.succeed(
-          Seat.make({ id, modelId: Seat.modelIdOf(id), model, route, contextWindowTokens: 200_000 })
+          Seat.make({
+            id,
+            modelId: Seat.modelIdOf(id),
+            model: typeof model === "function" ? model(id) : model,
+            route,
+            contextWindowTokens: 200_000
+          })
         )
       }
     })
 
   const routedStack = <ROut, RIn>(
     step: Layer.Layer<ROut, never, RIn>,
-    model: Model.Model,
+    model: Model.Model | ((id: string) => Model.Model),
     asked: Array<string>,
     evaluator: Layer.Layer<Evaluator.Evaluator>,
-    routing: Layer.Layer<SeatRouter.Catalog> | Layer.Layer<never> = catalog
+    routing: Layer.Layer<SeatRouter.Catalog> | Layer.Layer<never> = catalog,
+    safety: Layer.Layer<QuotaPolicy.QuotaClassifier | Budget.Budget> = Safety.layer
   ) =>
     step.pipe(
       Layer.provideMerge(AgentAction.layerHost(host)),
       Layer.provideMerge(resolving(model, asked)),
       Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, evaluator, routing)),
-      Layer.provideMerge(Safety.layer),
+      Layer.provideMerge(safety),
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(FlowEngine.layerMemory),
       Layer.provideMerge(NodeCrypto.layer)
@@ -1352,7 +1377,7 @@ describe("AgentAction seat auto", () => {
     const result = await Effect.runPromise(
       RoutedFlow.execute({ diff: "-  old\n+  new" }, { executionId: "auto-once" }).pipe(
         Effect.provide(Layer.merge(
-          routedStack(routedStep, scripted([decodes], requests), asked, judge(["anthropic:sol"], routed)),
+          routedStack(routedStep, scripted([decodes], requests), asked, judge([toOpus], routed)),
           EventSink.layer({ emit: (event) => Effect.sync(() => void seen.push(event)) })
         ))
       )
@@ -1362,9 +1387,16 @@ describe("AgentAction seat auto", () => {
     expect(routed).toHaveLength(1)
     expect((routed[0]!.state as SeatRouter.State).task).toBe("Review this diff:\n-  old\n+  new")
     expect((routed[0]!.state as SeatRouter.State).flow).toBe("agent/test/Routed")
-    expect(asked).toEqual(["anthropic:sol"])
+    // The receipt names the routed seat's model; the route's backups are the run's fallbacks.
+    expect(asked).toEqual(["opus", "opus", "sol"])
     expect(seen.slice(0, 3).map((event) => event._tag)).toEqual(["seat-routed", "decision-settled", "discipline-armed"])
-    expect(seen[0]).toMatchObject({ declared: "auto", seat: "anthropic:sol", modelId: "sol", variant: "answer" })
+    expect(seen[0]).toMatchObject({
+      declared: "auto",
+      seat: "opus",
+      backups: ["sol"],
+      modelId: "opus",
+      variant: "answer"
+    })
     // The picked variant's teaching sits after the host's and before the step's.
     const answerVariant = SeatRouter.defaultVariants.find((variant) => variant.id === "answer")!.system[0]!
     expect(requests[0]!.indexOf(answerVariant)).toBeGreaterThanOrEqual(0)
@@ -1396,7 +1428,7 @@ describe("AgentAction seat auto", () => {
           Layer.mergeAll(Repaired.layer, Interpreter.layer(RepairedFlow)),
           scripted([miss, miss, decodes], requests),
           asked,
-          judge(["anthropic:luna"], routed)
+          judge([toSonnet], routed)
         ))
       )
     )
@@ -1404,7 +1436,7 @@ describe("AgentAction seat auto", () => {
     expect(result).toEqual({ approved: true, issues: [] })
     expect(requests).toHaveLength(3)
     expect(routed).toHaveLength(1)
-    expect(asked).toEqual(["anthropic:luna"])
+    expect(asked).toEqual(["sonnet"])
     // The repair keeps the routed variant's teaching beside its own.
     expect(requests[2]).toContain("You repair answers.")
     expect(requests[2]).toContain(SeatRouter.defaultVariants.find((variant) => variant.id === "answer")!.system[0]!)
@@ -1434,14 +1466,14 @@ describe("AgentAction seat auto", () => {
           Layer.mergeAll(Overridden.layer, Interpreter.layer(OverriddenFlow)),
           scripted([answering("Looks fine to me."), decodes], requests),
           asked,
-          judge(["anthropic:sol"], routed)
+          judge([toOpus], routed)
         ))
       )
     )
 
     expect(result).toEqual({ approved: true, issues: [] })
     expect(routed).toHaveLength(1)
-    expect(asked).toEqual(["anthropic:sol", "anthropic:repairer"])
+    expect(asked).toEqual(["opus", "sol", "anthropic:repairer"])
   })
 
   it("routes two executions of one step independently", async () => {
@@ -1463,7 +1495,7 @@ describe("AgentAction seat auto", () => {
       Layer.mergeAll(Chosen.layer, Interpreter.layer(ChosenFlow)),
       scripted([decodes], []),
       asked,
-      judge(["anthropic:luna", "anthropic:sol"], routed)
+      judge([toSonnet, toOpus], routed)
     )
     for (const [index, diff] of ["first", "second"].entries()) {
       await Effect.runPromise(
@@ -1477,7 +1509,182 @@ describe("AgentAction seat auto", () => {
       "Review this diff:\nfirst",
       "Review this diff:\nsecond"
     ])
-    expect(asked).toEqual(["anthropic:luna", "anthropic:sol"])
+    expect(asked).toEqual(["sonnet", "opus", "sol"])
+  })
+
+  describe("a panel route", () => {
+    const Paneled = AgentAction.make("agent/test/Paneled", {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: Seat.auto,
+      phase: "review",
+      prompt: ({ diff }) => `Review this diff:\n${diff}`
+    })
+    const PaneledFlow = Flow.make("agent/test/PaneledFlow", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => Paneled.call({ diff })
+    })
+    const review = (seat: string, approved = true) => answering(`{"approved":${approved},"issues":["${seat}"]}`)
+    const refusal = new ModelError({ code: "rate_limited", message: "slow down", httpStatus: 429, retryAfterMillis: 5 })
+    const broken = new ModelError({ code: "invalid_request", message: "bad request", httpStatus: 400 })
+
+    /** How one seat answers: its member answer, its merged answer, and whether it refuses. */
+    interface Script {
+      readonly answer: string
+      readonly merged?: string
+      /** `once`: a quota refusal on the first call; `always`: a request error on every call. */
+      readonly refuse?: "once" | "always"
+    }
+
+    /**
+     * One model per seat, answering by its {@link Script}. Every seat's first
+     * call waits until all `gate` seats have called, so members that ran one
+     * after another would never get past the first.
+     */
+    const seatModels = (
+      scripts: Readonly<Record<string, Script>>,
+      requests: Record<string, Array<string>>,
+      gate: number
+    ) => {
+      const arrived = new Set<string>()
+      const open = Deferred.makeUnsafe<void>()
+      const models = new Map<string, Model.Model>()
+      return (id: string): Model.Model => {
+        const held = models.get(id)
+        if (held !== undefined) return held
+        const seen: Array<string> = (requests[id] = [])
+        const script = scripts[id]!
+        let calls = 0
+        const model = Model.make({
+          stream: (request) =>
+            Stream.unwrap(Effect.gen(function*() {
+              if (!arrived.has(id)) {
+                arrived.add(id)
+                if (arrived.size >= gate) yield* Deferred.succeed(open, undefined)
+                yield* Deferred.await(open)
+              }
+              calls++
+              if (script.refuse === "always" || (script.refuse === "once" && calls === 1)) {
+                return Stream.fail(script.refuse === "always" ? broken : refusal)
+              }
+              const text = [
+                ...request.system.map((part) => part.text),
+                ...request.messages.flatMap((message) =>
+                  message.content.flatMap((part) => part.type === "text" ? [part.text] : [])
+                )
+              ].join("\n")
+              const cell = text.includes("Independent answers") ? script.merged! : script.answer
+              return scripted([cell], seen).stream(request)
+            }))
+        })
+        models.set(id, model)
+        return model
+      }
+    }
+
+    const run = async (scripts: Readonly<Record<string, Script>>, executionId: string) => {
+      const routed: Array<Evaluator.Request> = []
+      const requests: Record<string, Array<string>> = {}
+      const seen: Array<AgentEvent.AgentEvent> = []
+      // Opus and Astra have no backup here; Fable fails over to Astra.
+      const catalog = SeatRouter.layer({
+        candidates: Effect.succeed(["opus", "fable", "astra"]),
+        variants: SeatRouter.defaultVariants
+      })
+      const runtime = ManagedRuntime.make(Layer.merge(
+        routedStack(
+          Layer.mergeAll(Paneled.layer, Interpreter.layer(PaneledFlow)),
+          seatModels(scripts, requests, 3),
+          [],
+          judge([toPanel], routed),
+          catalog,
+          // Quota refusals park, as on a live host.
+          Layer.merge(Budget.layerUnbounded(), QuotaPolicy.layerDefault())
+        ),
+        EventSink.layer({ emit: (event) => Effect.sync(() => void seen.push(event)) })
+      ))
+      const exit = await runtime.runPromiseExit(PaneledFlow.execute({ diff: "diff" }, { executionId }))
+      const answered = Object.values(requests).flat().length
+      const replayed = await runtime.runPromiseExit(PaneledFlow.execute({ diff: "diff" }, { executionId }))
+      await runtime.dispose()
+      return { exit, replayed, replayCalls: Object.values(requests).flat().length - answered, routed, requests, seen }
+    }
+
+    /** The prompt the merger was given. */
+    const mergeOf = (requests: Record<string, Array<string>>) =>
+      requests["fable"]!.find((prompt) => prompt.includes("Independent answers"))!
+
+    it("runs its members in parallel on their own seats, then the merger on their answers", async () => {
+      // Opus and Astra are refused at the same time, and both park.
+      const { exit, replayCalls, replayed, requests, routed, seen } = await run(
+        {
+          opus: { answer: review("opus"), refuse: "once" },
+          fable: { answer: review("fable"), merged: review("merged", false) },
+          astra: { answer: review("astra", false), refuse: "once" }
+        },
+        "auto-panel"
+      )
+
+      expect(exit._tag === "Success" && exit.value).toEqual({ approved: false, issues: ["merged"] })
+      // A finished execution replays its answer and calls no model.
+      expect(replayed).toEqual(exit)
+      expect(replayCalls).toBe(0)
+      // The pinned phase is not asked.
+      expect(Object.keys(routed[0]!.questions)).not.toContain("phase")
+      expect(seen[0]).toMatchObject({
+        seat: "fable",
+        backups: ["astra"],
+        panel: {
+          seats: [
+            { seat: "opus", backups: [] },
+            { seat: "fable", backups: [] },
+            { seat: "astra", backups: [] }
+          ],
+          merger: "fable"
+        }
+      })
+      // The merger reads the task and every member's decoded answer.
+      const merge = mergeOf(requests)
+      expect(merge).toContain("Review this diff:\ndiff")
+      for (const seat of ["opus", "fable", "astra"]) {
+        expect(merge).toContain(`${seat}: {"approved":${seat !== "astra"},"issues":["${seat}"]}`)
+      }
+      expect(merge).not.toContain("failed and gave no answer")
+    })
+
+    it("merges the members that answered when one fails, and names the one that failed", async () => {
+      const { exit, requests } = await run(
+        {
+          opus: { answer: review("opus") },
+          fable: { answer: review("fable"), merged: review("merged", false) },
+          astra: { answer: review("astra"), refuse: "always" }
+        },
+        "auto-panel-survivors"
+      )
+
+      expect(exit._tag === "Success" && exit.value).toEqual({ approved: false, issues: ["merged"] })
+      const merge = mergeOf(requests)
+      expect(merge).toContain(`opus: {"approved":true,"issues":["opus"]}`)
+      expect(merge).toContain(`fable: {"approved":true,"issues":["fable"]}`)
+      expect(merge).not.toContain(`astra: {`)
+      expect(merge).toContain("These seats failed and gave no answer: astra.")
+    })
+
+    it("fails when no member answers, without asking the merger", async () => {
+      const { exit, requests } = await run(
+        {
+          opus: { answer: review("opus"), refuse: "always" },
+          fable: { answer: review("fable"), refuse: "always" },
+          astra: { answer: review("astra"), refuse: "always" }
+        },
+        "auto-panel-none"
+      )
+
+      expect(exit._tag).toBe("Failure")
+      expect(Object.values(requests).flat().some((prompt) => prompt.includes("Independent answers"))).toBe(false)
+    })
   })
 
   it("serves a replayed execution its recorded seat without asking Jev", async () => {
@@ -1485,7 +1692,7 @@ describe("AgentAction seat auto", () => {
     const asked: Array<string> = []
     const requests: Array<string> = []
     const runtime = ManagedRuntime.make(
-      routedStack(routedStep, scripted([decodes], requests), asked, judge(["anthropic:sol"], routed))
+      routedStack(routedStep, scripted([decodes], requests), asked, judge([toOpus], routed))
     )
     const first = await runtime.runPromise(RoutedFlow.execute({ diff: "diff" }, { executionId: "auto-replay" }))
     const second = await runtime.runPromise(RoutedFlow.execute({ diff: "diff" }, { executionId: "auto-replay" }))
@@ -1506,7 +1713,7 @@ describe("AgentAction seat auto", () => {
             routedStep.pipe(Layer.provideMerge(legacyRuntime(Routed.name))),
             scripted([decodes], []),
             [],
-            judge(["anthropic:sol"], routed)
+            judge([toOpus], routed)
           ),
           EventSink.layer({ emit: (event, step) => Effect.sync(() => void seen.push({ event: event._tag, step })) })
         ))
@@ -1524,7 +1731,7 @@ describe("AgentAction seat auto", () => {
     const exit = await Effect.runPromise(
       RoutedFlow.execute({ diff: "diff" }, { executionId }).pipe(
         Effect.provide(
-          routedStack(routedStep, scripted([decodes], requests), [], judge(["anthropic:sol"], routed), routing)
+          routedStack(routedStep, scripted([decodes], requests), [], judge([toOpus], routed), routing)
         ),
         Effect.exit
       )

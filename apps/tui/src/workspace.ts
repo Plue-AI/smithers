@@ -5,6 +5,7 @@ import * as Log from "./log.ts"
 /** Background work outlives a chat turn. Each tab has its own durable transcript. */
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as Seat from "@smthrs/agent/Seat"
+import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Agents from "./agents.ts"
 import * as Asks from "./asks.ts"
@@ -34,6 +35,12 @@ export interface Tab {
   readonly activeSeat?: string
   /** The system-prompt variant Jev routed this tab to; retry and resume keep it with `seat`. */
   readonly variant?: string
+  /** The backups Jev's route gave `seat`; retry and resume keep them with `seat`. */
+  readonly backups?: ReadonlyArray<string>
+  /** The panel Jev's route gave `seat`, its merger; retry and resume keep it with `seat`. */
+  readonly panel?: NonNullable<SeatRouter.Route["panel"]>
+  /** The answers `panel`'s members gave; a relaunch runs only the members without one. */
+  readonly answered?: ReadonlyArray<readonly [seat: string, answer: string]>
   readonly file: string
   readonly status: "queued" | "requested" | "running" | "waiting" | "parked" | "done" | "failed" | "cancelled"
   readonly wakeAt?: number
@@ -144,6 +151,8 @@ export class Workspace {
   private transcripts = new Map<string, Transcript.Transcript>()
   private handles = new Map<string, Host.Turn>()
   private cancelRequested = new Set<string>()
+  /** Tabs whose panel members are still answering; the merger has not started. */
+  private members = new Set<string>()
   private steering = new Map<string, { readonly queue: Steering.Queue; readonly writer: Session.Writer }>()
   private closed = false
   private unsubscribeAsks: () => void = () => {}
@@ -413,7 +422,7 @@ export class Workspace {
    */
   private open(
     request: Request,
-    kept?: Pick<Tab, "seat" | "variant">,
+    kept?: Pick<Tab, "seat" | "variant" | "backups" | "panel" | "answered">,
     parent?: string,
     depth = 0,
     prior?: Tab,
@@ -473,6 +482,9 @@ export class Workspace {
       depth,
       seat: kept?.seat ?? (request.model === undefined ? declared ?? this.unchosen() : delegateModels[request.model]),
       ...(kept?.variant === undefined ? {} : { variant: kept.variant }),
+      ...(kept?.backups === undefined ? {} : { backups: kept.backups }),
+      ...(kept?.panel === undefined ? {} : { panel: kept.panel }),
+      ...(kept?.answered === undefined ? {} : { answered: kept.answered }),
       history,
       file: writer.file,
       startedAt: prior?.startedAt ?? Date.now(),
@@ -612,8 +624,8 @@ export class Workspace {
     }
     const now = current()
     if (now === undefined) return
-    const { variant, ...rest } = now
-    // A routed tab keeps `auto`, or the seat and variant a retry carries.
+    const { answered, backups, panel, variant, ...rest } = now
+    // A routed tab keeps `auto`, or the seat and route a retry carries.
     const seat = now.model === undefined
       ? profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
       : delegateModels[now.model]
@@ -621,6 +633,9 @@ export class Workspace {
       ...rest,
       seat,
       ...(variant === undefined || seat !== now.seat ? {} : { variant }),
+      ...(backups === undefined || seat !== now.seat ? {} : { backups }),
+      ...(panel === undefined || seat !== now.seat ? {} : { panel }),
+      ...(answered === undefined || seat !== now.seat ? {} : { answered }),
       agent: { name: profile.name, digest: profile.digest }
     }
     this.tabs.put(ready)
@@ -663,6 +678,20 @@ export class Workspace {
         prompt: tab.prompt,
         seat: tab.seat,
         ...(tab.variant === undefined ? {} : { variant: tab.variant }),
+        ...(tab.backups === undefined
+          ? {}
+          : { route: { backups: tab.backups, ...(tab.panel === undefined ? {} : { panel: tab.panel }) } }),
+        ...(tab.answered === undefined ? {} : { answered: tab.answered }),
+        onAnswered: (seat, answer) => {
+          const current = this.tabs.get(tab.id)
+          if (current?.file !== writer.file) return
+          this.tabs.put({ ...current, answered: [...(current.answered ?? []), [seat, answer]] })
+        },
+        onMembers: (running) => {
+          if (running) this.members.add(tab.id)
+          else this.members.delete(tab.id)
+          this.changed()
+        },
         ...(tab.model === undefined && agent?.fallbackSeats !== undefined
           ? { fallbackSeats: agent.fallbackSeats }
           : {}),
@@ -689,11 +718,17 @@ export class Workspace {
             return { id, status: "answered" }
           }
         },
-        onSeat: ({ seat, variant }) => {
+        onSeat: ({ backups, panel, seat, variant }) => {
           const current = this.tabs.get(tab.id)
           if (current?.file !== writer.file) return
-          // Retry and resume keep both, so the tab is never routed twice.
-          const routed: Tab = { ...current, seat, ...(variant === null ? {} : { variant }) }
+          // Retry and resume keep the route, so the tab is never routed twice.
+          const routed: Tab = {
+            ...current,
+            seat,
+            backups,
+            ...(panel === undefined ? {} : { panel }),
+            ...(variant === null ? {} : { variant })
+          }
           this.tabs.put(routed)
           void this.describe(routed)
         },
@@ -1011,7 +1046,7 @@ export class Workspace {
   /** Sends `text` to a running worker at its next cell boundary; false when it is not running. */
   steer = (id: string, text: string): boolean => {
     const target = this.steering.get(id)
-    if (target === undefined || this.tabs.get(id)?.status !== "running") return false
+    if (target === undefined || this.tabs.get(id)?.status !== "running" || this.members.has(id)) return false
     const at = Date.now()
     target.queue.steer(text)
     target.writer.append({ type: "user", at, text, steered: true })
@@ -1019,11 +1054,16 @@ export class Workspace {
     this.changed()
     return true
   }
+  /** Why a running worker cannot be steered or taken over yet; undefined when it can. */
+  unsteerable = (id: string): string | undefined =>
+    this.members.has(id) ? "Its panel members are answering; steer it once the merger starts" : undefined
   /** Takes over a running worker: each later frame waits for `drive` or `release`. */
   hijack = (id: string, by: string): boolean => {
     const target = this.steering.get(id)
     const tab = this.tabs.get(id)
-    if (target === undefined || tab?.status !== "running" || tab.driver !== undefined) return false
+    if (target === undefined || tab?.status !== "running" || tab.driver !== undefined || this.members.has(id)) {
+      return false
+    }
     // A wrapped worker is handed over whole, on its vendor session: Claude Code's once a call on it
     // settled, Codex's once named, as its hand-over waits for the turn to complete anyway.
     if (

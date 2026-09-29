@@ -20,6 +20,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import * as NodeControl from "../src/NodeControl.ts"
+import * as Providers from "../src/Providers.ts"
 
 const executor = RequestExecutor.RequestExecutor.of({
   execute: () => Effect.die(new Error("model transport was not expected"))
@@ -348,6 +349,31 @@ describe("NodeControl.seatResolver Claude subscriptions", () => {
       role: "user",
       content: [{ type: "text", text: "hello" }]
     }])
+  })
+
+  it.each(["opus", "sonnet", "fable"] as const)(
+    "runs the %s alias on an Anthropic key when one is set, else on the signed-in Claude Code",
+    async (alias) => {
+      const claude = claudeOnPath(signedIn)
+      cleanup = claude.cleanup
+      const model = Providers.expandSeat(alias).slice("anthropic:".length)
+      const keyed = await Effect.runPromise(resolve({ PATH: claude.PATH, ANTHROPIC_API_KEY: "k" }, alias))
+      expect([keyed.id, keyed.modelId]).toEqual([alias, model])
+      expect((await prepared(keyed, keyed.modelId)).url).toBe("https://api.anthropic.com/v1/messages")
+      const subscribed = await Effect.runPromise(resolve({ PATH: claude.PATH }, alias))
+      expect([subscribed.id, subscribed.modelId]).toEqual([alias, model])
+      expect(await prepared(subscribed, subscribed.modelId)).toMatchObject({
+        routeId: "claude-code",
+        url: `claude-code:${model}`
+      })
+    }
+  )
+
+  it("names Claude Code when a Claude alias has neither route", async () => {
+    const error = await Effect.runPromise(Effect.flip(resolve({ PATH: "/nonexistent" }, "opus")))
+    expect(error.message).toBe(
+      "Claude Code is not installed, so the claude-code:opus seat cannot run: install Claude Code (https://code.claude.com), then run `claude auth login`"
+    )
   })
 
   // The Agent SDK spawns `claude` with `--no-session-persistence` unless the

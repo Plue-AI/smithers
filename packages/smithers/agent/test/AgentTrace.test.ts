@@ -1777,8 +1777,8 @@ describe("Jev receipts", () => {
         variant: "terse",
         candidates: ["auth", "session"],
         decidedBy: "jev",
-        confidence: 0.7,
-        latencyMs: 60
+        latencyMs: 60,
+        backups: ["session"]
       }),
       {
         eventType: "control.agent.seat-routed",
@@ -1790,8 +1790,8 @@ describe("Jev receipts", () => {
           variant: "terse",
           candidates: ["auth", "session"],
           decidedBy: "jev",
-          confidence: 0.7,
-          latencyMs: 60
+          latencyMs: 60,
+          backups: ["session"]
         }
       }
     ],

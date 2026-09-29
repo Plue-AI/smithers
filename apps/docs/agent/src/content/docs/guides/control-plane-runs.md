@@ -81,25 +81,30 @@ in the [API reference](/reference/api/#agentsessionoptions). Two deserve a note:
 ## Seat routing
 
 A declared `model:` is a person's choice and always wins. A prompt flow with no
-`model:`, or with `model: auto`, runs on a seat Jev picks from the host's
-`SeatRouter.Catalog`:
+`model:`, or with `model: auto`, is routed by the routing graph over the seats
+the host's `SeatRouter.Catalog` offers:
 
 - The launch never asks Jev. It only checks that the host binds a catalog with
   at least one seat, and refuses with `LaunchFailed` whose cause is
   `{ seat: "auto", reason: "unconfigured" }` or `reason: "no_candidates"`. A
   host with no catalog refuses a flow with no `model:` as before.
-- The run asks once, at its start, and picks the seat and the system variant
-  in one reading. The decision is a sealed step keyed by the run, so a resumed
-  run keeps its seat and asks nothing.
+- The run asks once, at its start. Jev answers the graph's questions (phase,
+  size, clarity, binary success) and picks the system variant in one reading.
+  The run starts on the routed seat, with the seat's available backups as its
+  fallbacks. The decision is a sealed step keyed by the run, so a resumed run
+  keeps its route and asks nothing.
+- An interactive run does not fan out: it routes with `panel: false`, so a
+  panel pick starts on the merger with the merger's backups, and no panel is
+  recorded.
 - The variant's system text follows the host's own `system`.
-- The trail opens with `control.agent.seat-routed` and the
-  `control.agent.decision-settled` row of the `seat/route` reading. A declared
-  seat adds neither.
-- A judge that cannot answer fails the run as `SeatUnrouted`. No default seat
-  is ever picked.
+- The trail opens with `control.agent.seat-routed`, which carries the route's
+  `backups`, and the `control.agent.decision-settled` row of the
+  `seat/route` reading. A declared seat adds neither.
+- A judge that cannot answer, or a pick with no seat available here, fails the
+  run as `SeatUnrouted`. No default seat is ever picked.
 
-Approving such a flow approves a seat Jev picks from this host's catalog; the
-`seat-routed` row journals the candidates it picked from.
+Approving such a flow approves the seats the graph picks from this host's
+catalog; the `seat-routed` row journals the seats that were available.
 
 ## The approval gate
 

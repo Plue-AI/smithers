@@ -1,6 +1,6 @@
 /**
- * Jev picks the seat and the system variant in one call, and a declared seat
- * asks nothing.
+ * Jev answers the routing graph's edge questions and the system variant in
+ * one call, the graph picks the seats, and a declared seat asks nothing.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
@@ -20,11 +20,193 @@ import { describe, expect, it } from "vitest"
 import * as Seat from "../src/Seat.ts"
 import * as SeatRouter from "../src/SeatRouter.ts"
 
-const candidates: ReadonlyArray<SeatRouter.Candidate> = [
-  { id: "luna", description: "Cheap and fast; small, well-specified edits." },
-  { id: "sol", description: "Strong reasoning; multi-file changes." },
-  { id: "anthropic:claude-opus-5", description: "The strongest; long, high-risk work." }
+type Size = SeatRouter.Answers["size"]
+type Clarity = SeatRouter.Answers["clarity"]
+
+const everySeat = ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"] as const
+const phases = ["plan", "implement", "review", "ui", "tool", "other"] as const
+const sizes = ["trivial", "simple", "middle", "important"] as const
+const clarities = ["clear", "unknowns"] as const
+
+/**
+ * The maintainer's routing graph of 2026-09-28, one row per clause, read top
+ * down: the first row that matches picks. `*` matches anything.
+ */
+const graph: ReadonlyArray<
+  readonly [
+    phase: SeatRouter.Phase,
+    size: Size | "*",
+    clarity: Clarity | "*",
+    binary: boolean | "*",
+    pick: string
+  ]
+> = [
+  // Trivial plan: no plan; Sonnet researches only.
+  ["plan", "trivial", "*", "*", "sonnet"],
+  // Simple plan: Opus.
+  ["plan", "simple", "*", "*", "opus"],
+  // Middle plan: Fable.
+  ["plan", "middle", "*", "*", "fable"],
+  // Important/complex plan: Opus + Fable + Astra in parallel; Fable merges.
+  ["plan", "important", "*", "*", "panel"],
+  // Implementation: Fable for the ~1% most important/architected code.
+  ["implement", "important", "unknowns", "*", "fable"],
+  // Opus if unknown unknowns / design decisions / risk / importance.
+  ["implement", "*", "unknowns", "*", "opus"],
+  ["implement", "important", "*", "*", "opus"],
+  // Sonnet if the approach is clear. Writing code is never Luna.
+  ["implement", "*", "*", "*", "sonnet"],
+  // Review: Opus for simple; the panel for complex/important.
+  ["review", "important", "*", "*", "panel"],
+  ["review", "*", "*", "*", "opus"],
+  // UI: Opus.
+  ["ui", "*", "*", "*", "opus"],
+  // Binary, low-risk, tool-calling: Luna if trivial, Sonnet if it needs more intelligence.
+  ["tool", "trivial", "clear", true, "luna"],
+  ["tool", "*", "clear", true, "sonnet"],
+  // Unlisted: Opus.
+  ["tool", "*", "*", "*", "opus"],
+  ["other", "*", "*", "*", "opus"]
 ]
+
+const expected = (answers: SeatRouter.Answers): SeatRouter.Planned => {
+  const row = graph.find(([phase, size, clarity, binary]) =>
+    phase === answers.phase && (size === "*" || size === answers.size) &&
+    (clarity === "*" || clarity === answers.clarity) && (binary === "*" || binary === answers.binary)
+  )!
+  const pick = row[4]
+  return pick === "panel"
+    ? { seat: "fable", panel: { seats: ["opus", "fable", "astra"], merger: "fable" } }
+    : { seat: pick as SeatRouter.GraphSeat }
+}
+
+const everyAnswer: ReadonlyArray<SeatRouter.Answers> = phases.flatMap((phase) =>
+  sizes.flatMap((size) =>
+    clarities.flatMap((clarity) => [true, false].map((binary) => ({ phase, size, clarity, binary })))
+  )
+)
+
+const everySubset: ReadonlyArray<ReadonlyArray<string>> = Array.from(
+  { length: 2 ** everySeat.length },
+  (_, mask) => everySeat.filter((_, index) => (mask & (1 << index)) !== 0)
+)
+
+describe("SeatRouter.plan", () => {
+  it("routes all 96 answer combinations as the graph says", () => {
+    expect(everyAnswer).toHaveLength(6 * 4 * 2 * 2)
+    for (const answers of everyAnswer) {
+      expect({ answers, planned: SeatRouter.plan(answers) }).toEqual({ answers, planned: expected(answers) })
+    }
+  })
+
+  it("never writes code on Luna, and gives Luna only trivial binary work", () => {
+    for (const answers of everyAnswer) {
+      const { panel, seat } = SeatRouter.plan(answers)
+      const all = [seat, ...(panel?.seats ?? [])]
+      if (answers.phase === "implement") expect(all).not.toContain("luna")
+      if (all.includes("luna")) {
+        expect(answers).toMatchObject({ phase: "tool", size: "trivial", clarity: "clear", binary: true })
+      }
+      if (panel !== undefined) expect(panel.merger).toBe(seat)
+    }
+  })
+})
+
+describe("SeatRouter.backupsOf", () => {
+  it("fails Fable over to Astra, Opus to Sol (Kimi then Sol for UI), Kimi to none, the rest to Kimi", () => {
+    expect(SeatRouter.backupsOf("fable", "plan")).toEqual(["astra"])
+    expect(SeatRouter.backupsOf("opus", "implement")).toEqual(["sol"])
+    expect(SeatRouter.backupsOf("opus", "ui")).toEqual(["kimi", "sol"])
+    expect(SeatRouter.backupsOf("kimi", "other")).toEqual([])
+    for (const seat of ["sonnet", "luna", "sol", "astra"] as const) {
+      expect(SeatRouter.backupsOf(seat, "tool")).toEqual(["kimi"])
+    }
+  })
+
+  it("never fails a seat over to itself", () => {
+    for (const phase of phases) {
+      for (const seat of SeatRouter.seats) expect(SeatRouter.backupsOf(seat, phase)).not.toContain(seat)
+    }
+  })
+})
+
+describe("SeatRouter.fit", () => {
+  it("keeps only available seats, promoting the first available backup", () => {
+    for (const answers of everyAnswer) {
+      const planned = SeatRouter.plan(answers)
+      for (const available of everySubset) {
+        const routed = SeatRouter.fit(planned, answers.phase, available)
+        const chain = [planned.seat, ...SeatRouter.backupsOf(planned.seat, answers.phase)]
+          .filter((id) => available.includes(id))
+        if (chain.length === 0) {
+          expect(routed).toBeUndefined()
+          continue
+        }
+        expect(routed).toBeDefined()
+        // Every chain that lands on `seat` keeps its backups, in panel order, once each.
+        const landing = (seat: string) => [
+          ...new Set(
+            (planned.panel?.seats ?? [])
+              .map((each) =>
+                [each, ...SeatRouter.backupsOf(each, answers.phase)].filter((id) => available.includes(id))
+              )
+              .filter((landed) => landed[0] === seat)
+              .flatMap((landed) => landed.slice(1))
+          )
+        ]
+        const landed = new Set(
+          (planned.panel?.seats ?? []).flatMap((each) =>
+            [each, ...SeatRouter.backupsOf(each, answers.phase)].filter((id) => available.includes(id)).slice(0, 1)
+          )
+        )
+        if (planned.panel !== undefined && landed.size === 1) {
+          // A panel reduced to one member is that member's chain.
+          expect(routed).toEqual({ seat: chain[0], backups: landing(chain[0]!) })
+          continue
+        }
+        expect(routed!.seat).toBe(chain[0])
+        expect(routed!.backups).toEqual(chain.slice(1))
+        expect(routed!.backups).not.toContain(routed!.seat)
+        if (routed!.panel === undefined) continue
+        const members = routed!.panel.seats.map((member) => member.seat)
+        expect(routed!.panel.merger).toBe(routed!.seat)
+        expect(new Set(members).size).toBe(members.length)
+        expect(members.length).toBeGreaterThanOrEqual(2)
+        for (const member of routed!.panel.seats) {
+          expect([member.seat, ...member.backups].every((id) => available.includes(id))).toBe(true)
+          // Its landing chains' backups, less every seat on the panel.
+          expect(member.backups).toEqual(landing(member.seat).filter((id) => !members.includes(id)))
+        }
+      }
+    }
+  })
+
+  it("routes a panel over every seat, and a panel reduced to one member to that member's chain", () => {
+    const planned = SeatRouter.plan({ phase: "plan", size: "important", clarity: "clear", binary: false })
+    expect(SeatRouter.fit(planned, "plan", everySeat)).toEqual({
+      seat: "fable",
+      backups: ["astra"],
+      panel: {
+        seats: [
+          { seat: "opus", backups: ["sol"] },
+          // Astra answers on the panel, so Fable does not fail over to it.
+          { seat: "fable", backups: [] },
+          { seat: "astra", backups: ["kimi"] }
+        ],
+        merger: "fable"
+      }
+    })
+    // Fable and Astra both land on Astra; with Opus gone the panel is Astra alone, with Astra's backup.
+    expect(SeatRouter.fit(planned, "plan", ["astra"])).toEqual({ seat: "astra", backups: [] })
+    expect(SeatRouter.fit(planned, "plan", ["astra", "kimi"])).toEqual({ seat: "astra", backups: ["kimi"] })
+    // With Fable gone, its chain lands on Astra; the Astra member keeps Astra's own backup, Kimi.
+    expect(SeatRouter.fit(planned, "plan", ["opus", "astra", "kimi"])).toEqual({
+      seat: "astra",
+      backups: [],
+      panel: { seats: [{ seat: "opus", backups: [] }, { seat: "astra", backups: ["kimi"] }], merger: "astra" }
+    })
+  })
+})
 
 const state: SeatRouter.State = {
   task: "Rename the helper.",
@@ -34,20 +216,25 @@ const state: SeatRouter.State = {
 }
 
 const catalog = (
-  offered: ReadonlyArray<SeatRouter.Candidate>,
+  offered: ReadonlyArray<string>,
   variants: ReadonlyArray<SeatRouter.Variant> = SeatRouter.defaultVariants
 ) => SeatRouter.layer({ candidates: Effect.succeed(offered), variants })
 
+/** A clear, simple implementation whose success is not binary: Sonnet's. */
+const edges: Readonly<Record<string, Evaluator.ScriptedAnswer>> = {
+  phase: { choice: "implement" },
+  size: { choice: "simple" },
+  clarity: { choice: "clear" },
+  binary: { probability: 0.1 }
+}
+
 const answering = (
   requests: Array<Evaluator.Request>,
-  answers: Readonly<Record<string, Evaluator.ScriptedAnswer>> = {
-    seat: { choice: "sol" },
-    system: { choice: "investigate" }
-  }
+  answers: Readonly<Record<string, Evaluator.ScriptedAnswer>> = { ...edges, system: { choice: "investigate" } }
 ) =>
   Evaluator.layerScripted((request) => {
     requests.push(request)
-    return answers
+    return Object.fromEntries(Object.entries(answers).filter(([id]) => id in request.questions))
   })
 
 const throwing = Evaluator.layerScripted(() => {
@@ -65,135 +252,138 @@ const failure = (exit: Exit.Exit<SeatRouter.Decision, Seat.SeatUnrouted>) => {
 }
 
 describe("SeatRouter.route", () => {
-  it("asks Jev for the seat and the variant in one call", async () => {
+  it("asks Jev the edge questions and the variant in one call", async () => {
     const requests: Array<Evaluator.Request> = []
     const long = "x".repeat(20_000)
     const exit = await run(
-      auto({ state: { ...state, task: long, parent: { seat: "sol", flow: "coordinator" } } }).pipe(
+      auto({ state: { ...state, task: long } }).pipe(
         Effect.provide(answering(requests))
       ),
-      catalog(candidates)
+      catalog(everySeat)
     )
     expect(requests).toHaveLength(1)
     const [request] = requests
-    expect(Object.keys(request!.questions)).toEqual(["seat", "system"])
-    expect(Object.keys((request!.questions.seat as Evaluator.ChoiceQuestion).criteria)).toEqual(
-      candidates.map((candidate) => candidate.id)
-    )
-    expect(request!.questions.seat!.instructions).toBe(SeatRouter.seatInstructions)
-    const sent = request!.state as { readonly task: string; readonly parent: unknown }
+    expect(Object.keys(request!.questions)).toEqual(["phase", "size", "clarity", "binary", "system"])
+    expect(request!.questions.system!.instructions).toBe(SeatRouter.systemInstructions)
+    // `route` sends the task as `Judgement.task` carries it; callers pass it whole.
+    const sent = request!.state as { readonly task: string }
     expect(sent.task.length).toBeLessThan(long.length)
-    expect(sent.parent).toEqual({ seat: "sol", flow: "coordinator" })
     expect(Exit.isSuccess(exit)).toBe(true)
     const decision = Exit.isSuccess(exit) ? exit.value : undefined
     expect(decision).toMatchObject({
-      seat: "sol",
+      seat: "sonnet",
+      backups: ["kimi"],
       variant: "investigate",
       decidedBy: "jev",
-      candidates: ["luna", "sol", "anthropic:claude-opus-5"],
+      answers: { phase: "implement", size: "simple", clarity: "clear", binary: false },
+      candidates: [...everySeat],
       asked: {
         classifier: "seat/route",
-        digest: SeatRouter.classifierFor(candidates, SeatRouter.defaultVariants).digest
+        digest: SeatRouter.classifierFor(SeatRouter.defaultVariants, false).digest
       }
     })
-    expect(decision).not.toHaveProperty("confidence")
+    expect(decision).not.toHaveProperty("panel")
     expect(Schema.decodeUnknownSync(SeatRouter.DecisionSchema)(decision)).toEqual(decision)
   })
 
-  it("carries the provider's confidence in the seat and its usage", async () => {
-    const provider = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
-      evaluate: () =>
-        Effect.succeed({
-          answers: {
-            seat: { type: "choice", choice: "luna" },
-            system: { type: "choice", choice: "change" }
-          },
-          confidence: { seat: 0.62 },
-          usage: { inputTokens: 40, outputTokens: 2 },
-          latencyMs: 1
-        })
-    }))
-    const exit = await run(auto().pipe(Effect.provide(provider)), catalog(candidates))
-    expect(Exit.isSuccess(exit) && exit.value).toMatchObject({
-      seat: "luna",
-      variant: "change",
-      confidence: 0.62,
-      asked: { usage: { inputTokens: 40, outputTokens: 2 } }
+  it("does not ask a pinned phase, and routes a panel", async () => {
+    const requests: Array<Evaluator.Request> = []
+    const exit = await run(
+      auto({ phase: "review" }).pipe(
+        Effect.provide(answering(requests, { ...edges, size: { choice: "important" }, system: { choice: "review" } }))
+      ),
+      catalog(everySeat)
+    )
+    expect(Object.keys(requests[0]!.questions)).toEqual(["size", "clarity", "binary", "system"])
+    const decision = Exit.isSuccess(exit) ? exit.value : undefined
+    expect(decision).toMatchObject({
+      seat: "fable",
+      backups: ["astra"],
+      panel: {
+        seats: [
+          { seat: "opus", backups: ["sol"] },
+          { seat: "fable", backups: [] },
+          { seat: "astra", backups: ["kimi"] }
+        ],
+        merger: "fable"
+      },
+      variant: "review",
+      answers: { phase: "review", size: "important" }
     })
+    expect(Schema.decodeUnknownSync(SeatRouter.DecisionSchema)(decision)).toEqual(decision)
   })
 
-  it("asks only for the seat over one variant or none", async () => {
+  it("routes a caller that does not fan out to the panel's merger alone", async () => {
+    const exit = await run(
+      auto({ phase: "review", panel: false }).pipe(
+        Effect.provide(answering([], { ...edges, size: { choice: "important" }, system: { choice: "review" } }))
+      ),
+      catalog(everySeat)
+    )
+    const decision = Exit.isSuccess(exit) ? exit.value : undefined
+    expect(decision).toMatchObject({
+      seat: "fable",
+      backups: ["astra"],
+      answers: { phase: "review", size: "important" }
+    })
+    expect(decision).not.toHaveProperty("panel")
+    expect(SeatRouter.events(decision!, { scope: "s", modelId: "m" })[0]).not.toHaveProperty("panel")
+  })
+
+  it("asks no variant over one variant or none", async () => {
     for (const [variants, variant] of [[[SeatRouter.defaultVariants[0]!], "change"], [[], null]] as const) {
       const requests: Array<Evaluator.Request> = []
-      const exit = await run(
-        auto().pipe(Effect.provide(answering(requests, { seat: { choice: "luna" } }))),
-        catalog(candidates, variants)
-      )
-      expect(requests.map((request) => Object.keys(request.questions))).toEqual([["seat"]])
-      expect(Exit.isSuccess(exit) && exit.value).toMatchObject({ seat: "luna", variant, decidedBy: "jev" })
+      const exit = await run(auto().pipe(Effect.provide(answering(requests))), catalog(everySeat, variants))
+      expect(requests.map((request) => Object.keys(request.questions))).toEqual([
+        ["phase", "size", "clarity", "binary"]
+      ])
+      expect(Exit.isSuccess(exit) && exit.value).toMatchObject({ seat: "sonnet", variant, decidedBy: "jev" })
     }
+  })
+
+  it("starts on the first available backup when the graph's seat is unavailable", async () => {
+    const exit = await run(
+      auto().pipe(
+        Effect.provide(answering([], { ...edges, clarity: { choice: "unknowns" }, system: { choice: "change" } }))
+      ),
+      catalog(["sol", "kimi"])
+    )
+    expect(Exit.isSuccess(exit) && exit.value).toMatchObject({ seat: "sol", backups: [], candidates: ["sol", "kimi"] })
   })
 
   it("keeps a declared seat and asks nothing", async () => {
     const exit = await run(
       SeatRouter.route({ declared: "anthropic:claude-sonnet-5", state }).pipe(Effect.provide(throwing)),
-      catalog(candidates)
+      catalog(everySeat)
     )
     expect(Exit.isSuccess(exit) && exit.value).toEqual({
       seat: "anthropic:claude-sonnet-5",
+      backups: [],
       variant: null,
       decidedBy: "declared",
+      answers: null,
       latencyMs: 0,
       candidates: [],
       asked: null
     })
   })
 
-  it("takes the only candidate and asks nothing when there is no variant to choose", async () => {
-    for (const [variants, variant] of [[[], null], [[SeatRouter.defaultVariants[3]!], "review"]] as const) {
-      const exit = await run(auto().pipe(Effect.provide(throwing)), catalog([candidates[0]!], variants))
-      expect(Exit.isSuccess(exit) && exit.value).toEqual({
-        seat: "luna",
-        variant,
-        decidedBy: "only",
-        latencyMs: 0,
-        candidates: ["luna"],
-        asked: null
-      })
-    }
-  })
-
-  it("takes the only candidate and asks Jev the variant alone", async () => {
-    const requests: Array<Evaluator.Request> = []
-    const exit = await run(
-      auto().pipe(Effect.provide(answering(requests, { system: { choice: "investigate" } }))),
-      catalog([candidates[0]!])
-    )
-    expect(Object.keys(requests[0]!.questions)).toEqual(["system"])
-    const decision = Exit.isSuccess(exit) ? exit.value : undefined
-    expect(decision).toMatchObject({ seat: "luna", variant: "investigate", decidedBy: "only", candidates: ["luna"] })
-    expect(decision?.confidence).toBeUndefined()
-    expect(SeatRouter.events(decision!, { scope: "s", modelId: "m" }).map((event) => event._tag)).toEqual([
-      "seat-routed",
-      "decision-settled"
-    ])
-  })
-
-  it("refuses an empty catalog, one too long to ask, and one it cannot list", async () => {
-    const many = Array.from({ length: 256 }, (_, index) => ({ id: `seat-${index}`, description: `Seat ${index}.` }))
+  it("refuses an empty catalog, one without the graph's seats, and one it cannot list", async () => {
     const cases = [
-      [catalog([]), "no_candidates"],
-      [catalog(many), "too_many_candidates"],
+      [catalog([]), throwing, "no_candidates"],
+      // Sonnet fails over to Kimi only; Luna runs neither.
+      [catalog(["luna"]), answering([]), "no_candidates"],
       [
         SeatRouter.layer({
           candidates: Effect.fail(new Seat.SeatUnresolved({ seat: "auto", message: "No seat resolver is configured" })),
           variants: []
         }),
+        throwing,
         "unconfigured"
       ]
     ] as const
-    for (const [layer, reason] of cases) {
-      const error = failure(await run(auto().pipe(Effect.provide(throwing)), layer))
+    for (const [layer, judge, reason] of cases) {
+      const error = failure(await run(auto().pipe(Effect.provide(judge)), layer))
       expect(error).toBeInstanceOf(Seat.SeatUnrouted)
       expect(error).toMatchObject({ seat: "auto", reason })
     }
@@ -203,11 +393,11 @@ describe("SeatRouter.route", () => {
     const cases = [
       [Evaluator.layerUnavailable(), "unreachable"],
       [Layer.empty, "unconfigured"],
-      [answering([], { seat: { choice: "gpt-9" }, system: { choice: "change" } }), "invalid_answer"]
+      [answering([], { ...edges, phase: { choice: "gpt-9" }, system: { choice: "change" } }), "invalid_answer"]
     ] as const
     for (const [judge, reason] of cases) {
       const error = failure(
-        await run(auto().pipe(Effect.provide(judge as Layer.Layer<never>)), catalog(candidates))
+        await run(auto().pipe(Effect.provide(judge as Layer.Layer<never>)), catalog(everySeat))
       )
       expect(error).toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnrouted", seat: "auto", reason })
     }
@@ -215,12 +405,13 @@ describe("SeatRouter.route", () => {
 })
 
 describe("SeatRouter.classifierFor", () => {
-  it("is stable for one catalog and changes with a description", () => {
-    const first = SeatRouter.classifierFor(candidates, SeatRouter.defaultVariants)
-    expect(SeatRouter.classifierFor([...candidates], [...SeatRouter.defaultVariants])).toBe(first)
+  it("is stable for one set of variants and pin, and changes with either", () => {
+    const first = SeatRouter.classifierFor(SeatRouter.defaultVariants, false)
+    expect(SeatRouter.classifierFor([...SeatRouter.defaultVariants], false)).toBe(first)
+    expect(SeatRouter.classifierFor(SeatRouter.defaultVariants, true).digest).not.toBe(first.digest)
     const edited = SeatRouter.classifierFor(
-      [{ ...candidates[0]!, description: "Cheapest." }, ...candidates.slice(1)],
-      SeatRouter.defaultVariants
+      [{ ...SeatRouter.defaultVariants[0]!, description: "Edit files." }, ...SeatRouter.defaultVariants.slice(1)],
+      false
     )
     expect(edited.digest).not.toBe(first.digest)
     expect(first.id).toBe("seat/route")
@@ -266,24 +457,29 @@ describe("SeatRouter.defaultVariants", () => {
 })
 
 describe("SeatRouter.events", () => {
-  const at = { scope: "session-1", modelId: "sol-1" }
+  const at = { scope: "session-1", modelId: "fable-1" }
 
-  it("journals a Jev pick with its reading, the only seat alone, and a declared seat not at all", async () => {
+  it("journals a route with its backups, panel and reading, and a declared seat not at all", async () => {
     const exit = await run(
       auto().pipe(
         Effect.provide(
           Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
             evaluate: () =>
               Effect.succeed({
-                answers: { seat: { type: "choice", choice: "sol" }, system: { type: "choice", choice: "change" } },
-                confidence: { seat: 0.9 },
+                answers: {
+                  phase: { type: "choice", choice: "plan" },
+                  size: { type: "choice", choice: "important" },
+                  clarity: { type: "choice", choice: "unknowns" },
+                  binary: { type: "boolean", probability: 0.2 },
+                  system: { type: "choice", choice: "investigate" }
+                },
                 usage: { inputTokens: 10, outputTokens: 1 },
                 latencyMs: 0
               })
           }))
         )
       ),
-      catalog(candidates)
+      catalog(["opus", "fable", "sol"])
     )
     const decision = Exit.isSuccess(exit) ? exit.value : undefined
     const [routed, settled, ...rest] = SeatRouter.events(decision!, at)
@@ -292,13 +488,21 @@ describe("SeatRouter.events", () => {
     expect(routed).toMatchObject({
       scope: "session-1",
       declared: "auto",
-      seat: "sol",
-      modelId: "sol-1",
-      variant: "change",
+      seat: "fable",
+      modelId: "fable-1",
+      variant: "investigate",
       decidedBy: "jev",
-      confidence: 0.9,
-      candidates: ["luna", "sol", "anthropic:claude-opus-5"]
+      candidates: ["opus", "fable", "sol"],
+      panel: { seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: [] }], merger: "fable" }
     })
+    expect(routed).not.toHaveProperty("backups")
+    expect(
+      Schema.decodeUnknownSync(AgentEvent.SeatRouted)(
+        Schema.encodeSync(AgentEvent.SeatRouted)(
+          routed as AgentEvent.SeatRouted
+        )
+      )
+    ).toEqual(routed)
     expect(settled).toBeInstanceOf(AgentEvent.DecisionSettled)
     expect(settled).toMatchObject({
       scope: "session-1",
@@ -310,16 +514,17 @@ describe("SeatRouter.events", () => {
       latencyMs: decision!.latencyMs
     })
 
-    const only = SeatRouter.events(
-      { seat: "luna", variant: null, decidedBy: "only", latencyMs: 0, candidates: ["luna"], asked: null },
-      at
-    )
-    expect(only).toHaveLength(1)
-    expect(only[0]).toMatchObject({ decidedBy: "only", seat: "luna" })
-    expect(only[0]).not.toHaveProperty("confidence")
-
     expect(SeatRouter.events(
-      { seat: "sol", variant: null, decidedBy: "declared", latencyMs: 0, candidates: [], asked: null },
+      {
+        seat: "sol",
+        backups: [],
+        variant: null,
+        decidedBy: "declared",
+        answers: null,
+        latencyMs: 0,
+        candidates: [],
+        asked: null
+      },
       at
     )).toEqual([])
   })
@@ -363,7 +568,7 @@ describe("SeatRouter.durable", () => {
           )
         )
       ),
-      Layer.provideMerge(Layer.mergeAll(catalog(candidates), judge)),
+      Layer.provideMerge(Layer.mergeAll(catalog(everySeat), judge)),
       Layer.provideMerge(Action.layerImplementations)
     )
 
@@ -383,7 +588,7 @@ describe("SeatRouter.durable", () => {
     await host.dispose()
     expect(requests).toHaveLength(1)
     expect(second).toEqual(first)
-    expect(first).toMatchObject({ seat: "sol", variant: "investigate", decidedBy: "jev" })
+    expect(first).toMatchObject({ seat: "sonnet", variant: "investigate", decidedBy: "jev" })
   })
 
   it("re-asks once when the process dies before Jev's answer is recorded", async () => {
@@ -398,7 +603,13 @@ describe("SeatRouter.durable", () => {
           return calls === 1
             ? Effect.andThen(Deferred.succeed(answered, undefined), Effect.never)
             : Effect.succeed({
-              answers: { seat: { type: "choice", choice: "sol" }, system: { type: "choice", choice: "change" } },
+              answers: {
+                phase: { type: "choice", choice: "implement" },
+                size: { type: "choice", choice: "simple" },
+                clarity: { type: "choice", choice: "clear" },
+                binary: { type: "boolean", probability: 0.1 },
+                system: { type: "choice", choice: "change" }
+              },
               latencyMs: 0
             })
         })
@@ -432,7 +643,7 @@ describe("SeatRouter.durable", () => {
       const resumed = await Effect.runPromise(execute.pipe(Effect.provide(incarnation("second")), Effect.scoped))
       const replayed = await Effect.runPromise(execute.pipe(Effect.provide(incarnation("third")), Effect.scoped))
       expect(calls).toBe(2)
-      expect(resumed).toEqual({ seat: "sol", variant: "change", decidedBy: "jev" })
+      expect(resumed).toEqual({ seat: "sonnet", variant: "change", decidedBy: "jev" })
       expect(replayed).toEqual(resumed)
     } finally {
       rmSync(directory, { recursive: true, force: true })

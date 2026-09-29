@@ -59,9 +59,10 @@ Interactive chat prefers `cerebras:qwen-3.8-27b` with low reasoning effort
 when `CEREBRAS_API_KEY` is configured, falling back to an available provider.
 `--model` or `SMITHERS_TUI_SEAT` overrides chat. Background workers use the
 first available non-Cerebras seat (usually the ChatGPT subscription from
-`codex login`); `SMITHERS_TUI_WORKER_SEAT` overrides it. Workers try the other
-detected non-Cerebras seats after a provider limit; `SMITHERS_TUI_WORKER_SEATS=a,b`
-sets that fallback order. The picker lists only
+`codex login`); `SMITHERS_TUI_WORKER_SEAT` overrides it. After a provider
+failure a worker tries its routing graph's backups that run here;
+`SMITHERS_TUI_WORKER_SEATS=a,b` sets that fallback order instead, for routed
+and resumed workers too. The picker lists only
 providers this machine can reach. Print mode answers one request directly.
 
 Edits, shell commands, and network calls run without asking. `--approve ask`
@@ -269,9 +270,16 @@ its form, a choice among `options` or free text. A worker can delegate children 
 depth 4 returns `AgentDepthExceeded`. Waiting releases the worker's pool slot.
 Delegation takes `{id, title, prompt}`, persists before launch, and returns a
 `requested` receipt immediately. Reusing the id deduplicates the request.
-A worker with no chosen model is routed by Jev to a seat and system-prompt
-variant; retry and restart keep both, and a seat picked in the retry picker drops
-the variant. A tab's one-line description comes from the seat the worker runs
+A worker with no chosen model is routed by Jev through the routing graph to a
+seat, its backups, and a system-prompt variant; retry and restart keep the
+route, and a seat picked in the retry picker drops it. A worker routed to a
+panel (an important plan or review) runs Opus, Fable, and Astra as parallel
+workers, then Fable merges their answers; a member that fails is left out.
+Members only answer: they cannot publish, delegate, wait or ask. Only the
+merger's run shows in the tab, and steering or taking over waits until it
+starts. A member waits out its own quota park inside the panel while the tab
+keeps its seat; a relaunch runs only the members that have not answered. Each
+run gets an equal share of the worker's token cap. A tab's one-line description comes from the seat the worker runs
 on, once routed. `r` or `/retry` resumes a failed, stopped, or parked tab on its
 requested model.
 Up to six workers can run at once (`SMITHERS_TUI_WORKERS` overrides the pool);

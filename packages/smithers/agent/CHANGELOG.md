@@ -13,6 +13,28 @@
 
 ### Changed
 
+- **Breaking:** `Seat.auto` routes by the maintainer's routing graph. Jev
+  answers phase, size, clarity and binary success (plus the variant) in one
+  call, and `SeatRouter.plan`, `backupsOf` and `fit` pick the seat, its
+  backups and, for important plans and reviews, an Opus/Fable/Astra panel
+  merged by Fable. `SeatRouter.Service.candidates` is now the available seat
+  ids; `SeatRouter.Candidate`, `seatInstructions`, `maxCandidates`,
+  `State.parent`, the `only` decision and `too_many_candidates` are removed.
+  `Decision` records `answers`, `backups` and `panel`; `SeatRouted` gains
+  optional `backups` and `panel`. `route` takes `panel: false` for a caller
+  that does not fan out, which `AgentSession` passes. `AgentAction` takes an
+  optional `phase`, runs a panel's members in parallel and then the merger on
+  the survivors' answers (`SeatRouter.mergePrompt`), and fails over along the
+  route's backups. `fit` gives panel members that land on one seat the union
+  of their backups, less the seats on the panel, and a panel reduced to one
+  member is that member's chain. One member's quota park still suspends the whole
+  execution, so its siblings wait for that reset.
+- The recorded `agent/route-seat` decision moved with `DecisionSchema`, which
+  its key folds in. A run recorded before this change asks Jev again when it
+  resumes and may route to a different seat.
+- `AgentAction`'s recorded quota park is named per session
+  (`agent/quota-park/<session>`), so parallel panel members park independently.
+  A run parked before this change classifies its refusal again when it resumes.
 - The sealed model step key moved to `key1_71b2f391…` because
   `@smthrs/capability`'s `Action` union gained `memory:read` and
   `memory:write`. Runs recorded under the old key re-dispatch their model calls.

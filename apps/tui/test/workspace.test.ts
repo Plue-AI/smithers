@@ -50,7 +50,10 @@ const setup = (
   const records: Array<Session.Record> = []
   /** A pending Jev pick per `auto` launch; the fake host reports it as `Host.run` does. */
   const routers: Array<
-    { resolve: (routed: { seat: string; variant: string | null }) => void; reject: (error: Seat.SeatUnrouted) => void }
+    {
+      resolve: (routed: { seat: string; variant: string | null; backups?: ReadonlyArray<string> }) => void
+      reject: (error: Seat.SeatUnrouted) => void
+    }
   > = []
   /** A pending description per ask, with the seat it was asked of. */
   const descriptions: Array<{ seat: string; resolve: (text: string) => void }> = []
@@ -66,10 +69,10 @@ const setup = (
       const done = new Promise<Host.Outcome>((resolve) => finishes.push(resolve))
       const finish = finishes.at(-1)!
       if (input.seat === Seat.auto) {
-        void new Promise<{ seat: string; variant: string | null }>((resolve, reject) =>
+        void new Promise<{ seat: string; variant: string | null; backups?: ReadonlyArray<string> }>((resolve, reject) =>
           routers.push({ resolve, reject })
         ).then(
-          (routed) => input.onSeat?.(routed),
+          (routed) => input.onSeat?.({ backups: [], ...routed }),
           (error: Seat.SeatUnrouted) => finish({ _tag: "failed", message: error.message, detail: "", error })
         )
       }
@@ -156,14 +159,15 @@ describe("custom agents", () => {
     f.loads[0]!.resolve(body())
     await tick()
     const [input] = f.inputs
-    expect(input?.seat).toBe("anthropic:claude-opus-5-5")
+    // A Claude alias stays an alias, so the seat resolver picks its route.
+    expect(input?.seat).toBe("opus")
     expect(input?.role).toBe("worker")
     expect(input?.agent?.name).toBe("review")
     expect(input?.agent?.system).toStartWith("Review the change.")
     expect(input?.agent?.envelope).toEqual(["fs:read:**"])
     expect(f.workspace.snapshot().tabs[0]).toMatchObject({
       status: "running",
-      seat: "anthropic:claude-opus-5-5",
+      seat: "opus",
       agent: { name: "review", digest: "a".repeat(64) }
     })
     f.finishes[0]!({ _tag: "done", answer: "approve" })
@@ -333,7 +337,7 @@ describe("routed workers", () => {
     await tick()
     f.loads[0]!.resolve(body())
     await tick()
-    expect(seats(f)).toEqual([Models.delegateModels.sol, "anthropic:claude-opus-5-5"])
+    expect(seats(f)).toEqual([Models.delegateModels.sol, "opus"])
     expect(f.workspace.snapshot().tabs.some((tab) => tab.seat === Seat.auto)).toBe(false)
     expect(f.routers).toHaveLength(0)
   })
@@ -418,6 +422,25 @@ describe("routed workers", () => {
     expect(second.routers).toHaveLength(0)
   })
 
+  it("a routed UI worker restored after restart keeps its route's backups", async () => {
+    const first = setup({ routes: true })
+    first.workspace.request(plain)
+    await tick()
+    // The graph fails a UI task's Opus over to Kimi, then Sol.
+    first.routers[0]!.resolve({ seat: "opus", variant: "change", backups: ["kimi", "sol"] })
+    await tick()
+    const saved = first.records.flatMap((record) => record.type === "tab" ? [record.tab] : []).at(-1)!
+    expect(saved).toMatchObject({ seat: "opus", backups: ["kimi", "sol"] })
+    const second = setup({ routes: true, cwd: first.host.cwd, restored: { tabs: [saved], panels: [] } })
+    await tick()
+    await tick()
+    expect(second.inputs.map(({ route, seat }) => ({ seat, route }))).toEqual([{
+      seat: "opus",
+      route: { backups: ["kimi", "sol"] }
+    }])
+    expect(second.routers).toHaveLength(0)
+  })
+
   it("a retry on a seat the user picks drops the routed variant", async () => {
     const f = setup({ routes: true })
     f.workspace.request(plain)
@@ -430,7 +453,9 @@ describe("routed workers", () => {
     await tick()
     expect(f.inputs[1]).toMatchObject({ seat: Models.delegateModels.astra })
     expect(f.inputs[1]?.variant).toBeUndefined()
+    expect(f.inputs[1]?.route).toBeUndefined()
     expect(f.workspace.snapshot().tabs[0]?.variant).toBeUndefined()
+    expect(f.workspace.snapshot().tabs[0]?.backups).toBeUndefined()
   })
 
   it("a routed worker is described by its routed seat", async () => {

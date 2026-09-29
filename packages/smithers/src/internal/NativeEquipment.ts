@@ -96,7 +96,8 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
  *
  * A seat with no separator is a bare model id on the Anthropic route, which is
  * the one provider convention this host assumes. A `claude-code:<model>` seat
- * runs on the user's own signed-in Claude Code (see `ClaudeCode`).
+ * runs on the user's own signed-in Claude Code (see `ClaudeCode`), and so does
+ * a Claude alias (`opus`, `sonnet`, `fable`) when no Anthropic key is set.
  *
  * `SMITHERS_OPENAI_AUTH=chatgpt` swaps the `openai` provider's credential source
  * from `OPENAI_API_KEY` to the codex CLI's ChatGPT session
@@ -109,20 +110,32 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
 export const seatResolver = (
   environment: Readonly<Record<string, string | undefined>>,
   executor: RequestExecutor.RequestExecutor
-): SeatResolver.Service => withAliases(providerSeats(environment, executor))
+): SeatResolver.Service => withAliases(providerSeats(environment, executor), hostOf(environment))
 
 /**
- * Resolves a seat alias (`luna`, `sol`, ...) as the `provider:modelId` it
+ * The seat an alias runs as on `host`: the `provider:modelId` it names, except
+ * that a Claude alias runs on Claude Code (`claude-code:<alias>`) when no
+ * Anthropic key is set. Anything else is returned unchanged.
+ */
+const aliasSeat = (declared: string, host: Providers.Host): string => {
+  const seat = Providers.expandSeat(declared)
+  return seat !== declared && seat.startsWith("anthropic:") && credential("anthropic", host)._tag === "Refused"
+    ? `claude-code:${declared}`
+    : seat
+}
+
+/**
+ * Resolves a seat alias (`luna`, `sol`, ...) as the seat {@link aliasSeat}
  * names, keeping the declared id on the journaled seat, and refuses Jev, which
  * answers classifier questions and never runs an agent turn.
  */
-const withAliases = (base: SeatResolver.Service): SeatResolver.Service =>
+const withAliases = (base: SeatResolver.Service, host: Providers.Host): SeatResolver.Service =>
   SeatResolver.make({
     resolve: (declared) => {
       if (Providers.isDecisionSeat(declared)) {
         return Effect.fail(new Seat.SeatUnresolved({ seat: declared, message: Providers.seatRefusal(declared)! }))
       }
-      const seat = Providers.expandSeat(declared)
+      const seat = aliasSeat(declared, host)
       return seat === declared
         ? base.resolve(seat)
         : base.resolve(seat).pipe(Effect.map((resolved) => Seat.make({ ...resolved, id: declared })))
@@ -464,27 +477,18 @@ export const layerSeatResolver = (
   )
 
 /**
- * The seats Jev may route an `auto` run to on this host: every alias whose
- * provider {@link seatResolver} holds a credential for, once per model, then
- * the `claude-code` seats when Claude Code serves a subscription here, and
- * never Jev. A description names the model, never a credential.
+ * The routing graph's seats (`SeatRouter.seats`) an `auto` run may be routed
+ * to on this host: each whose {@link aliasSeat} {@link seatResolver} holds a
+ * credential for, so a Claude seat is offered on an Anthropic key or on a
+ * Claude subscription signed in to Claude Code.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const seatCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candidate> => [
-  ...aliasCandidates(host),
-  ...(credential("claude-code", host)._tag === "Refused" ? [] : Providers.claudeCodeSeats).map((id) => ({
-    id,
-    description: `${Providers.seatDescriptions[Seat.modelIdOf(id)] ?? Seat.modelIdOf(id)}, on Claude Code`
-  }))
-]
-
-/** The alias half of {@link seatCandidates}, which never runs Claude Code to ask. */
-const aliasCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candidate> => {
+export const seatCandidates = (host: Providers.Host): ReadonlyArray<string> => {
   const pool = accountPoolOf(host.environment)
-  const offered = Object.entries(Providers.seatAliases).filter(([, seat]) => {
-    if (Providers.isDecisionSeat(seat)) return false
+  return SeatRouter.seats.filter((alias) => {
+    const seat = aliasSeat(alias, host)
     const provider = seat.slice(0, seat.indexOf(":"))
     // A route the pool is configured for is offered: the pool is asked which
     // routes have accounts when the seat resolves.
@@ -492,9 +496,6 @@ const aliasCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candida
     if (pool !== undefined && route !== undefined) return pool.routes.includes(route)
     return credential(provider, host)._tag !== "Refused"
   })
-  return offered
-    .filter(([, seat], index) => offered.findIndex(([, other]) => other === seat) === index)
-    .map(([alias]) => ({ id: alias, description: Providers.seatDescriptions[alias]! }))
 }
 
 /**

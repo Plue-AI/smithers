@@ -27,7 +27,6 @@ import { FlowEngine } from "@smthrs/engine"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
-import * as Judgement from "@smthrs/harness/Judgement"
 import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
@@ -42,7 +41,7 @@ import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
 import * as NativeSearch from "@smthrs/std/NativeSearch"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime, Result, Schema, Scope, Stream } from "effect"
 import * as ServiceContext from "effect/Context"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
@@ -54,7 +53,7 @@ import type * as Agents from "./agents.ts"
 import * as Approvals from "./approvals.ts"
 import * as Changes from "./changes.ts"
 import * as Context from "./context.ts"
-import { aliases, delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
+import { delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
@@ -79,10 +78,20 @@ export interface TurnInput {
   readonly onPatch?: (receipt: Changes.Receipt) => void
   /** `Seat.auto` asks Jev for the seat when the run starts; see `Host.routes`. */
   readonly seat: string
-  /** The seat and system-prompt variant Jev routed an `auto` run to, before it resolves. */
-  readonly onSeat?: (routed: { readonly seat: string; readonly variant: string | null }) => void
+  /** The route and system-prompt variant Jev routed an `auto` run to, before it resolves. */
+  readonly onSeat?: (routed: SeatRouter.Route & { readonly variant: string | null }) => void
   /** The variant a retried or resumed run was routed to; the catalog must still offer it. */
   readonly variant?: string
+  /** The backups and panel a retried or resumed run was routed to, with `seat`. */
+  readonly route?: Omit<SeatRouter.Route, "seat">
+  /** A panel run's own share of the worker's cap; such a run raises no cap alert. The host's own when absent. */
+  readonly budget?: Budget.Service
+  /** A panel's member answers from an earlier launch of this worker; those members are not run again. */
+  readonly answered?: ReadonlyArray<readonly [seat: string, answer: string]>
+  /** A panel member answered. */
+  readonly onAnswered?: (seat: string, answer: string) => void
+  /** A panel's members started (`true`) or ended (`false`); the merger runs after. */
+  readonly onMembers?: (running: boolean) => void
   readonly fallbackSeats?: ReadonlyArray<string>
   /** A worker's remaining capacity parks; `QuotaPolicy.defaultMaxParks` when absent. Zero fails on the next refusal. */
   readonly maxParks?: number
@@ -208,6 +217,22 @@ const physicalPath = (path: string): string => {
   }
 }
 
+/** A panel member only answers its task: every runtime port refuses. */
+const memberRefusal = "A panel member only answers its task; it cannot publish, delegate, wait, ask or answer"
+const memberPorts: Runtime.Ports = {
+  publish: () => {
+    throw new Error(memberRefusal)
+  },
+  delegate: () => {
+    throw new Error(memberRefusal)
+  },
+  wait: () => Promise.reject(new Error(memberRefusal)),
+  ask: () => Promise.reject(new Error(memberRefusal)),
+  answer: () => {
+    throw new Error(memberRefusal)
+  }
+}
+
 /** Builds a host for `cwd`. The runtime is shared by every turn. */
 export const make = (options: {
   readonly cwd: string
@@ -225,6 +250,8 @@ export const make = (options: {
   readonly budget?: Budget.Policy
   /** Durable spend for `budget.daily` and for recovering a run's spend; see `spend.ts`. */
   readonly ledger?: Budget.Ledger
+  /** Test seam for the seat resolver; the native one when absent. */
+  readonly seats?: Layer.Layer<SeatResolver.SeatResolver>
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
@@ -243,7 +270,7 @@ export const make = (options: {
   const layer = Layer.mergeAll(
     Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), budget))),
     Agent.layerDefaults,
-    NodeControl.layerSeatResolver(env).pipe(Layer.provide(executor)),
+    options.seats ?? NodeControl.layerSeatResolver(env).pipe(Layer.provide(executor)),
     judge,
     QuotaPolicy.layerDefault(),
     budget,
@@ -335,6 +362,130 @@ export const make = (options: {
       seat
     })
 
+  /** One turn as an effect that ends with its outcome; interrupting it cancels the turn. */
+  const outcomeOf = (input: TurnInput): Effect.Effect<Outcome> =>
+    Effect.suspend(() => {
+      const turn = run(input)
+      // Interrupted, it cancels the turn and waits until the turn has ended.
+      return Effect.promise(() => turn.done).pipe(Effect.onInterrupt(() =>
+        Effect.promise(() => {
+          turn.cancel()
+          return turn.done
+        })
+      ))
+    })
+
+  /** One turn as an effect: its answer, its failure, or its cancellation. */
+  const turnOf = (input: TurnInput): Effect.Effect<string, unknown> =>
+    Effect.flatMap(outcomeOf(input), (outcome) =>
+      outcome._tag === "done"
+        ? Effect.succeed(outcome.answer)
+        : outcome._tag === "cancelled"
+        ? Effect.interrupt
+        : Effect.fail(outcome.error ?? new Error(outcome.message)))
+
+  /**
+   * One panel member, run until it answers or fails. A quota park ends a
+   * worker's run; the tab would relaunch it, but a member is not a tab, so the
+   * panel waits out the park itself and runs the member again, at most
+   * `maxParks` times. Nothing the member does reaches the tab.
+   */
+  const memberOf = (input: TurnInput): Effect.Effect<string, unknown> =>
+    Effect.gen(function*() {
+      const maxParks = input.maxParks ?? QuotaPolicy.defaultMaxParks
+      for (let parks = 0;; parks++) {
+        let wakeAt: number | undefined
+        const outcome = yield* outcomeOf({
+          ...input,
+          maxParks: Math.max(0, maxParks - parks),
+          onEvent: (event) => {
+            if (event._tag === "model-parked") wakeAt = event.wakeAt
+          }
+        })
+        if (outcome._tag === "done") return outcome.answer
+        if (outcome._tag === "failed") return yield* Effect.fail(outcome.error ?? new Error(outcome.message))
+        // Cancelled by anything but its own park, the member gave no answer.
+        if (wakeAt === undefined || parks >= maxParks) return yield* Effect.fail(new Error("The panel member stopped"))
+        yield* Effect.sleep(Math.max(0, wakeAt - Date.now()))
+      }
+    })
+
+  /**
+   * Runs a worker's panel: each member in parallel as its own worker, on its
+   * seat and backups, then the merger, whose answer is the worker's.
+   *
+   * Members are pure answerers: their runtime ports refuse, and nothing they
+   * do reaches the tab, their quota parks included, so a member waits out its
+   * park while the tab keeps running and holds its one seat. Only the
+   * merger's run is the tab's. Every run gets the routed variant, and each
+   * gets its own share of the worker's token cap, so the panel spends at
+   * most that cap. A member's answer is handed to `onAnswered`, and a member
+   * already in `answered` is not run again. A member that fails is left out
+   * and named to the merger; the panel fails only when no member answers.
+   */
+  const panelOf = (
+    input: TurnInput,
+    route: { readonly panel: NonNullable<SeatRouter.Route["panel"]>; readonly backups: ReadonlyArray<string> },
+    variant: string | null
+  ) =>
+    Effect.gen(function*() {
+      const policy = options.budget === undefined
+        ? undefined
+        : input.caps === undefined
+        ? options.budget
+        : raised(options.budget, input.caps)
+      const share = policy?.tokens === undefined
+        ? policy
+        : {
+          ...policy,
+          tokens: { ...policy.tokens, max: Math.floor(policy.tokens.max / (route.panel.seats.length + 1)) }
+        }
+      const budget = share === undefined ? undefined : yield* Effect.orDie(Budget.make(share, ledgerOptions))
+      const routed = { ...(variant === null ? {} : { variant }), ...(budget === undefined ? {} : { budget }) }
+      const {
+        onCaption: _caption,
+        onPatch: _patch,
+        onSeat: _seat,
+        steering: _steering,
+        variant: _variant,
+        ...shared
+      } = input
+      const known = new Map(input.answered ?? [])
+      input.onMembers?.(true)
+      const results = yield* Effect.forEach(
+        route.panel.seats,
+        (member) =>
+          known.has(member.seat)
+            ? Effect.succeed(Result.succeed(known.get(member.seat)!))
+            : memberOf({
+              ...shared,
+              ...routed,
+              seat: member.seat,
+              route: { backups: member.backups },
+              runtime: memberPorts
+            }).pipe(
+              Effect.tap((answer) => Effect.sync(() => input.onAnswered?.(member.seat, answer))),
+              Effect.result
+            ),
+        { concurrency: "unbounded" }
+      ).pipe(Effect.ensuring(Effect.sync(() => input.onMembers?.(false))))
+      const answered = route.panel.seats.flatMap((member, index) => {
+        const result = results[index]!
+        return Result.isSuccess(result) ? [[member.seat, result.success] as const] : []
+      })
+      const failed = route.panel.seats.filter((_, index) => Result.isFailure(results[index]!)).map(({ seat }) => seat)
+      const first = results[0]!
+      if (answered.length === 0 && Result.isFailure(first)) return yield* Effect.fail(first.failure)
+      const { variant: _merged, ...merger } = input
+      return yield* turnOf({
+        ...merger,
+        ...routed,
+        seat: route.panel.merger,
+        route: { backups: route.backups },
+        prompt: SeatRouter.mergePrompt(input.prompt, answered, failed)
+      })
+    })
+
   const run = (input: TurnInput): Turn => {
     const index = ++turns
     // Unique per host: the ledger outlives the process, so `tui-1` of two launches must not share spend.
@@ -350,7 +501,7 @@ export const make = (options: {
         : yield* SeatRouter.route({
           declared: Seat.auto,
           state: {
-            task: Judgement.task(input.prompt),
+            task: input.prompt,
             flow: "tui/worker",
             description: input.agent?.system.split("\n", 1)[0] ?? "",
             capabilities: []
@@ -365,7 +516,15 @@ export const make = (options: {
           message: `The seat catalog no longer offers the variant ${picked}`
         })
       }
-      if (decision !== undefined) input.onSeat?.({ seat: decision.seat, variant: decision.variant })
+      if (decision !== undefined) {
+        input.onSeat?.({
+          seat: decision.seat,
+          backups: decision.backups,
+          ...(decision.panel === undefined ? {} : { panel: decision.panel }),
+          variant: decision.variant
+        })
+      }
+      const route = decision ?? input.route
       const chosen = decision?.seat ?? input.seat
       const seat = chosen.startsWith("replay:")
         ? Replay.seat({
@@ -379,9 +538,16 @@ export const make = (options: {
           yield* Effect.promise(() => Promise.resolve(input.onEvent(event)))
         }
       }
+      // A worker routed to a panel runs each member as its own worker, then
+      // the merger on their answers.
+      if (input.role === "worker" && route?.panel !== undefined) {
+        return yield* panelOf(input, { panel: route.panel, backups: route.backups }, picked)
+      }
+      // A routed worker fails over along its route's backups, unless the
+      // operator set the fallback order.
       const fallbackSeats = input.role === "worker" && !chosen.startsWith("replay:")
         ? yield* Effect.forEach(
-          input.fallbackSeats ?? workerFallbackSeats(aliases[chosen] ?? chosen, available, env),
+          input.fallbackSeats ?? workerFallbackSeats(chosen, available, env, route?.backups),
           (name) => Effect.flatMap(SeatResolver.SeatResolver, (resolver) => resolver.resolve(name))
         )
         : []
@@ -457,7 +623,9 @@ export const make = (options: {
         Stream.provideService(Steering.Source, input.steering ?? Steering.makeNoop()),
         // A cap the person raised for this worker replaces the host's own for its run.
         (stream) =>
-          input.caps === undefined || options.budget === undefined
+          input.budget !== undefined
+            ? Stream.provideService(stream, Budget.Budget, input.budget)
+            : input.caps === undefined || options.budget === undefined
             ? stream
             : Stream.provideServiceEffect(
               stream,
@@ -497,7 +665,8 @@ export const make = (options: {
         const detail = Cause.pretty(exit.cause)
         Log.write("host.turn", detail)
         const notice = capNotice(Cause.squash(exit.cause), `${input.role ?? "coordinator"} ${executionId}`)
-        if (notice !== undefined) Log.alert("host.cap", notice)
+        // A panel's runs are the tab's; only the tab names its cap.
+        if (notice !== undefined && input.budget === undefined) Log.alert("host.cap", notice)
         resolve({ _tag: "failed", message: describe(exit.cause), detail, error: Cause.squash(exit.cause) })
       })
     })
