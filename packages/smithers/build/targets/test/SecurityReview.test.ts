@@ -39,6 +39,8 @@ describe("SecurityReview declaration", () => {
     expect(diff.engine).toBe("claude")
     expect(diff.model).toBe(SecurityReview.defaultClaudeModel)
     expect(diff.failOn).toBe("error")
+    expect(diff.securityChecks).toEqual(["upload-path-traversal", "general"])
+    expect(full.securityChecks).toEqual(diff.securityChecks)
     expect(diff.batchSize).toBe(4)
     expect(full.batchSize).toBe(8)
     expect(full.rubric).toBe(diff.rubric)
@@ -121,11 +123,19 @@ describe("SecurityReview rubric", () => {
     }
   })
 
-  it("requires each finding to name its check, its confidence, the attacker, the location, and the fix", () => {
-    expect(rubric).toContain("[<check id>] <confirmed|suspected>: <who> can <do what>")
-    expect(rubric).toContain("Fix: <concrete fix>")
-    expect(rubric).toContain("Severity \"error\" means confirmed")
-    expect(rubric).toContain("\"warning\" means suspected")
+  it("asks for structured evidence and a release recommendation", () => {
+    for (
+      const field of [
+        "checkId",
+        "impact",
+        "verification",
+        "releaseRecommendation",
+        "attackerPreconditions",
+        "evidence",
+        "nextConfirmationStep"
+      ]
+    ) expect(rubric).toContain(field)
+    expect(rubric).toContain("suspected")
     expect(rubric).toContain("file and line point at the vulnerable operation")
   })
 

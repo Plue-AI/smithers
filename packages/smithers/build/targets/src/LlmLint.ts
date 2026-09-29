@@ -143,6 +143,39 @@ export type Severity = typeof Severity.Type
 // rule reads too; a review runs through the same list it validates against.
 export { Engine }
 
+/** Nonblank, bounded evidence supplied by a reviewer or trusted reproduction host. */
+const EvidenceText = Schema.NonEmptyString.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(maximumFindingMessage)
+)
+
+/**
+ * A trusted host's receipt for a controlled reproduction, never model authority.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Reproduction = Schema.Struct({
+  revision: Schema.String.check(Schema.isPattern(/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})(?![\s\S])/)),
+  command: EvidenceText,
+  observedResult: EvidenceText
+})
+
+/**
+ * Impact, verification, and release advice are independent dimensions.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const SecurityEvidence = Schema.Struct({
+  checkId: Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/)),
+  impact: Schema.Literals(["low", "medium", "high", "critical"]),
+  verification: Schema.Literals(["suspected", "confirmed"]),
+  releaseRecommendation: Schema.Literals(["allow", "review", "block"]),
+  attackerPreconditions: EvidenceText,
+  evidence: EvidenceText,
+  nextConfirmationStep: EvidenceText,
+  reproduction: Schema.optional(Reproduction)
+})
+
 /**
  * One model finding against a reviewed file.
  *
@@ -155,6 +188,7 @@ export const Finding = Schema.Struct({
   file: Schema.NonEmptyString.check(Schema.isMaxLength(maximumPathBytes)),
   line: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   severity: Severity,
+  security: Schema.optional(SecurityEvidence),
   message: Schema.NonEmptyString.check(Schema.isMaxLength(maximumFindingMessage))
 })
 
@@ -258,7 +292,9 @@ export type ReviewError = typeof ReviewError.Type
  * workspace-relative changed paths. `context` globs are read on every round
  * and appended to every batch prompt whether or not they changed.
  * `batchSize` caps how many changed files one engine CLI call reviews.
- * `failOn` is the severity that fails the review.
+ * `failOn` is the severity that fails a generic review. With `securityChecks`,
+ * findings require declared checks (including `general`) and structured evidence; release advice gates
+ * the review instead of `failOn`. Model confirmation claims are never trusted.
  *
  * @category schemas
  * @since 0.1.0
@@ -276,6 +312,7 @@ export const Payload = Schema.Struct({
     Schema.isLessThanOrEqualTo(maximumLlmBatchSize)
   ),
   failOn: Severity,
+  securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   /**
    * `changed` (the default) reviews the paths that differ from `base`. `all`
    * reviews every tracked or untracked, non-ignored path the include globs
@@ -778,6 +815,13 @@ const renderPrompt = (
     "{\"file\": \"<workspace-relative path>\", \"line\": <1-based integer, 1 for whole-file findings>, " +
     "\"severity\": \"info\" | \"warning\" | \"error\", \"message\": \"<finding>\"}. " +
     "Respond with [] when nothing violates the rubric.",
+    ...(payload.securityChecks === undefined ? [] : [
+      "Each finding MUST additionally contain security: {checkId, impact: low|medium|high|critical, " +
+      "verification: suspected, releaseRecommendation: allow|review|block, attackerPreconditions, evidence, " +
+      "nextConfirmationStep}. All text fields must be nonblank. " +
+      "Use a declared checkId. Code inspection is not reproduction. Do not supply reproduction receipts. " +
+      "High or critical impact blocks release regardless of verification."
+    ]),
     `=== CHANGED FILES (under review) ===\n\n${renderFiles("CHANGED FILE", batch)}`
   ]
   if (context.length > 0) {
@@ -1098,6 +1142,36 @@ const reviewBatch = (
     Effect.flatMap(parseFindings),
     Effect.flatMap((findings) =>
       Effect.try({
+        try: () =>
+          findings.map((finding): Finding => {
+            if (payload.securityChecks === undefined) {
+              const { security: _security, ...plain } = finding
+              return plain
+            }
+            const security = finding.security
+            if (security === undefined || !payload.securityChecks.includes(security.checkId)) {
+              throw new Error("security findings require structured evidence and a declared checkId")
+            }
+            // Models cannot attest execution. Even a plausible receipt is untrusted.
+            const { reproduction: _receipt, ...assertion } = security
+            const releaseRecommendation = security.impact === "high" || security.impact === "critical"
+              ? "block"
+              : security.releaseRecommendation
+            return {
+              ...finding,
+              severity: releaseRecommendation === "block"
+                ? "error"
+                : releaseRecommendation === "review"
+                ? "warning"
+                : "info",
+              security: { ...assertion, verification: "suspected", releaseRecommendation }
+            }
+          }),
+        catch: (cause) => new LlmReviewError({ phase: "parse", message: failureMessage(cause) })
+      })
+    ),
+    Effect.flatMap((findings) =>
+      Effect.try({
         try: () => {
           const available = new Map([...batch, ...context].map((file) => [file.path, file] as const))
           let bytes = 0
@@ -1146,6 +1220,9 @@ export const review = (
     const payload = yield* Effect.try({
       try: () => {
         const decoded = Schema.decodeUnknownSync(Payload)(untrustedPayload)
+        if (decoded.securityChecks !== undefined && !decoded.securityChecks.includes("general")) {
+          throw new Error("securityChecks must include the built-in general check")
+        }
         Input.validateGitBase(decoded.base)
         usableText(decoded.prompt, "LLM review prompt", maximumConfigurationText, false)
         usableText(decoded.rubric, "LLM review rubric", maximumConfigurationText, false)
@@ -1217,7 +1294,11 @@ export const review = (
         )
       }
     }
-    const failing = findings.filter((finding) => meets(finding.severity, payload.failOn))
+    const failing = findings.filter((finding) =>
+      payload.securityChecks === undefined
+        ? meets(finding.severity, payload.failOn)
+        : finding.security?.releaseRecommendation === "block"
+    )
     if (failing.length > 0) {
       return yield* Effect.fail(new FindingsError({ failOn: payload.failOn, findings }))
     }
@@ -1269,7 +1350,8 @@ export const LlmReviewLive = (options: {
  * inputs harvested by {@link Target.make}; planner expansion remains package scoped.
  * `engine` selects the model CLI and defaults to `claude`.
  * `failOn` fails the target when any finding meets that severity and defaults
- * to `error`.
+ * to `error`. With `securityChecks`, structured findings are required and
+ * release recommendation `block` gates the review independently of `failOn`.
  *
  * @category schemas
  * @since 0.1.0
@@ -1290,6 +1372,7 @@ export const Attrs = Schema.Struct({
     Schema.isLessThanOrEqualTo(maximumLlmBatchSize)
   ),
   failOn: Severity.pipe(Schema.withConstructorDefault(Effect.succeed("error" as const))),
+  securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   /**
    * `changed` (the default) reviews the files that differ from
    * `changes.base`; `all` reviews every included file.
@@ -1368,6 +1451,7 @@ export const LlmLint = Target.make("LlmLint", {
       model: attrs.model,
       batchSize: attrs.batchSize,
       failOn: attrs.failOn,
+      securityChecks: attrs.securityChecks,
       scope: attrs.scope
     })
 })

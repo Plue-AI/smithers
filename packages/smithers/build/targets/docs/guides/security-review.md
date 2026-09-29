@@ -51,12 +51,29 @@ service, and information leaks. The id `general` is reserved.
 
 ## Findings
 
-Every finding names one check id and reads
-`[<check id>] <confirmed|suspected>: <who> can <do what> to <whose data> because <cause>. Fix: <fix>.`
-Severity `error` is a confirmed flaw and fails the target. `warning` is a
-suspected flaw and `info` is hardening; both are printed without failing it.
-The prompt frames the run as an authorized defensive review by the repository
-owner and asks for the flaw and the fix, never an exploit.
+Each finding includes `file`, `line`, `message`, and structured `security`
+fields: `checkId`, `impact` (`low`, `medium`, `high`, `critical`),
+`verification`, `releaseRecommendation` (`allow`, `review`, `block`),
+`attackerPreconditions`, `evidence`, and `nextConfirmationStep`.
+The check id must belong to the declaration, including `general`.
+
+Model output is always `suspected`; model-supplied reproduction claims cannot
+confirm it. High or critical impact always sets `releaseRecommendation` to
+`block`. Any blocking recommendation fails the review regardless of
+verification. The display severity is derived from the recommendation:
+`block` becomes `error`, `review` becomes `warning`, and `allow` becomes `info`.
+
+After executing a controlled local reproduction, a trusted host can call
+`confirmFinding` from `@smthrs/targets/SecurityReview` with the finding and a
+receipt containing the full immutable commit `revision`, the executed
+`command` or test invocation, and its `observedResult`. This API records the
+host's attestation; it does not execute or independently verify the command.
+The host must reproduce the finding against that revision in an isolated
+checkout and retain the execution evidence. Never pass model output as a
+trusted receipt. Confirmation preserves the impact and release recommendation.
+
+Safe local regression tests with synthetic data are permitted. The reviewer
+must not produce weaponized exploits or instructions to attack live systems.
 
 ## Options
 

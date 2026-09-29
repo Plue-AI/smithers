@@ -22,11 +22,12 @@
  * @since 1.0.0
  */
 
+import * as Schema from "effect/Schema"
 import { Minimatch } from "minimatch"
 import * as NodeFs from "node:fs"
 import * as NodePath from "node:path"
 import * as Input from "./Input.ts"
-import { LlmLint } from "./LlmLint.ts"
+import { Finding, LlmLint, Reproduction } from "./LlmLint.ts"
 import type { Engine } from "./ModelEngine.ts"
 import * as Target from "./Target.ts"
 
@@ -104,9 +105,9 @@ export const securityPrompt = [
   "commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before",
   "anyone can abuse them; this is the routine application-security review a code owner runs before a release.",
   "Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it:",
-  "the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code,",
-  "working payloads, or instructions for attacking any system; describe the flaw and the remedy. Judge the",
-  "code you are shown, mark a finding suspected when it depends on code or configuration you cannot see, and",
+  "the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code",
+  "for attacking live systems. Safe local regression tests using synthetic data are permitted;",
+  "a trusted host can run them in an isolated checkout. This reviewer cannot attest execution;",
   "prefer one well-evidenced finding over several speculative ones."
 ].join(" ")
 
@@ -163,11 +164,12 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
       ""
     ]),
     "Reporting rules:",
-    "- Message format: \"[<check id>] <confirmed|suspected>: <who> can <do what> to <whose data or which system> " +
-    "because <cause>. Fix: <concrete fix>.\"",
-    "- Severity \"error\" means confirmed: an attacker at the stated trust boundary reaches the flaw through the code " +
-    "shown. \"warning\" means suspected: plausible, but it depends on code or configuration not shown. \"info\" " +
-    "means hardening with no demonstrated attacker path.",
+    "- Include structured security fields: checkId, impact, verification, releaseRecommendation, " +
+    "attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.",
+    "- Impact is low, medium, high, or critical; verification is suspected for every model finding. " +
+    "Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.",
+    "- Release recommendation is allow, review, or block. High and critical impact always block release, " +
+    "even when suspected. Severity is derived from release recommendation, never verification.",
     "- file and line point at the vulnerable operation (the sink or the missing check), not an import.",
     "- Report each distinct flaw once; name at most three call sites of the same flaw.",
     "- Style, correctness bugs without a security consequence, and missing tests are not findings.",
@@ -357,8 +359,8 @@ const validatePaths = (
  *
  * The call validates the checks and their paths against the workspace (see
  * {@link Options}) and returns declarations; it runs no review.
- * A confirmed finding (severity `error`) fails the target; suspected and
- * hardening findings are reported without failing it.
+ * A blocking release recommendation fails the target, including suspected
+ * high or critical impact. Model assertions cannot confirm a finding.
  *
  * @example
  * ```ts
@@ -401,7 +403,8 @@ export const SecurityReview = (options: Options): SecurityTargets => {
     rubric,
     engine,
     model,
-    failOn: "error" as const
+    failOn: "error" as const,
+    securityChecks: checks.map((check) => check.id)
   }
   return {
     security: LlmLint({
@@ -423,4 +426,23 @@ export const SecurityReview = (options: Options): SecurityTargets => {
       manual: true
     })
   }
+}
+
+/**
+ * Records a trusted host's controlled reproduction. The host must actually run
+ * the command against the immutable revision and retain its execution evidence.
+ * Never pass model output here: this attestation boundary does not execute commands.
+ * Confirmation does not change impact or release advice.
+ *
+ * @category verification
+ * @since 1.0.0
+ */
+export const confirmFinding = (
+  finding: Finding,
+  receipt: typeof Reproduction.Type
+): Finding => {
+  const decoded = Schema.decodeUnknownSync(Finding)(finding)
+  const reproduction = Schema.decodeUnknownSync(Reproduction)(receipt)
+  if (decoded.security === undefined) throw new TypeError("confirmation requires a security finding")
+  return { ...decoded, security: { ...decoded.security, verification: "confirmed", reproduction } }
 }
