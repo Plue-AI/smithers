@@ -116,9 +116,9 @@ Docs and visible UI copy use product words, not internal modeling terms such as 
 - Retain reproducible fuzz counterexamples and benchmark methods, artifacts,
   correctness checks, and limitations. Distinguish executed coverage from
   configured thresholds, skipped cases, and platform-specific evidence.
-- Delegate test work to Sol agents, up to sixteen when the session permits.
+- Delegate test work to GPT-6.1 Sol agents, up to thirty-two when the session permits.
   The orchestrator reviews test quality and results. Every discovered product
-  bug is fixed by an Astra agent and reviewed with `claude -p --model fable`;
+  bug is fixed by a GPT-6.1 Sol agent and reviewed with `claude -p --model fable`;
   retain its regression test and the review/validation receipts.
 - Track the campaign and outstanding evidence in
   [#2290](https://github.com/smithersai/smithers/issues/2290).
