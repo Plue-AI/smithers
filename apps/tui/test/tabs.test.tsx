@@ -86,8 +86,8 @@ describe("worker status", () => {
 describe("worker actions", () => {
   const keys = (status: Tabs.Status, failure?: Tab["failure"]) =>
     Tabs.actions({ status, ...(failure === undefined ? {} : { failure }) }).map((action) => action.keys[0])
-  it("offers stop, resume, model, wait and steer only when they apply", () => {
-    expect(keys("running")).toEqual(["x", "s"])
+  it("offers stop, resume, model, wait, steer and take over only when they apply", () => {
+    expect(keys("running")).toEqual(["x", "s", "t"])
     expect(keys("requested")).toEqual(["x"])
     expect(keys("queued")).toEqual(["x"])
     expect(keys("waiting")).toEqual(["x"])
@@ -97,6 +97,9 @@ describe("worker actions", () => {
       .toEqual(["r", "m", "w"])
     expect(keys("cancelled")).toEqual(["r"])
     expect(keys("done")).toEqual([])
+    // While the person drives it, stop is the only button; ctrl+y releases.
+    expect(Tabs.actions({ status: "running", driver: { by: "you", from: 0, messages: 0 } }).map((each) => each.id))
+      .toEqual(["stop"])
   })
   it("resolves a key to the action it runs, never one the status forbids", () => {
     const run = (name: string, status: Tabs.Status) =>
@@ -105,6 +108,8 @@ describe("worker actions", () => {
     expect(run("r", "running")).toBeUndefined()
     expect(run("r", "failed")).toBe("retry")
     expect(run("s", "queued")).toBeUndefined()
+    expect(run("t", "running")).toBe("takeover")
+    expect(run("t", "waiting")).toBeUndefined()
     expect(Keys.bindingFor({ name: "c" }, "panel")).toBeUndefined()
   })
   it("takes every action's keys and label from a panel binding in the registry", () => {
@@ -114,7 +119,7 @@ describe("worker actions", () => {
       expect(binding?.keys).toEqual(action.keys)
       expect(binding?.label).toBe(action.label)
     }
-    expect(Tabs.bindings.map((binding) => binding.id)).toEqual(["stop", "retry", "model", "wait", "steer"])
+    expect(Tabs.bindings.map((binding) => binding.id)).toEqual(["stop", "retry", "model", "wait", "steer", "takeover"])
   })
 })
 

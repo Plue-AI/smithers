@@ -622,7 +622,12 @@ export function App(props: AppProps) {
   const workerTab = surface.startsWith("tab:") ? snapshot.tabs.find((tab) => `tab:${tab.id}` === surface) : undefined
   const selectedFlowActions = flowActions(surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined)
   /** The worker the composer steers: set by `s` in its tab, and only while that tab shows and runs. */
-  const steered = workerTab !== undefined && workerTab.id === steerTarget && workerTab.status === "running"
+  const steered = workerTab !== undefined && workerTab.id === steerTarget && workerTab.status === "running" &&
+      workerTab.driver === undefined
+    ? workerTab
+    : undefined
+  /** The worker the person drives from this tab (`t`): Enter runs its next frame. */
+  const driven = workerTab?.driver !== undefined && (workerTab.status === "running" || workerTab.status === "waiting")
     ? workerTab
     : undefined
   const workerAction = (tab: Tab, action: Tabs.ActionId) => {
@@ -649,6 +654,14 @@ export function App(props: AppProps) {
         return flushSync(() => {
           if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
           setSteerTarget(tab.id)
+          setPanelFocus(false)
+        })
+      case "takeover":
+        // The composer drives it from its own tab; ctrl+y releases.
+        if (!workspace.hijack(tab.id, "you")) return setStatus(`${tab.title} is not running`, "warning")
+        return flushSync(() => {
+          if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
+          setSteerTarget(undefined)
           setPanelFocus(false)
         })
     }
@@ -805,8 +818,21 @@ export function App(props: AppProps) {
 
   // Key handlers read the latest values through these, never a stale render.
   // `now` is the clock the approval row rendered with, so its keys and its hints agree.
-  const live = useRef({ turn, shell, undoing, followUps, seat, thinking, picker, approvals, now, whichKey, steered })
-  live.current = { turn, shell, undoing, followUps, seat, thinking, picker, approvals, now, whichKey, steered }
+  const live = useRef({
+    turn,
+    shell,
+    undoing,
+    followUps,
+    seat,
+    thinking,
+    picker,
+    approvals,
+    now,
+    whichKey,
+    steered,
+    driven
+  })
+  live.current = { turn, shell, undoing, followUps, seat, thinking, picker, approvals, now, whichKey, steered, driven }
 
   /** Sets the follow-up queue for the screen and for keys handled before the next render. */
   const setQueue = useCallback((next: ReadonlyArray<PromptQueue.Prompt>) => {
@@ -1397,6 +1423,12 @@ export function App(props: AppProps) {
     const input = composer.current
     if (input === null) return
     const text = (typed ?? input.plainText).trim()
+    const driving = live.current.driven
+    if (driving !== undefined && text === "") {
+      // A blank Enter runs the frame waiting for the driver, with nothing new.
+      if (!workspace.drive(driving.id, "")) setStatus(`${driving.title} is working`, "info")
+      return
+    }
     if (text === "") return
     clearFailure()
     const parked = parkedDraft.current
@@ -1404,7 +1436,12 @@ export function App(props: AppProps) {
     history.current.add(text)
     setText(parked ?? "")
     const steering = live.current.steered
-    const route = Composer.route(text, steering !== undefined)
+    // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
+    const route = Composer.route(text, steering !== undefined || driving !== undefined)
+    if (route._tag === "steer" && driving !== undefined) {
+      if (!workspace.drive(driving.id, text)) setStatus(`${driving.title} is not running`, "warning")
+      return
+    }
     if (route._tag === "steer") {
       if (!workspace.steer(steering!.id, text)) setStatus(`${steering!.title} is not running`, "warning")
       return
@@ -1728,7 +1765,12 @@ export function App(props: AppProps) {
     }
     if (key.ctrl && key.name === "y") {
       // A worker tab goes back to its parent's tab, or to the chat for a top-level worker.
+      // While the person drives it, ctrl+y releases it instead and stays.
       key.preventDefault()
+      if (workerTab?.driver !== undefined) {
+        workspace.release(workerTab.id)
+        return
+      }
       if (workerTab !== undefined) {
         flushSync(() => showTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`))
       }
@@ -1970,7 +2012,9 @@ export function App(props: AppProps) {
       active = false
     }
   }, [props.host, transcript.usage.context, window, writer.current.file])
-  const accent = bashMode
+  const accent = driven !== undefined
+    ? color.needs
+    : bashMode
     ? color.success
     : steered !== undefined
     ? lane(steered.id)
@@ -1984,7 +2028,12 @@ export function App(props: AppProps) {
     Tabs.actions(tab).flatMap((action) => Keys.registry.filter((binding) => binding.id === action.binding))
   const cardHint = (id: string) => Keys.registry.filter((binding) => binding.id === id)
   // A worker's own actions are buttons in its view; the footer carries the rest.
-  const footerHints = footerContext === "card" && focusedWorker !== undefined
+  const footerHints = driven !== undefined && !panelFocus
+    ? [
+      ...cardHint("send"),
+      ...cardHint("parent").map((binding) => ({ ...binding, label: "Release" }))
+    ]
+    : footerContext === "card" && focusedWorker !== undefined
     ? [
       ...cardHint("card-move"),
       ...cardHint("open-card"),
@@ -2325,7 +2374,7 @@ export function App(props: AppProps) {
                 <textarea
                   ref={composer}
                   focused={picker === undefined && !panelFocus && form === undefined}
-                  placeholder={steered !== undefined
+                  placeholder={steered !== undefined || driven !== undefined
                     ? ""
                     : working
                     ? "Steer, or alt+enter to queue"
@@ -2348,7 +2397,14 @@ export function App(props: AppProps) {
                   }}
                 />
                 <text wrapMode="none" style={{ marginTop: short ? 0 : 1, marginBottom: short ? 0 : 1 }}>
-                  {bashMode || steered !== undefined
+                  {driven !== undefined
+                    ? (
+                      <>
+                        <span fg={color.needs}>{`⇄ driving ${driven.title}`}</span>
+                        <span fg={color.faint}>{"  ·  "}</span>
+                      </>
+                    )
+                    : bashMode || steered !== undefined
                     ? (
                       <>
                         <span fg={accent}>{bashMode ? "shell" : `steer ↳ ${steered!.title}`}</span>

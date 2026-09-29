@@ -233,6 +233,8 @@ export function Lines(props: {
 export function Crumb(props: {
   readonly title: string
   readonly tone: string
+  /** The person drives this worker: `⇄ you drive`, and ctrl+y releases it. */
+  readonly driving?: boolean
   /** Titles from the chat down to this worker's parent. */
   readonly path: ReadonlyArray<string>
   readonly onBack: () => void
@@ -244,8 +246,15 @@ export function Crumb(props: {
           {" "}
           <span fg={props.tone}>▌</span>
           <span fg={color.text}>{" Subagent · "}{props.title}{" "}</span>
+          {props.driving === true ? <span fg={color.needs}>{"⇄ you drive "}</span> : null}
         </text>
-        <text wrapMode="none" fg={color.info} style={{ flexShrink: 0, marginLeft: 1 }}>Back (ctrl+y)</text>
+        <text
+          wrapMode="none"
+          fg={props.driving === true ? color.needs : color.info}
+          style={{ flexShrink: 0, marginLeft: 1 }}
+        >
+          {props.driving === true ? "Release (ctrl+y)" : "Back (ctrl+y)"}
+        </text>
       </box>
       <text wrapMode="none" fg={color.faint}>{[...props.path, props.title].join(" › ")}</text>
     </box>
@@ -270,7 +279,11 @@ const groupColor = (group: Inbox.Group): string =>
 
 /** A row's glyph: a needs-you node is `◆` in the needs color, the rest the shared status glyph. */
 export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string; readonly tone: string } =>
-  row.status === "input" || row.ask !== undefined ? { glyph: "◆", tone: color.needs } : Tabs.style(row.status, now)
+  row.status === "input" || row.ask !== undefined
+    ? { glyph: "◆", tone: color.needs }
+    : row.worker === undefined
+    ? Tabs.style(row.status, now)
+    : Tabs.styleOf(row.worker, now)
 
 /** Fixed columns right of the name: seat, clock, window and cache. */
 const columns = { seat: 7, clock: 7, meter: 10 } as const

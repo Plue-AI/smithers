@@ -75,7 +75,8 @@ export const rows = (input: {
   readonly asks?: ReadonlyArray<Asks.Ask>
 }): ReadonlyArray<Section> => {
   const asking = (tab: Tab) => input.asks?.find((ask) => ask.from === tab.id && ask.holder === Asks.person)
-  const needs = (tab: Tab) => needsYou(tab.status) || asking(tab) !== undefined
+  const needs = (tab: Tab) =>
+    needsYou(tab.status) || asking(tab) !== undefined || (tab.driver !== undefined && tab.status === "waiting")
   const worker = (tab: Tab, group: Group, level: number): Row => {
     const seat = tab.activeSeat ?? tab.seat
     return {

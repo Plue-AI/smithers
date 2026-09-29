@@ -32,6 +32,16 @@ export const style = (status: Status, now: number): { readonly glyph: string; re
   return { glyph, tone: toneColor(tone) }
 }
 
+/** A worker's glyph: `⇄` in the needs color while the person drives it, else its status glyph. */
+export const styleOf = (
+  tab: Pick<Tab, "status" | "driver">,
+  now: number
+): { readonly glyph: string; readonly tone: string } =>
+  tab.driver === undefined || (tab.status !== "running" && tab.status !== "waiting")
+    ? style(tab.status, now)
+    // Waiting for the person to send its next message, or working under them.
+    : { glyph: "⇄", tone: tab.status === "waiting" ? color.needs : color.info }
+
 export const live = WorkerControls.live
 
 const aliases = new Map<string, string>(Object.entries(delegateModels).map(([alias, seat]) => [seat, alias]))
@@ -45,10 +55,10 @@ export const model = (seat: string, models: ReadonlyArray<Model>): string =>
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>
   Math.max(0, (tab.endedAt ?? now) - tab.startedAt)
 
-export type ActionId = "stop" | "retry" | "model" | "wait" | "steer"
+export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "takeover"
 
 /** What an action's availability reads: the status, and a failure's own offers. */
-type Worker = Pick<Tab, "status" | "failure">
+type Worker = Pick<Tab, "status" | "failure" | "driver">
 
 /** Each worker action is a button in the worker view and a registry key (`panel` context). */
 const registered: ReadonlyArray<
@@ -58,7 +68,13 @@ const registered: ReadonlyArray<
   { id: "retry", binding: "retry", when: (tab) => WorkerControls.allowed("retry", tab) },
   { id: "model", binding: "worker-model", when: (tab) => WorkerControls.allowed("model", tab) },
   { id: "wait", binding: "worker-wait", when: (tab) => WorkerControls.allowed("wait", tab) },
-  { id: "steer", binding: "steer-worker", when: (tab) => WorkerControls.allowed("steer", tab) }
+  {
+    id: "steer",
+    binding: "steer-worker",
+    when: (tab) => WorkerControls.allowed("steer", tab) && tab.driver === undefined
+  },
+  // A running worker only: a take-over parks it at its next frame boundary.
+  { id: "takeover", binding: "take-over", when: (tab) => tab.status === "running" && tab.driver === undefined }
 ]
 
 export const bindings = registered.map(({ id, binding, when }) => {

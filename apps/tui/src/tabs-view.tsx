@@ -100,7 +100,7 @@ const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta: string)
 
 /** A worker's tab chip: glyph, title, model, clock and estimate. */
 export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta = ""): Chip => {
-  const { glyph, tone } = Tabs.style(tab.status, now)
+  const { glyph, tone } = Tabs.styleOf(tab, now)
   return {
     id: `tab:${tab.id}`,
     label: tab.title,
@@ -123,7 +123,7 @@ export function WorkerList(props: {
   return (
     <box style={{ flexDirection: "column" }}>
       {props.tabs.map((tab) => {
-        const { glyph, tone } = Tabs.style(tab.status, props.now)
+        const { glyph, tone } = Tabs.styleOf(tab, props.now)
         const selected = props.active === `tab:${tab.id}`
         return (
           <box
@@ -161,6 +161,12 @@ function Button(props: { readonly keys: string; readonly label: string; readonly
       </text>
     </box>
   )
+}
+
+/** `14:02`, local time. */
+const clock = (at: number): string => {
+  const date = new Date(at)
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 
 /**
@@ -205,9 +211,10 @@ export function WorkerView(props: {
     if (props.jump !== undefined) scroll.current?.scrollChildIntoView(props.jump)
   }, [props.jump])
   const { tab, transcript } = props
-  const { glyph, tone } = Tabs.style(tab.status, props.now)
+  const { glyph, tone } = Tabs.styleOf(tab, props.now)
   const usage = transcript.usage
   const facts = [
+    ...(tab.driver === undefined ? [] : [`${tab.driver.by} since ${clock(tab.driver.from)}`]),
     Tabs.model(tab.seat, props.models),
     Transcript.duration(Tabs.elapsed(tab, props.now)),
     ...(usage.input + usage.output === 0 ? [] : [`↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}`])
@@ -215,7 +222,13 @@ export function WorkerView(props: {
   const lines = Subagents.lines(Timeline.rows(transcript), Subagents.batches(transcript, props.tabs, tab.id))
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
-      <SubagentView.Crumb title={tab.title} tone={props.tone} path={props.path} onBack={props.onBack} />
+      <SubagentView.Crumb
+        title={tab.title}
+        tone={props.tone}
+        path={props.path}
+        onBack={props.onBack}
+        driving={tab.driver !== undefined}
+      />
       <box
         style={{ border: ["left"], paddingLeft: 1, marginBottom: 1, flexShrink: 0 }}
         borderColor={props.tone}

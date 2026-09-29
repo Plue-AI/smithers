@@ -173,9 +173,13 @@ export class Asks {
     return [...this.asks.values()].some((ask) => ask.from === tabId)
   }
 
-  /** An agent that can read and answer: it runs, or it waits on its children, and it is not blocked asking. */
+  /**
+   * An agent that can read and answer: it runs, or it waits on its children, and it is not blocked
+   * asking or parked for the person driving it.
+   */
   private listening(tab: Tab | undefined): boolean {
-    return tab !== undefined && (tab.status === "running" || tab.status === "waiting") && !this.asking(tab.id)
+    return tab !== undefined && (tab.status === "running" || tab.status === "waiting") && !this.asking(tab.id) &&
+      !(tab.driver !== undefined && tab.status === "waiting")
   }
 
   /** Where an ask held by `holder` (or first asked by `from`) goes next. */

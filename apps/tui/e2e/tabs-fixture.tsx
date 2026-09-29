@@ -1,6 +1,7 @@
 /** Deterministic host with workers in every status, for the subagent cards, tab strip, worker view and sidebar. */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
+import { Effect } from "effect"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 
@@ -12,7 +13,8 @@ const workers: Record<string, { title: string; prompt: string; model?: "sol" | "
   docs: { title: "Document which-key", prompt: "Document which-key." },
   lint: { title: "Lint the key registry", prompt: "Lint the key registry." },
   api: { title: "implement/api", prompt: "Implement the OAuth session." },
-  capped: { title: "flaky seat queue", prompt: "Loop on the seat queue." }
+  capped: { title: "flaky seat queue", prompt: "Loop on the seat queue." },
+  drive: { title: "implement/session", prompt: "Implement the session refresh." }
 }
 /** The chat's delegating cell: each worker is requested from an `agent.delegate` call, as a model's cell does. */
 const delegate = (input: Host.TurnInput, prose: string, ids: ReadonlyArray<string>) => {
@@ -81,6 +83,30 @@ const host: Host.Host = {
           cancel: () => {}
         }
       }
+      // The drive worker runs four frames, each after a steering boundary, so a take-over parks it there.
+      if (id === "drive") {
+        const done = (async (): Promise<Host.Outcome> => {
+          for (let frame = 1; frame <= 4; frame++) {
+            await new Promise((resolve) => setTimeout(resolve, 2500))
+            const drained = await Effect.runPromise(
+              input.steering!.drain({ boundary: `frame-${frame}`, wouldIdle: frame === 4 })
+            )
+            const said = drained.inserts.flatMap((message) =>
+              message.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
+            )
+            stream(
+              input,
+              `Frame ${frame}${said.length === 0 ? "" : `: ${said.join(" ")}`}`,
+              "await ctx.call(\"read\", { path: \"src/session.ts\" })",
+              "read",
+              `src/session.ts#${frame}`,
+              true
+            )
+          }
+          return { _tag: "done", answer: "Refreshed the session before retry." }
+        })()
+        return { done, cancel: () => {} }
+      }
       // The capped worker trips its token cap; raised from the form, it resumes under the new cap.
       if (id === "capped") {
         return {
@@ -134,6 +160,10 @@ const host: Host.Host = {
     if (input.prompt === "delegate") {
       delegate(input, "I'll split this into three workers.", ["audit", "flaky", "strip"])
       answer = "Requested three workers."
+    }
+    if (input.prompt === "drive") {
+      delegate(input, "One worker.", ["drive"])
+      answer = "Requested one worker."
     }
     if (input.prompt === "cap") {
       delegate(input, "One worker.", ["capped"])

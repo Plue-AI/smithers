@@ -54,6 +54,22 @@ export interface Tab {
   readonly history?: ReadonlyArray<Context.Entry>
   /** Token caps the person raised for this worker after it hit one. */
   readonly caps?: Host.Caps
+  /** Who is driving it now (`t`): every frame waits for their message or their release. */
+  readonly driver?: Driver
+  /** Every finished take-over, oldest first; the mythical note's `drivers:`. */
+  readonly drivers?: ReadonlyArray<Driver & { readonly to: number }>
+}
+/** A person driving a worker: since when, and how many messages they sent. */
+export interface Driver {
+  readonly by: string
+  readonly from: number
+  readonly messages: number
+}
+/** `tab` with its current take-over, if any, closed at `at` and filed under `drivers`. */
+const ended = (tab: Tab, at: number): Tab => {
+  if (tab.driver === undefined) return tab
+  const { driver, ...rest } = tab
+  return { ...rest, drivers: [...tab.drivers ?? [], { ...driver, to: at }] }
 }
 /** What `agent.wait` returns per tab: its outcome so far, and an ask it holds for the waiting parent. */
 export type Waited = Pick<Tab, "id" | "status" | "answer" | "message"> & {
@@ -220,6 +236,8 @@ export class Workspace {
         )
       }
       if (transcript !== undefined) this.transcripts.set(tab.id, transcript)
+      // A take-over ends with its run.
+      if (settled !== tab) settled = ended(settled, settled.endedAt ?? Date.now())
       if (settled === tab) this.tabs.adopt(tab)
       else {this.tabs.move(
           { ...settled, status: tab.status },
@@ -439,7 +457,10 @@ export class Workspace {
       ...(parks === undefined || parks === 0 ? {} : { parks }),
       ...(request.model === undefined ? {} : { model: request.model }),
       ...(request.agent === undefined ? {} : { agent: { name: request.agent } }),
-      ...(prior?.caps === undefined ? {} : { caps: prior.caps })
+      ...(prior?.caps === undefined ? {} : { caps: prior.caps }),
+      // A relaunched take-over parks again for its driver; finished ones stay on record.
+      ...(prior?.driver === undefined ? {} : { driver: prior.driver }),
+      ...(prior?.drivers === undefined ? {} : { drivers: prior.drivers })
     })
     void this.describe(tab)
     const by = request.by ?? "agent"
@@ -600,7 +621,14 @@ export class Workspace {
       tab.id,
       Transcript.user(this.transcripts.get(tab.id) ?? Transcript.empty, tab.prompt, false, at)
     )
-    const steering = Steering.make()
+    // A taken-over worker waiting for its driver frees its seat, and takes one back to go on.
+    const steering = Steering.make({
+      parked: () => {
+        const current = this.tabs.get(tab.id)
+        if (current?.status === "running") this.tabs.move(current, "block")
+      },
+      unparked: () => this.seated(tab.id)
+    })
     try {
       writer.append({ type: "user", at, text: tab.prompt })
       const handle = this.options.host.run({
@@ -691,6 +719,8 @@ export class Workspace {
       })
       this.handles.set(tab.id, handle)
       this.steering.set(tab.id, { queue: steering, writer })
+      // A take-over survives a restart: the relaunched run parks at its next boundary again.
+      if (this.tabs.get(tab.id)?.driver !== undefined) steering.hijack()
       this.tabs.move({ ...(this.tabs.get(tab.id) ?? tab), launchedAt: at }, "launch")
       void handle.done.then((outcome) => {
         this.handles.delete(tab.id)
@@ -731,7 +761,7 @@ export class Workspace {
           this.transcripts.set(tab.id, transcript)
         }
         this.tabs.move({
-          ...(this.tabs.get(tab.id) ?? tab),
+          ...ended(this.tabs.get(tab.id) ?? tab, at),
           endedAt: at,
           ...(outcome._tag === "done"
             ? { answer: outcome.answer }
@@ -763,7 +793,7 @@ export class Workspace {
     }
     this.transcripts.set(tab.id, Transcript.failure(this.transcript(tab.id), failure.headline, at))
     this.tabs.move({
-      ...(this.tabs.get(tab.id) ?? tab),
+      ...ended(this.tabs.get(tab.id) ?? tab, at),
       endedAt: at,
       message,
       failure,
@@ -827,6 +857,47 @@ export class Workspace {
     this.changed()
     return true
   }
+  /** Takes over a running worker: each later frame waits for `drive` or `release`. */
+  hijack = (id: string, by: string): boolean => {
+    const target = this.steering.get(id)
+    const tab = this.tabs.get(id)
+    if (target === undefined || tab?.status !== "running" || tab.driver !== undefined) return false
+    const at = Date.now()
+    target.queue.hijack()
+    this.transcripts.set(id, Transcript.note(this.transcript(id), `⇄ ${by} took over`, at))
+    this.tabs.put({ ...tab, driver: { by, from: at, messages: 0 } })
+    return true
+  }
+  /**
+   * Sends a taken-over worker's next message, or runs its waiting frame with nothing new when `text`
+   * is blank; false when there is nothing to drive, or a blank Enter while it still works.
+   */
+  drive = (id: string, text: string): boolean => {
+    const target = this.steering.get(id)
+    const tab = this.tabs.get(id)
+    if (target === undefined || tab?.driver === undefined || !target.queue.drive(text)) return false
+    const at = Date.now()
+    const blank = text.trim() === ""
+    if (!blank) {
+      target.writer.append({ type: "user", at, text, steered: true })
+      this.transcripts.set(id, Transcript.user(this.transcript(id), text, true, at))
+    }
+    const current = this.tabs.get(id)!
+    this.tabs.put({ ...current, driver: { ...current.driver!, messages: current.driver!.messages + (blank ? 0 : 1) } })
+    return true
+  }
+  /** Hands a taken-over worker back: it runs on by itself and the take-over is recorded. */
+  release = (id: string): boolean => {
+    const tab = this.tabs.get(id)
+    if (tab?.driver === undefined) return false
+    const at = Date.now()
+    this.steering.get(id)?.queue.release()
+    this.transcripts.set(id, Transcript.note(this.transcript(id), `⇄ ${tab.driver.by} released`, at))
+    this.tabs.put(ended(tab, at))
+    return true
+  }
+  /** Whether a taken-over worker is parked for its driver now. */
+  holding = (id: string): boolean => this.steering.get(id)?.queue.holding() === true
   /** Records an undo of a tab's calls in its own file and transcript. */
   undone = (id: string, calls: ReadonlyArray<string>, paths: ReadonlyArray<string>, at: number): void => {
     const tab = this.tabs.get(id)

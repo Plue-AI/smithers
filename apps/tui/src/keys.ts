@@ -107,6 +107,7 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "worker-wait", keys: ["w"], label: "Wait for reset", context: "panel", group: "Panel" },
   { id: "stop", keys: ["x"], label: "Stop", context: "panel", group: "Panel" },
   { id: "steer-worker", keys: ["s"], label: "Steer", context: "panel", group: "Panel" },
+  { id: "take-over", keys: ["t"], label: "Take over", context: "panel", group: "Panel" },
   { id: "approve-form", keys: ["a"], label: "Action", context: "panel", group: "Panel" },
   { id: "undo", keys: ["u"], label: "Undo changes", context: "panel", group: "Panel" },
   { id: "next-panel-tab", keys: ["tab"], label: "Next tab", context: "panel", group: "Tabs" },
