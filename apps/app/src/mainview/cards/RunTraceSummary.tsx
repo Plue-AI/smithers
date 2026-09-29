@@ -7,6 +7,7 @@ import type { TraceModel } from "./RunTrace"
 import { latestNeedsHelp, NEEDS_HELP_LABELS } from "./RunNeedsHelp"
 import { traceStatus } from "./RunTraceStatus"
 import { launchSourceOf } from "../state/WorkflowLaunch"
+import { runMeterLabel, runMeterOf, runMeterParts } from "./RunMeter"
 
 /** The one word for each run phase; the app home's tiles read it for a last result. */
 export const RUN_PHASE_WORDS: Readonly<Record<string, string>> = {
@@ -39,6 +40,8 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   // A change that started from the caller's pushed ref (#1964) says which.
   const source = launchSourceOf(card)
   const shown = source === undefined ? facts : [`from ${source}`, ...facts]
+  const meter = runMeterOf(card.payload.events ?? [])
+  const parts = meter === undefined ? undefined : runMeterParts(meter)
   return <header className="run-outcome" data-phase={status} data-testid={`run-outcome-${runId}`} aria-label="Current run status">
     <span className="run-outcome-dot" data-status={status} aria-hidden />
     <span className="run-outcome-words">{verdict === undefined ? activity ?? words[phase] ?? phase : words[verdict]}</span>
@@ -57,5 +60,17 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
     {action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Review approval</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
     {shown.length === 0 ? null : <span className="run-outcome-facts">{shown.join(" · ")}</span>}
+    {parts === undefined ? null : (
+      // role="img" so the label, which says the arrows and levels in words, is what a screen reader reads.
+      <span className="run-outcome-facts run-meter" data-testid={`run-meter-${runId}`} role="img" aria-label={runMeterLabel(meter!)}>
+        {parts.usage}
+        {parts.window === undefined ? null : (
+          <span data-level={parts.windowDanger ? "danger" : undefined} title={parts.windowDanger ? "Context window nearly full" : undefined}>{` · ${parts.window}`}</span>
+        )}
+        {parts.cache === undefined ? null : (
+          <span data-level={parts.cacheWarning ? "warning" : undefined} title={parts.cacheWarning ? "Low cache hit rate" : undefined}>{` · ${parts.cache}`}</span>
+        )}
+      </span>
+    )}
   </header>
 }

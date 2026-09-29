@@ -1158,3 +1158,24 @@ describe("the primary monitoring surface", () => {
     expect(host.querySelector("[aria-label='Goals']")?.closest("details")).toBeNull()
   })
 })
+
+describe("the run card's token meter", () => {
+  test("the header carries the meter; low cache warns and a full window is danger", () => {
+    const events = [
+      stamp(1, "control.agent.turn-opened", { seat: "openai:gpt-4o" }, 1000),
+      stamp(2, "control.agent.model-settled", { text: "ok", usage: { inputTokens: 120_000, outputTokens: 2000, cachedInputTokens: 30_000 } }, 1500)
+    ]
+    const { host } = renderRun({ phase: "running", events })
+    const meter = host.querySelector("[data-testid='run-outcome-run-1'] [data-testid='run-meter-run-1']")!
+    expect(meter.textContent).toBe("↑120k ↓2.0k · 93.8%/128k · cache 25%")
+    expect([...meter.querySelectorAll("[data-level]")].map((part) => part.getAttribute("data-level"))).toEqual(["danger", "warning"])
+    // Colour and arrows are not the only signal: the label and titles say them in words.
+    expect(meter.getAttribute("role")).toBe("img")
+    expect(meter.getAttribute("aria-label")).toBe("120k tokens in, 2.0k out, 93.8% of 128k window, nearly full, cache 25%, low")
+    expect([...meter.querySelectorAll("[data-level]")].map((part) => part.getAttribute("title"))).toEqual(["Context window nearly full", "Low cache hit rate"])
+  })
+  test("a run with no recorded usage has no meter", () => {
+    const { host } = renderRun({ phase: "running", events: [stamp(1, "control.agent.turn-opened", { seat: "openai:gpt-4o" }, 1000)] })
+    expect(host.querySelector("[data-testid='run-meter-run-1']")).toBeNull()
+  })
+})

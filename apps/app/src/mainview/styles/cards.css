@@ -2729,3 +2729,16 @@ button.registration-status { cursor: pointer; }
 .wiki-space-chip[data-space="private"] { background: var(--brand-soft); color: var(--brand); }
 .wiki-history .world-card-title { font-family: var(--font-mono); font-weight: 600; }
 .wiki-history [data-deleted] .world-card-path:first-of-type { color: var(--danger); }
+
+/* The context and cache meter on a run's header (cards/RunMeter.ts): a full window is danger, a cold cache a warning. */
+.run-meter {
+	font-family: var(--font-mono);
+}
+
+.run-meter [data-level="danger"] {
+	color: var(--danger);
+}
+
+.run-meter [data-level="warning"] {
+	color: var(--warning);
+}
