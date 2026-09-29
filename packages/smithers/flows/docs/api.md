@@ -93,10 +93,11 @@ out of both a committed row and a log line.
 
 ### Flat exports
 
-[`@smthrs/flow`](/api/flow) is re-exported flat, so all fifteen authoring names
+[`@smthrs/flow`](/api/flow) is re-exported flat, so all sixteen authoring names
 sit at the top level: `Action`, `DurableClock`, `DurableDeferred`,
-`DurableQueue`, `Flow`, `FlowRuntime`, `Graph`, `HumanTask`, `Interpreter`,
-`Poll`, `RetryPolicy`, `Sleep`, `Stall`, `StepIdentity`, and `WaitFor`.
+`DurableQueue`, `Fault`, `Flow`, `FlowRuntime`, `Graph`, `HumanTask`,
+`Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, `StepIdentity`, and
+`WaitFor`.
 
 `TimeTravel` from [`@smthrs/time-travel`](/api/time-travel) is the second flat
 export, and it is a service key rather than a namespace:
