@@ -160,6 +160,7 @@ interface FlowHostEntry {
 interface FlowHostBundle {
   readonly manifest: string
   readonly coding: FlowHostEntry & { readonly path: string }
+  readonly jjExport: { readonly path: string }
   readonly node: string
 }
 
@@ -210,6 +211,23 @@ const codingFlowHost = (root: string, value: unknown): FlowHostEntry & { readonl
   return { executable: value.executable, sha256: value.sha256, flows, path }
 }
 
+const linuxJJExport = (root: string, value: unknown): { readonly path: string } => {
+  if (!isRecord(value) || value.executable !== "linux-arm64/smithers-jj-export" ||
+    typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256)) {
+    throw new Error("Packaged Linux arm64 jj-export manifest is invalid.")
+  }
+  const path = packagedPath(root, value.executable, "Packaged Linux arm64 jj-export")
+  try {
+    accessSync(path, constants.X_OK)
+  } catch {
+    throw new Error(`Packaged Linux arm64 jj-export is not executable: ${path}`)
+  }
+  if (createHash("sha256").update(readFileSync(path)).digest("hex") !== value.sha256) {
+    throw new Error("Packaged Linux arm64 jj-export checksum failed.")
+  }
+  return { path }
+}
+
 const flowHostBundle = (manifestPath: string): FlowHostBundle => {
   const manifest = resolve(manifestPath)
   let decoded: unknown
@@ -225,6 +243,7 @@ const flowHostBundle = (manifestPath: string): FlowHostBundle => {
   return {
     manifest,
     coding: codingFlowHost(root, decoded.hosts.coding),
+    jjExport: linuxJJExport(root, decoded.hosts.jjExport),
     node: packagedPath(root, "node", "Packaged Flow host runtime")
   }
 }
@@ -297,6 +316,7 @@ export const startNativeBackend = async (
     hosts.node,
     hosts.coding.path,
     modelHost,
+    hosts.jjExport.path,
     resolve(binaryRoot, "smithers-jj-export"),
     jj,
     git,
@@ -359,10 +379,7 @@ export const startNativeBackend = async (
   environment.SMITHERS_WORKSPACE_CODING_HOST_SHA256 = hosts.coding.sha256
   environment.SMITHERS_MODEL_HOST_BUNDLE = modelHost
   environment.SMITHERS_NODE_BINARY = resolve(binaryRoot, "node")
-  environment.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY = resolve(
-    binaryRoot,
-    "smithers-jj-export"
-  )
+  environment.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY = hosts.jjExport.path
   environment.SMITHERS_CODING_LOCAL_OWNER = "1"
   environment.SMITHERS_JJ_PATH = jj
   environment.GIT_EXEC_PATH = gitExecPath

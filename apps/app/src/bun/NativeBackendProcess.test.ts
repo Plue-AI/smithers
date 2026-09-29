@@ -29,10 +29,13 @@ const packagedRuntime = (): { backend: string; postgresBin: string; root: string
   writeFileSync(join(root, "flow-hosts.json"), `${JSON.stringify({
     version: 1,
     hosts: {
-      coding: { executable: "smithers-coding-host", sha256: digest("coding"), flows: ["coding/dispatch"] }
+      coding: { executable: "smithers-coding-host", sha256: digest("coding"), flows: ["coding/dispatch"] },
+      jjExport: { executable: "linux-arm64/smithers-jj-export", sha256: digest("linux-helper"), flows: [] }
     }
   })}\n`)
   writeFileSync(join(root, "smithers-jj-export"), "x", { mode: 0o755 })
+  mkdirSync(join(root, "linux-arm64"))
+  writeFileSync(join(root, "linux-arm64", "smithers-jj-export"), "linux-helper", { mode: 0o755 })
   writeFileSync(join(root, "jj"), "x", { mode: 0o755 })
   writeFileSync(join(root, "git"), "x", { mode: 0o755 })
   const modelHost = join(root, "smithers-model-host")
@@ -88,6 +91,17 @@ const ownedEnvironment = async (
 }
 
 describe("native backend ownership", () => {
+  test("owned refuses a modified Linux arm64 jj-export helper", async () => {
+    const runtime = packagedRuntime()
+    writeFileSync(join(runtime.root, "linux-arm64", "smithers-jj-export"), "tampered", { mode: 0o755 })
+    await expect(startNativeBackend({
+      stateDir: runtime.state,
+      webRoot,
+      env: { SMITHERS_BACKEND_MODE: "own", SMITHERS_BACKEND_BINARY: runtime.backend,
+        SMITHERS_POSTGRES_BUNDLE_DIR: join(runtime.postgresBin, "..") }
+    })).rejects.toThrow("Packaged Linux arm64 jj-export checksum failed")
+  })
+
   test("plue starts neither process", async () => {
     let spawned = false
     const backend = await startNativeBackend({
@@ -147,7 +161,7 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_MODEL_HOST_BUNDLE).toEndWith("smithers-model-host")
     expect(env.SMITHERS_FLOW_HOST_MANIFEST).toEndWith("flow-hosts.json")
     expect(env.PATH?.split(delimiter)[0]).toBe(runtime.root)
-    expect(env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY).toEndWith("smithers-jj-export")
+    expect(env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY).toEndWith(join("linux-arm64", "smithers-jj-export"))
     expect(env.SMITHERS_CODING_LOCAL_OWNER).toBe("1")
     expect(env.SMITHERS_JJ_PATH).toEndWith("jj")
     expect(env.GIT_EXEC_PATH).toEndWith(join("libexec", "git-core"))

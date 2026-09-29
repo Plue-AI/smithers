@@ -118,7 +118,7 @@ smithers-backend microvm doctor       # read-only: msb, image, owned microVMs an
 
 With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
 
-The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper the host uses: put a Linux arm64 `smithers-jj-export` in the bundle and name it with `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, or the backend refuses to start. On a Mac, cross-build it with [Zig](https://ziglang.org) as the linker:
+The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper. Native release bundles include a checksummed `bin/linux-arm64/smithers-jj-export`, built on Linux arm64 in release CI with the pinned Rust toolchain. Native owned mode sets `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to that helper; self-hosted bundles must name a Linux arm64 helper with that variable or the backend refuses to start. To build a custom bundle on a Mac, cross-build with [Zig](https://ziglang.org) as the linker:
 
 ```sh
 rustup target add aarch64-unknown-linux-gnu --toolchain 1.98.0

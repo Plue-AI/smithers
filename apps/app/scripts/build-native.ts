@@ -214,13 +214,21 @@ await run(
 const modelHost = join(nativeDir, "bin", "smithers-model-host")
 await run("canonical model host", [nodeBinary, "apps/model-host/build.mjs", modelHost], root, nodeEnvironment)
 verifyChecksumSidecar(modelHost)
+const linuxHelper = process.env.SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY?.trim()
+if (!linuxHelper || !isAbsolute(linuxHelper) || !existsSync(linuxHelper) || statSync(linuxHelper).size === 0) {
+  throw new Error("Native builds require SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY from the Linux arm64 release helper.")
+}
+const packagedLinuxHelper = join(nativeDir, "bin", "linux-arm64", "smithers-jj-export")
+mkdirSync(dirname(packagedLinuxHelper), { recursive: true })
+cpSync(linuxHelper, packagedLinuxHelper)
 await run(
   "Flow host manifest",
   [
     nodeBinary,
     "distribution/flow-host-manifest.mjs",
     join(nativeDir, "bin", "flow-hosts.json"),
-    codingHost
+    codingHost,
+    packagedLinuxHelper
   ],
   root,
   nodeEnvironment

@@ -25,17 +25,24 @@ const host = async (root, path, flows) => {
   }
 }
 
-export const writeFlowHostManifest = async ({ output, coding }) => {
+export const writeFlowHostManifest = async ({ output, coding, jjExport }) => {
   const manifestPath = resolve(output)
   const root = dirname(manifestPath)
   await mkdir(root, { recursive: true })
   const hosts = {
-    coding: await host(root, coding, ["coding/dispatch"])
+    coding: await host(root, coding, ["coding/dispatch"]),
+    ...(jjExport === undefined ? {} : {
+      jjExport: {
+        ...await host(root, jjExport, []),
+        executable: relative(root, resolve(jjExport))
+      }
+    })
   }
   for (const entry of Object.values(hosts)) {
+    await mkdir(dirname(resolve(root, `${entry.executable}.sha256`)), { recursive: true })
     await writeFile(
       resolve(root, `${entry.executable}.sha256`),
-      `${entry.sha256}  ${entry.executable}\n`,
+      `${entry.sha256}  ${basename(entry.executable)}\n`,
       { mode: 0o644 }
     )
   }
@@ -44,9 +51,9 @@ export const writeFlowHostManifest = async ({ output, coding }) => {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [output, coding] = process.argv.slice(2)
+  const [output, coding, jjExport] = process.argv.slice(2)
   if (output === undefined || coding === undefined) {
-    throw new Error("usage: flow-host-manifest.mjs OUTPUT CODING_HOST")
+    throw new Error("usage: flow-host-manifest.mjs OUTPUT CODING_HOST [LINUX_ARM64_JJ_EXPORT]")
   }
-  await writeFlowHostManifest({ output, coding })
+  await writeFlowHostManifest({ output, coding, jjExport })
 }
