@@ -684,31 +684,9 @@ def check_ledger_bins_and_retry() -> None:
 
 
 def check_janitor() -> None:
-    """Trial workspaces are created with --idle-timeout 0, so a failed or
-    suspended one is dead and still holds host CPU and disk (three from
-    killed trials held both hosts on 2026-09-24). The janitor deletes those,
-    only trial-named ones, and never a running one."""
-    import requeue
-    with tempfile.TemporaryDirectory() as directory:
-        calls = Path(directory) / "calls"
-        cli = Path(directory) / "smithers"
-        rows = [{"id": "a", "name": "photonic-waveguide-routing-e4vsrxa-env", "status": "suspended"},
-                {"id": "b", "name": "mp-x-verifier-trial", "status": "failed"},
-                {"id": "c", "name": "layout-y-env", "status": "running"},
-                {"id": "d", "name": "drain-proof-20260923", "status": "suspended"}]
-        cli.write_text("#!/bin/sh\n"
-                       f"echo \"$*\" >> {calls}\n"
-                       f"case \"$*\" in *list*) printf '%s' '{json.dumps(rows)}';; *) printf '{{}}';; esac\n")
-        cli.chmod(0o755)
-        os.environ.update(SMITHERS_CLI=str(cli), PLUE_REPO="acme/bench")
-        try:
-            assert sorted(requeue.reap_dead()) == ["mp-x-verifier-trial", "photonic-waveguide-routing-e4vsrxa-env"]
-        finally:
-            for name in ("SMITHERS_CLI", "PLUE_REPO"):
-                os.environ.pop(name, None)
-        deletes = [l for l in calls.read_text().splitlines() if "delete" in l]
-        assert len(deletes) == 2 and all(" c " not in l and " d " not in l for l in deletes), deletes
-        assert all(" --yes " in l for l in deletes), "the CLI refuses a delete without --yes off a TTY"
+    """Ownership and janitor behavior is checked through subprocess CLI fixtures."""
+    from check_ownership import check_dead_cleanup
+    check_dead_cleanup()
 
 
 def check_requeue_and_health() -> None:
@@ -753,8 +731,6 @@ def check_requeue_and_health() -> None:
         import shutil as _shutil
         _shutil.rmtree(Path(directory) / "tb4-X.infra")
         assert health.main([directory, str(out), "tb4-X"]) == 0, "graded, agent, unplaceable and cancellations never trip"
-    assert requeue.workspace_name("ks-solver-cpp__VA7miqc__verifier__trial") == "ks-solver-cpp-va7miqc-verifier-trial"
-    assert requeue.workspace_name("ks-solver-cpp__VA7miqc__env") == plue_env._sanitize_name("ks-solver-cpp__VA7miqc__env")
 
 
 def check_untrusted_task_inputs() -> None:
@@ -819,23 +795,6 @@ def check_untrusted_task_inputs() -> None:
     line = plue_env.redact_argv(["smithers", "workspace", "exec", "--env", "API_KEY=sk-live-1", "--env", "A=b=c",
                                  "--command", "echo"])
     assert "sk-live-1" not in line and "b=c" not in line and "API_KEY=<redacted>" in line, line
-
-    with tempfile.TemporaryDirectory() as directory:
-        calls = Path(directory) / "calls"
-        cli = Path(directory) / "smithers"
-        rows = [{"id": "a", "name": "x-1-env"}, {"id": "b", "name": "x-1-verifier-trial"},
-                {"id": "c", "name": "x-10-env"}, {"id": "d", "name": "x-10-verifier-trial"},
-                {"id": "e", "name": "x-1-envoy"}]
-        cli.write_text("#!/bin/sh\n"
-                       f"echo \"$*\" >> {calls}\n"
-                       f"case \"$*\" in *list*) printf '%s' '{json.dumps(rows)}';; *) printf '{{}}';; esac\n")
-        cli.chmod(0o755)
-        os.environ.update(SMITHERS_CLI=str(cli), PLUE_REPO="acme/bench")
-        try:
-            assert sorted(requeue.reap(["x__1"])) == ["x-1-env", "x-1-verifier-trial"]
-        finally:
-            for name in ("SMITHERS_CLI", "PLUE_REPO"):
-                os.environ.pop(name, None)
 
     import email.message
     import urllib.error
@@ -982,6 +941,8 @@ def check_with_harbor() -> str:
 
 
 if __name__ == "__main__":
+    _ledger_temp = tempfile.TemporaryDirectory()
+    os.environ["PLUE_WORKSPACE_LEDGER"] = str(Path(_ledger_temp.name) / "workspaces.json")
     check_classification()
     check_ledger()
     check_transport_and_containment()
@@ -1002,3 +963,4 @@ if __name__ == "__main__":
     harbor_note = check_with_harbor()
     print(f"check_infra.py: classification, ledger cap and verifier handover, SSH transport, image /tmp, sidecars, "
           f"containment, requeue and health hold; {harbor_note}.")
+    _ledger_temp.cleanup()

@@ -1,7 +1,7 @@
 """Smithers Cloud (plue) environments for Harbor and Pier.
 
 Every call goes through the public `smithers` CLI exactly as a user would run
-it: `workspace create --image … --cpus … --wait`, `workspace exec --format
+it: `workspace create --image … --cpus …`, `workspace view`, `workspace exec --format
 json`, `workspace cp`, `workspace delete`. No admin or benchmark-only routes.
 
 Configuration (environment variables of the harness host):
@@ -78,6 +78,7 @@ import fcntl
 import functools
 import importlib.metadata
 import json
+import logging
 import math
 import os
 import re
@@ -91,10 +92,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
-    from . import image_config, outcome
+    from . import image_config, outcome, workspace_ownership
 except ImportError:  # run as a top-level module (fixtures)
     import image_config  # type: ignore[no-redef]
     import outcome  # type: ignore[no-redef]
+    import workspace_ownership  # type: ignore[no-redef]
 
 _DEFAULT_WAIT_SEC = 900
 _DEFAULT_EXEC_TIMEOUT_SEC = 8 * 3600
@@ -653,6 +655,8 @@ class _PlueOps:
     `_exec_result(stdout, stderr, return_code)`.
     """
 
+    session_id: str
+    logger: logging.Logger
     _workspace_id: str = ""
     _plue_image: str = ""
     _plue_copies: list[tuple[str, str]]
@@ -797,7 +801,14 @@ class _PlueOps:
             self.logger.info("plue: holding %s slot(s) of %s", slots, ledger.capacity)
         try:
             await self._plue_create()
-        except BaseException:
+        except BaseException as error:
+            if self._workspace_id:
+                # Reclaim known IDs immediately, retaining failed deletions.
+                await asyncio.shield(self._plue_stop())
+            elif not (isinstance(error, PlueError) and (
+                error.code in ("ownership_unavailable", "cli_unavailable") or is_capacity_error(error)
+            )):
+                self._plue_record_leak("unknown", error)
             await self._plue_release()
             raise
         self._plue_reserved = True
@@ -840,6 +851,10 @@ class _PlueOps:
             await self._plue_exec(f"chmod {mode_bits} {target}", user="root", timeout_sec=120)
 
     async def _plue_create(self) -> None:
+        try:
+            workspace_ownership.records()
+        except (OSError, ValueError) as error:
+            raise PlueError(f"cannot read workspace ownership ledger: {error}", "ownership_unavailable") from error
         cfg = self.task_env_config
         mode, allow = self._plue_network()
         args = [
@@ -849,7 +864,6 @@ class _PlueOps:
             "--image", self._plue_image,
             "--network", mode,
             "--idle-timeout", "0",
-            "--wait", "--wait-timeout", os.environ.get("PLUE_WAIT_SEC", str(_DEFAULT_WAIT_SEC)),
             "--format", "json",
         ]
         if getattr(cfg, "cpus", None):
@@ -860,37 +874,54 @@ class _PlueOps:
             args += ["--disk", str(cfg.storage_mb)]
         for host in allow:
             args += ["--allow", host]
-        deadline = asyncio.get_event_loop().time() + float(os.environ.get("PLUE_CAPACITY_WAIT_SEC", _DEFAULT_CAPACITY_WAIT_SEC))
+        capacity_deadline = asyncio.get_event_loop().time() + float(os.environ.get("PLUE_CAPACITY_WAIT_SEC", _DEFAULT_CAPACITY_WAIT_SEC))
         while True:
             try:
                 result = await self._run(*args, timeout=_DEFAULT_WAIT_SEC + 120)
-                break
+                data = _envelope(result.stdout.decode(errors="replace"))
+                data = data.get("data", data)
+                self._workspace_id = str(data.get("id") or "")
+                if not self._workspace_id:
+                    raise PlueError(f"workspace create returned no id: {data}")
+                # Persist before any boot wait so partial startup is recoverable.
+                try:
+                    workspace_ownership.record(self._repo(), self.session_id, self._workspace_id)
+                except (OSError, ValueError) as error:
+                    raise PlueError(f"cannot persist workspace {self._workspace_id}: {error}") from error
+                await self._plue_wait(data)
+                return
             except PlueError as error:
-                # `create --wait` reported a failed boot; the row still exists.
-                await self._plue_delete_by_name(_sanitize_name(self.session_id))
-                if not is_capacity_error(error) or asyncio.get_event_loop().time() >= deadline:
+                if not is_capacity_error(error) or asyncio.get_event_loop().time() >= capacity_deadline:
                     raise
+                if self._workspace_id:
+                    # A capacity failure can arrive asynchronously after create.
+                    # Reclaim only its recorded ID before retrying allocation.
+                    await self._run("workspace", "delete", *self._ws("--yes", "--format", "json"), timeout=300)
+                    workspace_ownership.forget(self._repo(), self._workspace_id)
+                    self._workspace_id = ""
                 self.logger.info("plue: no capacity, retrying in %ss", _CAPACITY_POLL_SEC)
                 await asyncio.sleep(_CAPACITY_POLL_SEC)
-        data = _envelope(result.stdout.decode(errors="replace"))
-        self._workspace_id = str(data.get("id") or data.get("data", {}).get("id") or "")
-        if not self._workspace_id:
-            raise PlueError(f"workspace create returned no id: {data}")
-        status = data.get("status") or data.get("data", {}).get("status")
-        if status != "running":
-            raise PlueError(f"workspace {self._workspace_id} is {status}: {data.get('failure_message', '')}")
 
-    async def _plue_delete_by_name(self, name: str) -> None:
-        try:
-            result = await self._run("workspace", "list", "--repo", self._repo(), "--format", "json", timeout=120)
-            text = result.stdout.decode(errors="replace")
-            rows = json.loads(text[text.find("["):]) if "[" in text else []
-        except (PlueError, ValueError, json.JSONDecodeError):
-            return
-        for row in rows:
-            if row.get("name") == name and row.get("id"):
-                await self._run("workspace", "delete", row["id"], "--yes", "--repo", self._repo(), "--format", "json",
-                                timeout=300, check=False)
+    async def _plue_wait(self, data: dict[str, Any]) -> None:
+        deadline = asyncio.get_event_loop().time() + float(os.environ.get("PLUE_WAIT_SEC", _DEFAULT_WAIT_SEC))
+        while data.get("status") != "running":
+            status = data.get("status")
+            if status in ("failed", "error", "stopped", "suspended", "deleted"):
+                raise PlueError(f"workspace {self._workspace_id} is {status}: {data.get('failure_message', '')}",
+                                str(data.get("failure_code") or ""))
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise PlueError(f"workspace {self._workspace_id} boot timed out", "timeout")
+            result = await self._run("workspace", "view", *self._ws("--format", "json"), timeout=min(120, remaining))
+            try:
+                data = _envelope(result.stdout.decode(errors="replace"))
+                data = data.get("data", data)
+                if data.get("id") != self._workspace_id:
+                    raise ValueError("workspace view returned a different ID")
+            except (ValueError, TypeError, AttributeError) as error:
+                raise PlueError("invalid workspace view while waiting for boot") from error
+            if data.get("status") not in ("running", "failed", "error", "stopped", "suspended", "deleted"):
+                await asyncio.sleep(min(2, max(0, deadline - asyncio.get_event_loop().time())))
 
     async def _plue_stop(self) -> None:
         """Delete the workspace and free the slot. Never raises: a workspace
@@ -907,13 +938,18 @@ class _PlueOps:
                     last = None
                     break
                 except PlueError as error:
-                    if "not found" in str(error).lower():
+                    if workspace_ownership.is_missing(error.code, str(error)):
                         last = None
                         break
                     last = error
                     await asyncio.sleep(_DELETE_BACKOFF_SEC * (attempt + 1))
             if last is not None:
                 self._plue_record_leak(workspace, last)
+            elif workspace:
+                try:
+                    workspace_ownership.forget(self._repo(), workspace)
+                except (OSError, ValueError) as error:
+                    self.logger.warning("plue: deleted %s but could not clear its receipt: %s", workspace, error)
         except Exception as error:  # noqa: BLE001 - stop() must not raise
             self._plue_record_leak(workspace, error)
         finally:

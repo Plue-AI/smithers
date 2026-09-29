@@ -70,6 +70,8 @@ and what the Terminal-Bench leaderboard's Codex entries ran at; the journal's
 
 ### On Smithers Cloud
 
+See [workspace cleanup](docs/cleanup.md) for durable creation receipts and recovery.
+
 Add `-e evals.harbor.plue_env:PlueEnvironment` and the task runs in a plue
 workspace through the public `smithers` CLI (`SMITHERS_CLI`, `PLUE_REPO`,
 `SMITHERS_TOKEN`; see `plue_env.py`). The harness still speaks `docker exec`:

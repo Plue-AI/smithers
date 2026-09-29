@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -27,7 +26,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-import outcome  # noqa: E402
+import outcome
+import workspace_ownership
 
 
 def requeue(job: Path) -> list[str]:
@@ -43,6 +43,8 @@ def requeue(job: Path) -> list[str]:
             continue
         if outcome.classify(data) not in ("infra", "running"):
             continue
+        # Keep attempts discoverable until cleanup succeeds.
+        reap([trial.name])
         aside.mkdir(exist_ok=True)
         target = aside / trial.name
         n = 1
@@ -54,60 +56,65 @@ def requeue(job: Path) -> list[str]:
     return moved
 
 
-def workspace_name(session_id: str) -> str:
-    """plue_env._sanitize_name, without importing the Harbor adapter."""
-    return (re.sub(r"[^a-z0-9-]+", "-", session_id.lower()).strip("-") or "trial")[:63]
+def _reap(trials: list[str] | None) -> list[str]:
+    """Delete only IDs recorded by create; workspace names confer no ownership."""
+    cli, repo = os.environ.get("SMITHERS_CLI", "smithers"), os.environ.get("PLUE_REPO", "").strip()
+    if trials == []:
+        return []
+    matching = [row for row in workspace_ownership.records() if trials is None or any(
+        row["session"] == trial + "__env" or row["session"].startswith(trial + "__verifier__")
+        for trial in trials)]
+    owned = [row for row in matching if row["repo"] == repo]
+    if matching and ("/" not in repo or (trials is not None and not owned)):
+        raise ValueError("PLUE_REPO does not match workspace receipts; cleanup refused")
+    if not owned:
+        return []
+    deleted, failed = [], []
+    for receipt in owned:
+        ident = receipt["id"]
+        if trials is None:
+            detail = subprocess.run([cli, "workspace", "view", ident, "--repo", repo, "--format", "json"],
+                                    capture_output=True, text=True, timeout=120, check=False)
+            data = json.loads(detail.stdout)
+            if detail.returncode:
+                error = data.get("error") or {}
+                if workspace_ownership.is_missing(error.get("code", ""), error.get("message", "")):
+                    workspace_ownership.forget(repo, ident)
+                    continue
+                raise RuntimeError(f"workspace view failed for {ident}; receipt retained")
+            data = data.get("data", data)
+            if data.get("id") != ident:
+                raise ValueError("workspace view returned a different ID; receipt retained")
+            if data.get("status") not in ("failed", "suspended"):
+                continue
+        result = subprocess.run([cli, "workspace", "delete", ident, "--yes", "--repo", repo, "--format", "json"],
+                                capture_output=True, text=True, timeout=300, check=False)
+        missing = False
+        if result.returncode:
+            try:
+                envelope = json.loads(result.stdout)
+                error = envelope.get("error") or {}
+                missing = workspace_ownership.is_missing(error.get("code", ""), error.get("message", ""))
+            except (ValueError, AttributeError):
+                pass
+        if result.returncode and not missing:
+            failed.append(ident)
+            continue
+        workspace_ownership.forget(repo, ident)
+        deleted.append(ident)
+    if failed:
+        raise RuntimeError(f"workspace delete failed; receipts retained: {', '.join(failed)}")
+    return deleted
 
 
 def reap(trials: list[str]) -> list[str]:
-    """Delete the agent and verifier workspaces the given trials left behind."""
-    cli, repo = os.environ.get("SMITHERS_CLI", "smithers"), os.environ.get("PLUE_REPO", "")
-    if not trials or "/" not in repo:
-        return []
-    listing = subprocess.run([cli, "workspace", "list", "--repo", repo, "--format", "json"],
-                             capture_output=True, text=True, timeout=120)
-    text = listing.stdout
-    try:
-        rows = json.loads(text[text.find("["):]) if "[" in text else []
-    except ValueError:
-        return []
-    # Exactly each trial's own workspaces (`<trial>__env`, `<trial>__verifier__<key>`):
-    # a bare prefix would also match trial `x-10`'s when requeuing `x-1`.
-    envs = {workspace_name(f"{t}__env") for t in trials}
-    verifiers = tuple(workspace_name(f"{t}__verifier__") + "-" for t in trials)
-    deleted = []
-    for row in rows:
-        name, ident = str(row.get("name") or ""), row.get("id")
-        if ident and (name in envs or name.startswith(verifiers)):
-            subprocess.run([cli, "workspace", "delete", ident, "--yes", "--repo", repo, "--format", "json"],
-                           capture_output=True, text=True, timeout=300)
-            deleted.append(name)
-    return deleted
+    """Delete recorded agent/verifier IDs for the selected trials."""
+    return _reap(trials)
 
 
 def reap_dead() -> list[str]:
-    """Delete trial workspaces (`…-env`, `…-verifier-<key>`) that are failed or
-    suspended: trials create them with --idle-timeout 0, so either state means
-    a dead VM that still holds host CPU and disk."""
-    cli, repo = os.environ.get("SMITHERS_CLI", "smithers"), os.environ.get("PLUE_REPO", "")
-    if "/" not in repo:
-        return []
-    listing = subprocess.run([cli, "workspace", "list", "--repo", repo, "--format", "json"],
-                             capture_output=True, text=True, timeout=120)
-    text = listing.stdout
-    try:
-        rows = json.loads(text[text.find("["):]) if "[" in text else []
-    except ValueError:
-        return []
-    deleted = []
-    for row in rows:
-        name, ident, status = str(row.get("name") or ""), row.get("id"), row.get("status")
-        trial_named = name.endswith("-env") or re.search(r"-verifier-[a-z0-9-]+$", name) is not None
-        if ident and trial_named and status in ("failed", "suspended"):
-            subprocess.run([cli, "workspace", "delete", ident, "--yes", "--repo", repo, "--format", "json"],
-                           capture_output=True, text=True, timeout=300)
-            deleted.append(name)
-    return deleted
+    """Delete recorded IDs that the repository reports failed or suspended."""
+    return _reap(None)
 
 
 if __name__ == "__main__":
@@ -116,5 +123,3 @@ if __name__ == "__main__":
         sys.exit(0)
     names = requeue(Path(sys.argv[1]))
     print(f"requeued {len(names)}: {' '.join(names)}")
-    reaped = reap(names)
-    print(f"deleted {len(reaped)} orphaned workspaces: {' '.join(reaped)}")
