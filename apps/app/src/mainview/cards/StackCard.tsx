@@ -23,7 +23,7 @@ import type { StackSnapshot } from "../state/seams/StackSeam"
 import { elapsedLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import type { IssueGroup } from "@smthrs/rpc/StackIssues"
-import { issueGroups, issueWord, settledItems, spanLabel, stackMetrics, issueToLandedMs } from "@smthrs/rpc/StackIssues"
+import { issueGroups, issueProgress, issueWord, settledItems, spanLabel, stackMetricLabels, stackMetrics, issueToLandedMs } from "@smthrs/rpc/StackIssues"
 import { accountLabel, ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, laneRows, retryable, stackCounts, stackRows, wikiRow } from "@smthrs/rpc/StackView"
 
 type StackCard = Extract<Card, { kind: "stack" }>
@@ -51,7 +51,7 @@ const Checks = ({ item }: { readonly item: MythicalItem }) => {
   return <span className="world-card-path" data-checks={item.checks.state}>{item.checks.state === "passed" ? "✓" : "…"}</span>
 }
 
-const ItemCells = ({ item, repo, onRunCommand, retry = true, reason }: {
+const ItemCells = ({ item, repo, onRunCommand, retry = true, reason, progress }: {
   readonly item: MythicalItem
   readonly repo: string
   readonly onRunCommand: RunCommand
@@ -59,12 +59,15 @@ const ItemCells = ({ item, repo, onRunCommand, retry = true, reason }: {
   readonly retry?: boolean
   /** The line under the row, when it says more than the row's word. */
   readonly reason: string | undefined
+  /** The issue row's current plan, omitted from its matching stack-change row. */
+  readonly progress?: string
 }) => (
     <>
       <Checks item={item} />
       {item.pullRequest === undefined ? null : (
         <a href={item.pullRequest.url} target="_blank" rel="noopener noreferrer" className="world-card-path">PR #{item.pullRequest.number}</a>
       )}
+      {progress === undefined ? null : <span className="world-card-path" data-testid={`stack-item-${item.id}-progress`}>{progress}</span>}
       {retry && retryable(item) ? (
         <Button size="sm" variant="ghost"
           {...flowAction(onRunCommand, "history.retry", flowArgs("history.retry", { id: item.id, repo }))}>Retry</Button>
@@ -97,7 +100,7 @@ const IssueRow = ({ stack, group, item, repo, now, onRunCommand }: {
       {clock === undefined ? <StateWord item={item} word={word} /> : (
         <time className="world-card-path" dateTime={item.updatedAt} data-testid={`stack-item-${item.id}-elapsed`}>{clock}</time>
       )}
-      <ItemCells item={item} repo={repo} onRunCommand={onRunCommand} reason={group.id === "needs-you" ? undefined : itemReason(item)} />
+      <ItemCells item={item} repo={repo} onRunCommand={onRunCommand} reason={group.id === "needs-you" ? undefined : itemReason(item)} progress={issueProgress(item)} />
     </li>
   )
 }
@@ -139,9 +142,7 @@ const MetricsLine = ({ stack, repo, view, onRunCommand }: {
   const metrics = stackMetrics(stack)
   return (
     <div className="world-card-row stack-metrics" data-testid="stack-metrics">
-      {metrics.decided === 0 ? null : <span data-testid="stack-metric-landed">{metrics.landed}/{metrics.decided} landed</span>}
-      <span data-testid="stack-metric-reverts">{metrics.reverts} {metrics.reverts === 1 ? "revert" : "reverts"}</span>
-      {metrics.p50Ms === undefined ? null : <span data-testid="stack-metric-p50">{spanLabel(metrics.p50Ms)} p50 issue→landed</span>}
+      {stackMetricLabels(metrics).map(({ id, text }) => <span key={id} data-testid={`stack-metric-${id}`}>{text}</span>)}
       {view === undefined ? null : (
         <span className="stack-views">
           {(["issues", "metrics"] as const).map((next) => (
@@ -162,7 +163,10 @@ const MetricsTable = ({ stack }: { readonly stack: MythicalStack }) => {
   if (items.length === 0) return null
   const spans = new Map(items.map((item) => [item.id, issueToLandedMs(item)]))
   const timed = [...spans.values()].some((ms) => ms !== undefined)
-  const routed = items.some((item) => item.integration?.kind !== undefined)
+  const costed = items.some((item) => item.costNanos !== undefined)
+  const edited = items.some((item) => item.humanEdited !== undefined)
+  const planned = items.some((item) => item.todo !== undefined)
+  const routed = items.some((item) => item.route !== undefined)
   return (
     <table className="secrets-table" aria-label="Settled issues" data-testid="stack-metrics-table">
       <thead>
@@ -170,6 +174,9 @@ const MetricsTable = ({ stack }: { readonly stack: MythicalStack }) => {
           <th scope="col">Issue</th>
           <th scope="col">Outcome</th>
           {timed ? <th scope="col">Issue→landed</th> : null}
+          {costed ? <th scope="col">Cost</th> : null}
+          {edited ? <th scope="col">Edited</th> : null}
+          {planned ? <th scope="col">Replans</th> : null}
           {routed ? <th scope="col">Route</th> : null}
           <th scope="col">Attempt</th>
         </tr>
@@ -182,7 +189,10 @@ const MetricsTable = ({ stack }: { readonly stack: MythicalStack }) => {
               <td><Title stack={stack} item={item} /></td>
               <td><StateWord item={item} /></td>
               {timed ? <td>{ms === undefined ? null : spanLabel(ms)}</td> : null}
-              {routed ? <td>{item.integration?.kind}</td> : null}
+              {costed ? <td>{item.costNanos === undefined ? null : `$${(item.costNanos / 1_000_000_000).toFixed(2)}`}</td> : null}
+              {edited ? <td>{item.humanEdited === true ? "you" : "–"}</td> : null}
+              {planned ? <td>{item.todo?.replans}</td> : null}
+              {routed ? <td>{item.route?.as}</td> : null}
               <td>{item.attempt}</td>
             </tr>
           )

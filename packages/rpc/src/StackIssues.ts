@@ -9,7 +9,8 @@
  * - Working: the factory holds it. The lane states (ACTIVE_ITEM_STATES) and
  *   `queued`, waiting for a lane.
  * - Done: nothing more happens on its own. `landed`, and the grey outcomes
- *   `declined`, `skipped` and `cancelled` (declined keeps its Retry). Given
+ *   `declined` and `cancelled` (declined keeps its Retry). `skipped` never
+ *   entered the factory and is omitted. Given
  *   the card's clock, only the items that moved in the last day ("Done
  *   today"); the metrics view lists every settled item.
  *
@@ -17,7 +18,7 @@
  */
 
 import type { MythicalItem, MythicalStack } from "./Mythical.ts"
-import { isSettledItemState } from "./Mythical.ts"
+import { isMythicalMisroute, isSettledItemState } from "./Mythical.ts"
 import { ACTIVE_ITEM_STATES, itemStateLabel } from "./StackView.ts"
 
 /**
@@ -72,7 +73,7 @@ const DAY_MS = 86_400_000
  * @since 1.0.0
  */
 export const issueGroups = (stack: MythicalStack, now?: number): ReadonlyArray<IssueGroup> => {
-  const indexed = stack.items.map((item, index) => ({ item, index }))
+  const indexed = stack.items.map((item, index) => ({ item, index })).filter(({ item }) => item.state !== "skipped")
   const of = (id: IssueGroupId) => indexed.filter(({ item }) => issueGroupOf(item) === id)
   /* An item with no readable stamp (the view writes "" for a null column) stays listed rather than vanishing. */
   const today = (row: { readonly item: MythicalItem }): boolean =>
@@ -113,7 +114,20 @@ export const issueGroups = (stack: MythicalStack, now?: number): ReadonlyArray<I
  * @since 1.0.0
  */
 export const issueWord = (item: MythicalItem): string =>
-  item.state === "proposed" || item.reason === undefined || item.reason === "" ? itemStateLabel(item) : item.reason
+  item.state === "proposed" || item.reason === undefined || item.reason === "" ||
+    (item.todo?.veryHard === true && item.state !== "running" && item.reason.startsWith("very hard"))
+    ? itemStateLabel(item)
+    : item.reason
+
+const isVeryHardContinuation = (item: MythicalItem): boolean =>
+  item.todo?.veryHard === true && ACTIVE_ITEM_STATES.has(item.state) && item.state !== "retrying"
+
+/** The current plan and continuation, shown only while a lane works the TODO. */
+export const issueProgress = (item: MythicalItem): string | undefined => {
+  if (item.todo === undefined || !ACTIVE_ITEM_STATES.has(item.state)) return undefined
+  const plan = `plan ${Math.min(item.todo.replans + 1, 3)} of 3`
+  return isVeryHardContinuation(item) ? `${plan} · very hard` : plan
+}
 
 /**
  * How long a landed item took from the service first observing its issue
@@ -157,6 +171,15 @@ export interface StackMetrics {
   readonly reverts: number
   /** The median issue→landed of landed items that carry `createdAt`; absent when none does. */
   readonly p50Ms: number | undefined
+  /** Landed items a person did not edit, divided by landed items, as a whole percentage. */
+  readonly landedUnedited: number
+  readonly landedUneditedShare: number | undefined
+  /** All recorded model spend in USD nanos, divided by the landed TODO count, as dollars. */
+  readonly costPerLanded: number | undefined
+  readonly misroutes: number
+  readonly replans: number
+  /** TODOs currently in their very-hard continuation. */
+  readonly veryHard: number
 }
 
 const median = (values: ReadonlyArray<number>): number | undefined => {
@@ -180,15 +203,45 @@ const DECIDED: ReadonlySet<MythicalItem["state"]> = new Set(["landed", "rejected
  * @category projections
  * @since 1.0.0
  */
-export const stackMetrics = (stack: MythicalStack): StackMetrics => ({
-  landed: stack.items.filter((item) => item.state === "landed").length,
-  decided: stack.items.filter((item) => DECIDED.has(item.state)).length,
-  reverts: stack.changes.filter((change) => change.kind === "revert").length,
-  p50Ms: median(stack.items.flatMap((item) => {
-    const ms = issueToLandedMs(item)
-    return ms === undefined ? [] : [ms]
-  }))
-})
+export const stackMetrics = (stack: MythicalStack): StackMetrics => {
+  const landed = stack.items.filter((item) => item.state === "landed")
+  const costs = stack.items.flatMap((item) => item.costNanos === undefined ? [] : [item.costNanos])
+  return {
+    landed: landed.length,
+    decided: stack.items.filter((item) => DECIDED.has(item.state)).length,
+    reverts: stack.changes.filter((change) => change.kind === "revert").length,
+    p50Ms: median(stack.items.flatMap((item) => {
+      const ms = issueToLandedMs(item)
+      return ms === undefined ? [] : [ms]
+    })),
+    landedUnedited: landed.filter((item) => item.humanEdited !== true).length,
+    landedUneditedShare: landed.length === 0
+      ? undefined
+      : Math.round(100 * landed.filter((item) => item.humanEdited !== true).length / landed.length),
+    costPerLanded: landed.length === 0 || costs.length === 0
+      ? undefined
+      : costs.reduce((sum, cost) => sum + cost, 0) / 1_000_000_000 / landed.length,
+    misroutes: stack.items.filter((item) => item.route !== undefined && isMythicalMisroute(item.route)).length,
+    replans: stack.items.reduce((sum, item) => sum + (item.todo?.replans ?? 0), 0),
+    veryHard: stack.items.filter(isVeryHardContinuation).length
+  }
+}
+
+/** Short, ordered labels for the one-line metric header in both hosts. */
+export const stackMetricLabels = (
+  metrics: StackMetrics
+): ReadonlyArray<{ readonly id: string; readonly text: string }> => [
+  ...(metrics.decided === 0 ? [] : [{ id: "landed", text: `${metrics.landed}/${metrics.decided} landed` }]),
+  ...(metrics.landedUneditedShare === undefined
+    ? []
+    : [{ id: "unedited", text: `${metrics.landedUneditedShare}% landed unedited` }]),
+  ...(metrics.p50Ms === undefined ? [] : [{ id: "p50", text: `${spanLabel(metrics.p50Ms)} p50` }]),
+  ...(metrics.costPerLanded === undefined ? [] : [{ id: "cost", text: `$${metrics.costPerLanded.toFixed(2)}/landed` }]),
+  { id: "reverts", text: `${metrics.reverts} ${metrics.reverts === 1 ? "revert" : "reverts"}` },
+  { id: "misroutes", text: `${metrics.misroutes} ${metrics.misroutes === 1 ? "misroute" : "misroutes"}` },
+  { id: "replans", text: `${metrics.replans} ${metrics.replans === 1 ? "replan" : "replans"}` },
+  ...(metrics.veryHard === 0 ? [] : [{ id: "very-hard", text: `${metrics.veryHard} very hard` }])
+]
 
 /**
  * The settled items, newest first: the rows of the metrics table.
@@ -198,6 +251,6 @@ export const stackMetrics = (stack: MythicalStack): StackMetrics => ({
  */
 export const settledItems = (stack: MythicalStack): ReadonlyArray<MythicalItem> =>
   stack.items.map((item, index) => ({ item, index }))
-    .filter(({ item }) => isSettledItemState(item.state))
+    .filter(({ item }) => isSettledItemState(item.state) && item.state !== "skipped")
     .sort((a, b) => at(b.item.updatedAt) - at(a.item.updatedAt) || a.index - b.index)
     .map(({ item }) => item)

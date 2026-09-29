@@ -26,14 +26,19 @@ const stack = {
   items: [
     item("2431", "blocked", {
       reason: "very hard 3/3",
+      todo: { replans: 2, veryHard: true },
       issue: { number: 2431, title: "ctx.help", url: "https://github.com/o/r/issues/2431" }
     }),
     item("2412", "running", {
       lane: 0,
+      todo: { replans: 2, veryHard: true },
       issue: { number: 2412, title: "Resume loses prompt cache", url: "https://github.com/o/r/issues/2412" }
     }),
     item("2388", "landed", {
       createdAt: at(3),
+      humanEdited: false,
+      costNanos: 2_000_000_000,
+      route: { as: "close", landed: "change" },
       issue: { number: 2388, title: "Tab overflow", url: "https://github.com/o/r/issues/2388" }
     })
   ],
@@ -58,7 +63,7 @@ it("reads the repository's stack from Cloud and lists its issues by group under 
   try {
     tui = await Tui.start({
       cwd: root,
-      cols: 110,
+      cols: 150,
       rows: 30,
       command: `bun ${join(app, "e2e", "tabs-fixture.tsx")}`,
       env: {
@@ -76,8 +81,11 @@ it("reads the repository's stack from Cloud and lists its issues by group under 
     await tui.press(key.enter)
     await tui.until(
       (screen) =>
-        screen.includes("1/2 landed · 0 reverts · 2h p50 issue→landed") && screen.includes("Needs you 1") &&
-        screen.includes("#2431 ctx.help · very hard 3/3") && screen.includes("#2412 Resume loses prompt cache") &&
+        screen.includes(
+          "1/2 landed · 100% landed unedited · 2h p50 · $2.00/landed · 0 reverts · 1 misroute · 4 replans · 1 very hard"
+        ) && screen.includes("Needs you 1") &&
+        screen.includes("#2431 ctx.help · blocked") &&
+        screen.includes("#2412 Resume loses prompt cache · implementing · plan 3 of 3 · very hard") &&
         screen.includes("Done 1"),
       10_000,
       "the issue list"

@@ -8,7 +8,7 @@
 import * as CloudSession from "@smthrs/cli/CloudSession"
 import { type MythicalItem, mythicalRoute, type MythicalStack, MythicalStackSchema } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
-import { itemReason, itemTitle } from "@smthrs/rpc/StackView"
+import { itemReason, itemStateLabel, itemTitle } from "@smthrs/rpc/StackView"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -43,15 +43,9 @@ const groupStatus: Record<StackIssues.IssueGroupId, NonNullable<Panels.Row["stat
   done: "done"
 }
 
-/** `3/5 landed · 1 revert · 2h p50 issue→landed`: the History card's own numbers and words. */
-export const metrics = (stack: MythicalStack): string => {
-  const measured = StackIssues.stackMetrics(stack)
-  return [
-    measured.decided === 0 ? "" : `${measured.landed}/${measured.decided} landed`,
-    `${measured.reverts} ${measured.reverts === 1 ? "revert" : "reverts"}`,
-    measured.p50Ms === undefined ? "" : `${StackIssues.spanLabel(measured.p50Ms)} p50 issue→landed`
-  ].filter((part) => part !== "").join(" · ")
-}
+/** The History card's own one-line numbers and words. */
+export const metrics = (stack: MythicalStack): string =>
+  StackIssues.stackMetricLabels(StackIssues.stackMetrics(stack)).map(({ text }) => text).join(" · ")
 
 /** Rows a group lists before `… N more`: a panel holds 500 rows, and a queue can be longer. */
 export const perGroup = 60
@@ -72,10 +66,13 @@ export const rows = (stack: MythicalStack, now: number): ReadonlyArray<Panels.Ro
     ...group.items.slice(0, perGroup).map((item, index): Panels.Row => {
       const status = item.state === "queued" ? "queued" : groupStatus[group.id]
       const title = itemTitle(stack, item)
-      const word = StackIssues.issueWord(item)
+      const word = group.id === "needs-you" ? StackIssues.issueWord(item) : itemStateLabel(item)
+      const progress = StackIssues.issueProgress(item)
       return {
         id: `issue:${group.id}:${index}`,
-        label: `${group.id === "needs-you" ? "◆ " : ""}${title} · ${word}`.slice(0, 160),
+        label: `${group.id === "needs-you" ? "◆ " : ""}${title} · ${word}${
+          progress === undefined ? "" : ` · ${progress}`
+        }`.slice(0, 160),
         ...(status === undefined ? {} : { status }),
         details: detail(stack, item)
       }

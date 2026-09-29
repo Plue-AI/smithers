@@ -95,6 +95,14 @@ describe("the issue groups", () => {
     expect(render({ stack: old, view: "metrics" })).toContain("stack-metrics-i2")
   })
 
+  test("unlabelled skipped issues do not appear in Done or the settled table", () => {
+    const value = stack([item("i1", "skipped"), item("i2", "landed")])
+    const issues = render({ stack: value })
+    expect(issues).toMatch(/data-testid="stack-group-done-count">1</)
+    expect(issues).not.toContain("stack-item-i1")
+    expect(render({ stack: value, view: "metrics" })).not.toContain("stack-metrics-i1")
+  })
+
   test("a row is glyph, linked `#n title`, one word, and Retry where the API takes it", () => {
     const value = stack([
       item("i5", "blocked", { reason: "3 attempts failed" }),
@@ -135,8 +143,8 @@ describe("the issue groups", () => {
 
 describe("the metrics", () => {
   const timed = stack([
-    item("i1", "landed", { createdAt: "2026-09-25T08:00:00Z", updatedAt: "2026-09-25T10:00:00Z", integration: { kind: "rebased" }, attempt: 2 }),
-    item("i2", "landed", { createdAt: "2026-09-25T06:00:00Z", updatedAt: "2026-09-25T10:00:00Z", integration: { kind: "fast-forward" } }),
+    item("i1", "landed", { createdAt: "2026-09-25T08:00:00Z", updatedAt: "2026-09-25T10:00:00Z", route: { as: "bug", landed: "change" }, attempt: 2 }),
+    item("i2", "landed", { createdAt: "2026-09-25T06:00:00Z", updatedAt: "2026-09-25T10:00:00Z", route: { as: "implement", landed: "change" } }),
     item("i3", "landed", { createdAt: "2026-09-24T10:00:00Z", updatedAt: "2026-09-25T10:00:00Z" }),
     item("i4", "landed", { updatedAt: "2026-09-25T10:00:00Z" }),
     item("i5", "rejected", { updatedAt: "2026-09-25T10:00:00Z" }),
@@ -147,11 +155,18 @@ describe("the metrics", () => {
   ] })
 
   test("landed out of decided, reverts, and p50 issue→landed from the items that carry createdAt", () => {
-    expect(stackMetrics(timed)).toEqual({ landed: 4, decided: 5, reverts: 1, p50Ms: 4 * 3_600_000 })
+    expect(stackMetrics(timed)).toEqual({
+      landed: 4, decided: 5, reverts: 1, p50Ms: 4 * 3_600_000,
+      landedUnedited: 4, landedUneditedShare: 100, costPerLanded: undefined,
+      misroutes: 0, replans: 0, veryHard: 0
+    })
     const html = render({ stack: timed })
     expect(html).toContain('data-testid="stack-metric-landed">4/5 landed<')
     expect(html).toContain('data-testid="stack-metric-reverts">1 revert<')
-    expect(html).toContain('data-testid="stack-metric-p50">4h p50 issue→landed<')
+    expect(html).toContain('data-testid="stack-metric-p50">4h p50<')
+    expect(html).toContain('data-testid="stack-metric-unedited">100% landed unedited<')
+    expect(html).toContain('data-testid="stack-metric-misroutes">0 misroutes<')
+    expect(html).toContain('data-testid="stack-metric-replans">0 replans<')
     expect(html.indexOf("stack-metrics")).toBeLessThan(html.indexOf("stack-group-needs-you"))
   })
 
@@ -177,6 +192,37 @@ describe("the metrics", () => {
     expect(moving).not.toMatch(/not measured|n\/a/i)
   })
 
+  test("the History header and working rows show measured cost, route errors, and live plan progress", () => {
+    const value = stack([
+      item("i1", "landed", { costNanos: 3_000_000_000, route: { as: "close", landed: "change" } }),
+      item("i2", "landed", { humanEdited: true, costNanos: 1_000_000_000, todo: { replans: 2, veryHard: true } }),
+      item("i3", "running", { lane: 0, todo: { replans: 1 } }),
+      item("i4", "running", { lane: 1, todo: { replans: 2, veryHard: true } }),
+      item("i5", "blocked", { reason: "very hard: exhausted", todo: { replans: 2, veryHard: true } }),
+      item("i6", "retrying", { todo: { replans: 0, veryHard: true } }),
+      item("i7", "verifying", { todo: { replans: 2, veryHard: true } })
+    ])
+    const html = render({ stack: value })
+    expect(html).toContain('data-testid="stack-metric-unedited">50% landed unedited<')
+    expect(html).toContain('data-testid="stack-metric-cost">$2.00/landed<')
+    expect(html).toContain('data-testid="stack-metric-misroutes">1 misroute<')
+    expect(html).toContain('data-testid="stack-metric-replans">9 replans<')
+    expect(html).toContain('data-testid="stack-metric-very-hard">2 very hard<')
+    expect(html).toContain('data-testid="stack-item-i3-progress">plan 2 of 3<')
+    expect(html).toContain('data-testid="stack-item-i4-progress">plan 3 of 3 · very hard<')
+    expect(html).not.toContain('data-testid="stack-item-i2-progress"')
+    expect(html).not.toContain('data-testid="stack-item-i5-progress"')
+    expect(html).not.toContain('data-testid="stack-item-i6-progress">plan 1 of 3 · very hard')
+    expect(html).toContain('data-testid="stack-item-i7-progress">plan 3 of 3 · very hard<')
+    expect(section(html, "needs-you")).toContain('data-state="blocked">blocked<')
+    const table = render({ stack: value, view: "metrics" })
+    expect(table).toMatch(/<th scope="col">Cost<\/th><th scope="col">Edited<\/th><th scope="col">Replans<\/th><th scope="col">Route<\/th>/)
+    const first = table.slice(table.indexOf('data-testid="stack-metrics-i1"'), table.indexOf("</tr>", table.indexOf('data-testid="stack-metrics-i1"')))
+    expect(first).toContain("$3.00")
+    expect(first).toContain("<td>–</td>")
+    expect(first).toContain("<td>close</td>")
+  })
+
   test("issue→landed needs a landed item with readable, ordered stamps", () => {
     expect(issueToLandedMs(item("i1", "landed", { createdAt: "2026-09-25T09:00:00Z", updatedAt: "2026-09-25T10:00:00Z" }))).toBe(3_600_000)
     expect(issueToLandedMs(item("i1", "rejected", { createdAt: "2026-09-25T09:00:00Z", updatedAt: "2026-09-25T10:00:00Z" }))).toBeUndefined()
@@ -196,7 +242,7 @@ describe("the metrics", () => {
     expect(row).toContain("#1 Issue i1")
     expect(row).toContain(">landed<")
     expect(row).toContain("<td>2h</td>")
-    expect(row).toContain("<td>rebased</td>")
+    expect(row).toContain("<td>bug</td>")
     expect(row).toContain("<td>2</td>")
     // Without createdAt or a route anywhere, those columns are absent, never empty placeholders.
     const plain = render({ stack: stack([item("i4", "landed")]), view: "metrics" })
