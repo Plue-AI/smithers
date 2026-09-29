@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import ts from "@typescript/typescript6"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import * as Effect from "effect/Effect"
 import * as Constructs from "../src/Constructs.ts"
 import * as Detect from "../src/Detect.ts"
@@ -130,6 +132,33 @@ const auditPairs: ReadonlyArray<{
 ]
 
 describe("Mapping.rows", () => {
+  it("guides exported pattern and memory counterparts instead of marking them unsafe", () => {
+    const exports = new Set(
+      ["../../flows/patterns/src/index.ts", "../../agent/memory/src/index.ts"].flatMap((path) =>
+        [...readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8").matchAll(/^export \* as (\w+) from/gm)]
+          .map((match) => match[1])
+      )
+    )
+    const unsafeExports = Mapping.rows.filter((row) => exports.has(row.construct) && row.class === "unsafe")
+    expect(unsafeExports.map((row) => row.construct)).toEqual([])
+    for (const name of [
+      "Sidecar", "Supervisor", "Kanban", "Optimizer", "DriftDetector", "MemoryTrellis", "MergeQueue"
+    ]) {
+      expect(exports.has(name), name).toBe(true)
+      expect(Mapping.byConstruct(name), name).toMatchObject({ class: "guided" })
+      expect(Mapping.byConstruct(name)?.target, name).not.toBeNull()
+      expect(Mapping.byConstruct(name)?.targetModule, name).not.toBeNull()
+    }
+  })
+
+  it("guides continue-as-new through a bounded handoff", () => {
+    for (const name of ["ContinueAsNew", "continueAsNew"]) {
+      expect(Mapping.byConstruct(name), name).toMatchObject({ class: "guided", targetModule: "@smthrs/flow" })
+      expect(Mapping.byConstruct(name)?.target, name).not.toBeNull()
+      expect(Mapping.byConstruct(name)?.rule, name).toContain("maxRounds")
+    }
+  })
+
   // `rows` appends a generated row for every catalog construct the explicit
   // table does not name, so asserting that each construct HAS a row asserts
   // nothing: the set is built from the thing it would be checked against. What
@@ -290,8 +319,8 @@ describe("Mapping.classify", () => {
     expect(bounded.reason).toBeUndefined()
   })
 
-  it("raises Loop to unsafe when it continues as new", () => {
-    expect(Mapping.classify(hit("Loop", ["continueAsNewEvery"]))).toBe("unsafe")
+  it("guides Loop handoffs when it continues as new", () => {
+    expect(Mapping.classify(hit("Loop", ["continueAsNewEvery"]))).toBe("guided")
   })
 
   it("raises a select approval to guided", () => {
