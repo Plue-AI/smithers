@@ -727,7 +727,9 @@ Deterministic JSON encoding for model-step inputs.
 `stringify` is stricter than `JSON.stringify` on purpose. A value
 `JSON.stringify` would drop or reshape (`undefined`, a function, a symbol, a
 non-finite number, a class instance such as `Date` or `Map`, a symbol-keyed
-member, or a cycle) is rejected with `TypeError: Value at <path> is not valid
+member, a cycle, or an array that is sparse, carries named or symbol-keyed
+members (such as a `RegExp` match result), or is an Array subclass or from
+another realm) is rejected with `TypeError: Value at <path> is not valid
 JSON`, because a model request body is sealed-step key material and the key
 must describe the bytes sent. Everything both encoders accept they encode
 identically, including an own member literally named `__proto__`. The
@@ -759,3 +761,9 @@ UTF-8 decoding retains the existing replacement-character policy for malformed
 sequences. SSE drops an incomplete final event; NDJSON emits its partial final
 line so JSON decoding can report truncation. Transport failures propagate;
 retry directives in SSE do not terminate the response or discard later events.
+
+## Live test gate
+
+The model test suite uses local fixtures by default. Live evaluator, Gemini,
+and Cerebras cases require `SMITHERS_LIVE_MODEL_TESTS=1` and their matching
+provider key. An ambient key alone does not enable provider traffic.

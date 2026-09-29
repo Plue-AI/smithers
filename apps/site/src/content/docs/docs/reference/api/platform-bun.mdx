@@ -106,7 +106,7 @@ activation because they cannot launch the runtime supervisor.
 (`BunJj.layerSpawnerAt`). It refuses a root exactly as `layerAt` does.
 
 `layerHttpClient` is the network slot every factory above installs, on its
-own: `@effect/platform-bun`'s fetch client with `redirect: "manual"`. A `3xx`
+own: `EgressHttpClient.layer(process.env)` from `@smthrs/platform-node`. A `3xx`
 comes back with its `location` header intact and the second origin is never
 contacted. Following a redirect is `@smthrs/kernel`'s guarded
 `HttpClient.layer`, which rechecks the capability on every hop.
@@ -114,10 +114,11 @@ contacted. Following a redirect is `@smthrs/kernel`'s guarded
 ### BunHostError
 
 ```ts
-class BunHostError extends Error {
+class BunHostError extends Schema.TaggedError<BunHostError>()("@smthrs/platform-bun/BunHostError", {
+  code: Schema.Literal("invalid_repository_root"),
+  message: Schema.String
+}) {
   readonly name: "BunHostError"
-  readonly code: BunHostErrorCode
-  constructor(options: { readonly code: BunHostErrorCode; readonly message: string })
 }
 
 type BunHostErrorCode = "invalid_repository_root"
@@ -175,7 +176,7 @@ describe that substitution:
   "effect/Path": "@effect/platform-bun/BunPath",
   "effect/process/ChildProcessSpawner": "@effect/platform-bun/BunChildProcessSpawner",
   "@smthrs/jj/Jj": "@smthrs/jj/bun/BunJj",
-  "effect/HttpClient": "@effect/platform-bun/BunHttpClient"
+  "effect/HttpClient": "@smthrs/platform-node/EgressHttpClient"
 }
 ```
 
@@ -250,8 +251,7 @@ spawner _is_ the Node one. Running a command is Effect's `ChildProcess` and
 `ChildProcessSpawner`, and there is nothing for a detection branch to choose
 between.
 
-There is no HTTP service either. `BunHost` provides `@effect/platform-bun`'s
-fetch-backed `HttpClient` with `RequestInit { redirect: "manual" }`, so the
+There is no HTTP service either. `BunHost` provides the shared `EgressHttpClient.layer(process.env)`, so the
 runtime never walks to a second origin behind the capability kernel's back.
 Following a redirect is [@smthrs/kernel](/docs/reference/api/kernel/)'s guarded
 `HttpClient.layer`, which rechecks the capability on every hop.

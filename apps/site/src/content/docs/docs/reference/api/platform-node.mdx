@@ -438,3 +438,20 @@ expectation. Containment is driven over real detached process groups.
 [@smthrs/kernel](/docs/reference/api/kernel/) owns the closed list and decorates these same tags
 with capability checks. [@smthrs/platform-bun](/docs/reference/api/platform-bun/) and
 [@smthrs/platform-browser](/docs/reference/api/platform-browser/) are the sibling bundles.
+
+## Pinned web connections
+
+`EgressHttpClient.layer(environment)` supplies the kernel destination-pinning
+contract. Web requests get a fresh dispatcher using only their authorized IP
+addresses. Host and TLS server name retain the requested hostname; TLS
+verification stays enabled. `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+select the route by hostname. Proxied requests use CONNECT to the approved IP,
+including plain HTTP, so the proxy cannot resolve the destination again.
+A proxy must support IP tunnels; refusal never falls back to direct access.
+Dispatchers close after their response body and are destroyed on failure or
+cancellation. Ordinary requests without the web destination policy retain the
+shared dispatcher, including local model connections.
+
+Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
+fail closed. The transport sets Host from the URL and discards caller-supplied
+proxy authorization and connection framing headers.

@@ -3,40 +3,40 @@
 # Model prices
 https://smithers.sh/docs/model-prices/
 
-Source date: 2026-09-27. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Token rates below are USD per million tokens; per-call charges are USD per call. Cache read is cached input; cache write is prompt-cache writes. A dash means no separate long-context tier.
+Source date: 2026-09-27. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Token rates below are USD per million tokens; per-call charges are USD per call. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.
 
-| Model | Input | Cached input | Cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long output | Per call |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| claude-fable-5 | 10 | 1 | 12.5 | 50 | - | - | - | - | - | - |
-| claude-fable-5-1 | 10 | 0.25 | 12.5 | 50 | - | - | - | - | - | - |
-| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 5 | - | - | - | - | - | - |
-| claude-opus-4-6 | 5 | 0.5 | 6.25 | 25 | - | - | - | - | - | - |
-| claude-opus-4-7 | 5 | 0.5 | 6.25 | 25 | - | - | - | - | - | - |
-| claude-opus-4-8 | 5 | 0.5 | 6.25 | 25 | - | - | - | - | - | - |
-| claude-opus-5 | 5 | 0.5 | 6.25 | 25 | - | - | - | - | - | - |
-| claude-opus-5-5 | 4 | 0.2 | 5 | 20 | - | - | - | - | - | - |
-| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 15 | 200000 | 6 | 0.6 | 7.5 | 22.5 | - |
-| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 15 | - | - | - | - | - | - |
-| claude-sonnet-5 | 2 | 0.2 | 2.5 | 10 | - | - | - | - | - | - |
-| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 3.75 | - | - | - | - | - | - |
-| gpt-4o | 2.5 | 1.25 | 2.5 | 10 | - | - | - | - | - | - |
-| gpt-5.5 | 5 | 0.5 | 5 | 30 | 272000 | 10 | 1 | 10 | 45 | - |
-| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 1.8 | - |
-| gpt-5.6-sol | 4 | 0.4 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 30 | - |
-| gpt-5.6-terra | 2 | 0.2 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 18 | - |
-| gpt-6-astra | 10 | 1 | 12.5 | 50 | 272000 | 20 | 2 | 25 | 75 | - |
-| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.75 | - |
-| gpt-6-sol | 2 | 0.2 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 15 | - |
-| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
-| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
-| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - |
-| typesafe-ai/jev | 0 | 0 | 0 | 0 | - | - | - | - | - | 0.002 |
+| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output | Per call |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| claude-fable-5 | 10 | 1 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
+| claude-fable-5-1 | 10 | 0.25 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
+| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 2 | 5 | - | - | - | - | - | - | - |
+| claude-opus-4-6 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
+| claude-opus-4-7 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
+| claude-opus-4-8 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
+| claude-opus-5 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
+| claude-opus-5-5 | 4 | 0.2 | 5 | 8 | 20 | - | - | - | - | - | - | - |
+| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 6 | 15 | 200000 | 6 | 0.6 | 7.5 | 12 | 22.5 | - |
+| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 6 | 15 | - | - | - | - | - | - | - |
+| claude-sonnet-5 | 2 | 0.2 | 2.5 | 4 | 10 | - | - | - | - | - | - | - |
+| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 0.75 | 3.75 | - | - | - | - | - | - | - |
+| gpt-4o | 2.5 | 1.25 | 2.5 | 2.5 | 10 | - | - | - | - | - | - | - |
+| gpt-5.5 | 5 | 0.5 | 5 | 5 | 30 | 272000 | 10 | 1 | 10 | 10 | 45 | - |
+| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 | - |
+| gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 | - |
+| gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 | - |
+| gpt-6-astra | 10 | 1 | 12.5 | 12.5 | 50 | 272000 | 20 | 2 | 25 | 25 | 75 | - |
+| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 | - |
+| gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
+| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
+| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
+| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - | - |
+| typesafe-ai/jev | 0 | 0 | 0 | 0 | 0 | - | - | - | - | - | - | 0.002 |
 
 At or above the long-context prompt threshold, the long rates apply to the whole call.
 
 ## gemini-3.8-flash from 2027-01-01T00:00:00Z
 
-Scheduled USD per million tokens: input 1.5, cached input 0.15, cache write 1.5, output 7.5.
+Scheduled USD per million tokens: input 1.5, cached input 0.15, cache write 1.5, 1h cache write 1.5, output 7.5.
 
 ---
 
@@ -15066,7 +15066,7 @@ const tokensOf: (usage: ModelEvent.Usage) => number
 ```
 
 The tokens one model call cost. The provider's total wins when present;
-otherwise the input, output, and reasoning parts are summed.
+otherwise input and output are summed. Reasoning is already included in output.
 Every supplied counter, including cache counters, must be finite and
 non-negative even when a total is supplied. Malformed components return `NaN`:
 they cannot cancel each other or be concealed by total precedence. `record`
@@ -17053,6 +17053,11 @@ one module. Always qualify them by module.
 Effect types appear throughout. A `Layer` provides a service and an `Effect`
 is the deferred computation a runtime executes.
 
+Every refusal class is an Effect `Data.TaggedError` whose `_tag` is
+`smithers-build/<ClassName>`, such as `smithers-build/GitHooksError`. Route it
+with `Effect.catchTag`, or with `instanceof` from promise code. Each keeps its
+documented fields and `message`.
+
 ## The CLI
 
 ### Affected and Watch process lifetime
@@ -17065,7 +17070,7 @@ from 1 through 86,400,000. Each output stream is limited to 16 MiB and decoded
 as strict UTF-8. Explicit files bypass Git. An already aborted signal refuses
 the call before discovery.
 
-`AffectedGitError` carries `_tag`, `code`, the exact Git `args`, and `cause`.
+`AffectedGitError` carries `_tag` (`smithers-build/AffectedGitError`), `code`, the exact Git `args`, and `cause`.
 Codes distinguish `timed_out`, `cancelled`, `nonzero_exit`, `process_failed`,
 `output_limit`, `cleanup_failed`, and `invalid_timeout`. Cleanup completes
 before timeout or cancellation is reported, adding up to five seconds of TERM
@@ -17446,7 +17451,7 @@ including any UTF-8 byte-order mark.
 | --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `ResolverConfig`            | `{ workspaceRoot; configDigest; baseUrl; paths; sources }`                         | The configuration one closure resolves under.                                          |
 | `loadResolverConfig`        | `(options: { workspaceRoot; tsconfig? }) => Promise<ResolverConfig>`               | Loads it from the tsconfig chain.                                                      |
-| `ResolverConfigError`       | class                                                                              | The tsconfig chain could not be read, or an entry lies outside the workspace.          |
+| `ResolverConfigError`       | class carrying `reason`                                                            | `outside_workspace`, `extends_too_deep`, `unreadable`, `invalid`, or `unsupported`.    |
 | `extractSpecifiers`         | `(path: string, text: string) => ReadonlyArray<ExtractedImport>`                   | Syntax-only extraction of import, export, require, and dynamic-import sites.           |
 | `ExtractedImport`           | `{ specifier: string; dynamic: boolean; mode?: "require" }`                        | One extracted import site.                                                             |
 | `resolveSpecifier`          | `(config, reader, fromFile, site) => Promise<RowEdge>`                             | Resolves one import into an explicit row edge.                                         |
@@ -17458,7 +17463,7 @@ including any UTF-8 byte-order mark.
 | `computeClosure`            | `(options: { config; entries; cache?; maximumFiles? }) => Promise<ClosureOutcome>` | The transitive import closure of the entries.                                          |
 | `ClosureOutcome`            | `{ result: Compose.ClosureResult; stats: ClosureStats }`                           | The deterministic result plus this run's counters.                                     |
 | `ClosureStats`              | `{ parsed: number; cached: number }`                                               | Files extracted versus files answered from stored rows.                                |
-| `ClosureError`              | class                                                                              | A closure computation failed.                                                          |
+| `ClosureError`              | class carrying `reason`                                                            | `unreadable`, `too_many_files`, `invalid_entry`, or `missing_entry`.                   |
 | `closureOfEntries`          | `(options: LiveOptions, entries) => Promise<Compose.ClosureResult>`                | Load, expand, and compute in one call.                                                 |
 | `LiveOptions`               | `{ workspaceRoot; cacheDirectory?; tsconfig?; cache? }`                            | What the live bindings run under.                                                      |
 | `expandAnchoredSources`     | `(options) => Promise<ReadonlyArray<string>>`                                      | Expands anchored sources to a sorted set of workspace-relative files.                  |
@@ -17703,7 +17708,10 @@ including linked worktrees and `core.hooksPath`. They fall back to `.git/hooks`
 only when Git is unavailable and the root has a `.git` directory. A Git failure
 raises `not_a_git_repository` without falling back. A hooks directory outside
 both the workspace root and the git common directory, such as a user-level
-`core.hooksPath`, raises `hooks_path_outside_repository`. Each script runs
+`core.hooksPath`, raises `hooks_path_outside_repository`. Containment uses
+canonical paths, resolving symlinks in existing parents even when the hooks
+directory does not exist yet. Both operations refuse external destinations
+before reading or writing hook files. Each script runs
 `smthrs '<label>'`, the bare-label form, so the label's flavor-implied verb runs.
 `install` copies an existing hook it did not generate to `<hook>.bak` first.
 
@@ -18182,6 +18190,7 @@ type Action =
   | "fs:write"
   | "net:get"
   | "net:post"
+  | "net:private"
   | "model:call"
   | "memory:read"
   | "memory:write"
@@ -18205,6 +18214,11 @@ selector at an RPC, config, or persistence boundary instead of copying the
 list. The set grows by addition and an existing action does not change meaning,
 so a stored payload naming an action outside it fails to decode rather than
 being read as something adjacent.
+
+`net:private` permits private HTTP destinations for the standard web tools.
+Its resource is a normalized URL origin, such as `http://127.0.0.1:8080`, and
+it supplements the ordinary request permission. Only an exact `net:private`
+action can allow it; wildcard action denies still apply.
 
 ### Capability.PatternAction
 
@@ -18516,6 +18530,9 @@ the same last-match rule, and its effective denial is then a hard veto, so a
 configured `deny` superseded by a later configured `allow` or `ask` is not a
 veto.
 
+`net:private` requires an allow rule naming that exact action. Wildcard action
+allows are skipped for it; wildcard denies retain the normal precedence.
+
 A rule the matcher cannot decide within `Capability.maxMatchWork` vetoes the
 decision and `evaluate` returns `deny`, because skipping it could let an
 undecidable `deny` fall through to a later `allow`. The kernel turns that
@@ -18770,6 +18787,16 @@ when a yieldable error instance is required.
   decorating layers, and grant handling.
 - [Handle a permission failure](https://capability.smithers.sh/guides/handle-a-permission-failure/): the
   procedure these three failures are built for.
+
+## Capability ceilings
+
+`@smthrs/capability/CapabilitySet` provides the shared authority implementation
+also exported by `@smthrs/kernel/CapabilitySet`. `current` reads the fiber's
+ceiling. `attenuate(patterns)(effect)` intersects one any-of group;
+`attenuateGroups(groups)(effect)` intersects every group, including persisted
+ceilings during recovery. Neither can widen the current authority. An empty
+outer array inherits; an empty group denies all capabilities. `fromPatterns`,
+`intersect`, `allows`, `equals`, and `none` operate on the same immutable values.
 
 ---
 
@@ -20102,12 +20129,12 @@ The agent configurations `smthrs mcp add` writes into.
 
 | Export | Signature | Meaning |
 | --- | --- | --- |
-| `serverName` | `"smithers"` | The `mcpServers` key written. |
-| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `~/.codex/mcp.json`. |
+| `serverName` | `"smithers"` | The registered server name. |
+| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
 | `find` | `(id) => Agent \| undefined` | One agent by id. |
 | `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
 | `Wired` | `{ agent, path, status, reason? }` | What one wiring attempt did. |
-| `addMcp` | `(agent, home?) => Wired` | Registers the server, through a lock file and a temp-plus-rename with the mode preserved. |
+| `addMcp` | `(agent, home?, environment?) => Wired` | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
 | `manualInstructions` | `(targets?) => string` | What to do by hand when every write failed. |
 
 ## Serve
@@ -20603,6 +20630,8 @@ or `ControlExecutor.resumeRun`. A caller or journal subscriber must drive the
 execution; polling `pendingResumes` does not take up explicit resumes.
 A suspended engine-created run stays unclaimed and receives an `Accepted`
 receipt for the journal intent. A live peer's owned run fails with `ClaimLost`.
+A running engine-created run outside the launch index also fails with
+`ClaimLost` when its owner is dead; its persisted execution state is preserved.
 Node-approval decisions use the durable resume delegation instead.
 
 `registerApproval` is idempotent and returns the token with its current
@@ -20681,6 +20710,9 @@ The durable `ControlRuntime` over a SQL database and the fenced run store from
 | `make`           | function  | `(options?: Options) => Effect<Service, PersistenceError, Crypto \| DurableWriter \| SqlClient \| RunStore>`                                                                                                                                                                                                                                                          |
 | `layer`          | layer     | `(options?: Options) => Layer<ControlRuntime, PersistenceError, Crypto \| DurableWriter \| SqlClient \| RunStore>`                                                                                                                                                                                                                                                    |
 | `layerWithStore` | layer     | The same, with `RunStore.layer` provided.                                                                                                                                                                                                                                                                                                                             |
+
+Dead-owner takeovers with `scope: "launched"` require a launch-index entry;
+unindexed engine continuations remain unchanged.
 
 `loadFlows` replaces the static `flows` or default system catalog. It runs afresh
 for each `plan` and `listFlows` operation, and one plan uses one complete catalog
@@ -20965,6 +20997,8 @@ which is what keeps an untrusted public request from reaching planning.
 `decode` and `map` must be deterministic and side-effect free; a retry may
 evaluate either again. `fingerprintHeaders` names only the non-secret headers
 that change the decoded command.
+Outbound delivery cursors are scoped to the exact channel name and run ID,
+including names and IDs containing `:`.
 
 ## WebhookChannel
 
@@ -22082,7 +22116,7 @@ placeholder.
 ### LayerError
 
 ```ts
-class LayerError extends Error {
+class LayerError extends Data.TaggedError("create-app/LayerError") {
   readonly name: "LayerError"
   readonly code: LayerErrorCode
 }
@@ -22090,6 +22124,7 @@ type LayerErrorCode = "invalid_grant"
 ```
 
 Thrown rather than returned, because every caller wants the host build to stop.
+Inside an `Effect`, catch it with `Effect.catchTag("create-app/LayerError")`.
 `invalid_grant` is a `TOOLS.ts` grant whose action is not one the kernel knows,
 or whose resource is longer than 4096 characters. The message names the grant's
 index and the field.
@@ -22131,7 +22166,7 @@ A refusal or `error` frame carries a typed error's own message (a payload the
 flow's schema rejects, a provider refusal, a seat with no key). Any other
 failure, including a throw from a host callback such as `tools` or `observe`,
 is logged on the server with `Effect.logError` and reaches the reader as
-`The turn failed.`
+`Something went wrong on our side. Not your fault.`
 
 | `TurnHost` field | Type                                                       |
 | ---------------- | ---------------------------------------------------------- |
@@ -22249,7 +22284,7 @@ type RoutesFileStatus = "written" | "clean" | "stale"
 ### RouterError
 
 ```ts
-class RouterError extends Error {
+class RouterError extends Data.TaggedError("create-app/RouterError") {
   readonly name: "RouterError"
   readonly code: RouterErrorCode
 }
@@ -22258,7 +22293,8 @@ type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name"
 
 `missing_layer` is a flow with no ancestor layer file of some kind,
 `duplicate_name` is two files claiming one route, and `invalid_name` is a pane,
-page segment, or flow segment that is not lowercase kebab-case.
+page segment, or flow segment that is not lowercase kebab-case. Inside an
+`Effect`, catch it with `Effect.catchTag("create-app/RouterError")`.
 
 ## @smthrs/create-app/vite
 
@@ -23330,7 +23366,7 @@ https://smithers.sh/docs/reference/api/engine-store/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/engine-store/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/docs/api.md) · [package docs](https://engine-store.smithers.sh)
 
-> **Related APIs:** [`@smthrs/artifacts`](/docs/reference/api/artifacts/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/keys`](/docs/reference/api/keys/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/plan-store`](/docs/reference/api/plan-store/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/)
+> **Related APIs:** [`@smthrs/artifacts`](/docs/reference/api/artifacts/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/keys`](/docs/reference/api/keys/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/plan-store`](/docs/reference/api/plan-store/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/)
 
 The durable `FlowEngine`. It claims a run before driving it, fences every write
 against the current owner, and persists attempts, waits, and terminal results
@@ -24696,14 +24732,15 @@ package.
 ### class SmithersError
 
 ```ts
-class SmithersError extends Error {
+class SmithersError<Tag extends string = string> extends Data.Error<SmithersErrorFields> {
   constructor(
     code: SmithersErrorCode,
     summary: string,
     details?: Record<string, unknown>,
-    options?: SmithersErrorOptions
+    options?: SmithersErrorOptions<Tag>
   )
 
+  declare readonly _tag: Tag
   declare readonly name: string
   readonly code: SmithersErrorCode
   readonly summary: string
@@ -24730,6 +24767,7 @@ Fields:
 | `docsUrl` | `string`                                           | Always `ERROR_REFERENCE_URL`.                                                                                                                                    |
 | `details` | `Readonly<Record<string, unknown>>` or `undefined` | A frozen shallow copy of the record passed in, or absent as an own property when none was passed. Nested values are shared by reference and are not deep-frozen. |
 | `name`    | `string`                                           | `options.name`, or `"SmithersError"`. Installed as a non-enumerable, writable, configurable own property.                                                        |
+| `_tag`    | `Tag`                                              | The Effect tag, equal to `name`. Installed as a non-enumerable own property, so `Effect.catchTag(name)` catches the instance.                                    |
 | `message` | `string`                                           | Inherited from `Error`: `summary` plus `" See <docsUrl>"`, unless `includeDocsUrl` is `false` or `summary` is blank.                                             |
 | `cause`   | `unknown`                                          | Inherited from `Error`, and an own property only when `options.cause` is not `undefined`. Stored verbatim.                                                       |
 
@@ -24743,13 +24781,22 @@ cause before attaching it.
 The constructor restores the subclass prototype through `new.target`, so
 `instanceof` holds for a subclass under a transpiled target.
 
+`SmithersError` is an Effect tagged error: yielding an instance inside
+`Effect.gen` fails the effect with it, and `Effect.catchTag` routes by `_tag`.
+A subclass passes its tag as the type argument and the same string as
+`options.name`, as `IntegrationError extends SmithersError<"IntegrationError">`
+does. The type argument defaults to `string`, so `SmithersError` alone types
+any instance, subclasses included. Name a literal, as in
+`new SmithersError<"SmithersError">(...)`, when a `catchTag` must narrow a base
+instance.
+
 ### SmithersErrorOptions
 
 ```ts
-interface SmithersErrorOptions {
+interface SmithersErrorOptions<Tag extends string = string> {
   readonly cause?: unknown
   readonly includeDocsUrl?: boolean
-  readonly name?: string
+  readonly name?: Tag
 }
 ```
 
@@ -24757,7 +24804,7 @@ interface SmithersErrorOptions {
 | ---------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `cause`          | none              | Stored verbatim and not redacted. `undefined` is treated as no cause, so a subclass may always spell the key.                     |
 | `includeDocsUrl` | `true`            | Set `false` to leave the documentation URL out of `message`. The suffix is still stripped from a summary that already carried it. |
-| `name`           | `"SmithersError"` | The name the error reports, and the name its stack starts with.                                                                   |
+| `name`           | `"SmithersError"` | The name the error reports, its Effect `_tag`, and the name its stack starts with.                                                |
 
 ### isSmithersError
 
@@ -29299,16 +29346,24 @@ caller is likely to read and passes everything else through untouched.
 
 ### GitHub.Actions
 
-The durable GitHub action. [Durable actions](https://integrations.smithers.sh/concepts/durable-actions/)
+The durable GitHub actions. [Durable actions](https://integrations.smithers.sh/concepts/durable-actions/)
 explains the pattern.
 
-| Export                  | Signature                                                     | Notes                                                                                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CommentOnIssue`        | `Action`, tag `integrations/github/comment-on-issue`          | Posts a comment on an issue or pull request. Tier `irreversible`. Error schema `IntegrationFailure`.                                                                                                   |
-| `CommentOnIssuePayload` | schema                                                        | `owner`, `repo`, `issueNumber`, `body`. The coordinates demand the `Owner` and `Repo` shapes, so a payload built from a webhook body or a model's output fails to decode rather than reaching the API. |
-| `Comment`               | schema                                                        | The comment GitHub created: `id` and `url`.                                                                                                                                                            |
-| `layerCommentOnIssue`   | `Layer<Requirement<...>, never, GitHubClient \| FlowRuntime>` | Implements the action over the client in context.                                                                                                                                                      |
-| `layer`                 | same                                                          | Every GitHub action's implementation in one layer.                                                                                                                                                     |
+| Export                                                                          | Signature                                                     | Notes                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CommentOnIssue`                                                                | `Action`, tag `integrations/github/comment-on-issue`          | Posts a comment on an issue or pull request. Tier `irreversible`. Error schema `IntegrationFailure`.                                                                                                   |
+| `CommentOnIssuePayload`                                                         | schema                                                        | `owner`, `repo`, `issueNumber`, `body`. The coordinates demand the `Owner` and `Repo` shapes, so a payload built from a webhook body or a model's output fails to decode rather than reaching the API. |
+| `Comment`                                                                       | schema                                                        | The comment GitHub created: `id` and `url`.                                                                                                                                                            |
+| `layerCommentOnIssue`                                                           | `Layer<Requirement<...>, never, GitHubClient \| FlowRuntime>` | Implements the action over the client in context.                                                                                                                                                      |
+| `retryPolicy`                                                                   | `RetryPolicy`                                                 | Three attempts, 0.5 s then 1 s apart, for the keyed write-back actions below.                                                                                                                          |
+| `AddLabels`                                                                     | `Action`, tag `integrations/github/add-labels`                | Adds the labels in `labels` the issue lacks, compared without case. Keyed; reads the labels first. Success: `added`, `labels`.                                                                         |
+| `UpsertComment`                                                                 | `Action`, tag `integrations/github/upsert-comment`            | Creates, edits or leaves the one comment whose first line is `stickyMarker(key)`. Keyed. Fails without writing on a thread longer than `RECONCILE_PAGES` pages. Success: `id`, `url`, `outcome`.       |
+| `stickyMarker`                                                                  | `(key: string) => string`                                     | ``.                                                                                                                                                                           |
+| `CheckRun`                                                                      | `Action`, tag `integrations/github/check-run`                 | Creates or updates the check run whose `external_id` is `key` on `headSha`. Keyed. Needs a GitHub App installation token. Success: `id`, `url`, `status`, `conclusion`, `created`.                     |
+| `LinkPullRequest`                                                               | `Action`, tag `integrations/github/link-pr`                   | Appends `Closes <issue>` to the pull request's description unless `closesIssue` already finds one. Keyed. Success: `pullNumber`, `url`, `reference`, `updated`.                                        |
+| `closesIssue`                                                                   | `(body, issue, sameRepository) => boolean`                    | Whether a description closes the issue with any GitHub closing keyword.                                                                                                                                |
+| `layerAddLabels`, `layerUpsertComment`, `layerCheckRun`, `layerLinkPullRequest` | same as `layerCommentOnIssue`                                 | Implement each action over the client in context.                                                                                                                                                      |
+| `layer`                                                                         | same                                                          | Every GitHub action's implementation in one layer.                                                                                                                                                     |
 
 ### GitHub.Sync
 
@@ -29425,13 +29480,18 @@ everything else passes through.
 
 ### Linear.Actions
 
-| Export               | Signature                                                     | Notes                                                                                                                                                                          |
-| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CreateIssue`        | `Action`, tag `integrations/linear/create-issue`              | Files an issue. Tier `irreversible`. Error schema `IntegrationFailure`.                                                                                                        |
-| `CreateIssuePayload` | schema                                                        | `title`, plus optional `teamKey`, `teamId`, `description`, `stateName`, and `labels`. The client resolves the names to ids and enforces exactly one of `teamKey` and `teamId`. |
-| `Issue`              | schema                                                        | The issue Linear created: `id`, `identifier`, `title`, `url`.                                                                                                                  |
-| `layerCreateIssue`   | `Layer<Requirement<...>, never, LinearClient \| FlowRuntime>` | Implements the action over the client in context.                                                                                                                              |
-| `layer`              | same                                                          | Every Linear action's implementation in one layer.                                                                                                                             |
+| Export                                    | Signature                                                     | Notes                                                                                                                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CreateIssue`                             | `Action`, tag `integrations/linear/create-issue`              | Files an issue. Tier `irreversible`. Error schema `IntegrationFailure`.                                                                                                        |
+| `CreateIssuePayload`                      | schema                                                        | `title`, plus optional `teamKey`, `teamId`, `description`, `stateName`, and `labels`. The client resolves the names to ids and enforces exactly one of `teamKey` and `teamId`. |
+| `Issue`                                   | schema                                                        | The issue Linear created: `id`, `identifier`, `title`, `url`.                                                                                                                  |
+| `layerCreateIssue`                        | `Layer<Requirement<...>, never, LinearClient \| FlowRuntime>` | Implements the action over the client in context.                                                                                                                              |
+| `retryPolicy`                             | `RetryPolicy`                                                 | Three attempts, 0.5 s then 1 s apart, for `UpdateIssue` and `CommentOnIssue`.                                                                                                  |
+| `UpdateIssue`                             | `Action`, tag `integrations/linear/update-issue`              | Sets the given fields of `issue` (UUID or `ENG-123`), resolving state and label names. Keyed: a repeat sets the same fields. Success: `Issue`.                                 |
+| `CommentOnIssue`                          | `Action`, tag `integrations/linear/comment-on-issue`          | Posts `body` under `commentId(step key)`, after looking for that id. Keyed. Success: `id`, `issueId`, `body`, `created`.                                                       |
+| `commentId`                               | `(key: string) => string`                                     | The UUID a step's comment is posted under.                                                                                                                                     |
+| `layerUpdateIssue`, `layerCommentOnIssue` | same as `layerCreateIssue`                                    | Implement each action over the client in context.                                                                                                                              |
+| `layer`                                   | same                                                          | Every Linear action's implementation in one layer.                                                                                                                             |
 
 ## Telegram
 
@@ -30217,7 +30277,7 @@ filesystem, and a file-descriptor table.
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `make(options)`       | `(options: WasiPreview1Options) => WasiPreview1`                                                                           |
 | `Errno`               | A frozen record of WASI preview 1 errno names to numbers.                                                                  |
-| `WasiExitError`       | `class WasiExitError extends Error` with `readonly exitCode: number`                                                       |
+| `WasiExitError`       | Tagged error `@smthrs/jj/WasiExitError` with `readonly exitCode: number`, the unsigned `proc_exit` code                    |
 | `WasiPreview1Options` | `interface { fs: SyncFsLike; root?: string; onStdout?: (text: string) => void; onStderr?: (text: string) => void }`        |
 | `WasiPreview1`        | `interface { imports: Record<string, (...args: Array<any>) => number>; initialize: (memory: WebAssembly.Memory) => void }` |
 
@@ -31110,7 +31170,10 @@ slow or dead journal stalls only the admission that issued it, and a write
 exceeding `maximumPersistMillis` fails with `journal_failed`, leaving the
 request parked for a retry. A concurrent reply to a request whose decision is
 mid-write fails fast with `request_not_found`; a concurrent identical envelope
-admission adopts the in-flight outcome.
+admission adopts the in-flight outcome. Admissions reserve rule and envelope
+signature capacity before writing, so distinct concurrent decisions cannot
+exceed either ceiling. Failed or interrupted writes release their reservations;
+successful writes convert them to active grants.
 
 ### GrantStore.PendingRequest
 
@@ -32073,6 +32136,14 @@ export { HttpClient, make } from "effect/unstable/http/HttpClient"
 
 Effect's tag and constructor, unchanged.
 
+### HttpClient.authorizePreflight
+
+`authorizePreflight(request, effect)` checks the ordinary HTTP capability before
+running network preflight work such as DNS resolution. The guarded client can
+consume that admission once for the same capability and grant store. Redirects,
+retries, and different stores require fresh authorization. The effect requires
+the host's `GrantStore`, including when the underlying client captures it.
+
 ### HttpClient.ModelCall and withModelCall
 
 ```ts
@@ -32305,6 +32376,19 @@ See [Capabilities and the host kernel](/docs/concepts/kernel/) and the platform
 bundles that satisfy these ports: [`@smthrs/platform-node`](/docs/reference/api/platform-node/),
 [`@smthrs/platform-browser`](/docs/reference/api/platform-browser/), and
 [`@smthrs/platform-bun`](/docs/reference/api/platform-bun/).
+
+## Web destination pinning
+
+`HttpClient.Destination` carries an immutable `{ origin, addresses }` snapshot
+for one authorized web request. `HttpClient.withDestinationPinning(client)` marks only the exact trusted
+client instance that
+rejects origin mismatches, pins every socket and proxy tunnel to the approved
+addresses, preserves HTTP Host and TLS verification, and prevents reuse of
+connections from another admission. Custom clients must implement this
+contract before marking the client. Replacing the client does not inherit the assertion;
+the kernel guard preserves it when wrapping a supported client. The standard Node and Bun host
+bundles implement it. `HttpClient.supportsDestinationPinning(client)` reports
+whether that exact client is marked. Model requests leave `Destination` unset.
 
 ---
 
@@ -34395,7 +34479,7 @@ The order is fixed:
    component, library, and prompt attaches to the first workflow that imports
    it, so nothing is migrated twice.
 3. one `integration:<name>` per integration seam.
-4. `project`: remove the old packages, the JSX settings, the preload, the
+4. `project`: remove the old packages, the 0.x JSX settings, the preload, the
    agent pool, and the old CLI scripts, once nothing depends on them.
 
 `Units.orderWorkflows(workflows, imports)` puts the workflow units in that
@@ -34452,19 +34536,19 @@ the command it spawns.
 enforcement half of the migration contract. The prompt asks; these checks
 decide, and a failed check fails the round exactly as a failed test does:
 
-| Check                                                         | What it refuses                                                                                                                                                               |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                                                 |
-| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                                                |
-| no react import under the flows directory                     | React inside a flow                                                                                                                                                           |
-| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                                             |
-| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                                           |
-| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                                                  |
-| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                                            |
-| every flow module's descriptor describes the flow it declares | a default export that admits an `input`/`output` no durable flow in the module declares, one whose `body` calls something else, or a lone declaration with no behavior at all |
-| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                                     |
-| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                                               |
-| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                                                |
+| Check                                                         | What it refuses                                                                                                                                           |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                             |
+| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                            |
+| no react import under the flows directory                     | React inside a flow                                                                                                                                       |
+| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                         |
+| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                       |
+| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                              |
+| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                        |
+| every flow module's descriptor describes the flow it declares | a default export without a nonempty literal tag, payload schema or field object, or callable body; a body that does not reach the flow declared beside it |
+| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                 |
+| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                           |
+| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                            |
 
 Every one of these is parsed rather than matched where a match would be a lie.
 The old-import check reads the module specifiers out of the syntax tree and
@@ -34477,17 +34561,14 @@ constructor the registry's own tokenizer looks for: a description on a
 `Widget.make`, on a bare `make`, or on a namespace alias is a description no
 registry ever reads.
 
-The descriptor check is the other half of that. A migrated module default-exports
-the flow itself, tag and `body` included, which is what the tool emits: one
-declaration, so the contract the control plane admits is the one that runs.
-Discovery reads the default export and never a named one, so the two ways a
-module can still admit one thing and run another are both refused. A default
-export that names a durable flow the module declares beside it has to reach it by
-`body`; the contract is accepted as the binding instead, meaning the default
-export's `input` and `output` are that flow's `payload` and `success`, with
-`{ ... }` fields and `Schema.Struct({ ... })` read as the same thing. A module
-with no durable flow of its own has to carry its own `body`, `model`, or `flows`,
-or calling it fails with `missing_body`.
+The descriptor check requires exactly `Flow.make("<tag>", { ... })` with a
+nonempty literal tag, a `payload` schema or field object (including `{}` for no
+input), and a callable `body`. Object-first declarations and `model` or `flows`
+without a body are rejected. When a module declares another flow beside the
+default export, the default body's call must reach that flow. These checks run
+before archiving the old source, even without a project typecheck command.
+They inspect syntax without executing generated code; the project's typecheck
+and tests validate referenced values and runtime behavior.
 
 The escape-hatch check counts each kind separately against
 `checkpointFiles.sources`, so a project that already had an `as any` in a
@@ -34778,9 +34859,9 @@ Every fallible operation in `Finish`, including the initial owned-file and whole
 
 What the scope puts back is read from the tree at the moment it fires, never from a set computed before it: `Checkpoint.rollback` diffs the tree against the checkpoint's manifest then, puts every recorded file back byte for byte, removes every path added since, and deletes the archive copy of anything it put back. A postcondition that fails after the archive has moved a unit's sources therefore leaves the project exactly as the checkpoint found it, and so does any step a later version adds below the archive.
 
-`Archive.run` tells two kinds of source apart. A source the migration replaced moves to `.smithers-migrate/archive/<original path>`, in two phases: every copy is written before any source is removed. A source a 1.0 project keeps, `package.json`, `tsconfig*.json`, `.gitignore`, is rewritten where it is and never moved: old packages out, `effect` pinned to the version this release ships, `smithers up <file>` scripts rewritten to `smthrs flow start <flow>` with input/detach flags translated and unsafe mappings reported rather than deleted, the JSX compiler options and old path mappings removed, `.flows/` ignored. The project unit also keeps Markdown documentation and command script paths recognized by detection (`.sh`, Makefile, Justfile, justfile, Procfile, bunfig.toml, `.github/workflows/*.yml` or `*.yaml`, and docker-compose YAML files), preserving their in-place transform edits. A `dependencies` or `integration` unit archives nothing, because its files are the ones the migration edits. Tool code gets the agent's rule too: an archive whose source set reaches a run-state path fails with `run-state-blocked` rather than moving it.
+`Archive.run` tells two kinds of source apart. A source the migration replaced moves to `.smithers-migrate/archive/<original path>`, in two phases: every copy is written before any source is removed. A source a 1.0 project keeps, `package.json`, `tsconfig*.json`, `.gitignore`, is rewritten where it is and never moved: old packages out, `effect` pinned to the version this release ships, `smithers up <file>` scripts rewritten to `smthrs flow start <flow>` with input/detach flags translated and unsafe mappings reported rather than deleted, retired Smithers JSX settings and old path mappings removed, `.flows/` ignored. The project unit also keeps Markdown documentation and command script paths recognized by detection (`.sh`, Makefile, Justfile, justfile, Procfile, bunfig.toml, `.github/workflows/*.yml` or `*.yaml`, and docker-compose YAML files), preserving their in-place transform edits. A `dependencies` or `integration` unit archives nothing, because its files are the ones the migration edits. Tool code gets the agent's rule too: an archive whose source set reaches a run-state path fails with `run-state-blocked` rather than moving it.
 
-`MigrateFlow.postconditions` asks, after the archive, whether the project is in the state this kind of unit exists to produce. The content checks read the files a unit changed, so a unit that changed nothing passes all of them and used to be recorded as migrated on that basis. There is one set per kind, and a file a check needs has to be there: a workflow unit wrote the flow it was planned for; a dependencies or project unit's manifests still exist and pin `effect`; a project unit's manifests also declare no 0.x package in any of the six dependency fields, a check the dependencies unit is never asked for because the units that run after it still import the 0.x facade, its tsconfigs still exist and configure no JSX runtime, and its root `.gitignore` exists and covers `.flows/` (the project unit owns it, as a source when the project has one and as a target it creates when it does not); an integration unit's sources still exist and no longer import the 0.x facade.
+`MigrateFlow.postconditions` asks, after the archive, whether the project is in the state this kind of unit exists to produce. The content checks read the files a unit changed, so a unit that changed nothing passes all of them and used to be recorded as migrated on that basis. There is one set per kind, and a file a check needs has to be there: a workflow unit wrote the flow it was planned for; a dependencies or project unit's manifests still exist and pin `effect`; a project unit's manifests also declare no 0.x package in any of the six dependency fields, a check the dependencies unit is never asked for because the units that run after it still import the 0.x facade, its tsconfigs still exist and configure no retired Smithers JSX runtime, and its root `.gitignore` exists and covers `.flows/` (the project unit owns it, as a source when the project has one and as a target it creates when it does not); an integration unit's sources still exist and no longer import the 0.x facade.
 
 The final tree is then verified as the final tree. `Verify.run` runs again over it, install, format, every typecheck, the tests, and registry discovery, and its result is the verification the unit report records; the whole-tree confinement check and the run-state check run again after it, because the archive and the verification both ran commands, and a file the unit owns under a run-state root (`.smithers/smithers.config.ts` beside `.smithers/smithers.db`) is the unit's to archive and is left out of the run-state comparison. Only then is the unit `migrated`; any failure restores it.
 
@@ -34917,11 +34998,12 @@ drives its implementation.
 | `Result`                                                | `Schema.Struct`                                                                                               | What moved, what was rewritten, and what was reported instead.                                                        |
 | `rewriteManifest`                                       | `(text: string, rewrite: ManifestRewrite) => { ... }`                                                         | Old packages out, `effect` pinned, scripts rewritten.                                                                 |
 | `rewriteScripts`                                        | `(scripts: Readonly<Record<string, string>>) => ReadonlyArray<ScriptRewrite>`                                 | `smithers up <file>` becomes `smthrs flow start <flow>` with translated flags. Unsafe mappings are left and reported. |
-| `rewriteTsconfig`                                       | `(text: string, specifiers?: SpecifierContext) => string`                                                     | The JSX options and the old path mappings removed.                                                                    |
+| `rewriteTsconfig`                                       | `(text: string, specifiers?: SpecifierContext) => string`                                                     | Retired Smithers JSX settings and old path mappings removed; untouched configs preserved byte for byte.               |
 | `rewriteGitignore`                                      | `(text: string, flowsState?: string) => string`                                                               | `.flows/` ignored.                                                                                                    |
 | `rewritten`                                             | `(file, text, specifiers?, kind?) => { ... }`                                                                 | The rewrite for one kept file.                                                                                        |
 | `isRewritable`                                          | `(file: string) => boolean`                                                                                   | Whether a file is rewritten in place rather than moved.                                                               |
 | `isOldPathsKey`                                         | `(key: string, specifiers?: SpecifierContext) => boolean`                                                     | Whether a tsconfig path mapping is a 0.x one.                                                                         |
+| `isOldJsxImportSource`                                  | `(source: unknown, specifiers?: SpecifierContext) => boolean`                                                 | Whether a JSX import source identifies a retired Smithers runtime.                                                    |
 | `withoutComments`                                       | `(text: string) => string`                                                                                    | JSONC without its comments, for parsing.                                                                              |
 | `pinFor`                                                | `(name: string) => string \| undefined`                                                                       | The version this release pins a package to.                                                                           |
 | `dependencyFields`                                      | `["dependencies", "devDependencies", "peerDependencies", "optionalDependencies", "overrides", "resolutions"]` | The six fields a postcondition checks.                                                                                |
@@ -35742,7 +35824,9 @@ Deterministic JSON encoding for model-step inputs.
 `stringify` is stricter than `JSON.stringify` on purpose. A value
 `JSON.stringify` would drop or reshape (`undefined`, a function, a symbol, a
 non-finite number, a class instance such as `Date` or `Map`, a symbol-keyed
-member, or a cycle) is rejected with `TypeError: Value at <path> is not valid
+member, a cycle, or an array that is sparse, carries named or symbol-keyed
+members (such as a `RegExp` match result), or is an Array subclass or from
+another realm) is rejected with `TypeError: Value at <path> is not valid
 JSON`, because a model request body is sealed-step key material and the key
 must describe the bytes sent. Everything both encoders accept they encode
 identically, including an own member literally named `__proto__`. The
@@ -35774,6 +35858,12 @@ UTF-8 decoding retains the existing replacement-character policy for malformed
 sequences. SSE drops an incomplete final event; NDJSON emits its partial final
 line so JSON decoding can report truncation. Transport failures propagate;
 retry directives in SSE do not terminate the response or discard later events.
+
+## Live test gate
+
+The model test suite uses local fixtures by default. Live evaluator, Gemini,
+and Cerebras cases require `SMITHERS_LIVE_MODEL_TESTS=1` and their matching
+provider key. An ambient key alone does not enable provider traffic.
 
 ---
 
@@ -39447,7 +39537,7 @@ activation because they cannot launch the runtime supervisor.
 (`BunJj.layerSpawnerAt`). It refuses a root exactly as `layerAt` does.
 
 `layerHttpClient` is the network slot every factory above installs, on its
-own: `@effect/platform-bun`'s fetch client with `redirect: "manual"`. A `3xx`
+own: `EgressHttpClient.layer(process.env)` from `@smthrs/platform-node`. A `3xx`
 comes back with its `location` header intact and the second origin is never
 contacted. Following a redirect is `@smthrs/kernel`'s guarded
 `HttpClient.layer`, which rechecks the capability on every hop.
@@ -39455,10 +39545,11 @@ contacted. Following a redirect is `@smthrs/kernel`'s guarded
 ### BunHostError
 
 ```ts
-class BunHostError extends Error {
+class BunHostError extends Schema.TaggedError<BunHostError>()("@smthrs/platform-bun/BunHostError", {
+  code: Schema.Literal("invalid_repository_root"),
+  message: Schema.String
+}) {
   readonly name: "BunHostError"
-  readonly code: BunHostErrorCode
-  constructor(options: { readonly code: BunHostErrorCode; readonly message: string })
 }
 
 type BunHostErrorCode = "invalid_repository_root"
@@ -39516,7 +39607,7 @@ describe that substitution:
   "effect/Path": "@effect/platform-bun/BunPath",
   "effect/process/ChildProcessSpawner": "@effect/platform-bun/BunChildProcessSpawner",
   "@smthrs/jj/Jj": "@smthrs/jj/bun/BunJj",
-  "effect/HttpClient": "@effect/platform-bun/BunHttpClient"
+  "effect/HttpClient": "@smthrs/platform-node/EgressHttpClient"
 }
 ```
 
@@ -39591,8 +39682,7 @@ spawner _is_ the Node one. Running a command is Effect's `ChildProcess` and
 `ChildProcessSpawner`, and there is nothing for a detection branch to choose
 between.
 
-There is no HTTP service either. `BunHost` provides `@effect/platform-bun`'s
-fetch-backed `HttpClient` with `RequestInit { redirect: "manual" }`, so the
+There is no HTTP service either. `BunHost` provides the shared `EgressHttpClient.layer(process.env)`, so the
 runtime never walks to a second origin behind the capability kernel's back.
 Following a redirect is [@smthrs/kernel](/docs/reference/api/kernel/)'s guarded
 `HttpClient.layer`, which rechecks the capability on every hop.
@@ -40045,6 +40135,23 @@ expectation. Containment is driven over real detached process groups.
 [@smthrs/kernel](/docs/reference/api/kernel/) owns the closed list and decorates these same tags
 with capability checks. [@smthrs/platform-bun](/docs/reference/api/platform-bun/) and
 [@smthrs/platform-browser](/docs/reference/api/platform-browser/) are the sibling bundles.
+
+## Pinned web connections
+
+`EgressHttpClient.layer(environment)` supplies the kernel destination-pinning
+contract. Web requests get a fresh dispatcher using only their authorized IP
+addresses. Host and TLS server name retain the requested hostname; TLS
+verification stays enabled. `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+select the route by hostname. Proxied requests use CONNECT to the approved IP,
+including plain HTTP, so the proxy cannot resolve the destination again.
+A proxy must support IP tunnels; refusal never falls back to direct access.
+Dispatchers close after their response body and are destroyed on failure or
+cancellation. Ordinary requests without the web destination policy retain the
+shared dispatcher, including local model connections.
+
+Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
+fail closed. The transport sets Host from the URL and discards caller-supplied
+proxy authorization and connection framing headers.
 
 ---
 
@@ -40667,6 +40774,13 @@ metadata, including model, parameters, body location, and authority. Hosts
 include this identity in the approved plan. It returns `undefined` when the
 descriptor has no `body.contentDigest`: the descriptor may be displayed, but
 `AgentSession` refuses to execute a prompt without a measured, approved identity.
+
+The repository host also binds its own policy identity to reserved job
+descriptors. In source mode it measures every TypeScript file in
+`flows/repository`, including the semantic judge and its helpers, together with
+the other host sources and prompt bodies. A change to those bytes changes the
+job's execution digest; `Registry.loadBody` refuses a previously approved digest
+with `execution_changed`. A compiled host uses its bundled artifact digest.
 
 ### Descriptor.declarationDigest
 
@@ -47655,20 +47769,20 @@ on a database the engine ladder already migrated. The journal owns
 Every operation fails as a `TimeTravelError` discriminated by a closed `code`,
 so a caller's branch stays exhaustive.
 
-| Code                  | Raised by              | Means                                                                                                                                                                                                                              |
-| --------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `busy`                | `rewind`, recovery     | Another owner holds the run, the journal tail moved under the claim, or this operation lost its claim before it could finish. Retryable.                                                                                           |
-| `live_parent`         | `fork`                 | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy.                                                                                                                          |
-| `live_child`          | `rewind`               | A descendant the truncation would cut history out from under is still executing, and the policy is `"block"`.                                                                                                                      |
-| `not_found`           | all verbs              | The run, the frame, or the audit does not address anything: a coordinate past the journal tail, a lineage this run is not on, or a run row that is gone.                                                                           |
-| `invalid`             | all verbs              | A caller-supplied option is malformed, or a durable payload does not decode. Refused before the operation touches anything.                                                                                                        |
-| `already_crossed`     | `EffectBoundary.guard` | The effect already recorded a durable `intended` boundary, so executing it a second time was refused.                                                                                                                              |
-| `rate_limited`        | `rewind`               | The `Options.rateLimit` limiter the service was built with rejected the attempt. The audit row records the decision.                                                                                                               |
-| `compensation_failed` | `rewind`, recovery     | A rollback handler or the workspace restore failed, so the rewind stopped rather than leave the world half reverted.                                                                                                               |
-| `irreversible`        | `rewind`               | An effect in the truncated range cannot be undone at all: no handler, or a sealed result whose cache entry is gone.                                                                                                                |
-| `fence_lost`          | `rewind`               | The caller's ownership of the run was superseded before a mutation committed, so the mutation was refused rather than written behind the live owner.                                                                               |
-| `limit_exceeded`      | all verbs              | The operation would read more journal entries than `maxHistoryEntries` allows: the prefix a replay folds, the unanchored entries a fork or rewind refreshes, or the suffix it assesses. A rewind refuses before it claims the run. |
-| `unknown`             | all verbs              | The store, the journal, or an unmapped host failure. The original cause is attached.                                                                                                                                               |
+| Code                  | Raised by                      | Means                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `busy`                | `rewind`, recovery             | Another owner holds the run, the journal tail moved under the claim, or this operation lost its claim before it could finish. Retryable.                                                                                           |
+| `live_parent`         | `fork`                         | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy.                                                                                                                          |
+| `live_child`          | `rewind`                       | A descendant the truncation would cut history out from under is still executing, and the policy is `"block"`.                                                                                                                      |
+| `not_found`           | all verbs                      | The run, the frame, or the audit does not address anything: a coordinate past the journal tail, a lineage this run is not on, or a run row that is gone.                                                                           |
+| `invalid`             | all verbs                      | A caller-supplied option is malformed, or a durable payload does not decode. Refused before the operation touches anything.                                                                                                        |
+| `already_crossed`     | `EffectBoundary.guard`, `fork` | An effect already crossed its durable boundary, or the fork frame lies inside an irreversible attempt without a completion receipt.                                                                                                |
+| `rate_limited`        | `rewind`                       | The `Options.rateLimit` limiter the service was built with rejected the attempt. The audit row records the decision.                                                                                                               |
+| `compensation_failed` | `rewind`, recovery             | A rollback handler or the workspace restore failed, so the rewind stopped rather than leave the world half reverted.                                                                                                               |
+| `irreversible`        | `rewind`                       | An effect in the truncated range cannot be undone at all: no handler, or a sealed result whose cache entry is gone.                                                                                                                |
+| `fence_lost`          | `rewind`                       | The caller's ownership of the run was superseded before a mutation committed, so the mutation was refused rather than written behind the live owner.                                                                               |
+| `limit_exceeded`      | all verbs                      | The operation would read more journal entries than `maxHistoryEntries` allows: the prefix a replay folds, the unanchored entries a fork or rewind refreshes, or the suffix it assesses. A rewind refuses before it claims the run. |
+| `unknown`             | all verbs                      | The store, the journal, or an unmapped host failure. The original cause is attached.                                                                                                                                               |
 
 An error's `cause` is encoded with the error, so the package never attaches a
 whole effect record or a whole parse issue to one: a blocking assessment travels
@@ -53991,6 +54105,8 @@ Options:
   --remote <string>  Not supported: evaluations execute local modules
   --run-id <string>  Explicit run identity; defaults to a UUID
   --at <string>      Explicit observation timestamp for reproducible runs
+  --trials <number>  Runs per case (default: 1)
+  --k <number>       Number of samples for pass@k (default: 1)
   --output <string>  Additional output JSON path; refuses overwriting existing files
 
 Custom Global Options:
