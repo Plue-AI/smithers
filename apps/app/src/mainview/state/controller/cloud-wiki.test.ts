@@ -722,3 +722,156 @@ describe("wiki spaces", () => {
     expect(await f.wiki.attachCloudWiki("home", "Notes.md", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} })).toBe("An attachment path is a relative file path, not a Markdown page.")
   })
 })
+
+describe("attachment bytes read under one account", () => {
+  const bytes = new Uint8Array([0, 1, 127, 128, 255])
+  class DeferredFile extends File {
+    readonly reading = Promise.withResolvers<void>()
+    readonly release = Promise.withResolvers<void>()
+    readonly finished = Promise.withResolvers<void>()
+    override async arrayBuffer(): Promise<ArrayBuffer> {
+      this.reading.resolve()
+      try {
+        await this.release.promise
+        return await super.arrayBuffer()
+      } finally {
+        this.finished.resolve()
+      }
+    }
+  }
+  const afterRead = async (file: DeferredFile) => {
+    await file.finished.promise
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  const setup = async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memory() })
+    await signIn(store)
+    const requests: Array<{ method: string; url: string; body: Uint8Array | undefined }> = []
+    const doc = new Y.Doc()
+    doc.getText("markdown").insert(0, "# Page")
+    cleanup.push(() => doc.destroy())
+    const services: AppServices = {
+      fetchImpl: async (input, init) => {
+        const url = String(input)
+        const method = init?.method ?? "GET"
+        requests.push({ method, url, body: init?.body instanceof Blob ? new Uint8Array(await init.body.arrayBuffer()) : undefined })
+        if (method === "PUT") return Response.json({ id: 30, slug: "diagram", title: "diagram.png", path: "assets/diagram.png", revision: 1, updated_at: "2026-09-26T00:00:00Z", created_at: "2026-09-26T00:00:00Z", author: { id: 1, login: "will" }, visibility: "public", content_digest: "9".repeat(64), attachment: { digest: "9".repeat(64), media_type: "image/png", size: bytes.length } })
+        if (url.includes("/navigation/index?")) return Response.json({ pages: [], folders: [], tags: [] })
+        if (url.endsWith("/document?visibility=public")) return Response.json({ page: { id: 42, slug: "home", title: "Page", body: "# Page", revision: 1, author: { id: 1, login: "will" }, created_at: "2026-09-26T00:00:00Z", updated_at: "2026-09-26T00:00:00Z" }, state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) })
+        if (url.includes("/stream?")) return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": connected\n\n")) } }), { headers: { "content-type": "text/event-stream" } })
+        throw new Error(`Unexpected Wiki request ${method} ${url}`)
+      }
+    }
+    const ctx = createControllerContext(store, silentAgent, services)
+    ctx.withToast = async (_key, _title, _done, work) => work()
+    ctx.resolveToast = () => {}
+    const wiki = createCloudWikiController(ctx, () => 1)
+    cleanup.push(() => ctx.dispose())
+    const file = () => new DeferredFile([bytes], "diagram.png", { type: "image/png" })
+    const attach = (chosen: File) => wiki.attachCloudWiki("diagram", "assets/diagram.png", repo, { name: "wiki.attach", takeFile: () => chosen, release: () => {} })
+    const uploads = () => requests.filter((request) => request.method === "PUT")
+    return { store, ctx, wiki, requests, file, attach, uploads }
+  }
+
+  test("same-account release uploads the exact selected File bytes once", async () => {
+    const f = await setup()
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    expect(f.uploads()).toHaveLength(0)
+    file.release.resolve()
+    expect(await attaching).toEqual({ value: "Attached assets/diagram.png (image/png, revision 1) to the public Wiki of owner/repo." })
+    expect(f.uploads()).toHaveLength(1)
+    expect(f.uploads()[0]!.body).toEqual(bytes)
+  })
+
+  test("a persisted account change while the real File read is pending retires the gesture before upload", async () => {
+    const f = await setup()
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    await signIn(f.store, "ada")
+    file.release.resolve()
+    await afterRead(file)
+    expect(await attaching).toBe("The Wiki request failed.")
+    expect(f.uploads()).toHaveLength(0)
+    expect(f.requests.filter((request) => request.url.includes("/navigation/index?"))).toHaveLength(0)
+  })
+
+  test("sign-out while the File read is pending retires the gesture", async () => {
+    const f = await setup()
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    await f.store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
+    file.release.resolve()
+    await afterRead(file)
+    expect(await attaching).toBe("The Wiki request failed.")
+    expect(f.uploads()).toHaveLength(0)
+    expect(f.requests.filter((request) => request.url.includes("/navigation/index?"))).toHaveLength(0)
+  })
+
+  test("returning to the original account cannot revive its pending File read", async () => {
+    const f = await setup()
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    await signIn(f.store, "ada")
+    await signIn(f.store, "will")
+    file.release.resolve()
+    await afterRead(file)
+    expect(await attaching).toBe("The Wiki request failed.")
+    expect(f.uploads()).toHaveLength(0)
+    expect(f.requests.filter((request) => request.url.includes("/navigation/index?"))).toHaveLength(0)
+  })
+
+  test("forking the active conversation retires a pending File read", async () => {
+    const f = await setup()
+    await f.wiki.openCloudWiki(repo, "home")
+    const frames = createFramesController(f.ctx, undefined)
+    frames.maximizeCard(`wiki-open-${id}`)
+    await until(() => f.store.session().maximizedCardId !== null)
+    const originalBranch = f.store.session().activeBranchId
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    expect(await frames.forkFrame()).toBeUndefined()
+    await until(() => f.store.session().activeBranchId !== originalBranch)
+    const indexReads = f.requests.filter((request) => request.url.includes("/navigation/index?")).length
+    file.release.resolve()
+    await afterRead(file)
+    expect(await attaching).toBe("The Wiki request failed.")
+    expect(f.uploads()).toHaveLength(0)
+    expect(f.requests.filter((request) => request.url.includes("/navigation/index?"))).toHaveLength(indexReads)
+  })
+
+  test("disposing the controller while a File read is pending prevents a later upload", async () => {
+    const f = await setup()
+    const file = f.file()
+    const attaching = f.attach(file)
+    await file.reading.promise
+    await f.ctx.dispose()
+    file.release.resolve()
+    await afterRead(file)
+    expect(await attaching).toBe("The Wiki request failed.")
+    expect(f.uploads()).toHaveLength(0)
+    expect(f.requests.filter((request) => request.url.includes("/navigation/index?"))).toHaveLength(0)
+  })
+
+  test("a failed File read returns a refusal and a fresh gesture can retry", async () => {
+    const f = await setup()
+    const broken = f.file()
+    const failed = f.attach(broken)
+    await broken.reading.promise
+    broken.release.reject(new Error("disk read failed"))
+    expect(await failed).toBe("The attachment could not be read. Choose the file again.")
+    expect(f.uploads()).toHaveLength(0)
+    const retry = f.file()
+    const attaching = f.attach(retry)
+    await retry.reading.promise
+    retry.release.resolve()
+    expect(await attaching).toEqual({ value: "Attached assets/diagram.png (image/png, revision 1) to the public Wiki of owner/repo." })
+    expect(f.uploads()).toHaveLength(1)
+    expect(f.uploads()[0]!.body).toEqual(bytes)
+  })
+})

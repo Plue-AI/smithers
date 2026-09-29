@@ -817,8 +817,11 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const expectedRevision = existing?.revision ?? 0
     const mediaType = file.type || "application/octet-stream"
     const outcome = await ctx.withToast(`wiki.attach.${repo}.${space}.${slug}`, `Attaching ${target}…`, `${target} attached`, async () => {
-      const bytes = new Uint8Array(await file.arrayBuffer())
       const answer = await shared.run(Effect.gen(function*() {
+        const bytes = yield* Effect.tryPromise({
+          try: async () => new Uint8Array(await file.arrayBuffer()),
+          catch: () => new CloudWikiError({ message: "The attachment could not be read. Choose the file again." })
+        })
         const api = yield* CloudWikiTransport
         return yield* api.attach(repo, space, slug, { path: target, mediaType, expectedRevision, bytes })
       }).pipe(Effect.catch((error: CloudWikiError) =>
