@@ -1,4 +1,5 @@
-import { Cause, Effect, Exit, FileSystem, Option, PlatformError } from "effect"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import { Cause, Effect, Exit, FileSystem, Option, Path, PlatformError } from "effect"
 import { describe, expect, it } from "vitest"
 import * as ApplyPatch from "../src/ApplyPatch.ts"
 import {
@@ -617,6 +618,46 @@ describe("ApplyPatch.run", () => {
 
     expect(failure).toMatchObject({ code: "invalid_input", path: "/a.txt" })
     expect(result.contents).toBe("one\ntwo\n")
+  })
+
+  it("refuses equivalent path spellings and symlinks before writing on the real filesystem", async () => {
+    const results = await execute(Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* fs.makeTempDirectoryScoped()
+      const original = `${root}/a.txt`
+      const alias = `${root}/alias.txt`
+      yield* fs.writeFileString(original, "one\ntwo\n")
+      yield* fs.symlink(original, alias)
+      const results = []
+      for (const second of [`${root}/./a.txt`, alias]) {
+        const exit = yield* Effect.exit(ApplyPatch.run({ input: wrap(
+          `*** Update File: ${original}\n@@\n-one\n+ONE\n*** Update File: ${second}\n@@\n-two\n+TWO`
+        ) }))
+        results.push({
+          failure: Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined,
+          contents: yield* fs.readFileString(original)
+        })
+      }
+      const collision = yield* Effect.exit(ApplyPatch.run({ input: wrap(
+        `*** Update File: ${original}\n*** Move to: ${root}/b.txt\n@@\n-one\n+ONE\n*** Add File: ${root}/./b.txt\n+other`
+      ) }))
+      const collisionContents = yield* fs.readFileString(original)
+      const destinationExists = yield* fs.exists(`${root}/b.txt`)
+      const move = yield* Effect.exit(ApplyPatch.run({ input: wrap(
+        `*** Update File: ${original}\n*** Move to: ${root}/./a.txt\n@@\n-one\n+ONE`
+      ) }))
+      return { results, collision, collisionContents, destinationExists, move, contents: yield* fs.readFileString(original) }
+    }).pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(Path.layer))))
+    for (const result of results.results) {
+      expect(result.failure).toMatchObject({ code: "invalid_input" })
+      expect(result.contents).toBe("one\ntwo\n")
+    }
+    expect(Exit.isFailure(results.collision) ? Option.getOrUndefined(Cause.findErrorOption(results.collision.cause)) : undefined)
+      .toMatchObject({ code: "invalid_input" })
+    expect(results.collisionContents).toBe("one\ntwo\n")
+    expect(results.destinationExists).toBe(false)
+    expect(Exit.isSuccess(results.move)).toBe(true)
+    expect(results.contents).toBe("ONE\ntwo\n")
   })
 
   it("refuses a patch whose move destination is another section's path", async () => {

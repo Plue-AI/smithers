@@ -212,13 +212,38 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
   // the first has not written yet, so the patch is refused whole rather than
   // applied by halves. A file needing several edits carries several `@@`
   // chunks inside one section, which is the shape the parser already accepts.
+  // Resolve against the injected workspace, then follow existing filesystem
+  // aliases. For a new file, resolve its parent (which may be a symlink).
+  const identity = (value: string) => {
+    const resolved = path.resolve(value)
+    return fileSystem.realPath(resolved).pipe(
+      Effect.catch((error) => error.reason._tag === "NotFound"
+        ? fileSystem.realPath(path.dirname(resolved)).pipe(
+          Effect.map((parent) => path.resolve(parent, path.basename(resolved))),
+          Effect.catch((parentError) => parentError.reason._tag === "NotFound"
+            ? Effect.succeed(resolved)
+            : Effect.fail(parentError))
+        )
+        : Effect.fail(error)),
+      Effect.mapError(() => new StdError.StdError({
+        code: "command_failed",
+        message: `Failed to resolve patch path ${value}`,
+        path: value
+      }))
+    )
+  }
   const touched = new Set<string>()
   for (const hunk of parsed.hunks) {
-    const destination = hunk.kind === "update" && hunk.movePath !== undefined && hunk.movePath !== hunk.path
-      ? [hunk.movePath]
-      : []
-    for (const claimed of [hunk.path, ...destination]) {
-      if (touched.has(claimed)) {
+    const source = yield* identity(hunk.path)
+    const destination = hunk.kind === "update" && hunk.movePath !== undefined
+      ? yield* identity(hunk.movePath)
+      : undefined
+    const claims: Array<[string, string]> = [[hunk.path, source]]
+    if (hunk.kind === "update" && hunk.movePath !== undefined && destination !== source) {
+      claims.push([hunk.movePath, destination!])
+    }
+    for (const [claimed, key] of claims) {
+      if (touched.has(key)) {
         return yield* Effect.fail(
           new StdError.StdError({
             code: "invalid_input",
@@ -227,7 +252,7 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
           })
         )
       }
-      touched.add(claimed)
+      touched.add(key)
     }
   }
 
@@ -343,7 +368,7 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
           )
         )
         modified.push(destination)
-        if (hunk.movePath !== undefined && hunk.movePath !== hunk.path) {
+        if (hunk.movePath !== undefined && (yield* identity(hunk.movePath)) !== (yield* identity(hunk.path))) {
           yield* fileSystem.remove(hunk.path).pipe(
             Effect.mapError(mutationFailure("command_failed", `Failed to remove original ${hunk.path}`, hunk.path))
           )
