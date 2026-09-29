@@ -329,6 +329,10 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "An optional repository slot is skipped while the required slots behind it need every token left, so `/triggers.pause canary-w1-not-registered` fills Slug and the form asks for the repository instead of for the name the person just typed (walk W1, W1-d-doors.json pauseFormFields)."
   },
   {
+    flow: "triggers.pause", kind: "sentence", rows: 13,
+    because: "A typed `/triggers.pause` line opens the Slug and Repository form without quoting the button-only refusal `triggers.pause takes the values its button carries`, because a person typing the line has no button (#1732). The form still asks for every missing field."
+  },
+  {
     flow: "triggers.register", kind: "card", rows: 33,
     because: "The Run it every night app (PRODUCT.md D-18): the register form is one input, the flow, and one button, Schedule; the name, schedule, input and limits are the advanced path's and ride as given (entries/triggers.ts). Every swept line's card lists one field instead of six, and a positional line fills it whole."
   },
@@ -446,13 +450,18 @@ describe("the card every slash line opens, against main@origin", () => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
     })
-    expect(lost.map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
+    /* The thirteen `/triggers.pause` lines lose only the button-only refusal the move above declares (#1732). */
+    const pause = lost.filter((row) => row.flow === "triggers.pause")
+    expect(pause.length).toBe(13)
+    expect(pause.every((row) => baseline.sentences[baseline.rows[key(row)]![0]] === "triggers.pause takes the values its button carries")).toBe(true)
+    expect(lost.filter((row) => row.flow !== "triggers.pause").map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
       "/issues codeplanesmithers/canary", "/issues.list codeplanesmithers/canary"
     ])
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1462 })
+    /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1449 })
     /*
      * Two doors throw when the one token they are given is a number: the
      * render dispatches a card whose payload the event schema rejects. It is
