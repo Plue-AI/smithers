@@ -183,11 +183,11 @@ func hasReservedRepoSuffix(repo string) bool {
 }
 
 func validateFileSubpath(path string) error {
-	trimmed := strings.TrimSpace(strings.TrimPrefix(path, "/"))
-	if trimmed == "" {
+	subpath := strings.TrimPrefix(path, "/")
+	if subpath == "" {
 		return badRequest("path is required")
 	}
-	for _, part := range strings.Split(trimmed, "/") {
+	for _, part := range strings.Split(subpath, "/") {
 		if part == "" || part == "." || part == ".." {
 			return badRequest("invalid path")
 		}

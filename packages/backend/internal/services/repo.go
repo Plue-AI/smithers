@@ -1526,7 +1526,7 @@ func (s *RepoService) ListRepoContentsPage(ctx context.Context, viewer *db.User,
 	if err != nil {
 		return nil, "", "", err
 	}
-	prefix := strings.Trim(strings.TrimSpace(dirPath), "/")
+	prefix := strings.Trim(dirPath, "/")
 	if after != "" {
 		name := after
 		if prefix != "" {
@@ -1595,7 +1595,7 @@ func (s *RepoService) ListRepoContents(ctx context.Context, viewer *db.User, own
 		return nil, err
 	}
 
-	prefix := strings.Trim(strings.TrimSpace(dirPath), "/")
+	prefix := strings.Trim(dirPath, "/")
 	if directoryHost, ok := s.repoHost.(interface {
 		ListDirectory(context.Context, string, string, string, string, string, int) ([]repohost.TreeEntry, error)
 	}); ok {
@@ -1679,8 +1679,7 @@ func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owne
 		return RepoContent{}, err
 	}
 
-	requestPath := strings.TrimSpace(filePath)
-	if requestPath == "" {
+	if filePath == "" {
 		return RepoContent{}, errors.BadRequest("path is required")
 	}
 
@@ -1695,7 +1694,7 @@ func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owne
 		return RepoContent{}, err
 	}
 
-	file, err := s.repoHost.GetFileAtChange(ctx, trimmedOwner, repository.Name, changeRef, requestPath)
+	file, err := s.repoHost.GetFileAtChange(ctx, trimmedOwner, repository.Name, changeRef, filePath)
 	if err != nil {
 		if isRepoHostStatus(err, 404) {
 			return RepoContent{}, errors.NotFound("content not found")
@@ -1703,13 +1702,12 @@ func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owne
 		return RepoContent{}, errors.Internal("failed to load repository content").WithCause(err)
 	}
 
-	fileName := path.Base(requestPath)
-	if strings.TrimSpace(file.Path) != "" {
-		fileName = path.Base(file.Path)
+	if file.Path != "" {
+		filePath = file.Path
 	}
 	return RepoContent{
-		Name:     fileName,
-		Path:     firstNonEmpty(file.Path, requestPath),
+		Name:     path.Base(filePath),
+		Path:     filePath,
 		SHA:      "",
 		Type:     "file",
 		Encoding: "utf-8",

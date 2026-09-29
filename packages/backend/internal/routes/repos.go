@@ -450,7 +450,7 @@ func (h *RepoHandler) GetRepoContents(w http.ResponseWriter, r *http.Request) {
 	// param ({path:.*}) only ever matches ONE segment, so every 2+ segment
 	// path fell through to a 404 and folder/nested-file browsing was broken.
 	// The route registers "/contents/*" to capture the full remaining path.
-	repoPath := strings.TrimSpace(chi.URLParam(r, "*"))
+	repoPath := chi.URLParam(r, "*")
 	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
 
 	// Reject NUL / control chars and absurd lengths before the ref/path reach the

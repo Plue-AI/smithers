@@ -1778,7 +1778,7 @@ impl RepoHandle {
     }
 
     fn get_file_content(&self, change_id: &str, path: &str) -> Result<FileContent, JjError> {
-        if path.trim().is_empty() {
+        if path.is_empty() {
             return Err(JjError::BadRequest("path is required".to_string()));
         }
 

@@ -195,6 +195,9 @@ func TestValidateFileSubpath_Matrix(t *testing.T) {
 		"src/main.go",
 		"nested/path/file.txt",
 		"/leading/slash/is/trimmed.txt",
+		" ",
+		"   /OWNERS",
+		" dir / report ",
 	}
 
 	for _, path := range validPaths {
@@ -206,7 +209,6 @@ func TestValidateFileSubpath_Matrix(t *testing.T) {
 
 	invalidPaths := []string{
 		"",
-		" ",
 		"/",
 		".",
 		"..",

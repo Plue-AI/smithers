@@ -18,6 +18,7 @@ func TestNativeDirectoryPathsEnforceOwnership(t *testing.T) {
 	}{
 		{name: "ordinary", dir: "protected"},
 		{name: "leading_space", dir: " secret"},
+		{name: "whitespace_only", dir: "   "},
 		{name: "comma", dir: "comma,name"},
 		{name: "semicolon", dir: "semi;colon"},
 		{name: "literal_percent_encoding", dir: "literal%2Cname"},

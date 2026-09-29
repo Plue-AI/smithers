@@ -231,7 +231,7 @@ func TestRepo_Z_ContentRefsAndHelpers(t *testing.T) {
 
 	_, err = NewRepoService(&mockRepoQuerier{}, &mockRepoHostClient{}, "s1").GetRepoContents(ctx, nil, "", "demo", "", "README.md")
 	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
-	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").GetRepoContents(ctx, nil, "alice", "demo", "", " ")
+	_, err = NewRepoService(q, &mockRepoHostClient{}, "s1").GetRepoContents(ctx, nil, "alice", "demo", "", "")
 	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
 
 	rh = &mockRepoHostClient{listBookmarksFn: func(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
