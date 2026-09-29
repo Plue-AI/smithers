@@ -276,11 +276,15 @@ func TestReadableReposForUser_FormerOrgMemberRetainsStaleTeamRow(t *testing.T) {
 			ctx := context.Background()
 
 			userID := mustCreateUser(t, db, "former-org-team-user")
+			// Earlier tests in this binary commit public repos that every user can
+			// read, so counts are relative to this baseline.
+			baselineCount, err := q.CountReadableReposForUser(ctx, userID)
+			require.NoError(t, err)
 			orgID := mustCreateOrganization(t, db, "former-org-team-org")
 			mustAddOrgMember(t, db, orgID, userID, "member")
 
 			teamID := mustCreateTeam(t, db, orgID, "former-org-team")
-			_, err := db.Exec(ctx, `UPDATE teams SET permission = $1 WHERE id = $2`, permission, teamID)
+			_, err = db.Exec(ctx, `UPDATE teams SET permission = $1 WHERE id = $2`, permission, teamID)
 			require.NoError(t, err)
 			mustAddTeamMember(t, db, teamID, userID)
 			teamRepoID := mustCreateOrgRepo(t, db, orgID, "former-org-private", false)
@@ -295,23 +299,31 @@ func TestReadableReposForUser_FormerOrgMemberRetainsStaleTeamRow(t *testing.T) {
 			publicRepoID := mustCreateOrgRepo(t, db, orgID, "former-org-public", true)
 			mustAddTeamRepo(t, db, teamID, publicRepoID)
 
+			fixtureRepoIDs := map[int64]struct{}{teamRepoID: {}, collaboratorRepoID: {}, publicRepoID: {}}
+			// listIDs pages through every readable repo and keeps this test's fixtures.
 			listIDs := func() []int64 {
 				t.Helper()
-				repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
-					UserID: userID, PageSize: 100, PageOffset: 0,
-				})
-				require.NoError(t, err)
-				ids := make([]int64, 0, len(repos))
-				for _, repo := range repos {
-					ids = append(ids, repo.ID)
+				ids := make([]int64, 0, len(fixtureRepoIDs))
+				for offset := int32(0); ; offset += 100 {
+					repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
+						UserID: userID, PageSize: 100, PageOffset: offset,
+					})
+					require.NoError(t, err)
+					for _, repo := range repos {
+						if _, ok := fixtureRepoIDs[repo.ID]; ok {
+							ids = append(ids, repo.ID)
+						}
+					}
+					if len(repos) < 100 {
+						return ids
+					}
 				}
-				return ids
 			}
 
 			assert.ElementsMatch(t, []int64{teamRepoID, collaboratorRepoID, publicRepoID}, listIDs())
 			count, err := q.CountReadableReposForUser(ctx, userID)
 			require.NoError(t, err)
-			assert.Equal(t, int64(3), count)
+			assert.Equal(t, baselineCount+3, count)
 
 			// Deliberately bypass normal removal cleanup to retain a stale team grant.
 			deleted, err := db.Exec(ctx,
@@ -328,7 +340,7 @@ func TestReadableReposForUser_FormerOrgMemberRetainsStaleTeamRow(t *testing.T) {
 			assert.ElementsMatch(t, []int64{collaboratorRepoID, publicRepoID}, listIDs())
 			count, err = q.CountReadableReposForUser(ctx, userID)
 			require.NoError(t, err)
-			assert.Equal(t, int64(2), count)
+			assert.Equal(t, baselineCount+2, count)
 		})
 	}
 }
