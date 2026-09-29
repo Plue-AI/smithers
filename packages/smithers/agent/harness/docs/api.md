@@ -1080,9 +1080,10 @@ export const decode: <S extends Schema.Top>(
 
 `decode` tries every `candidates(text)` entry in order, the complete
 BOM-stripped response first and then the balanced JSON container whose
-matching close ends last (`lastBalanced`), then the trimmed answer itself as a
-string unless it is a JSON string literal, and returns the first the schema
-accepts. The last is how `ctx.done("text")` reaches a string schema. When none does, the `StructuredOutputFailure` reports the issues of
+matching close ends last (`lastBalanced`), then the answer itself, untrimmed,
+as a string unless it is a JSON string literal, and returns the first the
+schema accepts. The last is how `ctx.done("text")` reaches a string schema.
+When none does, the `StructuredOutputFailure` reports the issues of
 the last candidate, with `code` one of `invalid_json`, `schema_mismatch`,
 `no_candidate`, or `correction_exhausted` once the budget is spent.
 

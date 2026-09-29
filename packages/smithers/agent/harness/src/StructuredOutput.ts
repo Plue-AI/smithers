@@ -389,8 +389,8 @@ const quoted = (text: string): boolean => {
  * Decodes one agent answer with the declared output schema.
  *
  * Tries every {@link candidates} entry in order and returns the first the
- * schema accepts, then the trimmed answer itself as a string unless it is a
- * JSON string literal, which is how a `ctx.done("text")` answer reaches a
+ * schema accepts, then the answer itself, untrimmed, as a string unless it is
+ * a JSON string literal, which is how a `ctx.done("text")` answer reaches a
  * string schema. When none does, the failure reports the issues raised by the
  * LAST candidate, which is the narrowest text the extractor could isolate and
  * therefore the one a correction prompt should be about.
@@ -431,8 +431,9 @@ export const decode = <S extends Schema.Top>(
     // JSON string, so a schema that accepts the raw answer takes it as it is.
     // An answer that is a whole JSON string literal already said which string
     // it meant, and its quotes are not part of it.
-    const raw = offered[0]!
-    if (raw.length > 0 && !quoted(raw)) {
+    // Untrimmed, so an empty or whitespace-bearing string arrives as written.
+    const raw = stripBom(text)
+    if (!quoted(offered[0]!)) {
       const result = yield* Effect.result(decoder(raw))
       if (result._tag === "Success") return result.success
     }

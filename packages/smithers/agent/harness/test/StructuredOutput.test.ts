@@ -181,6 +181,13 @@ describe("StructuredOutput.decode", () => {
     expect(result._tag === "Success" ? result.success : undefined).toBe("Looks fine to me.")
   })
 
+  it("keeps a raw string answer exactly as written, including an empty one", () => {
+    const spaced = decode(Schema.String, "  two spaces  ")
+    expect(spaced._tag === "Success" ? spaced.success : undefined).toBe("  two spaces  ")
+    const empty = decode(Schema.String, "")
+    expect(empty._tag === "Success" ? empty.success : undefined).toBe("")
+  })
+
   it("takes a raw answer that parses as another JSON value as a string", () => {
     const result = decode(Schema.String, "123")
     expect(result._tag === "Success" ? result.success : undefined).toBe("123")
