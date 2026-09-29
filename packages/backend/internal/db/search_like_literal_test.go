@@ -7,13 +7,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
 // `%` and `_` in a search box are text, never LIKE wildcards: a wildcard
 // query must not page through the whole user directory or wiki.
 func TestSearchTreatsLikeWildcardsLiterally(t *testing.T) {
 	ctx := context.Background()
-	q, pool := newQueries(t)
+	// User search is global: committed fixtures from other tests can match
+	// the full-text token "100" in "100%" even without a literal percent sign.
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := New(pool)
 
 	for _, u := range []struct{ username, display string }{
 		{"plainuser", "Plain User"},
