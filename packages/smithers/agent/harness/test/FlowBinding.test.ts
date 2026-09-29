@@ -497,23 +497,33 @@ describe("FlowBinding.make", () => {
     expect(Exit.isSuccess(exit) && exit.value.message).toBe("Flow echo failed.")
   })
 
-  it("reports a handler failure the binding recognises as its own timeout under the timeout code", async () => {
+  it("reports a handler failure the binding recognises as its own timeout, with its limit when it says", async () => {
     const binding = FlowBinding.make({
       flow: echo,
-      handler: (input) => Effect.fail({ timedOut: input.text === "slow", detail: `${input.text} ran too long` }),
+      handler: (input) => Effect.fail({ text: input.text, detail: `${input.text} ran too long` }),
       publicError: (error) => error.detail,
-      timedOut: (error) => error.timedOut
+      timedOut: (error) =>
+        error.text === "slow" ? { limitMillis: 250 } : error.text === "unsaid" ? {} : undefined
     })
 
     const slow = await Effect.runPromise(binding.run(call("echo", { text: "slow" })))
+    const unsaid = await Effect.runPromise(binding.run(call("echo", { text: "unsaid" })))
     const busy = await Effect.runPromise(binding.run(call("echo", { text: "busy" })))
 
     expect(slow).toStrictEqual(
       new Cell.CallResult({
         outcome: "failure",
-        value: null,
+        value: { limitMillis: 250 },
         code: "timeout",
         message: "Flow echo failed: slow ran too long"
+      })
+    )
+    expect(unsaid).toStrictEqual(
+      new Cell.CallResult({
+        outcome: "failure",
+        value: null,
+        code: "timeout",
+        message: "Flow echo failed: unsaid ran too long"
       })
     )
     expect(busy).toStrictEqual(

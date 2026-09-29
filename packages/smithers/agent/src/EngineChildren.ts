@@ -468,7 +468,8 @@ export const make = (
                 code: "still_running",
                 message: `The child run ${input.child} is still running after ${
                   Duration.format(timeout)
-                }; await it again to keep waiting.`
+                }; await it again to keep waiting.`,
+                limitMillis: Duration.toMillis(timeout)
               })
             )
         })

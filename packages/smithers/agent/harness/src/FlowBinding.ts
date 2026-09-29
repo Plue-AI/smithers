@@ -52,7 +52,7 @@ import type * as Cell from "./Cell.ts"
 import { CallResult } from "./Cell.ts"
 import { HarnessError } from "./HarnessError.ts"
 import * as elide from "./internal/elide.ts"
-import { refusal } from "./internal/refusal.ts"
+import { refusal, timedOut } from "./internal/refusal.ts"
 
 /**
  * The declaration half of a binding.
@@ -311,13 +311,14 @@ export interface Options<
    */
   readonly publicError?: ((error: E) => string | undefined) | undefined
   /**
-   * Whether a handler failure is the flow's own timeout: a command past its
-   * limit, or a wait that gave up. The cell reads one as a `timeout` call
-   * failure, the code of the call boundary's own limit, and a host that
-   * guards timeouts parks the run on it. Absent, every failure is
-   * `flow_failed`.
+   * Whether a handler failure is the flow's own timeout (a command past its
+   * limit, or a wait that gave up), and the limit in milliseconds it ran past
+   * when the failure says. Undefined for any other failure. The cell reads a
+   * timeout as a `timeout` call failure, the code of the call boundary's own
+   * limit, and a host that guards timeouts parks the run on it with this
+   * limit. Absent, every failure is `flow_failed`.
    */
-  readonly timedOut?: ((error: E) => boolean) | undefined
+  readonly timedOut?: ((error: E) => { readonly limitMillis?: number | undefined } | undefined) | undefined
 }
 
 /**
@@ -375,12 +376,15 @@ export const make = <
           const escalate = escalated(produced.failure)
           if (escalate !== undefined) return yield* Effect.fail(escalate)
           const message = publicMessage(produced.failure, options.publicError)
-          return refusal(
-            options.timedOut?.(produced.failure) === true ? "timeout" : "flow_failed",
-            message === undefined
-              ? `Flow ${descriptor.name} failed.`
-              : `Flow ${descriptor.name} failed: ${message}`
-          )
+          const rendered = message === undefined
+            ? `Flow ${descriptor.name} failed.`
+            : `Flow ${descriptor.name} failed: ${message}`
+          const timeout = options.timedOut?.(produced.failure)
+          return timeout === undefined
+            ? refusal("flow_failed", rendered)
+            : timeout.limitMillis === undefined
+            ? refusal("timeout", rendered)
+            : timedOut(rendered, timeout.limitMillis)
         }
         const encoded = encodeOutput(produced.success)
         if (encoded._tag === "Failure") {

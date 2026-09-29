@@ -445,6 +445,21 @@ export const EngineLike: Context.Service<EngineLike, EngineLike> = Context.Servi
 export const make = (implementation: EngineLike): EngineLike => EngineLike.of(implementation)
 
 /**
+ * The {@link Guard} subject of one cell call: its session, frame and settled
+ * boundary. A host keys what the guard decided for a call (how many times the
+ * operator chose Continue) by the subject the controller admits it under.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const callSubject = (identity: Pick<Cell.CallIdentity, "session" | "frame" | "cell" | "ordinal">): string =>
+  JSON.stringify({
+    session: identity.session,
+    frame: identity.frame,
+    boundary: `cell-call:${identity.cell}:${identity.ordinal}`
+  })
+
+/**
  * One operation that ran past its time limit, as the controller reports it to
  * {@link Guard.trip}.
  *
@@ -472,6 +487,9 @@ export interface Guard {
   /**
    * Admits an operation before it runs. A park whose question is still open,
    * or the failure a Stop settles the run with, travels in the error channel.
+   * A host re-issues a cell call the operator continued under a key of its
+   * own, since the timed-out attempt may have settled durably under the old
+   * one (a command's own timeout does).
    */
   readonly admit: (subject: string) => Effect.Effect<void, HarnessError>
   /**

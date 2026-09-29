@@ -51,7 +51,9 @@ export type ExecErrorCode = typeof ExecErrorCode.Type
  */
 export class ExecError extends Schema.TaggedError<ExecError>()("@smthrs/std/ExecError", {
   code: ExecErrorCode,
-  message: Schema.String
+  message: Schema.String,
+  /** The limit a `timeout` ran past, in milliseconds. */
+  limitMillis: Schema.optional(Schema.Number)
 }) {}
 
 /**
@@ -272,7 +274,8 @@ export const exec = (
         Effect.fail(
           new ExecError({
             code: "timeout",
-            message: `exec: \`${command}\` exceeded ${options.timeoutMs}ms`
+            message: `exec: \`${command}\` exceeded ${options.timeoutMs}ms`,
+            limitMillis: options.timeoutMs
           })
         )
     })
@@ -306,5 +309,6 @@ export const toStdError = (command: string, error: ExecError): StdError.StdError
     code: toStdErrorCode(error),
     message: error.code === "timeout"
       ? `Command timed out: ${command}`
-      : `Command failed to start: ${error.message}`
+      : `Command failed to start: ${error.message}`,
+    ...(error.limitMillis === undefined ? {} : { limitMillis: error.limitMillis })
   })

@@ -93,10 +93,10 @@ Manifest.readOnly // ["read", "ls", "glob", "grep", "fetch", "explore", "webfetc
 
 The single typed failure every handler uses.
 
-| Export     | Type                                    | Meaning                                                                                 |
-| ---------- | --------------------------------------- | --------------------------------------------------------------------------------------- |
-| `Code`     | `Schema.Literals` and the matching type | The closed list of failure codes.                                                       |
-| `StdError` | `Schema.TaggedError` class              | `{ code, message, path?, method?, rpcError?, stderr? }`, tagged `@smthrs/std/StdError`. |
+| Export     | Type                                    | Meaning                                                                                               |
+| ---------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Code`     | `Schema.Literals` and the matching type | The closed list of failure codes.                                                                     |
+| `StdError` | `Schema.TaggedError` class              | `{ code, message, path?, method?, rpcError?, stderr?, limitMillis? }`, tagged `@smthrs/std/StdError`. |
 
 ```ts
 import * as StdError from "@smthrs/std/StdError"

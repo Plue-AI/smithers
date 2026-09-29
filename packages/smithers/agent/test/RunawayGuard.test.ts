@@ -38,7 +38,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
 import { Migrations as RunStoreMigrations, type Ownership, RunStore } from "@smthrs/run-store"
 import { Effect, Layer, Option, Schedule, Schema, Stream } from "effect"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, readFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -47,6 +47,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentSession from "../src/AgentSession.ts"
 import * as Budget from "../src/Budget.ts"
+import * as ChildFlows from "../src/ChildFlows.ts"
 import type * as FlowEngineLike from "../src/FlowEngineLike.ts"
 import * as RunawayGuard from "../src/RunawayGuard.ts"
 import { layer as scriptedCompletionJudge } from "../src/ScriptedJudge.ts"
@@ -630,21 +631,39 @@ describe("a run parked on a timeout", () => {
     expect(modelCalls).toEqual(["runaway-first"])
   }, 180_000)
 
-  it("parks a command's own timeout, asks again after Continue, and Stop fails the run", async () => {
+  it("parks a command's own timeout on its limit, holds it across restart, and asks again after Continue", async () => {
     const shell = Effect.runSync(Effect.context<NodeServices.NodeServices>().pipe(Effect.provide(NodeServices.layer)))
     const bash: Guarded = { flows: () => [StandardFlows.shell(shell)] }
+    const root = makeRoot()
+    const ran = join(root, "ran.log")
     script = (n) => ({
       source: n === 0
-        ? `await ctx.call("bash", { command: "sleep 5", timeoutMs: 200 })\nctx.done("ran")`
+        ? `await ctx.call("bash", { command: "echo ran >> ${ran}; sleep 5", timeoutMs: 200 })\nctx.done("ran")`
         : `ctx.done("again")`,
       delayMillis: 0
     })
-    const root = makeRoot()
+    const runs = () => readFileSync(ran, "utf8").split("\n").filter((line) => line === "ran").length
     const parked = await parkOnTimeout(root, bash)
 
-    const [first] = readRequestFacts(root, parked.runId)
-    expect(first?.incident).toMatchObject({ classification: "Stuck", source: "tool-call" })
-    expect(first?.requestId).toMatch(/\/1$/)
+    const requested = readRequestFacts(root, parked.runId)
+    expect(requested).toHaveLength(1)
+    expect(requested[0]?.requestId).toMatch(/\/1$/)
+    // The command's own limit, not the call boundary's, is the incident's.
+    expect(requested[0]?.incident).toMatchObject({
+      classification: "Stuck",
+      source: "tool-call",
+      max: 200,
+      allowance: 200,
+      message: expect.stringContaining("timed out")
+    })
+    expect(runs()).toBe(1)
+
+    // A restarted host with no answer re-parks on the same request: the
+    // command does not run again and nothing is asked twice.
+    const pending = await unaskedRound(root, parked.runId, bash)
+    expect(pending.run.status).toBe("parked")
+    expect(readRequestFacts(root, parked.runId)).toEqual(requested)
+    expect(runs()).toBe(1)
 
     // Continue runs the command again under the same limit; it times out again
     // and the run asks again under a new request rather than looping.
@@ -652,6 +671,8 @@ describe("a run parked on a timeout", () => {
     expect(again.kind).toBe("control.approval.requested")
     const requests = readRequestFacts(root, parked.runId)
     expect(requests.map((request) => request.requestId.slice(-2))).toEqual(["/1", "/2"])
+    expect(requests[1]?.incident).toMatchObject({ source: "tool-call", max: 200, allowance: 200 })
+    expect(runs()).toBe(2)
 
     const settled = await answerInSecondProcess(
       root,
@@ -660,7 +681,78 @@ describe("a run parked on a timeout", () => {
       bash
     )
     expect(settled.kind).toBe("control.run.failed")
+    expect(runs()).toBe(2)
     expect(modelCalls).toEqual(["runaway-first"])
+  }, 180_000)
+
+  /** Every `agent/await` the fake child port answered, by either composition. */
+  const awaits: Array<string> = []
+  const stuckChild = (host: string): FlowBinding.Source =>
+    ChildFlows.source({
+      spawn: () => Effect.die("unused"),
+      send: () => Effect.die("unused"),
+      await: (input) =>
+        Effect.suspend(() =>
+          awaits.push(host) === 1
+            ? Effect.fail(
+              new ChildFlows.ChildError({
+                code: "still_running",
+                message: `The child run ${input.child} is still running after 250 millis.`,
+                limitMillis: 250
+              })
+            )
+            : Effect.succeed({ child: input.child, output: "child finished" })
+        )
+    })
+  const awaitsChild: Script = (n) => ({
+    source: n === 0
+      ? `const r = await ctx.call("agent/await", { child: "c-1" })\nctx.done(r.output)`
+      : `ctx.done("again")`,
+    delayMillis: 0
+  })
+
+  it("parks a child await that gave up on its wait limit, holds it across restart, and Continue awaits", async () => {
+    awaits.length = 0
+    const child: Guarded = { flows: (host) => [stuckChild(host)] }
+    script = awaitsChild
+    const root = makeRoot()
+    const parked = await parkOnTimeout(root, child)
+
+    const requested = readRequestFacts(root, parked.runId)
+    expect(requested).toHaveLength(1)
+    expect(requested[0]?.incident).toMatchObject({
+      classification: "Stuck",
+      source: "tool-call",
+      max: 250,
+      allowance: 250,
+      message: expect.stringContaining("still running")
+    })
+
+    const pending = await unaskedRound(root, parked.runId, child)
+    expect(pending.run.status).toBe("parked")
+    expect(readRequestFacts(root, parked.runId)).toEqual(requested)
+    expect(awaits).toEqual(["runaway-first"])
+
+    const settled = await answerInSecondProcess(root, parked, "continue", child)
+
+    expect(settled.kind).toBe("control.run.completed")
+    // The await ran once more in the resumed frame; the model was not asked again.
+    expect(awaits).toEqual(["runaway-first", "runaway-second"])
+    expect(modelCalls).toEqual(["runaway-first"])
+    expect(readRequestFacts(root, parked.runId)).toEqual(requested)
+  }, 180_000)
+
+  it("Stop refuses the timed-out child await before it runs again", async () => {
+    awaits.length = 0
+    const child: Guarded = { flows: (host) => [stuckChild(host)] }
+    script = awaitsChild
+    const root = makeRoot()
+    const parked = await parkOnTimeout(root, child)
+
+    const settled = await answerInSecondProcess(root, parked, "stop", child)
+
+    expect(settled.kind).toBe("control.run.failed")
+    expect(awaits).toEqual(["runaway-first"])
   }, 180_000)
 })
 

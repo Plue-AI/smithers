@@ -24,7 +24,7 @@ import { Context, Effect, Exit, Layer, Schema, type Scope } from "effect"
 import * as Cell from "./Cell.ts"
 import * as CellValidation from "./CellValidation.ts"
 import type { HarnessError } from "./HarnessError.ts"
-import { refusal } from "./internal/refusal.ts"
+import { refusal, timedOut } from "./internal/refusal.ts"
 import type * as VariablesPanel from "./VariablesPanel.ts"
 
 /**
@@ -719,7 +719,7 @@ const seconds = (milliseconds: number): string => {
  * @since 0.1.0
  */
 export const callTimedOut = (flow: string, callMs: number): Cell.CallResult =>
-  refusal("timeout", `Flow ${flow} timed out after ${seconds(callMs)} seconds.`)
+  timedOut(`Flow ${flow} timed out after ${seconds(callMs)} seconds.`, callMs)
 
 /**
  * Erases type-only syntax from a cell without evaluating or resolving modules.

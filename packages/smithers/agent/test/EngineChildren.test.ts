@@ -893,12 +893,13 @@ describe("EngineChildren.await", () => {
       name: "the port's bound",
       options: { awaitTimeout: "30 millis" as const },
       timeoutSeconds: undefined,
-      bound: "30ms"
+      bound: "30ms",
+      limitMillis: 30
     },
-    { name: "the call's timeoutSeconds", options: {}, timeoutSeconds: 1, bound: "1s" }
+    { name: "the call's timeoutSeconds", options: {}, timeoutSeconds: 1, bound: "1s", limitMillis: 1_000 }
   ])(
-    "answers still_running for a child that does not settle within $name",
-    ({ bound, options, timeoutSeconds }) =>
+    "answers still_running for a child that does not settle within $name, with that limit",
+    ({ bound, limitMillis, options, timeoutSeconds }) =>
       run(Effect.gen(function*() {
         const runtime = yield* engine(`children-await-bounded-${bound}`)
         const store = yield* RunStore.RunStore
@@ -915,7 +916,8 @@ describe("EngineChildren.await", () => {
         )
         expect(childErrorOf(exit)).toMatchObject({
           code: "still_running",
-          message: expect.stringContaining(`after ${bound}`)
+          message: expect.stringContaining(`after ${bound}`),
+          limitMillis
         })
       }))
   )
@@ -961,7 +963,9 @@ describe("EngineChildren.await", () => {
       expect(result).toMatchObject({
         outcome: "failure",
         code: "timeout",
-        message: expect.stringContaining("still running")
+        message: expect.stringContaining("still running"),
+        // The wait's own limit, which a guarded host parks the run on (#2120).
+        value: { limitMillis: 30 }
       })
     })))
 })

@@ -199,11 +199,12 @@ describe("Exec refuses partial capture", () => {
  * than a duck-typed read of an `unknown`.
  */
 describe("Exec.toStdError", () => {
-  it("keeps a timeout's own code and names the command", () => {
-    const error = new Exec.ExecError({ code: "timeout", message: "exec: `pytest -q` exceeded 5ms" })
+  it("keeps a timeout's own code and limit and names the command", () => {
+    const error = new Exec.ExecError({ code: "timeout", message: "exec: `pytest -q` exceeded 5ms", limitMillis: 5 })
     expect(Exec.toStdError("pytest -q", error)).toMatchObject({
       code: "timeout",
-      message: "Command timed out: pytest -q"
+      message: "Command timed out: pytest -q",
+      limitMillis: 5
     })
   })
 

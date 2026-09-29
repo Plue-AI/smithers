@@ -751,7 +751,8 @@ interface Scope {
  */
 const callKey = (
   call: Cell.Call,
-  scope: Scope
+  scope: Scope,
+  continued: number
 ): Effect.Effect<StepKey.StepKey, HarnessError.HarnessError> =>
   keyed(
     StepKey.content({
@@ -774,7 +775,14 @@ const callKey = (
         })
       },
       inputs: {},
-      layers: [...new Set([...scope.layers, ...call.identity.layers])],
+      layers: [
+        ...new Set([
+          ...scope.layers,
+          ...call.identity.layers,
+          // See `sealStep`: each Continue re-issues under a key of its own.
+          ...(continued > 0 ? [`timeout-continue:${continued}`] : [])
+        ])
+      ],
       capabilities: { declared: [...call.capabilities].sort() }
     })
   ).pipe(
@@ -1082,6 +1090,9 @@ export const make = (
 
     // Calls `admit` authorized and `call` has not yet issued, by identity.
     const admitted = new Set<string>()
+    // How many times the operator chose Continue for a timed-out cell call,
+    // by its guard subject, as this drive's guard admitted it.
+    const continuedCalls = new Map<string, number>()
     const admission = (request: Cell.Call): string => JSON.stringify(request.identity)
 
     /**
@@ -1135,7 +1146,9 @@ export const make = (
         // A call `admit` already authorized is not asked twice: a grant a
         // person gave once would otherwise be requested again here.
         if (calls.authorize !== undefined && !admitted.delete(admission(decoded))) yield* calls.authorize(decoded)
-        const key = yield* callKey(decoded, scope)
+        // A call the operator continued past its timeout runs again: its
+        // timed-out attempt may have settled durably under the earlier key.
+        const key = yield* callKey(decoded, scope, continuedCalls.get(EngineLike.callSubject(decoded.identity)) ?? 0)
         return yield* Action.make({
           name: cellCallActivityName(decoded.flowName),
           success: Cell.CallResult,
@@ -1274,6 +1287,7 @@ export const make = (
           if (parking === undefined) return
           const admitted = yield* parking.admit(subject)
           if (admitted._tag === "park") return yield* parkOn(admitted.parked)
+          if (admitted.continued > 0) continuedCalls.set(subject, admitted.continued)
         }),
       trip: (timeout) =>
         Effect.gen(function*() {

@@ -89,8 +89,9 @@ const publicExecutionError = (error: StdError): string | undefined => {
   return error.code === "command_failed" || error.code === "request_failed" ? undefined : error.message
 }
 
-/** A command past its own limit is a timeout; see `FlowBinding.Options.timedOut`. */
-const commandTimedOut = (error: StdError): boolean => error.code === "timeout"
+/** A command past its own limit (given or default) is a timeout; see `FlowBinding.Options.timedOut`. */
+const commandTimedOut = (error: StdError): { readonly limitMillis?: number | undefined } | undefined =>
+  error.code === "timeout" ? { limitMillis: error.limitMillis } : undefined
 
 /**
  * Native search may report raw stderr, so only the contract's own rejection,

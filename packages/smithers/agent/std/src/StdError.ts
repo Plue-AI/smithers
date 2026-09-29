@@ -68,5 +68,7 @@ export class StdError extends Schema.TaggedError<StdError>()("@smthrs/std/StdErr
     data: Schema.optional(Schema.Unknown)
   })),
   /** At most 64 KiB of the language server's most recent stderr. */
-  stderr: Schema.optional(Schema.String)
+  stderr: Schema.optional(Schema.String),
+  /** The limit a `timeout` ran past, in milliseconds, when the flow knows it. */
+  limitMillis: Schema.optional(Schema.Number)
 }) {}

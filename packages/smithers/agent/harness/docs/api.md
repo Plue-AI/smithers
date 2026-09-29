@@ -671,7 +671,8 @@ export interface EngineLike {
   issues a call or evaluates a fresh cell frame, and `trip` with a `TimedOut`
   (`{ source: "tool-call" | "cell", subject, limitMillis?, message }`) when a
   call settles as a `timeout` failure or a frame overruns its wall-clock
-  limit. `trip` succeeds when the run's timeouts are not guarded, and the
+  limit. `limitMillis` is the limit the timeout recorded: the per-call
+  ceiling, or the call's own (a command's, an await's). `trip` succeeds when the run's timeouts are not guarded, and the
   cell reads the timeout as before; a guarded host fails it with a park, and
   the controller records nothing for the operation, so Continue runs it again
   and Stop fails the run at `admit`. `subject` is the replay-stable call or
@@ -1058,9 +1059,10 @@ interrupt cause unchanged. A failed projection is a
 the durable exit schema. `FlowBinding.make` passes existing `HarnessError`
 values through unchanged; only permission requirements and denials are
 converted to code `suspended`. A handler error the binding's `timedOut`
-classifies becomes a `timeout` call result: `bash` and `test` classify a
-command past its limit, and `agent/await` a child still running. Other handler
-errors become opaque `flow_failed` call results. Either carries only the safe
+classifies becomes a `timeout` call result whose `value` records
+`{ limitMillis }` when the error says its limit: `bash` and `test` classify a
+command past its given or default limit, and `agent/await` a wait that gave
+up. Other handler errors become opaque `flow_failed` call results. Either carries only the safe
 `publicError` text the binding supplies.
 
 ## StructuredOutput

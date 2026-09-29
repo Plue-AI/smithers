@@ -2836,6 +2836,30 @@ describe("CellTurn timeout guard", () => {
     expect(observed.records.filter((record) => record.name === "cell-call")).toEqual([])
   })
 
+  it("parks a call that reports its own timeout on the limit it recorded, not the per-call ceiling", async () => {
+    const observed = await callRun({
+      parks: true,
+      call: () =>
+        Effect.succeed(
+          new Cell.CallResult({
+            outcome: "failure",
+            value: { limitMillis: 5 },
+            code: "timeout",
+            message: "Flow fs/list failed: Command timed out: ls"
+          })
+        )
+    })
+
+    expect(observed.failure).toBe(observed.guard.park)
+    expect(observed.guard.tripped).toStrictEqual([{
+      source: "tool-call",
+      subject: callSubjectOf(observed.records, 0),
+      limitMillis: 5,
+      message: "Flow fs/list failed: Command timed out: ls"
+    }])
+    expect(observed.records.filter((record) => record.name === "cell-call")).toEqual([])
+  })
+
   it("hands the cell its timeout and records it when the run's timeouts are not guarded", async () => {
     const observed = await callRun({ parks: false, call: () => Effect.never })
 

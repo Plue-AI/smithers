@@ -252,7 +252,7 @@ describe("TestRun", () => {
 
     expect(TestRun.DEFAULT_TIMEOUT_MS).toBe(600_000)
     expect(exit).toBeDefined()
-    if (exit !== undefined) expect(failureOf(exit)?.code).toBe("timeout")
+    if (exit !== undefined) expect(failureOf(exit)).toMatchObject({ code: "timeout", limitMillis: 600_000 })
   })
 
   it("runs the pristine base in a scratch worktree and attributes every failure", async () => {

@@ -42,7 +42,7 @@ import * as elide from "./internal/elide.ts"
 import * as Frame from "./internal/frame.ts"
 import { NonNegativeSafeInt } from "./internal/nonNegativeSafeInt.ts"
 import { printsObservation } from "./internal/printsObservation.ts"
-import { refusal } from "./internal/refusal.ts"
+import { limitOf, refusal } from "./internal/refusal.ts"
 import * as Supervision from "./internal/supervision.ts"
 import { untrustedData } from "./internal/untrustedData.ts"
 import * as Judgement from "./Judgement.ts"
@@ -2071,26 +2071,20 @@ const issued = (
     // is reported under the same code as this boundary's. Nothing is recorded
     // for the parked call, so Continue issues it again and Stop refuses it
     // here before it runs.
-    const subject = JSON.stringify(identity)
+    const subject = EngineLike.callSubject(call.identity)
     const guarded = refused === undefined ? engine.guard : undefined
     if (guarded !== undefined) yield* guarded.admit(subject)
-    let bounded = false
     const settlement = refused ?? (yield* issue.pipe(
-      Effect.timeoutOrElse({
-        duration: callMs,
-        orElse: () =>
-          Effect.sync(() => {
-            bounded = true
-            return Sandbox.callTimedOut(flow, callMs)
-          })
-      }),
+      Effect.timeoutOrElse({ duration: callMs, orElse: () => Effect.succeed(Sandbox.callTimedOut(flow, callMs)) }),
       Effect.flatMap(Cell.decodeCallResult)
     ))
     if (guarded !== undefined && settlement.outcome === "failure" && settlement.code === "timeout") {
+      // The limit it ran past: this boundary's, or the one the flow's own
+      // timeout recorded (a command's `timeoutMs` or default, an await's).
       yield* guarded.trip({
         source: "tool-call",
         subject,
-        limitMillis: bounded ? callMs : undefined,
+        limitMillis: limitOf(settlement),
         message: settlement.message ?? `Flow ${flow} timed out.`
       })
     }

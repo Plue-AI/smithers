@@ -202,6 +202,8 @@ describe("Bash", () => {
     if (Exit.isFailure(exit)) {
       const failure = Cause.findErrorOption(exit.cause)
       expect(Option.isSome(failure) && failure.value.code).toBe("timeout")
+      // The limit it ran past travels with it, for a guarded host's incident (#2120).
+      expect(Option.isSome(failure) && failure.value.limitMillis).toBe(1)
     }
   })
 
@@ -232,6 +234,7 @@ describe("Bash", () => {
       if (Exit.isFailure(outcome)) {
         const failure = Cause.findErrorOption(outcome.cause)
         expect(Option.isSome(failure) && failure.value.code).toBe("timeout")
+        expect(Option.isSome(failure) && failure.value.limitMillis).toBe(expectedDefault)
       }
     }
   })

@@ -163,7 +163,9 @@ export class ChildError extends Schema.TaggedError<ChildError>()(
   "@smthrs/agent/ChildFlows/ChildError",
   {
     code: Schema.Literals(["unsupported", "not_found", "failed", "still_running"]),
-    message: Schema.String
+    message: Schema.String,
+    /** How long a `still_running` await waited, in milliseconds. */
+    limitMillis: Schema.optional(Schema.Number)
   }
 ) {}
 Fault.register(
@@ -247,6 +249,9 @@ export const source = (children: Children): FlowBinding.Source =>
       handler: children.await,
       publicError: (error) => error.message,
       // An await that gave up on a child still running is a timeout.
-      timedOut: (error) => error._tag === "@smthrs/agent/ChildFlows/ChildError" && error.code === "still_running"
+      timedOut: (error) =>
+        error._tag === "@smthrs/agent/ChildFlows/ChildError" && error.code === "still_running"
+          ? { limitMillis: error.limitMillis }
+          : undefined
     })
   ])

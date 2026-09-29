@@ -1829,8 +1829,10 @@ around.
 class ChildError extends Schema.TaggedError<ChildError>()(
   "@smthrs/agent/ChildFlows/ChildError",
   {
-    code: Schema.Literals(["unsupported", "not_found", "failed"]),
-    message: Schema.String
+    code: Schema.Literals(["unsupported", "not_found", "failed", "still_running"]),
+    message: Schema.String,
+    /** How long a `still_running` await waited, in milliseconds. */
+    limitMillis: Schema.optional(Schema.Number)
   }
 )
 ```
