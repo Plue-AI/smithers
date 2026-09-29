@@ -13,7 +13,6 @@ import {
   CancelResponse,
   FlowList,
   FlowRunRequest,
-  FlowRunResponse,
   Routes,
   SessionList,
   type SessionSummary,
@@ -28,7 +27,6 @@ const decodeSessionState = Schema.decodeUnknownSync(SessionState)
 const decodeSessionList = Schema.decodeUnknownSync(SessionList)
 const decodeCancelResponse = Schema.decodeUnknownSync(CancelResponse)
 const decodeFlowList = Schema.decodeUnknownSync(FlowList)
-const decodeFlowRunResponse = Schema.decodeUnknownSync(FlowRunResponse)
 const decodeTurnFrame = Schema.decodeUnknownSync(TurnFrame)
 
 export type { SessionSummary }
@@ -167,9 +165,10 @@ export const listSessions = async (): Promise<ReadonlyArray<SessionSummary>> =>
 export const listFlows = async () =>
   decodeFlowList(await json(await fetch(Routes.flows, { headers: authHeaders() }), Routes.flows)).flows
 
-/** `POST /api/flows/run`. */
-export const runFlow = async (request: typeof FlowRunRequest.Type): Promise<string> =>
-  decodeFlowRunResponse(await json(await postJson(Routes.flowRun, request), Routes.flowRun)).executionId
+/** `POST /api/flows/run`: subscribe to the run's card replacements. */
+export const runFlow = async function* (request: typeof FlowRunRequest.Type): AsyncGenerator<TurnFrame> {
+  yield* readFrames(await postJson(Routes.flowRun, request), Routes.flowRun)
+}
 
 /**
  * `GET /api/health`.

@@ -226,14 +226,6 @@ const leaveSession = (): void => {
   inflight = undefined
 }
 
-/** How often a running flow re-reads its card, and how long it keeps trying. */
-const FLOW_POLL_MS = 750
-const FLOW_POLL_TICKS = 320
-
-/** Whether a `flow-run` card has reached a phase that will not change again. */
-const isSettled = (card: AppCard | undefined): boolean =>
-  card !== undefined && card.kind === "flow-run" && card.phase !== "running" && card.phase !== "waiting-approval"
-
 export const actions = {
   setRoute: (route: string): void => set({ route }),
   setDraft: (draft: string): void => set({ draft }),
@@ -365,39 +357,21 @@ export const actions = {
   },
 
   /**
-   * Starts a pipeline flow and follows its `flow-run` card to a settled phase.
-   *
-   * `POST /api/flows/run` answers with an execution id and nothing else: the
-   * run outlives the request and writes its progress into the session as one
-   * card that it keeps replacing. There is no stream to read it from, so the
-   * card is re-read on a timer until it settles. A poll rather than a socket is
-   * the whole cost of the fire-and-forget route, and it is bounded so a run
-   * that never settles does not poll forever.
-   *
-   * TODO(worker): serve the run's `card.update` frames on a stream of their own
-   * so this loop becomes a subscription (worker/router.ts, `Routes.flowRun`).
+   * Starts a pipeline flow and subscribes to its card replacements.
    */
   runFlow: async (flowId: string, payload: unknown): Promise<void> => {
     const sessionId = state.sessionId
     const generation = selectionGeneration
     const isCurrent = (): boolean => state.sessionId === sessionId && selectionGeneration === generation
-    let executionId: string
     try {
-      executionId = await client.runFlow({ sessionId, flowId, payload })
-      if (!isCurrent()) return
+      for await (const frame of client.runFlow({ sessionId, flowId, payload })) {
+        if (!isCurrent()) return
+        if (frame.type === "card.update") set(applyFrame(state, frame))
+      }
     } catch (cause) {
       if (!isCurrent()) return
       set({ status: "error", error: client.publicMessage(cause) })
       return
-    }
-    for (let tick = 0; tick < FLOW_POLL_TICKS; tick += 1) {
-      await new Promise((resolve) => setTimeout(resolve, FLOW_POLL_MS))
-      // The user moved on. The run keeps going in the Worker; its card is
-      // waiting in the session whenever they come back to it.
-      if (!isCurrent()) return
-      await actions.loadSession(sessionId)
-      if (!isCurrent()) return
-      if (isSettled(store.getSnapshot().cards[executionId])) return
     }
   },
 

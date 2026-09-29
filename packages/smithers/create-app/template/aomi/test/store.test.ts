@@ -242,58 +242,42 @@ describe("session changes during a turn", () => {
   })
 })
 
-describe("flow polling", () => {
-  it("leaves unchanged polls stable and reads only the session", async () => {
-    const id = store.getSnapshot().sessionId
+describe("flow-run card stream", () => {
+  it("applies a streamed update before the run settles without polling", async () => {
     const running = actions.runFlow("build", {})
-    await respond(requestAt(0), { executionId: "execution" })
-    await vi.advanceTimersByTimeAsync(750)
-    await respond(requestAt(1), session(id, [runCard()]))
-    // Allow the old implementation's registry fetch to finish as well.
-    if (requests[2]?.url === "/api/session") await respond(requestAt(2), { sessions: [] })
-    const previous = store.getSnapshot()
-    const count = requests.length
-    await vi.advanceTimersByTimeAsync(750)
-    await respond(requestAt(count), session(id, [runCard()]))
-    expect(store.getSnapshot().entries.map((entry) => entry.id)).toEqual(previous.entries.map((entry) => entry.id))
-    expect(store.getSnapshot()).toBe(previous)
-    expect(requests.every((request) => request.url !== "/api/session")).toBe(true)
-    await vi.advanceTimersByTimeAsync(750)
-    await respond(requestAt(count + 1), session(id, [runCard("completed")]))
+    expect(requestAt(0).url).toBe("/api/flows/run")
+    const encoder = new TextEncoder()
+    let sink!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { sink = controller }
+    })
+    requestAt(0).resolve(new Response(stream, { headers: { "content-type": "application/x-ndjson" } }))
+    sink.enqueue(encoder.encode(JSON.stringify({ type: "card.update", card: runCard() }) + "\n"))
+    await flush()
+    expect(store.getSnapshot().cards.execution).toMatchObject({ phase: "running" })
+    expect(store.getSnapshot().entries).toContainEqual({ kind: "card", id: "card:execution", cardId: "execution" })
+    expect(requests).toHaveLength(1)
+    sink.enqueue(encoder.encode(JSON.stringify({ type: "card.update", card: runCard("completed") }) + "\n"))
+    sink.close()
     await running
     expect(store.getSnapshot().cards.execution).toMatchObject({ phase: "completed" })
+    expect(requests).toHaveLength(1)
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("stops a pending poll when the user selects another session", async () => {
-    const id = store.getSnapshot().sessionId
-    const running = actions.runFlow("build", {})
-    await respond(requestAt(0), { executionId: "execution" })
-    await vi.advanceTimersByTimeAsync(750)
-    actions.selectSession("selected")
-    await respond(requestAt(2), session("selected"))
-    const selected = store.getSnapshot()
-    await respond(requestAt(1), session(id, [runCard()]))
-    expect(store.getSnapshot()).toBe(selected)
-    expect(requests).toHaveLength(3)
-    await running
-    expect(vi.getTimerCount()).toBe(0)
-  })
-
-  it.each(["success", "failure"])("ignores a late run start %s even after reselecting the same session", async (ending) => {
+  it.each(["success", "failure"])("ignores a late run start %s after reselecting the same session", async (ending) => {
     const id = store.getSnapshot().sessionId
     const running = actions.runFlow("build", {})
     actions.newSession()
     actions.selectSession(id)
     await respond(requestAt(1), session(id))
     const selected = store.getSnapshot()
-    if (ending === "success") await respond(requestAt(0), { executionId: "execution" })
-    else {
-      requestAt(0).reject(new Error("old run failed"))
-      await flush()
-    }
+    if (ending === "success") requestAt(0).resolve(new Response(
+      JSON.stringify({ type: "card.update", card: runCard() }) + "\n"
+    ))
+    else requestAt(0).reject(new Error("old run failed"))
+    await running
     expect(store.getSnapshot()).toBe(selected)
     expect(vi.getTimerCount()).toBe(0)
-    await running
   })
 })

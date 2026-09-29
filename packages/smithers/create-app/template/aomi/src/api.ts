@@ -85,10 +85,7 @@ export const FlowList = Schema.Struct({ flows: Schema.Array(FlowSummary) })
 export type FlowList = typeof FlowList.Type
 
 /**
- * POST /api/flows/run: starts one pipeline flow and answers with its execution
- * id. Progress does not come back on this response. The run writes a
- * `flow-run` card into the session and replaces it as steps settle, so the
- * shell reads the run through `GET /api/session?id=` like any other card.
+ * POST /api/flows/run: streams card.update frames for the run's card.
  */
 export const FlowRunRequest = Schema.Struct({
   sessionId: Schema.String,

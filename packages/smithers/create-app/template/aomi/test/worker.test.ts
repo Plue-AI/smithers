@@ -23,7 +23,6 @@ import {
   type AppCard,
   CancelResponse,
   FlowList,
-  FlowRunResponse,
   type FlowSummary,
   Routes,
   SessionList,
@@ -79,9 +78,13 @@ class FakeSession {
     return this.saved
   }
 
-  runFlow(request: { readonly flowId: string }): { executionId: string } {
+  runFlow(request: { readonly flowId: string }): Response {
     this.runs.push(request)
-    return { executionId: `exec-${this.runs.length}` }
+    const executionId = `exec-${this.runs.length}`
+    return new Response(JSON.stringify({
+      type: "card.update",
+      card: { kind: "flow-run", id: executionId, flowId: request.flowId, executionId, phase: "running", steps: [] }
+    }) + "\n", { headers: { "content-type": "application/x-ndjson" } })
   }
 
   sessions(): ReadonlyArray<SessionSummary> {
@@ -321,11 +324,12 @@ describe("GET /api/flows", () => {
 })
 
 describe("POST /api/flows/run", () => {
-  test("starts a routed pipeline flow and answers with its execution id", async () => {
+  test("starts a routed pipeline flow and streams its card", async () => {
     const run = { sessionId: "s1", flowId: "build", payload: { app: "arb", prompt: "build it" } }
     const response = await handle(post(Routes.flowRun, run), app.env)
     expect(response.status).toBe(200)
-    expect(Schema.decodeUnknownSync(FlowRunResponse)(await response.json())).toEqual({ executionId: "exec-1" })
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson")
+    expect((await response.text()).trim()).toContain('"executionId":"exec-1"')
     expect(app.session("s1").runs).toEqual([run])
   })
 

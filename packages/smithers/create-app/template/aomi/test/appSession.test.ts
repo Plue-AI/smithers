@@ -285,11 +285,16 @@ describe("AppSession turns", () => {
     const app = durableObjects({}, plan)
     const session = app.session("s1")
     const payload = { app: "arb", prompt: "Scan for arbitrage." }
-    const { executionId } = session.runFlow({ sessionId: "s1", flowId: "build", payload })
+    const response = session.runFlow({ sessionId: "s1", flowId: "build", payload })
+    const executionId = (session.state("s1").cards[0] as { executionId: string }).executionId
     expect(session.state("s1").cards).toEqual([
       { kind: "flow-run", id: executionId, flowId: "build", executionId, phase: "running", steps: [] }
     ])
     await app.settled()
+    const updates = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; card: { phase: string } })
+    expect(updates.map(({ type, card }) => [type, card.phase])).toEqual([
+      ["card.update", "running"], ["card.update", "completed"]
+    ])
     const cards = app.recreate("s1").state("s1").cards
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({
@@ -306,7 +311,8 @@ describe("AppSession turns", () => {
   it("a flow run the host cannot run settles its card failed with the refusal", async () => {
     const app = durableObjects({}, { ...plan, chain: undefined })
     const session = app.session("s1")
-    const { executionId } = session.runFlow({ sessionId: "s1", flowId: "build", payload: { app: "a", prompt: "p" } })
+    session.runFlow({ sessionId: "s1", flowId: "build", payload: { app: "a", prompt: "p" } })
+    const executionId = (session.state("s1").cards[0] as { executionId: string }).executionId
     await app.settled()
     expect(session.state("s1").cards).toMatchObject([{ id: executionId, phase: "failed" }])
     expect((session.state("s1").cards[0] as { error: string }).error).toContain("TEVM_FORK_RPC_URL")
@@ -316,7 +322,8 @@ describe("AppSession turns", () => {
   it("cancel reaches a flow run in flight", async () => {
     const app = durableObjects({}, plan)
     const session = app.session("s1")
-    const { executionId } = session.runFlow({ sessionId: "s1", flowId: "build", payload: { app: "a", prompt: "p" } })
+    session.runFlow({ sessionId: "s1", flowId: "build", payload: { app: "a", prompt: "p" } })
+    const executionId = (session.state("s1").cards[0] as { executionId: string }).executionId
     expect(session.cancel("s1")).toEqual({ cancelled: true })
     await app.settled()
     expect(session.state("s1").cards).toMatchObject([{ id: executionId, phase: "cancelled" }])

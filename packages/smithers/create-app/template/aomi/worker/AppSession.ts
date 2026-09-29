@@ -26,7 +26,6 @@ import {
   AppCard,
   type CancelResponse,
   type FlowRunRequest,
-  type FlowRunResponse,
   type FlowSummary,
   type Message,
   type SessionState,
@@ -447,19 +446,25 @@ export class AppSession extends DurableObject<Env> {
   /**
    * `POST /api/flows/run` — starts one pipeline flow and reports its id.
    *
-   * The response carries the execution id and nothing else. The run itself
-   * outlives the request: it writes a `flow-run` card immediately, keeps
-   * replacing that card as steps settle, and the shell reads the latest
-   * version through `GET /api/session?id=`. `ctx.waitUntil` is what keeps the
-   * object alive for the writes that land after the response was sent.
+   * Stream the initial card and every subsequent replacement as NDJSON.
+   * Persistence remains independent of the reader, so a disconnected browser
+   * can still reload the latest card from the session.
    *
    * The router has already refused an unrouted flow and a chat flow
    * (`worker/router.ts`, `flowRefusal`); a direct object call that bypasses
    * it gets the same refusal as a `failed` card.
    */
-  runFlow(request: FlowRunRequest): FlowRunResponse {
+  runFlow(request: FlowRunRequest): Response {
     const executionId = crypto.randomUUID()
-    this.appendCard({
+    let stream!: ReadableStream<Uint8Array>
+    let sink!: ReadableStreamDefaultController<Uint8Array>
+    stream = new ReadableStream({ start: (controller) => { sink = controller } })
+    const encoder = new TextEncoder()
+    const emit = (card: FlowRunCard): void => {
+      this.appendCard(card)
+      sink.enqueue(encoder.encode(JSON.stringify({ type: "card.update", card }) + "\n"))
+    }
+    emit({
       kind: "flow-run",
       id: executionId,
       flowId: request.flowId,
@@ -471,15 +476,16 @@ export class AppSession extends DurableObject<Env> {
     this.register(request.sessionId, request.flowId, "running")
     const controller = new AbortController()
     this.cancels.add(controller)
-    this.ctx.waitUntil(this.driveFlow(request, executionId, controller))
-    return { executionId }
+    this.ctx.waitUntil(this.driveFlow(request, executionId, controller, emit).finally(() => sink.close()))
+    return new Response(stream, { headers: { "content-type": "application/x-ndjson; charset=utf-8" } })
   }
 
   /** The half of {@link runFlow} that outlives the response. */
   private async driveFlow(
     request: FlowRunRequest,
     executionId: string,
-    controller: AbortController
+    controller: AbortController,
+    emit: (card: FlowRunCard) => void
   ): Promise<void> {
     let phase: FlowRunCard["phase"] = "failed"
     try {
@@ -494,15 +500,18 @@ export class AppSession extends DurableObject<Env> {
         executionId,
         signal: controller.signal,
         emit: (frame) => {
-          if (frame.type === "card" || frame.type === "card.update") this.appendCard(frame.card)
+          if (frame.type !== "card" && frame.type !== "card.update") return
+          if (frame.card.kind === "flow-run") emit(frame.card)
+          else this.appendCard(frame.card)
         }
       })
     } catch (cause) {
+      phase = "failed"
       // A run that threw still has to leave a settled card behind: a card left
       // on `running` is a spinner the shell has no way to end. Its text stays
       // in the log: a throw can name the deployment's own configuration.
       console.error(cause)
-      this.appendCard({
+      emit({
         kind: "flow-run",
         id: executionId,
         flowId: request.flowId,

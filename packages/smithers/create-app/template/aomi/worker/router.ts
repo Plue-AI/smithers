@@ -197,7 +197,7 @@ export const handle = async (request: Request, env: Env): Promise<Response> => {
     if (!isSessionId(run.sessionId)) return badSessionId(run.sessionId)
     const refusal = await flowRefusal(run.flowId, Routes.flowRun)
     if (refusal !== undefined) return fail(400, refusal)
-    return json(await sessionOf(env, run.sessionId).runFlow(run))
+    return sessionOf(env, run.sessionId).runFlow(run)
   }
 
   // An unrouted /api path is this Worker's own 404, not the SPA's: answering

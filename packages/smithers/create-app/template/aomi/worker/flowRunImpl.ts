@@ -1,7 +1,7 @@
 /**
  * One pipeline flow run, projected onto a single `flow-run` card.
  *
- * `POST /api/flows/run` answers with an execution id and nothing else, so this
+ * `POST /api/flows/run` streams card updates while persisting them, so this
  * is where the run's progress becomes visible. The run is `runFlow` from
  * `@smthrs/create-app/worker` on the host `./host.ts` builds; each card the
  * flow paints is persisted as it streams, and the run's own card is replaced
