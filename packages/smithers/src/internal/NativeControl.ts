@@ -265,7 +265,7 @@ export const make = (
     { source: "project", root: join(root, "flows"), naming: "path" }
   ]
 
-  // Resolve the shared subscription judge lazily. Pure flows and observing
+  // Resolve the shared Jev judge lazily. Pure flows and observing
   // hosts need no provider; a model judgment without a seat fails closed.
   const evaluatorFor = (
     environment: Readonly<Record<string, string | undefined>>,
@@ -1300,7 +1300,7 @@ export const make = (
         // between a run that can prove fails-before without reverting its own
         // work and one that cannot.
         Checkpoints.layerGit(checkpointStore(environment, workspaceRoot)),
-        // One subscription judge handles attribution and completion.
+        // One Jev judge handles attribution and completion.
         evaluator,
         // The seat resolver, and the catalog an undeclared or `auto` seat is
         // routed over at run start.

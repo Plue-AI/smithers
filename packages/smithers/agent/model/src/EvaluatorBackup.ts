@@ -48,7 +48,9 @@ export const fromModel = (model: Model.Model, modelId: string): Evaluator.Evalua
   })
 
 /**
- * Use the backup only when the primary transport is unavailable or times out.
+ * Use the backup only when the primary is unavailable: unreachable, timed
+ * out, or refusing with a server error or 429 after its own retries. A
+ * refusal of the caller (4xx) or of the question never falls back.
  *
  * @category constructors
  * @since 1.0.0-rc.1
@@ -58,7 +60,8 @@ export const withFallback = (primary: Evaluator.Evaluator, backup: Evaluator.Eva
     evaluate: (request) =>
       primary.evaluate(request).pipe(
         Effect.catch((error) =>
-          error.code === "unreachable" || error.code === "timeout"
+          error.code === "unreachable" || error.code === "timeout" ||
+            (error.code === "refused" && error.status !== undefined && (error.status >= 500 || error.status === 429))
             ? backup.evaluate(request)
             : Effect.fail(error)
         )

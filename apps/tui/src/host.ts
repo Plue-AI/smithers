@@ -197,7 +197,7 @@ export const make = (options: {
   readonly callMs?: number
   /** Test seam for the frame backstop. */
   readonly totalMs?: number
-  /** Test seam for the judge; the native subscription judge when absent. */
+  /** Test seam for the judge; the native Jev judge (Luna backup) when absent. */
   readonly judge?: Layer.Layer<Evaluator.Evaluator>
   /** Each turn's and worker's spend ceiling; see `budget.ts`. Unbounded when absent. */
   readonly budget?: Budget.Policy

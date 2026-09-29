@@ -51,7 +51,7 @@ import { mount as mountBackend } from "./internal/backend/Commands.ts"
 
 const options = Bridge.connectionOptions
 
-/** Decisions use the same subscription judge as native flow completions. */
+/** Decisions use the same Jev judge (Luna backup) as native flow completions. */
 const evaluator = (environment: Record<string, string | undefined>): Layer.Layer<Evaluator.Evaluator> =>
   NodeControl.layerSeatEvaluator(environment).pipe(
     Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(environment)))

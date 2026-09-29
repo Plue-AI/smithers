@@ -2,6 +2,8 @@ import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { Effect, Layer } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { afterEach, expect, it, vi } from "vitest"
 import * as NativeControl from "../src/internal/NativeControl.ts"
@@ -44,61 +46,146 @@ it("does not demand local credentials from a remote control client", () => {
   expect(() => NodeControl.layerControl({ remote: "http://127.0.0.1:5300" })).not.toThrow()
 })
 
-it("judges through a chatgpt provider_connections pool seat without provider keys", async () => {
+const question = { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
+const poolEnvironment = {
+  SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
+  SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
+  SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt"
+}
+const jevUrl = Evaluator.defaultBaseUrl
+const sse = (request: Parameters<RequestExecutor.RequestExecutor["execute"]>[0], answer: unknown) => {
+  const events = [
+    {
+      type: "response.output_text.delta",
+      item_id: "answer",
+      output_index: 0,
+      content_index: 0,
+      delta: JSON.stringify({ answers: { complete: answer } })
+    },
+    { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
+  ]
+  return HttpClientResponse.fromWeb(
+    request,
+    new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+      headers: { "content-type": "text/event-stream" }
+    })
+  )
+}
+type Gateway = "answers" | "unreachable" | "never" | "invalid" | 401 | 400 | 503
+/**
+ * Jev's gateway behaves as `gateway` says, over its own HTTP client; the
+ * model executor serves only the pool and Luna.
+ */
+const judge = (environment: Record<string, string>, gateway: Gateway) => {
   const sent: string[] = []
-  const answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
+  const jevHttp = HttpClient.make((request) => {
+    sent.push(request.url)
+    if (gateway === "never") return Effect.never
+    if (gateway === "unreachable") {
+      return Effect.fail(
+        new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ request, description: "connect ECONNREFUSED" })
+        })
+      )
+    }
+    if (typeof gateway === "number") {
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({}, { status: gateway })))
+    }
+    const answers = gateway === "answers"
+      ? { complete: { type: "boolean", probability: 0.9 } }
+      : { complete: { type: "boolean", probability: "high" } }
+    return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ answers })))
+  })
   const executor = RequestExecutor.RequestExecutor.of({
     execute: (request) => {
       sent.push(request.url)
       if (request.url.endsWith("/routes")) {
         return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ routes: ["chatgpt"] })))
       }
-      const events = [
-        { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: answer },
-        { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
-      ]
-      return Effect.succeed(HttpClientResponse.fromWeb(
-        request,
-        new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
-          headers: { "content-type": "text/event-stream" }
-        })
-      ))
+      return Effect.succeed(sse(request, { type: "boolean", probability: 0.95 }))
     }
   })
-  const result = await Effect.runPromise(
-    Effect.flatMap(Evaluator.Evaluator, (judge) =>
-      judge.evaluate({
-        state: "proof",
-        questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
-      })).pipe(
-        Effect.provide(
-          layerSeatEvaluator({
-            SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
-            SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
-            SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt"
-          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
-        )
-      )
+  const run = Effect.flatMap(
+    Evaluator.Evaluator,
+    (evaluator) => evaluator.evaluate({ state: "proof", questions: question })
   )
-  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
-  expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
-  expect(sent.every((url) => url.startsWith("https://pool.example/"))).toBe(true)
+    .pipe(Effect.provide(
+      layerSeatEvaluator({ ...poolEnvironment, ...environment }, Layer.succeed(HttpClient.HttpClient)(jevHttp)).pipe(
+        Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor))
+      )
+    ))
+  return { run, sent }
+}
+
+it("judges with Jev and never calls Luna when the gateway answers", async () => {
+  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, "answers")
+  const result = await Effect.runPromise(run)
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.9 })
+  expect(sent).toEqual([jevUrl])
 })
 
-it("does not use ambient API keys for a native judgment", async () => {
+it("answers with Luna through the pool seat when Jev is unreachable", async () => {
+  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, "unreachable")
+  const result = await Effect.runPromise(run)
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+  expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
+})
+
+it("answers with Luna when Jev times out", async () => {
+  vi.useFakeTimers()
+  try {
+    const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, "never")
+    const result = Effect.runPromise(run)
+    await vi.advanceTimersByTimeAsync(Evaluator.defaultTimeoutMs + 100)
+    expect((await result).answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+    expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it("answers with Luna, without a gateway request, when no gateway key is set", async () => {
+  const { run, sent } = judge({}, "answers")
+  const result = await Effect.runPromise(run)
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+  expect(sent).not.toContain(jevUrl)
+})
+
+it("answers with Luna when the gateway stays unavailable through its retries", async () => {
+  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, 503)
+  const result = await Effect.runPromise(run)
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+  expect(sent.filter((url) => url === jevUrl)).toHaveLength(Evaluator.defaultAttempts)
+  expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
+})
+
+it.each([[401, "refused"], [400, "invalid_question"]] as const)(
+  "does not fall back to Luna when the gateway answers %s",
+  async (status, code) => {
+    const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, status)
+    await expect(Effect.runPromise(run)).rejects.toMatchObject({ code, status })
+    expect(sent).toEqual([jevUrl])
+  }
+)
+
+it("does not fall back to Luna when Jev answers something invalid", async () => {
+  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, "invalid")
+  await expect(Effect.runPromise(run)).rejects.toMatchObject({ code: "invalid_answer" })
+  expect(sent).toEqual([jevUrl])
+})
+
+it("fails unreachable when Luna cannot resolve either", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
     execute: () => Effect.die("must not call an API-key provider")
   })
   await expect(
     Effect.runPromise(
-      Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate({ state: {}, questions: {} })).pipe(
+      Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: {} })).pipe(
         Effect.provide(
-          layerSeatEvaluator({
-            AI_GATEWAY_API_KEY: "unused",
-            OPENAI_API_KEY: "unused",
-            ANTHROPIC_API_KEY: "unused",
-            CODEX_HOME: "/nonexistent"
-          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+          layerSeatEvaluator({ CODEX_HOME: "/nonexistent" })
+            .pipe(
+              Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor))
+            )
         )
       )
     )
@@ -115,7 +202,7 @@ it.each(["unavailable", "disconnected"] as const)(
         expect(request.url).toBe("https://pool.example/routes")
         const response = failure === "unavailable"
           ? Response.json({ error: "private pool diagnostic" }, { status: 503 })
-          : Response.json({ routes: sent.length === 1 ? ["chatgpt"] : [] })
+          : Response.json({ routes: [] })
         return Effect.succeed(HttpClientResponse.fromWeb(request, response))
       }
     })
@@ -130,12 +217,11 @@ it.each(["unavailable", "disconnected"] as const)(
             SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
             SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
             CODEX_HOME: "/nonexistent",
-            AI_GATEWAY_API_KEY: "must-not-use",
             OPENAI_API_KEY: "must-not-use"
           }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
         ))
     )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
-    expect(sent).toHaveLength(failure === "unavailable" ? 1 : 2)
+    expect(sent).toHaveLength(1)
   }
 )
 

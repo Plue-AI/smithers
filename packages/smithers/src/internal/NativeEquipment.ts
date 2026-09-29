@@ -13,15 +13,19 @@ import type * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpaw
 import * as Auth from "@smthrs/model/Auth"
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as EvaluatorBackup from "@smthrs/model/EvaluatorBackup"
 import type * as ModelError from "@smthrs/model/ModelError"
 import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
+import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import type * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
 import * as TestRunner from "@smthrs/std/TestRunner"
 import { Clock, Context, Effect, Layer, Redacted } from "effect"
 import type { Path, Result } from "effect"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { homedir } from "node:os"
 import { isAbsolute, relative } from "node:path"
@@ -504,54 +508,53 @@ export const layerSeatCatalog = (
   })
 
 /**
- * Judges through the existing subscription resolver, never a provider API key.
- * Resolve at evaluation time so newly connected pool accounts work after startup.
+ * Judges with Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`), and
+ * with GPT-6 Luna only when Jev is unreachable, times out, or stays
+ * unavailable (5xx or 429) through its retries. A missing key
+ * makes Jev unreachable; Luna resolves through the subscription resolver at
+ * evaluation time, so newly connected pool accounts work after startup.
+ *
+ * Jev speaks over `jevHttp`, by default the environment's egress client on
+ * Node and fetch on Bun, not the model executor: the gateway's own statuses, retries and deadline stay
+ * Jev's, and its outages never count against the model transport.
  *
  * @category layers
  * @since 0.1.0
  */
 export const layerSeatEvaluator = (
-  environment: Readonly<Record<string, string | undefined>>
+  environment: Readonly<Record<string, string | undefined>>,
+  jevHttp: Layer.Layer<HttpClient.HttpClient> = process.versions.bun === undefined
+    ? EgressHttpClient.layer(environment)
+    // Undici cannot run under Bun; Bun's fetch honours the proxy variables itself.
+    : FetchHttpClient.layer
 ): Layer.Layer<Evaluator.Evaluator, never, RequestExecutor.RequestExecutor> =>
   Layer.effect(Evaluator.Evaluator)(Effect.gen(function*() {
     const executor = yield* RequestExecutor.RequestExecutor
     const resolver = seatResolver(environment, executor)
-    const host = hostOf(environment)
-    return Evaluator.Evaluator.of({
+    const key = environment["AI_GATEWAY_API_KEY"]?.trim()
+    const jev = key === undefined || key === ""
+      ? Evaluator.Evaluator.of({
+        evaluate: () =>
+          Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "AI_GATEWAY_API_KEY is not set" }))
+      })
+      : Context.get(
+        yield* Layer.build(
+          Evaluator.layerVercelGateway({ apiKey: Redacted.make(key) }).pipe(
+            Layer.provide(jevHttp)
+          )
+        ),
+        Evaluator.Evaluator
+      )
+    const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>
-        Effect.gen(function*() {
-          const pool = accountPoolOf(environment)
-          const routes = pool === undefined ? [] : yield* accountPoolRoutes(pool, executor, "subscription-judge").pipe(
-            Effect.mapError(() =>
-              new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
-            )
-          )
-          // A claude-code seat answers cells only, never a judgment.
-          const candidate = aliasCandidates(host).find(({ id }) => {
-            const provider = Providers.expandSeat(id).split(":")[0]!
-            const route = poolRouteOf(provider, environment)
-            if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return routes.includes(route)
-            const signed = credential(provider, host)
-            return signed._tag === "Session" || signed._tag === "Pooled"
-          })
-          if (candidate === undefined) {
-            return yield* Effect.fail(
-              new Evaluator.EvaluatorError({
-                code: "unreachable",
-                message: "Connect a subscription seat to judge this run."
-              })
-            )
-          }
-          const seat = yield* resolver.resolve(candidate.id).pipe(
-            Effect.mapError(() =>
-              new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
-            )
-          )
-          return yield* Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate(request)).pipe(
-            Effect.provide(Evaluator.layerFromSeat(seat))
-          )
-        })
+        resolver.resolve("luna").pipe(
+          Effect.mapError(() =>
+            new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+          ),
+          Effect.flatMap((seat) => EvaluatorBackup.fromModel(seat.model, seat.modelId).evaluate(request))
+        )
     })
+    return EvaluatorBackup.withFallback(jev, luna)
   }))
 
 /**

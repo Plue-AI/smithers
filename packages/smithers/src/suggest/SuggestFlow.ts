@@ -269,7 +269,7 @@ const layerSnapshotBoundary: Layer.Layer<FlowEngine.SnapshotBoundary> = Layer.su
   diff: () => Effect.succeed(undefined)
 })
 
-/** The native subscription judge over the same proxy-aware host transport. */
+/** The native Jev judge, with Luna as backup over the proxy-aware host transport. */
 const evaluatorFrom = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<Evaluator.Evaluator> =>

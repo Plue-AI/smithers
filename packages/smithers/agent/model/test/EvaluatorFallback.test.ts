@@ -37,8 +37,9 @@ const run = (evaluator: Evaluator.Evaluator, input = request) =>
 
 const seat = (model: Model.Model) => EvaluatorBackup.fromModel(model, "fixture/judge")
 
-const failed = (code: Evaluator.EvaluatorErrorCode): Evaluator.Evaluator => ({
-  evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code, message: code }))
+const failed = (code: Evaluator.EvaluatorErrorCode, status?: number): Evaluator.Evaluator => ({
+  evaluate: () =>
+    Effect.fail(new Evaluator.EvaluatorError({ code, message: code, ...(status === undefined ? {} : { status }) }))
 })
 
 const answered = (calls: Array<Evaluator.Request>): Evaluator.Evaluator => ({
@@ -119,6 +120,20 @@ describe("EvaluatorBackup.withFallback", () => {
     expect(Result.isSuccess(result)).toBe(true)
     if (Result.isSuccess(result)) expect(result.success.answers).toEqual(answers)
     expect(calls).toEqual([request])
+  })
+
+  it.each([500, 503, 429] as const)("uses the backup after a %s refusal", async (status) => {
+    const calls: Array<Evaluator.Request> = []
+    const result = await run(EvaluatorBackup.withFallback(failed("refused", status), answered(calls)))
+    expect(Result.isSuccess(result)).toBe(true)
+    expect(calls).toEqual([request])
+  })
+
+  it.each([401, 403, 404] as const)("does not contact backup after a %s refusal", async (status) => {
+    const calls: Array<Evaluator.Request> = []
+    const result = await run(EvaluatorBackup.withFallback(failed("refused", status), answered(calls)))
+    expect(Result.isFailure(result)).toBe(true)
+    expect(calls).toHaveLength(0)
   })
 
   it.each(["refused", "invalid_answer", "invalid_question", "empty"] as const)(
