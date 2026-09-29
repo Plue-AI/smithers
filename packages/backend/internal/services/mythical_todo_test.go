@@ -16,6 +16,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -153,7 +154,7 @@ func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 	o.answerReviews(`"approve"`)
 	item := o.item(70)
 	assert.Equal(t, "proposed", item.State)
-	assert.Contains(t, item.Reason, "the approved pull request could not be merged")
+	assert.Equal(t, "the pull request head moved outside Smithers; a person decides", item.Reason)
 	assert.Empty(t, o.github.merges)
 }
 
@@ -450,7 +451,7 @@ func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
 	o.wake()
 	item = o.item(75)
 	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "CI failed on the approved head; a person decides", item.Reason)
+	assert.Equal(t, "CI failed on the approved head", item.Reason)
 	assert.Empty(t, o.github.merges, "never on red")
 
 	o.github.mu.Lock()
@@ -460,4 +461,64 @@ func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
 	item = o.item(75)
 	require.Equal(t, "landed", item.State, item.Reason)
 	assert.Equal(t, map[int64]string{item.PRNumber.Int64: head}, o.github.merges, "merged at the head CI and the review passed")
+}
+
+// Right before the merge the stack reads the pull request and the label
+// again: a head someone else pushed, or an automerge a maintainer took off,
+// stops it and holds the TODO visibly with one comment; a refused merge
+// holds it the same way, and a comment GitHub drops is posted later.
+func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	start := func(number int64, file string) db.MythicalItem {
+		issue := mythicalIssue{Number: number, Title: "Hold", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+		o.propose(number, file)
+		return o.item(number)
+	}
+
+	// The automerge label was taken off after the stack saw it.
+	item := start(76, "seventy-six.md")
+	o.github.labelers = map[int64]string{76: "other-writer"}
+	o.answerReviews(`"approve"`)
+	item = o.item(76)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "a maintainer's automerge label is no longer on the issue", item.Reason)
+	assert.False(t, mythicalChecksOf(item).Automerge)
+	assert.Empty(t, o.github.merges)
+	o.wake()
+	assert.Equal(t, []string{"#76 Smithers is holding this TODO: a maintainer's automerge label is no longer on the issue."}, o.github.comments)
+	o.wake()
+	assert.Len(t, o.github.comments, 1, "said once")
+
+	// Someone pushed to the pull request: its new head is theirs.
+	item = start(77, "seventy-seven.md")
+	head := item.PRHead
+	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-77",
+		o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "a person's push"))
+	o.answerReviews(`"approve"`)
+	item = o.item(77)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "the pull request head moved outside Smithers; a person decides", item.Reason)
+	assert.NotEmpty(t, mythicalChecksOf(item).ForeignHead)
+	assert.Empty(t, o.github.merges)
+
+	// A comment GitHub drops is owed and posted on a later pass.
+	o.github.mu.Lock()
+	o.github.commentErr = errors.New("GitHub is down")
+	o.github.mu.Unlock()
+	item = start(78, "seventy-eight.md")
+	o.github.mu.Lock()
+	o.github.ci = map[string]string{item.PRHead: mythicalCIRed}
+	o.github.mu.Unlock()
+	o.answerReviews(`"approve"`)
+	assert.Equal(t, "CI failed on the approved head", o.item(78).Reason)
+	require.NotNil(t, mythicalChecksOf(o.item(78)).Notice, "the comment is owed")
+	o.github.mu.Lock()
+	o.github.commentErr = nil
+	o.github.mu.Unlock()
+	o.wake()
+	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: CI failed on the approved head.")
+	assert.Nil(t, mythicalChecksOf(o.item(78)).Notice)
 }

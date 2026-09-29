@@ -57,8 +57,10 @@ type fakeMythicalGitHub struct {
 	// added the labels AddLabel put on, as "#<issue> <label>".
 	comments []string
 	added    []string
-	// ci is GitHub CI's verdict per commit; absent is green.
-	ci map[string]string
+	// ci is GitHub CI's verdict per commit; absent is green. commentErr
+	// fails every Comment.
+	ci         map[string]string
+	commentErr error
 }
 
 // Merge squash-merges like GitHub: only while the pull request is open and
@@ -102,6 +104,9 @@ func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRep
 func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, number int64, body string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.commentErr != nil {
+		return g.commentErr
+	}
 	g.comments = append(g.comments, fmt.Sprintf("#%d %s", number, body))
 	return nil
 }
@@ -205,6 +210,7 @@ func (g *fakeMythicalGitHub) OpenIssues(context.Context, mythicalGitHubRepo) ([]
 	return append([]mythicalIssue(nil), g.issues...), nil
 }
 
+// Pull answers the pull request with its branch's head as GitHub reads it.
 func (g *fakeMythicalGitHub) Pull(_ context.Context, _ mythicalGitHubRepo, number int64) (mythicalPull, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -212,7 +218,11 @@ func (g *fakeMythicalGitHub) Pull(_ context.Context, _ mythicalGitHubRepo, numbe
 	if !ok {
 		return mythicalPull{}, fmt.Errorf("no pull %d", number)
 	}
-	return *pull, nil
+	answer := *pull
+	if out, err := exec.Command("git", "--git-dir", g.dir, "rev-parse", "refs/heads/"+pull.HeadRef).Output(); err == nil && !pull.Merged {
+		answer.HeadSHA = strings.TrimSpace(string(out))
+	}
+	return answer, nil
 }
 
 func (g *fakeMythicalGitHub) FindPull(_ context.Context, _ mythicalGitHubRepo, branch string) (*mythicalPull, error) {

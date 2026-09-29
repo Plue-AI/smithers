@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -915,6 +916,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if ctx.Err() != nil {
 			return
 		}
+		item = s.deliverNotice(ctx, r, item)
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
 			// A finished item's lane is retired even if an earlier release failed.
 			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
@@ -1741,10 +1743,34 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && item.CandidateBase != r.row.TipCommit:
 		next.PRState, next.State, next.Reason = pull.State, "integrating", "refreshing the pull request on the current tip"
 		next.NextAttemptAt = pgtype.Timestamptz{}
+	case pull.HeadSHA != "" && pull.HeadSHA != item.PRHead:
+		// Someone pushed to the pull request: its new head is theirs, so the
+		// stack neither reviews nor merges it.
+		next.PRState = pull.State
+		next = *mythicalHold(next, "moved:"+pull.HeadSHA, "the pull request head moved outside Smithers; a person decides", st.now)
+		checks := mythicalChecksOf(next)
+		checks.ForeignHead = pull.HeadSHA
+		next.Checks = checks.encode()
 	default:
 		next.PRState, next.Reason = pull.State, ""
+		checks := mythicalChecksOf(next)
+		checks.ForeignHead = ""
+		next.Checks = checks.encode()
 	}
 	return &next, nil
+}
+
+// mythicalHold leaves a proposed item waiting for a person, visibly: the
+// reason on its card and one comment on its issue, looked at again on the
+// pull request poll rather than retried every minute.
+func mythicalHold(item db.MythicalItem, key, reason string, now time.Time) *db.MythicalItem {
+	next := item
+	next.Reason = reason
+	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalPullPollEvery), Valid: true}
+	checks := mythicalChecksOf(next)
+	checks.notice(key, "Smithers is holding this TODO: "+reason+".")
+	next.Checks = checks.encode()
+	return &next
 }
 
 // gate decides what happens to an open pull request the stack follows: a
@@ -1754,11 +1780,15 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	switch review := checks.Review; {
+	case checks.ForeignHead != "":
+		return &item, false, nil
 	case review == nil || review.Head != item.PRHead || strings.HasPrefix(review.Verdict, mythicalOutage):
 		// Seam: Jev's needs-review tag decides here which changes are
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
-	case review.Verdict == "approve" && checks.Automerge && st.gh != nil:
+	case strings.HasPrefix(review.Verdict, "failed"):
+		return mythicalHold(item, "review:"+item.PRHead, "the review of this head "+strings.TrimPrefix(review.Verdict, "failed: ")+"; a person decides", st.now), false, nil
+	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
 		return st.merge(ctx, item), false, nil
 	}
 	return &item, false, nil
@@ -1829,20 +1859,41 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 // waits while CI runs and never merges on red. A refusal (the branch moved)
 // is retried later; the pull request stays open for a person meanwhile.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	switch ci, err := st.s.github.HeadChecks(ctx, *st.gh, item.PRHead); {
+	s, gh := st.s, *st.gh
+	switch ci, err := s.github.HeadChecks(ctx, gh, item.PRHead); {
 	case err != nil:
 		return mythicalLater(item, "GitHub did not answer for CI on the approved head; retrying", st.now)
 	case ci == mythicalCIPending:
 		return mythicalLater(item, "waiting for CI on the approved head", st.now)
 	case ci != mythicalCIGreen:
-		next := item
-		next.Reason = "CI failed on the approved head; a person decides"
-		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
-		return &next
+		return mythicalHold(item, "ci:"+item.PRHead, "CI failed on the approved head", st.now)
 	}
-	commit, err := st.s.github.Merge(ctx, *st.gh, item.PRNumber.Int64, item.PRHead)
+	// Everything the merge rests on is read again, live, right before it: a
+	// label removed or a head pushed during this pass stops it.
+	if current, err := s.queries().GetMythicalItem(ctx, item.ID); err != nil || current.Version != item.Version {
+		return nil
+	}
+	pull, err := s.github.Pull(ctx, gh, item.PRNumber.Int64)
 	if err != nil {
-		return mythicalLater(item, "the approved pull request could not be merged: "+err.Error(), st.now)
+		return mythicalLater(item, "GitHub did not answer for the pull request; retrying", st.now)
+	}
+	if pull.State != "open" || pull.Merged || pull.HeadSHA != item.PRHead {
+		return mythicalHold(item, "moved:"+pull.HeadSHA, "the pull request changed since its review", st.now)
+	}
+	applier, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, automergeLabel)
+	if err != nil {
+		return mythicalLater(item, "GitHub did not answer for the issue's labels; retrying", st.now)
+	}
+	if applier == nil || applier.ViaApp || !s.stackPolicy(ctx, st.r.row.RepositoryID).maintains(applier.Actor.Login) {
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.Automerge = false
+		next.Checks = checks.encode()
+		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", st.now)
+	}
+	commit, err := s.github.Merge(ctx, gh, item.PRNumber.Int64, item.PRHead)
+	if err != nil {
+		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge ("+err.Error()+")", st.now)
 	}
 	next := item
 	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""
@@ -2272,6 +2323,36 @@ func (s *MythicalService) overSpendCap(ctx context.Context, r *mythicalRun, item
 	return true, nil
 }
 
+// deliverNotice posts the comment an item owes its issue and records it
+// posted. A failure leaves it owed, so a later pass, settled item or not,
+// posts it.
+func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
+	checks := mythicalChecksOf(item)
+	if checks.Notice == nil || s.github == nil || !item.IssueNumber.Valid || !r.row.ActorUserID.Valid {
+		return item
+	}
+	repository, owner, err := s.repository(ctx, r.row.RepositoryID)
+	if err == nil {
+		var gh mythicalGitHubRepo
+		if gh, err = s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64); err == nil {
+			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, checks.Notice.Body)
+		}
+	}
+	if err != nil {
+		s.logger.Warn("mythical.notice_failed", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
+		return item
+	}
+	checks.Noticed = append(checks.Noticed, checks.Notice.Key)
+	checks.Notice = nil
+	next := item
+	next.Checks = checks.encode()
+	saved, err := s.queries().SaveMythicalItem(ctx, next)
+	if err != nil {
+		return item
+	}
+	return saved
+}
+
 // appliedByMaintainer reports whether this event is a maintainer person
 // applying label.
 func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
@@ -2287,6 +2368,30 @@ type mythicalChecks struct {
 	AutoTodo  string          `json:"autoTodo,omitempty"`
 	Automerge bool            `json:"automerge,omitempty"`
 	Review    *mythicalReview `json:"review,omitempty"`
+	// ForeignHead is the pull request head someone other than Smithers
+	// pushed; the stack neither reviews nor merges it.
+	ForeignHead string `json:"foreignHead,omitempty"`
+	// Notice is an issue comment waiting to be posted, and Noticed the keys
+	// of every comment posted, so each is said once and a failed post is
+	// retried on a later pass (mythicalNotice).
+	Notice  *mythicalNotice `json:"notice,omitempty"`
+	Noticed []string        `json:"noticed,omitempty"`
+}
+
+// mythicalNotice is one issue comment the stack owes, keyed so it is posted
+// once.
+type mythicalNotice struct {
+	Key  string `json:"key"`
+	Body string `json:"body"`
+}
+
+// notice queues a comment for the item's issue unless one with key was
+// posted or is waiting; deliverNotice posts it.
+func (c *mythicalChecks) notice(key, body string) {
+	if slices.Contains(c.Noticed, key) || c.Notice != nil && c.Notice.Key == key {
+		return
+	}
+	c.Notice = &mythicalNotice{Key: key, Body: body}
 }
 
 // mythicalReview is the review of one pull request head. Verdict is empty
@@ -2304,7 +2409,7 @@ func mythicalChecksOf(item db.MythicalItem) mythicalChecks {
 }
 
 func (c mythicalChecks) encode() json.RawMessage {
-	if !c.Todo && c.AutoTodo == "" && !c.Automerge && c.Review == nil {
+	if !c.Todo && c.AutoTodo == "" && !c.Automerge && c.Review == nil && c.ForeignHead == "" && c.Notice == nil && len(c.Noticed) == 0 {
 		return nil
 	}
 	raw, _ := json.Marshal(c)
