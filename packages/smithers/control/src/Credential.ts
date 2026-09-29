@@ -24,8 +24,14 @@
  * @since 0.1.0
  */
 
-import { Context, Effect, Layer, Option, type Redacted } from "effect"
-import { type CredentialConflict, type PersistenceError, Unauthorized, Unavailable } from "./ControlError.ts"
+import { Context, Effect, Layer, Option, Redacted } from "effect"
+import {
+  type CredentialConflict,
+  InvalidInput,
+  type PersistenceError,
+  Unauthorized,
+  Unavailable
+} from "./ControlError.ts"
 import * as CredentialCipher from "./CredentialCipher.ts"
 import * as CredentialStore from "./CredentialStore.ts"
 
@@ -60,14 +66,14 @@ export interface Credential {
   readonly get: (id: string) => Effect.Effect<CredentialRef, Unavailable | Unauthorized>
   readonly create: (
     options: { readonly id: string; readonly name: string; readonly secret: Redacted.Redacted<string> }
-  ) => Effect.Effect<CredentialRef, Unavailable | Unauthorized | CredentialConflict>
+  ) => Effect.Effect<CredentialRef, Unavailable | Unauthorized | CredentialConflict | InvalidInput>
   readonly resolve: (
     reference: CredentialRef
   ) => Effect.Effect<Redacted.Redacted<string>, Unavailable | Unauthorized | PersistenceError>
   readonly rotate: (
     reference: CredentialRef,
     secret: Redacted.Redacted<string>
-  ) => Effect.Effect<CredentialRef, Unavailable | Unauthorized | CredentialConflict>
+  ) => Effect.Effect<CredentialRef, Unavailable | Unauthorized | CredentialConflict | InvalidInput>
   readonly revoke: (reference: CredentialRef) => Effect.Effect<void, Unavailable | Unauthorized>
 }
 
@@ -175,8 +181,11 @@ export const make = (options: Options): Credential => {
   const put = (
     record: CredentialStore.SealedRecord,
     secret: Redacted.Redacted<string>
-  ): Effect.Effect<CredentialRef, Unavailable | CredentialConflict> =>
+  ): Effect.Effect<CredentialRef, Unavailable | CredentialConflict | InvalidInput> =>
     Effect.gen(function*() {
+      if (!Redacted.value(secret).isWellFormed()) {
+        return yield* Effect.fail(new InvalidInput({ issue: "Credential secret must be well-formed Unicode" }))
+      }
       // The metadata written beside this blob is also its authenticated data;
       // moving the blob to another id, name, or version must make it unreadable.
       const context = cipherContextOf(record)

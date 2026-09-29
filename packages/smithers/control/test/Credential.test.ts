@@ -98,6 +98,30 @@ describe("Credential", () => {
     expect(resolved.secret).toBe("sk-live-1")
   })
 
+  it.each([
+    ["high", "\uD800"],
+    ["low", "\uDC00"]
+  ])("refuses a lone %s surrogate on create without storing it", async (_kind, surrogate) => {
+    const { credentials, store } = await Effect.runPromise(boundary())
+    const error = await failureOf(created(credentials, `key-${surrogate}`))
+
+    expect(error._tag).toBe("/control/InvalidInput")
+    expect(error.code).toBe("invalid_input")
+    expect(error.issue).toBe("Credential secret must be well-formed Unicode")
+    expect(Option.isNone(await Effect.runPromise(store.read("exa")))).toBe(true)
+  })
+
+  it("round-trips a non-ASCII secret with a surrogate pair", async () => {
+    const secret = "clé-雪-🔐"
+    const resolved = await Effect.runPromise(Effect.gen(function*() {
+      const { credentials } = yield* boundary()
+      const reference = yield* created(credentials, secret)
+      return Redacted.value(yield* credentials.resolve(reference))
+    }))
+
+    expect(resolved).toBe(secret)
+  })
+
   it("persists ciphertext, never plaintext", async () => {
     const stored = await Effect.runPromise(Effect.gen(function*() {
       const { credentials, store } = yield* boundary()
@@ -155,13 +179,30 @@ describe("Credential", () => {
     const rotated = await Effect.runPromise(Effect.gen(function*() {
       const { credentials, store } = yield* boundary()
       const reference = yield* created(credentials, "old")
-      yield* credentials.rotate(reference, Redacted.make("new"))
+      yield* credentials.rotate(reference, Redacted.make("nouveau-é-🔐"))
       const secret = yield* credentials.resolve(reference)
       const record = yield* store.read("exa")
       return { secret: Redacted.value(secret), version: Option.getOrThrow(record).version }
     }))
 
-    expect(rotated).toEqual({ secret: "new", version: 2 })
+    expect(rotated).toEqual({ secret: "nouveau-é-🔐", version: 2 })
+  })
+
+  it.each([
+    ["high", "\uD800"],
+    ["low", "\uDC00"]
+  ])("refuses a lone %s surrogate on rotate without changing the record", async (_kind, surrogate) => {
+    const { credentials, store } = await Effect.runPromise(boundary())
+    const reference = await Effect.runPromise(created(credentials, "original-🔐"))
+    const before = Option.getOrThrow(await Effect.runPromise(store.read("exa")))
+
+    const error = await failureOf(credentials.rotate(reference, Redacted.make(`key-${surrogate}`)))
+
+    expect(error._tag).toBe("/control/InvalidInput")
+    expect(error.code).toBe("invalid_input")
+    expect(error.issue).toBe("Credential secret must be well-formed Unicode")
+    expect(Option.getOrThrow(await Effect.runPromise(store.read("exa")))).toEqual(before)
+    expect(Redacted.value(await Effect.runPromise(credentials.resolve(reference)))).toBe("original-🔐")
   })
 
   it("refuses a rotation that lost the race", async () => {
