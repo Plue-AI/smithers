@@ -979,6 +979,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       steps: ["read the diff"],
       result: "3 findings",
       error: "the executor exited 1",
+      failure: { class: "dependency", tag: "@smthrs/flow/DependencyUnavailable" },
       observationError: "the events projection refused (500)",
       lastSeq: 42,
       quietForMs: 600_000,
