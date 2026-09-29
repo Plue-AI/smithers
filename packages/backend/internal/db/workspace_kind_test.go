@@ -59,9 +59,9 @@ func TestActiveWorkspaceUniquenessIncludesKind(t *testing.T) {
 	_, err = q.CreateWorkspace(ctx, CreateWorkspaceParams{
 		RepositoryID: repoID,
 		UserID:       userID,
-		Name:         "second-vm",
+		Name:         "proof-vm",
 		Kind:         "vm",
 		Status:       "running",
 	})
-	require.Error(t, err, "a second active primary of the same kind must still conflict")
+	require.Error(t, err, "the same active name, bookmark, and kind must still conflict")
 }

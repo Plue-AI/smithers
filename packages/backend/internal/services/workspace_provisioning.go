@@ -1026,56 +1026,20 @@ func (s *WorkspaceService) findOrCreateWorkspaceForBookmark(ctx context.Context,
 }
 
 func (s *WorkspaceService) findOrCreatePrimaryWorkspace(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
-	metadata = normalizeWorkspaceCreateMetadata(metadata)
-	if err := s.failStalePendingWorkspacesForRepoUser(ctx, repositoryID, userID); err != nil {
-		return db.Workspace{}, err
-	}
-
-	workspace, err := s.q.GetActiveWorkspaceForUserRepoKind(ctx, db.GetActiveWorkspaceForUserRepoKindParams{
-		RepositoryID: repositoryID,
-		UserID:       userID,
-		Kind:         metadata.kind,
-	})
-	if err == nil {
-		if s.shouldReplaceZombieWorkspace(workspace, time.Now()) {
-			if _, failErr := s.failWorkspace(ctx, workspace, errors.New("workspace provisioning timed out")); failErr != nil {
-				return db.Workspace{}, failErr
-			}
-			return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
-		}
-		if err := s.refuseRebuildRequired(workspace); err != nil {
-			return db.Workspace{}, err
-		}
-		retired, inspectErr := s.retireMissingPrimaryWorkspace(ctx, workspace)
-		if inspectErr != nil {
-			return db.Workspace{}, inspectErr
-		}
-		if retired {
-			return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
-		}
-		workspace, err = s.ensureWorkspaceTargetBookmark(ctx, workspace, targetBookmark)
-		if err != nil {
-			return db.Workspace{}, err
-		}
-		return workspace, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return db.Workspace{}, pkgerrors.Internal("load workspace: " + err.Error())
-	}
-	return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
+	return s.findOrCreateWorkspaceByIdentity(ctx, repositoryID, userID, name, targetBookmark, metadata, false)
 }
 
-// retireMissingPrimaryWorkspace frees the primary slot only on confirmed
+// retireMissingWorkspace frees a bookmark workspace identity only on confirmed
 // runtime loss. A failed row retains its VM, snapshot, and volume references
 // for recovery. Lease loss alone is transient; an adapter must also report
 // ErrWorkspaceNotFound when the worker is permanently retired.
-func (s *WorkspaceService) retireMissingPrimaryWorkspace(ctx context.Context, row db.Workspace) (bool, error) {
+func (s *WorkspaceService) retireMissingWorkspace(ctx context.Context, row db.Workspace) (bool, error) {
 	if row.Status != "running" && row.Status != "suspended" {
 		return false, nil
 	}
 	var inspectErr error
 	if s.runtime != nil {
-		operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "inspect-primary"))
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "inspect-reuse"))
 		if err != nil {
 			return false, err
 		}
@@ -1094,7 +1058,7 @@ func (s *WorkspaceService) retireMissingPrimaryWorkspace(ctx context.Context, ro
 	}
 	if !errors.Is(inspectErr, workspaceapi.ErrWorkspaceNotFound) && !vmAlreadyGone(inspectErr) &&
 		workspaceFailureDetailsFor(inspectErr).Code != pkgerrors.CodeWorkspaceVMMissing {
-		return false, runtimeOperationError("inspect primary workspace runtime", inspectErr)
+		return false, runtimeOperationError("inspect workspace runtime", inspectErr)
 	}
 	failure := lostWorkerError(inspectErr)
 	if failure == nil {
@@ -1115,89 +1079,116 @@ func (s *WorkspaceService) retireMissingPrimaryWorkspace(ctx context.Context, ro
 }
 
 func (s *WorkspaceService) findOrCreateDerivedWorkspaceForBookmark(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
+	return s.findOrCreateWorkspaceByIdentity(ctx, repositoryID, userID, name, targetBookmark, metadata, true)
+}
+
+func workspaceIdentity(repositoryID, userID int64, name, targetBookmark, kind string) db.GetActiveWorkspaceForIdentityParams {
+	return db.GetActiveWorkspaceForIdentityParams{
+		RepositoryID: repositoryID, UserID: userID, Name: strings.TrimSpace(name),
+		TargetBookmark: targetWorkspaceBookmark(targetBookmark), Kind: kind,
+	}
+}
+
+func (s *WorkspaceService) findOrCreateWorkspaceByIdentity(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata, isFork bool) (db.Workspace, error) {
 	metadata = normalizeWorkspaceCreateMetadata(metadata)
 	if err := s.failStalePendingWorkspacesForRepoUser(ctx, repositoryID, userID); err != nil {
 		return db.Workspace{}, err
 	}
-
-	workspaces, err := s.q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{
-		RepositoryID: repositoryID,
-		UserID:       userID,
-		PageSize:     100,
-		PageOffset:   0,
-	})
-	if err != nil {
-		return db.Workspace{}, pkgerrors.Internal("list workspaces: " + err.Error())
-	}
-	for _, workspace := range workspaces {
-		if targetWorkspaceBookmark(workspace.TargetBookmark) != targetBookmark || workspace.Kind != metadata.kind {
-			continue
-		}
+	identity := workspaceIdentity(repositoryID, userID, name, targetBookmark, metadata.kind)
+	workspace, err := s.q.GetActiveWorkspaceForIdentity(ctx, identity)
+	if err == nil {
 		if s.shouldReplaceZombieWorkspace(workspace, time.Now()) {
 			if _, failErr := s.failWorkspace(ctx, workspace, errors.New("workspace provisioning timed out")); failErr != nil {
 				return db.Workspace{}, failErr
 			}
-			break
+		} else {
+			if err := s.refuseRebuildRequired(workspace); err != nil {
+				return db.Workspace{}, err
+			}
+			retired, inspectErr := s.retireMissingWorkspace(ctx, workspace)
+			if inspectErr != nil {
+				return db.Workspace{}, inspectErr
+			}
+			if retired {
+				return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, isFork)
+			}
+			return s.ensureWorkspaceTargetBookmark(ctx, workspace, targetBookmark)
 		}
-		if err := s.refuseRebuildRequired(workspace); err != nil {
-			return db.Workspace{}, err
-		}
-		return workspace, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return db.Workspace{}, pkgerrors.Internal("load workspace: " + err.Error())
 	}
-	return s.createDerivedWorkspaceForBookmark(ctx, repositoryID, userID, name, targetBookmark, metadata)
+	return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, isFork)
 }
 
 func (s *WorkspaceService) createPrimaryWorkspace(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
-	// Ticket 0105: quota check fires here, NOT in findOrCreatePrimaryWorkspace,
-	// because that function also handles the reuse path (returning an
-	// existing active workspace). Reuse must not count against the cap.
-	if err := s.enforceWorkspaceQuota(ctx, userID); err != nil {
-		return db.Workspace{}, err
-	}
-	metadata = normalizeWorkspaceCreateMetadata(metadata)
-	workspace, err := s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
-		RepositoryID:           repositoryID,
-		UserID:                 userID,
-		Name:                   name,
-		IsFork:                 false,
-		ParentWorkspaceID:      pgtype.UUID{},
-		SourceSnapshotID:       pgtype.UUID{},
-		TargetBookmark:         targetWorkspaceBookmark(targetBookmark),
-		Kind:                   metadata.kind,
-		EnvironmentSource:      metadata.environment.Source,
-		EnvironmentRevision:    metadata.environment.Revision,
-		EnvironmentClosureHash: metadata.environment.ClosureHash,
-		Status:                 "starting",
-	})
-	if err != nil {
-		return db.Workspace{}, mapWorkspaceCreateError(err, "create workspace")
-	}
-	return workspace, nil
+	return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, false)
 }
 
 func (s *WorkspaceService) createDerivedWorkspaceForBookmark(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
-	if err := s.enforceWorkspaceQuota(ctx, userID); err != nil {
-		return db.Workspace{}, err
-	}
+	return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, true)
+}
+
+func (s *WorkspaceService) createBookmarkWorkspace(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata, isFork bool) (db.Workspace, error) {
 	metadata = normalizeWorkspaceCreateMetadata(metadata)
-	workspace, err := s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
-		RepositoryID:           repositoryID,
-		UserID:                 userID,
-		Name:                   name,
-		IsFork:                 true,
-		ParentWorkspaceID:      pgtype.UUID{},
-		SourceSnapshotID:       pgtype.UUID{},
-		TargetBookmark:         targetWorkspaceBookmark(targetBookmark),
-		Kind:                   metadata.kind,
+	identity := workspaceIdentity(repositoryID, userID, name, targetBookmark, metadata.kind)
+	// Reuse does not consume quota. If a concurrent request used the last slot
+	// for this identity, return its row even when our friendly precheck failed.
+	if err := s.enforceWorkspaceQuota(ctx, userID); err != nil {
+		return s.workspaceAfterCreateConflict(ctx, identity, err)
+	}
+	params := db.CreateWorkspaceParams{
+		RepositoryID: repositoryID, UserID: userID, Name: identity.Name, IsFork: isFork,
+		ParentWorkspaceID: pgtype.UUID{}, SourceSnapshotID: pgtype.UUID{},
+		TargetBookmark: identity.TargetBookmark, Kind: metadata.kind,
 		EnvironmentSource:      metadata.environment.Source,
 		EnvironmentRevision:    metadata.environment.Revision,
-		EnvironmentClosureHash: metadata.environment.ClosureHash,
-		Status:                 "starting",
-	})
-	if err != nil {
-		return db.Workspace{}, mapWorkspaceCreateError(err, "create branch workspace")
+		EnvironmentClosureHash: metadata.environment.ClosureHash, Status: "starting",
 	}
-	return workspace, nil
+	action := "create workspace"
+	if isFork {
+		action = "create branch workspace"
+	}
+	for attempt := 0; ; attempt++ {
+		workspace, err := s.createWorkspaceRow(ctx, params)
+		if err == nil {
+			return workspace, nil
+		}
+		if isWorkspaceActiveUniqueViolation(err) {
+			winner, conflictErr := s.workspaceAfterCreateConflict(ctx, identity, err)
+			if !errors.Is(conflictErr, pgx.ErrNoRows) {
+				return winner, conflictErr
+			}
+			// Deletion/failure may release the identity between the unique
+			// violation and the lookup. Retry once, without leaking a raw PG error.
+			if attempt == 0 {
+				continue
+			}
+			return db.Workspace{}, mapWorkspaceCreateError(err, action)
+		}
+		return s.workspaceAfterCreateConflict(ctx, identity, mapWorkspaceCreateError(err, action))
+	}
+}
+
+func (s *WorkspaceService) workspaceAfterCreateConflict(ctx context.Context, identity db.GetActiveWorkspaceForIdentityParams, createErr error) (db.Workspace, error) {
+	var apiErr *pkgerrors.APIError
+	quota := errors.As(createErr, &apiErr) && apiErr.Code == pkgerrors.CodeQuotaExceeded
+	if !quota && !isWorkspaceActiveUniqueViolation(createErr) {
+		return db.Workspace{}, createErr
+	}
+	winner, err := s.q.GetActiveWorkspaceForIdentity(ctx, identity)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if isWorkspaceActiveUniqueViolation(createErr) {
+			return db.Workspace{}, pgx.ErrNoRows
+		}
+		return db.Workspace{}, createErr
+	}
+	if err != nil {
+		return db.Workspace{}, pkgerrors.Internal("load winning workspace: " + err.Error())
+	}
+	if err := s.refuseRebuildRequired(winner); err != nil {
+		return db.Workspace{}, err
+	}
+	return winner, nil
 }
 
 func (s *WorkspaceService) ensureWorkspaceTargetBookmark(ctx context.Context, workspace db.Workspace, targetBookmark string) (db.Workspace, error) {
@@ -2330,15 +2321,17 @@ func (s *WorkspaceService) reuseWinningWorkspaceAfterActivationConflict(ctx cont
 	// snapshot was returned. The activation-conflict loser is still safely
 	// identified by its status+VM pair, not the stale-cleanup timestamp CAS.
 	failure := workspaceFailureDetailsFor(errors.New("workspace activation lost to concurrent workspace"))
-	if _, _, failErr := s.failProvisioningWorkspaceIfCurrent(ctx, workspace, failure); failErr != nil {
+	failed, _, failErr := s.failProvisioningWorkspaceIfCurrent(ctx, workspace, failure)
+	if failErr != nil {
 		return workspace, pkgerrors.Internal("mark workspace failed: " + failErr.Error())
 	}
 
-	active, err := s.q.GetActiveWorkspaceForUserRepoKind(ctx, db.GetActiveWorkspaceForUserRepoKindParams{
-		RepositoryID: workspace.RepositoryID,
-		UserID:       workspace.UserID,
-		Kind:         workspace.Kind,
-	})
+	active, err := s.q.GetActiveWorkspaceForIdentity(ctx, workspaceIdentity(
+		workspace.RepositoryID, workspace.UserID, workspace.Name, workspace.TargetBookmark, workspace.Kind,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return failed, pkgerrors.Conflict("workspace changed during provisioning; create it again")
+	}
 	if err != nil {
 		return workspace, pkgerrors.Internal("load winning workspace: " + err.Error())
 	}

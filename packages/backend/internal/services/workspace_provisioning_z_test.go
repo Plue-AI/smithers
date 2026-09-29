@@ -438,7 +438,7 @@ func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T)
 		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
 			return []db.Workspace{stale}, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return stale, nil
 		},
 		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
@@ -452,19 +452,20 @@ func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T)
 	existing.TargetBookmark = "main"
 	q = &mockWorkspaceQuerier{
 		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return existing, nil
 		},
 		updateWorkspaceTargetBookmarkFn: func(context.Context, db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
 			return db.Workspace{}, stderrors.New("target failed")
 		},
 	}
-	_, err = newWorkspaceServiceForTests(q).findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "feature", workspaceCreateMetadata{})
+	_, err = newWorkspaceServiceForTests(q).ensureWorkspaceTargetBookmark(ctx, existing, "feature")
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
+	stale.Name = "replacement"
 	q = &mockWorkspaceQuerier{
 		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return stale, nil
 		},
 		updateWorkspaceStatusFn: func(_ context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
@@ -487,7 +488,7 @@ func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T)
 
 	q = &mockWorkspaceQuerier{
 		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return stale, nil
 		},
 		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
@@ -514,6 +515,7 @@ func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T)
 	staleFork.ID = "ws-stale-fork"
 	staleFork.IsFork = true
 	staleFork.TargetBookmark = "feature"
+	staleFork.Name = "branch"
 	q = &mockWorkspaceQuerier{
 		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 1, nil },
 		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
@@ -682,7 +684,7 @@ func TestWorkspaceProvisioning_Z_CreateWorkspaceVMBranches(t *testing.T) {
 					failed.Status = "failed"
 					return failed, nil
 				},
-				getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+				getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 					winner := workspace
 					winner.ID = "ws-winner"
 					winner.VmID = "vm-winner"
@@ -920,7 +922,7 @@ func TestWorkspaceProvisioning_Z_SnapshotForkEmptyMetricsAndErrors(t *testing.T)
 						failed.Status = "failed"
 						return failed, nil
 					},
-					getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+					getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 						winner := workspace
 						winner.ID = "ws-winner"
 						winner.VmID = "vm-winner"

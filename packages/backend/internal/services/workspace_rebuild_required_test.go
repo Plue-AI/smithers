@@ -66,8 +66,10 @@ func TestRebuildRequiredWorkspaceIsNotResumed(t *testing.T) {
 
 func TestRebuildRequiredPrimaryIsNotReusedByCreate(t *testing.T) {
 	t.Parallel()
-	q := &mockWorkspaceQuerier{getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
-		return flaggedWorkspace("ws-primary"), nil
+	q := &mockWorkspaceQuerier{getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
+		row := flaggedWorkspace("ws-primary")
+		row.Name = ""
+		return row, nil
 	}}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(sandboxUntouched(t)))
 	_, err := svc.findOrCreatePrimaryWorkspace(context.Background(), 101, 1, "", "main", workspaceCreateMetadata{})

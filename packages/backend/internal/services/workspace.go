@@ -503,6 +503,7 @@ type WorkspaceQuerier interface {
 	CountUserWorkspacesAcrossRepos(ctx context.Context, userID int64) (int64, error)
 	GetActiveWorkspaceForUserRepo(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error)
 	GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error)
+	GetActiveWorkspaceForIdentity(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error)
 	UpdateWorkspaceStatus(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error)
 	SuspendRunningWorkspace(ctx context.Context, id string) (db.Workspace, error)
 	SuspendRunningWorkspaceIfSessionless(ctx context.Context, id string) (db.Workspace, error)

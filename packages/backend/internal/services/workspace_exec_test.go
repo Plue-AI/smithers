@@ -64,18 +64,18 @@ func TestWorkspaceService_CreateSession_ReplacesStalePendingWorkspaceWithoutVM(t
 		},
 		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
 			listCalls++
-			workspace := sampleDBWorkspace("ws-stale")
+			workspace := sampleUnnamedDBWorkspace("ws-stale")
 			workspace.Status = "starting"
 			workspace.VmID = ""
 			workspace.UpdatedAt = time.Now().Add(-6 * time.Minute)
 			return []db.Workspace{workspace}, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return db.Workspace{}, pgx.ErrNoRows
 		},
 		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
 			createdWorkspaces++
-			workspace := sampleDBWorkspace("ws-fresh")
+			workspace := sampleUnnamedDBWorkspace("ws-fresh")
 			workspace.VmID = ""
 			workspace.Status = "starting"
 			return workspace, nil
@@ -85,14 +85,14 @@ func TestWorkspaceService_CreateSession_ReplacesStalePendingWorkspaceWithoutVM(t
 			return db.WorkspaceSession{ID: "sess-1", WorkspaceID: arg.WorkspaceID, RepositoryID: arg.RepositoryID, UserID: arg.UserID, Status: "pending"}, nil
 		},
 		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
+			workspace := sampleUnnamedDBWorkspace(arg.ID)
 			workspace.VmID = arg.VmID
 			workspace.Status = arg.Status
 			return workspace, nil
 		},
 		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
 			updatedStatuses = append(updatedStatuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
+			workspace := sampleUnnamedDBWorkspace(arg.ID)
 			workspace.VmID = ""
 			workspace.Status = arg.Status
 			return workspace, nil
@@ -183,7 +183,7 @@ func TestWorkspaceService_CreateSession_ReusesWinnerWhenActivationConflicts(t *t
 		createdSessions     int
 	)
 
-	winning := sampleDBWorkspace("ws-winning")
+	winning := sampleUnnamedDBWorkspace("ws-winning")
 	winning.VmID = "vm-winning"
 	winning.Status = "running"
 
@@ -192,12 +192,12 @@ func TestWorkspaceService_CreateSession_ReusesWinnerWhenActivationConflicts(t *t
 			return 0, nil
 		},
 		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace("ws-race")
+			workspace := sampleUnnamedDBWorkspace("ws-race")
 			workspace.VmID = ""
 			workspace.Status = "starting"
 			return workspace, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			getActiveRuns++
 			if getActiveRuns == 1 {
 				return db.Workspace{}, pgx.ErrNoRows
@@ -209,7 +209,7 @@ func TestWorkspaceService_CreateSession_ReusesWinnerWhenActivationConflicts(t *t
 		},
 		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
 			statuses = append(statuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
+			workspace := sampleUnnamedDBWorkspace(arg.ID)
 			workspace.Status = arg.Status
 			workspace.VmID = ""
 			return workspace, nil

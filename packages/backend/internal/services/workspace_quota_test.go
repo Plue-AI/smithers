@@ -144,10 +144,11 @@ func TestWorkspaceService_CreateWorkspace_ReusePathDoesNotCountAgainstQuota(t *t
 	existing.RepositoryID = 1
 	existing.Status = "running"
 	existing.VmID = "vm-existing"
+	existing.Name = "reuse"
 
 	createCalls := int64(0)
 	q := quotaTestQuerier(t, counter)
-	q.getActiveWorkspaceForUserRepoFn = func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+	q.getActiveWorkspaceForIdentityFn = func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 		if arg.RepositoryID == 1 && arg.UserID == 42 {
 			return existing, nil
 		}

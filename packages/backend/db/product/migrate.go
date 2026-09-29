@@ -119,6 +119,7 @@ var migrationRegistry = []migrationSpec{
 	{81, "migrations/0081_mythical_factory_receipt.sql"},
 	{82, "migrations/0082_issue_intent.sql"},
 	{83, "migrations/0083_organization_visibility_private_default.sql"},
+	{84, "migrations/0084_named_workspaces.sql"},
 }
 
 type migration struct {

@@ -529,6 +529,7 @@ func TestWorkspaceService_CreateWorkspaceAsync_ReusesDerivedWorkspaceForSameBook
 	existing.Status = "running"
 	existing.VmID = "vm-branch"
 	existing.TargetBookmark = "landing/demo-123"
+	existing.Name = "demo landing"
 
 	q := &mockWorkspaceQuerier{
 		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
@@ -537,9 +538,8 @@ func TestWorkspaceService_CreateWorkspaceAsync_ReusesDerivedWorkspaceForSameBook
 		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
 			return []db.Workspace{existing}, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			t.Fatal("branch workspace must not use primary lookup")
-			return db.Workspace{}, pgx.ErrNoRows
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
+			return existing, nil
 		},
 		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
 			t.Fatal("existing branch workspace should be reused")
@@ -717,7 +717,7 @@ func TestWorkspaceService_CreateWorkspace_ReplacesStalePendingWorkspaceWithoutVM
 			workspace.UpdatedAt = time.Now().Add(-6 * time.Minute)
 			return []db.Workspace{workspace}, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return db.Workspace{}, pgx.ErrNoRows
 		},
 		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
@@ -787,7 +787,7 @@ func TestWorkspaceService_CreateWorkspace_ReusesWinnerWhenActivationConflicts(t 
 			workspace.Status = "starting"
 			return workspace, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			getActiveCalls++
 			if getActiveCalls == 1 {
 				return db.Workspace{}, pgx.ErrNoRows
@@ -836,7 +836,7 @@ func TestWorkspaceService_CreateWorkspace_PreservesStoppedVMOnResumeTimeout(t *t
 	var updatedStatuses []string
 	var executionUpdates []db.UpdateWorkspaceExecutionInfoParams
 	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			workspace := sampleDBWorkspace("ws-primary")
 			workspace.VmID = "vm-stopped"
 			workspace.Status = "suspended"

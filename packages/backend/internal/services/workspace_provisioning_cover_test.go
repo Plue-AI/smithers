@@ -168,9 +168,9 @@ func TestWorkspaceProvisioning_Cov_FindCreateQuotaAndStaleBranches(t *testing.T)
 	requireAPIErrorStatus(t, err, http.StatusTooManyRequests)
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			ws := sampleDBWorkspace("ws-active")
-			ws.TargetBookmark = "old"
+			ws.TargetBookmark = "feature/new"
 			return ws, nil
 		},
 		updateWorkspaceTargetBookmarkFn: func(ctx context.Context, arg db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
@@ -185,7 +185,7 @@ func TestWorkspaceProvisioning_Cov_FindCreateQuotaAndStaleBranches(t *testing.T)
 	assert.Equal(t, "feature/new", ws.TargetBookmark)
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return db.Workspace{}, errors.New("load active failed")
 		},
 	})
@@ -470,7 +470,7 @@ func TestWorkspaceProvisioning_Cov_ForkSnapshotAndActivationConflictBranches(t *
 			ws.Status = arg.Status
 			return ws, nil
 		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return db.Workspace{}, errors.New("winner missing")
 		},
 	}

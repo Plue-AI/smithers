@@ -45,7 +45,7 @@ type reprovisionQuerier struct {
 func newReprovisionQuerier(row db.Workspace) *reprovisionQuerier {
 	q := &reprovisionQuerier{row: row}
 	q.mockWorkspaceQuerier = &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			current := q.current()
 			if current.Status == "failed" {
 				return db.Workspace{}, pgx.ErrNoRows
@@ -195,7 +195,7 @@ func TestWorkspaceService_ReprovisionAfterNotFound_UsesFreshIdempotencyKey(t *te
 	vmIsReclaimd = true
 	mu.Unlock()
 
-	input.Name = "fresh primary"
+	// Reopening the same named identity must retire its missing VM.
 	second, err := svc.CreateWorkspace(context.Background(), input)
 	require.NoError(t, err)
 
@@ -212,7 +212,7 @@ func TestWorkspaceService_ReprovisionAfterNotFound_UsesFreshIdempotencyKey(t *te
 	assert.Equal(t, int32(0), q.old.ProvisioningGeneration)
 
 	assert.NotEqual(t, first.ID, second.ID)
-	assert.Equal(t, "fresh primary", second.Name)
+	assert.Equal(t, "primary", second.Name)
 	assert.Equal(t, "vm-2", second.VMID, "the replacement VM must land on the fresh row")
 	assert.Equal(t, "running", second.Status, "the workspace must not be left 'failed'")
 	assert.NotContains(t, deletedVMs, "vm-1", "the old VM reference remains for recovery")

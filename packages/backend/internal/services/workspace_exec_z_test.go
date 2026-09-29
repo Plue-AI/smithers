@@ -49,7 +49,7 @@ func TestWorkspaceExec_Z_CreateSessionUnavailableAndProvisioningErrors(t *testin
 	assert.Equal(t, http.StatusNotFound, apiStatus(t, err), "a tombstone winning the session-create race is not an internal error")
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return db.Workspace{}, errors.New("primary failed")
 		},
 	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))

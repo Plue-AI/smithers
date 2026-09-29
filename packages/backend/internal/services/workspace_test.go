@@ -48,6 +48,7 @@ type mockWorkspaceQuerier struct {
 	countActiveWorkspacesByUserFn          func(ctx context.Context, userID int64) (int64, error)
 	getActiveWorkspaceForUserRepoFn        func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error)
 	getActiveWorkspaceForUserRepoKindFn    func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error)
+	getActiveWorkspaceForIdentityFn        func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error)
 	updateWorkspaceStatusFn                func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error)
 	suspendRunningWorkspaceFn              func(ctx context.Context, id string) (db.Workspace, error)
 	suspendRunningWorkspaceIfSessionlessFn func(ctx context.Context, id string) (db.Workspace, error)
@@ -192,6 +193,32 @@ func (m *mockWorkspaceQuerier) GetActiveWorkspaceForUserRepoKind(ctx context.Con
 			RepositoryID: arg.RepositoryID,
 			UserID:       arg.UserID,
 		})
+	}
+	return db.Workspace{}, pgx.ErrNoRows
+}
+
+func (m *mockWorkspaceQuerier) GetActiveWorkspaceForIdentity(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
+	var rows []db.Workspace
+	if m.getActiveWorkspaceForIdentityFn != nil {
+		row, err := m.getActiveWorkspaceForIdentityFn(ctx, arg)
+		if err != nil {
+			return db.Workspace{}, err
+		}
+		rows = []db.Workspace{row}
+	} else if m.listWorkspacesByRepoFn != nil {
+		var err error
+		rows, err = m.listWorkspacesByRepoFn(ctx, db.ListWorkspacesByRepoParams{RepositoryID: arg.RepositoryID, UserID: arg.UserID, PageSize: 100})
+		if err != nil {
+			return db.Workspace{}, err
+		}
+	}
+	for _, row := range rows {
+		active := row.Status == "pending" || row.Status == "starting" || row.Status == "running" || row.Status == "suspended"
+		if row.RepositoryID == arg.RepositoryID && row.UserID == arg.UserID && row.Kind == arg.Kind &&
+			row.Name == arg.Name && row.TargetBookmark == arg.TargetBookmark && active &&
+			!row.DeletedAt.Valid && !row.ParentWorkspaceID.Valid && !row.SourceSnapshotID.Valid && !row.AgentSessionID.Valid {
+			return row, nil
+		}
 	}
 	return db.Workspace{}, pgx.ErrNoRows
 }
@@ -699,6 +726,12 @@ func sampleDBWorkspace(id string) db.Workspace {
 		ParentWorkspaceID: pgtype.UUID{},
 		SourceSnapshotID:  pgtype.UUID{},
 	}
+}
+
+func sampleUnnamedDBWorkspace(id string) db.Workspace {
+	row := sampleDBWorkspace(id)
+	row.Name = ""
+	return row
 }
 
 func sampleDBWorkspaceSnapshot(id, workspaceID, name, snapshotID string) db.WorkspaceSnapshot {

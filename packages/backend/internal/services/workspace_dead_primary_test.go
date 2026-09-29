@@ -35,13 +35,14 @@ func (r *deadPrimaryRuntime) CreateWorkspace(ctx context.Context, spec workspace
 
 func TestCreateAsyncAfterMissingRuntimeReturnsFreshNamedRowBeforeProvisionCompletes(t *testing.T) {
 	old := sampleDBWorkspace("ws-old-runtime")
+	old.Name = "fresh name"
 	old.Status = "suspended"
 	started := make(chan struct{})
 	release := make(chan struct{})
 	newRow := sampleDBWorkspace("ws-new-runtime")
 	newRow.Status, newRow.VmID, newRow.Name = "starting", "", "fresh name"
 	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			return old, nil
 		},
 		updateWorkspaceStatusFn: func(_ context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
@@ -102,12 +103,13 @@ func (r *deadPrimaryRuntime) InspectWorkspace(_ context.Context, id string) (wor
 
 func TestCreateAfterDeadPrimaryRetainsOldRowAndHonorsName(t *testing.T) {
 	old := sampleDBWorkspace("ws-dead")
+	old.Name = "replacement"
 	old.Status = "suspended"
 	old.VmID = "vm-dead"
 	var retained, created db.Workspace
 	inspectedID := ""
 	base := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoKindFn: func(_ context.Context, arg db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
+		getActiveWorkspaceForIdentityFn: func(_ context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 			assert.Equal(t, old.RepositoryID, arg.RepositoryID)
 			assert.Equal(t, old.UserID, arg.UserID)
 			assert.Equal(t, old.Kind, arg.Kind)
@@ -178,10 +180,11 @@ func TestDeadPrimaryProbeOutcomes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			old := sampleDBWorkspace("ws-old")
+			old.Name = "new name"
 			old.Status = "running"
 			failures, creates := 0, 0
 			base := &mockWorkspaceQuerier{
-				getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
+				getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 					return old, nil
 				},
 				createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
@@ -234,10 +237,11 @@ func TestDeadPrimarySandboxMissingVMAndFailedArchiveFence(t *testing.T) {
 	for _, status := range []string{"running", "suspended"} {
 		t.Run(status, func(t *testing.T) {
 			old := sampleDBWorkspace("ws-old")
+			old.Name = "new"
 			old.Status = status
 			created := false
 			base := &mockWorkspaceQuerier{
-				getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
+				getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 					return old, nil
 				},
 				createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
@@ -281,11 +285,12 @@ func TestDeadPrimaryRetirementGaugeOnlyChangesForArchivedRunningRow(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row := sampleDBWorkspace("ws-old")
+			row.Name = "fresh"
 			row.Status = tc.status
 			metrics := &workspaceRaceMetricsRecorder{}
 			creates := 0
 			base := &mockWorkspaceQuerier{
-				getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
+				getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
 					return row, nil
 				},
 				createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {

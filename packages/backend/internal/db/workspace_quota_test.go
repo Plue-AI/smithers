@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -35,8 +36,8 @@ func TestCountActiveWorkspacesByUser_ReflectsSoftDelete(t *testing.T) {
 		_, err := q.CreateWorkspace(ctx, CreateWorkspaceParams{
 			RepositoryID: repoID,
 			UserID:       userID,
-			Name:         "ws",
-			IsFork:       i > 0, // primary + 2 forks so uq_workspaces_active doesn't bite us
+			Name:         fmt.Sprintf("ws-%d", i),
+			IsFork:       i > 0,
 			Status:       "starting",
 		})
 		require.NoError(t, err)
@@ -100,8 +101,8 @@ func TestCountActiveWorkspacesByUser_HandlesHundredRows(t *testing.T) {
 		_, err := q.CreateWorkspace(ctx, CreateWorkspaceParams{
 			RepositoryID: repoID,
 			UserID:       userID,
-			Name:         "bulk",
-			IsFork:       true, // avoid uq_workspaces_active — all forks
+			Name:         fmt.Sprintf("bulk-%d", i),
+			IsFork:       true,
 			Status:       "starting",
 		})
 		require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestCountActiveWorkspacesByUser_QueryPlanUsesActiveIndex(t *testing.T) {
 		_, err := q.CreateWorkspace(ctx, CreateWorkspaceParams{
 			RepositoryID: repoID,
 			UserID:       userID,
-			Name:         "plan-row",
+			Name:         fmt.Sprintf("plan-row-%d", i),
 			IsFork:       true,
 			Status:       "running",
 		})

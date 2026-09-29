@@ -140,8 +140,7 @@ LIMIT 1;
 
 
 -- name: GetActiveWorkspaceForUserRepoKind :one
--- Returns the active workspace that can be reused for a create request. Each
--- workspace kind is a distinct computer, even on the same repository/bookmark.
+-- Returns a primary workspace candidate for source selection, not create reuse.
 -- Running/suspended rows still require a runtime liveness check in the service;
 -- permanently missing runtimes are retained as failed rows, never deleted.
 SELECT *
@@ -155,6 +154,24 @@ WHERE repository_id = sqlc.arg(repository_id)
     status IN ('running', 'suspended')
     OR (status = 'starting' AND vm_id <> '')
   )
+LIMIT 1;
+
+
+-- name: GetActiveWorkspaceForIdentity :one
+-- A bookmark create reuses exactly its name, bookmark, kind, and owner. Pending
+-- rows reserve the identity before runtime provisioning starts.
+SELECT *
+FROM workspaces
+WHERE repository_id = sqlc.arg(repository_id)
+  AND user_id = sqlc.arg(user_id)
+  AND kind = sqlc.arg(kind)::text
+  AND name = sqlc.arg(name)::text
+  AND target_bookmark = sqlc.arg(target_bookmark)::text
+  AND parent_workspace_id IS NULL
+  AND source_snapshot_id IS NULL
+  AND agent_session_id IS NULL
+  AND deleted_at IS NULL
+  AND status IN ('pending', 'starting', 'running', 'suspended')
 LIMIT 1;
 
 

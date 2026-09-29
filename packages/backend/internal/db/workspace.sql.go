@@ -711,6 +711,84 @@ func (q *Queries) FailWorkspaceIfUnchanged(ctx context.Context, arg FailWorkspac
 	return i, err
 }
 
+const getActiveWorkspaceForIdentity = `-- name: GetActiveWorkspaceForIdentity :one
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
+FROM workspaces
+WHERE repository_id = $1
+  AND user_id = $2
+  AND kind = $3::text
+  AND name = $4::text
+  AND target_bookmark = $5::text
+  AND parent_workspace_id IS NULL
+  AND source_snapshot_id IS NULL
+  AND agent_session_id IS NULL
+  AND deleted_at IS NULL
+  AND status IN ('pending', 'starting', 'running', 'suspended')
+LIMIT 1
+`
+
+type GetActiveWorkspaceForIdentityParams struct {
+	RepositoryID   int64  `json:"repository_id"`
+	UserID         int64  `json:"user_id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	TargetBookmark string `json:"target_bookmark"`
+}
+
+// A bookmark create reuses exactly its name, bookmark, kind, and owner. Pending
+// rows reserve the identity before runtime provisioning starts.
+func (q *Queries) GetActiveWorkspaceForIdentity(ctx context.Context, arg GetActiveWorkspaceForIdentityParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, getActiveWorkspaceForIdentity,
+		arg.RepositoryID,
+		arg.UserID,
+		arg.Kind,
+		arg.Name,
+		arg.TargetBookmark,
+	)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.UserID,
+		&i.Name,
+		&i.IsFork,
+		&i.ParentWorkspaceID,
+		&i.TargetBookmark,
+		&i.SourceSnapshotID,
+		&i.Kind,
+		&i.EnvironmentSource,
+		&i.EnvironmentRevision,
+		&i.EnvironmentClosureHash,
+		&i.AgentSessionID,
+		&i.HeadPushTokenID,
+		&i.EnvironmentImage,
+		&i.DesktopSessionID,
+		&i.DesktopSessionTokenHash,
+		&i.DesktopSessionExpiresAt,
+		&i.VmID,
+		&i.ProvisioningGeneration,
+		&i.Status,
+		&i.FailureCode,
+		&i.FailureMessage,
+		&i.ProvisioningStage,
+		&i.LastActivityAt,
+		&i.IdleTimeoutSecs,
+		&i.SuspendedAt,
+		&i.StartedAt,
+		&i.ResumedAt,
+		&i.HeadChangeID,
+		&i.HeadCommitID,
+		&i.Ahead,
+		&i.Behind,
+		&i.LastAccessedAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
+	)
+	return i, err
+}
+
 const getActiveWorkspaceForUserRepo = `-- name: GetActiveWorkspaceForUserRepo :one
 SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
@@ -801,8 +879,7 @@ type GetActiveWorkspaceForUserRepoKindParams struct {
 	Kind         string `json:"kind"`
 }
 
-// Returns the active workspace that can be reused for a create request. Each
-// workspace kind is a distinct computer, even on the same repository/bookmark.
+// Returns a primary workspace candidate for source selection, not create reuse.
 // Running/suspended rows still require a runtime liveness check in the service;
 // permanently missing runtimes are retained as failed rows, never deleted.
 func (q *Queries) GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg GetActiveWorkspaceForUserRepoKindParams) (Workspace, error) {
