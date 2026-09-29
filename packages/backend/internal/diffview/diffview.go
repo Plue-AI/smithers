@@ -122,12 +122,21 @@ func BuildRevisionDiff(
 			fileDiffs = append(fileDiffs, degradeTooLarge(fileDiff))
 			continue
 		}
-		if opts.IgnoreWhitespace && collapseWhitespace(fileDiff.OldContent) == collapseWhitespace(fileDiff.NewContent) {
-			continue
-		}
-		patch, additions, deletions, err := buildUnifiedPatch(fileDiff, fileDiff.OldContent, fileDiff.NewContent)
-		if err != nil {
-			return repohost.ChangeDiff{}, err
+		var (
+			patch                string
+			additions, deletions int
+		)
+		if opts.IgnoreWhitespace {
+			patch, additions, deletions = buildIgnoreWhitespacePatch(fileDiff, fileDiff.OldContent, fileDiff.NewContent)
+			if patch == "" {
+				continue
+			}
+		} else {
+			var err error
+			patch, additions, deletions, err = buildUnifiedPatch(fileDiff, fileDiff.OldContent, fileDiff.NewContent)
+			if err != nil {
+				return repohost.ChangeDiff{}, err
+			}
 		}
 		fileDiff.Patch = patch
 		fileDiff.Additions = additions
