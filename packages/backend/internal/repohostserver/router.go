@@ -1942,7 +1942,14 @@ func (s *Server) getFileAtChange(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+	filePath := chi.URLParam(r, "*")
+	// chi leaves route parameters escaped when matching RawPath.
+	if r.URL.RawPath != "" {
+		if filePath, err = url.PathUnescape(filePath); err != nil {
+			return badRequest("file path must be url-encoded")
+		}
+	}
+	filePath = strings.TrimPrefix(filePath, "/")
 	if err := validateFileSubpath(filePath); err != nil {
 		return err
 	}

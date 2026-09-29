@@ -9,9 +9,20 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-// The touched pathname and policy read cross the real native repository
+// Touched path enumeration and OWNERS reads cross the real native repository
 // boundary. Product PostgreSQL stores the repository and agent landing.
-func TestNativeLeadingSpaceDirectoryBlocksAgentLanding(t *testing.T) {
+func TestNativeDirectoryPathsEnforceOwnership(t *testing.T) {
+	paths := []struct {
+		name string
+		dir  string
+	}{
+		{name: "ordinary", dir: "protected"},
+		{name: "leading_space", dir: " secret"},
+		{name: "comma", dir: "comma,name"},
+		{name: "semicolon", dir: "semi;colon"},
+		{name: "literal_percent_encoding", dir: "literal%2Cname"},
+		{name: "percent_encoding_and_comma", dir: "literal%2C,name"},
+	}
 	n := newNativeRepoHost(t, "acme", "demo")
 	pool := newProductTestPool(t)
 	var userID, repoID, landingID int64
@@ -25,18 +36,18 @@ func TestNativeLeadingSpaceDirectoryBlocksAgentLanding(t *testing.T) {
 	q := db.New(pool)
 	repository := db.Repository{ID: repoID, Name: "demo", DefaultBookmark: "trunk"}
 	landing := db.LandingRequest{ID: landingID, RepositoryID: repoID, TargetBookmark: "main", AgentAuthored: true}
-	base := n.commit("demo", "refs/heads/main", "", map[string]string{
-		"OWNERS":            "agents: auto-land\n",
-		" secret/OWNERS":    "alice\nagents: deny\n",
-		" secret/file.go":   "package secret\n",
-		"protected/OWNERS":  "alice\nagents: deny\n",
-		"protected/file.go": "package protected\n",
-	})
+	baseFiles := map[string]string{"OWNERS": "agents: auto-land\n"}
+	for _, path := range paths {
+		baseFiles[path.dir+"/OWNERS"] = "alice\nagents: deny\n# " + path.name + "\n"
+		baseFiles[path.dir+"/file.go"] = "package original\n"
+	}
+	base := n.commit("demo", "refs/heads/main", "", baseFiles)
 	svc := NewLandingService(q, n.client)
 	worker := NewLandingWorker(q, n.client)
-	for _, dir := range []string{" secret", "protected"} {
-		t.Run(dir, func(t *testing.T) {
-			file := dir + "/file.go"
+	for _, path := range paths {
+		t.Run(path.name, func(t *testing.T) {
+			file := path.dir + "/file.go"
+			policyPath := path.dir + "/OWNERS"
 			commit := n.commit("demo", "refs/heads/feature", base, map[string]string{file: "package changed\n"})
 			change, err := n.client.GetChange(t.Context(), "acme", "demo", commit)
 			require.NoError(t, err)
@@ -44,9 +55,10 @@ func TestNativeLeadingSpaceDirectoryBlocksAgentLanding(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, files, 1)
 			require.Equal(t, file, files[0].Path, "native changed-file enumeration must preserve the pathname")
-			policy, err := n.client.GetFileAtChange(t.Context(), "acme", "demo", base, dir+"/OWNERS")
+			policy, err := n.client.GetFileAtChange(t.Context(), "acme", "demo", base, policyPath)
 			require.NoError(t, err)
-			require.Equal(t, "alice\nagents: deny\n", policy.Content)
+			require.Equal(t, policyPath, policy.Path, "native file read must preserve the exact OWNERS pathname")
+			require.Equal(t, baseFiles[policyPath], policy.Content, "native file read must return this directory's OWNERS policy")
 			touched := []OwnershipTouchedFile{{Path: files[0].Path, ChangeID: change.ChangeID, CommitID: commit, RevisionSeq: 4}}
 			t.Run("resolution", func(t *testing.T) {
 				resolved, err := resolveChangeOwnership(t.Context(), q, n.client, repoID, "acme", "demo", base, touched, landingID)
