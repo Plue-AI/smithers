@@ -39,6 +39,7 @@ import * as Compose from "@smthrs/targets/Compose"
 import { failureMessage } from "@smthrs/targets/GeneratedFile"
 import * as Input from "@smthrs/targets/Input"
 import * as SafeFs from "@smthrs/targets/SafeFs"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -165,8 +166,14 @@ const canonicalJson = (value: unknown): string =>
  * @category errors
  * @since 0.1.0
  */
-export class ResolverConfigError extends Error {
-  override readonly name = "ResolverConfigError"
+export class ResolverConfigError extends Data.TaggedError("smithers-build/ResolverConfigError")<{
+  /** Which part of the configuration refused. */
+  readonly reason: "outside_workspace" | "extends_too_deep" | "unreadable" | "invalid" | "unsupported"
+  readonly message: string
+}> {
+  constructor(reason: ResolverConfigError["reason"], message: string) {
+    super({ reason, message })
+  }
 }
 
 /**
@@ -197,7 +204,7 @@ interface TsconfigLayer {
 const workspaceRelative = (workspaceRoot: string, absolute: string, what: string): string => {
   const relative = Path.containedRelative(workspaceRoot, absolute)
   if (relative === undefined) {
-    throw new ResolverConfigError(`${what} resolves outside the workspace: ${absolute}`)
+    throw new ResolverConfigError("outside_workspace", `${what} resolves outside the workspace: ${absolute}`)
   }
   return posix(relative)
 }
@@ -225,7 +232,9 @@ const readTsconfigChain = async (
   sources: Array<{ path: string; digest: string }>,
   depth: number
 ): Promise<void> => {
-  if (depth > 8) throw new ResolverConfigError(`tsconfig extends chain exceeds 8 files at ${relativePath}`)
+  if (depth > 8) {
+    throw new ResolverConfigError("extends_too_deep", `tsconfig extends chain exceeds 8 files at ${relativePath}`)
+  }
   const absolute = NodePath.join(workspaceRoot, relativePath)
   let text: string
   let digest: string
@@ -238,24 +247,26 @@ const readTsconfigChain = async (
     text = content.text
     digest = content.digest
   } catch (cause) {
-    throw new ResolverConfigError(`tsconfig could not be read: ${relativePath}: ${failureMessage(cause)}`)
+    throw new ResolverConfigError("unreadable", `tsconfig could not be read: ${relativePath}: ${failureMessage(cause)}`)
   }
   sources.push({ path: posix(NodePath.normalize(relativePath)), digest })
   const errors: Array<ParseError> = []
   const parsed: unknown = parseJsonc(text, errors, { allowTrailingComma: true, allowEmptyContent: true })
   if (errors.length > 0) {
     throw new ResolverConfigError(
+      "invalid",
       `tsconfig is not valid JSONC: ${relativePath}: ${printParseErrorCode(errors[0]!.error)}`
     )
   }
   if (parsed !== undefined && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) {
-    throw new ResolverConfigError(`tsconfig must be a JSONC object: ${relativePath}`)
+    throw new ResolverConfigError("invalid", `tsconfig must be a JSONC object: ${relativePath}`)
   }
   const config = (parsed ?? {}) as Record<string, unknown>
   const extendsValue = config["extends"]
   if (extendsValue !== undefined) {
     if (typeof extendsValue !== "string" || !(extendsValue.startsWith("./") || extendsValue.startsWith("../"))) {
       throw new ResolverConfigError(
+        "unsupported",
         `tsconfig extends form is not supported by the resolver yet (only a single relative path): ${relativePath}`
       )
     }
@@ -333,20 +344,32 @@ export const loadResolverConfig = async (options: {
     for (const pattern of Object.keys(pathsMap.map).sort()) {
       const targets = pathsMap.map[pattern]
       if (!Array.isArray(targets) || targets.some((entry) => typeof entry !== "string")) {
-        throw new ResolverConfigError(`tsconfig paths entry ${JSON.stringify(pattern)} must map to an array of strings`)
+        throw new ResolverConfigError(
+          "invalid",
+          `tsconfig paths entry ${JSON.stringify(pattern)} must map to an array of strings`
+        )
       }
       if ((pattern.match(/\*/g) ?? []).length > 1) {
-        throw new ResolverConfigError(`tsconfig paths pattern ${JSON.stringify(pattern)} has more than one *`)
+        throw new ResolverConfigError(
+          "invalid",
+          `tsconfig paths pattern ${JSON.stringify(pattern)} has more than one *`
+        )
       }
       paths.push({
         pattern,
         targets: (targets as Array<string>).map((target) => {
           if ((target.match(/\*/g) ?? []).length > 1) {
-            throw new ResolverConfigError(`tsconfig paths target ${JSON.stringify(target)} has more than one *`)
+            throw new ResolverConfigError(
+              "invalid",
+              `tsconfig paths target ${JSON.stringify(target)} has more than one *`
+            )
           }
           const joined = posix(NodePath.normalize(NodePath.join(pathsBase, target)))
           if (joined === ".." || joined.startsWith("../")) {
-            throw new ResolverConfigError(`tsconfig paths target ${JSON.stringify(target)} escapes the workspace`)
+            throw new ResolverConfigError(
+              "outside_workspace",
+              `tsconfig paths target ${JSON.stringify(target)} escapes the workspace`
+            )
           }
           return joined === "." ? "" : joined
         })
@@ -666,7 +689,7 @@ const readImportsManifest = async (reader: TreeView, fromDirectory: string): Pro
         what: "package imports manifest"
       })
     } catch (cause) {
-      throw new ClosureError(`imports manifest could not be read: ${path}: ${failureMessage(cause)}`)
+      throw new ClosureError("unreadable", `imports manifest could not be read: ${path}: ${failureMessage(cause)}`)
     }
     let imports: unknown
     try {
@@ -933,8 +956,14 @@ export interface ClosureOutcome {
  * @category errors
  * @since 0.1.0
  */
-export class ClosureError extends Error {
-  override readonly name = "ClosureError"
+export class ClosureError extends Data.TaggedError("smithers-build/ClosureError")<{
+  /** Which bound or read refused. */
+  readonly reason: "unreadable" | "too_many_files" | "invalid_entry" | "missing_entry"
+  readonly message: string
+}> {
+  constructor(reason: ClosureError["reason"], message: string) {
+    super({ reason, message })
+  }
 }
 
 const compareIssues = (left: Compose.ClosureIssue, right: Compose.ClosureIssue): number =>
@@ -980,10 +1009,13 @@ export const computeClosure = async (options: {
     const path = queue[cursor]!
     if (files.has(path)) continue
     if (files.size >= maximumFiles) {
-      throw new ClosureError(`import closure exceeds ${maximumFiles} files`)
+      throw new ClosureError("too_many_files", `import closure exceeds ${maximumFiles} files`)
     }
     if (containedJoin(path) !== path || path === "") {
-      throw new ClosureError(`closure entry is not a normalized workspace-relative path: ${JSON.stringify(path)}`)
+      throw new ClosureError(
+        "invalid_entry",
+        `closure entry is not a normalized workspace-relative path: ${JSON.stringify(path)}`
+      )
     }
     const extension = extensionOf(path)
     const scannable = extension !== null && scannableExtensions.has(extension)
@@ -1005,6 +1037,7 @@ export const computeClosure = async (options: {
       if (digest === undefined) throw new Error(`file does not exist: ${path}`)
     } catch (cause) {
       throw new ClosureError(
+        entrySet.has(path) ? "missing_entry" : "unreadable",
         entrySet.has(path)
           ? `closure entry does not exist: ${path}: ${failureMessage(cause)}`
           : `closure file could not be read: ${path}: ${failureMessage(cause)}`
@@ -1047,7 +1080,7 @@ export const computeClosure = async (options: {
     }
     if (manifest !== null && specifiers.some((site) => !site.dynamic && site.specifier.startsWith("#"))) {
       if (!files.has(manifest.path) && files.size >= maximumFiles) {
-        throw new ClosureError(`import closure exceeds ${maximumFiles} files`)
+        throw new ClosureError("too_many_files", `import closure exceeds ${maximumFiles} files`)
       }
       files.set(manifest.path, manifest.digest)
     }
@@ -1101,7 +1134,7 @@ export const packageDirectoryOf = (workspaceRoot: string, base: string): string 
   if (base === "") return ""
   const relative = Path.containedRelative(NodePath.resolve(workspaceRoot), base)
   if (relative === undefined) {
-    throw new ResolverConfigError(`anchored source is declared outside the workspace: ${base}`)
+    throw new ResolverConfigError("outside_workspace", `anchored source is declared outside the workspace: ${base}`)
   }
   if (relative === "") return ""
   return posix(relative)
@@ -1134,7 +1167,7 @@ export const expandAnchoredSources = async (options: {
         found.add(path)
       } catch {
         if (options.requireFiles) {
-          throw new ClosureError(`declared entry file does not exist: ${path}`)
+          throw new ClosureError("missing_entry", `declared entry file does not exist: ${path}`)
         }
       }
       continue

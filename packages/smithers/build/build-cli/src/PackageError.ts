@@ -9,6 +9,8 @@
  * @since 0.1.0
  */
 
+import * as Data from "effect/Data"
+
 /**
  * The stable diagnostic codes.
  *
@@ -90,24 +92,25 @@ export interface Details {
  * @category errors
  * @since 0.1.0
  */
-export class PackageError extends Error {
+export class PackageError extends Data.TaggedError("smithers-build/PackageError")<{
   readonly code: Code
   readonly path: string | undefined
   readonly label: string | undefined
   readonly chain: ReadonlyArray<string> | undefined
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   constructor(code: Code, message: string, details: Details = {}) {
     const chain = details.chain === undefined ? "" : ` (chain: ${details.chain.join(" -> ")})`
     const where = details.path === undefined ? "" : ` [${details.path}]`
-    super(
-      `${code}: ${message}${where}${chain}`,
-      details.cause === undefined ? undefined : { cause: details.cause }
-    )
-    this.name = "PackageError"
-    this.code = code
-    this.path = details.path
-    this.label = details.label
-    this.chain = details.chain
+    super({
+      code,
+      path: details.path,
+      label: details.label,
+      chain: details.chain,
+      message: `${code}: ${message}${where}${chain}`,
+      ...(details.cause === undefined ? {} : { cause: details.cause })
+    })
   }
 }
 

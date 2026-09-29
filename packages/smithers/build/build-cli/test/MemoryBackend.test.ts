@@ -63,7 +63,7 @@ describe("unavailable backend", () => {
       memory: undefined,
       locator: noCli
     })).rejects.toMatchObject({
-      name: "MemoryBackendUnavailable",
+      _tag: "smithers-build/MemoryBackendUnavailable",
       code: "no_backend_declared"
     })
   })
@@ -76,7 +76,7 @@ describe("unavailable backend", () => {
       locator: noCli
     })
     await expect(attempt).rejects.toMatchObject({
-      name: "MemoryBackendUnavailable",
+      _tag: "smithers-build/MemoryBackendUnavailable",
       code: "cli_not_found"
     })
     const error = await attempt.catch((cause) => cause)
@@ -213,7 +213,7 @@ describe("resolved backend", () => {
       resolveSource
     })
     await expect(attempt).rejects.toMatchObject({
-      name: "MemoryCommandFailed",
+      _tag: "smithers-build/MemoryCommandFailed",
       exitCode: 3,
       stderr: "bank not found\n"
     })

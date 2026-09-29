@@ -5,6 +5,7 @@
 
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import * as Cause from "effect/Cause"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Stream from "effect/Stream"
@@ -24,8 +25,7 @@ import * as NativeArtifactOutput from "./NativeArtifactOutput.ts"
  * @category errors
  * @since 0.1.0
  */
-export class FetchError extends Error {
-  readonly _tag = "smithers-build/FetchError"
+export class FetchError extends Data.TaggedError("smithers-build/FetchError")<{
   readonly code:
     | "invalid_output"
     | "request_failed"
@@ -36,7 +36,9 @@ export class FetchError extends Error {
     | "insecure_redirect"
   readonly expectedSha256: string | undefined
   readonly actualSha256: string | undefined
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   /**
    * Constructs a fetch failure without retaining response bytes or secrets.
    *
@@ -56,11 +58,13 @@ export class FetchError extends Error {
     actualSha256?: string,
     options?: ErrorOptions
   ) {
-    super(message, options)
-    this.name = "FetchError"
-    this.code = code
-    this.expectedSha256 = expectedSha256
-    this.actualSha256 = actualSha256
+    super({
+      code,
+      message,
+      expectedSha256,
+      actualSha256,
+      ...(options?.cause === undefined ? {} : { cause: options.cause })
+    })
   }
 }
 

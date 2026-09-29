@@ -20,6 +20,7 @@ import * as Exec from "@smthrs/targets/Exec"
 import * as MemoryTarget from "@smthrs/targets/MemoryTarget"
 import type * as Target from "@smthrs/targets/Target"
 import type * as WorkspaceDeclaration from "@smthrs/targets/WorkspaceDeclaration"
+import * as Data from "effect/Data"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as Environment from "./Environment.ts"
@@ -36,13 +37,12 @@ import * as ContainedProcess from "./internal/ContainedProcess.ts"
  * @category errors
  * @since 0.1.0
  */
-export class MemoryBackendUnavailable extends Error {
-  override readonly name = "MemoryBackendUnavailable"
+export class MemoryBackendUnavailable extends Data.TaggedError("smithers-build/MemoryBackendUnavailable")<{
   readonly code: "no_backend_declared" | "cli_not_found"
-
+  readonly message: string
+}> {
   constructor(code: "no_backend_declared" | "cli_not_found", message: string) {
-    super(`memory backend unavailable (${code}): ${message}`)
-    this.code = code
+    super({ code, message: `memory backend unavailable (${code}): ${message}` })
   }
 }
 
@@ -99,16 +99,16 @@ export const parseMemoryHelpCommands = (help: string): ReadonlyArray<string> => 
  * @category errors
  * @since 0.1.0
  */
-export class MemoryCapabilityMissing extends Error {
-  override readonly name = "MemoryCapabilityMissing"
+export class MemoryCapabilityMissing extends Data.TaggedError("smithers-build/MemoryCapabilityMissing")<{
   readonly capability: string
-
+  readonly message: string
+}> {
   constructor(capability: string) {
-    super(
-      `the smithers CLI has no \`memory ${capability}\` subcommand ` +
+    super({
+      capability,
+      message: `the smithers CLI has no \`memory ${capability}\` subcommand ` +
         `(it ships: ${memoryCliCommands.join(", ")}); this capability cannot run on this host`
-    )
-    this.capability = capability
+    })
   }
 }
 
@@ -141,13 +141,13 @@ export const assertMemoryCliCommand = (subcommand: string): void => {
  * @category errors
  * @since 0.1.0
  */
-export class MemoryCommandFailed extends Error {
-  override readonly name = "MemoryCommandFailed"
+export class MemoryCommandFailed extends Data.TaggedError("smithers-build/MemoryCommandFailed")<{
   readonly exitCode: number
   readonly stderr: string
   readonly stdout: string
   readonly args: ReadonlyArray<string>
-
+  readonly message: string
+}> {
   constructor(exitCode: number, output: {
     readonly args: ReadonlyArray<string>
     readonly stdout: string
@@ -158,11 +158,13 @@ export class MemoryCommandFailed extends Error {
       : output.stdout.trim() !== ""
       ? output.stdout.trim()
       : "(no output)"
-    super(`smithers ${output.args.join(" ")} exited ${exitCode}: ${body}`)
-    this.exitCode = exitCode
-    this.stderr = output.stderr
-    this.stdout = output.stdout
-    this.args = output.args
+    super({
+      exitCode,
+      stderr: output.stderr,
+      stdout: output.stdout,
+      args: output.args,
+      message: `smithers ${output.args.join(" ")} exited ${exitCode}: ${body}`
+    })
   }
 }
 

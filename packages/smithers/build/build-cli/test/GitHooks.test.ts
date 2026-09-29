@@ -272,7 +272,7 @@ describe("check and install", () => {
     await Fs.writeFile(NodePath.join(shared, "pre-commit"), "#!/bin/sh\ngit secrets --scan\n", { mode: 0o755 })
     const rendered = GitHooks.render({ preCommit: "//:preCommit" })
     await expect(GitHooks.install(repository, rendered)).rejects.toMatchObject({
-      name: "GitHooksError",
+      _tag: "smithers-build/GitHooksError",
       code: "hooks_path_outside_repository"
     })
     await expect(GitHooks.check(repository, rendered)).rejects.toMatchObject({
@@ -300,7 +300,7 @@ describe("check and install", () => {
     expect(await Fs.readFile(hook)).toEqual(beforeBytes)
     expect(result).toMatchObject({
       status: "rejected",
-      reason: { code: "hooks_path_outside_repository" }
+      reason: { _tag: "smithers-build/GitHooksError", code: "hooks_path_outside_repository" }
     })
   })
 
@@ -329,7 +329,7 @@ describe("check and install", () => {
     expect(await Fs.readFile(sentinel)).toEqual(beforeBytes)
     expect(result).toMatchObject({
       status: "rejected",
-      reason: { code: "hooks_path_outside_repository" }
+      reason: { _tag: "smithers-build/GitHooksError", code: "hooks_path_outside_repository" }
     })
   })
 
@@ -446,7 +446,7 @@ describe("check and install", () => {
         .toBe(rendered[0]!.content)
       expect((await GitHooks.check(root, rendered)).clean).toBe(true)
       await expect(GitHooks.install(emptyPath, rendered)).rejects.toMatchObject({
-        name: "GitHooksError",
+        _tag: "smithers-build/GitHooksError",
         code: "not_a_git_repository"
       })
     } finally {
@@ -459,11 +459,11 @@ describe("check and install", () => {
     await Fs.mkdir(NodePath.join(root, ".git"))
     const rendered = GitHooks.render({ preCommit: "//:preCommit" })
     await expect(GitHooks.install(root, rendered)).rejects.toMatchObject({
-      name: "GitHooksError",
+      _tag: "smithers-build/GitHooksError",
       code: "not_a_git_repository"
     })
     await expect(GitHooks.check(root, rendered)).rejects.toMatchObject({
-      name: "GitHooksError",
+      _tag: "smithers-build/GitHooksError",
       code: "not_a_git_repository"
     })
     await expect(Fs.stat(NodePath.join(root, ".git", "hooks"))).rejects.toMatchObject({ code: "ENOENT" })
@@ -473,7 +473,7 @@ describe("check and install", () => {
     const root = await temporaryRoot()
     const rendered = GitHooks.render({ preCommit: "//:preCommit" })
     await expect(GitHooks.install(root, rendered)).rejects.toMatchObject({
-      name: "GitHooksError",
+      _tag: "smithers-build/GitHooksError",
       code: "not_a_git_repository"
     })
   })

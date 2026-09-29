@@ -12,6 +12,7 @@
  */
 
 import * as Exec from "@smthrs/targets/Exec"
+import * as Data from "effect/Data"
 import * as NodeChildProcess from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
 import * as NodeFs from "node:fs"
@@ -713,29 +714,30 @@ export const ignoredLimits = {
  * @category errors
  * @since 0.1.0
  */
-export class IgnoredCensusError extends Error {
-  override readonly name = "IgnoredCensusError"
+export class IgnoredCensusError extends Data.TaggedError("smithers-build/IgnoredCensusError")<{
   /** The ceiling crossed, or `unreadable` when a gitignored file could not be stashed. */
   readonly reason: "entries" | "totalBytes" | "unreadable"
   /** The workspace-relative gitignored path at which the census stopped. */
   readonly path: string
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   constructor(
     reason: "entries" | "totalBytes" | "unreadable",
     path: string,
     limits: IgnoredLimits,
     options?: ErrorOptions
   ) {
-    super(
-      reason === "entries"
+    super({
+      reason,
+      path,
+      message: reason === "entries"
         ? `the write-set guard cannot restore the gitignored tree: more than ${limits.entries} entries, at ${path}`
         : reason === "totalBytes"
         ? `the write-set guard cannot restore the gitignored tree: more than ${limits.totalBytes} bytes, at ${path}`
         : `the write-set guard cannot restore the gitignored tree: ${path} could not be read`,
-      options
-    )
-    this.reason = reason
-    this.path = path
+      ...(options?.cause === undefined ? {} : { cause: options.cause })
+    })
   }
 }
 
@@ -1181,29 +1183,28 @@ export const portalEntryCap = 20_000
  * @category errors
  * @since 0.1.0
  */
-export class PortalCensusError extends Error {
-  override readonly name = "PortalCensusError"
+export class PortalCensusError extends Data.TaggedError("smithers-build/PortalCensusError")<{
   /** `too-large` when the target crossed {@link portalEntryCap}, `unreadable` otherwise. */
   readonly reason: "too-large" | "unreadable"
   /** The workspace-relative symlink whose target could not be measured. */
   readonly link: string
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   constructor(reason: "too-large" | "unreadable", link: string, options?: ErrorOptions) {
-    super(
-      reason === "too-large"
+    super({
+      reason,
+      link,
+      message: reason === "too-large"
         ? `the write-set guard cannot confine ${link}: its target has more than ${portalEntryCap} entries`
         : `the write-set guard cannot confine ${link}: its target could not be read`,
-      options
-    )
-    this.reason = reason
-    this.link = link
+      ...(options?.cause === undefined ? {} : { cause: options.cause })
+    })
   }
 }
 
 /** The sentinel `walkPortalTarget` throws when the entry cap is crossed. */
-class PortalOverflow extends Error {
-  override readonly name = "PortalOverflow"
-}
+class PortalOverflow extends Data.TaggedError("smithers-build/PortalOverflow")<{ readonly message: string }> {}
 
 const portalStashKey = (index: number, relative: string): string =>
   digestBytes(Buffer.from(`${index}\0${relative}`, "utf8"))
@@ -1244,7 +1245,7 @@ const walkPortalTarget = async (realTarget: string): Promise<Map<string, PathSta
     const entries = await Fs.readdir(directory, { withFileTypes: true })
     for (const entry of entries) {
       count += 1
-      if (count > portalEntryCap) throw new PortalOverflow("portal target too large")
+      if (count > portalEntryCap) throw new PortalOverflow({ message: "portal target too large" })
       const childAbsolute = NodePath.join(directory, entry.name)
       const childRelative = relative === "" ? entry.name : `${relative}/${entry.name}`
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -1637,14 +1638,13 @@ export const outDirLimits = {
  * @category errors
  * @since 0.1.0
  */
-export class OutDirLimitError extends Error {
-  override readonly name = "OutDirLimitError"
+export class OutDirLimitError extends Data.TaggedError("smithers-build/OutDirLimitError")<{
   /** Which ceiling the tree crossed. */
   readonly limit: keyof OutDirLimits
-
+  readonly message: string
+}> {
   constructor(limit: keyof OutDirLimits, path: string, ceiling: number = outDirLimits[limit]) {
-    super(`captured output ${path} crosses the ${limit} limit of ${ceiling}`)
-    this.limit = limit
+    super({ limit, message: `captured output ${path} crosses the ${limit} limit of ${ceiling}` })
   }
 }
 

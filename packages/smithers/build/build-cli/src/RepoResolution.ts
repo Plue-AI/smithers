@@ -11,6 +11,7 @@
 import type * as LocalRepository from "@smthrs/targets/LocalRepository"
 import * as RepoTarget from "@smthrs/targets/RepoTarget"
 import * as Target from "@smthrs/targets/Target"
+import * as Data from "effect/Data"
 import { spawn } from "node:child_process"
 import * as NodePath from "node:path"
 import type * as PackageIndex from "./PackageIndex.ts"
@@ -59,20 +60,21 @@ export interface GitState {
  * @category errors
  * @since 0.1.0
  */
-export class ExecutionError extends Error {
-  override readonly name = "RepoTargetExecutionError"
-  readonly code = "repo_target_failed"
+export class ExecutionError extends Data.TaggedError("smithers-build/ExecutionError")<{
+  readonly code: "repo_target_failed"
   readonly exitCode: number
   readonly stderrTail: string
-
+  readonly message: string
+}> {
   constructor(resolution: Resolution, exitCode: number, stderrTail: string) {
-    super(
-      `child target ${resolution.externalLabel} failed with exit ${exitCode}${
+    super({
+      code: "repo_target_failed",
+      exitCode,
+      stderrTail,
+      message: `child target ${resolution.externalLabel} failed with exit ${exitCode}${
         stderrTail === "" ? "" : `\n${stderrTail}`
       }`
-    )
-    this.exitCode = exitCode
-    this.stderrTail = stderrTail
+    })
   }
 }
 

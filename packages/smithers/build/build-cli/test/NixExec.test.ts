@@ -106,7 +106,7 @@ describe.skipIf(process.platform === "win32")("NixExec.resolveEnvironment", () =
   it("refuses a host without nix", async () => {
     vi.stubEnv("PATH", NodePath.join(root, "empty"))
     await expect(NixExec.resolveEnvironment({ root, declaration: declaration() })).rejects.toMatchObject({
-      name: "NixEnvironmentError",
+      _tag: "smithers-build/NixEnvironmentError",
       code: "nix_absent"
     })
   })

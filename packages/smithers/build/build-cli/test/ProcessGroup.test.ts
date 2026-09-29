@@ -107,7 +107,7 @@ it.skipIf(process.platform === "win32")(
     })
     const options = fixture(() => Effect.fail(denied))
     await expect(ContainedProcess.run(options)).rejects.toMatchObject({
-      _tag: "ProcessError",
+      _tag: "smithers-build/ProcessError",
       code: "cleanup_failed",
       cause: denied
     })
@@ -126,7 +126,7 @@ it.skipIf(process.platform === "win32")(
     const kill = vi.fn(() => Effect.void)
     const options = fixture(kill, Effect.fail(failure))
     await expect(ContainedProcess.run(options)).rejects.toMatchObject({
-      _tag: "ProcessError",
+      _tag: "smithers-build/ProcessError",
       code: "process_failed",
       cause: failure
     })

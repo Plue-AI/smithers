@@ -19,6 +19,7 @@
 
 import * as Target from "@smthrs/targets/Target"
 import type * as WorkspaceDeclaration from "@smthrs/targets/WorkspaceDeclaration"
+import * as Data from "effect/Data"
 import * as NodeChildProcess from "node:child_process"
 import * as NodeCrypto from "node:crypto"
 import * as Fs from "node:fs/promises"
@@ -43,13 +44,12 @@ export type ErrorCode =
  * @category errors
  * @since 0.1.0
  */
-export class GitHooksError extends Error {
-  override readonly name = "GitHooksError"
+export class GitHooksError extends Data.TaggedError("smithers-build/GitHooksError")<{
   readonly code: ErrorCode
-
+  readonly message: string
+}> {
   constructor(code: ErrorCode, message: string) {
-    super(`${code}: ${message}`)
-    this.code = code
+    super({ code, message: `${code}: ${message}` })
   }
 }
 

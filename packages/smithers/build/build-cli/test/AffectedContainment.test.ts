@@ -67,7 +67,7 @@ describe.skipIf(process.platform === "win32")("affected contained git", () => {
   it("reports a nonzero exit with typed details and stderr", async () => {
     const { root, environment } = await fixture("process.stderr.write(\"bad revision\"); process.exit(73)")
     await expect(Affected.changedPaths(root, { base: "bad", environment })).rejects.toMatchObject({
-      _tag: "AffectedGitError",
+      _tag: "smithers-build/AffectedGitError",
       code: "nonzero_exit",
       args: ["rev-parse", "--verify", "--end-of-options", "bad^{commit}"],
       cause: { exitCode: 73, stderr: "bad revision" }
@@ -81,7 +81,10 @@ process.on("SIGTERM", () => {});
 setInterval(() => {}, 1000);
 `)
     const pending = Affected.changedPaths(root, { base: "HEAD", environment, timeoutMs: 1000 })
-    const assertion = expect(pending).rejects.toMatchObject({ _tag: "AffectedGitError", code: "timed_out" })
+    const assertion = expect(pending).rejects.toMatchObject({
+      _tag: "smithers-build/AffectedGitError",
+      code: "timed_out"
+    })
     const pid = await waitPid(root)
     pids.push(pid)
     await assertion
@@ -98,7 +101,7 @@ setInterval(() => {}, 1000);
     const reason = new Error("caller cancelled discovery")
     const pending = Affected.changedPaths(root, { base: "HEAD", environment, signal: controller.signal })
     const assertion = expect(pending).rejects.toMatchObject({
-      _tag: "AffectedGitError",
+      _tag: "smithers-build/AffectedGitError",
       code: "cancelled",
       cause: { cause: reason }
     })
@@ -114,7 +117,7 @@ setInterval(() => {}, 1000);
     const { root } = await fixture("")
     await Fs.unlink(join(root, "git"))
     await expect(Affected.changedPaths(root, { base: "HEAD", environment: { PATH: root } })).rejects.toMatchObject({
-      _tag: "AffectedGitError",
+      _tag: "smithers-build/AffectedGitError",
       code: "process_failed",
       cause: { cause: { _tag: "PlatformError" } }
     })
@@ -138,14 +141,14 @@ it("explicit files need no git process", async () => {
 it("refuses an already cancelled call before discovery", async () => {
   const reason = new Error("already cancelled")
   await expect(Affected.changedPaths("/missing-workspace", { base: "HEAD", signal: AbortSignal.abort(reason) }))
-    .rejects.toMatchObject({ _tag: "AffectedGitError", code: "cancelled", cause: reason })
+    .rejects.toMatchObject({ _tag: "smithers-build/AffectedGitError", code: "cancelled", cause: reason })
 })
 
 it.each([0, -1, 86_400_001, Number.NaN, Number.POSITIVE_INFINITY, 1.5])(
   "refuses invalid timeout %s",
   async (timeoutMs) => {
     await expect(Affected.changedPaths("/missing-workspace", { base: "HEAD", timeoutMs }))
-      .rejects.toMatchObject({ _tag: "AffectedGitError", code: "invalid_timeout" })
+      .rejects.toMatchObject({ _tag: "smithers-build/AffectedGitError", code: "invalid_timeout" })
   }
 )
 

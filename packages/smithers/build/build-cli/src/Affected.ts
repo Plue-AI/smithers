@@ -4,6 +4,7 @@
 
 import * as Input from "@smthrs/targets/Input"
 import * as Target from "@smthrs/targets/Target"
+import * as Data from "effect/Data"
 import { Minimatch } from "minimatch"
 import * as Path from "node:path"
 import * as ContainedProcess from "./internal/ContainedProcess.ts"
@@ -15,15 +16,14 @@ import { productionSourceRoots } from "./Planner.ts"
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class AffectedGitError extends Error {
-  readonly _tag = "AffectedGitError"
+export class AffectedGitError extends Data.TaggedError("smithers-build/AffectedGitError")<{
   readonly code: ContainedProcess.ProcessError["code"] | "nonzero_exit" | "invalid_timeout"
   readonly args: ReadonlyArray<string>
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   constructor(code: AffectedGitError["code"], args: ReadonlyArray<string>, message: string, cause?: unknown) {
-    super(message, { cause })
-    this.code = code
-    this.args = [...args]
+    super({ code, args: [...args], message, ...(cause === undefined ? {} : { cause }) })
   }
 }
 

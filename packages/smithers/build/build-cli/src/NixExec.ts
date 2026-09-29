@@ -24,6 +24,7 @@
 import type * as Exec from "@smthrs/targets/Exec"
 import * as Input from "@smthrs/targets/Input"
 import * as Nix from "@smthrs/targets/Nix"
+import * as Data from "effect/Data"
 import * as NodeChildProcess from "node:child_process"
 import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
@@ -52,12 +53,12 @@ export type NixEnvironmentErrorCode =
  * @category errors
  * @since 0.1.0
  */
-export class NixEnvironmentError extends Error {
-  override readonly name = "NixEnvironmentError"
+export class NixEnvironmentError extends Data.TaggedError("smithers-build/NixEnvironmentError")<{
   readonly code: NixEnvironmentErrorCode
+  readonly message: string
+}> {
   constructor(code: NixEnvironmentErrorCode, message: string) {
-    super(message)
-    this.code = code
+    super({ code, message })
   }
 }
 

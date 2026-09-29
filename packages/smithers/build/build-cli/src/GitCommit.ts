@@ -28,6 +28,7 @@
 import * as Exec from "@smthrs/targets/Exec"
 import * as GitTarget from "@smthrs/targets/GitTarget"
 import type * as Target from "@smthrs/targets/Target"
+import * as Data from "effect/Data"
 import * as PlatformError from "effect/PlatformError"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
@@ -59,16 +60,14 @@ export type ErrorCode =
  * @category errors
  * @since 0.1.0
  */
-export class GitCommitError extends Error {
-  override readonly name = "GitCommitError"
+export class GitCommitError extends Data.TaggedError("smithers-build/GitCommitError")<{
   readonly code: ErrorCode
   /** The per-gate failures behind a `gates_failed` refusal. */
   readonly failures: ReadonlyArray<GateFailure>
-
+  readonly message: string
+}> {
   constructor(code: ErrorCode, message: string, failures: ReadonlyArray<GateFailure> = []) {
-    super(`${code}: ${message}`)
-    this.code = code
-    this.failures = failures
+    super({ code, failures, message: `${code}: ${message}` })
   }
 }
 

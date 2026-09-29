@@ -187,6 +187,12 @@ type ErrorResult = (options: {
 
 type SuccessResult = (data: unknown, meta?: { cta: { commands: Array<NextCommand> } }) => never
 
+/** The operator-facing sentence for a failed command; raw detail only under `--verbose`. */
+const failureText = (context: { readonly options?: unknown }, cause: unknown): string =>
+  Diagnostic.present(cause, {
+    verbose: (context.options as { readonly verbose?: unknown } | undefined)?.verbose === true
+  })
+
 const environmentOf = (config: RuntimeConfig): Ansi.Environment => config.environment ?? process.env
 
 /**
@@ -839,7 +845,7 @@ const executeCommand = async <A extends Outcome>(
   try {
     outcome = await body(reporter)
   } catch (cause) {
-    return context.error({ code, exitCode: 1, message: Diagnostic.describe(cause) })
+    return context.error({ code, exitCode: 1, message: failureText(context, cause) })
   } finally {
     reporter.close()
   }
@@ -850,7 +856,7 @@ const executeCommand = async <A extends Outcome>(
     const list = await KnownRed.read(context.options?.workspace ?? process.cwd(), knownRed)
     judged = KnownRed.judge(outcome, list, { platform: process.platform, today: KnownRed.today() })
   } catch (cause) {
-    return context.error({ code, exitCode: 1, message: Diagnostic.describe(cause) })
+    return context.error({ code, exitCode: 1, message: failureText(context, cause) })
   }
   const lines = KnownRed.describe(judged.knownRed)
   if (lines.length > 0) terminalsOf(config).stderr.write(`${lines.join("\n")}\n`)
@@ -1056,7 +1062,7 @@ const cacheCli = (config: RuntimeConfig) => {
             remote: remote === undefined ? null : { endpoint: remote.endpoint, health: "not-probed" }
           }
         } catch (cause) {
-          return context.error({ code: "cache_status_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "cache_status_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1079,7 +1085,7 @@ const cacheCli = (config: RuntimeConfig) => {
             yes: context.options.yes
           })
         } catch (cause) {
-          return context.error({ code: "cache_prune_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "cache_prune_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1097,7 +1103,7 @@ const cacheCli = (config: RuntimeConfig) => {
             yes: context.options.yes
           })
         } catch (cause) {
-          return context.error({ code: "cache_clear_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "cache_clear_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1124,7 +1130,7 @@ const makeCommands = (config: RuntimeConfig) =>
             try {
               return await showTarget(context.args.label, context.options, config)
             } catch (cause) {
-              return context.error({ code: "show_target_failed", message: Diagnostic.describe(cause) })
+              return context.error({ code: "show_target_failed", message: failureText(context, cause) })
             }
           }
         })
@@ -1136,7 +1142,7 @@ const makeCommands = (config: RuntimeConfig) =>
             try {
               return await workspaceInfo(context.options, config)
             } catch (cause) {
-              return context.error({ code: "show_workspace_failed", message: Diagnostic.describe(cause) })
+              return context.error({ code: "show_workspace_failed", message: failureText(context, cause) })
             }
           }
         })
@@ -1155,7 +1161,7 @@ const makeCommands = (config: RuntimeConfig) =>
           )
           return present(context, config, result, (style) => Query.text(result, style))
         } catch (cause) {
-          return context.error({ code: "targets_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "targets_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1167,7 +1173,7 @@ const makeCommands = (config: RuntimeConfig) =>
         try {
           return await workspaceInfo(context.options, config)
         } catch (cause) {
-          return context.error({ code: "info_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "info_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1180,7 +1186,7 @@ const makeCommands = (config: RuntimeConfig) =>
         try {
           return await showTarget(context.args.label, context.options, config)
         } catch (cause) {
-          return context.error({ code: "explain_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "explain_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1285,7 +1291,7 @@ const makeCommands = (config: RuntimeConfig) =>
             }
           }
         } catch (cause) {
-          return context.error({ code: "affected_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "affected_failed", message: failureText(context, cause) })
         }
       }
     })
@@ -1375,7 +1381,7 @@ const makeCommands = (config: RuntimeConfig) =>
           }
           return result
         } catch (cause) {
-          return context.error({ code: "watch_failed", message: Diagnostic.describe(cause) })
+          return context.error({ code: "watch_failed", message: failureText(context, cause) })
         } finally {
           reporter.close()
         }
@@ -1422,7 +1428,7 @@ const makeCommands = (config: RuntimeConfig) =>
           return context.error({
             code: "install_failed",
             exitCode: 1,
-            message: Diagnostic.describe(cause),
+            message: failureText(context, cause),
             retryable: false
           })
         } finally {
@@ -1448,7 +1454,7 @@ const makeCommands = (config: RuntimeConfig) =>
           return context.error({
             code: "create_app_failed",
             exitCode: 1,
-            message: Diagnostic.describe(cause),
+            message: failureText(context, cause),
             retryable: false
           })
         }
@@ -1575,7 +1581,7 @@ const makeCommands = (config: RuntimeConfig) =>
         try {
           outcome = await runGitHooks(context.options, config)
         } catch (cause) {
-          return context.error({ code: "git_hooks_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+          return context.error({ code: "git_hooks_failed", exitCode: 1, message: failureText(context, cause) })
         }
         if (outcome.mode === "check" && !outcome.clean) {
           return context.error({
@@ -1620,7 +1626,7 @@ const makeCommands = (config: RuntimeConfig) =>
           const result = await packageQuery(index, context.args.expr, environmentOf(config))
           return present(context, config, result, (style) => Query.text(result, style))
         } catch (cause) {
-          return context.error({ code: "query_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+          return context.error({ code: "query_failed", exitCode: 1, message: failureText(context, cause) })
         }
       }
     })
@@ -1637,7 +1643,7 @@ const makeCommands = (config: RuntimeConfig) =>
           const listing = await TargetIndex.build(index, context.args.pattern, environmentOf(config), config.signal)
           return present(context, config, listing, (style) => TargetIndex.text(listing, style))
         } catch (cause) {
-          return context.error({ code: "index_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+          return context.error({ code: "index_failed", exitCode: 1, message: failureText(context, cause) })
         }
       }
     })
@@ -1664,7 +1670,7 @@ const makeCommands = (config: RuntimeConfig) =>
           const resolution = Owners.resolve(index, paths)
           return present(context, config, Owners.toJson(resolution), (style) => Owners.text(resolution, style))
         } catch (cause) {
-          return context.error({ code: "owners_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+          return context.error({ code: "owners_failed", exitCode: 1, message: failureText(context, cause) })
         }
       }
     })
@@ -1689,7 +1695,7 @@ const makeCommands = (config: RuntimeConfig) =>
           if (context.options.mermaid) return data
           return present(context, config, data, (style) => GraphOutput.packageText(rows, edges, style))
         } catch (cause) {
-          return context.error({ code: "graph_failed", exitCode: 1, message: Diagnostic.describe(cause) })
+          return context.error({ code: "graph_failed", exitCode: 1, message: failureText(context, cause) })
         }
       }
     })

@@ -25,6 +25,11 @@ one module. Always qualify them by module.
 Effect types appear throughout. A `Layer` provides a service and an `Effect`
 is the deferred computation a runtime executes.
 
+Every refusal class is an Effect `Data.TaggedError` whose `_tag` is
+`smithers-build/<ClassName>`, such as `smithers-build/GitHooksError`. Route it
+with `Effect.catchTag`, or with `instanceof` from promise code. Each keeps its
+documented fields and `message`.
+
 ## The CLI
 
 ### Affected and Watch process lifetime
@@ -37,7 +42,7 @@ from 1 through 86,400,000. Each output stream is limited to 16 MiB and decoded
 as strict UTF-8. Explicit files bypass Git. An already aborted signal refuses
 the call before discovery.
 
-`AffectedGitError` carries `_tag`, `code`, the exact Git `args`, and `cause`.
+`AffectedGitError` carries `_tag` (`smithers-build/AffectedGitError`), `code`, the exact Git `args`, and `cause`.
 Codes distinguish `timed_out`, `cancelled`, `nonzero_exit`, `process_failed`,
 `output_limit`, `cleanup_failed`, and `invalid_timeout`. Cleanup completes
 before timeout or cancellation is reported, adding up to five seconds of TERM
@@ -418,7 +423,7 @@ including any UTF-8 byte-order mark.
 | --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `ResolverConfig`            | `{ workspaceRoot; configDigest; baseUrl; paths; sources }`                         | The configuration one closure resolves under.                                          |
 | `loadResolverConfig`        | `(options: { workspaceRoot; tsconfig? }) => Promise<ResolverConfig>`               | Loads it from the tsconfig chain.                                                      |
-| `ResolverConfigError`       | class                                                                              | The tsconfig chain could not be read, or an entry lies outside the workspace.          |
+| `ResolverConfigError`       | class carrying `reason`                                                            | `outside_workspace`, `extends_too_deep`, `unreadable`, `invalid`, or `unsupported`.    |
 | `extractSpecifiers`         | `(path: string, text: string) => ReadonlyArray<ExtractedImport>`                   | Syntax-only extraction of import, export, require, and dynamic-import sites.           |
 | `ExtractedImport`           | `{ specifier: string; dynamic: boolean; mode?: "require" }`                        | One extracted import site.                                                             |
 | `resolveSpecifier`          | `(config, reader, fromFile, site) => Promise<RowEdge>`                             | Resolves one import into an explicit row edge.                                         |
@@ -430,7 +435,7 @@ including any UTF-8 byte-order mark.
 | `computeClosure`            | `(options: { config; entries; cache?; maximumFiles? }) => Promise<ClosureOutcome>` | The transitive import closure of the entries.                                          |
 | `ClosureOutcome`            | `{ result: Compose.ClosureResult; stats: ClosureStats }`                           | The deterministic result plus this run's counters.                                     |
 | `ClosureStats`              | `{ parsed: number; cached: number }`                                               | Files extracted versus files answered from stored rows.                                |
-| `ClosureError`              | class                                                                              | A closure computation failed.                                                          |
+| `ClosureError`              | class carrying `reason`                                                            | `unreadable`, `too_many_files`, `invalid_entry`, or `missing_entry`.                   |
 | `closureOfEntries`          | `(options: LiveOptions, entries) => Promise<Compose.ClosureResult>`                | Load, expand, and compute in one call.                                                 |
 | `LiveOptions`               | `{ workspaceRoot; cacheDirectory?; tsconfig?; cache? }`                            | What the live bindings run under.                                                      |
 | `expandAnchoredSources`     | `(options) => Promise<ReadonlyArray<string>>`                                      | Expands anchored sources to a sorted set of workspace-relative files.                  |

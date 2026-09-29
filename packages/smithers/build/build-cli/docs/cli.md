@@ -501,6 +501,10 @@ standard output or as rendered text on standard error. When a human renderer
 has already explained what failed, only the exit code remains to record, so
 the envelope's error block is not printed twice.
 
+A refused command prints the refusal's own sentence. A failure the CLI did not
+design prints `Something went wrong on our side. Not your fault.`; add
+`--verbose` on an execution command to append its raw message.
+
 `SIGINT` and `SIGTERM` abort every running target and set the exit code to 1,
 whatever the command was about to report. The second interrupt stops the
 process at once. See [The invocation pipeline](./concepts/invocation.md).

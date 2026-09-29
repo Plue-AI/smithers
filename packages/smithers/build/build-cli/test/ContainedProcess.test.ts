@@ -19,7 +19,7 @@ describe("contained process capture", () => {
       expect(await pending).toBe(0)
       expect(stdout).toBe(`é${"x".repeat(size - 2)}`)
     } else {
-      await expect(pending).rejects.toMatchObject({ _tag: "ProcessError", code: "output_limit" })
+      await expect(pending).rejects.toMatchObject({ _tag: "smithers-build/ProcessError", code: "output_limit" })
     }
   })
 
@@ -53,6 +53,10 @@ describe("contained process capture", () => {
       fatalUtf8: true,
       stdout: () => {},
       stderr: () => {}
-    })).rejects.toMatchObject({ _tag: "ProcessError", code: "process_failed", cause: expect.any(TypeError) })
+    })).rejects.toMatchObject({
+      _tag: "smithers-build/ProcessError",
+      code: "process_failed",
+      cause: expect.any(TypeError)
+    })
   })
 })

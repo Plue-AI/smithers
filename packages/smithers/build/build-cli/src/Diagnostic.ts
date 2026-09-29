@@ -89,6 +89,54 @@ export const describe = (cause: unknown, fallback = "operation failed"): string 
 }
 
 /**
+ * The one sentence an operator sees for a failure build-cli did not design.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const unknownFailure = "Something went wrong on our side. Not your fault."
+
+const ownString = (value: object, key: string): string | undefined => {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string"
+      ? descriptor.value
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Whether a rejection carries a sentence build-cli designed: a tagged error,
+ * or a plain `Error` this CLI threw. Runtime bugs (`TypeError` and friends),
+ * Node system errors, and non-Error values are not.
+ */
+const designed = (cause: unknown): cause is Error => {
+  if (!NodeUtil.isNativeError(cause) || NodeUtil.isProxy(cause)) return false
+  if (ownString(cause, "_tag") !== undefined) return true
+  return Object.getPrototypeOf(cause) === Error.prototype && ownString(cause, "syscall") === undefined
+}
+
+/**
+ * Renders a failure for the CLI operator: a designed sentence as written,
+ * anything else as {@link unknownFailure}. `verbose` appends the raw message,
+ * never a stack.
+ *
+ * @category rendering
+ * @since 1.0.0
+ */
+export const present = (cause: unknown, options: { readonly verbose: boolean }): string => {
+  if (designed(cause)) {
+    const rendered = describe(cause, "")
+    if (rendered !== "") return rendered
+  }
+  if (!options.verbose) return unknownFailure
+  const detail = describe(cause, "")
+  return detail === "" ? unknownFailure : `${unknownFailure}\n${detail}`
+}
+
+/**
  * Converts an arbitrary rejection into an Error whose message is safe to read.
  * Standard Errors with a bounded own data message retain their original stack.
  *

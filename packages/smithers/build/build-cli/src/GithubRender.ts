@@ -26,6 +26,7 @@ import * as PackageManager from "@smthrs/targets/PackageManager"
 import * as Runtime from "@smthrs/targets/Runtime"
 import * as Target from "@smthrs/targets/Target"
 import * as WorkspaceDeclaration from "@smthrs/targets/WorkspaceDeclaration"
+import * as Data from "effect/Data"
 import * as NodeCrypto from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
@@ -61,13 +62,12 @@ export type ErrorCode =
  * @category errors
  * @since 0.1.0
  */
-export class GithubRenderError extends Error {
-  override readonly name = "GithubRenderError"
+export class GithubRenderError extends Data.TaggedError("smithers-build/GithubRenderError")<{
   readonly code: ErrorCode
-
+  readonly message: string
+}> {
   constructor(code: ErrorCode, message: string) {
-    super(`${code}: ${message}`)
-    this.code = code
+    super({ code, message: `${code}: ${message}` })
   }
 }
 

@@ -303,7 +303,7 @@ describe("check and write", () => {
     const narrowed: GithubRender.CiRender = { ...rendered, changes: ["actions/setup/**"] }
     const root = await temporaryRoot()
     await expect(GithubRender.write(root, narrowed)).rejects.toMatchObject({
-      name: "GithubRenderError",
+      _tag: "smithers-build/GithubRenderError",
       code: "outside_write_set"
     })
   })

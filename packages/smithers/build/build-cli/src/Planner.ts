@@ -7,6 +7,7 @@
 import * as Input from "@smthrs/targets/Input"
 import * as SafeFs from "@smthrs/targets/SafeFs"
 import * as Target from "@smthrs/targets/Target"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { createHash } from "node:crypto"
 import * as NodePath from "node:path"
@@ -145,12 +146,12 @@ export const EXECUTION_FORMAT = 5
  * @since 0.1.0
  * @slop
  */
-export class KeyMaterialError extends Error {
-  override readonly name = "KeyMaterialError"
+export class KeyMaterialError extends Data.TaggedError("smithers-build/KeyMaterialError")<{
   readonly path: string
+  readonly message: string
+}> {
   constructor(path: string, reason: string) {
-    super(`cache key material at ${path === "" ? "the root" : path} ${reason}`)
-    this.path = path
+    super({ path, message: `cache key material at ${path === "" ? "the root" : path} ${reason}` })
   }
 }
 
@@ -166,15 +167,13 @@ export class KeyMaterialError extends Error {
  * @since 0.1.0
  * @slop
  */
-export class UnsupportedVerbError extends Error {
-  override readonly name = "UnsupportedVerbError"
+export class UnsupportedVerbError extends Data.TaggedError("smithers-build/UnsupportedVerbError")<{
   readonly pattern: string
   readonly verb: Target.Kind
-
+  readonly message: string
+}> {
   constructor(pattern: string, verb: Target.Kind) {
-    super(`target selected by ${pattern} does not support the ${verb} verb`)
-    this.pattern = pattern
-    this.verb = verb
+    super({ pattern, verb, message: `target selected by ${pattern} does not support the ${verb} verb` })
   }
 }
 

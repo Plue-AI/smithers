@@ -790,7 +790,7 @@ const processError = (cause: unknown): string => {
 }
 
 /** Distinguishes an expired bound from the command's own failure. */
-class CommandTimeout extends Error {}
+class CommandTimeout extends Data.TaggedError("smithers-build/CommandTimeout")<{ readonly message: string }> {}
 
 /** Captures one bounded command; the caller's scope owns process cleanup. */
 const serviceCommand = (
@@ -841,7 +841,7 @@ const serviceCommand = (
     return program.pipe(
       Effect.timeoutOrElse({
         duration: timeoutMs,
-        orElse: () => Effect.fail(new CommandTimeout(`the command timed out after ${timeoutMs}ms`))
+        orElse: () => Effect.fail(new CommandTimeout({ message: `the command timed out after ${timeoutMs}ms` }))
       }),
       Effect.catch((cause) =>
         Effect.succeed({

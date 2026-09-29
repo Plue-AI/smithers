@@ -4,7 +4,7 @@
 
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
-import { Cause, Effect, Exit, Layer, Stream } from "effect"
+import { Cause, Data, Effect, Exit, Layer, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { type ChildProcessHandle, ChildProcessSpawner, makeHandle } from "effect/unstable/process/ChildProcessSpawner"
 
@@ -12,13 +12,13 @@ import { type ChildProcessHandle, ChildProcessSpawner, makeHandle } from "effect
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class ProcessError extends Error {
-  readonly _tag = "ProcessError"
+export class ProcessError extends Data.TaggedError("smithers-build/ProcessError")<{
   readonly code: "timed_out" | "cancelled" | "process_failed" | "output_limit" | "cleanup_failed"
-
+  readonly message: string
+  readonly cause?: unknown
+}> {
   constructor(code: ProcessError["code"], message: string, cause?: unknown) {
-    super(message, { cause })
-    this.code = code
+    super({ code, message, ...(cause === undefined ? {} : { cause }) })
   }
 }
 

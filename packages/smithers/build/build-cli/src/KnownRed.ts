@@ -37,6 +37,7 @@
  * @since 1.0.0
  */
 
+import * as Data from "effect/Data"
 import { createHash } from "node:crypto"
 import * as NodeFs from "node:fs/promises"
 import * as NodePath from "node:path"
@@ -97,8 +98,14 @@ export interface JudgedSummary extends Executor.Summary {
  * @category errors
  * @since 1.0.0
  */
-export class KnownRedError extends Error {
-  override readonly name = "KnownRedError"
+export class KnownRedError extends Data.TaggedError("smithers-build/KnownRedError")<{
+  /** `unreadable` when the file could not be read, `invalid` when it is not a valid list. */
+  readonly reason: "unreadable" | "invalid"
+  readonly message: string
+}> {
+  constructor(reason: "unreadable" | "invalid", message: string) {
+    super({ reason, message })
+  }
 }
 
 // Preserve filenames and all diagnostic content. Only Smithers mkdtemp roots
@@ -159,7 +166,7 @@ const day = /^\d{4}-\d{2}-\d{2}$/
 
 const text = (value: unknown, field: string, at: string): string => {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new KnownRedError(`${at}: "${field}" must be a non-empty string`)
+    throw new KnownRedError("invalid", `${at}: "${field}" must be a non-empty string`)
   }
   return value
 }
@@ -175,25 +182,27 @@ export const parse = (source: string, content: string): ReadonlyArray<Entry> => 
   try {
     json = JSON.parse(content)
   } catch (cause) {
-    throw new KnownRedError(`${source}: not JSON (${(cause as Error).message})`)
+    throw new KnownRedError("invalid", `${source}: not JSON (${(cause as Error).message})`)
   }
   const entries = (json as { readonly entries?: unknown } | null)?.entries
-  if (!Array.isArray(entries)) throw new KnownRedError(`${source}: "entries" must be an array`)
+  if (!Array.isArray(entries)) throw new KnownRedError("invalid", `${source}: "entries" must be an array`)
   const seen = new Set<string>()
   return entries.map((raw: unknown, index): Entry => {
     const at = `${source} entries[${index}]`
-    if (typeof raw !== "object" || raw === null) throw new KnownRedError(`${at}: must be an object`)
+    if (typeof raw !== "object" || raw === null) throw new KnownRedError("invalid", `${at}: must be an object`)
     const row = raw as Record<string, unknown>
     const label = text(row.label, "label", at)
-    if (!label.startsWith("//")) throw new KnownRedError(`${at}: "label" must be a target label such as //pkg:test`)
+    if (!label.startsWith("//")) {
+      throw new KnownRedError("invalid", `${at}: "label" must be a target label such as //pkg:test`)
+    }
     const expires = text(row.expires, "expires", at)
     if (!day.test(expires) || Number.isNaN(Date.parse(`${expires}T00:00:00Z`))) {
-      throw new KnownRedError(`${at}: "expires" must be a YYYY-MM-DD date`)
+      throw new KnownRedError("invalid", `${at}: "expires" must be a YYYY-MM-DD date`)
     }
     let platforms: ReadonlyArray<string> | undefined
     if (row.platforms !== undefined) {
       if (!Array.isArray(row.platforms) || row.platforms.length === 0) {
-        throw new KnownRedError(`${at}: "platforms" must be a non-empty array when present`)
+        throw new KnownRedError("invalid", `${at}: "platforms" must be a non-empty array when present`)
       }
       platforms = row.platforms.map((platform, position) => text(platform, `platforms[${position}]`, at))
     }
@@ -202,10 +211,10 @@ export const parse = (source: string, content: string): ReadonlyArray<Entry> => 
     const issue = text(row.issue, "issue", at)
     const failureDigest = text(row.failureDigest, "failureDigest", at)
     if (!/^sha256:[a-f0-9]{64}$/.test(failureDigest)) {
-      throw new KnownRedError(`${at}: "failureDigest" must be sha256: followed by 64 lowercase hex digits`)
+      throw new KnownRedError("invalid", `${at}: "failureDigest" must be sha256: followed by 64 lowercase hex digits`)
     }
     const key = `${label} ${platforms === undefined ? "*" : [...platforms].sort().join(",")} ${failureDigest}`
-    if (seen.has(key)) throw new KnownRedError(`${at}: duplicate entry for ${label}`)
+    if (seen.has(key)) throw new KnownRedError("invalid", `${at}: duplicate entry for ${label}`)
     seen.add(key)
     return {
       label,
@@ -234,7 +243,7 @@ export const read = async (directory: string, path: string): Promise<{
   try {
     content = await NodeFs.readFile(absolute, "utf8")
   } catch (cause) {
-    throw new KnownRedError(`${path}: cannot read the known-red list (${(cause as Error).message})`)
+    throw new KnownRedError("unreadable", `${path}: cannot read the known-red list (${(cause as Error).message})`)
   }
   return { source: path, entries: parse(path, content) }
 }
