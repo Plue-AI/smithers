@@ -33,6 +33,7 @@ type Config struct {
 	FeatureFlags        FeatureFlagsConfig        `mapstructure:"feature_flags"`
 	RateLimit           RateLimitConfig           `mapstructure:"rate_limit"`
 	Chat                ChatConfig                `mapstructure:"chat"`
+	WikiSync            WikiSyncConfig            `mapstructure:"wiki_sync"`
 }
 
 // ChatConfig sizes the chat turn dispatcher. Zero keeps the default for the
@@ -880,6 +881,9 @@ func Load(configFile string) (*Config, error) {
 	cfg.Auth.LFSSigningSecret = strings.TrimSpace(cfg.Auth.LFSSigningSecret)
 	cfg.Server.AllowedOrigins = splitCommaSeparatedList(cfg.Server.AllowedOrigins)
 	if err := normalizeAgentAvailability(&cfg); err != nil {
+		return nil, err
+	}
+	if err := validateWikiSync(&cfg); err != nil {
 		return nil, err
 	}
 	if d, err := time.ParseDuration(cfg.Agents.NeverStartedTimeout); err != nil || d <= 0 {

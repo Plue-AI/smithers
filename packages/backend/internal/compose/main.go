@@ -1631,6 +1631,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() && cfg.FeatureFlags.Wiki {
 		wikiHistoryWorker = startJoinedBackgroundWorker(func() { services.RunWikiHistory(workerCtx, pool, repoHostClient) })
 	}
+	if options.topology.workers() && len(cfg.WikiSync.Obsidian) > 0 {
+		folders := make([]services.WikiFolderSync, len(cfg.WikiSync.Obsidian))
+		for i, folder := range cfg.WikiSync.Obsidian {
+			folders[i] = services.WikiFolderSync(folder)
+		}
+		launchWorker(func() { services.RunWikiFolderSync(workerCtx, wikiService, folders, cfg.WikiSync.Interval()) })
+	}
 	if options.topology.workers() {
 		// Re-drive workspaces and sessions a stopped process left pending.
 		// Per-workspace advisory locks make every worker replica safe to run it.

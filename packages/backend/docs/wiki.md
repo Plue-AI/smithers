@@ -50,7 +50,23 @@ Attachment events also include attachment metadata. No body: read the event's re
 
 ## Sync and UI acceptance
 
-The trusted host calls `WikiService.SyncWiki(ctx, actor, owner, repo, connection, adapter)` in its existing background work. The context selects visibility with `WithWikiVisibility`; the authenticated actor must retain repository write access. This is a backend composition port, not an HTTP endpoint accepting arbitrary filesystem paths. No app controls or scheduled production host are added here.
+The trusted host calls `WikiService.SyncWiki(ctx, actor, owner, repo, connection, adapter)` in its existing background work. The context selects visibility with `WithWikiVisibility`; the authenticated actor must retain repository write access. This is a backend composition port, not an HTTP endpoint accepting arbitrary filesystem paths.
+
+The host operator lists Obsidian folders in the backend config file. Each worker process syncs every folder on its own disk once per interval (default 60 seconds, at most one day) and logs a failing folder without blocking the others. Configure a folder on one worker process only: another process's copy of the same path is a separate connection. Each pass resolves `login` again, so a deactivated account, a login-prohibited account or lost write access stops that folder. Folders are accepted only from this file, never over HTTP. Startup refuses entries without `feature_flags.wiki`, with a relative folder, a visibility other than `public` or `private`, a repeated connection for one repository and visibility, or a folder listed twice.
+
+```yaml
+feature_flags:
+  wiki: true
+wiki_sync:
+  interval_seconds: 60
+  obsidian:
+    - owner: acme
+      repo: notes
+      login: alice
+      visibility: private
+      connection: vault
+      folder: /srv/obsidian/vault
+```
 
 `NewObsidianSync(folder)` opens an explicitly supplied local folder. Close it after use. The adapter preserves Markdown bytes, frontmatter, wiki links and attachments. It detects local renames by filesystem identity (path fallback on systems without an inode), compares content digests before overwriting, and refuses symlinks, hardlinks, traversal, case-fold collisions and oversized files. Hidden directories, including `.obsidian` and `.git`, are excluded. This is folder sync; it does not claim git commit provenance. The folder must be trusted: another local process can still change a file between the final comparison and a filesystem operation.
 
@@ -60,9 +76,9 @@ Migration 0058 extends the existing `issue_sync_channels` and `issue_sync_delive
 
 The channel stores the existing `WikiProjection`, external baselines and commit-ordered cursor together. Every invocation holds a database advisory lock for that owner/repository/visibility/provider connection. Writes use existing WikiService revision checks and content reads. If both copies changed since the baseline, reconciliation returns a conflict without overwriting them. Equal copies acknowledge replay. A file write whose receipt was lost reuses its immutable intent and acknowledges the exact desired bytes. An interrupted or ambiguous Notion write blocks; it is never automatically repeated.
 
-The host reads unknown receipts with `WikiSyncDeliveries` and invokes `ResolveWikiSyncDelivery` with the expected claim token, action (`sent`, `skip`, `retry`) and evidence. Only the connection owner with current write access can resolve. Resolutions retain an audit array on the existing delivery; a retry accepts duplicate risk and uses a new claim token. Skipping one version permits later deliveries. These are host ports; user-facing connection and resolution controls and deployed scheduling still require host wiring.
+The host reads unknown receipts with `WikiSyncDeliveries` and invokes `ResolveWikiSyncDelivery` with the expected claim token, action (`sent`, `skip`, `retry`) and evidence. Only the connection owner with current write access can resolve. Resolutions retain an audit array on the existing delivery; a retry accepts duplicate risk and uses a new claim token. Skipping one version permits later deliveries. These are host ports; the app has no connection or resolution controls yet.
 
-Local acceptance uses isolated PostgreSQL and temporary folders only. Smithers-Ops is untouched. #2122 remains open for deployed host wiring, git provenance and credentialed Notion acceptance.
+Local acceptance uses isolated PostgreSQL and temporary folders only. Smithers-Ops is untouched. #2122 remains open for app resolution controls, git provenance and credentialed Notion acceptance.
 
 UI acceptance after connection: public/private same-path isolation; folder/tag/search navigation; wikilink aliases/headings and embeds; edit, rename, historical download, delete; visible save conflicts; instant background acknowledgment and completion-driven toast. Existing Cloud refresh receipts, freshness and failures stay in the Stack wiki row.
 
