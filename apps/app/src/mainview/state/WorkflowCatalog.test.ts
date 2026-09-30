@@ -38,6 +38,8 @@ async function fixture(options: {
   const controller = controllerFor(store, silentAgent, services)
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "codeplanesmithers", ownerKind: "user", name: "canary-sandbox", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null }).isPersisted.promise
+  // The prerequisite cases model a completed per-user inventory, including unlisted repositories.
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [] }).isPersisted.promise
   if (options.boxStatus !== "none") await loadBox(store, repo, TEST_BOX, options.boxStatus ?? "running")
   await settle(2)
   return { store, storage, controller, calls }

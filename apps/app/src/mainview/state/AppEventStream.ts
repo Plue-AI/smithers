@@ -39,7 +39,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 26: retire signup details with no owner receipt once, including edited legacy rows (#2065).
 // 27: the closed-alpha gate retired: identity rows drop `allowlisted`/`accessRequested`/`accessError`, the
 // `identity.access.requested`/`identity.access.failed` transitions and the `request-queue` card retire (#2145).
-export const APP_PROJECTOR_VERSION = 27
+// 28: box inventory loads carry scoped readiness; old rows seed a fresh stream (#3200).
+export const APP_PROJECTOR_VERSION = 28
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

@@ -22,6 +22,7 @@ const signedIn = async (): Promise<AppStore> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [] }).isPersisted.promise
   return store
 }
 

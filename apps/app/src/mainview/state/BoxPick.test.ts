@@ -27,6 +27,7 @@ const signedIn = async (): Promise<AppStore> => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [] }).isPersisted.promise
   return store
 }
 
@@ -140,6 +141,7 @@ test("a new Inbox repository replaces its own old draft instead of opening the p
 test("submitting the Inbox prerequisite opens one box and never silently reads Inbox or Runs", async () => {
   const store = await signedIn()
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
   const calls: Array<{ method: string; path: string; body: unknown }> = []
   const controller = createAppController(store, silentAgent, { toastDebounceMs: 0,
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -180,6 +182,7 @@ test("fresh-box Review a PR retains its act across reload and admits it only onc
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
   const calls: string[] = []

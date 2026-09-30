@@ -283,6 +283,8 @@ export const APP_TRANSITION_TYPES = {
   "repository.upserted": true,
   "workingcopies.workspaces.loaded": true,
   "cloud.session.loaded": true,
+  "workspaces.list.started": true,
+  "workspaces.list.failed": true,
   "workspaces.loaded": true,
   "workspace.updated": true,
   "workspace.session.destroyed": true,
@@ -3112,7 +3114,9 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             updatedAt: createdAt,
             revision,
             ownerRevision: previousOwner !== nextCloudOwner || transition.state === "signed-out"
-              ? revision : previousCloud?.ownerRevision ?? previousCloud?.revision ?? 0
+              ? revision : previousCloud?.ownerRevision ?? previousCloud?.revision ?? 0,
+            workspaceLists: previousOwner === nextCloudOwner && transition.state === "signed-in"
+              ? previousCloud?.workspaceLists ?? [] : []
           }
           if (collections.cloudSessions.get("cloud") === undefined) collections.cloudSessions.insert(row)
           else {
@@ -3130,8 +3134,37 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
          * workspace working copies and live card headers are query projections.
          * Ordinary updates write the workspace row.
          */
+        case "workspaces.list.started":
+        case "workspaces.list.failed": {
+          const scope = transition.repoId ?? "*"
+          const active = collections.cloudSessions.get("cloud")?.workspaceLists?.find(row => row.scope === scope)
+          if (transition.type === "workspaces.list.failed" && active?.requestId !== transition.requestId) break
+          collections.cloudSessions.update("cloud", (draft) => {
+            draft.workspaceLists = [
+              ...(draft.workspaceLists ?? []).filter(row => row.scope !== scope),
+              { scope, requestId: transition.requestId,
+                revision: transition.type === "workspaces.list.started" ? revision : active!.revision,
+                phase: transition.type === "workspaces.list.started" ? "loading" : "failed",
+                ...(transition.type === "workspaces.list.failed" ? { error: transition.error } : {}) }
+            ]
+          })
+          break
+        }
         case "workspaces.loaded": {
           const scope = transition.repoId
+          const observations = collections.cloudSessions.get("cloud")?.workspaceLists ?? []
+          const active = observations.find(row => row.scope === (scope ?? "*"))
+          if (transition.requestId !== undefined && (
+            active?.requestId !== transition.requestId ||
+            observations.some(row => row.revision > active.revision && (scope === undefined || row.scope === "*" || row.scope === scope))
+          )) break
+          collections.cloudSessions.update("cloud", (draft) => {
+            draft.workspaceLists = [
+              ...(draft.workspaceLists ?? []).filter(row => row.scope !== (scope ?? "*")),
+              { scope: scope ?? "*", revision: transition.requestId === undefined ? revision : active!.revision,
+                phase: "ready", ...(transition.requestId === undefined ? {} : { requestId: transition.requestId }) }
+            ]
+          })
           const next = new Set(transition.workspaces.map((workspace) => workspace.id))
           const stale = [...collections.cloudWorkspaces.values()]
             .filter((workspace) => (scope === undefined || workspace.repoId === scope) && !next.has(workspace.id))

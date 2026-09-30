@@ -320,7 +320,15 @@ export const CloudSessionRowSchema = z.object({
   scopes: z.literal("degraded").nullable(),
   updatedAt: z.number(),
   revision: z.number().int().nonnegative(),
-  ownerRevision: z.number().int().nonnegative().optional()
+  ownerRevision: z.number().int().nonnegative().optional(),
+  /** A missing list is not an empty inventory. Scopes are repositories or the per-user "*". */
+  workspaceLists: z.array(z.object({
+    scope: z.string(),
+    phase: z.enum(["loading", "ready", "failed"]),
+    requestId: z.string().optional(),
+    revision: z.number().int().nonnegative(),
+    error: z.string().optional()
+  })).optional()
 })
 export type CloudSessionRow = z.infer<typeof CloudSessionRowSchema>
 
@@ -331,7 +339,8 @@ export const initialCloudSession = (createdAt = Date.now()): CloudSessionRow => 
   expiresAt: null,
   scopes: null,
   updatedAt: createdAt,
-  revision: 0
+  revision: 0,
+  workspaceLists: []
 })
 
 /*
@@ -1690,9 +1699,12 @@ export type AppTransition =
    * one row (an act's answer, the watch's poll). Live working copies and card
    * headers are derived views over those rows.
    */
+  | { type: "workspaces.list.started"; actor: "system"; requestId: string; repoId?: string }
+  | { type: "workspaces.list.failed"; actor: "system"; requestId: string; repoId?: string; error: string }
   | {
     type: "workspaces.loaded"
     actor: "system"
+    requestId?: string
     workspaces: ReadonlyArray<CloudWorkspaceInput>
     /** Present = one repository's list replaced; absent = the per-user list. */
     repoId?: string

@@ -427,6 +427,7 @@ test("a persisted request without its old workspace binding fails visibly instea
     const { workspaceId: _oldWorkspace, ...oldRequest } = workflowLaunchOf(card)!
     await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card,
       payload: { ...card.payload, input: { ...card.payload.input, _workflowLaunch: oldRequest } } } }).isPersisted.promise
+    await t.store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: request.repo, workspaces: [] }).isPersisted.promise
     resumedCtx = createControllerContext(t.store, unavailableAgent, { workflowPollMs: 1, toastDebounceMs: 1 })
     const failures = createFailureController(resumedCtx)
     resumedCtx.withToast = failures.withToast

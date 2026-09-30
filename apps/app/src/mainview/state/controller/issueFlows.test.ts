@@ -9,6 +9,7 @@ async function setup() {
   const data = new Map<string, string>()
   const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k,v) }, removeItem: (k: string) => { data.delete(k) } }
   const store = await createAppStore({ kind: "localStorage", storage })
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
   const ctx: SeamContext = { store, http: repositoryHttpFixture(), baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
   return { store, ctx, storage }
 }

@@ -197,6 +197,41 @@ describe("the live store's authoritative event path", () => {
     expect((await restored.verifyState()).valid).toBe(true)
   })
 
+  test("a pre-v28 box inventory remains unknown across the projector upgrade and reload", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "Preserved chat" }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const withoutInventory = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(withoutInventory)
+      if (value === null || typeof value !== "object") return value
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => key !== "workspaceLists").map(([key, field]) => [key, withoutInventory(field)]))
+    }
+    const snapshot = withoutInventory(structuredClone(old.checkpoint.snapshot)) as typeof old.checkpoint.snapshot
+    const stateHash = appProjectionHash(snapshot as unknown as Parameters<typeof appProjectionHash>[0])
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 27, snapshot, stateHash }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      entries["smithers-mvp.app-cloud-sessions"] = JSON.stringify(withoutInventory(JSON.parse(entries["smithers-mvp.app-cloud-sessions"]!)))
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 27, stateHash }], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    const upgraded = await open(storage)
+    expect(upgraded.collections.cloudSessions.get("cloud")).not.toHaveProperty("workspaceLists")
+    expect(upgraded.session().draft).toBe("Preserved chat")
+    expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await upgraded.verifyState()).valid).toBe(true)
+    await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
+    const reopened = await open(storage)
+    expect(reopened.collections.cloudSessions.get("cloud")).not.toHaveProperty("workspaceLists")
+    expect(reopened.session().draft).toBe("Preserved chat")
+    expect((await reopened.verifyState()).valid).toBe(true)
+  })
+
   test("a pre-v27 store retires the closed-alpha identity fields and the request queue once", async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
@@ -683,7 +718,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 27, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 28, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",

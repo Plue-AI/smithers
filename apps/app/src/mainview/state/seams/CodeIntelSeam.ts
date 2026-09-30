@@ -276,6 +276,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
         return { refusal: `Hover and definitions need a running box of ${repo}: "${found.box.name}" (${found.box.id}) is ${found.box.status} — /box.resume ${found.box.id} first.` }
       case "settling":
         return { refusal: `Hover and definitions need a running box of ${repo}: "${found.box.name}" (${found.box.id}) is ${found.box.status} — wait for it to settle (the card tracks it).` }
+      case "unavailable":
+        return { refusal: found.error }
       case "none":
         return { refusal: `Hover and definitions need a running box of ${repo} — /box.open ${repo} first.` }
     }

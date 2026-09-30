@@ -175,16 +175,29 @@ export type RepositoryBox =
   | { readonly kind: "resumable"; readonly box: CloudWorkspaceRow; readonly resumable: ReadonlyArray<CloudWorkspaceRow> }
   | { readonly kind: "settling"; readonly box: CloudWorkspaceRow }
   | { readonly kind: "none" }
+  | { readonly kind: "unavailable"; readonly error: string }
 
 export const repositoryBoxOf = (store: AppStore, repo: string): RepositoryBox => {
   const rows = [...store.collections.cloudWorkspaces.values()].filter((row) => row.repoId === repo)
+  const observed = (store.collections.cloudSessions.get("cloud")?.workspaceLists ?? [])
+    .filter(row => row.scope === repo || row.scope === "*")
+    .sort((left, right) => right.revision - left.revision)[0]
+  if (observed?.phase === "loading") return { kind: "unavailable", error: "Boxes are loading. Try again." }
+  if (observed?.phase === "failed") return { kind: "unavailable", error: observed.error ?? "Boxes could not be loaded. Try again." }
+  // A single observed box (creation or a persisted selected box) remains usable.
+  // An unobserved empty collection cannot prove that opening another is safe.
+  if (rows.length === 0 && observed?.phase !== "ready") {
+    return { kind: "unavailable", error: "Boxes have not loaded yet. Try again." }
+  }
   const running = rows.filter((row) => row.status === "running")
   if (running.length === 1) return { kind: "box", box: running[0]! }
   if (running.length > 1) return { kind: "several", running }
   const resumable = rows.filter((row) => row.status === "suspended" || row.status === "stopped")
   if (resumable.length > 0) return { kind: "resumable", box: resumable[0]!, resumable }
   const settling = rows.find((row) => SETTLING.has(row.status))
-  return settling === undefined ? { kind: "none" } : { kind: "settling", box: settling }
+  if (settling !== undefined) return { kind: "settling", box: settling }
+  return observed?.phase === "ready" ? { kind: "none" }
+    : { kind: "unavailable", error: "Boxes have not loaded yet. Try again." }
 }
 
 /** The boxes a pick of `repo`'s box offers: the several running ones, else the several resumable ones, else the one default. */
@@ -195,6 +208,7 @@ export const repositoryBoxChoices = (store: AppStore, repo: string): ReadonlyArr
     case "several": return found.running
     case "resumable": return found.resumable
     case "settling":
+    case "unavailable":
     case "none": return []
   }
 }
@@ -207,6 +221,7 @@ export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding
     case "several": return { error: `Select a box of ${repo} first.`, choices: found.running }
     // Provisioning resumes it, exactly as it resumes a selected suspended box.
     case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.`, choices: found.resumable }
+    case "unavailable": return { error: found.error }
     case "settling": return { error: `A box of ${repo} is starting.` }
     case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}`, noBox: true }
   }

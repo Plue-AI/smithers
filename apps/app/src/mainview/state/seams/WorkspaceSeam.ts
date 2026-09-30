@@ -940,6 +940,20 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     repo?: string,
     current = currentOperation()
   ): Effect.Effect<ReadonlyArray<CloudWorkspaceInput> | string> => Effect.gen(function*() {
+    if (!current()) return SIGN_OUT_REFUSAL
+    const scope = repo === undefined ? {} : { repoId: repo }
+    const requestId = crypto.randomUUID()
+    ctx.dispatch({ type: "workspaces.list.started", actor: "system", requestId, ...scope })
+    const latest = (): boolean => {
+      const observations = ctx.store.collections.cloudSessions.get("cloud")?.workspaceLists ?? []
+      const active = observations.find(row => row.scope === (repo ?? "*"))
+      return active?.requestId === requestId && !observations.some(row =>
+        row.revision > active.revision && (repo === undefined || row.scope === "*" || row.scope === repo))
+    }
+    const fail = (error: string): string => {
+      if (current()) ctx.dispatch({ type: "workspaces.list.failed", actor: "system", requestId, ...scope, error })
+      return error
+    }
     const path = repo === undefined ? "/user/workspaces" : repoPath(repo, "/workspaces")
     const raw: Array<unknown> = []
     let next: string | null = `${path}?limit=${LIST_PAGE_LIMIT}`
@@ -948,9 +962,11 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       if (seen.has(next)) break
       seen.add(next)
       if (!current()) return SIGN_OUT_REFUSAL
+      if (!latest()) return fail("A newer box list was requested. Try again.")
       const answer: Effect.Success<ReturnType<typeof getListPage>> = yield* getListPage(next, path)
       if (!current()) return SIGN_OUT_REFUSAL
-      if ("error" in answer) return answer.error
+      if (!latest()) return fail("A newer box list was requested. Try again.")
+      if ("error" in answer) return fail(answer.error)
       const rows = arrayOf(answer.body, "workspaces")
       raw.push(...rows)
       if (rows.length === 0 || (answer.total !== null && raw.length >= answer.total)) break
@@ -963,7 +979,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       return row === null ? [] : [row]
     })
     if (raw.length > 0 && parsed.length === 0) {
-      return `Smithers Cloud answered ${raw.length} box row${raw.length === 1 ? "" : "s"} in a shape Smithers can't read — the loaded boxes were kept.`
+      return fail(`Smithers Cloud answered ${raw.length} box row${raw.length === 1 ? "" : "s"} in a shape Smithers can't read — the loaded boxes were kept.`)
     }
     /*
      * The per-user row is a switcher row: no bookmark, no stage, no
@@ -1005,6 +1021,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     ctx.dispatch({
       type: "workspaces.loaded",
       actor: "system",
+      requestId,
       workspaces,
       ...(repo === undefined ? {} : { repoId: repo })
     })

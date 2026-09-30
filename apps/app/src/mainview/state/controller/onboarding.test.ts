@@ -327,6 +327,7 @@ describe("feature.prototype", () => {
     const { store, controller, requests, turns } = await fixture(relay.routes, true, false)
     identity(store, "signed-in")
     await settled()
+    await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
     const outcome = await controller.commands.run("feature.prototype", "a dark mode toggle")
     expect(outcome.status).toBe("executed")
     expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: REPO } } })

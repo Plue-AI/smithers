@@ -1233,6 +1233,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
       { signedIn: true }
     )
     await jobSetUp(store, "will/other")
+    await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: "will/flows", workspaces: [] }).isPersisted.promise
     expect(await controller.registerTrigger(REQUEST)).toMatchObject({ value: expect.stringContaining("rendered a form") })
     expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: "will/flows" } } })
     expect(calls).toEqual([])

@@ -9,6 +9,7 @@ test("cloud implementation binds the real issue to coding/request and refuses mi
   const ctx: SeamContext = { store, http: async () => { throw Error("Must not use the tutorial service") }, baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
   const repo = "owner/repo", workspaceId = "11111111-1111-4111-8111-111111111111"
   const issue = { repo, number: 9, title: "Real bug", state: "open" as const, author: "ada", issueBody: "Reproduction evidence", labels: [], comments: [] }
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: repo, workspaces: [] }).isPersisted.promise
   const calls: unknown[] = []
   let lists = 0
   const flows = createIssueFlowsController(ctx, {
