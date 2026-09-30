@@ -954,8 +954,7 @@ test("Codex bounds the encoded developer-instructions argv before writing or lau
         session: "s",
         resume: false,
         permission: "plan",
-        memory: { digest: "d", kept: 0, cost: noMemory.cost },
-        extra: { path: manuallyStored, digest: sha256(text), bytes: Buffer.byteLength(text) }
+        extra: { path: manuallyStored, digest: sha256(text) }
       })
     )
     assert.equal(refused.code, "prompt_unsendable")

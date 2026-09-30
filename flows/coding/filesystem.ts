@@ -34,6 +34,9 @@ export const make = (
   // Preserve owns exclusive sibling files only until rename/cleanup. This is
   // transient process state, not another durable source of file ownership.
   const temporaries = new Set<string>()
+  // Standard file tools acquire exclusive sibling directories for the complete
+  // mutation. A failed mkdir must never grant cleanup of another writer's lock.
+  const locks = new Set<string>()
   // The already-guarded filesystem supplies its pinned real root. Preserve can
   // return that spelling; normalize only the root alias, never child symlinks.
   // Native requests still carry the exact provisioned repositoryPath.
@@ -121,6 +124,19 @@ export const make = (
     })
   return {
     ...fs,
+    makeDirectory: (path, options) =>
+      fs.makeDirectory(path, options).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            if (
+              !options?.recursive && options?.mode === 0o700 && /^\.smithers-[0-9a-f]{1,8}\.lock$/.test(basename(path))
+            ) {
+              locks.add(key(path))
+            }
+          })
+        ),
+        Effect.uninterruptible
+      ),
     writeFile: (path, bytes, options) =>
       write("writeFile", path, bytes.byteLength, options?.flag, fs.writeFile(path, bytes, options)),
     writeFileString: (path, text, options) =>
@@ -143,6 +159,13 @@ export const make = (
       }),
     remove: (path, options) =>
       Effect.gen(function*() {
+        if (locks.has(key(path))) {
+          // A lock is empty protocol state, never permission to remove user data.
+          if ((yield* fs.readDirectory(path)).length !== 0) return yield* refusal("remove")
+          yield* fs.remove(path, options)
+          locks.delete(key(path))
+          return
+        }
         if (temporaries.has(key(path))) {
           yield* fs.remove(path, options)
           temporaries.delete(key(path))

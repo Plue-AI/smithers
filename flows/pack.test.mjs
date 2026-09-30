@@ -479,7 +479,7 @@ describe("the dispatcher table", () => {
       assert.ok(!/[\u2013\u2014]/.test(rule.description), `${rule.event} sentence has no em or en dash`);
       assert.ok(!/workflow/i.test(rule.description), `${rule.event} sentence never says workflow`);
     }
-    assert.ok(projection.on.some((rule) => rule.event === "issue.opened"));
+    assert.ok(projection.on.some((rule) => rule.event === "issue.labeled:todo"));
     assert.deepEqual(projection.github, {
       mirror: "pull",
       issues: "two-way",
@@ -488,6 +488,17 @@ describe("the dispatcher table", () => {
       dailyTokens: 2_000_000_000
     });
     assert.equal(typeof projection.summary, "string");
+  });
+
+  it("starts every GitHub issue rule on a discovered flow", () => {
+    // The backend registers an issue rule only against a discovered flow; a
+    // rule naming anything else promises intake that never runs (#2915).
+    const discovered = new Set(projection.flows.map((flow) => flow.id));
+    for (const rule of projection.on.filter((rule) => rule.event.startsWith("issue."))) {
+      for (const flow of [rule.flow].flat()) {
+        assert.ok(discovered.has(flow), `${rule.event} names undiscovered flow ${flow}`);
+      }
+    }
   });
 });
 
