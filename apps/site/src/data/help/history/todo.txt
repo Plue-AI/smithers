@@ -7,7 +7,7 @@ Arguments:
 
 Options:
   --body <string>       (default: )
-  --request <string>    Request id: sending it again returns the TODO already filed
+  --request <string>
   --repo, -R <string>
 
 Custom Global Options:

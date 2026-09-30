@@ -10289,8 +10289,28 @@ It does not change key material or execution identity.
 ### `flow.start` and `flow.ensure`
 
 ```ts
-const freshId = yield * flow.start(payload)
-const keyedId = yield * flow.ensure(payload, { key: "worker-1" })
+import { Action, Flow } from "@smthrs/flow"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+
+const Step = Action.make("worker/step", {
+  payload: { id: Schema.String },
+  success: Schema.String
+})
+
+const flow = Flow.make("worker/run", {
+  payload: { id: Schema.String },
+  success: Schema.String,
+  body: (payload) => Step.call(payload)
+})
+
+const payload = { id: "job-1" }
+
+export const program = Effect.gen(function*() {
+  const freshId = yield* flow.start(payload)
+  const keyedId = yield* flow.ensure(payload, { key: "worker-1" })
+  return { freshId, keyedId }
+})
 ```
 
 `start` admits a fresh execution, bypassing declared and ambient idempotency
@@ -20757,10 +20777,14 @@ more runs than `limit`, so a host cannot treat the page size as a bound on
 An exact `runId` filter keeps the direct lookup and applies the remaining
 filters to that observation.
 
-`principalId` stays on the wire and is refused by `Control.list`. Deleting the
-field would move the same overbroad answer one layer out, because struct
-decoding strips a property the schema does not declare and the server would
-never see it.
+`principalId` selects the runs whose `RunSummary.launchedBy.id` it names. A
+run the control plane launched records its launcher; one the engine created
+(a child, a fork, a later round) records none. Over RPC the server restricts a
+reader that `ControlRpcs.RunVisibility` does not make an operator to the runs
+its own principal launched: `List` sets `ListInput.reader` and `Watch` sets
+`WatchInput.reader`, neither of which is on the wire. Such a reader lists and
+watches only those runs, sees only the fires that started them, receives
+nothing from a plan partition, and gets `RunNotFound` for any other run.
 
 The `triggers` and `fires` variants are answered through the `DispatchReader`
 port. A host without one refuses both with `InvalidInput` whose issue is
@@ -29337,8 +29361,8 @@ id, an id each reading adds itself (`skill_*`, `use_jev`),
 cooldown or limit. `moods()` are the stance monitors `paranoid`, `careful`,
 `step_back` and `clarify`, saying `paranoidText`, `carefulText`,
 `stepBackText` and `clarifyText`. `paranoid` crosses on a signal the lint
-does not own — a frame whose transition is `complete` in the snapshot is a
-bounced completion, a demand counter increasing — held with strong
+does not own: a frame whose transition is `complete` in the snapshot marks a
+bounced completion and an increased demand counter. It requires strong
 confidence; the rest read the emotions and help the reading already holds.
 `defaults()` is both, and what `CellTurn.Input.monitors` takes when omitted.
 
@@ -55708,6 +55732,7 @@ Arguments:
 
 Options:
   --body <string>       (default: )
+  --request <string>
   --repo, -R <string>
 
 Custom Global Options:

@@ -1659,8 +1659,8 @@ id, an id each reading adds itself (`skill_*`, `use_jev`),
 cooldown or limit. `moods()` are the stance monitors `paranoid`, `careful`,
 `step_back` and `clarify`, saying `paranoidText`, `carefulText`,
 `stepBackText` and `clarifyText`. `paranoid` crosses on a signal the lint
-does not own — a frame whose transition is `complete` in the snapshot is a
-bounced completion, a demand counter increasing — held with strong
+does not own: a frame whose transition is `complete` in the snapshot marks a
+bounced completion and an increased demand counter. It requires strong
 confidence; the rest read the emotions and help the reading already holds.
 `defaults()` is both, and what `CellTurn.Input.monitors` takes when omitted.
 

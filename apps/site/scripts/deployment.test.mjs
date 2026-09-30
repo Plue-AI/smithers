@@ -4,6 +4,7 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import test from "node:test"
@@ -188,23 +189,45 @@ test("every shared-state stack plans against one record under stage prod", () =>
   // last, and the CLI's default stage is dev_$USER, so either one gives each
   // machine its own view of production.
   const stacks = [
-    { stack: "apps/review/alchemy.run.ts", pkg: "apps/review/package.json" },
-    { stack: "apps/bug-worker/alchemy.run.ts", pkg: "apps/bug-worker/package.json" },
-    ...sites.map((site) => ({ stack: "apps/docs/shared/alchemy-site.mjs", pkg: `apps/docs/${site.slug}/package.json` }))
+    { stack: "apps/review/alchemy.run.ts", pkg: "apps/review/package.json", qualifiedOnly: true },
+    { stack: "apps/bug-worker/alchemy.run.ts", pkg: "apps/bug-worker/package.json", qualifiedOnly: true },
+    ...sites.map((site) => ({ stack: "apps/docs/shared/alchemy-site.mjs", pkg: `apps/docs/${site.slug}/package.json`, qualifiedOnly: false }))
   ]
-  for (const { stack, pkg } of stacks) {
+  for (const { stack, pkg, qualifiedOnly } of stacks) {
     const source = read(stack)
     assert.ok(source.includes("state: Cloudflare.state()"), `${stack}: state must live in the account's alchemy-state-store`)
     assert.ok(!source.includes("localState"), `${stack}: local state is one machine's view`)
-    const scripts = Object.values(JSON.parse(read(pkg)).scripts).filter((script) => script.startsWith("alchemy "))
+    const packageScripts = JSON.parse(read(pkg)).scripts
+    const scripts = Object.values(packageScripts).filter((script) => script.startsWith("alchemy "))
     assert.deepEqual(scripts.sort(), [
       "alchemy deploy --dry-run --stage prod",
-      "alchemy deploy --stage prod",
+      ...(qualifiedOnly ? [] : ["alchemy deploy --stage prod"]),
       "alchemy destroy --stage prod"
-    ], pkg)
+    ].sort(), pkg)
+    assert.equal(packageScripts.deploy, qualifiedOnly
+      ? "node ../../flows/rollout/refuse-unqualified.mjs"
+      : "alchemy deploy --stage prod", pkg)
+    if (qualifiedOnly) {
+      for (const [name, script] of Object.entries(packageScripts)) {
+        if (name !== "plan") assert.doesNotMatch(script, /\balchemy\s+deploy\b/, `${pkg}:${name}: only the qualified Cloud host may deploy`)
+      }
+    }
   }
   for (const site of sites) {
     assert.match(read(`apps/docs/${site.slug}/alchemy.run.ts`), new RegExp(`makeDocsSiteStack\\(\\{ slug: "${site.slug}" \\}\\)`))
+  }
+})
+
+test("review and bug-worker local deploy commands refuse unqualified publication", () => {
+  const guard = join(root, "flows/rollout/refuse-unqualified.mjs")
+  for (const app of ["review", "bug-worker"]) {
+    for (const flags of [[], ["--stage", "prod"], ["--adopt", "--stage", "prod"]]) {
+      const label = `${app} ${flags.join(" ")}`
+      const result = spawnSync(process.execPath, [guard, ...flags], { cwd: join(root, "apps", app), encoding: "utf8" })
+      assert.equal(result.status, 1, label)
+      assert.equal(result.stdout, "", label)
+      assert.match(result.stderr, /Deployment refused: a qualified Cloud rollout is required/, label)
+    }
   }
 })
 
