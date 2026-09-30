@@ -15,11 +15,12 @@
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as Layer from "effect/Layer"
 import { integrationCursors } from "./IntegrationCursorMigration.ts"
-import { integrationRecords } from "./IntegrationRecordsMigration.ts"
+import { integrationRecords, integrationRecordsSwept } from "./IntegrationRecordsMigration.ts"
 
 /**
  * The integration set, in migration id block 8000: the polling cursor table,
- * then the source record store's tables.
+ * then the source record store's tables, then the record column that tells an
+ * inferred deletion from a provider's.
  *
  * The blocks below it are journal `0`, run-store `1000`, step-cache `2000`,
  * engine-store `3000`, plan `4000`, time-travel `5000`, control `6000`,
@@ -33,7 +34,8 @@ export const set: DatabaseMigrations.MigrationSet = {
   idOffset: DatabaseMigrations.idBlock * 8,
   migrations: {
     "0001_integration_cursors": integrationCursors,
-    "0002_integration_records": integrationRecords
+    "0002_integration_records": integrationRecords,
+    "0003_integration_records_swept": integrationRecordsSwept
   }
 }
 

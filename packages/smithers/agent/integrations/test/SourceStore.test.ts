@@ -520,6 +520,96 @@ const contract = (name: string, layer: Layer.Layer<SourceStore>) => {
       expect(result.again).toMatchObject({ swept: 0, sweeping: false })
     })
 
+    // #2662: a sweep keeps the change time and version of the copy it removed,
+    // so it must not outrank that same copy when a later full listing
+    // contains it again, whichever page of the listing carries it.
+    it("restores an unchanged record a later multi-page full listing contains again", async () => {
+      const current = record({ externalId: "current-object", version: "unchanged-v1" })
+      const other = record({ externalId: "other" })
+      const listing = (pages: ReadonlyArray<ReadonlyArray<SourceRecord>>) =>
+        Effect.flatMap(store, (s) =>
+          Effect.forEach(pages, (records, index) =>
+            s.commit(page({
+              records,
+              cursor: `p${index}`,
+              reset: index === 0,
+              done: index === pages.length - 1
+            }))))
+      const result = await run(Effect.gen(function*() {
+        const s = yield* store
+        const inserted = yield* listing([[current, other]])
+        const absent = yield* listing([[other], []])
+        const gone = yield* s.retrieve({ allowed: general, limit: 10 })
+        const present = yield* listing([[other], [{ ...current, retrievedAtMs: 3_000 }]])
+        const stored = yield* s.get("team-chat", "current-object")
+        const visible = (yield* s.retrieve({ allowed: general, limit: 10 })).map((found) => found.externalId)
+        // Restored, it is this stream's again: the next omission sweeps it.
+        const again = yield* listing([[other]])
+        return { inserted, absent, gone, present, stored, visible, again }
+      }))
+      expect(result.inserted[0]).toMatchObject({ inserted: 2, swept: 0 })
+      expect(result.absent[1]).toMatchObject({ swept: 1, sweeping: false })
+      expect(result.gone.map((found) => found.externalId)).toEqual(["other"])
+      expect(result.present[1]).toMatchObject({ inserted: 0, updated: 1, unchanged: 0, tombstoned: 0, swept: 0 })
+      expect(Option.getOrThrow(result.stored)).toEqual({
+        record: { ...current, retrievedAtMs: 3_000 },
+        revoked: false,
+        stream: "c-general"
+      })
+      expect(result.visible).toEqual(["current-object", "other"])
+      expect(result.again[0]).toMatchObject({ swept: 1 })
+    })
+
+    it("keeps a swept record deleted against a stale copy, and a provider deletion against an equal one", async () => {
+      const listed = record({ externalId: "a" })
+      const result = await run(Effect.gen(function*() {
+        const s = yield* store
+        const full = (records: ReadonlyArray<SourceRecord>) =>
+          s.commit(page({ records, cursor: "f", reset: true, done: true }))
+        yield* full([listed])
+        yield* full([])
+        const stale = yield* full([record({ externalId: "a", updatedAtMs: 999 })])
+        const staleStored = yield* s.get("team-chat", "a")
+        // The provider confirms the deletion at the removed copy's own time:
+        // from then on it outranks a live copy with that time, as any
+        // provider deletion does.
+        const confirmed = yield* s.apply([tombstone(listed, 1_000, 4_000)])
+        const equal = yield* full([listed])
+        const equalStored = yield* s.get("team-chat", "a")
+        // A genuinely newer provider deletion outranks the unchanged copy too.
+        yield* s.apply([record({ externalId: "b" })])
+        yield* s.apply([tombstone(record({ externalId: "b" }), 1_001)])
+        const newer = yield* s.commit(page({ records: [record({ externalId: "b" })], cursor: "g", reset: true }))
+        const newerStored = yield* s.get("team-chat", "b")
+        return { stale, staleStored, confirmed, equal, equalStored, newer, newerStored }
+      }))
+      expect(result.stale).toMatchObject({ updated: 0, unchanged: 1 })
+      expect(Option.getOrThrow(result.staleStored).record).toMatchObject({ deleted: true, text: "" })
+      expect(result.confirmed).toEqual({ inserted: 0, updated: 1, unchanged: 0, tombstoned: 1 })
+      expect(result.equal).toMatchObject({ updated: 0, unchanged: 1 })
+      expect(Option.getOrThrow(result.equalStored).record).toMatchObject({ deleted: true, text: "" })
+      expect(result.newer).toMatchObject({ updated: 0, unchanged: 1 })
+      expect(Option.getOrThrow(result.newerStored).record).toMatchObject({ deleted: true, updatedAtMs: 1_001 })
+    })
+
+    it("restores a swept record ordered by version alone when the listing carries that version again", async () => {
+      const versioned = record({ externalId: "mail", updatedAtMs: null, version: "42" })
+      const result = await run(Effect.gen(function*() {
+        const s = yield* store
+        const full = (records: ReadonlyArray<SourceRecord>) =>
+          s.commit(page({ records, cursor: "f", reset: true, done: true }))
+        yield* full([versioned])
+        const swept = yield* full([])
+        const older = yield* full([{ ...versioned, version: "41" }])
+        const restored = yield* full([versioned])
+        return { swept, older, restored, stored: yield* s.get("team-chat", "mail") }
+      }))
+      expect(result.swept.swept).toBe(1)
+      expect(result.older).toMatchObject({ updated: 0, unchanged: 1 })
+      expect(result.restored).toMatchObject({ updated: 1, unchanged: 0 })
+      expect(Option.getOrThrow(result.stored).record).toEqual(versioned)
+    })
+
     it("refuses a page carrying another connection's or provider's records, or no stream", async () => {
       const [failures, stored] = await run(Effect.gen(function*() {
         const s = yield* store

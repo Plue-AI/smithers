@@ -72,3 +72,19 @@ export const integrationRecords: Effect.Effect<void, unknown, SqlClient.SqlClien
     PRIMARY KEY (connection_id, container_id)
   )`
 })
+
+/**
+ * Adds `swept` to `smithers_integration_records`: whether a record's deletion
+ * was inferred by a completed full listing that omitted it, rather than
+ * reported by the provider. Only a provider deletion outranks a live copy with
+ * the same change time and version; an inferred one yields to the next listing
+ * that contains the record again.
+ *
+ * @category migrations
+ * @since 1.0.0
+ */
+export const integrationRecordsSwept: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`ALTER TABLE smithers_integration_records
+    ADD COLUMN swept ${Dialect.integer(sql)} NOT NULL DEFAULT 0 CHECK (swept IN (0, 1))`
+})

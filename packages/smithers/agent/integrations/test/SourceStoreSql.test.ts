@@ -263,7 +263,8 @@ describe("SourceStore (SQLite) durability and migrations", () => {
     expect(cursor).toBe("42")
     expect(ledger).toEqual([
       [8001, "integrations_integration_cursors"],
-      [8002, "integrations_integration_records"]
+      [8002, "integrations_integration_records"],
+      [8003, "integrations_integration_records_swept"]
     ])
   })
 })

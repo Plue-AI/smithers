@@ -16,7 +16,9 @@
  *   author and link. Revoking a connection or one container of it does the
  *   same to every record there and leaves a revocation marker, so a sync that
  *   races the revocation stores metadata only. `reinstate` removes a marker;
- *   purged records return when a sync lists them again.
+ *   purged records return when a sync lists them again. A deletion a full
+ *   listing inferred from absence yields the same way: a later copy at least as
+ *   new as the one it removed restores the record.
  * - **Authorization before text.** `retrieve` takes the grants the caller
  *   holds and filters on them, and on deletion and revocation, inside the
  *   query: the text of a record the caller may not read never leaves the
@@ -321,15 +323,32 @@ const content = (record: SourceRecord.SourceRecord): string =>
 
 type Decision = "insert" | "replace" | "keep"
 
-const decide = (current: Stored | undefined, candidate: SourceRecord.SourceRecord, revokedNow: boolean): Decision => {
+/**
+ * A stored copy as the shared rules read it. `swept` marks a deletion a
+ * completed full listing inferred from the record's absence: it keeps the
+ * change time and version of the copy it removed, so it must not outrank that
+ * copy the way a provider's deletion at the same time does.
+ */
+interface Current {
+  readonly stored: Stored
+  readonly swept: boolean
+}
+
+const decide = (current: Current | undefined, candidate: SourceRecord.SourceRecord, revokedNow: boolean): Decision => {
   if (current === undefined) return "insert"
-  const order = SourceRecord.compare(current.record, candidate)
+  const stored = current.stored
+  // An inferred absence yields to a live copy at least as new as the one it
+  // removed; a stale live copy still loses.
+  const ordering = current.swept && !candidate.deleted ? { ...stored.record, deleted: false } : stored.record
+  const order = SourceRecord.compare(ordering, candidate)
   if (order !== 0) return order > 0 ? "replace" : "keep"
-  // Equal copies: purge a row newly known to be revoked, restore a row whose
+  // Equal copies: restore a swept record (or confirm its deletion as the
+  // provider's), purge a row newly known to be revoked, restore a row whose
   // revocation was lifted, and otherwise take a fresher, different observation.
-  if (current.revoked !== revokedNow) return "replace"
+  if (current.swept) return "replace"
+  if (stored.revoked !== revokedNow) return "replace"
   if (revokedNow) return "keep"
-  return candidate.retrievedAtMs > current.record.retrievedAtMs && content(candidate) !== content(current.record)
+  return candidate.retrievedAtMs > stored.record.retrievedAtMs && content(candidate) !== content(stored.record)
     ? "replace"
     : "keep"
 }
@@ -344,7 +363,8 @@ interface StreamState {
 
 /** The storage port the shared rules run against, inside one transaction. */
 interface Tables {
-  readonly read: (connectionId: string, externalId: string) => Effect.Effect<Stored | undefined, IntegrationError>
+  readonly read: (connectionId: string, externalId: string) => Effect.Effect<Current | undefined, IntegrationError>
+  /** Writes a copy the rules decided on; a written copy is never swept. */
   readonly write: (stored: Stored) => Effect.Effect<void, IntegrationError>
   readonly mark: (
     connectionId: string,
@@ -390,7 +410,7 @@ const applyAll = (
       const current = yield* tables.read(record.connectionId, record.externalId)
       const decision = decide(current, candidate, revokedNow)
       if (decision !== "keep") {
-        yield* tables.write({ record: candidate, revoked: revokedNow, stream: current?.stream ?? null })
+        yield* tables.write({ record: candidate, revoked: revokedNow, stream: current?.stored.stream ?? null })
       }
       if (mark !== undefined) yield* tables.mark(record.connectionId, record.externalId, mark.stream, mark.generation)
       report = {
@@ -513,6 +533,7 @@ const newestFirst = (left: SourceRecord.SourceRecord, right: SourceRecord.Source
 interface MemoryRow {
   readonly stored: Stored
   readonly seenGeneration: number
+  readonly swept: boolean
 }
 
 interface MemoryState {
@@ -532,17 +553,21 @@ const cloneState = (state: MemoryState): MemoryState => ({
 })
 
 const memoryTables = (draft: MemoryState): Tables => ({
-  read: (connectionId, externalId) => Effect.sync(() => draft.records.get(pair(connectionId, externalId))?.stored),
+  read: (connectionId, externalId) =>
+    Effect.sync(() => {
+      const row = draft.records.get(pair(connectionId, externalId))
+      return row === undefined ? undefined : { stored: row.stored, swept: row.swept }
+    }),
   write: (stored) =>
     Effect.sync(() => {
       const key = pair(stored.record.connectionId, stored.record.externalId)
-      draft.records.set(key, { stored, seenGeneration: draft.records.get(key)?.seenGeneration ?? 0 })
+      draft.records.set(key, { stored, seenGeneration: draft.records.get(key)?.seenGeneration ?? 0, swept: false })
     }),
   mark: (connectionId, externalId, stream, generation) =>
     Effect.sync(() => {
       const key = pair(connectionId, externalId)
       const row = draft.records.get(key)!
-      draft.records.set(key, { stored: { ...row.stored, stream }, seenGeneration: generation })
+      draft.records.set(key, { ...row, stored: { ...row.stored, stream }, seenGeneration: generation })
     }),
   markers: (connectionId) => Effect.sync(() => new Set(draft.revocations.get(connectionId) ?? [])),
   stream: (connectionId, stream) =>
@@ -560,7 +585,8 @@ const memoryTables = (draft: MemoryState): Tables => ({
         ) continue
         draft.records.set(key, {
           ...row,
-          stored: { ...row.stored, record: { ...purge(record), deleted: true, retrievedAtMs: nowMs } }
+          stored: { ...row.stored, record: { ...purge(record), deleted: true, retrievedAtMs: nowMs } },
+          swept: true
         })
         swept += 1
       }
@@ -709,6 +735,7 @@ interface Row {
   readonly payload_json: string
   readonly revoked: number
   readonly stream: string | null
+  readonly swept: number
 }
 
 const numberOrNull = (value: unknown): number | null => value === null ? null : Number(value)
@@ -784,19 +811,24 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
       sql<Row>`SELECT * FROM smithers_integration_records
         WHERE connection_id = ${connectionId} AND external_id = ${externalId}`.pipe(
         failAs("read"),
-        Effect.flatMap((rows) => rows[0] === undefined ? Effect.succeed(undefined) : fromRow(rows[0]))
+        Effect.flatMap((rows) => {
+          const row = rows[0]
+          return row === undefined
+            ? Effect.succeed(undefined)
+            : Effect.map(fromRow(row), (stored) => ({ stored, swept: Number(row.swept) === 1 }))
+        })
       ),
     write: ({ record, revoked }) =>
       sql`INSERT INTO smithers_integration_records (
           connection_id, external_id, provider, kind, url, author_id, author_label, created_at_ms, updated_at_ms,
           version, retrieved_at_ms, access_scope, access_container_id, thread_container_id, thread_id, parent_id,
-          text, deleted, payload_json, revoked
+          text, deleted, payload_json, revoked, swept
         ) VALUES (
           ${record.connectionId}, ${record.externalId}, ${record.provider}, ${record.kind}, ${record.url},
           ${record.author?.id ?? null}, ${record.author?.label ?? null}, ${record.createdAtMs}, ${record.updatedAtMs},
           ${record.version}, ${record.retrievedAtMs}, ${record.access.scope}, ${record.access.containerId},
           ${record.thread.containerId}, ${record.thread.threadId}, ${record.thread.parentId}, ${record.text},
-          ${record.deleted ? 1 : 0}, ${JSON.stringify(record.payload)}, ${revoked ? 1 : 0}
+          ${record.deleted ? 1 : 0}, ${JSON.stringify(record.payload)}, ${revoked ? 1 : 0}, 0
         )
         ON CONFLICT (connection_id, external_id) DO UPDATE SET
           provider = excluded.provider, kind = excluded.kind, url = excluded.url, author_id = excluded.author_id,
@@ -805,7 +837,8 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
           retrieved_at_ms = excluded.retrieved_at_ms, access_scope = excluded.access_scope,
           access_container_id = excluded.access_container_id, thread_container_id = excluded.thread_container_id,
           thread_id = excluded.thread_id, parent_id = excluded.parent_id, text = excluded.text,
-          deleted = excluded.deleted, payload_json = excluded.payload_json, revoked = excluded.revoked`.pipe(
+          deleted = excluded.deleted, payload_json = excluded.payload_json, revoked = excluded.revoked,
+          swept = 0`.pipe(
         Effect.asVoid,
         failAs("write")
       ),
@@ -839,7 +872,7 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
     sweep: (connectionId, stream, generation, nowMs) =>
       sql`UPDATE smithers_integration_records
         SET deleted = 1, url = NULL, author_id = NULL, author_label = NULL, text = '', payload_json = 'null',
-          retrieved_at_ms = ${nowMs}
+          retrieved_at_ms = ${nowMs}, swept = 1
         WHERE connection_id = ${connectionId} AND stream = ${stream} AND deleted = 0
           AND seen_generation < ${generation}`.raw.pipe(Effect.flatMap(affectedRows), failAs("sweep")),
     setCursor: (key, cursor) => cursors.set(key, cursor)
@@ -877,7 +910,8 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
 
   return SourceStore.of({
     apply: (records) => Effect.flatMap(admitAll(records), (admitted) => transact("apply", applyAll(tables, admitted))),
-    get: (connectionId, externalId) => Effect.map(tables.read(connectionId, externalId), Option.fromNullishOr),
+    get: (connectionId, externalId) =>
+      Effect.map(tables.read(connectionId, externalId), (current) => Option.fromNullishOr(current?.stored)),
     retrieve: (query) =>
       Effect.gen(function*() {
         const limit = yield* checkLimit(query.limit)
