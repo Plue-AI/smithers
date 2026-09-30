@@ -130,3 +130,18 @@ test('replacement accepts one astral or combining character key and rejects name
     expect([cancelled.pending, cancelled.undo.length]).toEqual(['', 0])
   }
 })
+
+test('forward end-word stays on the terminal empty line instead of jumping back', () => {
+  for (const command of [['e'], ['2', 'e']]) {
+    const buffer = normal('a\n', 2)
+    expect(buffer.cursor).toBe(2)
+    keys(buffer, ...command)
+    expect(buffer.value).toBe('a\n')
+    expect([buffer.cursor, buffer.register, buffer.pending, buffer.count, buffer.undo.length]).toEqual([2, '', '', '', 0])
+  }
+  const w = normal('a\n', 2)
+  keys(w, 'w')
+  expect(w.cursor).toBe(2)
+  keys(w, 'b')
+  expect(w.cursor).toBe(0)
+})

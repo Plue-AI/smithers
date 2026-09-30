@@ -46,6 +46,7 @@ const word = (value: string, cursor: number, key: string): number => {
     while (to > 0 && kind(value[to]!) === 0) to--
     while (to > 0 && kind(value[to - 1]!) === kind(value[to]!)) to--
   } else if (key === 'e') {
+    if (to >= value.length - 1) return to
     to = Math.min(value.length - 1, to + 1)
     while (to < value.length - 1 && kind(value[to]!) === 0) to++
     while (to < value.length - 1 && kind(value[to + 1]!) === kind(value[to]!)) to++
