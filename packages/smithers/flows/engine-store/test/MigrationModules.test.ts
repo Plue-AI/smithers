@@ -19,6 +19,7 @@ import * as PlanMerges from "../src/migrations/0005_plan_merges.ts"
 import * as ExecutionListing from "../src/migrations/0006_execution_listing.ts"
 import * as RunParentSequence from "../src/migrations/0007_run_parent_sequence.ts"
 import * as DeferredConsumption from "../src/migrations/0008_deferred_consumption.ts"
+import * as DeferredClockFacts from "../src/migrations/0009_deferred_clock_facts.ts"
 
 describe("migration modules", () => {
   it("registers an Effect for every migration in the set", () => {
@@ -31,7 +32,8 @@ describe("migration modules", () => {
       "0005_plan_merges",
       "0006_execution_listing",
       "0007_run_parent_sequence",
-      "0008_deferred_consumption"
+      "0008_deferred_consumption",
+      "0009_deferred_clock_facts"
     ])
     for (const [id, migration] of entries) {
       expect(Effect.isEffect(migration), id).toBe(true)
@@ -45,6 +47,7 @@ describe("migration modules", () => {
     expect(Migrations.set.migrations["0006_execution_listing"]).toBe(ExecutionListing.executionListing)
     expect(Migrations.set.migrations["0007_run_parent_sequence"]).toBe(RunParentSequence.runParentSequence)
     expect(Migrations.set.migrations["0008_deferred_consumption"]).toBe(DeferredConsumption.deferredConsumption)
+    expect(Migrations.set.migrations["0009_deferred_clock_facts"]).toBe(DeferredClockFacts.deferredClockFacts)
   })
 
   it("exports each migration as a named binding and no default", () => {
@@ -60,5 +63,6 @@ describe("migration modules", () => {
     expect(Object.keys(ExecutionListing)).toEqual(["executionListing"])
     expect(Object.keys(RunParentSequence)).toEqual(["runParentSequence"])
     expect(Object.keys(DeferredConsumption)).toEqual(["deferredConsumption"])
+    expect(Object.keys(DeferredClockFacts)).toEqual(["deferredClockFacts"])
   })
 })

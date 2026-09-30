@@ -107,13 +107,58 @@ export const attemptFinished = (options: EventOptions, payload: unknown) =>
 /**
  * A durable deferred was resolved from outside the run. Journaled because the
  * resolution is the only evidence of it — a replay cannot re-derive a value
- * that arrived over the network.
+ * that arrived over the network. The record names the completion row and the
+ * digests of its encoded `exit` and `metadata`; the values stay in the row,
+ * because the journal is redacted and replayed to subscribers.
  *
  * @since 0.1.0
  * @category events
  */
 export const deferredCompleted = (options: EventOptions, payload: unknown) =>
   event(options, EventTypes.deferredCompleted, payload)
+/**
+ * A run observed a deferred's result, so registration sweeps stop waking it
+ * for that result. The result itself stays in its row for replay.
+ *
+ * @since 1.0.0
+ * @category events
+ */
+export const deferredConsumed = (options: EventOptions, payload: unknown) =>
+  event(options, EventTypes.deferredConsumed, payload)
+/**
+ * A durable timer stopped being pending: it fired, or its run settled first.
+ * Without it a rebuilt deadline index would re-arm a clock that already
+ * completed (issue #2037).
+ *
+ * @since 1.0.0
+ * @category events
+ */
+export const clockCompleted = (options: EventOptions, payload: unknown) =>
+  event(options, EventTypes.clockCompleted, payload)
+/**
+ * The {@link clockCompleted} record for one clock, under the producer identity
+ * every completer of that clock shares, so a retried completion collapses.
+ *
+ * @since 1.0.0
+ * @category events
+ */
+export const clockCompletedFor = (
+  journalSource: string,
+  lineageId: string,
+  clock: { readonly flowName: string; readonly executionId: string; readonly clockName: string },
+  completedAtMs: number
+) =>
+  clockCompleted({
+    runId: clock.executionId,
+    lineageId,
+    sourceId: `${journalSource}:clock-completed:${JSON.stringify([clock.flowName, clock.executionId, clock.clockName])}`,
+    sourceSeq: 0
+  }, {
+    flowName: clock.flowName,
+    executionId: clock.executionId,
+    clockName: clock.clockName,
+    completedAtMs
+  })
 /**
  * A durable timer was armed. Journaling the schedule rather than the firing is
  * what lets a resumed run re-arm the same deadline instead of restarting the

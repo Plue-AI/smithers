@@ -62,6 +62,7 @@
     "./Selection": "./src/Selection.ts",
     "./SelectionStore": "./src/SelectionStore.ts",
     "./StepBoundary": "./src/StepBoundary.ts",
+    "./DeferredClockFold": "./src/DeferredClockFold.ts",
     "./StepCacheFold": "./src/StepCacheFold.ts",
     "./StepSandbox": "./src/StepSandbox.ts",
     "./WakeBus": "./src/WakeBus.ts",
@@ -338,6 +339,16 @@
         "require": {
           "types": "./dist/cjs/StepBoundary.d.ts",
           "default": "./dist/cjs/StepBoundary.js"
+        }
+      },
+      "./DeferredClockFold": {
+        "import": {
+          "types": "./dist/esm/DeferredClockFold.d.ts",
+          "default": "./dist/esm/DeferredClockFold.js"
+        },
+        "require": {
+          "types": "./dist/cjs/DeferredClockFold.d.ts",
+          "default": "./dist/cjs/DeferredClockFold.js"
         }
       },
       "./StepCacheFold": {

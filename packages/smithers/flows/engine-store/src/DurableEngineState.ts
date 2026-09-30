@@ -13,6 +13,7 @@
 
 import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
+import { contentDigest } from "@smthrs/journal/JournalEvent"
 import type { OwnerId } from "@smthrs/run-store/Ownership"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
@@ -96,8 +97,21 @@ export type DeferredRow = typeof DeferredRow.Type
  * @category models
  */
 export type CompleteDeferredOutcome =
-  | { readonly _tag: "Completed"; readonly row: DeferredRow }
-  | { readonly _tag: "Existing"; readonly row: DeferredRow }
+  | { readonly _tag: "Completed"; readonly row: DeferredRow; readonly digest: DeferredDigest }
+  | { readonly _tag: "Existing"; readonly row: DeferredRow; readonly digest: DeferredDigest }
+
+/**
+ * The `JournalEvent.contentDigest` of a stored completion's encoded `exit`
+ * and `metadata` text. The journal fact that announces a completion carries
+ * these digests instead of the values, which stay in the row.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface DeferredDigest {
+  readonly exit: string
+  readonly metadata: string | null
+}
 
 /**
  * The durable address of a clock.
@@ -409,8 +423,12 @@ export type RecordRunParentOutcome =
  */
 export interface Service {
   readonly deferred: (address: DeferredAddress) => Effect.Effect<Option.Option<DeferredRow>>
-  /** Marks an existing result observed without removing its replay evidence. */
-  readonly consumeDeferred: (address: DeferredAddress, consumedAtMs: number) => Effect.Effect<void>
+  /**
+   * Marks an existing result observed without removing its replay evidence.
+   * Returns whether this call consumed it: false when there is no result or
+   * it was already consumed.
+   */
+  readonly consumeDeferred: (address: DeferredAddress, consumedAtMs: number) => Effect.Effect<boolean>
   readonly completeDeferred: (row: DeferredRow) => Effect.Effect<CompleteDeferredOutcome>
   readonly clock: (address: ClockAddress) => Effect.Effect<Option.Option<ClockRow>>
   /**
@@ -439,7 +457,7 @@ export interface Service {
   readonly completeRunClocks: (
     executionId: string,
     completedAtMs: number
-  ) => Effect.Effect<void>
+  ) => Effect.Effect<ReadonlyArray<ClockRow>>
   /**
    * Lists uncompleted clock rows scoped to an execution or flow, with no
    * due-time bound. Suspension-reason derivation and registration-time
@@ -787,6 +805,23 @@ const findCyclePath = (
 /** @private */
 const DeferredAddressDatabaseRow = DeferredAddress
 
+/** The digests of a stored completion row's encoded text. */
+const deferredDigest = (row: {
+  readonly exitJson: string
+  readonly metadataJson: string | null
+}): DeferredDigest => ({
+  exit: contentDigest(row.exitJson),
+  metadata: row.metadataJson === null ? null : contentDigest(row.metadataJson)
+})
+
+/** The digests of a memory completion row, over the text the SQL store would keep. */
+const memoryDigest = (row: DeferredRow): Effect.Effect<DeferredDigest> =>
+  Effect.gen(function*() {
+    const exitJson = yield* encodeJson(row.exit, "exit")
+    const metadataJson = row.metadata === undefined ? null : yield* encodeJson(row.metadata, "metadata")
+    return deferredDigest({ exitJson, metadataJson })
+  })
+
 const encodeJson = (value: unknown, field: string): Effect.Effect<string> =>
   Schema.encodeEffect(UnknownFromJsonString)(value).pipe(
     Effect.mapError((cause) => new Error(`${field} must be JSON-serializable`, { cause })),
@@ -1044,14 +1079,15 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     address,
     consumedAtMs
   ) =>
-    writer.write(sql`
+    writer.write(sql<{ readonly flowName: string }>`
       UPDATE flows_deferred_completions
       SET consumed_at_ms = ${consumedAtMs}
       WHERE flow_name = ${address.flowName}
         AND execution_id = ${address.executionId}
         AND deferred_name = ${address.deferredName}
         AND consumed_at_ms IS NULL
-    `).pipe(Effect.orDie, Effect.asVoid)
+      RETURNING flow_name AS "flowName"
+    `).pipe(Effect.orDie, Effect.map((rows) => rows.length > 0))
   )
 
   const completeDeferred: Service["completeDeferred"] = Effect.fn(
@@ -1092,7 +1128,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           if (inserted[0] !== undefined) {
             return {
               _tag: "Completed" as const,
-              row: yield* decodeDeferredRow(inserted[0])
+              row: yield* decodeDeferredRow(inserted[0]),
+              digest: deferredDigest(inserted[0])
             }
           }
           const existing = yield* selectDeferred(row)
@@ -1103,7 +1140,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           }
           return {
             _tag: "Existing" as const,
-            row: yield* decodeDeferredRow(existing[0])
+            row: yield* decodeDeferredRow(existing[0]),
+            digest: deferredDigest(existing[0])
           }
         })
       ).pipe(Effect.orDie)
@@ -1333,12 +1371,27 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
   const completeRunClocks: Service["completeRunClocks"] = Effect.fn(
     "DurableEngineState.completeRunClocks"
   )((executionId, completedAtMs) =>
-    writer.write(sql`
+    writer.write(sql<ClockDatabaseRow>`
       UPDATE flows_clock_deadlines
       SET completed_at_ms = ${completedAtMs}
       WHERE execution_id = ${executionId}
         AND completed_at_ms IS NULL
-    `).pipe(Effect.orDie, Effect.asVoid)
+      RETURNING
+        flow_name AS "flowName",
+        execution_id AS "executionId",
+        clock_name AS "clockName",
+        deferred_name AS "deferredName",
+        due_at_ms AS "dueAtMs",
+        completed_at_ms AS "completedAtMs"
+    `).pipe(
+      Effect.orDie,
+      Effect.flatMap((rows) => Effect.forEach(rows, decodeClockRow)),
+      Effect.map((rows) =>
+        [...rows].sort((left, right) =>
+          compareText(left.flowName, right.flowName) || compareText(left.clockName, right.clockName)
+        )
+      )
+    )
   )
 
   const selectWaiting = (runId: string) =>
@@ -2061,9 +2114,9 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     consumeDeferred: Effect.fn("DurableEngineState.consumeDeferred")((address, consumedAtMs) =>
       Effect.sync(() => {
         const key = deferredKey(address)
-        if (deferreds.has(key) && !consumedDeferreds.has(key)) {
-          consumedDeferreds.set(key, consumedAtMs)
-        }
+        if (!deferreds.has(key) || consumedDeferreds.has(key)) return false
+        consumedDeferreds.set(key, consumedAtMs)
+        return true
       })
     ),
     completeDeferred: Effect.fn("DurableEngineState.completeDeferred")((row) =>
@@ -2072,10 +2125,18 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
         const key = deferredKey(stored)
         const existing = deferreds.get(key)
         if (existing !== undefined) {
-          return { _tag: "Existing" as const, row: yield* snapshotDeferred(existing) }
+          return {
+            _tag: "Existing" as const,
+            row: yield* snapshotDeferred(existing),
+            digest: yield* memoryDigest(existing)
+          }
         }
         deferreds.set(key, stored)
-        return { _tag: "Completed" as const, row: yield* snapshotDeferred(stored) }
+        return {
+          _tag: "Completed" as const,
+          row: yield* snapshotDeferred(stored),
+          digest: yield* memoryDigest(stored)
+        }
       })
     ),
     clock: Effect.fn("DurableEngineState.clock")((address) =>
@@ -2132,10 +2193,16 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     ),
     completeRunClocks: Effect.fn("DurableEngineState.completeRunClocks")((executionId, completedAtMs) =>
       Effect.sync(() => {
+        const completed: Array<ClockRow> = []
         for (const [key, row] of clocks) {
           if (row.executionId !== executionId || row.completedAtMs !== null) continue
-          clocks.set(key, { ...row, completedAtMs })
+          const next = { ...row, completedAtMs }
+          clocks.set(key, next)
+          completed.push({ ...next })
         }
+        return completed.sort((left, right) =>
+          compareText(left.flowName, right.flowName) || compareText(left.clockName, right.clockName)
+        )
       })
     ),
     pendingClocks: Effect.fn("DurableEngineState.pendingClocks")((scope) =>

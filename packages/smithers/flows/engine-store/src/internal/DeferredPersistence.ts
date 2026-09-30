@@ -177,7 +177,8 @@ export const make = (
     const persistDeferred = (
       options: DeferredDoneOptions,
       reason: ResumeReason = "deferred",
-      expectedWaiting?: { readonly reason: string; readonly token: string } | undefined
+      expectedWaiting?: { readonly reason: string; readonly token: string } | undefined,
+      alongside: Effect.Effect<void> = Effect.void
     ): Effect.Effect<FlowRuntime.DeferredDoneIfWaitingOutcome> =>
       Effect.gen(function*() {
         const completedAtMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
@@ -212,7 +213,9 @@ export const make = (
             // must never take the droppable lossy queue. It is unfenced by
             // design — external-trigger admissions are first-writer-wins
             // regardless of who owns the run (issue #10), which is exactly the
-            // admission `emitDurableUnfenced` exists for.
+            // admission `emitDurableUnfenced` exists for. The record names the
+            // row and the digests of its value; the value stays in the row,
+            // because the journal is redacted and replayed (issue #72).
             yield* journal.emitDurableUnfenced(
               JournalRecords.deferredCompleted({
                 runId: options.executionId,
@@ -225,10 +228,12 @@ export const make = (
                 flowName: row.flowName,
                 executionId: row.executionId,
                 deferredName: row.deferredName,
-                exit: row.exit,
-                ...(row.metadata === undefined ? {} : { metadata: row.metadata })
+                completedAtMs: row.completedAtMs,
+                exitDigest: completion.digest.exit,
+                metadataDigest: completion.digest.metadata
               })
             ).pipe(Effect.orDie)
+            yield* alongside
             return { _tag: "Admitted" as const, completion }
           })
         ).pipe(Effect.orDie)
@@ -251,7 +256,10 @@ export const make = (
     const fireClock = (row: DurableEngineState.ClockRow): Effect.Effect<void> =>
       Effect.gen(function*() {
         const completedAtMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
-        yield* completeDeferred(
+        // The clock completes in the deferred's transaction, and its record
+        // with it: a completion the journal never recorded is a clock a
+        // rebuilt deadline index would arm again (issue #2037).
+        yield* persistDeferred(
           {
             flowName: row.flowName,
             executionId: row.executionId,
@@ -263,9 +271,11 @@ export const make = (
               completedAtMs
             }
           },
-          "clock"
+          "clock",
+          undefined,
+          Effect.flatMap(state.completeClock(row, completedAtMs), (completed) =>
+            completed._tag === "Completed" ? emitClockCompleted(completed.row, completedAtMs) : Effect.void)
         )
-        yield* state.completeClock(row, completedAtMs)
       })
 
     const armClock = (row: DurableEngineState.ClockRow): Effect.Effect<void> =>
@@ -297,6 +307,20 @@ export const make = (
         ),
         Effect.asVoid
       )
+
+    /** Records that a clock stopped being pending, in the caller's transaction. */
+    const emitClockCompleted = (
+      row: DurableEngineState.ClockAddress,
+      completedAtMs: number
+    ): Effect.Effect<void> =>
+      journal.emitDurableUnfenced(
+        JournalRecords.clockCompletedFor(
+          dependencies.journalSource,
+          FlowEngine.Lineage.root(row.executionId),
+          row,
+          completedAtMs
+        )
+      ).pipe(Effect.asVoid, Effect.orDie)
 
     /**
      * Durable channel: clock schedule records are lifecycle evidence and must
@@ -399,7 +423,23 @@ export const make = (
         if (Option.isSome(row)) {
           // Keep the result for replay, but stop registration from waking a
           // run that already observed it and may now be parked on another wait.
-          yield* state.consumeDeferred(address, yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor)))
+          // The first consumption is recorded in the same transaction.
+          const consumedAtMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
+          yield* transactState(
+            Effect.flatMap(state.consumeDeferred(address, consumedAtMs), (consumed) =>
+              consumed
+                ? journal.emitDurableUnfenced(
+                  JournalRecords.deferredConsumed({
+                    runId: address.executionId,
+                    lineageId: FlowEngine.Lineage.root(address.executionId),
+                    sourceId: `${dependencies.journalSource}:deferred-consumed:${
+                      JSON.stringify([address.flowName, address.executionId, address.deferredName])
+                    }`,
+                    sourceSeq: 0
+                  }, { ...address, consumedAtMs })
+                ).pipe(Effect.asVoid)
+                : Effect.void)
+          ).pipe(Effect.orDie)
         }
         return Option.map(row, (value) => value.exit as Exit.Exit<unknown, unknown>)
       }),

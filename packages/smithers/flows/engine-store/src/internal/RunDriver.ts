@@ -637,6 +637,24 @@ export const make = (
       }, payload)
 
     /**
+     * Completes every pending clock of a settled run and records each
+     * completion, in the caller's transaction. A run that settles before its
+     * timer fires still has to leave the journal saying the clock is done, or
+     * a rebuilt deadline index would arm it again (issue #2037).
+     */
+    const completeRunClocks = (runId: string, completedAtMs: number) =>
+      Effect.flatMap(engineState.completeRunClocks(runId, completedAtMs), (completed) =>
+        Effect.forEach(completed, (clock) =>
+          journal.emitDurableUnfenced(
+            JournalRecords.clockCompletedFor(
+              dependencies.journalSource,
+              FlowEngine.Lineage.root(runId),
+              clock,
+              completedAtMs
+            )
+          ), { discard: true }))
+
+    /**
      * Records a decision this driver's own write transaction is responsible
      * for: the `transitioned` record that commits with its run-row CAS, and
      * the `claimed-and-activated` / `stolen-and-activated` record that commits
@@ -787,10 +805,7 @@ export const make = (
           // Every terminal round closes its own deadlines, including a
           // handoff whose successor and linked children continue separately.
           if (toStatus === "completed" || toStatus === "failed") {
-            yield* engineState.completeRunClocks(
-              runId,
-              yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
-            )
+            yield* completeRunClocks(runId, yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor)))
           }
           // The decision carries the state it committed, so run state at a
           // frame is DERIVED by replaying decisions rather than read off the
@@ -1281,7 +1296,7 @@ export const make = (
             // skip a settled run's rows, and this stops them being pending at
             // all — including under an in-memory state with no run view to
             // join against.
-            yield* engineState.completeRunClocks(runId, interruptedAtMs)
+            yield* completeRunClocks(runId, interruptedAtMs)
             // A cancel can race the final poll after the run already parked
             // (park precedes the guarded terminal CAS). Clear the waiting row so
             // the terminally cancelled run never surfaces to a sweeper again

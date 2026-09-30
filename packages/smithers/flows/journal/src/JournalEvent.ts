@@ -413,6 +413,19 @@ const sha256Hex = (text: string): string => {
 }
 
 /**
+ * The digest a journal fact uses to reference bytes kept outside the journal:
+ * the SHA-256 of the UTF-8 encoding of `text`, as 64 lowercase hex digits.
+ *
+ * The journal redacts every payload, so a fact never carries executable
+ * values. A store that folds state from its facts keeps the bytes in its own
+ * rows and records only their digest, which a rebuild checks the row against.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const contentDigest = (text: string): string => sha256Hex(text)
+
+/**
  * The id of the companion stream that carries one store's facts about a run.
  *
  * A companion stream is an ordinary journal stream with its own sequence
@@ -427,7 +440,7 @@ const sha256Hex = (text: string): string => {
  * @since 1.0.0
  */
 export const companionRunId = (stream: string, runId: string): RunId =>
-  `${companionPrefix}${stream}/${sha256Hex(runId)}` as RunId
+  `${companionPrefix}${stream}/${contentDigest(runId)}` as RunId
 
 /**
  * Whether a run id names a companion stream.

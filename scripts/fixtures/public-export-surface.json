@@ -73,6 +73,22 @@
     },
     {
       "name": "@smthrs/engine-store",
+      "subpath": "./DeferredClockFold",
+      "development": "./src/DeferredClockFold.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/DeferredClockFold.d.ts",
+          "default": "./dist/esm/DeferredClockFold.js"
+        },
+        "require": {
+          "types": "./dist/cjs/DeferredClockFold.d.ts",
+          "default": "./dist/cjs/DeferredClockFold.js"
+        }
+      },
+      "reason": "Intentional public journal-to-deferred/clock rebuild port (#2054), exposed by engine-store's source and publication maps, barrel and API reference. Journal records carry references and digests only; completion values stay in their rows, and an unjoinable reference fails fold_incomplete."
+    },
+    {
+      "name": "@smthrs/engine-store",
       "subpath": "./StepCacheFold",
       "development": "./src/StepCacheFold.ts",
       "published": {

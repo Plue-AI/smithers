@@ -98,6 +98,12 @@ export * as StepBoundary from "./StepBoundary.ts"
  * @category folds
  * @since 1.0.0
  */
+export * as DeferredClockFold from "./DeferredClockFold.ts"
+
+/**
+ * @category folds
+ * @since 1.0.0
+ */
 export * as StepCacheFold from "./StepCacheFold.ts"
 
 /**
