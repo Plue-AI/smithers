@@ -97,6 +97,7 @@ import * as RuntimeGraph from "./internal/RuntimeGraph.ts"
 import * as PlanInputStore from "./PlanInputStore.ts"
 import * as PlanMergeStore from "./PlanMergeStore.ts"
 import * as Reconciliation from "./Reconciliation.ts"
+import * as ReplayOnly from "./ReplayOnly.ts"
 import * as Selection from "./Selection.ts"
 import * as StepBoundary from "./StepBoundary.ts"
 import * as WorkspaceSandbox from "./WorkspaceSandbox.ts"
@@ -639,6 +640,9 @@ export const make = (options: Options): Service => {
         yield* Effect.serviceOption(Selection.Selection),
         Selection.makeNoop
       )
+      // A verifier composes the scheduler replay-only, as it does the engine:
+      // a recorded node replays and a node that would run its body stops.
+      const replayOnly = Option.getOrUndefined(yield* Effect.serviceOption(ReplayOnly.ReplayOnly))
       yield* Effect.logDebug("scheduler run started", {
         digest: initial.digest,
         nodes: initial.nodes.length
@@ -1114,6 +1118,7 @@ export const make = (options: Options): Service => {
               owner: options.owner,
               admission,
               cacheAgeVerdict,
+              replayOnly,
               sourceId: `${options.sourceId}/node/${node.id}`,
               execute: () =>
                 Ref.set(ran, true).pipe(
