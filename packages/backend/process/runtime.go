@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -43,6 +44,9 @@ type Config struct {
 	OutputLimit      int
 	FileReadLimit    int64
 	TerminationGrace time.Duration
+	// EgressRelay, when set, is the egress secret channel
+	// (workspace.WorkspaceEgressSecrets). Nil refuses bound secrets.
+	EgressRelay *egressrelay.Relay
 }
 
 type metadata struct {
@@ -76,6 +80,7 @@ type Runtime struct {
 	outputLimit   int
 	fileReadLimit int64
 	grace         time.Duration
+	relay         *egressrelay.Relay
 
 	mu         sync.Mutex
 	closed     bool
@@ -129,7 +134,8 @@ func New(config Config) (*Runtime, error) {
 	}
 	runtime := &Runtime{
 		root: root, environment: environment, semaphore: make(chan struct{}, config.MaxConcurrent),
-		outputLimit: config.OutputLimit, fileReadLimit: config.FileReadLimit, grace: config.TerminationGrace, workspaces: make(map[string]*workspace),
+		outputLimit: config.OutputLimit, fileReadLimit: config.FileReadLimit, grace: config.TerminationGrace, relay: config.EgressRelay,
+		workspaces: make(map[string]*workspace),
 	}
 	if err := runtime.load(); err != nil {
 		return nil, err
@@ -157,7 +163,7 @@ func (r *Runtime) WorkspaceIsolation(ctx context.Context, workspaceID string) (w
 func (r *Runtime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{
 		PersistentFiles: true, Execution: true, ManagedServices: true, ManagedHTTPHosts: true, SourceRevision: true, Terminal: goruntime.GOOS != "windows",
-		LoopbackPreview: true, FileOperations: true, ColdSnapshots: false,
+		LoopbackPreview: true, FileOperations: true, ColdSnapshots: false, EgressSecrets: r.relay != nil,
 	}
 }
 
@@ -340,10 +346,12 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 		return errors.New("workspace stop is already in progress")
 	}
 	if ws.State == string(workspaceapi.WorkspaceStopped) && len(ws.processes) == 0 {
+		r.revokeEgressSecrets(ws.ID)
 		r.mu.Unlock()
 		return nil
 	}
 	ws.State = string(workspaceapi.WorkspaceStopping)
+	r.revokeEgressSecrets(ws.ID)
 	persistErr := writeMetadata(ws)
 	processes := make([]*managedProcess, 0, len(ws.processes))
 	for process := range ws.processes {

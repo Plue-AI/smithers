@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -91,6 +92,10 @@ type Config struct {
 	// whose argv[0] lies under one is copied into the guest, digest-checked,
 	// and rewritten to the guest path.
 	Artifacts map[string]string
+	// EgressRelay, when set, is the egress secret channel
+	// (workspace.WorkspaceEgressSecrets). Its port joins HostPorts, so it
+	// must stay the same across restarts for existing machines to reach it.
+	EgressRelay *egressrelay.Relay
 	// SkipQualification is for unit tests with a fake msb only.
 	SkipQualification bool
 }
@@ -117,6 +122,8 @@ type metadata struct {
 	// Reclaimed marks a stopped workspace whose machine and disk were
 	// removed; its next start boots a fresh machine (see ReclaimWorkspaceDisk).
 	Reclaimed bool `json:"reclaimed,omitempty"`
+	// RelayPort is the egress relay port the machine was built to reach.
+	RelayPort uint16 `json:"relayPort,omitempty"`
 }
 
 type workspace struct {
@@ -168,6 +175,9 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		return nil, err
 	}
 	applyDefaults(&config)
+	if err := withRelayRoute(&config); err != nil {
+		return nil, err
+	}
 	for _, dir := range []string{root, filepath.Join(root, "workspaces"), filepath.Join(root, "snapshots"), filepath.Join(root, "layers")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("create microsandbox state: %w", err)
@@ -392,6 +402,7 @@ func (r *Runtime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{
 		PersistentFiles: true, Execution: true, ManagedServices: true, ManagedHTTPHosts: true,
 		SourceRevision: true, Terminal: true, LoopbackPreview: true, FileOperations: true, ColdSnapshots: true,
+		EgressSecrets: r.config.EgressRelay != nil,
 	}
 }
 
@@ -550,6 +561,7 @@ func (r *Runtime) machineFlags(workspaceID string) []string {
 }
 
 func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
+	ws.RelayPort = relayPort(r.config.EgressRelay)
 	var args []string
 	if ws.Snapshot != "" {
 		args = append([]string{"run", "--from-snapshot", ws.Snapshot, "-d"}, r.machineFlags(ws.ID)...)
@@ -805,9 +817,13 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	return writeMetadata(ws)
 }
 
-// detachProcessesLocked marks services stopped and returns every live guest
-// command so the caller can end them outside the lock.
+// detachProcessesLocked revokes the egress binding, marks services stopped,
+// and returns every live guest command so the caller can end them outside
+// the lock.
 func (r *Runtime) detachProcessesLocked(ws *workspace) []*guestCommand {
+	if r.config.EgressRelay != nil {
+		r.config.EgressRelay.Revoke(ws.ID)
+	}
 	commands := make([]*guestCommand, 0, len(ws.commands))
 	for _, command := range ws.commands {
 		commands = append(commands, command)

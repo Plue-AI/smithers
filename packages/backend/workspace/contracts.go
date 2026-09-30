@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"net/http"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 // IsolationLevel is the guarantee of an execution adapter, not an edition
@@ -62,6 +64,11 @@ var ErrManagedHostIdentityConflict = errors.New("managed host identity conflict"
 // package build revision or fabricate a source identity.
 var ErrWorkspaceSourceUnavailable = errors.New("workspace source revision is unavailable")
 
+// ErrEgressSecretsUnsupported means the runtime has no egress secret channel
+// (WorkspaceEgressSecrets). Work that needs a bound secret must not start
+// there, and a secret must never fall back to a command environment.
+var ErrEgressSecretsUnsupported = errors.New("workspace runtime has no egress secret channel")
+
 // WorkspaceState is the execution lifecycle observed by product code. A
 // stopped persistent workspace keeps its files but owns no live processes.
 type WorkspaceState string
@@ -92,6 +99,8 @@ type WorkspaceCapabilities struct {
 	// image exactly. The product never sends an environment to an adapter
 	// without it.
 	EnvironmentImages bool
+	// EgressSecrets: the runtime implements WorkspaceEgressSecrets.
+	EgressSecrets bool
 }
 
 // WorkspaceSpec carries only durable execution identity. Authentication,
@@ -148,6 +157,43 @@ type SourceFilesBinder interface {
 // and is idempotent.
 type WorkspaceConversationEgress interface {
 	WithholdConversationEgress(ctx context.Context, workspaceID string) error
+}
+
+// EgressSecretBinding is what a command needs to use a workspace's bound
+// secrets. Environment routes its HTTP(S) through the runtime's substituting
+// egress relay and trusts the relay's CA; it holds each secret's placeholder
+// (sandbox.EgressProxyPlaceholder) and a revocable relay credential, never a
+// secret value. Callers add it to Command.Environment of the commands that
+// need the secrets.
+type EgressSecretBinding struct {
+	Environment map[string]string
+}
+
+// WorkspaceEgressSecrets is the optional facet that delivers egress-bound
+// secrets (the sandbox egress proxy's masked-injection model) to a
+// workspace. The runtime keeps each value out of the guest: it substitutes
+// the value for its placeholder only on requests to the secret's bound hosts
+// at its bound locations, and masks the value out of responses.
+//
+// BindEgressSecrets replaces the workspace's bound set; the previous
+// binding's credential stops working at once. An empty set revokes. A
+// binding lasts until it is replaced or revoked, or the workspace stops or is
+// deleted. Use the package-level BindEgressSecrets, which refuses a runtime
+// without this facet.
+type WorkspaceEgressSecrets interface {
+	BindEgressSecrets(ctx context.Context, workspaceID string, secrets []sandbox.EgressProxySecret) (EgressSecretBinding, error)
+	RevokeEgressSecrets(ctx context.Context, workspaceID string) error
+}
+
+// BindEgressSecrets binds secrets to a workspace's egress through runtime,
+// or returns ErrEgressSecretsUnsupported when runtime cannot keep them out of
+// the guest.
+func BindEgressSecrets(ctx context.Context, runtime WorkspaceLifecycle, workspaceID string, secrets []sandbox.EgressProxySecret) (EgressSecretBinding, error) {
+	channel, ok := runtime.(WorkspaceEgressSecrets)
+	if !ok || !runtime.Capabilities().EgressSecrets {
+		return EgressSecretBinding{}, ErrEgressSecretsUnsupported
+	}
+	return channel.BindEgressSecrets(ctx, workspaceID, secrets)
 }
 
 // WorkspaceDiskReclaimer is an optional facet. ReclaimWorkspaceDisk removes a

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -31,6 +32,8 @@ type executionRuntimes struct {
 	// control is the trusted runtime for the fixed chat model host, which
 	// holds owner model credentials and runs no repository code or tools.
 	control workspaceapi.WorkspaceRuntime
+	// relay is the workspace runtime's egress secret channel.
+	relay *egressrelay.Relay
 }
 
 func (r executionRuntimes) Close() error {
@@ -38,7 +41,49 @@ func (r executionRuntimes) Close() error {
 	if r.control != r.workspace {
 		err = errors.Join(err, r.control.Close())
 	}
+	if r.relay != nil {
+		err = errors.Join(err, r.relay.Close())
+	}
 	return err
+}
+
+// openEgressRelay starts the workspace runtime's egress secret relay on
+// loopback at port (0 picks one). It may dial the backend's own listener, so
+// a bound backend credential reaches it through the relay.
+func openEgressRelay(port uint16) (*egressrelay.Relay, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
+	if err != nil {
+		return nil, fmt.Errorf("egress relay: %w", err)
+	}
+	var local []string
+	if backend, err := backendPort(); err == nil {
+		for _, host := range []string{"127.0.0.1", "localhost"} {
+			local = append(local, net.JoinHostPort(host, strconv.Itoa(int(backend))))
+		}
+	}
+	relay, err := egressrelay.New(egressrelay.Config{Listener: listener, Local: local})
+	if err != nil {
+		return nil, errors.Join(err, listener.Close())
+	}
+	return relay, nil
+}
+
+// egressRelayPort is the relay port microVM guests reach through their
+// bridge. Machines keep the route they were built with, so it must not change
+// between restarts: SMITHERS_EGRESS_RELAY_PORT, else the backend port + 1.
+func egressRelayPort(backend uint16) (uint16, error) {
+	raw := strings.TrimSpace(os.Getenv("SMITHERS_EGRESS_RELAY_PORT"))
+	if raw == "" {
+		if backend == 65535 {
+			return 0, errors.New("SMITHERS_EGRESS_RELAY_PORT is required when the backend listens on port 65535")
+		}
+		return backend + 1, nil
+	}
+	port, err := strconv.ParseUint(raw, 10, 16)
+	if err != nil || port == 0 || uint16(port) == backend {
+		return 0, errors.New("SMITHERS_EGRESS_RELAY_PORT must be a free port other than the backend's")
+	}
+	return uint16(port), nil
 }
 
 func workspaceIsolation() (string, error) {
@@ -62,25 +107,38 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string) (ex
 		return executionRuntimes{}, err
 	}
 	if mode == isolationProcess {
-		runtime, err := process.New(process.Config{Root: filepath.Join(dataRoot, "workspaces")})
+		relay, err := openEgressRelay(0)
 		if err != nil {
-			return executionRuntimes{}, fmt.Errorf("start local workspace runtime: %w", err)
+			return executionRuntimes{}, err
 		}
-		return executionRuntimes{workspace: runtime, control: runtime}, nil
+		runtime, err := process.New(process.Config{Root: filepath.Join(dataRoot, "workspaces"), EgressRelay: relay})
+		if err != nil {
+			return executionRuntimes{}, errors.Join(fmt.Errorf("start local workspace runtime: %w", err), relay.Close())
+		}
+		return executionRuntimes{workspace: runtime, control: runtime, relay: relay}, nil
 	}
 	config, err := microVMConfig(dataRoot, hostBundle)
 	if err != nil {
 		return executionRuntimes{}, err
 	}
+	relayPort, err := egressRelayPort(config.HostPorts[0])
+	if err != nil {
+		return executionRuntimes{}, err
+	}
+	relay, err := openEgressRelay(relayPort)
+	if err != nil {
+		return executionRuntimes{}, err
+	}
+	config.EgressRelay = relay
 	isolated, err := microsandbox.New(ctx, config)
 	if err != nil {
-		return executionRuntimes{}, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
+		return executionRuntimes{}, errors.Join(fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err), relay.Close())
 	}
 	control, err := process.New(process.Config{Root: filepath.Join(dataRoot, "control")})
 	if err != nil {
-		return executionRuntimes{}, errors.Join(fmt.Errorf("start control runtime: %w", err), isolated.Close())
+		return executionRuntimes{}, errors.Join(fmt.Errorf("start control runtime: %w", err), isolated.Close(), relay.Close())
 	}
-	return executionRuntimes{workspace: isolated, control: control}, nil
+	return executionRuntimes{workspace: isolated, control: control, relay: relay}, nil
 }
 
 // guestHostBundle is where a guest receives the packaged Flow host files.

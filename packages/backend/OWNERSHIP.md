@@ -25,6 +25,7 @@ another product composition root.
 - `packages/backend/controlstore`
 - `packages/backend/credits`
 - `packages/backend/db/product`
+- `packages/backend/egressrelay`
 - `packages/backend/errors`
 - `packages/backend/flowdispatch`
 - `packages/backend/flowhost`

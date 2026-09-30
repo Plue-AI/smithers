@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,41 @@ func TestProcessIsolationKeepsOneTrustedRuntime(t *testing.T) {
 	if runtimes.workspace.Isolation() != workspaceapi.IsolationTrustedProcess {
 		t.Fatal("process mode must not claim isolation")
 	}
+	if runtimes.relay == nil || !runtimes.workspace.Capabilities().EgressSecrets {
+		t.Fatal("process mode must offer the egress secret channel")
+	}
+}
+
+func TestEgressRelayPortIsStable(t *testing.T) {
+	t.Setenv("SMITHERS_EGRESS_RELAY_PORT", "")
+	if port, err := egressRelayPort(4000); err != nil || port != 4001 {
+		t.Fatalf("default relay port = %d, %v", port, err)
+	}
+	if _, err := egressRelayPort(65535); err == nil {
+		t.Fatal("no default past the last port")
+	}
+	t.Setenv("SMITHERS_EGRESS_RELAY_PORT", "4100")
+	if port, err := egressRelayPort(4000); err != nil || port != 4100 {
+		t.Fatalf("configured relay port = %d, %v", port, err)
+	}
+	for _, invalid := range []string{"0", "4000", "70000", "relay"} {
+		t.Setenv("SMITHERS_EGRESS_RELAY_PORT", invalid)
+		if _, err := egressRelayPort(4000); err == nil {
+			t.Fatalf("relay port %q accepted", invalid)
+		}
+	}
+}
+
+// freeRelayPort points the microVM relay at a free loopback port.
+func freeRelayPort(t *testing.T) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+	_ = listener.Close()
+	t.Setenv("SMITHERS_EGRESS_RELAY_PORT", port)
 }
 
 // microvm mode never falls back to host processes: a missing, non-executable
@@ -45,6 +81,7 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 			t.Setenv("SMITHERS_MICROSANDBOX_BIN", binary)
+			freeRelayPort(t)
 			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t))
 			if err == nil {
 				_ = runtimes.Close()
@@ -95,6 +132,7 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/bin/sh")
+	freeRelayPort(t)
 	bundle := guestBundle(t)
 	darwin := filepath.Join(bundle, "smithers-jj-export-darwin")
 	if err := os.WriteFile(darwin, []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0o755); err != nil {

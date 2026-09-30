@@ -49,6 +49,14 @@ arrives. Guests keep no credentials but task-scoped ones: the product's
 revoked-after-use clone token and the binding-scoped Flow and model-proxy
 credentials.
 
+Egress-bound secrets (`workspace.WorkspaceEgressSecrets`) go through the
+backend's `egressrelay`, whose loopback port joins the bridged ports. A
+binding gives the guest the relay's public CA (in the state directory) and a
+proxy environment holding each secret's placeholder and a revocable relay
+credential; the relay substitutes values only toward the bound hosts and
+masks them out of responses. Stop and delete revoke the binding. A machine
+built before the relay route refuses bindings until its disk is reclaimed.
+
 ## Environment layers
 
 A workspace with a `Source` boots from content-addressed snapshots
