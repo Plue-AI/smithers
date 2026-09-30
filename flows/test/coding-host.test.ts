@@ -11,7 +11,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { expandSeat } from "../../packages/smithers/src/Providers.ts"
-import { configuredCodingRoutes, layer, reviewDefault, roleResolver, roleSeats } from "../coding/host.ts"
+import { configuredCodingRoutes, layer, reviewDefault, roleResolver, roleSeats, seatProvider } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
@@ -321,6 +321,15 @@ test("coding/review defaults to a provider different from the effective implemen
   }
   assert.equal(reviewDefault("luna"), "opus")
   assert.equal(reviewDefault("anthropic:claude-opus-5-5"), "sol")
+  // A harness or a router runs its model's vendor: never reviewed by that vendor again.
+  assert.equal(seatProvider("codex:sol"), "openai")
+  assert.equal(seatProvider("openrouter:openai/gpt-6-sol"), "openai")
+  assert.equal(seatProvider("openrouter:anthropic/claude-opus-5-5"), "anthropic")
+  assert.equal(seatProvider("gpt-6-sol"), "")
+  assert.equal(reviewDefault("codex:sol"), "opus")
+  assert.equal(reviewDefault("codex:gpt-6.1-sol"), "opus")
+  assert.equal(reviewDefault("openrouter:openai/gpt-6-sol"), "opus")
+  assert.equal(reviewDefault("openrouter:anthropic/claude-opus-5-5"), "sol")
   // The repository's implementer override moves the default with it.
   const overridden = await resolve("luna", { seats: { "coding/implement": "opus" } })
   assert.equal(overridden.implement.modelId, "anthropic:claude-opus-5-5")

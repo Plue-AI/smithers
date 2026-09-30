@@ -265,11 +265,22 @@ type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel" | "re
   readonly seats?: Readonly<Record<string, string>> | undefined
 }
 
-/** The provider prefix of a seat alias or `provider:model`; a bare model id has none. */
-const seatProvider = (seat: string): string => {
+/** Harness prefixes that run another vendor's models. */
+const harnessVendors: Readonly<Record<string, string>> = { codex: "openai" }
+
+/**
+ * The vendor whose model a seat alias or `provider:model` runs: the prefix,
+ * a harness's vendor (`codex:` is OpenAI), or a router's model owner
+ * (`openrouter:openai/...` is OpenAI). A bare model id has none.
+ */
+export const seatProvider = (seat: string): string => {
   const expanded = expandSeat(seat)
   const separator = expanded.indexOf(":")
-  return separator < 0 ? "" : expanded.slice(0, separator).toLowerCase()
+  if (separator < 0) return ""
+  const prefix = expanded.slice(0, separator).toLowerCase()
+  const model = expanded.slice(separator + 1)
+  if (prefix === "openrouter" && model.includes("/")) return model.slice(0, model.indexOf("/")).toLowerCase()
+  return harnessVendors[prefix] ?? prefix
 }
 
 /**

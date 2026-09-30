@@ -183,7 +183,8 @@ export const finish = (captured: Captured, reviews: Readonly<Record<string, Lens
   }
   const findings = captured.refused !== null ? [finding(captured.refused)] : lenses.flatMap((lens) => {
     const review = reviews[lens.id]!
-    if (review.verdict === "approve") return []
+    // An approval that still names findings is not a pass: the findings stand.
+    if (review.verdict === "approve" && review.findings.length === 0) return []
     return review.findings.length
       ? review.findings.map((found) => finding(`${found.path}:${found.line} ${lens.id}: ${found.message}`))
       : [finding(`${lens.id}: changes requested without a finding`)]

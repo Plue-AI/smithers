@@ -154,6 +154,17 @@ test("the receipt binds the Change and commit, and aggregates every lens's findi
   assert.ok(!(clean instanceof CodingError))
   assert.equal(clean.status, "passed")
   assert.deepEqual(clean.findings, [])
+  // An approval that still names a finding never passes: the finding stands.
+  const contradicted = finish(captured, {
+    tests: { verdict: "approve", findings: [{ path: "src/a.ts", line: 3, message: "Cover the new branch." }] },
+    errors: { verdict: "approve", findings: [] },
+    names: { verdict: "approve", findings: [] }
+  })
+  assert.ok(!(contradicted instanceof CodingError))
+  assert.equal(contradicted.status, "failed")
+  assert.deepEqual(contradicted.findings, [
+    { owner: "change-1", sourceCommitId: "b".repeat(40), message: "src/a.ts:3 tests: Cover the new branch." }
+  ])
 })
 
 test("a missing or extra lens answer is an invalid receipt, never a pass", async () => {
