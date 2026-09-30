@@ -65,6 +65,7 @@
     "./Detached": "./src/Detached.ts",
     "./Doctor": "./src/Doctor.ts",
     "./Environment": "./src/Environment.ts",
+    "./ExecutionEnvironment": "./src/ExecutionEnvironment.ts",
     "./ExecutorOwnership": "./src/ExecutorOwnership.ts",
     "./Forensics": "./src/Forensics.ts",
     "./Gc": "./src/Gc.ts",
@@ -89,6 +90,7 @@
     "./cli/ControlBridge": "./src/cli/ControlBridge.ts",
     "./cli/ControlCommands": "./src/cli/ControlCommands.ts",
     "./cli/Entry": "./src/cli/Entry.ts",
+    "./cli/EnvironmentCommands": "./src/cli/EnvironmentCommands.ts",
     "./cli/Generate": "./src/cli/Generate.ts",
     "./cli/HistoryCommands": "./src/cli/HistoryCommands.ts",
     "./cli/LegacyBin": "./src/cli/LegacyBin.ts",
@@ -709,6 +711,26 @@
         "require": {
           "types": "./dist/cjs/suggest/SuggestFlow.d.ts",
           "default": "./dist/cjs/suggest/SuggestFlow.js"
+        }
+      },
+      "./ExecutionEnvironment": {
+        "import": {
+          "types": "./dist/esm/ExecutionEnvironment.d.ts",
+          "default": "./dist/esm/ExecutionEnvironment.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExecutionEnvironment.d.ts",
+          "default": "./dist/cjs/ExecutionEnvironment.js"
+        }
+      },
+      "./cli/EnvironmentCommands": {
+        "import": {
+          "types": "./dist/esm/cli/EnvironmentCommands.d.ts",
+          "default": "./dist/esm/cli/EnvironmentCommands.js"
+        },
+        "require": {
+          "types": "./dist/cjs/cli/EnvironmentCommands.d.ts",
+          "default": "./dist/cjs/cli/EnvironmentCommands.js"
         }
       },
       "./CloudSandbox": {

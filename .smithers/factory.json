@@ -1201,11 +1201,6 @@
   ],
   "on": [
     {
-      "event": "issue.opened",
-      "flow": "issue",
-      "description": "Triage every new issue"
-    },
-    {
       "event": "issue.labeled:todo",
       "flow": "coding/request",
       "description": "Implement every TODO"

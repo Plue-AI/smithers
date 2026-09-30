@@ -51,8 +51,11 @@ export const factory = S.Factory({
   // declared row with its sentence. The flows they name land with the
   // factory flows; a rule whose flow is not registered yet is still the
   // declaration, never a live registration.
+  // No issue.opened rule: issue-triage reads a prepared context file and
+  // leaves its report for a token-holding apply step, and an unapproved
+  // outsider's issue starts no factory run (#2915). Triage stays a manual
+  // flow and never authorizes implementation; only a TODO does.
   on: {
-    "issue.opened": { flow: "issue", description: "Triage every new issue" },
     // The stack service itself runs these three rows: it implements every
     // TODO (an issue a maintainer labeled todo) as a Change on the mythical
     // history, reviews the pull request each Change opens or updates, and

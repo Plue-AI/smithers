@@ -69,29 +69,29 @@ const securityReview = Smithers.SecurityReview({
   include: ["src/**", "scripts/**", "wrangler.jsonc"],
   boundaries: [{
     id: "repository-flow-invocation",
-    actors: ["Browser user", "Worker gateway", "Backend authenticated user"],
-    assets: ["Cloud bearer", "Repository workflow runs and secrets"],
-    entryPoints: ["Browser repository flow invocation requests forwarded to Cloud"],
-    identityTransformations: ["Validated browser session becomes a Cloud bearer; backend resolves its user and repository permissions"],
-    enforcementPoints: ["Session and proxy allowlist before credential attachment; backend authentication and repository authorization before admission"],
+    actors: ["Browser user", "Deployed shared edge", "Backend authenticated user"],
+    assets: ["Browser session and API token", "Repository workflow runs and secrets"],
+    entryPoints: ["Browser repository flow invocation requests forwarded to the shared backend"],
+    identityTransformations: ["Edge forwards caller credentials unchanged; backend validates the session or API token and resolves user and repository permissions"],
+    enforcementPoints: ["Edge strips forged identity headers and pins the backend origin; backend authentication, CSRF and repository authorization precede admission"],
     deploymentAssumptions: ["Public route composition is reviewed here; private ingress, TLS and credential configuration require a separate pinned hosted review"],
     path: {
-      caller: ["src/index.ts", "src/proxies.ts", "src/cloudToken.ts"],
-      authorization: ["src/identity.ts", "//packages/backend/internal/compose/router.go", "//packages/backend/internal/middleware/auth.go", "//packages/backend/internal/middleware/repo_context.go"],
+      caller: ["src/edge.ts", "src/Boundary.ts", "src/Http.ts"],
+      authorization: ["//packages/backend/internal/compose/router.go", "//packages/backend/internal/middleware/auth.go", "//packages/backend/internal/middleware/auth_loader_failures.go", "//packages/backend/internal/middleware/csrf.go", "//packages/backend/internal/middleware/repo_context.go"],
       service: ["//packages/backend/internal/routes/workflow_invoke.go", "//packages/backend/internal/services/workflow_invoke.go", "//packages/backend/internal/services/workflow_invoke_flow.go"],
       storageOrEgress: ["//packages/backend/internal/db/workflows.sql.go", "//packages/backend/flowdispatch/service.go"]
     }
   }, {
     id: "browser-workflow-dispatch",
-    actors: ["Browser user", "Worker gateway", "Backend user", "Flow host"],
-    assets: ["Cloud bearer", "Repository workspace", "Flow control operations"],
+    actors: ["Browser user", "Deployed shared edge", "Backend user", "Flow host"],
+    assets: ["Browser session and API token", "Repository workspace", "Flow control operations"],
     entryPoints: ["POST /api/workflow/provision and /api/workflow/rpc"],
-    identityTransformations: ["Validated browser session becomes a Cloud bearer, then backend user and repository-scoped host target"],
-    enforcementPoints: ["Worker workflow session and allowlist gate; backend route authentication and write scope; repository access and workspace ownership"],
+    identityTransformations: ["Edge forwards caller credentials unchanged; backend validates the session or API token and derives the repository-scoped host target"],
+    enforcementPoints: ["Backend route authentication, CSRF and write scope; repository access and workspace ownership before dispatch"],
     deploymentAssumptions: ["Public composition is reviewed here; hosted ingress, TLS and injected credentials are separate private review scope"],
     path: {
-      caller: ["src/index.ts", "src/workflows.ts", "src/proxies.ts", "src/cloudToken.ts"],
-      authorization: ["src/identity.ts", "//packages/backend/internal/compose/main.go", "//packages/backend/internal/middleware/auth.go"],
+      caller: ["src/edge.ts", "src/Boundary.ts", "src/Http.ts"],
+      authorization: ["//packages/backend/internal/compose/main.go", "//packages/backend/internal/compose/router.go", "//packages/backend/internal/compose/browser_flow.go", "//packages/backend/internal/middleware/auth.go", "//packages/backend/internal/middleware/auth_loader_failures.go", "//packages/backend/internal/middleware/csrf.go"],
       service: ["//packages/backend/internal/compose/browser_flow.go", "//packages/backend/internal/compose/browser_flow_target.go"],
       storageOrEgress: ["//packages/backend/flowdispatch/service.go", "//packages/backend/flowhost/resolver.go", "//packages/backend/flowhost/store.go"]
     }

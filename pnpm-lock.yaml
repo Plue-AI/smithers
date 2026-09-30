@@ -2187,6 +2187,9 @@ importers:
       '@smthrs/model':
         specifier: workspace:*
         version: link:../packages/smithers/agent/model
+      '@smthrs/patterns':
+        specifier: workspace:*
+        version: link:../packages/smithers/flows/patterns
       '@smthrs/plan':
         specifier: workspace:*
         version: link:../packages/smithers/flows/plan
@@ -2199,6 +2202,9 @@ importers:
       '@smthrs/run-store':
         specifier: workspace:*
         version: link:../packages/smithers/flows/run-store
+      '@smthrs/sandbox':
+        specifier: workspace:*
+        version: link:../packages/smithers/flows/sandbox
       '@smthrs/std':
         specifier: workspace:*
         version: link:../packages/smithers/agent/std

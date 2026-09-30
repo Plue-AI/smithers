@@ -133,3 +133,11 @@ Docs and visible UI copy use product words, not internal modeling terms such as 
   retain its regression test and the review/validation receipts.
 - Track the campaign and outstanding evidence in
   [#2290](https://github.com/smithersai/smithers/issues/2290).
+
+## Execution environments
+
+`smthrs environment` selects persistent local, SSH, or Cloud execution locations.
+Tools manage their own login in the selected home; profiles contain location
+settings only. `smthrs tui` is one CLI app consuming the same location and agents.
+Use this shared capability instead of provider-specific login or remote harness
+commands. See [#1757](https://github.com/smithersai/smithers/issues/1757).

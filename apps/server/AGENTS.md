@@ -14,6 +14,8 @@
   `fetch(request, env)` over the Effect transport and asset router. Product
   authority belongs to the shared backend; the edge adds no `/api` route.
   `src/index.ts` is legacy maintenance-export and rollback source only.
+- Security boundaries trace `wrangler.jsonc` main through shared backend
+  authentication; legacy maintenance exports are separate review scope.
 - Preserve HTTP contracts and the deployed Worker name, domains, Durable Object
   class identities AND binding names, and persisted storage keys during
   implementation refactors. `src/workerIdentity.ts` is the one place those

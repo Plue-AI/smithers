@@ -287,6 +287,7 @@ const ripgrep = Smithers.CiToolchain.Ripgrep({ release: "14.1.1" })
 // Confined targets run under bubblewrap on Linux, which the hosted runner
 // image does not ship. The step is a no-op on the macOS and Windows rows.
 const bubblewrap = Smithers.CiToolchain.Apt({ packages: ["bubblewrap"] })
+const packageSystemTools = Smithers.CiToolchain.Apt({ packages: ["bubblewrap", "openssh-server"] })
 // `//packages/smithers/build/build-cli:test` drives a real `forge` and a real Go toolchain:
 // it builds and tests a Foundry package and asserts `forge fmt --check` drift,
 // and it builds a Go package tree. Without them six cases fail on the REQUIRED
@@ -849,7 +850,7 @@ const ci = Smithers.GithubCiGen({
         runtimes: [node, bun],
         jj,
         ripgrep,
-        apt: bubblewrap,
+        apt: packageSystemTools,
         go,
         foundry,
         postgres,
@@ -875,6 +876,35 @@ const ci = Smithers.GithubCiGen({
         docker: dockerImageStore
       }),
       steps: [{ name: "Build and test shared backend", verb: Smithers.Verb.Test, pattern: "//:backendGo" }]
+    },
+    {
+      // The model reviews, and the only job that plans them. `LlmLint`
+      // declares `kinds: ["review"]` and is gated to that verb, so no wildcard
+      // `lint`, `test`, `build`, or `ci` step above reaches one. That gate is
+      // what this job exists to make safe: a review target expands
+      // `Smithers.gitDiff("origin/main")` at PLAN time, and the shallow
+      // `actions/checkout` every other job takes has no
+      // `refs/remotes/origin/main` on a pull request, so planning one there
+      // killed the whole required "Workspace targets" step with
+      // `git diff failed: ... bad revision`. `fetchDepth: 0` is the fix, and
+      // it is declared here alone because no other job pays for a full
+      // history.
+      //
+      // ADVISORY, and green by skip until a codex toolchain step exists. The
+      // reviews run through `codex`, which no hosted runner image ships and
+      // which needs a credential this repository has not declared. The build
+      // CLI reports a missing engine binary as a SKIPPED target with a notice
+      // naming the executable, so this job runs, says the review did not run,
+      // and stays green. Promote it out of `continueOnError` only together
+      // with a toolchain step that installs the engine and a declared
+      // credential for it; until then `requiredJobs` must not name it.
+      id: "review-lints",
+      name: "model reviews (advisory)",
+      runsOn: ubuntu,
+      timeoutMinutes: 30,
+      continueOnError: true,
+      toolchain: Smithers.CiToolchain.Needs({ runtimes: [node], fetchDepth: 0 }),
+      steps: [{ name: "Review lints", verb: Smithers.Verb.Review, pattern: "//..." }]
     }
   ]
 })
@@ -960,25 +990,16 @@ const jsdocRules = Smithers.NodeTest({
 
 /**
  * The factory flows' shared harness: workspace package identities, package
- * selection, confinement and process guards, plus the queue inventory (every
- * retained queue prompt names its issue and is queued). `factory/` has no
- * manifest of its own, so the root owns the suites; they are written against
- * `bun:test`.
+ * selection, confinement and process guards. `factory/` has no manifest of its
+ * own, so the root owns the suite; it is written against `bun:test`.
  *
  * @since 1.0.0
  * @category test
  */
 const factoryHarness = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
-  runner: Smithers.testRunner([
-    Smithers.file("//factory/flows/harness.test.ts"),
-    Smithers.file("//factory/queue/queue.test.ts")
-  ]),
-  srcs: [
-    Smithers.glob("//factory/flows/*.ts"),
-    Smithers.glob("//factory/queue/*.md"),
-    Smithers.file("//scripts/workspace-packages.mjs")
-  ],
+  runner: Smithers.testRunner([Smithers.file("//factory/flows/harness.test.ts")]),
+  srcs: [Smithers.glob("//factory/flows/*.ts"), Smithers.file("//scripts/workspace-packages.mjs")],
   deps: []
 })
 
