@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { effectivePath } from "../../src/git/effectivePath.ts";
+import { loadDiffs } from "../../src/git/loadDiffs.ts";
 import { parseGitDiff } from "../../src/git/parseGitDiff.ts";
 import { assessChangeImpact } from "../../src/quiz/assessChangeImpact.ts";
 import { loadReviewSnapshot } from "../../src/review/loadReviewSnapshot.ts";
@@ -113,5 +114,64 @@ describe("parseGitDiff hunk accounting", () => {
       isBinary: false,
     });
     expect(effectivePath(record)).toBe("f.txt");
+  });
+});
+
+describe("parseGitDiff file boundaries", () => {
+  const load = (dir: string) => loadDiffs(dir, { ...normalizeOpenCodeReviewInput({}), repo: dir });
+  const summary = (records: Awaited<ReturnType<typeof load>>) =>
+    records
+      .map((r) => ({ oldPath: r.oldPath, newPath: r.newPath, insertions: r.insertions, deletions: r.deletions }))
+      .sort((a, b) => (a.newPath < b.newPath ? -1 : 1));
+  const names = ["aaa-control.txt", "tab\tfile.txt", "new\nline.txt", 'q"uo\\te.txt', "x b/y.txt", "sp ace.txt", "café.txt"];
+
+  function repoWith(files: ReadonlyArray<string>) {
+    const dir = initRepo();
+    for (const name of files) write(join(dir, name), "before\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "init"]);
+    for (const name of files) write(join(dir, name), "after\n");
+    return dir;
+  }
+
+  test("a quoted tracked name alone is its own record", async () => {
+    for (const name of ["tab\tfile.txt", "new\nline.txt", 'q"uo\\te.txt']) {
+      const records = await load(repoWith([name]));
+      expect(summary(records)).toEqual([{ oldPath: name, newPath: name, insertions: 1, deletions: 1 }]);
+      expect(records[0].diff).toContain("+after");
+    }
+  });
+
+  test("every quoted, spaced or ambiguous name after an ordinary file keeps its own path, body and counts", async () => {
+    const records = await load(repoWith(names));
+    expect(summary(records)).toEqual(
+      [...names]
+        .sort((a, b) => (a < b ? -1 : 1))
+        .map((name) => ({ oldPath: name, newPath: name, insertions: 1, deletions: 1 })),
+    );
+    for (const record of records) {
+      expect(record.diff.match(/^diff --git /gm)).toHaveLength(1);
+      expect(record.diff.match(/^\+after$/gm)).toHaveLength(1);
+    }
+  });
+
+  test("a rename between a plain and a quoted name keeps both sides", async () => {
+    const dir = initRepo();
+    write(join(dir, "plain.txt"), "one\ntwo\nthree\nfour\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "init"]);
+    git(dir, ["mv", "plain.txt", "moved\there.txt"]);
+    const records = await load(dir);
+    expect(summary(records)).toEqual([{ oldPath: "plain.txt", newPath: "moved\there.txt", insertions: 0, deletions: 0 }]);
+  });
+
+  test("octal escapes decode to UTF-8 and an unreadable header throws instead of joining the previous file", () => {
+    const [record] = parseGitDiff('diff --git "a/caf\\303\\251.txt" "b/caf\\303\\251.txt"\n--- "a/caf\\303\\251.txt"');
+    expect(record.newPath).toBe("café.txt");
+    expect(() => parseGitDiff("diff --git a/ok.txt b/ok.txt\n@@ -1 +1 @@\n+x\ndiff --git c/odd d/odd\n+y")).toThrow(
+      "Cannot read the file paths",
+    );
+    expect(() => parseGitDiff('diff --git "a/unterminated b/x')).toThrow("Cannot read the file paths");
+    expect(() => parseGitDiff('diff --git "a/bad\\q" "b/bad"')).toThrow("Cannot read the file paths");
   });
 });
