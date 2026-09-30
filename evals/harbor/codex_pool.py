@@ -68,6 +68,7 @@ class PooledCodex(Codex):
         self._pool = accounts.Pool.from_environment()
         self._account: accounts.Account | None = None
         self._requeues: list[dict[str, Any]] = []
+        self._metadata: dict[str, Any] = {}
 
     @staticmethod
     def name() -> str:
@@ -125,11 +126,20 @@ class PooledCodex(Codex):
                 log.write(f"{now} requeued as attempt {attempt + 1} on {self._account.label}\n")
         reached = container_commands(text)
         self._write_account(attempt=attempt, containerCommands=reached)
-        context.metadata = {**(context.metadata or {}), "account": self._account.label if self._account else None,
-                            "attempt": attempt, "requeues": self._requeues, "container_commands": reached}
+        # Kept off the context until Harbor has filled it: Harbor reads the
+        # session's token usage only into an empty context.
+        self._metadata = {"account": self._account.label if self._account else None,
+                          "attempt": attempt, "requeues": self._requeues, "container_commands": reached}
         if reached["succeeded"] == 0:
             raise accounts.ContainerUnreachable(
                 f"codex ran no command with exit 0 in the task container ({reached['attempted']} attempted)")
+
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        """Harbor's usage and trajectory from the Codex session, then the pool's
+        record. Harbor calls this after `run`, raised or not, only while the
+        context is still empty."""
+        super().populate_context_post_run(context)
+        context.metadata = {**(context.metadata or {}), **self._metadata}
 
     async def _fetch_output(self, environment: BaseEnvironment, output: Path) -> None:
         """On an environment that does not mount the logs directory (plue),

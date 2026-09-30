@@ -27,6 +27,7 @@ adapter's own logic and is the only thing here CI runs.
 | `codex_pool.py`           | Harbor's stock Codex CLI agent drawing its `auth.json` from that pool                                             |
 | `prompt.md`               | The one flow file every task runs; the instruction is pasted verbatim                                             |
 | `audit_host_calls.py`     | Per-trial audit of `bash` calls that ran on the host, not the task container: clean / host-calls-benign / TAINTED |
+| `report.py`               | The publishable paired report of two finished jobs; refuses an unsealed, unfinished or under-50-task run          |
 | `verify.sh`               | Offline checks for the adapter, containment, ownership, resources and health                                      |
 | `fixtures/check_*.py`     | Behavioral fixtures run by `verify.sh`                                                                            |
 
@@ -72,6 +73,7 @@ and what the Terminal-Bench leaderboard's Codex entries ran at; the journal's
 
 See [workspace cleanup](docs/cleanup.md) for durable creation receipts and recovery.
 See [benchmark health](docs/health.md) for complete trial counts and placement refusals.
+See [benchmark publication](docs/publication.md) for the paired report a release publishes.
 
 Add `-e evals.harbor.plue_env:PlueEnvironment` and the task runs in a plue
 workspace through the public `smithers` CLI (`SMITHERS_CLI`, `PLUE_REPO`,

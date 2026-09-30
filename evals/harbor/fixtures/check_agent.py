@@ -345,6 +345,75 @@ def check_container_gate() -> None:
     assert codex_pool.container_commands(lines.splitlines()[0]) == {"attempted": 1, "succeeded": 0}
 
 
+CODEX_SESSION = [
+    {"timestamp": "2026-09-26T09:45:31.044Z", "type": "session_meta",
+     "payload": {"id": "s1", "timestamp": "2026-09-26T09:45:31.018Z", "cwd": "/app", "originator": "codex_exec",
+                 "cli_version": "0.155.1"}},
+    {"timestamp": "2026-09-26T09:45:35.000Z", "type": "response_item",
+     "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}},
+    {"timestamp": "2026-09-26T09:45:39.040Z", "type": "event_msg",
+     "payload": {"type": "token_count", "info": {
+         "total_token_usage": {"input_tokens": 1200, "cached_input_tokens": 1000, "output_tokens": 30,
+                               "reasoning_output_tokens": 10, "total_tokens": 1230},
+         "last_token_usage": {"input_tokens": 1200, "cached_input_tokens": 1000, "output_tokens": 30,
+                              "reasoning_output_tokens": 10, "total_tokens": 1230}}}},
+]
+
+
+def check_codex_usage() -> None:
+    """The stock Codex arm reports its tokens. Harbor fills usage from the
+    Codex session only into an empty AgentContext
+    (`Trial._populate_agent_context`); luna-B-smoke recorded no tokens for any
+    trial because the pool's metadata filled the context first."""
+    sys.path.insert(0, str(HERE.parent.parent.parent))
+    try:
+        from evals.harbor import codex_pool
+        from harbor.agents.installed.codex import Codex
+        from harbor.models.agent.context import AgentContext
+        from harbor.trial.trial import Trial
+    except ImportError:
+        print("check_agent.py: harbor not importable; codex usage not checked")
+        return
+    import asyncio
+    import types
+
+    with tempfile.TemporaryDirectory() as directory:
+        logs = Path(directory) / "agent"
+        sessions = logs / "sessions" / "2026" / "09" / "26"
+        sessions.mkdir(parents=True)
+        (sessions / "rollout-2026-09-26T09-45-31-s1.jsonl").write_text(
+            "".join(json.dumps(event) + "\n" for event in CODEX_SESSION))
+        (logs / "codex.txt").write_text(
+            '{"type":"item.completed","item":{"type":"command_execution","exit_code":0}}\n')
+        home = Path(directory) / "seat"
+        home.mkdir()
+        (home / "auth.json").write_text("{}")
+        seat = accounts.Account("codex-2", home)
+
+        pooled = codex_pool.PooledCodex(logs_dir=logs, model_name="openai/gpt-6-sol")
+        pooled._pool = types.SimpleNamespace(lease=lambda trial="": seat)
+        pooled._account = seat  # what setup() leases before the CLI is installed
+
+        async def ran(self, instruction, environment, context):  # the CLI already ran in the container
+            return None
+
+        original = Codex.run
+        Codex.run = ran
+        try:
+            context = AgentContext()
+            environment = types.SimpleNamespace(capabilities=types.SimpleNamespace(mounted=True))
+            asyncio.run(pooled.run("fix it", environment, context))
+        finally:
+            Codex.run = original
+        # Harbor's own sync step, as `SingleStepTrial._run_agent` runs it.
+        Trial._populate_agent_context(types.SimpleNamespace(agent=pooled, user_agent=None), context)
+        assert (context.n_input_tokens, context.n_cache_tokens, context.n_output_tokens) == (1200, 1000, 30), \
+            (context.n_input_tokens, context.n_cache_tokens, context.n_output_tokens)
+        assert context.metadata["account"] == "codex-2", context.metadata
+        assert context.metadata["container_commands"] == {"attempted": 1, "succeeded": 1}, context.metadata
+        assert (logs / "trajectory.json").is_file(), "Harbor writes the stock arm's trajectory"
+
+
 def check_container_survival() -> None:
     """A task container that died during the run cannot be graded: tb4-confirm-A2
     mp-checkpoint 7FU4pw3's VM was gone ("workspace VM no longer exists"), the
@@ -644,6 +713,7 @@ if __name__ == "__main__":
     check_plue_shim()
     check_plue_env()
     check_container_gate()
+    check_codex_usage()
     check_container_survival()
     check_accounts()
     revision = check_harness_revision()

@@ -109,9 +109,10 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "outcome.classify matching _TRANSPORT against exception_message text the agent's own output can write.",
         "health.py or requeue.py trusting result.json or smithers-run.json fields from inside the trial directory to pick trials to discard or re-run.",
-        "audit_host_calls.py reading container or command fields from trial files the agent can write."
+        "audit_host_calls.py reading container or command fields from trial files the agent can write.",
+        "report.py printing a pass rate while any refusal stands, or scoring a trial its seal or token checks refused."
       ],
-      paths: ["outcome.py", "health.py", "requeue.py", "audit_host_calls.py"]
+      paths: ["outcome.py", "health.py", "requeue.py", "audit_host_calls.py", "report.py"]
     },
     {
       id: "shared-state-files",
