@@ -719,6 +719,24 @@ const pinnedPath = (
 const segmentsBelow = (path: EffectPath.Path, root: string, value: string): Array<string> =>
   path.relative(root, value).split(path.sep).filter((segment) => segment !== "")
 
+/** Resolve a glob's literal prefix, keeping pattern syntax out of filename lookups. */
+const globAuthorizationPath = (
+  path: EffectPath.Path,
+  root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
+  value: string,
+  glob: boolean
+): { readonly prefix: string; readonly suffix: ReadonlyArray<string> } => {
+  const requested = glob ? pinnedPath(path, root, value) : undefined
+  if (requested === undefined) return { prefix: value, suffix: [] }
+  // The workspace's own name is literal even if it contains glob metacharacters.
+  const parts = segmentsBelow(path, root.boundaryRoot, requested)
+  const wildcard = parts.findIndex((part) => /[*?[{]|[@+!]\(/.test(part))
+  return wildcard < 0
+    ? { prefix: value, suffix: [] }
+    // Keep logical spelling so the executor mapping pins the prefix exactly once.
+    : { prefix: path.join(root.logicalRoot, ...parts.slice(0, wildcard)), suffix: parts.slice(wildcard) }
+}
+
 /**
  * Resolves the resource a no-follow executor addresses without resolving any
  * pathname on the host. Windows `realpath` opens its argument through every
@@ -876,17 +894,22 @@ export const layer: Layer.Layer<
     const resolvedResource = (
       action: "fs:read" | "fs:write",
       method: string,
-      value: string
+      value: string,
+      glob = false
     ): Effect.Effect<string, PlatformError.PlatformError> => {
       const normalized = normalize(value)
       if (atomic?.noFollowAuthorization === true) {
+        const { prefix, suffix } = globAuthorizationPath(path, root, normalized, glob)
         return confinedResource(
           pinned(atomic, root),
           path,
           root,
-          normalized,
+          prefix,
           (resource, reason) => deny(action, method, resource, reason)
-        ).pipe(Effect.flatMap(insideWorkspace(action, method)))
+        ).pipe(
+          Effect.map((resource) => suffix.length === 0 ? resource : path.join(resource, ...suffix)),
+          Effect.flatMap(insideWorkspace(action, method))
+        )
       }
       return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
         Effect.flatMap((resource) =>
@@ -912,16 +935,23 @@ export const layer: Layer.Layer<
      * member with bounded concurrency.
      */
     const resolvedResources = (
-      values: ReadonlyArray<string>
+      values: ReadonlyArray<Pick<Batch.BatchRequest, "operation" | "path">>
     ): Effect.Effect<Array<Result.Result<string, PlatformError.PlatformError>>, PlatformError.PlatformError> => {
       const refuseRead = (resource: string, reason: string) => deny("fs:read", "read", resource, reason)
       if (atomic?.noFollowAuthorization !== true || atomic.batchLimits === undefined) {
-        return Effect.forEach(values, (value) => Effect.result(resolvedResource("fs:read", "read", value)), {
-          concurrency: Batch.fallbackConcurrency
-        })
+        return Effect.forEach(
+          values,
+          (value) => Effect.result(resolvedResource("fs:read", "read", value.path, value.operation === "glob")),
+          {
+            concurrency: Batch.fallbackConcurrency
+          }
+        )
       }
       const run = pinned(atomic, root)
-      const requested = values.map((value) => pinnedPath(path, root, normalize(value)))
+      const parts = values.map((value) =>
+        globAuthorizationPath(path, root, normalize(value.path), value.operation === "glob")
+      )
+      const requested = parts.map(({ prefix }) => pinnedPath(path, root, prefix))
       const members: Array<{ readonly operation: "resolve"; readonly path: string }> = []
       const memberOf = requested.map((value) =>
         value === undefined ? undefined : members.push({ operation: "resolve", path: value }) - 1
@@ -934,7 +964,7 @@ export const layer: Layer.Layer<
         return Effect.forEach(values, (value, index) => {
           const member = memberOf[index]
           const resource = member === undefined
-            ? Effect.succeed(normalize(value))
+            ? Effect.succeed(normalize(value.path))
             : Effect.suspend(() => {
               const pinnedValue = members[member]!.path
               const result = results.get(member)
@@ -944,16 +974,22 @@ export const layer: Layer.Layer<
                 ? refuseRead(logicalPath(path, root, pinnedValue), uninspectable)
                 : followResolution(run, path, root, pinnedValue, result.success.resolution, refuseRead, 0)
             })
-          return Effect.result(Effect.flatMap(resource, insideWorkspace("fs:read", "read")))
+          return Effect.result(resource.pipe(
+            Effect.map((resolved) =>
+              parts[index]!.suffix.length === 0 ? resolved : path.join(resolved, ...parts[index]!.suffix)
+            ),
+            Effect.flatMap(insideWorkspace("fs:read", "read"))
+          ))
         }, { concurrency: Batch.fallbackConcurrency })
       })
     }
     const guard = (
       action: "fs:read" | "fs:write",
-      value: string
+      value: string,
+      glob = false
     ): Effect.Effect<void, PlatformError.PlatformError> => {
       const method = action === "fs:read" ? "read" : "write"
-      return resolvedResource(action, method, value).pipe(
+      return resolvedResource(action, method, value, glob).pipe(
         Effect.flatMap((resource) =>
           makeCapability(action, resource).pipe(
             Effect.flatMap((capability) => grants.check(capability)),
@@ -963,7 +999,7 @@ export const layer: Layer.Layer<
             // the resource the path named at check time, so the path must
             // still name it when the decision arrives: a symlink or rename
             // swapped in during the wait is refused, never followed.
-            Effect.andThen(resolvedResource(action, method, value)),
+            Effect.andThen(resolvedResource(action, method, value, glob)),
             Effect.flatMap((settled) =>
               settled === resource
                 ? Effect.void
@@ -994,7 +1030,7 @@ export const layer: Layer.Layer<
     ): Effect.Effect<AtomicResult<R>, PlatformError.PlatformError> =>
       atomic === undefined
         ? atomicUnavailable(action, value, method)
-        : guard(action, value).pipe(Effect.andThen(pinned(atomic, root)(request)))
+        : guard(action, value, request.operation === "glob").pipe(Effect.andThen(pinned(atomic, root)(request)))
     const atomicTwo = <R extends AtomicRequest>(
       first: readonly ["fs:read" | "fs:write", string],
       second: readonly ["fs:read" | "fs:write", string],
@@ -1469,7 +1505,7 @@ export const layer: Layer.Layer<
         // Resolve in bounded groups while retaining request-order grant
         // decisions. Quota/once grants therefore retain their ordering, and
         // native metadata latency need not serialize every member twice.
-        const resources = yield* resolvedResources(captured.map((request) => request.path))
+        const resources = yield* resolvedResources(captured)
         const admitted: Array<Batch.BatchRequest> = []
         const indexes: Array<number> = []
         const entries: Array<Batch.BatchEntry> = []
@@ -1490,7 +1526,7 @@ export const layer: Layer.Layer<
         }
         const current = granted.length === 0
           ? []
-          : yield* resolvedResources(granted.map(({ request }) => request.path))
+          : yield* resolvedResources(granted.map(({ request }) => request))
         const settled = yield* Effect.forEach(granted, ({ resource }, position) => {
           const now = current[position]!
           return Effect.result(
