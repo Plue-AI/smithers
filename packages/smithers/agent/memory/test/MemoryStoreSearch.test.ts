@@ -143,7 +143,14 @@ describe("MemoryStore search and FTS", () => {
         queries: [["objectvaluetoken", true], ["indexedkeytoken", true]] as const
       },
       { value: ["arraytoken"], queries: [["arraytoken", true]] as const },
-      { value: "Unicode café 東京", queries: [["café", true], ["東京", true]] as const }
+      {
+        value: "Unicode café 東京",
+        queries: [["café", true], ["cafe", true], ["CAFÉ", true], ["東京", true]] as const
+      },
+      {
+        value: "resume Ångström naïve 한국어",
+        queries: [["résumé", true], ["angstrom", true], ["naive", true], ["한국어", true], ["naïf", false]] as const
+      }
     ] as const
     const result = await runWithDatabase(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore

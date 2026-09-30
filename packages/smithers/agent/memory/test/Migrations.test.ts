@@ -153,17 +153,59 @@ describe("memory migrations", () => {
         return { first, second, recorded }
       }).pipe(Effect.provide(TestDatabase.layer))
     )
-    expect(result.first).toEqual([[7001, "memory_initial"], [7002, "memory_indexes"]])
+    expect(result.first).toEqual([[7001, "memory_initial"], [7002, "memory_indexes"], [7003, "memory_fts_fold"]])
     expect(result.second).toEqual([])
     expect(result.recorded).toEqual([
       { migration_id: 7001, name: "memory_initial" },
-      { migration_id: 7002, name: "memory_indexes" }
+      { migration_id: 7002, name: "memory_indexes" },
+      { migration_id: 7003, name: "memory_fts_fold" }
     ])
   })
 
+  // PostgreSQL FTS tables enabled before the fold carry a search column that
+  // keeps accents. The migration regenerates it so rows indexed then match a
+  // folded query; on SQLite, FTS5 already folds and the migration is a no-op.
+  it("regenerates PostgreSQL FTS search columns that predate the diacritic fold", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const store = yield* MemoryStore.MemoryStore
+        const namespace = { kind: "flow", id: "fold" } as const
+        yield* store.putFact({ namespace, key: "menu", value: "Café naïve résumé", provenance: {} })
+        yield* store.enableFts("flow")
+        if (Dialect.isPostgres(sql)) {
+          yield* sql`ALTER TABLE memory_fts_flow DROP COLUMN search`
+          yield* sql`ALTER TABLE memory_fts_flow ADD COLUMN search TSVECTOR GENERATED ALWAYS AS (
+            to_tsvector('simple', regexp_replace((record_key || ' ' || text) COLLATE "pg_c_utf8",
+              '[^[:alnum:]]+', ' ', 'g'))
+          ) STORED`
+        }
+        const search = (query: string) =>
+          store.searchFts({ namespace, query, limit: 5 }).pipe(Effect.map((rows) => rows.map((row) => row.key)))
+        const before = yield* search("cafe")
+        yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7003`
+        const applied = yield* Migrations.run
+        const indexes = Dialect.isPostgres(sql) ?
+          yield* sql<NameRow>`SELECT indexname AS name FROM pg_indexes WHERE tablename = 'memory_fts_flow'` :
+          []
+        return {
+          postgres: Dialect.isPostgres(sql),
+          before,
+          applied,
+          after: [yield* search("cafe"), yield* search("naive"), yield* search("RESUME"), yield* search("café")],
+          indexes: indexes.map((row) => row.name)
+        }
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    expect(result.before).toEqual(result.postgres ? [] : ["menu"])
+    expect(result.applied).toEqual([[7003, "memory_fts_fold"]])
+    expect(result.after).toEqual([["menu"], ["menu"], ["menu"], ["menu"]])
+    expect(result.indexes).toEqual(result.postgres ? ["memory_fts_flow_search"] : [])
+  })
+
   // A database that recorded only memory_initial before the index migration
-  // existed still carries the unusable expiry index. Migrating it must run just
-  // the second migration, swap the index, and add the supersedes lookup.
+  // existed still carries the unusable expiry index. Migrating it must run the
+  // later migrations, swap the index, and add the supersedes lookup.
   it("upgrades a database that only recorded memory_initial", async () => {
     const result = await Effect.runPromise(
       Effect.gen(function*() {
@@ -173,7 +215,7 @@ describe("memory migrations", () => {
         yield* sql`DROP INDEX memory_note_supersedes_target_idx`
         yield* sql`CREATE INDEX memory_facts_expiry_idx
           ON memory_facts (updated_at_ms, ttl_ms) WHERE ttl_ms IS NOT NULL`
-        yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7002`
+        yield* sql`DELETE FROM flows_migrations WHERE migration_id >= 7002`
         const before = yield* sql<
           NameRow
         >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'index' AND name LIKE 'memory_facts_%'`
@@ -185,7 +227,7 @@ describe("memory migrations", () => {
       }).pipe(Effect.provide(TestDatabase.layer))
     )
     expect(result.before).toEqual(["memory_facts_expiry_idx"])
-    expect(result.applied).toEqual([[7002, "memory_indexes"]])
+    expect(result.applied).toEqual([[7002, "memory_indexes"], [7003, "memory_fts_fold"]])
     expect(result.after).toEqual(["memory_facts_expires_at_idx", "memory_note_supersedes_target_idx"])
   })
 

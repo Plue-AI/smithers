@@ -8,8 +8,9 @@
 
 import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
+import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlError from "effect/unstable/sql/SqlError"
-import type { Fragment } from "effect/unstable/sql/Statement"
+import type { Fragment, Statement } from "effect/unstable/sql/Statement"
 import type { DatabaseService } from "../Database.ts"
 import type { Kind } from "../Namespace.ts"
 import { literalFtsQuery } from "./FtsQuery.ts"
@@ -42,14 +43,42 @@ export interface FtsMatch {
 
 const ftsTable = (kind: Kind): string => `memory_fts_${kind}`
 
-// FTS5's unicode61 tokenizer splits on every non-letter, non-digit character.
-// PostgreSQL's `simple` parser under the C locale instead reads every
-// non-ASCII character as a letter, so U+FFFD or an em dash would glue words
-// together. Both the indexed text and each query term are therefore reduced to
-// Unicode alphanumeric runs first, with the database-independent built-in
-// `pg_c_utf8` collation classifying the characters.
-const postgresWords = (sql: DatabaseService["sql"], text: Fragment): Fragment =>
-  sql`regexp_replace((${text}) COLLATE "pg_c_utf8", '[^[:alnum:]]+', ' ', 'g')`
+// FTS5's unicode61 tokenizer splits on every non-letter, non-digit character
+// and folds diacritics, so "cafe" and "café" are one token. PostgreSQL's
+// `simple` parser under the C locale instead reads every non-ASCII character
+// as a letter, so U+FFFD or an em dash would glue words together, and it keeps
+// accents. Both the indexed text and each query term are therefore decomposed
+// (NFD), stripped of combining diacritical marks, recomposed (NFC), and
+// reduced to Unicode alphanumeric runs, with the database-independent built-in
+// `pg_c_utf8` collation classifying the characters. Every step is immutable
+// core SQL, so the generated column needs no extension such as `unaccent`.
+const postgresWords = (sql: SqlClient.SqlClient, text: Fragment): Fragment =>
+  sql`regexp_replace(
+    normalize(regexp_replace(normalize((${text}) COLLATE "pg_c_utf8", NFD), '[\\u0300-\\u036f]+', '', 'g'), NFC),
+    '[^[:alnum:]]+', ' ', 'g')`
+
+/**
+ * The PostgreSQL generated search column of a namespace-kind FTS table.
+ *
+ * @category migrations
+ * @since 1.0.0
+ */
+export const postgresSearchColumn = (sql: SqlClient.SqlClient): Fragment =>
+  sql`search TSVECTOR GENERATED ALWAYS AS (
+    to_tsvector('simple', ${postgresWords(sql, sql`record_key || ' ' || text`)})
+  ) STORED`
+
+/**
+ * The PostgreSQL search index of a namespace-kind FTS table.
+ *
+ * @category migrations
+ * @since 1.0.0
+ */
+export const postgresSearchIndex = (sql: SqlClient.SqlClient, kind: Kind): Statement<unknown> =>
+  sql`CREATE INDEX IF NOT EXISTS ${sql(`${ftsTable(kind)}_search`)} ON ${
+    sql.literal(ftsTable(kind))
+  } USING GIN (search)`
+
 /**
  * Returns whether a namespace kind has opted into FTS5.
  *
@@ -94,11 +123,9 @@ export const enableFts = (
       yield* sql`CREATE TABLE IF NOT EXISTS ${table} (
         record_id TEXT NOT NULL, record_kind TEXT NOT NULL, namespace_id TEXT NOT NULL,
         record_key TEXT NOT NULL, text TEXT NOT NULL,
-        search TSVECTOR GENERATED ALWAYS AS (
-          to_tsvector('simple', ${postgresWords(sql, sql`record_key || ' ' || text`)})
-        ) STORED
+        ${postgresSearchColumn(sql)}
       )`
-      yield* sql`CREATE INDEX IF NOT EXISTS ${sql(`${ftsTable(kind)}_search`)} ON ${table} USING GIN (search)`
+      yield* postgresSearchIndex(sql, kind)
     } else {
       yield* sql`CREATE VIRTUAL TABLE IF NOT EXISTS ${table}
         USING fts5(record_id UNINDEXED, record_kind UNINDEXED, namespace_id UNINDEXED, record_key, text)`

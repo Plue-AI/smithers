@@ -31,7 +31,8 @@ it("retains facts, notes, messages, and FTS after the writing process exits", ()
     try {
       expect(db.prepare("SELECT migration_id, name FROM flows_migrations ORDER BY migration_id").all()).toEqual([
         { migration_id: 7001, name: "memory_initial" },
-        { migration_id: 7002, name: "memory_indexes" }
+        { migration_id: 7002, name: "memory_indexes" },
+        { migration_id: 7003, name: "memory_fts_fold" }
       ])
     } finally {
       db.close()
