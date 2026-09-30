@@ -134,9 +134,9 @@ test.each([
   {
     status: "failed",
     outcome: { kind: "failed", message: "Review refused" } satisfies Settled,
-    line: /^✗ review · failed: Review refused$/
+    line: /^✗ review · \d+m?s · failed: Review refused$/
   },
-  { status: "cancelled", outcome: { kind: "cancelled" } satisfies Settled, line: /^■ review · stopped$/ }
+  { status: "cancelled", outcome: { kind: "cancelled" } satisfies Settled, line: /^■ review · \d+m?s · stopped$/ }
 ])(
   "a flow run reports in the chat as one line through launch and execution, then its real $status",
   async ({ status, outcome, line }) => {

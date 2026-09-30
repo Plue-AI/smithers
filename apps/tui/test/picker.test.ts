@@ -225,6 +225,7 @@ test("a flow's last run sits at the row's right end; a flow added after launch s
     [],
     entries,
     [],
+    [],
     now
   )
   expect(shown[0]).toEqual({ key: "build", label: "build", hint: "Restart to load", value: "build" })

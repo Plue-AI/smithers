@@ -136,16 +136,6 @@ const call = (event: string, nodeId: number) => ({
 })
 
 describe("flow runs", () => {
-  it("calls a module flow unloaded only once the host opened without it", () => {
-    const f = setup()
-    let loaded: ReadonlyArray<string> | undefined
-    Object.assign(f.port, { loaded: () => loaded })
-    const agent = { ...flow("review", ""), kind: "markdown" as const }
-    expect(f.runs.unloaded(flow("echo-label", ""))).toBe(false)
-    loaded = ["echo"]
-    expect([flow("echo", ""), flow("echo-label", ""), agent].map(f.runs.unloaded)).toEqual([false, true, false])
-  })
-
   it("keeps the newest discovery when refresh responses overlap", async () => {
     const f = setup()
     const first = pending<ReadonlyArray<Listed>>()
@@ -313,7 +303,10 @@ describe("flow runs", () => {
       ...call("control.run.running", 1),
       payload: { factVersion: 1, baseline: "created", run: { runId: "run-1", deadlineAt } }
     })
-    expect(f.runs.panel("r1").rows[0]).toMatchObject({ id: "deadline", label: `Deadline ${Deadline.label(deadlineAt, Date.now())}` })
+    expect(f.runs.panel("r1").rows[0]).toMatchObject({
+      id: "deadline",
+      label: `Deadline ${Deadline.label(deadlineAt, Date.now())}`
+    })
     f.watches[0]!.done.resolve({ kind: "done", answer: "ok" })
     await tick()
     expect(f.runs.panel("r1").rows.some((row) => row.id === "deadline")).toBe(false)

@@ -181,13 +181,13 @@ export default Flow.make("${name}", { description: "${name}", capabilities: [], 
   write("early")
   const late = FlowControl.make({ cwd: project, environment: {}, approvals: host.approvals! })
   try {
-    expect(late.loaded!()).toBeUndefined()
+    expect(await late.loaded!()).toBeUndefined()
     await late.warm!()
-    expect(late.loaded!()).toEqual(["early"])
+    expect((await late.loaded!())?.flows.map((flow) => flow.name)).toEqual(["early"])
     write("echo-label")
     expect((await late.discover()).map((flow) => flow.name).sort()).toEqual(["early", "echo-label"])
     const failure = await late.input("echo-label").catch((error: unknown) => error) as FlowError
-    expect(failure.code).toBe("not_loaded")
+    expect(failure.code).toBe("unloaded")
     expect(((await late.input("missing").catch((error: unknown) => error)) as FlowError).code).toBe("unknown_flow")
   } finally {
     await late.dispose()
@@ -325,12 +325,38 @@ for (const mode of ["ask", "deny", "all"] as const) {
   }
 }
 
-it("settles a run whose input the payload schema rejects as failed", async () => {
-  // Planning accepts it (the body cannot be walked); the run itself fails, and the watch says so.
-  const runId = await port.start(await port.plan("echo", { text: 3 }))
-  const settled = await port.watch(runId, () => {}).done
-  // The cause's first line only, never its stack.
-  expect(settled).toEqual({ kind: "failed", message: "Schema validation failed" })
+it("rejects invalid payload plans and lets the person correct a requested run", async () => {
+  const error = await port.plan("echo", { text: 3 }).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(FlowError)
+  expect((error as FlowError).code).toBe("invalid_input")
+  const watched: Array<string> = []
+  const runs = new FlowRuns({
+    port: {
+      ...port,
+      watch: (id, event) => {
+        watched.push(id)
+        return port.watch(id, event)
+      }
+    },
+    persist: () => {}
+  })
+  const request = runs.request({ flow: "echo", input: { text: 3 }, by: "user" })
+  const until = async (status: "input" | "done") => {
+    const deadline = Date.now() + 5_000
+    while (runs.get(request.id)?.status !== status && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(runs.get(request.id)?.status).toBe(status)
+  }
+  await until("input")
+  expect(runs.get(request.id)?.runId).toBeUndefined()
+  expect(runs.get(request.id)?.message).toBe("Invalid input")
+  expect(watched).toEqual([])
+  runs.fill(request.id, { text: "repaired" })
+  await until("done")
+  expect(runs.get(request.id)?.answer).toBe("repaired")
+  expect(runs.get(request.id)?.runId).toEqual(expect.any(String))
+  expect(watched).toEqual([runs.get(request.id)!.runId!])
 }, 60_000)
 
 it("stops a running run through the control plane", async () => {
@@ -395,11 +421,11 @@ it("shows a module flow's steps as the run's rows, from its engine journal", asy
       { id: expect.any(String), label: "Report", status: "done", preview: "\"result=12\"" }
     ])
     const panel = runs.panel(id)
+    expect(panel.summary).toContain("result=12")
     expect(panel.rows.map((row) => [row.label, row.status])).toEqual([
       ["Load", "done"],
       ["Double", "done"],
-      ["Report", "done"],
-      ["Result", "done"]
+      ["Report", "done"]
     ])
     expect(panel.rows[1]!.details).toEqual([{ kind: "code", code: "12" }])
   } finally {

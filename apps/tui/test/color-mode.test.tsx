@@ -209,6 +209,38 @@ describe("NO_COLOR frames", () => {
     expect(has(spanOf(lines, "second"), TextAttributes.INVERSE)).toBe(false)
   })
 
+  it("shows the focused flow result in reverse video and other results plain", async () => {
+    const run = {
+      id: "build-1",
+      flow: "build",
+      by: "user" as const,
+      input: {},
+      requested: "{}",
+      status: "done" as const,
+      startedAt: 0,
+      launchedAt: 0,
+      endedAt: 40,
+      answer: "5"
+    }
+    const lines = await draw(
+      "none",
+      (
+        <box>
+          <View.RunCard title="Focused run" run={run} now={40} focused />
+          <View.RunCard title="Other run" run={run} now={40} />
+        </box>
+      ),
+      40,
+      4
+    )
+    expect(has(spanOf(lines, "Focused run"), TextAttributes.INVERSE)).toBe(true)
+    expect(has(spanOf(lines, "Other run"), TextAttributes.INVERSE)).toBe(false)
+    for (const span of lines.flat()) {
+      expect(span.fg.intent).toBe("default")
+      expect(span.bg.intent).toBe("default")
+    }
+  })
+
   it("leave filled panels that are not selected plain", async () => {
     const lines = await draw(
       "none",

@@ -68,7 +68,8 @@ export const rows = (input: {
       })),
     // A person's run reports in chat; its input notice appears while the form is closed.
     ...input.runs.filter((run) =>
-      input.carded?.has(run.id) !== true && (run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now)))
+      input.carded?.has(run.id) !== true &&
+      (run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now)))
     ).map((run) => ({
       id: `flow:${run.id}`,
       text: `${flowRunning(run) ? `${tick} ` : flowGlyph(run.status)}${run.flow} · ${run.status}`,

@@ -373,7 +373,7 @@ export function RunCard(props: {
       {props.request === undefined ? null : <UserMessage text={props.request} queued={false} tone={color.brand} />}
       <box
         style={{ paddingLeft: 1, marginBottom: 1 }}
-        {...(props.focused === true ? { backgroundColor: color.surface } : {})}
+        {...(props.focused === true ? { backgroundColor: color.selected } : {})}
         {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
       >
         <text wrapMode="none">
@@ -390,7 +390,11 @@ export function RunCard(props: {
             ? <span fg={color.muted}>{" · stopped"}</span>
             : said.message === undefined
             ? null
-            : <span fg={run?.status === "failed" ? color.danger : color.muted}>{` · ${run?.status === "failed" ? "failed: " : ""}${said.message}`}</span>}
+            : (
+              <span fg={run?.status === "failed" ? color.danger : color.muted}>
+                {` · ${run?.status === "failed" ? "failed: " : ""}${said.message}`}
+              </span>
+            )}
         </text>
       </box>
     </box>

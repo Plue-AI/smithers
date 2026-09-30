@@ -293,7 +293,7 @@ test("/agent is gone: it is an unknown command and starts nothing", async () => 
 test("/flow with an unknown name fails on its chat card, before a tab, body read or Host admission", async () => {
   await command("/flow missing Check one file")
   await waitFor(() => frame().includes("No flow named missing; /flows lists them."))
-  expect(frame()).toMatch(/✗ missing · failed: No flow named missing/)
+  expect(frame()).toMatch(/✗ missing · \d+m?s · failed: No flow named missing/)
   expect(tabs()).toEqual([])
   expect(bodies).toEqual([])
   expect(turns).toEqual([])

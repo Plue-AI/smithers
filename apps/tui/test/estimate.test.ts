@@ -229,7 +229,11 @@ describe("Estimate", () => {
     expect(estimator.ledger.failure("sum-1")).toMatchObject({ kind: "flow", reason: "model-error", message: "no key" })
     estimator.request({ id: "fix", kind: "delegate", key: "delegate", subject: "fix", startedAt: 0 })
     await estimator.idle()
-    expect(estimator.ledger.failure("fix")).toMatchObject({ kind: "delegate", reason: "model-error", message: "no key" })
+    expect(estimator.ledger.failure("fix")).toMatchObject({
+      kind: "delegate",
+      reason: "model-error",
+      message: "no key"
+    })
   })
 
   it("records a model error with its message, so a class fallback is never mistaken for no model", async () => {

@@ -2902,7 +2902,6 @@ export function App(props: AppProps) {
               width={width}
               height={formHeight}
               compact={short}
-              width={width}
               onField={(field, text) => {
                 const current = liveForm.current
                 if (current !== undefined) {

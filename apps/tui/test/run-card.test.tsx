@@ -42,6 +42,13 @@ for (const width of [80, 40]) {
     })
     const failed = await rows(run({ status: "failed", message: "The flow failed. ".repeat(12) }), width)
     expect(failed).toHaveLength(1)
-    expect(failed[0]).toMatch(/^ ✗ pipeline · 4s · The flow failed\./)
+    expect(failed[0]).toMatch(/^ ✗ pipeline · 4s · failed: The flow fail/)
+    await act(async () => {
+      setup?.renderer.destroy()
+      setup = undefined
+    })
+    const stopped = await rows(run({ status: "cancelled" }), width)
+    expect(stopped).toHaveLength(1)
+    expect(stopped[0]?.trim()).toBe("■ pipeline · 4s · stopped")
   })
 }

@@ -13,7 +13,7 @@ it("shows only factory content: its issues and numbers, never flows or runs", ()
   expect(Panels.decode(panel)).toEqual(panel)
   expect(panel.id).toBe("smithers")
   expect(panel.summary).toBe(factory.metrics)
-  expect(panel.rows.map((row) => row.id)).toEqual(["issue:7"])
+  expect(panel.rows.map((row) => row.id)).toEqual(["factory:todo", "issue:7"])
 })
 
 it("lists the homepage's apps after the issues, running the ones this directory discovers", () => {
@@ -23,15 +23,15 @@ it("lists the homepage's apps after the issues, running the ones this directory 
   ]
   const panel = Smithers.panel(apps, discovered, factory)
   expect(Panels.decode(panel)).toEqual(panel)
-  expect(panel.rows.map((row) => row.id)).toEqual(["issue:7", "app:review", "app:issue.implement"])
-  expect(panel.rows[1]).toEqual({
+  expect(panel.rows.map((row) => row.id)).toEqual(["factory:todo", "issue:7", "app:review", "app:issue.implement"])
+  expect(panel.rows[2]).toEqual({
     id: "app:review",
     label: "Review a PR",
     details: [{ kind: "text", text: "review" }],
     action: { label: "Review a PR", action: { kind: "flow", flow: "review" } }
   })
   // A flow the app home names but this directory does not discover is listed, and runs nowhere here.
-  expect(panel.rows[2]).toEqual({
+  expect(panel.rows[3]).toEqual({
     id: "app:issue.implement",
     label: "Fix an issue",
     details: [{ kind: "text", text: "issue.implement" }]
@@ -54,11 +54,11 @@ it("says how to see the factory's issues when the person is not signed in to Clo
 it("keeps a read with no numbers valid", () => {
   const panel = Smithers.panel([], discovered, { metrics: "", rows: [] })
   expect(Panels.decode(panel)).toEqual(panel)
-  expect(panel).toMatchObject({ summary: "Factory", rows: [] })
+  expect(panel).toMatchObject({ summary: "Factory", rows: [{ id: "factory:todo" }] })
 })
 
 it("leads the factory's issues with the row that names how to file a TODO", () => {
-  const panel = Smithers.panel(listed, [], [], {
+  const panel = Smithers.panel([], discovered, {
     metrics: "1 landed",
     rows: [{ id: "issue:x", label: "#1 T", details: [] }]
   })
