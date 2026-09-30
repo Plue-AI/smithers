@@ -9,9 +9,20 @@ import { expect, it } from "vitest"
 
 const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 const secret = "synthetic-sse-session-secret"
-const content = `before\u001b]0;changed\u0007\u001b[2J\u009b31mred\u0000\u202e\r\n\tsecond ${secret}`
+const content = `before🙂\u001b]0;changed\u0007\u001b[2J\u009b31mred\u0000\u202e\u{e0001}\r\n\tsecond ${secret}`
 
-it.each(["complete", "drop", "cancel"] as const)("keeps backend SSE stderr inert through %s", async (mode) => {
+it.each(
+  [
+    ["complete", "json", false],
+    ["complete", "json", true],
+    ["complete", "jsonl", false],
+    ["complete", "jsonl", true],
+    ["drop", "json", false],
+    ["drop", "jsonl", true],
+    ["cancel", "json", false],
+    ["cancel", "jsonl", true]
+  ] as const
+)("keeps backend SSE output inert through %s/%s verbose=%s", async (mode, format, verbose) => {
   const home = await mkdtemp(join(tmpdir(), "smithers-backend-sse-"))
   let child: ChildProcess | undefined
   let requests = 0
@@ -47,7 +58,8 @@ it.each(["complete", "drop", "cancel"] as const)("keeps backend SSE stderr inert
         "--cloud",
         "--repo",
         "owner/repo",
-        "--format=json"
+        `--format=${format}`,
+        ...(verbose ? ["--verbose"] : [])
       ], {
         cwd: home,
         timeout: 60_000,
@@ -79,13 +91,13 @@ it.each(["complete", "drop", "cancel"] as const)("keeps backend SSE stderr inert
     expect(result.signal).toBeNull()
     expect(result.code, output + error).toBe(mode === "complete" ? 0 : mode === "cancel" ? 130 : 1)
     expect(requests).toBe(1)
-    expect(error).toContain("beforered\n\tsecond [REDACTED]\n")
+    expect(error).toContain("before🙂red\n\tsecond [REDACTED]\n")
     expect(error).not.toMatch(/[\u001b\u0000\u0007\u009b\u202e]/u)
     expect(output + error).not.toContain(secret)
-    // JSON escapes C0 controls and preserves the decoded event's Unicode data.
-    expect(output).not.toMatch(/[\u001b\u0000\u0007]/u)
+    expect(output).not.toMatch(/[\u001b\u0000\u0007\u007f-\u009f\p{Cf}]/u)
     if (mode === "complete") {
-      expect(JSON.parse(output)).toEqual([
+      const decoded = format === "json" ? JSON.parse(output) : output.trim().split("\n").map((line) => JSON.parse(line))
+      expect(decoded).toEqual([
         { type: "log", data: { content: content.replace(secret, "[REDACTED]") } },
         { type: "done", data: { status: "completed" } }
       ])

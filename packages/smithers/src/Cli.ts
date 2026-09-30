@@ -53,6 +53,7 @@ import * as Update from "./Update.ts"
 import { packageVersion } from "./Version.ts"
 
 import { mount as mountBackend } from "./internal/backend/Commands.ts"
+import * as Failure from "./internal/Failure.ts"
 
 const options = Bridge.connectionOptions
 
@@ -420,6 +421,10 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
         : [argument]
     )
     const parsed = Argv.parse(argv)
+    if (parsed.json || parsed.format === "json" || parsed.format === "jsonl") {
+      const stdout = serveOptions?.stdout ?? ((text: string) => void process.stdout.write(text))
+      serveOptions = { ...serveOptions, stdout: (text) => stdout(Failure.terminalSafeJson(text)) }
+    }
     let offset = 0
     // Argv retains document switches and --ui in rest; use its parsed option
     // values to skip those prefixes without mistaking their values for verbs.

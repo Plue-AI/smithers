@@ -1,0 +1,143 @@
+{
+  "issues": [
+    3267
+  ],
+  "qualifiedBase": "8d8057a056dedb92c2ea63f1bdb965e74150ddda",
+  "qualifiedFiles": {
+    "packages/smithers/src/Cli.ts": "94f73a043f48695a6bd2e15248b19bad4a93fab1e7981882bd6abb5a39410eac",
+    "packages/smithers/src/internal/Failure.ts": "e2c65667916c4afd27e0d9d38cf97db3f3d32c0a185d6716b34536b50e2fccee",
+    "packages/smithers/test/Failure.test.ts": "8ce9de805497a277bdd96eb8699ce21e7dfd7bd3740819d162df4e2da90e280e",
+    "packages/smithers/test/BackendSse.test.ts": "b71ff31eaa373a8da29ca4296f52163a1f4ca1070be68eaa9b75cf75ed60e541"
+  },
+  "manifestSha256": "09f35ad07b27be8999f53539b9986a77d681cab753594daefce04564981e489f",
+  "archiveSha256": "42b7322bf9b791a43cda7b4b66c59579d617ee116bc2797176ec99078ab09942",
+  "review": "Orchestrator reviewed decoded-data preservation, actual executable TCP/JSON/JSONL controls, cancellation and MCP initialization; removed raw argv MCP exclusion after review.",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Failure.test.ts test/BackendSse.test.ts -t 'escapes JSON terminal|keeps backend SSE output inert' --coverage.enabled=false",
+      "exit": 1,
+      "receipt": "3267-red.log",
+      "result": "5 failed/4 passed/30 not selected: four actual complete JSON/JSONL default/verbose cases emit raw C1/bidi and new unit helper absent",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "receiptSha256": "b0a9fe03e900fd308e3168e04ae5b7f6194c6f45551a6477b5d4e90c9fe346e1"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Failure.test.ts test/BackendSse.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "receipt": "3267-green.log",
+      "result": "39 passed; pure serialization unit and actual8 TCP/CLI cases",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "receiptSha256": "7a26f7057e5a3ddcbaaa627fde123d18e19009b19aa1ab3fa900ebd07e287846"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/3267-scoped-test-types.json --noEmit",
+      "exit": 0,
+      "receipt": "3267-scoped-test-types.log",
+      "result": "all source and two changed test files under original strict settings",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Cli.ts src/internal/Failure.ts --max-warnings=0",
+      "exit": 0,
+      "receipt": "3267-lint.log",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Cli.ts src/internal/Failure.ts test/Failure.test.ts test/BackendSse.test.ts",
+      "exit": 0,
+      "receipt": "3267-format-final.log",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node /tmp/smithers-burndown-20260930-receipts/api-batch3/3267-source-mcp.mjs",
+      "exit": 0,
+      "receipt": "3267-source-mcp.log",
+      "result": "actual source CLI MCP initialize returns smthrs1.0.0-rc.1 with isolated home",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "receiptSha256": "eff5cc3f66f15f56eb8abce7e0dac09007ec0cdcec3412fb60df0819d53fd2aa"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Failure.test.ts test/BackendSse.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "receipt": "3267-reviewed-green.log",
+      "receiptSha256": "a81a52f6890e0313d152ef26dd786e133f586968544a01767003910c9c666a09",
+      "result": "39 passed; all actual TCP/CLI cases after removing raw MCP exclusion",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/3267-scoped-test-types.json --noEmit",
+      "exit": 0,
+      "receipt": "3267-reviewed-types.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "strict all-source and owned-test types passed",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Cli.ts src/internal/Failure.ts --max-warnings=0",
+      "exit": 0,
+      "receipt": "3267-reviewed-lint.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "pass",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Cli.ts src/internal/Failure.ts test/Failure.test.ts test/BackendSse.test.ts",
+      "exit": 0,
+      "receipt": "3267-reviewed-format.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "pass",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node /tmp/smithers-burndown-20260930-receipts/api-batch3/3267-reviewed-mcp.mjs",
+      "exit": 0,
+      "receipt": "3267-reviewed-mcp-controls.log",
+      "receiptSha256": "cb52807c149d2e00512d7776d76ec3ee3403ab586f9197ae6c5fd0dd43b66786",
+      "result": "genuine --mcp --format=json initializes correctly; opaque --message --mcp and literal -- --mcp also initialize due existing Incur interception, not structured command execution",
+      "cwd": "/private/tmp/smithers-burndown-20260930"
+    }
+  ],
+  "limitations": [
+    "No whole CLI suite, full coverage, hosted API or packed consumer proof claimed.",
+    "Known foreign #3241 full test-types prerequisite remains separately tracked; scoped types select all source and owned tests with original strict settings.",
+    "MCP handshake is source CLI, not a published artifact; fresh pack evidence belongs to #3093.",
+    "Existing Incur built-in extractor intercepts opaque/literal --mcp before command validation; concrete actual source receipts retained for separate actionable issue. No new parser or MCP behavior changed under #3267."
+  ],
+  "landing": "Fresh origin/main must equal candidate parent. Append-only fast-forward push; unrelated unfinished agent edits remain outside this commit.",
+  "postRebase": {
+    "qualifiedSourceCommit": "1e80fae74d7723382f622ce367ba1c5ec6189b7b",
+    "origin": "b27a7deb37e728e1c77762800b2a81e700450e08",
+    "incomingCommits": 35,
+    "incomingPaths": 455,
+    "sourceFilesUnchanged": true,
+    "checks": [
+      {
+        "name": "frozen install",
+        "exit": 0
+      },
+      {
+        "name": "JSON/TCP/unit",
+        "exit": 0,
+        "tests": 39
+      },
+      {
+        "name": "actual MCP --mcp --format=json",
+        "exit": 0
+      },
+      {
+        "name": "strict all-source and owned-test types",
+        "exit": 0
+      }
+    ],
+    "logs": {
+      "smithers-burndown-20260930-checkpoint8-install.log": "3d358842e82e5b6abfd7b99f3434ba4682d9bfa4a12bd9f960bbf4d16eade3dd",
+      "smithers-burndown-20260930-checkpoint8-rebased-json.log": "7f6e42446dd4e7a60a7166072ba7cf217e809e390d36ec48baed276fa5f5693e",
+      "smithers-burndown-20260930-checkpoint8-rebased-mcp.log": "cbb89ac6eaf780442b6e374d0f5b11f0652f135b35df6a272eb3101269c4017e",
+      "smithers-burndown-20260930-checkpoint8-rebased-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "smithers-burndown-20260930-checkpoint8-upstream-files.txt": "1b3cfd2f293e488f91653545eccb760abcb9ba88eb10f8be226e17d7c59cad5a"
+    }
+  }
+}

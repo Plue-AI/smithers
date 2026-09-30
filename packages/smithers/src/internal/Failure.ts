@@ -42,6 +42,18 @@ export const terminalSafeLines = (text: string): string =>
   stripVTControlCharacters(text).replace(/\r\n/g, "\n").replace(/(?![\n\t])[\p{Cc}\p{Cf}]/gu, "")
 
 /**
+ * Escape terminal controls JSON permits literally, preserving decoded data
+ * and structural whitespace in JSON and JSONL documents.
+ * @category formatting
+ * @since 1.0.0
+ */
+export const terminalSafeJson = (text: string): string =>
+  text.replace(
+    /[\u007f-\u009f\p{Cf}]/gu,
+    (character) => character.split("").map((unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`).join("")
+  )
+
+/**
  * A structured value with every string made inert as `terminalSafeLines`
  * makes it, for formats that print strings as they are (toon, yaml, md).
  *

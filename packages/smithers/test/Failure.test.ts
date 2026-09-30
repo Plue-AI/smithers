@@ -214,6 +214,17 @@ describe("Failure.operatorDetail", () => {
 })
 
 describe("terminalSafeValue", () => {
+  it("escapes JSON terminal controls without changing keys, values, Unicode or structural whitespace", () => {
+    const value = { "key\u202e": ["🙂\u009b31m\u007f\u200b\u{e0001}\n\t", null, false, 0] }
+    const text = Failure.terminalSafeJson(JSON.stringify(value, null, 2))
+    expect(JSON.parse(text)).toEqual(value)
+    expect(text).not.toMatch(/[\u007f-\u009f\p{Cf}]/u)
+    expect(text).toContain("🙂")
+    expect(text).toContain("\n  ")
+    expect(text).toContain("\\udb40\\udc01")
+    expect(Failure.terminalSafeJson("{\"value\":\"ordinary\"}\n")).toBe("{\"value\":\"ordinary\"}\n")
+  })
+
   it("makes every string of a structured value inert, keys included, and keeps other values", () => {
     expect(Failure.terminalSafeValue({
       "t\u001b[2Jitle": "a\u001b]0;x\u0007b\r\nc\td",
