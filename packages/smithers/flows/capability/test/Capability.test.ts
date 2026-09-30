@@ -397,6 +397,16 @@ describe("Capability", () => {
     expect(exit).toMatchObject({ _tag: "Failure" })
   })
 
+  it("refuses to format an action outside the closed vocabulary with a tagged error", () => {
+    expect(() => Capability.format({ action: "fs:teleport" as never, resource: "x" })).toThrowError(
+      expect.objectContaining({
+        _tag: "@smthrs/capability/InvalidCapabilityAction",
+        code: "invalid_capability_action",
+        message: "Invalid capability action: fs:teleport"
+      })
+    )
+  })
+
   it("refuses a formatted overlong exact capability", () => {
     const formatted = Capability.format({ action: "proc:spawn", resource: "x".repeat(5000) })
     expect(Capability.parse(formatted)).toStrictEqual(Option.none())

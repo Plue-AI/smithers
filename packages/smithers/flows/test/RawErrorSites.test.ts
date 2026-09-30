@@ -24,7 +24,6 @@ const testSupport = "published test support: its failure fails the caller's test
 
 /** Reviewed files, with the number of raw sites each keeps and why. */
 const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string]> = [
-  ["capability/src/format.ts", 1, "documented contract of format for an action the Action type already excludes"],
   ["database/src/test/TestDatabase.ts", 1, testSupport],
   [
     "engine-store/src/DurableEngineState.ts",

@@ -6,6 +6,7 @@
 
 import type { Action } from "./Action.ts"
 import { isPatternAction } from "./internal/isPatternAction.ts"
+import { InvalidCapabilityAction } from "./InvalidCapabilityAction.ts"
 import type { PatternAction } from "./PatternAction.ts"
 
 /**
@@ -16,7 +17,7 @@ import type { PatternAction } from "./PatternAction.ts"
  * the encoded `{action, resource}` shape. Both use this renderer to preserve
  * byte-identical durable identities.
  *
- * The function throws an `Error` that names an invalid action. Runtime
+ * The function throws an {@link InvalidCapabilityAction} that names an invalid action. Runtime
  * validation prevents invalid structural inputs from colliding with valid
  * durable identities.
  *
@@ -29,7 +30,10 @@ export const format = (capability: {
   readonly resource: string
 }): string => {
   if (!isPatternAction(capability.action)) {
-    throw new Error(`Invalid capability action: ${capability.action}`)
+    throw new InvalidCapabilityAction({
+      code: "invalid_capability_action",
+      message: `Invalid capability action: ${capability.action}`
+    })
   }
   return `${capability.action}:${capability.resource}`
 }
