@@ -106,6 +106,91 @@ for (const act of [
   await controller.dispose()
 })
 
+test("Inbox and Runs keep distinct prerequisite drafts beside a Flow's box form", async () => {
+  const store = await signedIn()
+  const controller = createAppController(store, silentAgent, boxCalls().services)
+  await controller.commands.run("flow.create", `Review the repo ${REPO}`)
+  await controller.commands.run("form.set", "form-box.open bookmark feature")
+  await controller.commands.run("approvals.list", REPO)
+  const flowForm = store.collections.cards.get("form-box.open")
+  expect(flowForm?.kind === "flow-form" && flowForm.payload.draft).toEqual({ repo: REPO, bookmark: "feature" })
+  await controller.commands.run("form.set", "form-box.open-approvals.list bookmark inbox")
+  await controller.commands.run("runs.list", REPO)
+  const inboxForm = store.collections.cards.get("form-box.open-approvals.list")
+  const runsForm = store.collections.cards.get("form-box.open-runs.list")
+  expect(inboxForm?.title).toBe(`Open a box for ${REPO}, then retry Inbox once it is ready`)
+  expect(inboxForm?.kind === "flow-form" && inboxForm.payload.draft).toEqual({ repo: REPO, bookmark: "inbox" })
+  expect(runsForm?.title).toBe(`Open a box for ${REPO}, then retry Runs once it is ready`)
+  expect(runsForm?.kind === "flow-form" && runsForm.payload.draft).toEqual({ repo: REPO })
+  await controller.dispose()
+})
+
+test("a new Inbox repository replaces its own old draft instead of opening the previous repository", async () => {
+  const store = await signedIn()
+  const controller = createAppController(store, silentAgent, boxCalls().services)
+  await controller.commands.run("approvals.list", REPO)
+  await controller.commands.run("form.set", "form-box.open-approvals.list bookmark feature")
+  await controller.commands.run("approvals.list", "other/repo")
+  const form = store.collections.cards.get("form-box.open-approvals.list")
+  expect(form?.title).toBe("Open a box for other/repo, then retry Inbox once it is ready")
+  expect(form?.kind === "flow-form" && form.payload.draft).toEqual({ repo: "other/repo" })
+  await controller.dispose()
+})
+
+test("submitting the Inbox prerequisite opens one box and never silently reads Inbox or Runs", async () => {
+  const store = await signedIn()
+  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+  const calls: Array<{ method: string; path: string; body: unknown }> = []
+  const controller = createAppController(store, silentAgent, { toastDebounceMs: 0,
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), "https://app.test").pathname
+      const method = init?.method ?? "GET"
+      calls.push({ method, path, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) })
+      if (method === "POST" && path === `/api/repos/${REPO}/workspaces`) return json(201, {
+        id: BOX_A, repository_id: 7, repo_full_name: REPO, name: "review", slug: "review", target_bookmark: "feature",
+        status: "running", provisioning_stage: null, suspended_at: null, created_at: "2026-09-01T00:00:00Z"
+      })
+      if (path.endsWith("/bookmarks")) return json(200, { items: [], next_cursor: "" })
+      if (path.endsWith("/workspace/sessions")) return json(200, [])
+      return json(404, { status: "error" })
+    }
+  })
+  await controller.commands.run("flow.create", `Review the repo ${REPO}`)
+  await controller.commands.run("approvals.list", REPO)
+  const formId = "form-box.open-approvals.list"
+  expect(calls.filter(call => call.method === "POST" || call.path.startsWith("/api/workflow/") || call.path.includes("/approvals"))).toEqual([])
+  expect((await controller.commands.run("form.set", `${formId} bookmark feature`)).status).toBe("executed")
+  expect((await controller.commands.run("form.submit", formId)).status).toBe("executed")
+  expect(calls.filter(call => call.method === "POST" && call.path === `/api/repos/${REPO}/workspaces`)).toEqual([
+    { method: "POST", path: `/api/repos/${REPO}/workspaces`, body: { source_bookmark: "feature" } }
+  ])
+  expect(store.session().activeRepoKey).toBe(`${REPO}#workspace:${BOX_A}`)
+  expect(inboxRequests(store)).toEqual([])
+  expect([...store.collections.cards.values()].filter(card => card.kind === "run-list")).toEqual([])
+  expect([...store.collections.cards.values()].filter(card => card.kind === "run-trace")).toEqual([])
+  expect(store.collections.cards.get("form-box.open")?.status).toBe("active")
+  expect(calls.filter(call => call.path.startsWith("/api/workflow/") || call.path.includes("/approvals"))).toEqual([])
+  expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
+  expect(calls.filter(call => call.method === "POST" && call.path === `/api/repos/${REPO}/workspaces`)).toHaveLength(1)
+  await controller.dispose()
+})
+
+test("a recorded run list without a box binding keeps its bound refusal", async () => {
+  const store = await signedIn()
+  await store.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: "recorded-runs", kind: "run-list", title: "Recorded runs", status: "active", createdAt: 1, ordinal: 1,
+    payload: { repo: REPO, gatewayBindingVersion: 1, runs: [], statuses: [] }
+  } }).isPersisted.promise
+  const relay = boxCalls()
+  const controller = createAppController(store, silentAgent, relay.services)
+  const result = await controller.commands.run("runs.list", `sourceCard=recorded-runs ${REPO}`)
+  expect(result.status).toBe("failed")
+  if (result.status === "failed") expect(result.error).toContain("This list's box is gone")
+  expect(store.collections.cards.get("form-box.open-runs.list")).toBeUndefined()
+  expect(relay.calls).toEqual([])
+  await controller.dispose()
+})
+
 for (const [flow, args] of [
   ["flow.create", `Create a lint flow ${REPO}`],
   ["feature.prototype", `Prototype the lint flow ${REPO}`],
@@ -220,6 +305,56 @@ test("an agent with no box gets the prototype refusal without a human form", asy
   expect(result.status).toBe("failed")
   if (result.status === "failed") expect(result.error).toContain(`Open a box of ${REPO}`)
   expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+  expect(relay.calls).toEqual([])
+  await controller.dispose()
+})
+
+for (const act of [
+  { flow: "approvals.list", label: "Inbox" },
+  { flow: "runs.list", label: "Runs" }
+] as const) test(`${act.label} with no box offers a typed open form and no implicit read`, async () => {
+  const store = await signedIn()
+  const relay = boxCalls()
+  const controller = createAppController(store, silentAgent, relay.services)
+  const outcome = await controller.commands.run(act.flow, REPO)
+  const formId = `form-box.open-${act.flow}`
+  expect(outcome).toEqual({ status: "executed", value: `Open a box for ${REPO}, then retry ${act.label} once it is ready.` })
+  expect(store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form",
+    title: `Open a box for ${REPO}, then retry ${act.label} once it is ready`,
+    payload: { flow: "box.open", via: "user", draft: { repo: REPO } } })
+  expect(store.session().activeRepoKey).toBe(REPO)
+  expect(inboxRequests(store)).toEqual([])
+  expect([...store.collections.cards.values()].filter(card => card.kind === "run-list")).toEqual([])
+  expect(relay.calls).toEqual([])
+  expect((await controller.commands.run("card.dismiss", formId)).status).toBe("executed")
+  expect(store.collections.cards.get(formId)).toBeUndefined()
+  expect(inboxRequests(store)).toEqual([])
+  expect(relay.calls).toEqual([])
+  await controller.dispose()
+})
+
+for (const flow of ["approvals.list", "runs.list"] as const) test(`${flow} agent with no box keeps its refusal`, async () => {
+  const store = await signedIn()
+  const relay = boxCalls()
+  const controller = createAppController(store, silentAgent, relay.services)
+  const outcome = await controller.commands.runForAgent(flow, REPO)
+  expect(outcome.status).toBe("failed")
+  if (outcome.status === "failed") expect(outcome.error).toContain(`Open a box of ${REPO} first`)
+  expect(store.collections.cards.get(`form-box.open-${flow}`)).toBeUndefined()
+  expect(inboxRequests(store)).toEqual([])
+  expect(relay.calls).toEqual([])
+  await controller.dispose()
+})
+
+test("Inbox sees a starting box as settling, without offering another one", async () => {
+  const store = await signedIn()
+  await loadBox(store, REPO, BOX_A, "starting")
+  const relay = boxCalls()
+  const controller = createAppController(store, silentAgent, relay.services)
+  const outcome = await controller.commands.run("approvals.list", REPO)
+  expect(outcome.status).toBe("failed")
+  if (outcome.status === "failed") expect(outcome.error).toBe(`A box of ${REPO} is starting.`)
+  expect(store.collections.cards.get("form-box.open-approvals.list")).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
 })

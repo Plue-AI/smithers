@@ -315,7 +315,8 @@ export const createRunsController = (
       return "The run list is unavailable or belongs to another repository."
     }
     const binding = source?.kind === "run-list" ? listBinding(source) : gatewayBindingFor(store, repo)
-    if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, flow: "runs.list", args: flowArgs("runs.list", { ...args, repo }) })
+    if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding,
+      { repo, flow: "runs.list", args: flowArgs("runs.list", { ...args, repo }) }, `Open a box for ${repo}, then retry Runs once it is ready`)
     const owner = ctx.accountOwner()
     if (typeof owner !== "string") return "Sign in with GitHub first."
     const epoch = ctx.accountEpoch
@@ -1144,7 +1145,8 @@ export const createRunsController = (
     if ("error" in target) return target.error
     const repo = target.repo
     const binding = gatewayBindingFor(store, repo)
-    if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, flow: "approvals.list", args: repo })
+    if ("error" in binding) return refuseOrPickBox(ctx, renderFlowForm, binding,
+      { repo, flow: "approvals.list", args: repo }, `Open a box for ${repo}, then retry Inbox once it is ready`)
     const owner = ctx.accountOwner()
     if (typeof owner !== "string") return "Sign in with GitHub first: flows run on your own workspace."
     const epoch = ctx.accountEpoch

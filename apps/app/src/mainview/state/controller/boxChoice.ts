@@ -4,19 +4,27 @@ import type { ControllerContext } from "./context"
 import { formRenderedText, type FormsController } from "./forms"
 
 /**
- * THE FORM LAW for a box-bound act (#2327): when several boxes could be meant,
- * a human's act renders the box.select form for exactly those boxes instead
- * of the "Select a box" sentence. The act rides the form's payload, so Submit
- * selects the chosen box and runs the act once (TabsController.selectBox).
- * The agent keeps the sentence: which box an act runs on is the human's pick.
+ * THE FORM LAW for a box-bound act (#2327): a human picks among several boxes,
+ * or opens one explicitly when none exists. A box.select Submit resumes the
+ * pending act once; box.open only opens a box, so its title tells the human to
+ * retry the original act. Agents keep the refusal sentence.
  */
 export const refuseOrPickBox = (
   ctx: Pick<ControllerContext, "commandActor">,
   renderFlowForm: FormsController["renderFlowForm"] | undefined,
   refusal: Extract<GatewayBinding, { readonly error: string }>,
-  act: { readonly repo: string; readonly flow: string; readonly args?: string }
+  act: { readonly repo: string; readonly flow: string; readonly args?: string },
+  openTitle?: string
 ): string | { readonly value: string } => {
-  if (refusal.choices === undefined || ctx.commandActor !== "user" || renderFlowForm === undefined) return refusal.error
-  const rendered = renderFlowForm({ name: "box.select", args: flowArgs("box.select", act), via: "user" })
-  return rendered === undefined ? refusal.error : { value: formRenderedText(rendered.missing) }
+  if (ctx.commandActor !== "user" || renderFlowForm === undefined) return refusal.error
+  if (refusal.choices !== undefined) {
+    const rendered = renderFlowForm({ name: "box.select", args: flowArgs("box.select", act), via: "user" })
+    return rendered === undefined ? refusal.error : { value: formRenderedText(rendered.missing) }
+  }
+  if (refusal.noBox === true && openTitle !== undefined) {
+    const rendered = renderFlowForm({ name: "box.open", args: flowArgs("box.open", { repo: act.repo }), via: "user",
+      cardId: `form-box.open-${act.flow}`, title: openTitle })
+    return rendered === undefined ? refusal.error : { value: `${openTitle}.` }
+  }
+  return refusal.error
 }

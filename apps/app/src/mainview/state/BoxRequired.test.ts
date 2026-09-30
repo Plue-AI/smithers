@@ -80,9 +80,9 @@ describe("the repository's default box", () => {
 
   test("no box asks for one to be opened; a failed box is no box", async () => {
     const store = await signedIn()
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}` })
+    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}`, noBox: true })
     await loadBox(store, REPO, BOX_A, "failed")
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}` })
+    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}`, noBox: true })
   })
 
   test("the selected box wins over the default, whatever its state", async () => {

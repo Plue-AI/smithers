@@ -156,7 +156,7 @@ export const repositorySource = (
  */
 export type GatewayBinding =
   | { readonly workspaceId: string }
-  | { readonly error: string; readonly choices?: ReadonlyArray<CloudWorkspaceRow> }
+  | { readonly error: string; readonly choices?: ReadonlyArray<CloudWorkspaceRow>; readonly noBox?: true }
 
 /** The statuses a box passes through before it runs. */
 const SETTLING: ReadonlySet<string> = new Set(["pending", "starting"])
@@ -208,7 +208,7 @@ export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding
     // Provisioning resumes it, exactly as it resumes a selected suspended box.
     case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.`, choices: found.resumable }
     case "settling": return { error: `A box of ${repo} is starting.` }
-    case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}` }
+    case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}`, noBox: true }
   }
 }
 
