@@ -86,11 +86,13 @@ edit's row shows the lines it changes and a command reads `? run <command>`.
 Each run remembers its answers: `y` allows that identical request again, `n`
 denies the change for the rest of the run through edit, write, apply_patch and
 any shell command that names the file or declares a write covering it, and `a`
-allows every edit (or every command) for the rest of the run. A command that
-declares `mode: "hermetic"` with `writes: []` and reads as only reading (known
-reading programs, no inline code, no redirection) runs unasked in a git or jj
-repository, until one such command is captured changing a file or the run
-refuses a change. Every turn is told whether the repository uses jj or git.
+allows every edit (except to `.git` or `.jj`) or every command for the rest of
+the run. A command that declares `mode: "hermetic"` with `writes: []` and reads
+as only reading runs unasked in a git or jj repository, until one such command
+is captured changing a file or the run refuses a change. Only reading programs
+with their listed options, a script file inside the repository, or its tests
+qualify: no expansion, piped code or redirection. Scripts and tests ask again
+once `a` allows edits. Every turn is told whether the repository uses jj or git.
 
 `--box owner/repo/workspace-id` (or `SMITHERS_BOX`) runs every worker's
 filesystem and shell flows in that Smithers Cloud workspace, over its SSH
