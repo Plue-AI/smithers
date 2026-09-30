@@ -219,3 +219,32 @@ func sandboxClaimStatus(t *testing.T, pool *pgxpool.Pool, runID int64) string {
 	require.NoError(t, pool.QueryRow(context.Background(), `SELECT status FROM workflow_runs WHERE id = $1`, runID).Scan(&status))
 	return status
 }
+
+// An expired lease is fenced before anyone reclaims it: its holder can
+// neither revive it nor finish the run, and the next claim takes it over.
+func TestProductWorkflowSandboxSchedulerFencesExpiredLeasesPostgres(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	store := NewProductWorkflowSandboxScheduler(db.New(pool))
+	repoID, defID := sandboxClaimFixture(t, pool)
+	runID := sandboxClaimRun(t, pool, repoID, defID, "sandbox", "queued", "push")
+	claimed, err := store.ClaimQueuedWorkflowRuns(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	token := UUIDString(claimed[0].ClaimToken)
+	_, err = pool.Exec(ctx, `UPDATE workflow_sandbox_claims SET lease_expires_at = NOW() - INTERVAL '1 second' WHERE workflow_run_id = $1`, runID)
+	require.NoError(t, err)
+
+	_, err = store.RenewWorkflowSandboxClaim(ctx, runtimeports.RenewWorkflowSandboxClaimParams{ID: runID, ClaimToken: token, ClaimGeneration: 1})
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "an expired lease is not revived")
+	_, err = store.MarkWorkflowRunSuccess(ctx, runtimeports.MarkWorkflowRunSuccessParams{ID: runID, ClaimToken: token, ClaimGeneration: 1})
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "an expired lease cannot finish the run")
+	_, err = store.MarkWorkflowRunFailure(ctx, runtimeports.MarkWorkflowRunFailureParams{ID: runID, ClaimToken: token, ClaimGeneration: 1})
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+	assert.Equal(t, "running", sandboxClaimStatus(t, pool, runID))
+
+	reclaimed, err := store.ClaimQueuedWorkflowRuns(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, reclaimed, 1)
+	assert.Equal(t, int64(2), reclaimed[0].ClaimGeneration)
+}

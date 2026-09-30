@@ -50,13 +50,15 @@ RETURNING wr.id, wr.repository_id, wr.workflow_definition_id, wr.trigger_ref,
 
 -- name: RenewSandboxWorkflowRunClaim :one
 -- Extend a live lease. No row means the token or generation no longer owns a
--- running sandbox-plane run.
+-- running sandbox-plane run, or the lease expired: an expired lease is
+-- reclaimable and never revived.
 UPDATE workflow_sandbox_claims AS claim
 SET claimed_at = NOW(),
     lease_expires_at = NOW() + INTERVAL '2 minutes'
 WHERE claim.workflow_run_id = sqlc.arg(workflow_run_id)
   AND claim.claim_token = sqlc.arg(claim_token)::uuid
   AND claim.generation = sqlc.arg(claim_generation)::bigint
+  AND claim.lease_expires_at > NOW()
   AND EXISTS (
     SELECT 1
     FROM workflow_runs AS wr
@@ -70,7 +72,7 @@ RETURNING claim.lease_expires_at::timestamptz;
 -- Write a scheduler outcome only while the caller's token and generation own
 -- the run. The terminal guard trigger reads the claim from the transaction
 -- settings and the invalidation trigger clears the lease. No row means a
--- cancel, resume, or newer owner took the run.
+-- cancel, resume, newer owner, or lease expiry took the run.
 WITH claim_context AS MATERIALIZED (
     SELECT
       set_config('smithers.workflow_sandbox_claim_token', sqlc.arg(claim_token)::text, true) AS claim_token,
@@ -88,4 +90,5 @@ WHERE wr.id = sqlc.arg(workflow_run_id)
   AND claim.workflow_run_id = wr.id
   AND claim.claim_token = sqlc.arg(claim_token)::uuid
   AND claim.generation = sqlc.arg(claim_generation)::bigint
+  AND claim.lease_expires_at > NOW()
 RETURNING wr.*;

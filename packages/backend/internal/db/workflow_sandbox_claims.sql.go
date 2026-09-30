@@ -121,6 +121,7 @@ WHERE wr.id = $2
   AND claim.workflow_run_id = wr.id
   AND claim.claim_token = $3::uuid
   AND claim.generation = $4::bigint
+  AND claim.lease_expires_at > NOW()
 RETURNING wr.id, wr.repository_id, wr.workflow_definition_id, wr.status, wr.trigger_event, wr.trigger_ref, wr.trigger_commit_sha, wr.dispatch_inputs, wr.agent_token_hash, wr.agent_token_expires_at, wr.jjhub_token_id, wr.check_run_id, wr.check_run_url, wr.started_at, wr.completed_at, wr.created_at, wr.updated_at, wr.execution_plane, wr.log_bytes, wr.log_entry_count, wr.cancel_reason
 `
 
@@ -134,7 +135,7 @@ type FinishClaimedSandboxWorkflowRunParams struct {
 // Write a scheduler outcome only while the caller's token and generation own
 // the run. The terminal guard trigger reads the claim from the transaction
 // settings and the invalidation trigger clears the lease. No row means a
-// cancel, resume, or newer owner took the run.
+// cancel, resume, newer owner, or lease expiry took the run.
 func (q *Queries) FinishClaimedSandboxWorkflowRun(ctx context.Context, arg FinishClaimedSandboxWorkflowRunParams) (WorkflowRun, error) {
 	row := q.db.QueryRow(ctx, finishClaimedSandboxWorkflowRun,
 		arg.Status,
@@ -176,6 +177,7 @@ SET claimed_at = NOW(),
 WHERE claim.workflow_run_id = $1
   AND claim.claim_token = $2::uuid
   AND claim.generation = $3::bigint
+  AND claim.lease_expires_at > NOW()
   AND EXISTS (
     SELECT 1
     FROM workflow_runs AS wr
@@ -193,7 +195,8 @@ type RenewSandboxWorkflowRunClaimParams struct {
 }
 
 // Extend a live lease. No row means the token or generation no longer owns a
-// running sandbox-plane run.
+// running sandbox-plane run, or the lease expired: an expired lease is
+// reclaimable and never revived.
 func (q *Queries) RenewSandboxWorkflowRunClaim(ctx context.Context, arg RenewSandboxWorkflowRunClaimParams) (time.Time, error) {
 	row := q.db.QueryRow(ctx, renewSandboxWorkflowRunClaim, arg.WorkflowRunID, arg.ClaimToken, arg.ClaimGeneration)
 	var claim_lease_expires_at time.Time
