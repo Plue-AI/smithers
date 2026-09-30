@@ -83,6 +83,7 @@ interface RuntimeConfig {
   readonly cliName?: string | undefined
   readonly cliVersion?: string | undefined
   readonly cliDescription?: string | undefined
+  readonly sync?: { cwd?: string | undefined; include?: Array<string> | undefined } | undefined
   readonly cacheUrl?: string | undefined
   readonly cacheToken?: string | undefined
   readonly cacheSteps?: ReturnType<typeof Cli.create> | undefined
@@ -104,6 +105,7 @@ This block is the one copy; the other pages link here.
 | `cliName`        | The binary name in help and usage output. Defaults to `smithers-build`.                                                       |
 | `cliVersion`     | The version `--version` prints. Defaults to this package's version.                                                           |
 | `cliDescription` | The one-line description help output leads with.                                                                              |
+| `sync`           | `skills add`'s sources: `include` globs the `SKILL.md` directories under `cwd` (default `process.cwd()`).                     |
 | `cacheUrl`       | `SMITHERS_CACHE_URL`, already captured by the caller.                                                                         |
 | `cacheToken`     | `SMITHERS_CACHE_TOKEN`, already captured by the caller.                                                                       |
 | `cacheSteps`     | Nothing by default. An Incur CLI mounted under `cache`, so `cache steps` runs the unified CLI's durable step-cache commands.  |

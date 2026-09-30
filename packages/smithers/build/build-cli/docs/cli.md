@@ -148,16 +148,16 @@ Each takes one or more patterns and workspace options. Commands other than
 `review` also accept the execution options. Several patterns run their union
 in one plan.
 
-| Command  | Argument        | Own options                                                   |
-| -------- | --------------- | ------------------------------------------------------------- |
-| `build`  | `<patterns...>` |                                                               |
-| `test`   | `<patterns...>` |                                                               |
-| `lint`   | `<patterns...>` | `--fix`                                                       |
-| `docs`   | `<patterns...>` | `--write`                                                     |
-| `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`        |
-| `ci`     | `<patterns...>` |                                                               |
-| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`       |
-| `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i` |
+| Command  | Argument        | Own options                                                                              |
+| -------- | --------------- | ---------------------------------------------------------------------------------------- |
+| `build`  | `<patterns...>` |                                                                                          |
+| `test`   | `<patterns...>` |                                                                                          |
+| `lint`   | `<patterns...>` | `--fix`                                                                                  |
+| `docs`   | `<patterns...>` | `--write`                                                                                |
+| `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`, `--required`, `--findings-store` |
+| `ci`     | `<patterns...>` |                                                                                          |
+| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`                                  |
+| `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i`                            |
 
 ### build, test, lint
 
@@ -213,6 +213,13 @@ commit must contain a generated `.smithers/target-index.json` with review policy
 `--revision` defaults to `HEAD`; dirty files are excluded. `--plan` shows selected
 files, policy labels, and pinned revisions without inference. Proposed declaration
 and index policy changes receive separate reviews and never replace approved policy.
+
+`--required` fails every selected review, policy reviews included, that selects
+no files or cannot run, instead of passing it. `--findings-store` names the
+absolute private directory that keeps review runs and findings; it defaults to
+`smithers/review-findings` in the repository's Git directory, which is never
+committed. The command prints each finding's disclosable summary; the findings
+themselves stay in the store.
 
 Both engines use tool-free provider requests. Claude requires `ANTHROPIC_API_KEY`;
 Codex requires `OPENAI_API_KEY`. Missing credentials and incomplete reviews fail.
