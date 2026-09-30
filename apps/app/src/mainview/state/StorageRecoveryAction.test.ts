@@ -98,7 +98,7 @@ describe("the shared private recovery action and Flow", () => {
         await action.state.preload()
         await action.bindingUnavailable()
         expect(action.state.get("recovery")).toMatchObject(actor === "user"
-          ? { phase: "failed", actor: "user", revision: 1, message: "The local recovery snapshot could not be read completely. No partial download was produced and saved data was not reset." }
+          ? { phase: "failed", actor: "user", revision: 1, message: "Smithers could not read all of this browser's saved data for the recovery file. Not your fault. Nothing was reset." }
           : { phase: "idle", actor: "system", revision: 0, message: null })
         expect(calls).toEqual([])
       } finally { await action.dispose() }
