@@ -2,7 +2,8 @@
  * A join answers the result the admitted authority produced, so the in-memory
  * engine admits a join only when the caller's ceiling covers the one the
  * execution was admitted with (#2852). The durable driver applies the same
- * `FlowEngine.joinable` rule; its cases live in `@smthrs/engine-store`.
+ * `FlowEngine.joinable` rule; its cases live in `@smthrs/engine-store`. The
+ * ceiling the engine itself was built under bounds every one of them (#3233).
  */
 import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
@@ -21,7 +22,10 @@ const everything = [new CapabilityPattern({ action: "*", resource: "**" })]
 const conflictOf = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
 
-const setup = (capabilities?: ReadonlyArray<string>) => {
+const setup = (
+  capabilities?: ReadonlyArray<string>,
+  engine: Layer.Layer<FlowRuntime.FlowRuntime> = FlowEngine.layerMemory
+) => {
   let runs = 0
   const Read = Action.make("join-authority/read", { payload: {}, success: Schema.String })
   const flow = Flow.make("join-authority/flow", {
@@ -38,7 +42,7 @@ const setup = (capabilities?: ReadonlyArray<string>) => {
       })
     ),
     Interpreter.layer(flow)
-  ).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(FlowEngine.layerMemory))
+  ).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(engine))
   return { flow, layer, runs: () => runs }
 }
 
@@ -137,6 +141,28 @@ describe("joining an execution under a capability ceiling", () => {
         expect(runs()).toBe(1)
       }).pipe(Effect.provide(layer))
     })))
+
+  it.effect("admits, joins, polls, and resumes under the ceiling the engine was built under", () =>
+    withCrypto(
+      Effect.gen(function*() {
+        // Only the engine is built under the narrower host; its handlers are
+        // registered, and every call below made, from unrestricted contexts.
+        const engine = yield* under(readSource)(Layer.build(FlowEngine.layerMemory))
+        const { flow, layer, runs } = setup(undefined, Layer.succeedContext(engine))
+        yield* Effect.gen(function*() {
+          expect(yield* flow.execute({ id: "a" }, { executionId: "hosted" })).toBe("denied")
+          // The admission recorded the host, so a caller under just the host joins.
+          expect(yield* under(readSource)(flow.execute({ id: "a" }, { executionId: "hosted" }))).toBe("denied")
+          expect(Option.isSome(yield* under(readSource)(flow.poll("hosted")))).toBe(true)
+          const runtime = yield* FlowRuntime.FlowRuntime
+          yield* under(readSource)(runtime.resume(flow, "hosted"))
+          // A caller narrower than the host still may not read it.
+          const narrower = yield* Effect.exit(under(readSecret)(flow.execute({ id: "a" }, { executionId: "hosted" })))
+          expect(conflictOf(narrower)).toMatchObject({ field: "capabilities", executionId: "hosted" })
+          expect(runs()).toBe(1)
+        }).pipe(Effect.provide(layer))
+      }).pipe(Effect.scoped)
+    ))
 
   it("joinable compares the admitted authority as recorded", () => {
     const narrow = CapabilitySet.fromPatterns(readSource).groups

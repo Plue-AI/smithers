@@ -16,7 +16,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
-import { joinable, requestedAuthority } from "./Authority.ts"
+import { bindHostCeiling, joinable, requestedAuthority } from "./Authority.ts"
 import { makeInstance } from "./FlowInstance.ts"
 import { makeUnsafe } from "./make.ts"
 import type * as Round from "./Round.ts"
@@ -72,12 +72,19 @@ export const capabilityConflict = (executionId: string): ExecutionIdentityConfli
  * This layer keeps state only in memory and is not suitable for production
  * flows that require durability.
  *
+ * The capability ceiling current where the layer is built is the engine's
+ * host ceiling: every execution it admits records it, and every join, poll,
+ * and resume is compared under it.
+ *
  * @category layers
  * @since 0.1.0
  */
 export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(FlowRuntime.FlowRuntime)(
   Effect.gen(function*() {
     const scope = yield* Effect.scope
+    // The ceiling this engine is built under bounds every admission, join,
+    // poll, and resume it answers, whatever context later calls it.
+    const host = yield* CapabilitySet.current
 
     type Registration = {
       readonly flow: Flow.Any
@@ -419,7 +426,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
 
     const clocks = yield* FiberMap.make<string>()
 
-    const engine = makeUnsafe({
+    const unbound = makeUnsafe({
       // Untraced because registration feeds back into the in-memory engine.
       register: Effect.fnUntraced(function*(flow, execute) {
         const registration: Registration = {
@@ -757,6 +764,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           Effect.asVoid
         )
     })
+    const engine: FlowRuntime.FlowRuntime["Service"] = bindHostCeiling(host, unbound)
 
     return engine
   })

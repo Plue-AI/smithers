@@ -7,12 +7,14 @@
  */
 
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
-import { Flow } from "@smthrs/flow"
+import { Flow, type FlowRuntime } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 
 /**
  * The authority a request for `flow` carries: the caller's ceiling narrowed by
- * the flow's own declaration, exactly what admission persists.
+ * the flow's own declaration, exactly what admission persists. Behind
+ * {@link bindHostCeiling} the caller's ceiling already includes the engine's
+ * own host ceiling.
  *
  * @category accessors
  * @since 1.0.0
@@ -42,3 +44,28 @@ export const joinable = (
   admitted: CapabilitySet.CapabilitySet["groups"],
   requested: CapabilitySet.CapabilitySet["groups"]
 ): boolean => CapabilitySet.within(CapabilitySet.fromGroups(admitted), CapabilitySet.fromGroups(requested))
+
+/**
+ * Binds `service` to `host`, the capability ceiling its engine was constructed
+ * under: every `execute`, `poll`, and `resume` runs under that ceiling
+ * intersected with the caller's. Admission therefore records, and a join,
+ * poll, or resume therefore compares, the host ceiling as well as the
+ * caller's and the flow's, so a caller in a wider context never stores or
+ * reads authority wider than the engine's host allows, and a replacement
+ * engine built under a narrower host refuses a wider admitted run.
+ *
+ * @category combinators
+ * @since 1.0.0
+ */
+export const bindHostCeiling = <Service extends FlowRuntime.FlowRuntime["Service"]>(
+  host: CapabilitySet.CapabilitySet,
+  service: Service
+): Service => {
+  const bound = CapabilitySet.attenuateGroups(host.groups)
+  const execute: FlowRuntime.FlowRuntime["Service"]["execute"] = (flow, options) =>
+    bound(service.execute(flow, options))
+  const poll: FlowRuntime.FlowRuntime["Service"]["poll"] = (flow, executionId) => bound(service.poll(flow, executionId))
+  const resume: FlowRuntime.FlowRuntime["Service"]["resume"] = (flow, executionId, options) =>
+    bound(service.resume(flow, executionId, options))
+  return { ...service, execute, poll, resume }
+}

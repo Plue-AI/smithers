@@ -16,7 +16,15 @@ a wider result. Otherwise both engines die with
 successor records its own declaration when this process registers it. Cross-run cache keys include the
 effective authority for both string and object idempotency keys.
 
-Existing durable executions without persisted authority refuse further dispatch.
+The ceiling current where an engine is built (`FlowEngine.layerMemory` or
+`EngineStore.make`) is its host ceiling. Every execute, poll, and resume the
+engine answers runs under it, so admission records it with the caller's ceiling
+and the declaration, and each join compares under it. A caller in a wider
+context cannot record wider authority than the host allows, and a replacement
+engine built under a narrower host refuses a wider execution recorded earlier.
+
+Existing durable executions without persisted authority refuse further dispatch;
+only an unrestricted caller of an unrestricted engine joins or polls them.
 Inspect their completed effects before starting replacement work; automatically
 re-keying an old action could repeat it.
 

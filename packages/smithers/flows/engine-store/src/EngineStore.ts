@@ -8,6 +8,7 @@
  * @since 0.1.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Sha256 } from "@smthrs/crypto"
 import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import { FlowEngine } from "@smthrs/engine"
@@ -175,6 +176,9 @@ const isBoundaryMetadata = Schema.is(FileBoundary)
  * payload, results, deferred completions, clocks, actions, and ownership
  * are persisted by the supplied layers. Supply the same DurableWriter used
  * by the journal and run store so cancellation can retain complete failures.
+ * The capability ceiling current at construction is the engine's host
+ * ceiling: every run it admits records it, and every join, poll, and resume
+ * is compared under it, whichever context later calls the service.
  *
  * @since 0.1.0
  * @category constructors
@@ -183,6 +187,7 @@ const makeWithEngineJj = (
   options: Options
 ): Effect.Effect<FlowRuntime.FlowRuntime["Service"], never, Requirements> =>
   Effect.gen(function*() {
+    const host = yield* CapabilitySet.current
     const ownerIdentity = yield* OwnerIdentity.OwnerIdentity
     const owner = yield* ownerIdentity.ownerId(options.owner.hostId)
     // One admission mutex per incarnation, shared by every dispatch this
@@ -528,7 +533,10 @@ const makeWithEngineJj = (
       // and the journal offers no committed cross-process subscription.
       resumeSignal: (_flow, executionId) => wakeBus.awaitWake(executionId)
     }
-    const service = { ...FlowEngine.makeUnsafe(encoded), durability: "durable" as const }
+    const service = {
+      ...FlowEngine.bindHostCeiling(host, FlowEngine.makeUnsafe(encoded)),
+      durability: "durable" as const
+    }
     yield* Deferred.succeed(engine, service)
     return service
   })
