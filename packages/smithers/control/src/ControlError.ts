@@ -21,7 +21,15 @@ const constantCode = <const Code extends string>(code: Code) =>
 export class RunNotFound extends Schema.TaggedError<RunNotFound>()("/control/RunNotFound", {
   code: constantCode("run_not_found"),
   runId: RunId
-}) {}
+}) {
+  /**
+   * The sentence an operator reads. Without one the CLI printed the bare
+   * fields, `run_not_found runId=nope`, which names no next action.
+   */
+  override get message(): string {
+    return `Run ${this.runId} was not found. Run \`smthrs runs list\` to see the runs you can read.`
+  }
+}
 
 /**
  * No plan with this id exists.
@@ -70,7 +78,15 @@ export class PlanDenied extends Schema.TaggedError<PlanDenied>()("/control/PlanD
 export class FlowNotFound extends Schema.TaggedError<FlowNotFound>()("/control/FlowNotFound", {
   code: constantCode("flow_not_found"),
   flowId: FlowId
-}) {}
+}) {
+  /**
+   * The sentence an operator reads, which names the command that lists the
+   * flows a caller can start.
+   */
+  override get message(): string {
+    return `Flow ${this.flowId} is not registered. Run \`smthrs flow list\` to see the flows you can start.`
+  }
+}
 
 /**
  * The submitted plan does not hash to the digest the caller declared, so

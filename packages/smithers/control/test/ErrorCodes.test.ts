@@ -109,6 +109,17 @@ describe("stable control error codes", () => {
     expect(error.code).toBe(code)
   })
 
+  it("names the missing run or flow and the command that lists real ones", () => {
+    // Without a sentence the CLI printed the bare fields: `smthrs runs cancel
+    // nope` answered "run_not_found runId=nope".
+    expect(new ControlError.RunNotFound({ runId: "nope" }).message).toBe(
+      "Run nope was not found. Run `smthrs runs list` to see the runs you can read."
+    )
+    expect(new ControlError.FlowNotFound({ flowId: "nope" }).message).toBe(
+      "Flow nope is not registered. Run `smthrs flow list` to see the flows you can start."
+    )
+  })
+
   it("gives every member a distinct code", () => {
     expect(new Set(table.map((entry) => entry.code)).size).toBe(table.length)
     expect(new Set(table.map((entry) => entry.tag)).size).toBe(table.length)

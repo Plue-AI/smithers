@@ -2464,7 +2464,7 @@
         "Channels.d.ts": "530e35dfd86b66cc0aec6a1b90a6bd6dd005b58d3deb972f52b30e3a1dedd981",
         "Control.d.ts": "6857857641ea7bf6f5f6dfbd6a1dfed94eca57491b5fd631f1f15c636ce5ad79",
         "ControlClient.d.ts": "c6fd43a264a3fd6d377dbfffeef16560786f8e4259bc3afe7a189c6697736d89",
-        "ControlError.d.ts": "60d4042383db0e1069ab16889b99e173025714718d442536abe3d4e30de347c1",
+        "ControlError.d.ts": "fcb91f8f9bdded74662f0446e0245ea46349a03d2a6ce9ab2eea75b88cfa9240",
         "ControlExecutor.d.ts": "f1625f76a0e881ea6b61fabc4ab2e383982c3dcf47ae658c708a338765d25175",
         "ControlFacts.d.ts": "051a9d4957b740dfe126802553031dc12d0538bbf9148b83d04ee28da1e32c95",
         "ControlLive.d.ts": "7847117004545fc649fea412877f61bc49ce62293b0e8c85cfd4c7c64a9707b4",
