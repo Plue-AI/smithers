@@ -1035,7 +1035,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/IssueComment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4521,7 +4521,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Issue'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4563,7 +4565,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/Issue'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4611,7 +4613,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/Issue'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4658,7 +4660,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/Issue'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4705,7 +4707,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: array
+                items:
+                  $ref: '#/components/schemas/IssueComment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4751,7 +4755,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/IssueComment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

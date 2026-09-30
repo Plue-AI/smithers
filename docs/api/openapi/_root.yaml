@@ -248,6 +248,126 @@ components:
           format: date-time
     AnyJSON:
       description: Endpoint-specific JSON response.
+    IssueCommentOrigin:
+      description: Where a comment was written. Comments created from a synced Slack or Telegram message carry that provider; every other comment was written in the app.
+      type: string
+      enum:
+        - app
+        - slack
+        - telegram
+    IssueComment:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - issue_id
+        - user_id
+        - commenter
+        - body
+        - type
+        - origin
+        - created_at
+        - updated_at
+      properties:
+        idempotency_key:
+          type: string
+        persona:
+          type: object
+        id:
+          type: integer
+          format: int64
+        issue_id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        commenter:
+          type: string
+        body:
+          type: string
+        type:
+          type: string
+        origin:
+          $ref: '#/components/schemas/IssueCommentOrigin'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    IssueLastComment:
+      description: The issue's newest comment.
+      type: object
+      required:
+        - commenter
+        - excerpt
+        - origin
+        - created_at
+      properties:
+        commenter:
+          type: string
+        persona:
+          type: object
+        excerpt:
+          description: The first 200 characters of the comment.
+          type: string
+          maxLength: 200
+        origin:
+          $ref: '#/components/schemas/IssueCommentOrigin'
+        created_at:
+          type: string
+          format: date-time
+    Issue:
+      type: object
+      additionalProperties: true
+      required:
+        - kind
+        - visibility
+        - id
+        - number
+        - title
+        - body
+        - state
+        - author
+        - comment_count
+        - last_comment
+        - created_at
+        - updated_at
+      properties:
+        idempotency_key:
+          type: string
+        kind:
+          type: string
+        visibility:
+          type: string
+        id:
+          type: integer
+          format: int64
+        number:
+          type: integer
+          format: int64
+        title:
+          type: string
+        body:
+          type: string
+        state:
+          type: string
+        author:
+          type: object
+        comment_count:
+          type: integer
+          format: int64
+        last_comment:
+          oneOf:
+            - $ref: '#/components/schemas/IssueLastComment'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     LinearTeam:
       type: object
       required:
