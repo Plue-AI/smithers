@@ -210,7 +210,12 @@ export class Observation extends Schema.Class<Observation>("flows/harness/Engine
   complete: Schema.Boolean.pipe(
     Schema.withConstructorDefault(Effect.succeed(true)),
     Schema.withDecodingDefaultKey(Effect.succeed(true))
-  )
+  ),
+  /**
+   * How long the measurement took, in milliseconds, so a slow frame can be
+   * attributed. Absent from a measurement recorded before it was kept.
+   */
+  elapsedMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
 }) {}
 
 /**

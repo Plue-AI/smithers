@@ -304,6 +304,67 @@ export const observeHost = (
   })
 
 /**
+ * What a host knows about changes under a workspace root: a count that moves
+ * whenever anything a measurement keeps may have changed.
+ *
+ * `delivered` reads the count as it stands, without waiting. `settled` reads
+ * it once every change made before the call has been counted, which a feed
+ * that delivers asynchronously can only confirm by waiting. Either answers
+ * `Option.none()` when the host cannot vouch for the tree: it has no feed, its
+ * feed failed, or it could not confirm the feed is current.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Changes {
+  readonly delivered: Effect.Effect<Option.Option<number>>
+  readonly settled: Effect.Effect<Option.Option<number>>
+}
+
+/**
+ * Serves a measurement again while {@link Changes} vouches that nothing moved.
+ *
+ * A worker measures the tree at both ends of every frame, and a frame that
+ * changed nothing leaves both walks with the same answer. On a 15,000-path
+ * checkout each walk took 3 to 15 seconds.
+ *
+ * A measurement is kept under the count `delivered` gave before its walk
+ * began, so a change during the walk, or one delivered late, makes the next
+ * call walk again. Only a complete measurement is kept. A later call races the
+ * walk against `settled`: a settled count equal to the kept one serves the
+ * kept measurement and stops the walk, and anything else lets the walk answer.
+ * A slow feed therefore never costs more than the walk it could have saved.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const cached = (
+  measure: Effect.Effect<EngineLike.Observation>,
+  changes: Changes
+): Effect.Effect<EngineLike.Observation> => {
+  let kept: { readonly generation: number; readonly observation: EngineLike.Observation } | undefined
+  return Effect.gen(function*() {
+    const generation = yield* changes.delivered
+    const walk = Effect.tap(measure, (observation) =>
+      Effect.sync(() => {
+        kept = Option.isSome(generation) && observation.complete
+          ? { generation: generation.value, observation }
+          : undefined
+      }))
+    const previous = kept
+    if (previous === undefined || Option.isNone(generation)) return yield* walk
+    const unmoved = Effect.flatMap(
+      changes.settled,
+      (settled) =>
+        Option.isSome(settled) && settled.value === previous.generation
+          ? Effect.succeed(previous.observation)
+          : Effect.never
+    )
+    return yield* Effect.race(unmoved, walk)
+  })
+}
+
+/**
  * Walks one workspace through Effect's `FileSystem`.
  *
  * @category constructors

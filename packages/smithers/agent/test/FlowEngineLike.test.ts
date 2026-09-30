@@ -634,7 +634,9 @@ describe("FlowEngineLike.make", () => {
         model: countingModel([]),
         route: staticRoute()
       }).pipe(
-        Effect.provideService(WorkspaceObservation.Observer, { observe: Effect.succeed(measurement) })
+        Effect.provideService(WorkspaceObservation.Observer, {
+          observe: Effect.as(Effect.sleep("40 millis"), measurement)
+        })
       )
       const bare = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
       return { equipped: yield* equipped.observe, bare: yield* bare.observe }
@@ -645,7 +647,20 @@ describe("FlowEngineLike.make", () => {
     // tree, because the controller must be able to tell "nothing changed" from
     // "nobody looked" — the first drives the read-only cap and the second
     // leaves it on declared writes.
-    expect(completed(outcome)).toEqual({ equipped: Option.some(measurement), bare: Option.none() })
+    const { equipped, bare } = completed(outcome) as {
+      equipped: Option.Option<EngineLike.Observation>
+      bare: Option.Option<EngineLike.Observation>
+    }
+    expect(bare).toEqual(Option.none())
+    const observed = Option.getOrThrow(equipped)
+    expect({ digest: observed.digest, paths: observed.paths, complete: observed.complete }).toEqual({
+      digest: "tree-1",
+      paths: 3,
+      complete: true
+    })
+    // The measurement carries what it cost, so a slow frame is attributable.
+    expect(Number.isInteger(observed.elapsedMs)).toBe(true)
+    expect(observed.elapsedMs).toBeGreaterThanOrEqual(35)
   })
 
   it("pins through the composition's store, and reports it unpinnable without one", async () => {

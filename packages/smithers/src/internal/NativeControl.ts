@@ -492,6 +492,8 @@ export const make = (
    * django's opening walk and never reached the agent's first tool call.
    * `NodeWorkspaceObservation` states why it is Node's `fs` rather than
    * Effect's `FileSystem`: one call per file instead of two, measured together.
+   * Its change feed lets a measurement of a tree nothing touched since the last
+   * one skip the walk.
    *
    * @category layers
    * @since 0.1.0
@@ -500,7 +502,15 @@ export const make = (
     root: string,
     options?: WorkspaceObservation.Options
   ): Layer.Layer<WorkspaceObservation.Observer> =>
-    WorkspaceObservation.layerHost(NodeWorkspaceObservation.host, root, options)
+    Layer.effect(WorkspaceObservation.Observer)(
+      Effect.map(NodeWorkspaceObservation.changes(root, options), (changes) =>
+        WorkspaceObservation.Observer.of({
+          observe: WorkspaceObservation.cached(
+            WorkspaceObservation.observeHost(NodeWorkspaceObservation.host, root, options),
+            changes
+          )
+        }))
+    )
 
   /**
    * Provides the native flow registry the local CLI discovers flows with.

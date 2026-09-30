@@ -1373,7 +1373,18 @@ export const make = (
     const observe = Option.match(observer, {
       onNone: (): Effect.Effect<Option.Option<EngineLike.Observation>, HarnessError.HarnessError> =>
         Effect.succeed(Option.none()),
-      onSome: (service) => Effect.asSome(service.observe)
+      // Timed here, around whichever observer the host provides, so the
+      // journaled measurement says what each walk cost.
+      onSome: (service) =>
+        Effect.map(Effect.timed(service.observe), ([elapsed, observation]) =>
+          Option.some(
+            new EngineLike.Observation({
+              digest: observation.digest,
+              paths: observation.paths,
+              complete: observation.complete,
+              elapsedMs: Math.round(Duration.toMillis(elapsed))
+            })
+          ))
     })
 
     // Resolved once for the same reason the observer is: a composition either

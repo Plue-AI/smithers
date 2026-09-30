@@ -486,3 +486,133 @@ describe("WorkspaceObservation", () => {
     rmSync(root, { recursive: true, force: true })
   })
 })
+
+describe("WorkspaceObservation.cached", () => {
+  const observation = (digest: string, complete = true) => new EngineLike.Observation({ digest, paths: 1, complete })
+
+  /** A walk that counts the walks it finished and answers the next queued measurement. */
+  const counting = (answers: ReadonlyArray<EngineLike.Observation>, during: () => void = () => {}) => {
+    let walks = 0
+    const measure = Effect.sync(() => {
+      during()
+      return answers[Math.min(walks++, answers.length - 1)]!
+    })
+    return { measure, walks: () => walks }
+  }
+
+  /** A change feed whose delivered and settled counts the test sets. */
+  const feed = (initial: Option.Option<number>) => {
+    const state = { delivered: initial, settled: initial }
+    const changes: WorkspaceObservation.Changes = {
+      delivered: Effect.sync(() => state.delivered),
+      settled: Effect.sync(() => state.settled)
+    }
+    return { changes, state }
+  }
+
+  it("walks once across frames that changed nothing", async () => {
+    const walk = counting([observation("a")])
+    const { changes } = feed(Option.some(0))
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    // Forty frames, opened and closed: 80 measurements.
+    const all = await Effect.runPromise(Effect.forEach(Array.from({ length: 80 }), () => observe))
+    expect(walk.walks()).toBe(1)
+    expect(new Set(all.map((each) => each.digest))).toEqual(new Set(["a"]))
+  })
+
+  it("walks again once the settled count moves, and serves the new answer", async () => {
+    const walk = counting([observation("a"), observation("b")])
+    const { changes, state } = feed(Option.some(0))
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    expect((await Effect.runPromise(observe)).digest).toBe("a")
+    // A change delivered only once the feed settles: the walk answers.
+    state.settled = Option.some(1)
+    expect((await Effect.runPromise(observe)).digest).toBe("b")
+    expect(walk.walks()).toBe(2)
+  })
+
+  it("keeps a walk under the count delivered before it, so a late delivery walks again", async () => {
+    const walk = counting([observation("a"), observation("b")])
+    const { changes, state } = feed(Option.some(0))
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    await Effect.runPromise(observe)
+    state.delivered = Option.some(1)
+    state.settled = Option.some(1)
+    // Kept under 0; the feed now says 1.
+    expect((await Effect.runPromise(observe)).digest).toBe("b")
+    expect((await Effect.runPromise(observe)).digest).toBe("b")
+    expect(walk.walks()).toBe(2)
+  })
+
+  it("walks every time a feed cannot vouch for the tree", async () => {
+    const walk = counting([observation("a")])
+    const { changes, state } = feed(Option.none())
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    await Effect.runPromise(Effect.all([observe, observe, observe]))
+    expect(walk.walks()).toBe(3)
+    // A vouched walk, then a lapse in either count: each lapse walks.
+    state.delivered = Option.some(5)
+    state.settled = Option.some(5)
+    await Effect.runPromise(observe)
+    state.settled = Option.none()
+    await Effect.runPromise(observe)
+    state.settled = Option.some(5)
+    state.delivered = Option.none()
+    await Effect.runPromise(observe)
+    // The unvouched walk forgot the kept measurement.
+    state.delivered = Option.some(5)
+    await Effect.runPromise(observe)
+    expect(walk.walks()).toBe(7)
+  })
+
+  it("never serves a partial measurement again", async () => {
+    const walk = counting([observation("prefix", false)])
+    const { changes } = feed(Option.some(0))
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    await Effect.runPromise(Effect.all([observe, observe]))
+    expect(walk.walks()).toBe(2)
+  })
+
+  it("reads the count before walking, so a change during the walk is walked again", async () => {
+    const { changes, state } = feed(Option.some(0))
+    const walk = counting([observation("walk-1"), observation("walk-2")], () => {
+      // Something writes while the walk is under way, and the feed counts it.
+      state.delivered = Option.map(state.delivered, (count) => count + 1)
+      state.settled = state.delivered
+    })
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    expect((await Effect.runPromise(observe)).digest).toBe("walk-1")
+    expect((await Effect.runPromise(observe)).digest).toBe("walk-2")
+    expect(walk.walks()).toBe(2)
+  })
+
+  it("lets the walk answer while the feed is slower than the walk", async () => {
+    const walk = counting([observation("a"), observation("b")])
+    const changes: WorkspaceObservation.Changes = {
+      delivered: Effect.succeed(Option.some(0)),
+      settled: Effect.never
+    }
+    const observe = WorkspaceObservation.cached(walk.measure, changes)
+    await Effect.runPromise(observe)
+    expect((await Effect.runPromise(observe)).digest).toBe("b")
+  })
+
+  it("stops the walk once the settled feed vouches for the kept measurement", async () => {
+    let started = 0
+    let finished = 0
+    const measure = Effect.gen(function*() {
+      started++
+      if (started > 1) yield* Effect.never
+      finished++
+      return observation("a")
+    })
+    const { changes } = feed(Option.some(0))
+    const observe = WorkspaceObservation.cached(measure, changes)
+    await Effect.runPromise(observe)
+    // A walk that would never end: the kept measurement answers, and the walk,
+    // if it began at all, is stopped.
+    expect((await Effect.runPromise(observe)).digest).toBe("a")
+    expect(finished).toBe(1)
+    expect(started).toBeLessThanOrEqual(2)
+  })
+})
