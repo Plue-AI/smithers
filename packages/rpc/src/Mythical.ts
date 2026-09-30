@@ -52,6 +52,8 @@ export const MYTHICAL_ROUTES = {
   backfill: "/api/repos/{owner}/{repo}/mythical/backfill",
   /** `PUT`: {@link MythicalConfigSchema}. */
   config: "/api/repos/{owner}/{repo}/mythical/config",
+  /** `GET`: one {@link MythicalItemSchema}, named by its id or its issue's number, however many the snapshot lists. */
+  item: "/api/repos/{owner}/{repo}/mythical/items/{id}",
   /** `POST`: retry one blocked or rejected item. */
   retry: "/api/repos/{owner}/{repo}/mythical/items/{id}/retry",
   /** `POST`: a maintainer files a TODO (`{ title, body }`); answers its queued {@link MythicalItemSchema}. */

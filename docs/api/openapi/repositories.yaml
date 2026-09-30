@@ -12839,6 +12839,53 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/mythical/items/{ref}:
+    get:
+      summary: GET /api/repos/{owner}/{repo}/mythical/items/{ref}
+      description: One history item, named by its id or its issue's number, as the snapshot shows it; found however many items the history holds.
+      operationId: get_api_repos_owner_repo_mythical_items_ref
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ref
+          in: path
+          required: true
+          description: The item's id, or its issue's number.
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/mythical/items/{id}/retry:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/retry

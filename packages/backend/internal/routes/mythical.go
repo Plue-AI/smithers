@@ -24,6 +24,7 @@ type MythicalRouteService interface {
 	Backfill(ctx context.Context, repositoryID int64) (services.MythicalBackfillCounts, error)
 	SubmitLane(ctx context.Context, repositoryID, userID int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error)
 	SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error
+	Item(ctx context.Context, repositoryID int64, ref string) (services.MythicalItemView, error)
 	RetryItem(ctx context.Context, repositoryID int64, itemID string) (services.MythicalItemView, error)
 	FileTodo(ctx context.Context, repositoryID, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error)
 	RequestWiki(ctx context.Context, repositoryID int64) error
@@ -92,6 +93,23 @@ func (h *MythicalHandler) GetStack(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, view)
+}
+
+// GetItem answers one item, named by its id or its issue's number, however
+// many items the stack holds. Its route refuses a box that ran
+// outsider-started work, which reads no live issue text.
+func (h *MythicalHandler) GetItem(w http.ResponseWriter, r *http.Request) {
+	repoCtx, ok := h.repository(w, r)
+	if !ok {
+		return
+	}
+	item, err := h.Service.Item(r.Context(), repoCtx.Repository.ID, chi.URLParam(r, "ref"))
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	pkgerrors.WriteJSON(w, http.StatusOK, item)
 }
 
 type mythicalBootstrapRequest struct {

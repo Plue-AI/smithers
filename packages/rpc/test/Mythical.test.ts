@@ -246,6 +246,7 @@ describe("the mythical stack contract", () => {
   test("routes fill owner, repository and item", () => {
     expect(mythicalRoute("stack", "smithers-canary", "smithers")).toBe("/api/repos/smithers-canary/smithers/mythical")
     expect(mythicalRoute("retry", "o", "r", "item 1")).toBe("/api/repos/o/r/mythical/items/item%201/retry")
+    expect(mythicalRoute("item", "o", "r", "12")).toBe("/api/repos/o/r/mythical/items/12")
     for (const route of Object.values(MYTHICAL_ROUTES)) {
       expect(route.startsWith("/api/repos/{owner}/{repo}/mythical")).toBe(true)
     }

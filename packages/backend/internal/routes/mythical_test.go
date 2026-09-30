@@ -65,6 +65,14 @@ func (f *fakeMythicalRoute) SetMaxParallel(_ context.Context, _ int64, n int32) 
 	return nil
 }
 
+func (f *fakeMythicalRoute) Item(_ context.Context, repositoryID int64, ref string) (services.MythicalItemView, error) {
+	if ref != "12" {
+		return services.MythicalItemView{}, pkgerrors.NotFound("item not found")
+	}
+	return services.MythicalItemView{ID: "item-12", State: "blocked", Issue: &services.MythicalIssueView{Number: 12, Title: "Fix login"},
+		DependsOn: []string{}}, nil
+}
+
 func (f *fakeMythicalRoute) RetryItem(_ context.Context, _ int64, id string) (services.MythicalItemView, error) {
 	f.retried = id
 	return services.MythicalItemView{ID: id, State: "queued", DependsOn: []string{}}, nil
@@ -144,6 +152,27 @@ func TestMythicalRoutes(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Len(t, service.bootstraps, 1)
 	assert.Contains(t, rec.Body.String(), `"state":"bootstrapping"`)
+}
+
+func TestMythicalItemRoute(t *testing.T) {
+	handler := &MythicalHandler{Service: &fakeMythicalRoute{}}
+	get := func(ref string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		chiCtx := chi.NewRouteContext()
+		chiCtx.URLParams.Add("ref", ref)
+		ctx := context.WithValue(r.Context(), chi.RouteCtxKey, chiCtx)
+		ctx = middleware.ContextWithRepoContext(ctx, &middleware.RepoContext{Owner: "o",
+			Repository: &db.Repository{ID: 19, Name: "r", IsPublic: true}}, middleware.PermissionRead)
+		rec := httptest.NewRecorder()
+		handler.GetItem(rec, r.WithContext(ctx))
+		return rec
+	}
+	rec := get("12")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.JSONEq(t, `{"id":"item-12","issue":{"number":12,"title":"Fix login","url":""},"state":"blocked","attempt":0,"runs":{},"dependsOn":[],"updatedAt":""}`,
+		rec.Body.String())
+	assert.Equal(t, http.StatusNotFound, get("13").Code)
 }
 
 func TestMythicalWriteRoutes(t *testing.T) {
