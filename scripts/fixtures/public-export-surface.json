@@ -1391,6 +1391,38 @@
         "require": "./dist/cjs/CloudSandbox.js"
       },
       "reason": "Scoped Smithers Cloud workspace Sandbox.Provider with stable per-session names, fresh pinned SSH grants, and deletion on scope release; shared by any sandbox-backed flow (#2924)."
+    },
+    {
+      "name": "@smthrs/capability",
+      "subpath": "./CapabilitySet",
+      "development": "./src/CapabilitySet.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/CapabilitySet.d.ts",
+          "default": "./dist/esm/CapabilitySet.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CapabilitySet.d.ts",
+          "default": "./dist/cjs/CapabilitySet.js"
+        }
+      },
+      "reason": "The monotone authority implementation moved from @smthrs/kernel into @smthrs/capability (48776efd43) so flow declarations, execution and recovery enforce one capability ceiling; @smthrs/kernel/CapabilitySet re-exports it unchanged, so the kernel's reviewed contract stays addressable."
+    },
+    {
+      "name": "@smthrs/gateway",
+      "subpath": "./RunDevTools",
+      "development": "./src/RunDevTools.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/RunDevTools.d.ts",
+          "default": "./dist/esm/RunDevTools.js"
+        },
+        "require": {
+          "types": "./dist/cjs/RunDevTools.d.ts",
+          "default": "./dist/cjs/RunDevTools.js"
+        }
+      },
+      "reason": "The DevTools projection of one run (#2931, 28e0fcf2a9): a pure view over the RunTrace fold of run-events, so the app pane, the terminal's /devtools and smthrs runs devtools inspect a run the same way with no second node model or data source."
     }
   ],
   "removed": [
