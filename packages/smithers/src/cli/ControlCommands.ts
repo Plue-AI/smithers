@@ -20,6 +20,7 @@ import { defaultApprovalScope } from "../internal/ApprovalScope.ts"
 import * as BoundedEvents from "../internal/BoundedEvents.ts"
 import * as Failure from "../internal/Failure.ts"
 import * as FeaturedFlows from "../internal/FeaturedFlows.ts"
+import * as RunListing from "../internal/RunListing.ts"
 import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
 import { prepareHistoryRun, reconcileHistory } from "./HistoryCommands.ts"
@@ -75,6 +76,22 @@ const options = Bridge.connectionOptions
 const runArgs = z.object({ run: z.string().min(1).describe("Durable run ID") })
 const flowArgs = z.object({ flow: z.string().min(1).describe("Discovered flow name") })
 const statuses = ["accepted", "running", "parked", "waiting-approval", "cancelled", "completed", "failed"] as const
+
+/** The filters `runs list` and `runs count` share. */
+const runFilters = options.extend({
+  flow: z.string().optional(),
+  status: z.enum(statuses).optional(),
+  since: z.string().optional().describe("Only runs created at or after this time (epoch ms or ISO 8601)"),
+  until: z.string().optional().describe("Only runs created before this time (epoch ms or ISO 8601)"),
+  sort: z.enum(RunListing.sorts).optional().describe("Order by creation time"),
+  parent: z.string().optional().describe("Only runs branched from this run"),
+  trigger: z.string().optional().describe("Only runs this trigger started")
+})
+
+const filterArgs = (filters: RunListing.Filters) =>
+  (["flow", "status", "since", "until", "sort", "parent", "trigger"] as const).flatMap((key) =>
+    filters[key] === undefined ? [] : [`--${key}`, filters[key]]
+  )
 
 const guard = Presentation.guard
 const runsList = { command: "runs list", description: "List the current durable run records" }
@@ -278,11 +295,9 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       }
     })
     .command("list", {
-      description: "List durable runs filtered by flow or status",
+      description: "List durable runs",
       mcp: { annotations: { readOnlyHint: true } },
-      options: options.extend({
-        flow: z.string().optional(),
-        status: z.enum(statuses).optional(),
+      options: runFilters.extend({
         limit: z.number().int().min(1).max(500).optional().describe("Runs per page (default 100)"),
         cursor: z.string().optional().describe("Continue from the nextCursor a previous page printed")
       }),
@@ -293,8 +308,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             return Bridge.invoke(
               [
                 "ps",
-                ...(c.options.flow ? ["--flow", c.options.flow] : []),
-                ...(c.options.status ? ["--status", c.options.status] : []),
+                ...filterArgs(c.options),
                 ...(c.options.limit === undefined ? [] : ["--limit", String(c.options.limit)]),
                 ...(c.options.cursor ? ["--cursor", c.options.cursor] : [])
               ],
@@ -302,6 +316,21 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
               runtime
             )
           }), { next: Presentation.runs({ otherwise: [runsList] }) })
+    })
+    .command("count", {
+      description: "Count durable runs",
+      mcp: { annotations: { readOnlyHint: true } },
+      options: runFilters,
+      run: (c) =>
+        guard(c, () =>
+          observe(c.options, runtime, { count: 0 }, async () => {
+            await reconcileHistory(c.options, runtime)
+            return Bridge.query(
+              Effect.map(Effect.flatMap(RunListing.request(c.options), RunListing.count), (count) => ({ count })),
+              c.options,
+              runtime
+            )
+          }), { next: [runsList] })
     })
     .command("show", {
       description: "Show a run's current status and diagnosis",
