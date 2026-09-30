@@ -797,6 +797,110 @@ func TestChangeService_GetFindingsFiltersAndValidatesRevision(t *testing.T) {
 	assert.Contains(t, err.Error(), "change revision not found")
 }
 
+// recordingRevisionQueries lists the revisions it has recorded, like the
+// product table, so a read that records a missing revision sees it.
+type recordingRevisionQueries struct {
+	changeTestQueries
+}
+
+func (q *recordingRevisionQueries) RecordChangeRevision(ctx context.Context, arg db.RecordChangeRevisionParams) (db.ChangeRevision, error) {
+	revision, err := q.changeTestQueries.RecordChangeRevision(ctx, arg)
+	if err == nil {
+		revision.Seq = int64(len(q.revisions) + 1)
+		q.revisions = append(q.revisions, revision)
+	}
+	return revision, err
+}
+
+func TestChangeService_GetFindingsRecordsUnrecordedInitialRevision(t *testing.T) {
+	t.Parallel()
+
+	queries := &recordingRevisionQueries{}
+	repoHost := &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-1", ParentCommitID: "root"}}
+	service := NewChangeService(queries, repoHost, nil)
+
+	got, err := service.GetFindings(context.Background(), 42, "alice", "demo", "change-1", "", 7)
+
+	require.NoError(t, err)
+	assert.Equal(t, ChangeFindingsResponse{ChangeID: "change-1", CurrentSeq: 1, Findings: []ChangeFindingResponse{}, Analyzers: []AnalyzerRunResponse{}}, got)
+	require.Len(t, queries.records, 1)
+	assert.Equal(t, db.RecordChangeRevisionParams{RepositoryID: 42, ChangeID: "change-1", CommitID: "commit-1", ParentCommitID: "root", Source: "push", OperationIds: []string{}}, queries.records[0])
+
+	// The recorded revision is reused, and it is selectable by sequence.
+	got, err = service.GetFindings(context.Background(), 42, "alice", "demo", "change-1", "1", 7)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got.CurrentSeq)
+	assert.Len(t, queries.records, 1)
+	_, err = service.GetFindings(context.Background(), 42, "alice", "demo", "change-1", "2", 7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "change revision not found")
+}
+
+func TestChangeService_GetFindingsRecordsNewHeadOfRecordedChange(t *testing.T) {
+	t.Parallel()
+
+	queries := &recordingRevisionQueries{changeTestQueries{revisions: []db.ChangeRevision{{Seq: 1, CommitID: "commit-1"}}}}
+	repoHost := &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-2", HasConflict: true}, conflicts: []repohost.Conflict{{FilePath: "a.go"}}}
+
+	got, err := NewChangeService(queries, repoHost, nil).GetFindings(context.Background(), 42, "alice", "demo", "change-1", "", 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), got.CurrentSeq)
+	require.Len(t, queries.records, 1)
+	assert.Equal(t, "commit-2", queries.records[0].CommitID)
+}
+
+func TestChangeService_GetFindingsKeepsRefusalsWhenRevisionUnrecorded(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		queries  ChangeRevisionQuerier
+		repoHost *changeTestRepoHost
+		want     string
+		status   int
+	}{
+		"missing change": {
+			queries:  &recordingRevisionQueries{},
+			repoHost: &changeTestRepoHost{getErr: &repohost.StatusError{StatusCode: http.StatusNotFound, Message: "change not found"}},
+			want:     "change not found", status: http.StatusNotFound,
+		},
+		"change without commit": {
+			queries:  &recordingRevisionQueries{},
+			repoHost: &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1"}},
+			want:     "repo-host returned a change without an identity", status: http.StatusInternalServerError,
+		},
+		"revision storage failure": {
+			queries:  &recordingRevisionQueries{changeTestQueries{recordErr: errors.New("database unavailable")}},
+			repoHost: &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-1"}},
+			want:     "failed to store change revision", status: http.StatusInternalServerError,
+		},
+		"revision list failure": {
+			queries:  &changeTestQueriesWithRevisionError{},
+			repoHost: &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-1"}},
+			want:     "failed to list change revisions", status: http.StatusInternalServerError,
+		},
+		"conflict read failure": {
+			queries:  &recordingRevisionQueries{},
+			repoHost: &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-1", HasConflict: true}, conflictsErr: errors.New("repo-host down")},
+			want:     "failed to load pushed change conflicts", status: http.StatusInternalServerError,
+		},
+		"record not visible": {
+			queries:  &changeTestQueries{},
+			repoHost: &changeTestRepoHost{change: repohost.Change{ChangeID: "change-1", CommitID: "commit-1"}},
+			want:     "current change revision not recorded", status: http.StatusInternalServerError,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewChangeService(tc.queries, tc.repoHost, nil).GetFindings(context.Background(), 42, "alice", "demo", "change-1", "", 0)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			var apiErr *pkgerrors.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, tc.status, apiErr.Status)
+		})
+	}
+}
+
 func TestChangeService_SubmitFindingFeedbackUpsertsForCaller(t *testing.T) {
 	t.Parallel()
 

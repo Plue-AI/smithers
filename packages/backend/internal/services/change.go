@@ -326,14 +326,7 @@ func (s *ChangeService) RecordPush(ctx context.Context, repositoryID int64, owne
 			if strings.TrimSpace(change.ChangeID) == "" || strings.TrimSpace(change.CommitID) == "" {
 				continue
 			}
-			var conflicts []repohost.Conflict
-			if change.HasConflict {
-				conflicts, err = s.repoHost.GetChangeConflicts(ctx, owner, repo, change.ChangeID)
-				if err != nil {
-					return mapChangeRepoHostError(err, "failed to load pushed change conflicts")
-				}
-			}
-			if err := s.recordPushedChange(ctx, repositoryID, change, conflicts); err != nil {
+			if err := s.recordRepoHostChange(ctx, repositoryID, owner, repo, change); err != nil {
 				return err
 			}
 		}
@@ -345,6 +338,20 @@ func (s *ChangeService) RecordPush(ctx context.Context, repositoryID int64, owne
 		}
 		cursor = nextCursor
 	}
+}
+
+// recordRepoHostChange snapshots one repo-host change exactly as a push
+// callback would, including its conflicts when it has any.
+func (s *ChangeService) recordRepoHostChange(ctx context.Context, repositoryID int64, owner, repo string, change repohost.Change) error {
+	var conflicts []repohost.Conflict
+	if change.HasConflict {
+		var err error
+		conflicts, err = s.repoHost.GetChangeConflicts(ctx, owner, repo, change.ChangeID)
+		if err != nil {
+			return mapChangeRepoHostError(err, "failed to load pushed change conflicts")
+		}
+	}
+	return s.recordPushedChange(ctx, repositoryID, change, conflicts)
 }
 
 func (s *ChangeService) recordPushedChange(ctx context.Context, repositoryID int64, change repohost.Change, conflicts []repohost.Conflict) error {
@@ -1077,24 +1084,27 @@ func (s *ChangeService) GetFindings(ctx context.Context, repositoryID int64, own
 	if err != nil {
 		return ChangeFindingsResponse{}, mapChangeRepoHostError(err, "failed to get change")
 	}
-	revisions, err := s.queries.ListChangeRevisions(ctx, db.ListChangeRevisionsParams{
-		RepositoryID: repositoryID,
-		ChangeID:     change.ChangeID,
-	})
+	commitBySeq, currentSeq, err := s.listFindingRevisions(ctx, repositoryID, change)
 	if err != nil {
-		return ChangeFindingsResponse{}, pkgerrors.Internal("failed to list change revisions").WithCause(err)
-	}
-
-	commitBySeq := make(map[int64]string, len(revisions))
-	var currentSeq int64
-	for _, recorded := range revisions {
-		commitBySeq[recorded.Seq] = recorded.CommitID
-		if recorded.CommitID == change.CommitID {
-			currentSeq = recorded.Seq
-		}
+		return ChangeFindingsResponse{}, err
 	}
 	if currentSeq == 0 {
-		return ChangeFindingsResponse{}, pkgerrors.Internal("current change revision not recorded")
+		// Repo-host commits that never passed through a push callback, such
+		// as a new repository's initial change, have no recorded revision
+		// yet. Record the current one so it gets a real sequence.
+		if strings.TrimSpace(change.ChangeID) == "" || strings.TrimSpace(change.CommitID) == "" {
+			return ChangeFindingsResponse{}, pkgerrors.Internal("repo-host returned a change without an identity")
+		}
+		if err := s.recordRepoHostChange(ctx, repositoryID, owner, repo, change); err != nil {
+			return ChangeFindingsResponse{}, err
+		}
+		commitBySeq, currentSeq, err = s.listFindingRevisions(ctx, repositoryID, change)
+		if err != nil {
+			return ChangeFindingsResponse{}, err
+		}
+		if currentSeq == 0 {
+			return ChangeFindingsResponse{}, pkgerrors.Internal("current change revision not recorded")
+		}
 	}
 	if revisionFilter.Valid {
 		if _, ok := commitBySeq[revisionFilter.Int64]; !ok {
@@ -1171,6 +1181,25 @@ func (s *ChangeService) GetFindings(ctx context.Context, repositoryID int64, own
 		})
 	}
 	return response, nil
+}
+
+func (s *ChangeService) listFindingRevisions(ctx context.Context, repositoryID int64, change repohost.Change) (map[int64]string, int64, error) {
+	revisions, err := s.queries.ListChangeRevisions(ctx, db.ListChangeRevisionsParams{
+		RepositoryID: repositoryID,
+		ChangeID:     change.ChangeID,
+	})
+	if err != nil {
+		return nil, 0, pkgerrors.Internal("failed to list change revisions").WithCause(err)
+	}
+	commitBySeq := make(map[int64]string, len(revisions))
+	var currentSeq int64
+	for _, recorded := range revisions {
+		commitBySeq[recorded.Seq] = recorded.CommitID
+		if recorded.CommitID == change.CommitID {
+			currentSeq = recorded.Seq
+		}
+	}
+	return commitBySeq, currentSeq, nil
 }
 
 // SubmitFindingFeedback records the caller's latest useful/not-useful verdict
