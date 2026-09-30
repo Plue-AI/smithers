@@ -1833,34 +1833,6 @@ const salvageRecall = "the whole result is still under the name your cell bound 
 const signatureOf = (flow: string, input: Schema.Json, at?: string | undefined): string =>
   Digest.digest(CanonicalJson.stringify(at === undefined ? [flow, input] : [flow, input, at]))
 
-/**
- * The answer a park gets when nothing is listening for it.
- *
- * A park is a request for a human, and the run's own arming says whether one
- * exists. Refusing it is not an error the model has to repair — the frame is
- * ordinary, its state is kept, and the note states what is left to spend so the
- * next frame has no reason to read the refusal as "there is nothing more to
- * try". On the SWE-bench sphinx instance a run parked at frame 3 with 97
- * frames unspent, asking about a definition `grep` finds in the workspace it
- * was already holding.
- *
- * The frame it is answered in is an ordinary frame in every other respect,
- * read-only discipline included. Exempting it would hand a stalled run a way
- * out of the only control that ends a stall: a cell that parks every frame
- * would change nothing, be demanded nothing, and spend the whole frame budget
- * and the whole wall clock asking questions nobody is listening to.
- */
-const parkRefusal = (
-  message: string,
-  framesLeft: number | "unlimited",
-  frameSeconds: number | undefined
-): string =>
-  `No human is available: this run has no approval channel, so nobody can answer a park and the transition is not honored. What you asked — "${message}" — is now yours to settle. You have ${framesLeft} frame${
-    framesLeft === 1 ? "" : "s"
-  } left${
-    frameSeconds === undefined ? "" : `, each able to spend up to ${frameSeconds} seconds`
-  }, and the flows in ctx.flows to spend them on. Answer the question yourself with a call — search the workspace, read the file, run the command — and continue.`
-
 const readOnlyCapFailure = (cap: number, frames: number): HarnessError =>
   new HarnessError({
     code: "read_only_cap",
@@ -3698,30 +3670,11 @@ const frame = (
           })
         )
       }
-      // A park with no channel to answer it is refused and answered here. The
-      // journal states this without an event of its own: the pair
-      // `transition-applied` carrying a `park` and `turn-closed` carrying
-      // `continue` occurs for no other reason.
       if (!state.approvalChannel) {
-        // A refused park continues the run, so its frame is judged like every
-        // other continuing frame. Waiting was the exemption and there is no
-        // waiting here: a cell that parks every frame changes nothing, and
-        // without this it would be the one shape a stalled run can take that
-        // the read-only cap never sees.
-        if (cap > 0 && readOnlyFrames >= cap * 2) {
-          return yield* readOnlyCapFailure(cap, readOnlyFrames)
-        }
-        const limits = Sandbox.withDefaults(sandbox.capabilities, input.limits)
-        const step = yield* observe(
-          exit,
-          parkRefusal(
-            transition.message,
-            state.maxFrames === 0 ? "unlimited" : Math.max(0, state.maxFrames - state.frame - 1),
-            limits.totalMs === undefined ? undefined : Math.floor(limits.totalMs / 1000)
-          ),
-          { pendingReadOnlyDemand: undefined }
-        )
-        return yield* finish(exit, step)
+        return yield* new HarnessError({
+          code: "approval_unavailable",
+          message: `The run requires an answer but has no approval channel: ${transition.message}`
+        })
       }
       if (!Frame.hasNextFrame(state)) {
         yield* drain(exit, true)

@@ -591,6 +591,36 @@ describe("AgentAction human approval channel", () => {
     expect(armed).toEqual([approvalChannel ?? false])
   })
 
+  it.each([undefined, false])(
+    "fails a durable agent step without an approval channel (%s)",
+    async (approvalChannel) => {
+      const requests: Array<string> = []
+      const result = await Effect.runPromise(
+        Effect.gen(function*() {
+          const failed = yield* Effect.result(
+            ReviewFlow.execute({ diff: "change" }, { executionId: `unanswerable-${approvalChannel}` })
+          )
+          const persisted = yield* ReviewFlow.poll(`unanswerable-${approvalChannel}`)
+          return { failed, persisted }
+        }).pipe(
+          Effect.provide(stack(
+            Layer.mergeAll(Reviewer.layer, Interpreter.layer(ReviewFlow)),
+            { ...host, approvalChannel },
+            scripted(
+              [`ctx.park("waiting-input", "Which branch?")`, answering("{\"approved\":true,\"issues\":[]}")],
+              requests
+            )
+          )),
+          Effect.scoped
+        )
+      )
+      expect(result.failed).toMatchObject({ _tag: "Failure", failure: { code: "approval_unavailable" } })
+      expect(result.persisted).toMatchObject({ _tag: "Some", value: { _tag: "Complete", exit: { _tag: "Failure" } } })
+      expect(JSON.stringify(result.persisted)).toContain("Which branch?")
+      expect(requests).toHaveLength(1)
+    }
+  )
+
   it("parks a real durable agent step when the host can answer", async () => {
     const requests: Array<string> = []
     const armed: Array<boolean> = []

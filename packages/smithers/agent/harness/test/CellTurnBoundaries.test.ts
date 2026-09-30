@@ -417,10 +417,7 @@ describe("CellTurn frame budget", () => {
     expect(resolvedText(events)).toBe("finished")
   })
 
-  it.each([
-    "throw new Error(\"retry\")",
-    "ctx.park(\"waiting-input\", \"which branch?\")"
-  ])("keeps a zero budget disarmed after %s", async (cell) => {
+  it.each(["throw new Error(\"retry\")"])("keeps a zero budget disarmed after %s", async (cell) => {
     const { events, failure } = await run({
       state: state({ maxFrames: 0 }),
       script: [emits(cell), emits("ctx.done(\"recovered\")")]
@@ -839,151 +836,40 @@ describe("CellTurn discipline interaction", () => {
   })
 })
 
-/**
- * A park is a request for a human, so it is honored only where one exists.
- *
- * The case these fix: SWE-bench wave 5's sphinx instance parked at frame 3 for
- * "waiting-input" with 97 of 100 frames and about half its wall budget unspent,
- * asking about a definition `grep` finds in the workspace it was already
- * holding, in a run no operator was watching. Nothing answered it, and nothing
- * could have.
- */
 describe("CellTurn park without a human", () => {
-  const parking = (message: string) =>
-    emits(
-      `ctx.park("waiting-input", ${JSON.stringify(message)})`
-    )
+  const parking = (message: string) => emits(`ctx.park("waiting-input", ${JSON.stringify(message)})`)
 
-  it("refuses the park and answers it in the frame that asked", async () => {
+  it.each([0, 1, 3])("fails visibly before answering its own park with frame budget %s", async (maxFrames) => {
     const { events, failure, model } = await run({
-      state: state({ maxFrames: 3 }),
+      state: state({ maxFrames }),
       flows: [lister],
-      script: [
-        parking("the docinfo expression definition could not be located"),
-        emits(`ctx.done("found it myself")`)
-      ]
+      script: [parking("Which branch?"), emits(`ctx.done("answered myself")`)]
     })
-
-    // Nothing suspended, and the run spent the budget it still held.
+    expect(failure).toMatchObject({
+      code: "approval_unavailable",
+      message: "The run requires an answer but has no approval channel: Which branch?"
+    })
+    expect(model.recorder.requests).toHaveLength(1)
+    expect(resolvedText(events)).toBe("")
     expect(of(events, "suspended")).toHaveLength(0)
-    expect(failure).toBeUndefined()
-    expect(resolvedText(events)).toBe("found it myself")
-    // The journal states the refusal without an event of its own: a `park`
-    // transition closed as `continue` happens for no other reason.
     expect(of(events, "transition-applied")[0]?.transition).toMatchObject({ _tag: "park" })
-    expect(of(events, "turn-closed")[0]?.outcome).toBe("continue")
-
-    const answered = observationsOf(model, 1)
-    expect(answered).toContain("No human is available")
-    expect(answered).toContain("the docinfo expression definition could not be located")
-    // The budget is stated as the numbers the run actually armed, so the next
-    // frame cannot read the refusal as "there is nothing left to try".
-    expect(answered).toContain("2 frames left")
+    expect(of(events, "turn-closed").some((event) => event.outcome === "continue")).toBe(false)
   })
 
-  it("leaves the realm intact across a refused park", async () => {
-    const { engine } = await run({
-      state: state({ maxFrames: 3 }),
-      flows: [lister],
+  it("preserves completed calls before an unanswerable park without running another cell", async () => {
+    const { engine, model, failure } = await run({
+      state: state({ readOnlyCap: 1, envelope: ["fs:read:**", "fs:write:**"] }),
+      flows: [descriptor("edit", { capabilities: ["fs:write:**"], writes: ["/**"] })],
       script: [
-        emits(`var asked = true\nctx.park("waiting-input", "which branch?")`),
-        emits(
-          `await ctx.call("fs/list", { path: asked ? "asked" : "unasked" })
-           ctx.done("done")`
-        )
+        emits(`await ctx.call("edit", { path: "a.py", text: "fixed" }); ctx.park("waiting-input", "Is this right?")`),
+        emits(`ctx.done("answered myself")`)
       ],
-      calls: [{ _tag: "Success", value: [] }]
+      calls: [{ _tag: "Success", value: { edited: true } }]
     })
-
-    // A refused park is an ordinary frame, so the name its cell bound before it
-    // asked is still bound in the cell that carries on.
-    expect(engine.recorder.calls[0]?.input).toEqual({ path: "asked" })
-  })
-
-  it("states the per-frame time budget when the binding can enforce one", async () => {
-    const model = ScriptedModel.make([
-      parking("which branch?"),
-      emits(`ctx.done("done")`)
-    ])
-    const engine = ScriptedEngine.make(model.model, [])
-    await CellTurn.run({ state: state({ maxFrames: 2 }), flows: [lister] }).pipe(
-      Stream.runDrain,
-      Effect.provide(engine.layer),
-      Effect.provide(QuickJSSandbox.layer),
-      Effect.provide(Steering.layerNoop()),
-      Effect.provide(confidentEvaluator),
-      Effect.result,
-      Effect.runPromise
-    )
-
-    // One frame is left, and QuickJS enforces a whole-evaluation ceiling, so
-    // both halves of the budget sentence are real armed numbers.
-    const answered = (model.recorder.requests[1]?.messages ?? [])
-      .filter((message) => message.role === "user")
-      .map((message) => JSON.stringify(message.content))
-      .join("\n")
-    expect(answered).toContain("1 frame left")
-    expect(answered).toContain(`${Sandbox.defaultLimits.totalMs / 1000} seconds`)
-  })
-
-  it("stops at the frame budget when the refused park was the last frame", async () => {
-    const { events, failure } = await run({
-      state: state({ maxFrames: 1 }),
-      flows: [lister],
-      script: [parking("which branch?")]
-    })
-
-    // The refusal is not a way around the frame wall: the run ends as it would
-    // have on any other transition the budget could not follow.
-    expect(of(events, "suspended")).toHaveLength(0)
-    expect(resolvedText(events)).toContain("The frame budget of 1 is exhausted")
-    expect(failure).toBeUndefined()
-  })
-
-  it("keeps a write the refused frame landed out of the read-only streak", async () => {
-    const { events, model } = await run({
-      state: state({ readOnlyCap: 1, maxFrames: 4, envelope: ["fs:read:**", "fs:write:**"] }),
-      flows: [lister, descriptor("edit", { capabilities: ["fs:write:**"], writes: ["/**"] })],
-      script: [
-        emits(
-          `await ctx.call("edit", { path: "a.py", text: "fixed" })
-           ctx.park("waiting-input", "is this the right fix?")`
-        ),
-        emits(
-          `await ctx.call("fs/list", { path: "." })
-           ctx.done("done")`
-        )
-      ],
-      calls: [{ _tag: "Success", value: { edited: true } }, { _tag: "Success", value: [] }]
-    })
-
-    // The edit landed before the park was refused, so the frame is a write and
-    // the next one is not demanded.
-    expect(of(events, "read-only-demanded")).toHaveLength(0)
-    expect(messagesOf(model, 1)).not.toContain("Read-only discipline")
-  })
-
-  it("counts the refused frame against the read-only cap and stops a run that only asks", async () => {
-    const { events, failure, model } = await run({
-      state: state({ readOnlyCap: 1, maxFrames: 40 }),
-      flows: [lister],
-      script: [
-        parking("which branch?"),
-        parking("which branch, really?"),
-        parking("please, which branch?"),
-        emits(`ctx.done("never reached")`)
-      ]
-    })
-
-    // A refused park continues the run, so it is not the exemption an honored
-    // park is. Without this the one shape a stalled run can take that the cap
-    // never sees is "park every frame": nothing changes, nothing is demanded,
-    // and the run spends all 40 frames and its whole wall clock asking a
-    // question nobody is listening to. Twice a cap of one is two.
-    expect(failure).toMatchObject({ code: "read_only_cap" })
-    expect(of(events, "suspended")).toHaveLength(0)
-    expect(model.recorder.requests).toHaveLength(2)
-    expect(of(events, "transition-applied")).toHaveLength(2)
+    expect(failure).toMatchObject({ code: "approval_unavailable" })
+    expect(engine.recorder.calls).toHaveLength(1)
+    expect(engine.recorder.calls[0]?.input).toEqual({ path: "a.py", text: "fixed" })
+    expect(model.recorder.requests).toHaveLength(1)
   })
 
   it("counts a frame that only reads the realm against the cap, so it cannot loop forever", async () => {
@@ -1019,43 +905,15 @@ describe("CellTurn park without a human", () => {
     expect(messagesOf(model, 1)).toContain("- listed (object, 1 keys)")
   })
 
-  it("restarts the streak from a refused frame that changed something", async () => {
-    const { events, failure } = await run({
-      state: state({ readOnlyCap: 2, maxFrames: 8, envelope: ["fs:read:**", "fs:write:**"] }),
-      flows: [lister, descriptor("edit", { capabilities: ["fs:write:**"], writes: ["/**"] })],
-      script: [
-        parking("which branch?"),
-        emits(
-          `await ctx.call("edit", { path: "a.py", text: "fixed" })
-           ctx.park("waiting-input", "is this right?")`
-        ),
-        parking("and now?"),
-        emits(`ctx.done("settled it myself")`)
-      ],
-      calls: [{ _tag: "Success", value: { edited: true } }]
-    })
-
-    // The middle frame edited before it asked, so the streak restarts there and
-    // the run reaches the fourth cell instead of stopping at twice the cap.
-    expect(failure).toBeUndefined()
-    expect(resolvedText(events)).toBe("settled it myself")
-  })
-
   it("honors the identical park when a human can answer it", async () => {
-    const { events, failure } = await run({
+    const { events, failure, model } = await run({
       state: state({ maxFrames: 3, approvalChannel: true }),
       flows: [lister],
-      script: [
-        parking("the docinfo expression definition could not be located"),
-        emits(`ctx.done("found it myself")`)
-      ]
+      script: [parking("Which branch?"), emits(`ctx.done("answered myself")`)]
     })
-
     expect(failure).toMatchObject({ code: "suspended" })
-    expect(of(events, "suspended")[0]?.reason).toMatchObject({
-      code: "waiting-input",
-      message: "the docinfo expression definition could not be located"
-    })
+    expect(of(events, "suspended")[0]?.reason).toMatchObject({ code: "waiting-input", message: "Which branch?" })
+    expect(model.recorder.requests).toHaveLength(1)
   })
 })
 
@@ -1261,40 +1119,6 @@ describe("CellTurn defaults and refusals a shipped binding cannot reach", () => 
     })
 
     expect(declared.maxFrames).toBe(CellTurn.defaultMaxFrames)
-  })
-
-  it("states no per-frame seconds in a park refusal when the binding enforces no clock", async () => {
-    const model = ScriptedModel.make([
-      emits(`ctx.park("waiting-input", "which branch?")`),
-      emits(`ctx.done("settled it myself")`)
-    ])
-    const engine = ScriptedEngine.make(model.model, [])
-    const { events } = await collect(
-      { state: state({ maxFrames: 3 }), flows: [lister] },
-      {
-        engine: engine.layer,
-        sandbox: realm(() =>
-          Effect.succeed({
-            outcome: new Cell.Settled({
-              transition: Sandbox.replTransition(
-                { _tag: "Park", reason: "waiting-input", message: "which branch?" },
-                undefined
-              )
-            }),
-            prints: "",
-            bindings: []
-          })
-        )
-      }
-    )
-
-    const answered = messagesOf(model, 1)
-    expect(answered).toContain("No human is available")
-    expect(answered).toContain("2 frames left")
-    // A binding with no clock has no per-frame budget to quote, so the sentence
-    // stops at the frames rather than inventing a number.
-    expect(answered).not.toContain("each able to spend up to")
-    expect(of(events, "suspended")).toHaveLength(0)
   })
 
   it("carries a rejected outcome forward as its own observation, with nothing to diagnose", async () => {
@@ -2571,7 +2395,6 @@ describe("CellTurn delivery through the durable notification queue", () => {
     ["raised", emits("throw new Error(\"repair me\")"), false],
     ["rejected", prose("No program this time"), false],
     ["sandbox rejected", emits("while (true) {}"), false],
-    ["refused park", emits("ctx.park(\"waiting-input\", \"which branch?\")"), false],
     ["honored park", emits("ctx.park(\"waiting-input\", \"which branch?\")"), true],
     ["complete", emits("ctx.done(\"first answer\")"), false],
     ["mutating completion", emits("await ctx.call(\"edit\", {}); ctx.done(\"edited\")"), false],

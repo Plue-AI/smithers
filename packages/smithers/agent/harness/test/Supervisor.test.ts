@@ -1806,8 +1806,7 @@ describe("Supervisor inserts on the transcript", () => {
 
   const pathsToTheAsk = [
     { name: "a raised cell", frame: emits(`throw new Error("boom")`), ask: "The cell threw" },
-    { name: "a parse rejection", frame: prose("I will think about it first."), ask: "No cell was found" },
-    { name: "a refused park", frame: emits(`ctx.park("waiting-input", "which branch?")`), ask: "No human is available" }
+    { name: "a parse rejection", frame: prose("I will think about it first."), ask: "No cell was found" }
   ] as const
 
   it.each(pathsToTheAsk)("puts a supervisor insert above the ask on $name", async ({ ask, frame }) => {

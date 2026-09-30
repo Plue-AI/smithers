@@ -318,12 +318,13 @@ describe("CellTurn in repl mode", () => {
     expect(of(events, "repeat-demanded")).toHaveLength(1)
   })
 
-  it("refuses a park nobody is listening for, in the frame that asked", async () => {
-    const { events, model } = await run({
+  it("fails visibly when nobody can answer a required park", async () => {
+    const { events, model, failure } = await run({
       script: [emits("ctx.park('waiting-input', 'which branch?')"), emits("ctx.done('ok')")]
     })
     expect(of(events, "transition-applied")[0]?.transition._tag).toBe("park")
-    expect(conversation(model.recorder.requests[1])).toContain("No human is available")
+    expect(failure).toMatchObject({ code: "approval_unavailable", message: expect.stringContaining("which branch?") })
+    expect(model.recorder.requests).toHaveLength(1)
   })
 
   it("refuses to run at all on a binding with no persistent realm", async () => {

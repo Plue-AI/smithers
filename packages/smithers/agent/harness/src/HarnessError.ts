@@ -24,6 +24,7 @@ import { Schema } from "effect"
  */
 export const HarnessErrorCode = Schema.Literals([
   "assembly_failed",
+  "approval_unavailable",
   "incompatible_journal",
   "render_failed",
   "model_failed",
@@ -81,6 +82,7 @@ Fault.register(
   "/harness/HarnessError",
   {
     assembly_failed: "bug",
+    approval_unavailable: "dependency",
     incompatible_journal: "bug",
     render_failed: "bug",
     model_failed: "dependency",

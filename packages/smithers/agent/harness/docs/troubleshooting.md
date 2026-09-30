@@ -99,6 +99,7 @@ The controller's own failures are `HarnessError`s, with
 | Code                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `assembly_failed`       | Composition refused something: two bindings under one name, or an unnamed binding.                                                                                                                                                                                                                                                                                                                                     |
+| `approval_unavailable`  | The run required an answer but the host has no approval channel.                                                                                                                                                                                                                                                                                                                                                       |
 | `incompatible_journal`  | The journal predates the current harness journal format, or a resumed frame is missing a record it needs. Start a new run; no repair exists.                                                                                                                                                                                                                                                                           |
 | `render_failed`         | A boundary could not render what it had to show.                                                                                                                                                                                                                                                                                                                                                                       |
 | `model_failed`          | The sealed model step failed.                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -114,11 +115,11 @@ Interrupting a run raises no `HarnessError`: the stream ends with an
 projection that fails is a `Transcript.TranscriptError` with code
 `projection_failed`, not a `HarnessError`.
 
-**A `park` transition comes back refused.** `CellTurn.make` defaults
-`approvalChannel` to `false`, which means nobody can answer the run, so a
-park is not patience but abandonment: the controller refuses the transition
-and answers it in the frame that returned it. Only a host that has wired
-somewhere for an answer to come from sets `approvalChannel: true`.
+**A required `park` fails with `approval_unavailable`.** `CellTurn.make`
+defaults `approvalChannel` to `false`. A park without an approval channel
+fails the run and preserves the question in its failure reason. It never
+asks the model to answer its own question. A host with a connected approval
+channel sets `approvalChannel: true`.
 
 **`ctx.park` rejects its reason.** The reason must be one of
 `"waiting-input"`, `"waiting-event"`, or `"waiting-quota"`; anything else is
