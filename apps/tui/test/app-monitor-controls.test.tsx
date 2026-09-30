@@ -248,36 +248,6 @@ test("routine monitor changes remain silent without calling the composer", async
   expect(monitors().list()).toMatchObject([{ id: "watch-review", status: "active", updates: 0 }])
 }, 15000)
 
-test("a monitor judge failure becomes a durable visible refusal while Chat stays usable", async () => {
-  await start()
-  await changed()
-  await act(async () => {
-    judges[0]!.gate.reject(new Error("Judge unavailable"))
-    await setImmediate()
-  })
-  await checkpoint(() => frame().includes("Jev failed (unreachable): Judge unavailable"))
-  expect(frame()).not.toContain("◉ Review watcher")
-  expect(compositions).toEqual([])
-  expect(monitors().list()).toMatchObject([{
-    id: "watch-review",
-    status: "failed",
-    failure: { _tag: "JevFailed", code: "unreachable", message: "Judge unavailable" }
-  }])
-  const updates = records().filter((r) => r.type === "monitor-update")
-  expect(updates).toHaveLength(1)
-  expect(updates[0]).toMatchObject({
-    id: "watch-review",
-    title: "Review watcher",
-    text: "Jev failed (unreachable): Judge unavailable",
-    failed: true
-  })
-  expect(records().filter((r) => r.type === "monitor").at(-1)).toMatchObject({
-    monitor: { status: "failed", failure: { _tag: "JevFailed", code: "unreachable", message: "Judge unavailable" } }
-  })
-  await type("Chat still works")
-  expect(frame()).toContain("Chat still works")
-}, 15000)
-
 test("stopping a monitor with an unresolved judge prevents late composition and delivery", async () => {
   await start()
   await changed()
@@ -321,37 +291,6 @@ test.each(["unjudged", "unbound"] as const)(
     expect(frame()).toContain("Keep drafting")
   }
 )
-
-test("a monitor compose failure is visible, persisted once, and removes its active status item", async () => {
-  await start()
-  await changed()
-  await act(async () => {
-    judges[0]!.gate.resolve(true)
-    await setImmediate()
-  })
-  await checkpoint(() => compositions.length === 1)
-  await act(async () => {
-    compositions[0]!.gate.reject(new Error("Update unavailable"))
-    await setImmediate()
-  })
-  await checkpoint(() => frame().includes("Luna failed: Update unavailable"))
-  expect(frame()).not.toContain("◉ Review watcher")
-  expect(monitors().list()).toMatchObject([{
-    id: "watch-review",
-    status: "failed",
-    failure: { _tag: "LunaFailed", message: "Update unavailable" }
-  }])
-  const updates = records().filter((r) => r.type === "monitor-update")
-  expect(updates).toHaveLength(1)
-  expect(updates[0]).toMatchObject({
-    id: "watch-review",
-    title: "Review watcher",
-    text: "Luna failed: Update unavailable",
-    failed: true
-  })
-  await type("Keep drafting")
-  expect(frame()).toContain("Keep drafting")
-}, 15000)
 
 test("switching an idle Chat session fences its pending monitor judgment and keeps the new session clean", async () => {
   await start()

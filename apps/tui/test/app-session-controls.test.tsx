@@ -351,7 +351,7 @@ test("a saved conversation disappearing after the picker opens refuses without r
   expect(frame()).toContain("Saved target")
   rmSync(saved.file)
   await key("RETURN")
-  expect(frame()).toContain("ENOENT")
+  expect(frame()).toContain("That conversation could not be opened.")
   expect(frame()).toContain("Retained draft")
   expect(turns).toHaveLength(0)
   await type(" continued")

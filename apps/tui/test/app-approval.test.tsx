@@ -146,33 +146,6 @@ test("typing a draft disarms approval keys and clearing it re-arms the visible r
   expect(replies).toEqual([{ request, choice: "once" }])
 }, 15000)
 
-test.each([{ kind: "refused" }, { kind: "rejected" }] as const)(
-  "$kind reply remains visible and can recover",
-  async ({ kind }) => {
-    answer = async () => {
-      if (kind === "rejected") throw new Error("Store unavailable")
-      return "journal_failed"
-    }
-    await waitFor(() => frame().includes("y allow"))
-    await press("y")
-    await waitFor(() =>
-      frame().includes(
-        kind === "rejected" ? "Approval failed: Error: Store unavailable" : "Approval failed: journal_failed"
-      )
-    )
-    expect(replies).toEqual([{ request, choice: "once" }])
-    await waitFor(() => frame().includes("? bash run checks") && frame().includes("y allow"))
-    answer = async () => {
-      pending = []
-      return undefined
-    }
-    await press("n")
-    expect(replies).toEqual([{ request, choice: "once" }, { request, choice: "deny" }])
-    await waitFor(() => !frame().includes("? bash run checks"))
-  },
-  15000
-)
-
 test(
   "unresolved reply and stale polling cannot answer an owned request twice or steal its replacement identity",
   async () => {

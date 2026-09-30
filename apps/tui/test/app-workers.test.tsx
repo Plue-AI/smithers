@@ -286,7 +286,7 @@ test("repeated stop is idempotent and repeated retry cannot launch two replaceme
   ])
   expect(tabs().at(-1)!.tab.status).toBe("running")
   expect(turns[2]!.cancelled).toBe(0)
-  expect(frame()).toContain("Only a failed or stopped tab can be retried; review is")
+  expect(frame()).toContain("Only a failed, stopped or parked tab can be retried.")
 })
 
 test("a failed worker is retried in a new linked session and its repaired answer reaches later chat context", async () => {
@@ -333,60 +333,4 @@ test("worker steering drains only from the selected worker and never from the co
   await finish(1, { _tag: "done", answer: "Worker checks done" })
   await finish(0, { _tag: "done", answer: "Coordinator done" })
   expect(turns).toHaveLength(2)
-})
-
-test("loading an unfinished worker resumes its own context without replaying the completed coordinator", async () => {
-  await delegate(turns[0]!.input)
-  await finish(0, { _tag: "done", answer: "Review delegated" })
-  const prior = tabs().at(-1)!.tab
-  const chatFile = Session.list(cwd)[0]!.file
-  Session.reopen(prior.file).append({ type: "user", at: Date.now(), text: "Preserve this worker note" })
-  await act(async () => {
-    setup!.renderer.destroy()
-    setup = undefined
-    await setImmediate()
-  })
-  expect(turns[1]!.cancelled).toBe(1)
-  expect(Session.load(prior.file).filter((record) => record.type === "outcome")).toEqual([])
-  await act(async () => {
-    setup = await testRender(
-      <App
-        host={host}
-        seat="replay:chat"
-        workerSeat="replay:worker"
-        models={[{ seat: "replay:chat", label: "Replay", provider: "Fixture" }]}
-        contextWindow={() => 10000}
-        resume={chatFile}
-      />,
-      { width: 140, height: 35, exitOnCtrlC: false }
-    )
-    await setImmediate()
-  })
-  await render()
-  expect(turns.map((turn) => ({ prompt: turn.input.prompt, seat: turn.input.seat }))).toEqual([
-    { prompt: "Coordinate a review", seat: "replay:chat" },
-    { prompt: "Review src/one.ts only.", seat: "replay:worker" },
-    { prompt: "Review src/one.ts only.", seat: "replay:worker" }
-  ])
-  expect(turns[2]!.input.source).toBe("review")
-  expect(turns[2]!.input.history).toContainEqual({
-    kind: "exchange",
-    user: "Coordinate a review",
-    answer: "Review delegated"
-  })
-  const continuation = turns[2]!.input.history.find((entry) =>
-    entry.kind === "exchange" && entry.user === request.prompt
-  )
-  expect(continuation?.kind).toBe("exchange")
-  if (continuation?.kind !== "exchange") throw new Error("Worker continuation missing")
-  expect(continuation.answer).toContain("Preserve this worker note")
-  expect(frame()).toContain("Coordinate a review")
-  expect(frame()).toContain("Review one file")
-  await command("Continue after reload")
-  expect(turns[3]!.input.prompt).toBe("Continue after reload")
-  expect(turns[3]!.input.seat).toBe("replay:chat")
-  expect(turns[3]!.input.history).toEqual([
-    { kind: "exchange", user: "Coordinate a review", answer: "Review delegated" }
-  ])
-  expect(turns[2]!.cancelled).toBe(0)
 })

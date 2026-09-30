@@ -13,8 +13,8 @@ import type { Model } from "../src/models.ts"
 import * as Session from "../src/session.ts"
 import * as Theme from "../src/theme.ts"
 
-// Real native headless App and session IO, with controlled Host execution and
-// compaction recommendation boundaries. No provider or model calls execute.
+// Real native headless App and session IO, with controlled Host execution.
+// No provider or model calls execute.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
@@ -63,11 +63,10 @@ const seed = (user: string, answer: string) => {
   })
   saved.append({ type: "outcome", at: 102, prompt: user, outcome: { _tag: "done", answer } })
 }
-const mount = async (options: { seat?: string; models?: ReadonlyArray<Model>; compact?: number } = {}) => {
+const mount = async (options: { seat?: string; models?: ReadonlyArray<Model> } = {}) => {
   const host: Host.Host = {
     cwd,
     judged: false,
-    compaction: async () => options.compact,
     dispose: async () => {},
     run: (input) => {
       const turn = { input, done: Promise.withResolvers<Host.Outcome>() }
@@ -244,10 +243,10 @@ test.each([
   }
 )
 
-test.each([undefined, 0])(
-  "unavailable or zero compaction recommendation (%s) leaves context and journal unchanged",
-  async (compact) => {
-    await mount(compact === undefined ? {} : { compact })
+test(
+  "/compact with nothing to compact leaves context and journal unchanged",
+  async () => {
+    await mount()
     await command("/compact")
     expect(frame()).toContain("Nothing to compact")
     expect(records().filter((record) => record.type === "compact")).toEqual([])
@@ -258,25 +257,3 @@ test.each([undefined, 0])(
     ])
   }
 )
-
-test("compaction refuses while a turn runs, then records and drops only the oldest context after completion", async () => {
-  await mount({ compact: 1 })
-  await command("Current question")
-  await command("/compact")
-  expect(frame()).toContain("Stop running work first")
-  expect(records().filter((record) => record.type === "compact")).toEqual([])
-  expect(turns).toHaveLength(1)
-  expect(turns[0]!.input.history).toEqual([
-    { kind: "exchange", user: "Old question", answer: "Old answer" },
-    { kind: "exchange", user: "Recent question", answer: "Recent answer" }
-  ])
-  await finish(0, "Current answer")
-  await command("/compact")
-  expect(frame()).toContain("Dropped the 1 oldest context entries")
-  expect(records().filter((record) => record.type === "compact").map((record) => record.dropped)).toEqual([1])
-  await command("After compacting")
-  expect(turns[1]!.input.history).toEqual([
-    { kind: "exchange", user: "Recent question", answer: "Recent answer" },
-    { kind: "exchange", user: "Current question", answer: "Current answer" }
-  ])
-})

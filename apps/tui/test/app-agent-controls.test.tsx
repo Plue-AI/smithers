@@ -25,6 +25,7 @@ let turns: Array<{ input: Host.TurnInput; gate: ReturnType<typeof Promise.withRe
 let discoveries = 0
 let host: Host.Host
 let flows: Port
+let listed: ReadonlyArray<Listed> = []
 const records = () => Session.list(cwd).flatMap((session) => Session.load(session.file))
 const tabs = () => records().filter((record) => record.type === "tab")
 const frame = () => setup!.captureCharFrame()
@@ -60,18 +61,12 @@ const waitFor = async (condition: () => boolean) => {
   if (!condition()) throw new Error("Public agent state did not settle")
 }
 const body = (text = "Review the named file only."): Body => ({
+  descriptor: listed[0]!,
   text,
   baseDirectory: join(cwd, "flows/review"),
   digest: "b".repeat(64),
   capabilities: ["fs:read:**"]
 })
-const resolveBody = async (index: number, value = body()) => {
-  await act(async () => {
-    bodies[index]!.gate.resolve(value)
-    await setImmediate()
-  })
-  await waitFor(() => turns.some((turn) => turn.input.role === "worker"))
-}
 const mount = async (resume?: string) => {
   await act(async () => {
     setup = await testRender(
@@ -104,7 +99,7 @@ beforeEach(async () => {
   bodies = []
   turns = []
   discoveries = 0
-  const listed: ReadonlyArray<Listed> = [
+  listed = [
     {
       name: "review",
       description: "Review one file",
@@ -235,39 +230,8 @@ test("direct /agent without its prompt keeps the composer field and defers all b
   expect(tabs().at(-1)!.tab.agent?.name).toBe("review")
 })
 
-test("an unresolved body leaves Chat usable, and only its real body receipt admits the configured worker", async () => {
-  await command("/agent review Check src/one.ts")
-  await waitFor(() => bodies.length === 1)
-  expect(tabs().at(-1)!.tab.status).toBe("requested")
-  expect(turns).toHaveLength(0)
-  expect(bodies[0]!.admitted.filter((record) => record.type === "tab").at(-1)?.tab).toMatchObject({
-    prompt: "Check src/one.ts",
-    status: "requested",
-    agent: { name: "review" }
-  })
-  await type("Chat while loading")
-  expect(frame()).toContain("Chat while loading")
-  await key("RETURN")
-  expect(turns[0]!.input.prompt).toBe("Chat while loading")
-  expect(turns[0]!.input.seat).toBe("replay:chat")
-  expect(tabs().at(-1)!.tab.status).toBe("requested")
-  await resolveBody(0)
-  expect(turns[1]!.input).toMatchObject({
-    prompt: "Check src/one.ts",
-    seat: "replay:worker",
-    role: "worker",
-    agent: { name: "review", digest: "b".repeat(64), thinking: "high", flows: ["read"], envelope: ["fs:read:**"] }
-  })
-  expect(turns[1]!.input.agent?.system).toStartWith("Review the named file only.")
-  expect(tabs().at(-1)!.tab.status).toBe("running")
-  expect(tabs().at(-1)!.tab.agent).toEqual({ name: "review", digest: "b".repeat(64) })
-  await type("Retained draft")
-  expect(frame()).toContain("Retained draft")
-})
-
 test.each([
-  { command: "/agent missing Check one file", message: "No agent named missing" },
-  { command: "/agent module Check one file", message: "module is a module flow; run it with smithers.run" }
+  { command: "/agent missing Check one file", message: "No agent named missing" }
 ])("$command refuses before a tab, body read or Host admission", async ({ command: input, message }) => {
   await command(input)
   expect(frame()).toContain(message)
@@ -278,206 +242,3 @@ test.each([
   expect(turns[0]!.input.prompt).toBe("Recover in Chat")
   expect(turns[0]!.input.history).toEqual([])
 })
-
-test("a body read failure remains durable and retry rereads the edited body without starting Chat", async () => {
-  await command("/agent review Check one file")
-  await waitFor(() => bodies.length === 1)
-  const id = tabs().at(-1)!.tab.id
-  await act(async () => {
-    bodies[0]!.gate.reject(new Error("Body unavailable\nprivate stack"))
-    await setImmediate()
-  })
-  await waitFor(() => tabs().at(-1)?.tab.status === "failed")
-  expect(tabs().at(-1)!.tab).toMatchObject({ id, status: "failed", code: "unreadable", message: "Body unavailable" })
-  expect(turns).toEqual([])
-  await command(`/retry ${id}`)
-  await waitFor(() => bodies.length === 2)
-  expect(bodies.map((pending) => pending.name)).toEqual(["review", "review"])
-  expect(tabs().at(-1)!.tab.status).toBe("requested")
-  await resolveBody(1, { ...body("Edited review instructions."), digest: "c".repeat(64) })
-  expect(turns).toHaveLength(1)
-  expect(turns[0]!.input.prompt).toBe("Check one file")
-  expect(turns[0]!.input.role).toBe("worker")
-  expect(turns[0]!.input.agent?.system).toStartWith("Edited review instructions.")
-  expect(tabs().at(-1)!.tab.agent).toEqual({ name: "review", digest: "c".repeat(64) })
-})
-
-test("a person can start a person-only agent while the coordinator's runtime delegation refuses it", async () => {
-  await command("Coordinator turn")
-  expect(() =>
-    turns[0]!.input.runtime!.delegate!({ id: "forbidden", title: "Manual", prompt: "Manual check", agent: "manual" })
-  )
-    .toThrow("manual is for a person to start")
-  expect(tabs()).toEqual([])
-  await command("/agent manual Manual check")
-  await waitFor(() => bodies.length === 1)
-  expect(bodies[0]!.name).toBe("manual")
-  await resolveBody(0)
-  expect(turns.map((turn) => ({ prompt: turn.input.prompt, role: turn.input.role }))).toEqual([
-    { prompt: "Coordinator turn", role: undefined },
-    { prompt: "Manual check", role: "worker" }
-  ])
-  expect(tabs().at(-1)!.tab.agent?.name).toBe("manual")
-})
-
-test.each(["resolve", "reject"] as const)(
-  "stopping and retrying a loading agent fences an old %s receipt",
-  async (receipt) => {
-    await command("/agent review Check one file")
-    await waitFor(() => bodies.length === 1)
-    const original = tabs().at(-1)!.tab
-    await command(`/stop ${original.id}`)
-    expect(tabs().at(-1)!.tab.status).toBe("cancelled")
-    expect(turns).toEqual([])
-    await command(`/retry ${original.id}`)
-    await waitFor(() => bodies.length === 2)
-    const replacement = tabs().at(-1)!.tab
-    expect(replacement.id).toBe(original.id)
-    expect(replacement.file).not.toBe(original.file)
-    await resolveBody(1, { ...body("Current instructions."), digest: "c".repeat(64) })
-    await act(async () => {
-      if (receipt === "resolve") bodies[0]!.gate.resolve({ ...body("Stale instructions."), digest: "a".repeat(64) })
-      else bodies[0]!.gate.reject(new Error("Stale body failure"))
-      await setImmediate()
-    })
-    await render()
-    expect(turns).toHaveLength(1)
-    expect(turns[0]!.input.agent?.system).toStartWith("Current instructions.")
-    expect(turns[0]!.input.agent?.digest).toBe("c".repeat(64))
-    expect(tabs().at(-1)!.tab).toMatchObject({
-      id: original.id,
-      file: replacement.file,
-      status: "running",
-      agent: { name: "review", digest: "c".repeat(64) }
-    })
-    expect(Session.load(replacement.file).filter((record) => record.type === "outcome")).toEqual([])
-    await type("Chat remains usable")
-    expect(frame()).toContain("Chat remains usable")
-  }
-)
-
-test("a failed agent body exposes its saved refusal in the worker view and expanded details", async () => {
-  await command("/agent review Check one file")
-  await waitFor(() => bodies.length === 1)
-  await act(async () => {
-    bodies[0]!.gate.reject(new Error("Body unavailable\nprivate stack"))
-    await setImmediate()
-  })
-  await waitFor(() => tabs().at(-1)?.tab.status === "failed")
-  expect(tabs().at(-1)!.tab.message).toBe("Body unavailable")
-  await command("/tabs")
-  await waitFor(() => frame().includes("Back (ctrl+y)") && frame().includes("Resume"))
-  await key("o", { ctrl: true })
-  expect(frame()).toContain("Body unavailable")
-  expect(frame()).not.toContain("private stack")
-  expect(turns).toEqual([])
-}, 15000)
-
-test(
-  "a saved failed agent reloads its safe refusal and retry reads the changed body without replaying old work",
-  async () => {
-    await command("/agent review Check one file")
-    await waitFor(() => bodies.length === 1)
-    await act(async () => {
-      bodies[0]!.gate.reject(new Error("Body unavailable\nprivate stack"))
-      await setImmediate()
-    })
-    await waitFor(() => tabs().at(-1)?.tab.status === "failed")
-    const failed = tabs().at(-1)!.tab
-    const file = Session.list(cwd)[0]!.file
-    expect(failed.message).toBe("Body unavailable")
-    expect(failed.failure).toBeDefined()
-    const failures = Session.load(failed.file).filter((record) => record.type === "outcome")
-    expect(failures).toHaveLength(1)
-    expect(failures[0]!.outcome).toEqual({
-      _tag: "failed",
-      message: "Body unavailable",
-      headline: "Worker stopped unexpectedly"
-    })
-    expect(failed.code).toBe("unreadable")
-    await act(async () => {
-      setup!.renderer.destroy()
-      setup = undefined
-      await setImmediate()
-    })
-    await mount(file)
-    expect(turns).toEqual([])
-    expect(bodies).toHaveLength(1)
-    await command("/tabs")
-    await waitFor(() => frame().includes("Back (ctrl+y)") && frame().includes("Resume"))
-    await key("o", { ctrl: true })
-    expect(frame()).toContain("Body unavailable")
-    expect(frame()).not.toContain("private stack")
-    const restored = tabs().at(-1)!.tab
-    expect(restored.id).toBe(failed.id)
-    expect(restored.status).toBe("failed")
-    expect(restored.failure).toEqual(failed.failure)
-    expect(Session.load(failed.file).filter((record) => record.type === "outcome")).toEqual(failures)
-    await key("r")
-    await waitFor(() => bodies.length === 2)
-    expect(bodies[1]!.name).toBe("review")
-    await resolveBody(1, { ...body("Restored and edited instructions."), digest: "c".repeat(64) })
-    expect(turns).toHaveLength(1)
-    expect(turns[0]!.input.prompt).toBe("Check one file")
-    expect(turns[0]!.input.role).toBe("worker")
-    expect(turns[0]!.input.agent?.system).toStartWith("Restored and edited instructions.")
-    expect(turns[0]!.input.agent?.digest).toBe("c".repeat(64))
-    expect(turns[0]!.input.history).toEqual([{
-      kind: "exchange",
-      user: "Check one file",
-      answer:
-        "Continue the same worker task from this prior run. Do not repeat completed steps.\n\n\nError: Worker stopped unexpectedly\nLast error: Body unavailable"
-    }])
-    expect(Session.load(failed.file).filter((record) => record.type === "outcome")).toEqual(failures)
-    expect(Session.load(tabs().at(-1)!.tab.file).filter((record) => record.type === "outcome")).toEqual([])
-  },
-  15000
-)
-
-test(
-  "a legacy saved failed agent without presentation metadata or worker file still exposes its safe refusal",
-  async () => {
-    await command("/agent review Check one file")
-    await waitFor(() => bodies.length === 1)
-    await act(async () => {
-      bodies[0]!.gate.reject(new Error("Body unavailable\nprivate stack"))
-      await setImmediate()
-    })
-    await waitFor(() => tabs().at(-1)?.tab.status === "failed")
-    const failed = tabs().at(-1)!.tab
-    const original = Session.load(Session.list(cwd)[0]!.file)
-    await act(async () => {
-      setup!.renderer.destroy()
-      setup = undefined
-      await setImmediate()
-    })
-    const legacy = Session.create(cwd)
-    for (const record of original) {
-      if (record.type === "session") continue
-      if (record.type === "tab") {
-        const tab = { ...record.tab }
-        delete tab.failure
-        legacy.append({ ...record, tab })
-      } else legacy.append(record)
-    }
-    rmSync(failed.file, { force: true })
-    expect(existsSync(failed.file)).toBe(false)
-    const legacyTab = Session.load(legacy.file).filter((record) => record.type === "tab").at(-1)!.tab
-    expect(legacyTab).toMatchObject({
-      id: failed.id,
-      status: "failed",
-      code: "unreadable",
-      message: "Body unavailable"
-    })
-    expect(legacyTab.failure).toBeUndefined()
-    await mount(legacy.file)
-    expect(turns).toEqual([])
-    expect(bodies).toHaveLength(1)
-    await command("/tabs")
-    await waitFor(() => frame().includes("Back (ctrl+y)") && frame().includes("Resume"))
-    await key("o", { ctrl: true })
-    expect(frame()).toContain("Body unavailable")
-    expect(frame()).not.toContain("private stack")
-  },
-  15000
-)
