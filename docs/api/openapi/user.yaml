@@ -1493,6 +1493,217 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/user/settings/signup:
+    get:
+      summary: GET /api/user/settings/signup
+      description: Reads the session user's signup account claim and poll answers.
+      operationId: get_api_user_settings_signup
+      tags:
+        - User
+      parameters: []
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The session user's signup profile; `profile` is null when none is saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - profile
+                properties:
+                  profile:
+                    nullable: true
+                    type: object
+                    required:
+                      - name
+                      - account
+                      - stage
+                      - question
+                      - answers
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 200
+                      account:
+                        type: string
+                        pattern: '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'
+                      stage:
+                        type: string
+                        enum:
+                          - poll
+                          - ready
+                          - done
+                      question:
+                        type: integer
+                        minimum: 0
+                        maximum: 64
+                      answers:
+                        type: object
+                        maxProperties: 32
+                        additionalProperties:
+                          oneOf:
+                            - type: string
+                              maxLength: 2000
+                            - type: array
+                              maxItems: 32
+                              items:
+                                type: string
+                                maxLength: 2000
+                      repo:
+                        type: string
+                        maxLength: 200
+                  updated_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: profile_unavailable. The profile store failed; nothing was changed and the same request may be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+    put:
+      summary: PUT /api/user/settings/signup
+      description: Replaces the session user's signup account claim and poll answers.
+      operationId: put_api_user_settings_signup
+      tags:
+        - User
+      parameters: []
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - account
+                - stage
+                - question
+                - answers
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                account:
+                  type: string
+                  pattern: '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'
+                stage:
+                  type: string
+                  enum:
+                    - poll
+                    - ready
+                    - done
+                question:
+                  type: integer
+                  minimum: 0
+                  maximum: 64
+                answers:
+                  type: object
+                  maxProperties: 32
+                  additionalProperties:
+                    oneOf:
+                      - type: string
+                        maxLength: 2000
+                      - type: array
+                        maxItems: 32
+                        items:
+                          type: string
+                          maxLength: 2000
+                repo:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: The session user's signup profile; `profile` is null when none is saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - profile
+                properties:
+                  profile:
+                    nullable: true
+                    type: object
+                    required:
+                      - name
+                      - account
+                      - stage
+                      - question
+                      - answers
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 200
+                      account:
+                        type: string
+                        pattern: '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'
+                      stage:
+                        type: string
+                        enum:
+                          - poll
+                          - ready
+                          - done
+                      question:
+                        type: integer
+                        minimum: 0
+                        maximum: 64
+                      answers:
+                        type: object
+                        maxProperties: 32
+                        additionalProperties:
+                          oneOf:
+                            - type: string
+                              maxLength: 2000
+                            - type: array
+                              maxItems: 32
+                              items:
+                                type: string
+                                maxLength: 2000
+                      repo:
+                        type: string
+                        maxLength: 200
+                  updated_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: profile_unavailable. The profile store failed; nothing was changed and the same request may be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
   /api/user/tokens:
     get:
       summary: GET /api/user/tokens

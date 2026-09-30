@@ -84,7 +84,7 @@ func TestIntegrationsHandler_GetSkills_ReturnsEmptyCatalog(t *testing.T) {
 func TestIntegrationsHandler_GetMCPIntegrations_AllHaveRequiredFields(t *testing.T) {
 	t.Parallel()
 
-	h := NewIntegrationsHandler(IntegrationCatalog(IntegrationCapabilities{GitHubMirror: true, Linear: true})...)
+	h := NewIntegrationsHandler(IntegrationCatalog(IntegrationCapabilities{GitHubMirror: true})...)
 	req := httptest.NewRequest(http.MethodGet, "/api/integrations/mcp", nil)
 	rec := httptest.NewRecorder()
 	h.GetMCPIntegrations(rec, req)
@@ -104,11 +104,10 @@ func TestIntegrationsHandler_GetMCPIntegrations_AllHaveRequiredFields(t *testing
 func TestIntegrationCatalog_AdvertisesOnlyConfiguredRealServices(t *testing.T) {
 	t.Parallel()
 
-	items := IntegrationCatalog(IntegrationCapabilities{Linear: true})
+	assert.Empty(t, IntegrationCatalog(IntegrationCapabilities{}))
+	items := IntegrationCatalog(IntegrationCapabilities{GitHubMirror: true})
 	require.Len(t, items, 1)
-	assert.Equal(t, "linear", items[0].ID)
-	assert.NotEqual(t, "notion-sync", items[0].ID)
-	assert.NotEqual(t, "github-mcp", items[0].ID)
+	assert.Equal(t, "github-sync", items[0].ID)
 }
 
 func TestNewIntegrationsHandler_CopiesCatalog(t *testing.T) {

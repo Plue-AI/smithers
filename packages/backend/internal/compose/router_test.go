@@ -623,7 +623,6 @@ func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 		nil, // telemetryHandler
 		nil, // featureFlagHandler
 		nil, // oauth2Handler
-		nil, // linearHandler
 		nil, // gitHubWebhookHandler
 		nil, // smithersMetrics
 	)
@@ -692,7 +691,6 @@ func buildCacheCSRFCoverageRouter() http.Handler {
 		nil, // telemetryHandler
 		nil, // featureFlagHandler
 		nil, // oauth2Handler
-		nil, // linearHandler
 		nil, // gitHubWebhookHandler
 		nil, // smithersMetrics
 	)
@@ -1495,8 +1493,7 @@ func TestServerRouter_SearchRateLimitApplied(t *testing.T) {
 
 // TestServerRouter_IntegrationsCatalogRoutesRequireAuth pins the RequireAuth
 // gate on the integrations catalog reads: an unauthenticated request must be
-// rejected 401 (never 404 — the routes are registered unconditionally, matching
-// the sibling /integrations/linear routes' auth posture).
+// rejected 401 (never 404 — the routes are registered unconditionally).
 func TestServerRouter_IntegrationsCatalogRoutesRequireAuth(t *testing.T) {
 	t.Parallel()
 

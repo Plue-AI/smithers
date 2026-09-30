@@ -138,73 +138,6 @@ export type Issue = {
   [key: string]: unknown
 }
 
-export type LinearTeam = {
-  id: string
-  name: string
-  key: string
-}
-
-export type LinearActor = {
-  id: string
-  name: string
-  email: string
-}
-
-export type LinearOAuthSetup = {
-  linear_actor: LinearActor
-  teams: Array<LinearTeam>
-  expires_at: string
-}
-
-export type LinearIntegration = {
-  id: number
-  linear_team_id: string
-  linear_team_name: string
-  linear_team_key?: string
-  repo_owner: string
-  repo_name: string
-  repo_id: number
-  is_active: boolean
-  remediation_state?: string
-  last_sync_at?: string | null
-  created_at?: string
-  linear_actor: LinearActor
-}
-
-export type LinearIntegrations = Array<LinearIntegration>
-
-export type LinearSyncOp = {
-  id: number
-  run_id?: number
-  retry_of_id?: number
-  source: string
-  target: string
-  entity: "issue" | "comment"
-  entity_id: string
-  action: string
-  status: "pending" | "success" | "failed" | "skipped"
-  error_message: string
-  created_at: string
-}
-
-export type LinearSyncOps = Array<LinearSyncOp>
-
-export type LinearSyncCount = {
-  done: number
-  total: number
-  failed: number
-}
-
-export type LinearSyncRunStatus = {
-  state: "pending" | "running" | "completed" | "failed"
-  counts: {
-    issues: LinearSyncCount
-    comments: LinearSyncCount
-  }
-  started_at: string | null
-  finished_at: string | null
-}
-
 export type GitMirrorSyncRunStatus = {
   state: "queued" | "running" | "succeeded" | "failed"
   behind_refs: number
@@ -252,12 +185,6 @@ export type ChangeFindingsResponse = {
   current_seq: number
   findings: Array<ChangeFinding>
   analyzers: Array<ChangeAnalyzerRun>
-}
-
-export type LinearIntegrationCreateRequest = {
-  setup_key: string
-  linear_team_id: string
-  repo: string
 }
 
 export type ResolveChangeConflictRequest = {
@@ -954,18 +881,6 @@ export type GetApiAuthKeyNonceResponse = AnyJSON
 export const getApiAuthKeyNonce = (transport: Transport): Promise<GetApiAuthKeyNonceResponse> =>
   transport.request("GET", `/api/auth/key/nonce`) as Promise<GetApiAuthKeyNonceResponse>
 
-export type GetApiAuthLinearResponse = AnyJSON
-
-/** GET /api/auth/linear */
-export const getApiAuthLinear = (transport: Transport): Promise<GetApiAuthLinearResponse> =>
-  transport.request("GET", `/api/auth/linear`) as Promise<GetApiAuthLinearResponse>
-
-export type GetApiAuthLinearCallbackResponse = AnyJSON
-
-/** GET /api/auth/linear/callback */
-export const getApiAuthLinearCallback = (transport: Transport): Promise<GetApiAuthLinearCallbackResponse> =>
-  transport.request("GET", `/api/auth/linear/callback`) as Promise<GetApiAuthLinearCallbackResponse>
-
 export type PostApiAuthGithubTokenExchangeResponse = AnyJSON
 
 /** POST /api/auth/github/token-exchange */
@@ -1261,48 +1176,6 @@ export type PostWebhooksGithubResponse = AnyJSON
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
 
-export type PostWebhooksLinearResponse = AnyJSON
-
-/** POST /webhooks/linear */
-export const postWebhooksLinear = (transport: Transport): Promise<PostWebhooksLinearResponse> =>
-  transport.request("POST", `/webhooks/linear`) as Promise<PostWebhooksLinearResponse>
-
-export interface DeleteApiIntegrationsLinearIdInput {
-  readonly path: { readonly id: string }
-}
-
-/** DELETE /api/integrations/linear/{id} */
-export const deleteApiIntegrationsLinearId = (transport: Transport, input: DeleteApiIntegrationsLinearIdInput): Promise<void> =>
-  transport.request("DELETE", `/api/integrations/linear/${segment(input.path.id)}`).then(() => undefined)
-
-export type GetApiIntegrationsLinearResponse = LinearIntegrations
-
-/** GET /api/integrations/linear */
-export const getApiIntegrationsLinear = (transport: Transport): Promise<GetApiIntegrationsLinearResponse> =>
-  transport.request("GET", `/api/integrations/linear`) as Promise<GetApiIntegrationsLinearResponse>
-
-export type PostApiIntegrationsLinearResponse = AnyJSON
-
-/** POST /api/integrations/linear */
-export const postApiIntegrationsLinear = (transport: Transport): Promise<PostApiIntegrationsLinearResponse> =>
-  transport.request("POST", `/api/integrations/linear`) as Promise<PostApiIntegrationsLinearResponse>
-
-export type GetApiIntegrationsLinearRepositoriesResponse = AnyJSON
-
-/** GET /api/integrations/linear/repositories */
-export const getApiIntegrationsLinearRepositories = (transport: Transport): Promise<GetApiIntegrationsLinearRepositoriesResponse> =>
-  transport.request("GET", `/api/integrations/linear/repositories`) as Promise<GetApiIntegrationsLinearRepositoriesResponse>
-
-export type GetApiIntegrationsLinearSetupSetupkeyResponse = LinearOAuthSetup
-
-export interface GetApiIntegrationsLinearSetupSetupkeyInput {
-  readonly path: { readonly setupKey: string }
-}
-
-/** GET /api/integrations/linear/setup/{setupKey} */
-export const getApiIntegrationsLinearSetupSetupkey = (transport: Transport, input: GetApiIntegrationsLinearSetupSetupkeyInput): Promise<GetApiIntegrationsLinearSetupSetupkeyResponse> =>
-  transport.request("GET", `/api/integrations/linear/setup/${segment(input.path.setupKey)}`) as Promise<GetApiIntegrationsLinearSetupSetupkeyResponse>
-
 export type GetApiIntegrationsMcpResponse = AnyJSON
 
 /** GET /api/integrations/mcp */
@@ -1314,16 +1187,6 @@ export type GetApiIntegrationsSkillsResponse = AnyJSON
 /** GET /api/integrations/skills */
 export const getApiIntegrationsSkills = (transport: Transport): Promise<GetApiIntegrationsSkillsResponse> =>
   transport.request("GET", `/api/integrations/skills`) as Promise<GetApiIntegrationsSkillsResponse>
-
-export type PostApiIntegrationsLinearIdSyncResponse = AnyJSON
-
-export interface PostApiIntegrationsLinearIdSyncInput {
-  readonly path: { readonly id: string }
-}
-
-/** POST /api/integrations/linear/{id}/sync */
-export const postApiIntegrationsLinearIdSync = (transport: Transport, input: PostApiIntegrationsLinearIdSyncInput): Promise<PostApiIntegrationsLinearIdSyncResponse> =>
-  transport.request("POST", `/api/integrations/linear/${segment(input.path.id)}/sync`) as Promise<PostApiIntegrationsLinearIdSyncResponse>
 
 export type GetApiReposOwnerRepoIssueViewsResponse = Array<{
   id: string
@@ -1339,69 +1202,6 @@ export interface GetApiReposOwnerRepoIssueViewsInput {
 /** GET /api/repos/{owner}/{repo}/issue-views */
 export const getApiReposOwnerRepoIssueViews = (transport: Transport, input: GetApiReposOwnerRepoIssueViewsInput): Promise<GetApiReposOwnerRepoIssueViewsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issue-views`) as Promise<GetApiReposOwnerRepoIssueViewsResponse>
-
-export type GetApiLinearIdOpsResponse = LinearSyncOps
-
-export interface GetApiLinearIdOpsInput {
-  readonly path: { readonly id: string }
-  readonly query?: { readonly status?: "pending" | "success" | "failed" | "skipped"; readonly since?: string; readonly limit?: number; readonly cursor?: string }
-}
-
-/** GET /api/linear/{id}/ops */
-export const getApiLinearIdOps = (transport: Transport, input: GetApiLinearIdOpsInput): Promise<GetApiLinearIdOpsResponse> =>
-  transport.request("GET", `/api/linear/${segment(input.path.id)}/ops${search({ status: input.query?.status, since: input.query?.since, limit: input.query?.limit, cursor: input.query?.cursor })}`) as Promise<GetApiLinearIdOpsResponse>
-
-export type GetApiLinearIdSyncRunidResponse = LinearSyncRunStatus
-
-export interface GetApiLinearIdSyncRunidInput {
-  readonly path: { readonly id: string; readonly runId: string }
-}
-
-/** GET /api/linear/{id}/sync/{runId} */
-export const getApiLinearIdSyncRunid = (transport: Transport, input: GetApiLinearIdSyncRunidInput): Promise<GetApiLinearIdSyncRunidResponse> =>
-  transport.request("GET", `/api/linear/${segment(input.path.id)}/sync/${segment(input.path.runId)}`) as Promise<GetApiLinearIdSyncRunidResponse>
-
-export type GetApiLinearSetupSetupkeyResponse = LinearOAuthSetup
-
-export interface GetApiLinearSetupSetupkeyInput {
-  readonly path: { readonly setupKey: string }
-}
-
-/** GET /api/linear/setup/{setupKey} */
-export const getApiLinearSetupSetupkey = (transport: Transport, input: GetApiLinearSetupSetupkeyInput): Promise<GetApiLinearSetupSetupkeyResponse> =>
-  transport.request("GET", `/api/linear/setup/${segment(input.path.setupKey)}`) as Promise<GetApiLinearSetupSetupkeyResponse>
-
-export type PostApiLinearBody = LinearIntegrationCreateRequest
-
-export type PostApiLinearResponse = AnyJSON
-
-export interface PostApiLinearInput {
-  readonly body: PostApiLinearBody
-}
-
-/** POST /api/linear */
-export const postApiLinear = (transport: Transport, input: PostApiLinearInput): Promise<PostApiLinearResponse> =>
-  transport.request("POST", `/api/linear`, input.body) as Promise<PostApiLinearResponse>
-
-export type PostApiLinearIdOpsOpidRetryResponse = AnyJSON
-
-export interface PostApiLinearIdOpsOpidRetryInput {
-  readonly path: { readonly id: string; readonly opId: string }
-}
-
-/** POST /api/linear/{id}/ops/{opId}/retry */
-export const postApiLinearIdOpsOpidRetry = (transport: Transport, input: PostApiLinearIdOpsOpidRetryInput): Promise<PostApiLinearIdOpsOpidRetryResponse> =>
-  transport.request("POST", `/api/linear/${segment(input.path.id)}/ops/${segment(input.path.opId)}/retry`) as Promise<PostApiLinearIdOpsOpidRetryResponse>
-
-export type PostApiLinearIdSyncResponse = AnyJSON
-
-export interface PostApiLinearIdSyncInput {
-  readonly path: { readonly id: string }
-}
-
-/** POST /api/linear/{id}/sync */
-export const postApiLinearIdSync = (transport: Transport, input: PostApiLinearIdSyncInput): Promise<PostApiLinearIdSyncResponse> =>
-  transport.request("POST", `/api/linear/${segment(input.path.id)}/sync`) as Promise<PostApiLinearIdSyncResponse>
 
 export type GetApiMetaFailureCodesResponse = AnyJSON
 
@@ -2474,24 +2274,6 @@ export interface DeleteApiReposOwnerRepoIssuesNumberLabelsNameInput {
 /** DELETE /api/repos/{owner}/{repo}/issues/{number}/labels/{name} */
 export const deleteApiReposOwnerRepoIssuesNumberLabelsName = (transport: Transport, input: DeleteApiReposOwnerRepoIssuesNumberLabelsNameInput): Promise<void> =>
   transport.request("DELETE", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/labels/${segment(input.path.name)}`).then(() => undefined)
-
-export type PostApiReposOwnerRepoIssuesNumberLinearLinkResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoIssuesNumberLinearLinkInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly number: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/issues/{number}/linear-link */
-export const postApiReposOwnerRepoIssuesNumberLinearLink = (transport: Transport, input: PostApiReposOwnerRepoIssuesNumberLinearLinkInput): Promise<PostApiReposOwnerRepoIssuesNumberLinearLinkResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/linear-link`) as Promise<PostApiReposOwnerRepoIssuesNumberLinearLinkResponse>
-
-export interface DeleteApiReposOwnerRepoIssuesNumberLinearLinkInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly number: string }
-}
-
-/** DELETE /api/repos/{owner}/{repo}/issues/{number}/linear-link */
-export const deleteApiReposOwnerRepoIssuesNumberLinearLink = (transport: Transport, input: DeleteApiReposOwnerRepoIssuesNumberLinearLinkInput): Promise<void> =>
-  transport.request("DELETE", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/linear-link`).then(() => undefined)
 
 export interface DeleteApiReposOwnerRepoIssuesCommentsIdInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
@@ -5763,6 +5545,51 @@ export type PutApiUserSettingsNotificationsResponse = AnyJSON
 /** PUT /api/user/settings/notifications */
 export const putApiUserSettingsNotifications = (transport: Transport): Promise<PutApiUserSettingsNotificationsResponse> =>
   transport.request("PUT", `/api/user/settings/notifications`) as Promise<PutApiUserSettingsNotificationsResponse>
+
+export type GetApiUserSettingsSignupResponse = {
+  profile: {
+    name: string
+    account: string
+    stage: "poll" | "ready" | "done"
+    question: number
+    answers: Record<string, string | Array<string>>
+    repo?: string
+  }
+  updated_at?: string
+}
+
+/** GET /api/user/settings/signup */
+export const getApiUserSettingsSignup = (transport: Transport): Promise<GetApiUserSettingsSignupResponse> =>
+  transport.request("GET", `/api/user/settings/signup`) as Promise<GetApiUserSettingsSignupResponse>
+
+export type PutApiUserSettingsSignupBody = {
+  name: string
+  account: string
+  stage: "poll" | "ready" | "done"
+  question: number
+  answers: Record<string, string | Array<string>>
+  repo?: string
+}
+
+export type PutApiUserSettingsSignupResponse = {
+  profile: {
+    name: string
+    account: string
+    stage: "poll" | "ready" | "done"
+    question: number
+    answers: Record<string, string | Array<string>>
+    repo?: string
+  }
+  updated_at?: string
+}
+
+export interface PutApiUserSettingsSignupInput {
+  readonly body: PutApiUserSettingsSignupBody
+}
+
+/** PUT /api/user/settings/signup */
+export const putApiUserSettingsSignup = (transport: Transport, input: PutApiUserSettingsSignupInput): Promise<PutApiUserSettingsSignupResponse> =>
+  transport.request("PUT", `/api/user/settings/signup`, input.body) as Promise<PutApiUserSettingsSignupResponse>
 
 export type GetApiUserTokensResponse = AnyJSON
 

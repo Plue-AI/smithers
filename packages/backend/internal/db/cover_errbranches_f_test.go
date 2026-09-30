@@ -16,7 +16,6 @@ func TestFCov_ManyErrorBranches(t *testing.T) {
 		call func(*Queries) error
 	}{
 
-		{"ListActiveLinearIntegrations", func(q *Queries) error { _, err := q.ListActiveLinearIntegrations(ctx); return err }},
 		{"ListAllProtectedBookmarksByRepo", func(q *Queries) error { _, err := q.ListAllProtectedBookmarksByRepo(ctx, 1); return err }},
 		{"ListAllRepos", func(q *Queries) error { _, err := q.ListAllRepos(ctx, ListAllReposParams{}); return err }},
 		{"ListAPNSDevicesForUser", func(q *Queries) error { _, err := q.ListAPNSDevicesForUser(ctx, 1); return err }},
@@ -56,9 +55,6 @@ func TestFCov_ManyErrorBranches(t *testing.T) {
 			_, err := q.ListLandingRequestsWithChangeIDsByRepoFiltered(ctx, ListLandingRequestsWithChangeIDsByRepoFilteredParams{})
 			return err
 		}},
-		{"ListLinearIntegrationsByRepo", func(q *Queries) error { _, err := q.ListLinearIntegrationsByRepo(ctx, 1); return err }},
-		{"ListLinearIntegrationsByUser", func(q *Queries) error { _, err := q.ListLinearIntegrationsByUser(ctx, 1); return err }},
-		{"ListLinearIssueMaps", func(q *Queries) error { _, err := q.ListLinearIssueMaps(ctx, 1); return err }},
 		{"ListMilestonesByRepo", func(q *Queries) error {
 			_, err := q.ListMilestonesByRepo(ctx, ListMilestonesByRepoParams{})
 			return err

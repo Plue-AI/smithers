@@ -36,17 +36,10 @@ func (h policyTestHost) GetFileAtChange(_ context.Context, _, _, _, path string)
 	return repohost.FileContent{Content: h.factory}, nil
 }
 
-// linearImportTestTx files through a real transaction and keeps no map.
-type linearImportTestTx struct{ *pgxLinearIssueImportTx }
-
-func (linearImportTestTx) CreateLinearIssueMap(context.Context, db.CreateLinearIssueMapParams) (db.LinearIssueMap, error) {
-	return db.LinearIssueMap{}, nil
-}
-
 // Issues agents file (D-25) never start credentialed work on their own: an
-// agent run's credential, the Linear import and an unwitnessed live trial
-// file them under a person's account, and their text is never a
-// maintainer's, even after a maintainer rewrites all of it. A maintainer
+// agent run's credential and an unwitnessed live trial file them under a
+// person's account, and their text is never a maintainer's, even after a
+// maintainer rewrites all of it. A maintainer
 // person's trigger label approves one, and so does an agentIssueSources
 // rule on the default bookmark naming its source, while the source alone
 // wrote its text. A trial a person pressed is that person's own issue.
@@ -110,18 +103,6 @@ func TestAgentFiledIssuesNeedALabelOrAnAllowedSourcePostgres(t *testing.T) {
 	filedBy, _ = provenance(byPerson.Number)
 	assert.Equal(t, "account", filedBy)
 	assert.True(t, approves(byPerson.Number, "opened"))
-
-	// The Linear import files as "linear".
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	linear, err := (&LinearSyncService{}).createImportedLinearIssueMapping(ctx, linearImportTestTx{&pgxLinearIssueImportTx{tx: tx, q: db.New(tx)}},
-		db.LinearIntegration{JjhubRepoID: repo, UserID: owner.ID}, uuid.NewString(), "LIN-1", "From Linear", "linear text")
-	require.NoError(t, err)
-	require.NoError(t, tx.Commit(ctx))
-	filedBy, source = provenance(linear.Number)
-	assert.Equal(t, []string{"linear", "linear"}, []string{filedBy, source})
-	assert.False(t, approves(linear.Number, "opened"))
-	assert.True(t, approves(linear.Number, "opened", "linear"))
 
 	// An agent account's own issue is not a maintainer's text either.
 	login := "bot" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]

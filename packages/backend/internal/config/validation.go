@@ -115,15 +115,6 @@ func validateOptionalProviders(cfg *Config, errs *[]string) {
 			*errs = append(*errs, "auth.github_redirect_url must name the browser origin's /api/auth/github/callback endpoint")
 		}
 	}
-
-	linearID := strings.TrimSpace(cfg.Auth.LinearClientID)
-	linearSecret := strings.TrimSpace(cfg.Auth.LinearClientSecret)
-	if (linearID == "") != (linearSecret == "") {
-		*errs = append(*errs, "auth.linear_client_id and auth.linear_client_secret must be configured together")
-	}
-	if linearID != "" && strings.TrimSpace(cfg.Auth.LinearRedirectURL) == "" {
-		*errs = append(*errs, "auth.linear_redirect_url is required when Linear is configured")
-	}
 }
 
 func billingStripeConfigured(cfg BillingConfig) bool {

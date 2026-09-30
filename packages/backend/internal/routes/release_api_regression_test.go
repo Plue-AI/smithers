@@ -103,7 +103,6 @@ func TestReleaseDirectHandlersRefuseTrailingDataBeforeServices(t *testing.T) {
 		{"snapshot", workspace.CreateWorkspaceSnapshot},
 		{"template", workspace.CreateWorkspaceSnapshotTemplate},
 		{"session", workspace.CreateSession},
-		{"linear", (&LinearIntegrationHandler{}).ConfigureLinearIntegration},
 		{"protected bookmark", (&ProtectedBookmarkHandler{}).UpsertProtectedBookmark},
 		{"environment secret", (&SecretHandler{}).PutAgentEnvironmentSecret},
 		{"share", (&ShareListingHandler{}).Publish},

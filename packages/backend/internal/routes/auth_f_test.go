@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -434,7 +435,7 @@ func TestAuth_F_PostLogout(t *testing.T) {
 		}, AuthConfig: defaultRouteAuthConfig(), AuditService: audit}
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "session-key"})
-		req = withUser(req, authFUser())
+		req = req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{User: authFUser()}))
 		rec := httptest.NewRecorder()
 		h.PostLogout(rec, req)
 		require.Equal(t, http.StatusNoContent, rec.Code)

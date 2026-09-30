@@ -47,13 +47,12 @@ describe("integration rows", () => {
     payload: { provider: "github", github: { connected: true, login: "octo" }, nativeAvailable: false, integrations: { repo: "acme/app", rows } }
   } as Extract<Card, { kind: "connect" }>)
 
-  test("each service's failure says which service, keeps the server's words in Details, and retries the read", () => {
+  test("a service's failure says which service, keeps the server's words in Details, and retries the read", () => {
     const { calls, run } = recorder()
     const host = render(<ConnectCardBody card={connect([
-      { id: "slack", state: "error", error: "Reading the Slack channels failed (500)" },
-      { id: "linear", state: "error", error: "needs_reauthorization" }
+      { id: "slack", state: "error", error: "Reading the Slack channels failed (500)" }
     ])} onConnectGitHub={() => {}} onRunCommand={run} />)
-    for (const [id, raw] of [["slack", "Reading the Slack channels failed (500)"], ["linear", "needs_reauthorization"]] as const) {
+    for (const [id, raw] of [["slack", "Reading the Slack channels failed (500)"]] as const) {
       const notice = host.querySelector<HTMLElement>(`[data-testid="integration-failure-${id}"]`)!
       expect(notice.getAttribute("role")).toBe("alert")
       expect(notice.dataset.fault).toBe("infra")
@@ -65,16 +64,13 @@ describe("integration rows", () => {
       notice.querySelector<HTMLButtonElement>("button")!.click()
     }
     expect(INTEGRATION_FAILURES.slack.sentence).toContain("Slack")
-    expect(INTEGRATION_FAILURES.linear.sentence).toContain("Linear")
-    expect(calls).toEqual([
-      { name: "integrations.list", payload: { repo: "acme/app" } },
-      { name: "integrations.list", payload: { repo: "acme/app" } }
-    ])
+    expect(Object.keys(INTEGRATION_FAILURES)).toEqual(["slack"])
+    expect(calls).toEqual([{ name: "integrations.list", payload: { repo: "acme/app" } }])
   })
 
   test("only a disconnected Slack row offers Connect, and it opens the admission flow for the card's repository", () => {
     const { calls, run } = recorder()
-    const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "not-connected" }, { id: "linear", state: "not-connected" }])} onConnectGitHub={() => {}} onRunCommand={run} />)
+    const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "not-connected" }])} onConnectGitHub={() => {}} onRunCommand={run} />)
     expect(host.querySelectorAll('[data-integration] button')).toHaveLength(1)
     const button = host.querySelector<HTMLButtonElement>('[data-integration="slack"] button')!
     expect(button.textContent).toBe("Connect")

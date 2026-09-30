@@ -27,7 +27,6 @@ type IntegrationCatalogItem struct {
 // services in this process. Code presence alone is not a capability.
 type IntegrationCapabilities struct {
 	GitHubMirror bool
-	Linear       bool
 }
 
 // NewIntegrationsHandler preserves the client response shape while making the
@@ -45,7 +44,7 @@ func NewIntegrationsHandler(catalog ...IntegrationCatalogItem) *IntegrationsHand
 // selected during composition. Notion is intentionally absent until a common
 // Notion service exists.
 func IntegrationCatalog(capabilities IntegrationCapabilities) []IntegrationCatalogItem {
-	items := make([]IntegrationCatalogItem, 0, 2)
+	items := make([]IntegrationCatalogItem, 0, 1)
 	if capabilities.GitHubMirror {
 		items = append(items, IntegrationCatalogItem{
 			ID:           "github-sync",
@@ -57,19 +56,6 @@ func IntegrationCatalog(capabilities IntegrationCapabilities) []IntegrationCatal
 			Kind:         "sync-service",
 			Route:        "/integrations/github",
 			Capabilities: []string{"Push mirror", "Refs and tags", "Webhooks", "Scheduled sync"},
-		})
-	}
-	if capabilities.Linear {
-		items = append(items, IntegrationCatalogItem{
-			ID:           "linear",
-			Name:         "Linear",
-			Icon:         "check-square",
-			Color:        "text-blue",
-			Status:       "Configured",
-			Installed:    true,
-			Kind:         "sync-service",
-			Route:        "/integrations/linear",
-			Capabilities: []string{"Issues", "Comments", "OAuth", "Webhooks"},
 		})
 	}
 	return items

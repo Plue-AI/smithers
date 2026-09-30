@@ -60,19 +60,6 @@ func TestValidateServerStartup_BillingAuthorityIsExplicit(t *testing.T) {
 	require.NoError(t, ValidateServerStartup(validStartupConfig()))
 }
 
-func TestValidateServerStartup_LinearCredentialsAreAllOrNothing(t *testing.T) {
-	t.Parallel()
-
-	cfg := validStartupConfig()
-	cfg.Auth.LinearClientID = "linear-client"
-	err := ValidateServerStartup(cfg)
-	require.ErrorContains(t, err, "auth.linear_client_id and auth.linear_client_secret must be configured together")
-
-	cfg.Auth.LinearClientSecret = "linear-secret"
-	cfg.Auth.LinearRedirectURL = "https://smithers.test/api/auth/linear/callback"
-	require.NoError(t, ValidateServerStartup(cfg))
-}
-
 func TestValidateServerStartup_Valid(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, ValidateServerStartup(validStartupConfig()))

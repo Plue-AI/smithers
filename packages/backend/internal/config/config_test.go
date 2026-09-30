@@ -100,9 +100,6 @@ var allEnvKeys = []string{
 	"SMITHERS_AUTH_AUTH0_CLIENT_SECRET",
 	"SMITHERS_AUTH_AUTH0_REDIRECT_URL",
 	"SMITHERS_AUTH_AUTH0_CONNECTION",
-	"SMITHERS_AUTH_LINEAR_CLIENT_ID",
-	"SMITHERS_AUTH_LINEAR_CLIENT_SECRET",
-	"SMITHERS_AUTH_LINEAR_REDIRECT_URL",
 	"SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN",
 	// Billing
 	"SMITHERS_BILLING_MODE",
@@ -566,9 +563,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				Auth0ClientSecret:    "",
 				Auth0RedirectURL:     "http://localhost:4000/api/auth/auth0/callback",
 				Auth0Connection:      "github",
-				LinearClientID:       "",
-				LinearClientSecret:   "",
-				LinearRedirectURL:    "http://localhost:4000/api/auth/linear/callback",
 			},
 		},
 		{
@@ -588,9 +582,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				"SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL":  "https://github.internal.example",
 				"SMITHERS_AUTH_GITHUB_API_BASE_URL":    "https://api.github.internal.example",
 				"SMITHERS_AUTH_KEY_AUTH_DOMAIN":        "smithers.local",
-				"SMITHERS_AUTH_LINEAR_CLIENT_ID":       "linear-client-123",
-				"SMITHERS_AUTH_LINEAR_CLIENT_SECRET":   "linear-secret-456",
-				"SMITHERS_AUTH_LINEAR_REDIRECT_URL":    "https://smithers.sh/auth/linear/callback",
 			},
 			want: AuthConfig{
 				Mode:                 AuthModeMultitenant,
@@ -613,9 +604,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				Auth0ClientSecret:    "",
 				Auth0RedirectURL:     "http://localhost:4000/api/auth/auth0/callback",
 				Auth0Connection:      "github",
-				LinearClientID:       "linear-client-123",
-				LinearClientSecret:   "linear-secret-456",
-				LinearRedirectURL:    "https://smithers.sh/auth/linear/callback",
 			},
 		},
 	}
@@ -752,9 +740,6 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			Auth0ClientSecret:    "",
 			Auth0RedirectURL:     "http://localhost:4000/api/auth/auth0/callback",
 			Auth0Connection:      "github",
-			LinearClientID:       "",
-			LinearClientSecret:   "",
-			LinearRedirectURL:    "http://localhost:4000/api/auth/linear/callback",
 		},
 		Billing: BillingConfig{
 			Mode:                     "unlimited",

@@ -21,10 +21,9 @@ type authCoverStore struct {
 	sseFn func(context.Context) error
 }
 
-func (m *authCoverStore) DeleteExpiredSessions(ctx context.Context) error          { return nil }
-func (m *authCoverStore) DeleteExpiredNonces(ctx context.Context) error            { return nil }
-func (m *authCoverStore) DeleteExpiredOAuthStates(ctx context.Context) error       { return nil }
-func (m *authCoverStore) DeleteExpiredLinearOAuthSetups(ctx context.Context) error { return nil }
+func (m *authCoverStore) DeleteExpiredSessions(ctx context.Context) error    { return nil }
+func (m *authCoverStore) DeleteExpiredNonces(ctx context.Context) error      { return nil }
+func (m *authCoverStore) DeleteExpiredOAuthStates(ctx context.Context) error { return nil }
 func (m *authCoverStore) DeleteExpiredVerificationTokens(ctx context.Context) error {
 	return nil
 }

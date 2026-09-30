@@ -50,7 +50,7 @@ const boot = async (page: Page) => {
 
 /* services.IssueResponse and services.IssueCommentResponse, by their Go struct tags. */
 const issueDto = (number: number, extra: Record<string, unknown>) => ({
-  id: number * 100, number, body: "", state: "open", author: { id: 1, login: "codeplanesmithers" }, assignees: [], labels: [], linear: null, milestone_id: null,
+  id: number * 100, number, body: "", state: "open", author: { id: 1, login: "codeplanesmithers" }, assignees: [], labels: [], milestone_id: null,
   comment_count: 0, closed_at: null, fixed_by: null, fixed_at: null, verified_by: null, verified_at: null, created_at: at, updated_at: at, ...extra
 })
 const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
@@ -111,23 +111,21 @@ test("the issue list narrows to conversations, and a conversation reads its mess
   await capture(page, card, "app-conversation")
 })
 
-test("the Connect card reads the admitted Slack channels and the Linear team from the registered routes, and lists no service this server lacks", async ({ page }) => {
+test("the Connect card reads the admitted Slack channels from the registered route and lists no retired or absent service", async ({ page }) => {
   await boot(page)
   await page.route((url) => url.pathname === `/api/repos/${repo}/issues/sync/channels`, (route) => route.fulfill(json([
     { provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", thread_id: "", external_user_id: "" },
     { provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0456", thread_id: "", external_user_id: "" },
     { provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" }
   ])))
-  await page.route((url) => url.pathname === "/api/integrations/linear", (route) => route.fulfill(json([
-    { id: 2, repo_owner: "smithersai", repo_name: "smithers", linear_team_key: "ENG", is_active: true, last_sync_at: "2026-09-27T08:40:00Z" }
-  ])))
+  const linearReads: string[] = []
+  await page.route((url) => url.pathname.includes("linear"), (route) => { linearReads.push(route.request().url()); return route.fulfill(json([])) })
   await slash(page, `/integrations.list ${repo}`)
   const card = page.locator('[data-kind="connect"]').last()
   await expect(card.locator('[data-integration="slack"]')).toHaveAttribute("data-state", "connected")
   await expect(card.locator('[data-integration="slack"]')).toContainText("C0123, C0456")
-  await expect(card.locator('[data-integration="linear"]')).toHaveAttribute("data-state", "connected")
-  await expect(card.locator('[data-integration="linear"]')).toContainText("ENG")
-  await expect(card.locator("[data-integration]")).toHaveCount(2)
+  await expect(card.locator("[data-integration]")).toHaveCount(1)
+  expect(linearReads).toEqual([])
   await expect(card).not.toContainText("Coming soon")
   await capture(page, card, "app-connect")
 })
@@ -146,7 +144,6 @@ test("admit a Slack channel", async ({ page }) => {
     }
     return route.fulfill(json(admitted))
   })
-  await page.route((url) => url.pathname === "/api/integrations/linear", (route) => route.fulfill(json([])))
   await slash(page, `/integrations.list ${repo}`)
   const card = page.locator('[data-kind="connect"]').last()
   const slack = card.locator('[data-integration="slack"]')

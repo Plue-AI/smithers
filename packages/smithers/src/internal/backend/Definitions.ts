@@ -8,7 +8,7 @@ import { z } from "incur"
  */
 export const definitions = {
   "admin alerts channels add": {
-    description: "alerts \u00b7 channels \u00b7 add",
+    description: "Add an alert channel",
     args: z.object({}),
     options: z.object({
       "type": z.enum(["email", "sms", "pagerduty", "webhook"]).describe("Notification channel type"),
@@ -18,47 +18,47 @@ export const definitions = {
     })
   },
   "admin alerts channels list": {
-    description: "alerts \u00b7 channels \u00b7 list",
+    description: "List alert channels",
     args: z.object({}),
     options: z.object({})
   },
   "admin alerts channels remove": {
-    description: "alerts \u00b7 channels \u00b7 remove",
+    description: "Remove an alert channel",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
   "admin alerts channels send-code": {
-    description: "alerts \u00b7 channels \u00b7 send-code",
+    description: "Send a verification code to an alert channel",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({})
   },
   "admin alerts channels set-route": {
-    description: "alerts \u00b7 channels \u00b7 set-route",
+    description: "Choose which alerts a channel receives",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "route": z.enum(["critical", "all"]).describe("Alert routing severity") })
   },
   "admin alerts channels verify": {
-    description: "alerts \u00b7 channels \u00b7 verify",
+    description: "Verify an alert channel with its code",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "code": z.string().describe("code") })
   },
   "admin alerts policies disable": {
-    description: "alerts \u00b7 policies \u00b7 disable",
+    description: "Turn off an alert policy",
     args: z.object({ "name": z.string().describe("Exact target name") }),
     options: z.object({})
   },
   "admin alerts policies enable": {
-    description: "alerts \u00b7 policies \u00b7 enable",
+    description: "Turn on an alert policy",
     args: z.object({ "name": z.string().describe("Exact target name") }),
     options: z.object({})
   },
   "admin alerts policies list": {
-    description: "alerts \u00b7 policies \u00b7 list",
+    description: "List alert policies",
     args: z.object({}),
     options: z.object({})
   },
   "admin analytics summary": {
-    description: "analytics \u00b7 summary",
+    description: "Summarize product usage over a time range",
     args: z.object({}),
     options: z.object({
       "include-synthetic": z.boolean().describe("Include synthetic users and their resources").default(false),
@@ -66,37 +66,37 @@ export const definitions = {
     })
   },
   "admin audit list": {
-    description: "audit \u00b7 list",
+    description: "List audit log entries",
     args: z.object({}),
     options: z.object({ "since": z.string().describe("since") })
   },
   "admin deploys observe list": {
-    description: "deploys \u00b7 observe \u00b7 list",
+    description: "List Observe deployments",
     args: z.object({}),
     options: z.object({})
   },
   "admin deploys observe redeploy": {
-    description: "deploys \u00b7 observe \u00b7 redeploy",
+    description: "Redeploy an Observe deployment",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
   "admin deploys observe restart": {
-    description: "deploys \u00b7 observe \u00b7 restart",
+    description: "Restart an Observe deployment",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
   "admin deploys observe rollback": {
-    description: "deploys \u00b7 observe \u00b7 rollback",
+    description: "Roll back an Observe deployment",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
   "admin deploys platform list": {
-    description: "deploys \u00b7 platform \u00b7 list",
+    description: "List platform components",
     args: z.object({}),
     options: z.object({})
   },
   "admin deploys platform rollback": {
-    description: "deploys \u00b7 platform \u00b7 rollback",
+    description: "Roll a platform component back to a revision",
     args: z.object({ "component": z.string().describe("Exact target component") }),
     options: z.object({
       "revision": z.string().describe("revision"),
@@ -104,7 +104,7 @@ export const definitions = {
     })
   },
   "admin deploys platform status": {
-    description: "deploys \u00b7 platform \u00b7 status",
+    description: "Show a platform component's deployment status",
     args: z.object({ "component": z.string().describe("Exact target component") }),
     options: z.object({})
   },
@@ -119,7 +119,7 @@ export const definitions = {
     })
   },
   "admin sessions cancel": {
-    description: "sessions \u00b7 cancel",
+    description: "Cancel an agent session",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({
       "reason": z.string().describe("reason").optional(),
@@ -127,7 +127,7 @@ export const definitions = {
     })
   },
   "admin sessions list": {
-    description: "sessions \u00b7 list",
+    description: "List agent sessions",
     args: z.object({}),
     options: z.object({
       "include-synthetic": z.boolean().describe("Include synthetic users and their resources").default(false),
@@ -135,9 +135,9 @@ export const definitions = {
       "status": z.string().describe("status").optional()
     })
   },
-  "admin status": { description: "status", args: z.object({}), options: z.object({}) },
+  "admin status": { description: "Show system status", args: z.object({}), options: z.object({}) },
   "admin tokens list": {
-    description: "tokens \u00b7 list",
+    description: "List access tokens",
     args: z.object({}),
     options: z.object({
       "expiring-days": z.coerce.number().describe("expiring-days").optional(),
@@ -196,12 +196,12 @@ export const definitions = {
     })
   },
   "admin users set-synthetic": {
-    description: "users \u00b7 set-synthetic",
+    description: "Mark a user as synthetic or not",
     args: z.object({ "username": z.string().describe("Exact target username") }),
     options: z.object({ "value": z.enum(["true", "false"]).describe("Whether the user is synthetic") })
   },
   "admin workspaces list": {
-    description: "workspaces \u00b7 list",
+    description: "List workspaces",
     args: z.object({}),
     options: z.object({
       "include-synthetic": z.boolean().describe("Include synthetic users and their resources").default(false),
@@ -212,12 +212,12 @@ export const definitions = {
     })
   },
   "admin workspaces stop": {
-    description: "workspaces \u00b7 stop",
+    description: "Stop a workspace",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
   "admin workspaces suspend": {
-    description: "workspaces \u00b7 suspend",
+    description: "Suspend a workspace",
     args: z.object({ "id": z.string().describe("Exact target id") }),
     options: z.object({ "yes": z.boolean().describe("Confirm this destructive operation").default(false) })
   },
@@ -562,32 +562,6 @@ export const definitions = {
     description: "List the hosts the repository's sandboxes may reach",
     args: z.object({}),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
-  },
-  "extension linear install": {
-    description: "Configure a Linear team for a Smithers repository",
-    args: z.object({}),
-    options: z.object({
-      "team-id": z.string().describe("Linear team ID"),
-      "repo-owner": z.string().describe("Smithers repo owner"),
-      "repo-name": z.string().describe("Smithers repo name"),
-      "repo-id": z.coerce.number().describe("Smithers repo ID"),
-      "actor-id": z.string().describe("Linear actor ID for loop guard").optional(),
-      "credentials-stdin": z.boolean().describe("Read Linear OAuth credentials from stdin as JSON").default(false),
-      "expires-at": z.string().describe("Token expiry (ISO-8601)").optional(),
-      "team-key": z.string().describe("Linear team key (e.g. JJH)").optional(),
-      "team-name": z.string().describe("Linear team display name").optional()
-    })
-  },
-  "extension linear list": { description: "List Linear integrations", args: z.object({}), options: z.object({}) },
-  "extension linear remove": {
-    description: "Remove a Linear integration",
-    args: z.object({ "id": z.coerce.number().describe("Integration ID") }),
-    options: z.object({})
-  },
-  "extension linear sync": {
-    description: "Trigger initial sync for a Linear integration",
-    args: z.object({ "id": z.coerce.number().describe("Integration ID") }),
-    options: z.object({})
   },
   "history backfill": {
     description: "Admit every open issue to the history now",

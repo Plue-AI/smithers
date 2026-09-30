@@ -1,6 +1,6 @@
 /*
- * The `integrations` flow: the services that sync with conversations, issues and the
- * wiki — Slack, Linear, Notion — read into the connect card's rows (DESIGN
+ * The `integrations` flow: the services that sync with conversations and the
+ * wiki — Slack, Notion — read into the connect card's rows (DESIGN
  * §3.6). One module per namespace, registered in Flows.ts.
  */
 import type { FlowEntry, Namespace } from "../registry"
@@ -9,7 +9,7 @@ import { flow, RepoTarget } from "./Declare"
 import type { CommandActions } from "./Declare"
 
 /** The `integrations` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "integrations", label: "Integrations", summary: "Slack, Linear and Notion for conversations, issues and the wiki" }
+export const namespace: Namespace = { id: "integrations", label: "Integrations", summary: "Slack and Notion for conversations and the wiki" }
 
 export const integrationsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({

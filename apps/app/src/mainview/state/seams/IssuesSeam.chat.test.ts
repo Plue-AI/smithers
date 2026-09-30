@@ -220,7 +220,7 @@ describe("conversations and issues through the issues seam", () => {
 const at = "2026-09-26T09:05:00Z"
 const issueDto = {
   idempotency_key: "thread-request", kind: "chat", visibility: "private", id: 700, number: 7, title: "Owner ↔ Assistant", body: "", state: "open",
-  author: { id: 1, login: "will" }, assignees: [], labels: [], linear: null, milestone_id: null, comment_count: 2, closed_at: null,
+  author: { id: 1, login: "will" }, assignees: [], labels: [], milestone_id: null, comment_count: 2, closed_at: null,
   fixed_by: null, fixed_at: null, verified_by: null, verified_at: null, owner: null, due: null, priority: null, parent: null, created_at: at, updated_at: at
 }
 const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>

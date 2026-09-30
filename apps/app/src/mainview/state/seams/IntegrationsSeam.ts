@@ -1,14 +1,12 @@
 /*
  * The integrations seam (DESIGN §3.6): the services that sync with a
- * repository's conversations, issues and wiki, read from the routes the
- * backend registers (compose/router.go) — the owner's admitted chat channels
+ * repository's conversations, read from the route the backend registers
+ * (compose/router.go) — the owner's admitted chat channels
  * (`GET /api/repos/{o}/{r}/issues/sync/channels`, the rows
- * `PUT …/issues/sync/channels` wrote) and the owner's Linear integrations
- * (`GET /api/integrations/linear`, filtered to the repository). The rows ride
- * the existing connect card (`connect-embedded`), which the connect surface
- * already renders. A missing route is `unavailable`, never "not connected":
- * a server without Linear, or this host's proxy, which refuses every Linear
- * path until the Linear slice returns (#2116). A service without a backend
+ * `PUT …/issues/sync/channels` wrote). The first-party Linear integration is
+ * retired (D-11). The rows ride the existing connect card
+ * (`connect-embedded`), which the connect surface already renders. A missing
+ * route is `unavailable`, never "not connected". A service without a backend
  * wears Coming soon and no action; a refused read wears the server's own
  * words. Reads run in the background under the shared toast. Admitting a
  * Slack channel (`integrations.admit`) PUTs the same route and settles only
@@ -47,31 +45,6 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
     return `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
   }
 
-  /** The owner's Linear integrations are one list across repositories; the row is the one bound to this repository. */
-  const linearRow = async (repo: string): Promise<IntegrationRow> => {
-    let response: Response
-    try { response = await ctx.http(`${ctx.baseUrl}/api/integrations/linear`) }
-    catch (error) { return { id: "linear", state: "error", error: unreachableSentence("the Linear integrations", error) } }
-    if (response.status === 404 || response.status === 405) return { id: "linear", state: "unavailable" }
-    if (!response.ok) return { id: "linear", state: "error", error: await readErrorMessage(response, `Reading the Linear integrations failed (${response.status})`) }
-    const body: unknown = await response.json().catch(() => null)
-    const rows = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.integrations) ? body.integrations : null
-    if (rows === null) return { id: "linear", state: "error", error: "Smithers Cloud's answer for the Linear integrations was malformed" }
-    const [owner = "", name = ""] = repo.toLowerCase().split("/")
-    const integration = rows.find((row): row is Record<string, unknown> => isRecord(row) && asString(row.repo_owner)?.toLowerCase() === owner && asString(row.repo_name)?.toLowerCase() === name)
-    if (integration === undefined) return { id: "linear", state: "not-connected" }
-    const remediation = asString(integration.remediation_state)
-    const team = asString(integration.linear_team_key) ?? asString(integration.linear_team_name) ?? asString(integration.linear_team_id)
-    return {
-      id: "linear",
-      state: remediation !== undefined ? "error" : integration.is_active === false ? "not-connected" : "connected",
-      ...(team === undefined ? {} : { detail: team }),
-      ...(remediation === undefined ? {} : { error: remediation }),
-      ...(asString(integration.last_sync_at) === undefined ? {} : { lastSyncAt: integration.last_sync_at as string })
-      // No action yet: the app retired its Linear sync-ops card (Cards.ts retiredKinds); the Linear agent's slice brings the door back (#2116).
-    }
-  }
-
   /** The owner's admitted chat channels for the repository; the Slack ones are the row, in the conversation ids the admission recorded. */
   const slackRow = async (repo: string): Promise<IntegrationRow> => {
     let response: Response
@@ -96,11 +69,11 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
   const ensureCard = async (actor: ReturnType<SeamContext["actor"]>) => {
     if (ctx.store.collections.cards.get(CONNECT_CARD_ID)?.kind !== "connect") await ctx.dispatch({ type: "card.upsert", actor, card: connectBase() }).isPersisted.promise
   }
-  /** Read both services into the connect card; undefined when the owner changed meanwhile. */
+  /** Read the services into the connect card; undefined when the owner changed meanwhile. */
   const refresh = async (repo: string, current: () => boolean, actor: ReturnType<SeamContext["actor"]>) => {
-    const [slack, linear] = await Promise.all([slackRow(repo), linearRow(repo)])
+    const slack = await slackRow(repo)
     if (!current()) return undefined
-    const rows: Array<IntegrationRow> = [slack, linear]
+    const rows: Array<IntegrationRow> = [slack]
     const card = connectBase()
     await ctx.dispatch({ type: "card.upsert", actor, card: { ...card, payload: { ...card.payload, integrations: { repo, rows } } } }).isPersisted.promise
     return rows

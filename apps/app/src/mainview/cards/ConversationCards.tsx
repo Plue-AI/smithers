@@ -3,7 +3,7 @@ import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
-import { ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
+import { ExternalLink, GitPullRequest, Hash, Server } from "lucide-react"
 import { ageLabel } from "../Timestamps"
 import { Suspense, useId, useContext, useSyncExternalStore, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
@@ -67,11 +67,11 @@ export const ConnectCardBody = ({
         Import
       </Button>
     </li>
-    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack for conversations and Linear for issues, read from the registered routes by integrations.list. */}
+    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack for conversations, read from the registered route by integrations.list. */}
     {card.payload.integrations?.rows.map((row) => (
       <li key={row.id} className="connect-store-row" data-integration={row.id} data-state={row.state}>
         <span className="connect-store-icon">
-          {row.id === "slack" ? <Hash size={16} aria-hidden="true" /> : <ListChecks size={16} aria-hidden="true" />}
+          <Hash size={16} aria-hidden="true" />
         </span>
         <span className="connect-store-text">
           <strong>{INTEGRATION_NAMES[row.id]}</strong>
@@ -93,12 +93,11 @@ export const ConnectCardBody = ({
   </ul>
 )
 
-const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear" } as const
-const INTEGRATION_SYNCS = { slack: "conversations", linear: "issues" } as const
-/** A row in `error` names its service; the server's words (or a Linear remediation code) are only its Details. */
+const INTEGRATION_NAMES = { slack: "Slack" } as const
+const INTEGRATION_SYNCS = { slack: "conversations" } as const
+/** A row in `error` names its service; the server's words are only its Details. */
 export const INTEGRATION_FAILURES: Readonly<Record<IntegrationRow["id"], UserFailureCopy>> = {
-  slack: { fault: "infra", sentence: "Smithers can't sync Slack right now. Not your fault.", actions: ["retry"] },
-  linear: { fault: "infra", sentence: "Smithers can't sync Linear right now. Not your fault.", actions: ["retry"] }
+  slack: { fault: "infra", sentence: "Smithers can't sync Slack right now. Not your fault.", actions: ["retry"] }
 }
 /** A browser card's error is a refusal whose type did not survive; the page's words are only its Details. */
 export const BROWSER_READ_FAILURE: UserFailureCopy = { fault: "infra", sentence: "That page couldn't be read. Not your fault.", actions: [] }

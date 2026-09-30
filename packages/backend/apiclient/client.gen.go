@@ -299,85 +299,6 @@ func (v Issue) MarshalJSON() ([]byte, error) {
 	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
-// LinearTeam is generated from docs/api/openapi.yaml.
-type LinearTeam struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Key  string `json:"key"`
-}
-
-// LinearActor is generated from docs/api/openapi.yaml.
-type LinearActor struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-// LinearOAuthSetup is generated from docs/api/openapi.yaml.
-type LinearOAuthSetup struct {
-	LinearActor LinearActor  `json:"linear_actor"`
-	Teams       []LinearTeam `json:"teams"`
-	ExpiresAt   time.Time    `json:"expires_at"`
-}
-
-// LinearIntegration is generated from docs/api/openapi.yaml.
-type LinearIntegration struct {
-	ID               int64       `json:"id"`
-	LinearTeamID     string      `json:"linear_team_id"`
-	LinearTeamName   string      `json:"linear_team_name"`
-	LinearTeamKey    *string     `json:"linear_team_key,omitempty"`
-	RepoOwner        string      `json:"repo_owner"`
-	RepoName         string      `json:"repo_name"`
-	RepoID           int64       `json:"repo_id"`
-	IsActive         bool        `json:"is_active"`
-	RemediationState *string     `json:"remediation_state,omitempty"`
-	LastSyncAt       *time.Time  `json:"last_sync_at,omitempty"`
-	CreatedAt        *time.Time  `json:"created_at,omitempty"`
-	LinearActor      LinearActor `json:"linear_actor"`
-}
-
-// LinearIntegrations is generated from docs/api/openapi.yaml.
-type LinearIntegrations = []LinearIntegration
-
-// LinearSyncOp is generated from docs/api/openapi.yaml.
-type LinearSyncOp struct {
-	ID           int64     `json:"id"`
-	RunID        *int64    `json:"run_id,omitempty"`
-	RetryOfID    *int64    `json:"retry_of_id,omitempty"`
-	Source       string    `json:"source"`
-	Target       string    `json:"target"`
-	Entity       string    `json:"entity"`
-	EntityID     string    `json:"entity_id"`
-	Action       string    `json:"action"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"error_message"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-// LinearSyncOps is generated from docs/api/openapi.yaml.
-type LinearSyncOps = []LinearSyncOp
-
-// LinearSyncCount is generated from docs/api/openapi.yaml.
-type LinearSyncCount struct {
-	Done   int64 `json:"done"`
-	Total  int64 `json:"total"`
-	Failed int64 `json:"failed"`
-}
-
-// LinearSyncRunStatus is generated from docs/api/openapi.yaml.
-type LinearSyncRunStatus struct {
-	State      string                    `json:"state"`
-	Counts     LinearSyncRunStatusCounts `json:"counts"`
-	StartedAt  *time.Time                `json:"started_at"`
-	FinishedAt *time.Time                `json:"finished_at"`
-}
-
-// LinearSyncRunStatusCounts is generated from docs/api/openapi.yaml.
-type LinearSyncRunStatusCounts struct {
-	Issues   LinearSyncCount `json:"issues"`
-	Comments LinearSyncCount `json:"comments"`
-}
-
 // GitMirrorSyncRunStatus is generated from docs/api/openapi.yaml.
 type GitMirrorSyncRunStatus struct {
 	State      string                       `json:"state"`
@@ -430,13 +351,6 @@ type ChangeFindingsResponse struct {
 	CurrentSeq int64               `json:"current_seq"`
 	Findings   []ChangeFinding     `json:"findings"`
 	Analyzers  []ChangeAnalyzerRun `json:"analyzers"`
-}
-
-// LinearIntegrationCreateRequest is generated from docs/api/openapi.yaml.
-type LinearIntegrationCreateRequest struct {
-	SetupKey     string `json:"setup_key"`
-	LinearTeamID string `json:"linear_team_id"`
-	Repo         string `json:"repo"`
 }
 
 // ResolveChangeConflictRequest is generated from docs/api/openapi.yaml.
@@ -1091,14 +1005,6 @@ type GetAPIReposOwnerRepoIssueViewsResponseItem struct {
 	Labels []string `json:"labels,omitempty"`
 }
 
-// GetAPILinearIDOpsParams is the query of GET /api/linear/{id}/ops.
-type GetAPILinearIDOpsParams struct {
-	Status *string
-	Since  *time.Time
-	Limit  *int64
-	Cursor *string
-}
-
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
 type GetAPINotificationsEventsParams struct {
 	After *int64
@@ -1334,6 +1240,48 @@ func (v GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase) MarshalJSON() ([]
 type PostAPIUserKeysBody struct {
 	Title string `json:"title"`
 	Key   string `json:"key"`
+}
+
+// GetAPIUserSettingsSignupResponse is generated from docs/api/openapi.yaml.
+type GetAPIUserSettingsSignupResponse struct {
+	Profile   GetAPIUserSettingsSignupResponseProfile `json:"profile"`
+	UpdatedAt *time.Time                              `json:"updated_at,omitempty"`
+}
+
+// GetAPIUserSettingsSignupResponseProfile is generated from docs/api/openapi.yaml.
+type GetAPIUserSettingsSignupResponseProfile struct {
+	Name     string                     `json:"name"`
+	Account  string                     `json:"account"`
+	Stage    string                     `json:"stage"`
+	Question int64                      `json:"question"`
+	Answers  map[string]json.RawMessage `json:"answers"`
+	Repo     *string                    `json:"repo,omitempty"`
+}
+
+// PutAPIUserSettingsSignupBody is generated from docs/api/openapi.yaml.
+type PutAPIUserSettingsSignupBody struct {
+	Name     string                     `json:"name"`
+	Account  string                     `json:"account"`
+	Stage    string                     `json:"stage"`
+	Question int64                      `json:"question"`
+	Answers  map[string]json.RawMessage `json:"answers"`
+	Repo     *string                    `json:"repo,omitempty"`
+}
+
+// PutAPIUserSettingsSignupResponse is generated from docs/api/openapi.yaml.
+type PutAPIUserSettingsSignupResponse struct {
+	Profile   PutAPIUserSettingsSignupResponseProfile `json:"profile"`
+	UpdatedAt *time.Time                              `json:"updated_at,omitempty"`
+}
+
+// PutAPIUserSettingsSignupResponseProfile is generated from docs/api/openapi.yaml.
+type PutAPIUserSettingsSignupResponseProfile struct {
+	Name     string                     `json:"name"`
+	Account  string                     `json:"account"`
+	Stage    string                     `json:"stage"`
+	Question int64                      `json:"question"`
+	Answers  map[string]json.RawMessage `json:"answers"`
+	Repo     *string                    `json:"repo,omitempty"`
 }
 
 // DeleteAPIAdminUsersUsername calls DELETE /api/admin/users/{username}.
@@ -1646,20 +1594,6 @@ func (c *Client) GetAPIAuthKeyNonce(ctx context.Context) (AnyJSON, error) {
 	return out, err
 }
 
-// GetAPIAuthLinear calls GET /api/auth/linear.
-func (c *Client) GetAPIAuthLinear(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/auth/linear", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAuthLinearCallback calls GET /api/auth/linear/callback.
-func (c *Client) GetAPIAuthLinearCallback(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/auth/linear/callback", nil, nil, &out)
-	return out, err
-}
-
 // PostAPIAuthGithubTokenExchange calls POST /api/auth/github/token-exchange.
 func (c *Client) PostAPIAuthGithubTokenExchange(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -1901,46 +1835,6 @@ func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 	return out, err
 }
 
-// PostWebhooksLinear calls POST /webhooks/linear.
-func (c *Client) PostWebhooksLinear(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/webhooks/linear", nil, nil, &out)
-	return out, err
-}
-
-// DeleteAPIIntegrationsLinearID calls DELETE /api/integrations/linear/{id}.
-func (c *Client) DeleteAPIIntegrationsLinearID(ctx context.Context, id string) error {
-	return c.do(ctx, "DELETE", "/api/integrations/linear/"+url.PathEscape(id), nil, nil, nil)
-}
-
-// GetAPIIntegrationsLinear calls GET /api/integrations/linear.
-func (c *Client) GetAPIIntegrationsLinear(ctx context.Context) (LinearIntegrations, error) {
-	var out LinearIntegrations
-	err := c.do(ctx, "GET", "/api/integrations/linear", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIIntegrationsLinear calls POST /api/integrations/linear.
-func (c *Client) PostAPIIntegrationsLinear(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/integrations/linear", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIIntegrationsLinearRepositories calls GET /api/integrations/linear/repositories.
-func (c *Client) GetAPIIntegrationsLinearRepositories(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/integrations/linear/repositories", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIIntegrationsLinearSetupSetupkey calls GET /api/integrations/linear/setup/{setupKey}.
-func (c *Client) GetAPIIntegrationsLinearSetupSetupkey(ctx context.Context, setupKey string) (LinearOAuthSetup, error) {
-	var out LinearOAuthSetup
-	err := c.do(ctx, "GET", "/api/integrations/linear/setup/"+url.PathEscape(setupKey), nil, nil, &out)
-	return out, err
-}
-
 // GetAPIIntegrationsMcp calls GET /api/integrations/mcp.
 func (c *Client) GetAPIIntegrationsMcp(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -1955,72 +1849,10 @@ func (c *Client) GetAPIIntegrationsSkills(ctx context.Context) (AnyJSON, error) 
 	return out, err
 }
 
-// PostAPIIntegrationsLinearIDSync calls POST /api/integrations/linear/{id}/sync.
-func (c *Client) PostAPIIntegrationsLinearIDSync(ctx context.Context, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/integrations/linear/"+url.PathEscape(id)+"/sync", nil, nil, &out)
-	return out, err
-}
-
 // GetAPIReposOwnerRepoIssueViews calls GET /api/repos/{owner}/{repo}/issue-views.
 func (c *Client) GetAPIReposOwnerRepoIssueViews(ctx context.Context, owner string, repo string) ([]GetAPIReposOwnerRepoIssueViewsResponseItem, error) {
 	var out []GetAPIReposOwnerRepoIssueViewsResponseItem
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issue-views", nil, nil, &out)
-	return out, err
-}
-
-// GetAPILinearIDOps calls GET /api/linear/{id}/ops.
-func (c *Client) GetAPILinearIDOps(ctx context.Context, id string, params GetAPILinearIDOpsParams) (LinearSyncOps, error) {
-	query := url.Values{}
-	if params.Status != nil {
-		query.Set("status", *params.Status)
-	}
-	if params.Since != nil {
-		query.Set("since", (*params.Since).Format(time.RFC3339Nano))
-	}
-	if params.Limit != nil {
-		query.Set("limit", strconv.FormatInt(*params.Limit, 10))
-	}
-	if params.Cursor != nil {
-		query.Set("cursor", *params.Cursor)
-	}
-	var out LinearSyncOps
-	err := c.do(ctx, "GET", "/api/linear/"+url.PathEscape(id)+"/ops", query, nil, &out)
-	return out, err
-}
-
-// GetAPILinearIDSyncRunid calls GET /api/linear/{id}/sync/{runId}.
-func (c *Client) GetAPILinearIDSyncRunid(ctx context.Context, id string, runID string) (LinearSyncRunStatus, error) {
-	var out LinearSyncRunStatus
-	err := c.do(ctx, "GET", "/api/linear/"+url.PathEscape(id)+"/sync/"+url.PathEscape(runID), nil, nil, &out)
-	return out, err
-}
-
-// GetAPILinearSetupSetupkey calls GET /api/linear/setup/{setupKey}.
-func (c *Client) GetAPILinearSetupSetupkey(ctx context.Context, setupKey string) (LinearOAuthSetup, error) {
-	var out LinearOAuthSetup
-	err := c.do(ctx, "GET", "/api/linear/setup/"+url.PathEscape(setupKey), nil, nil, &out)
-	return out, err
-}
-
-// PostAPILinear calls POST /api/linear.
-func (c *Client) PostAPILinear(ctx context.Context, body LinearIntegrationCreateRequest) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/linear", nil, body, &out)
-	return out, err
-}
-
-// PostAPILinearIDOpsOpidRetry calls POST /api/linear/{id}/ops/{opId}/retry.
-func (c *Client) PostAPILinearIDOpsOpidRetry(ctx context.Context, id string, opID string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/linear/"+url.PathEscape(id)+"/ops/"+url.PathEscape(opID)+"/retry", nil, nil, &out)
-	return out, err
-}
-
-// PostAPILinearIDSync calls POST /api/linear/{id}/sync.
-func (c *Client) PostAPILinearIDSync(ctx context.Context, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/linear/"+url.PathEscape(id)+"/sync", nil, nil, &out)
 	return out, err
 }
 
@@ -2809,18 +2641,6 @@ func (c *Client) PatchAPIReposOwnerRepoHooksID(ctx context.Context, owner string
 // DeleteAPIReposOwnerRepoIssuesNumberLabelsName calls DELETE /api/repos/{owner}/{repo}/issues/{number}/labels/{name}.
 func (c *Client) DeleteAPIReposOwnerRepoIssuesNumberLabelsName(ctx context.Context, owner string, repo string, number string, name string) error {
 	return c.do(ctx, "DELETE", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/labels/"+url.PathEscape(name), nil, nil, nil)
-}
-
-// PostAPIReposOwnerRepoIssuesNumberLinearLink calls POST /api/repos/{owner}/{repo}/issues/{number}/linear-link.
-func (c *Client) PostAPIReposOwnerRepoIssuesNumberLinearLink(ctx context.Context, owner string, repo string, number string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/linear-link", nil, nil, &out)
-	return out, err
-}
-
-// DeleteAPIReposOwnerRepoIssuesNumberLinearLink calls DELETE /api/repos/{owner}/{repo}/issues/{number}/linear-link.
-func (c *Client) DeleteAPIReposOwnerRepoIssuesNumberLinearLink(ctx context.Context, owner string, repo string, number string) error {
-	return c.do(ctx, "DELETE", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/linear-link", nil, nil, nil)
 }
 
 // DeleteAPIReposOwnerRepoIssuesCommentsID calls DELETE /api/repos/{owner}/{repo}/issues/comments/{id}.
@@ -5125,6 +4945,20 @@ func (c *Client) GetAPIUserSettingsNotifications(ctx context.Context) (AnyJSON, 
 func (c *Client) PutAPIUserSettingsNotifications(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/user/settings/notifications", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIUserSettingsSignup calls GET /api/user/settings/signup.
+func (c *Client) GetAPIUserSettingsSignup(ctx context.Context) (GetAPIUserSettingsSignupResponse, error) {
+	var out GetAPIUserSettingsSignupResponse
+	err := c.do(ctx, "GET", "/api/user/settings/signup", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIUserSettingsSignup calls PUT /api/user/settings/signup.
+func (c *Client) PutAPIUserSettingsSignup(ctx context.Context, body PutAPIUserSettingsSignupBody) (PutAPIUserSettingsSignupResponse, error) {
+	var out PutAPIUserSettingsSignupResponse
+	err := c.do(ctx, "PUT", "/api/user/settings/signup", nil, body, &out)
 	return out, err
 }
 

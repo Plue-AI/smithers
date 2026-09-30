@@ -106,37 +106,32 @@ type LabelSummary struct {
 }
 
 type IssueResponse struct {
-	IdempotencyKey string                `json:"idempotency_key,omitempty"`
-	Kind           string                `json:"kind"`
-	Visibility     string                `json:"visibility"`
-	ID             int64                 `json:"id"`
-	Number         int64                 `json:"number"`
-	Title          string                `json:"title"`
-	Body           string                `json:"body"`
-	State          string                `json:"state"`
-	Author         IssueUserSummary      `json:"author"`
-	Assignees      []IssueUserSummary    `json:"assignees"`
-	Labels         []LabelSummary        `json:"labels"`
-	Linear         *LinearIssueReference `json:"linear"`
-	MilestoneID    any                   `json:"milestone_id"`
-	CommentCount   int64                 `json:"comment_count"`
-	ClosedAt       pgtype.Timestamptz    `json:"closed_at"`
-	FixedBy        *IssueUserSummary     `json:"fixed_by"`
-	FixedAt        pgtype.Timestamptz    `json:"fixed_at"`
-	VerifiedBy     *IssueUserSummary     `json:"verified_by"`
-	VerifiedAt     pgtype.Timestamptz    `json:"verified_at"`
-	Owner          *IssueUserSummary     `json:"owner"`
-	Due            *string               `json:"due"`
-	Priority       *int16                `json:"priority"`
-	Parent         *IssueParentSummary   `json:"parent"`
-	LinkedChanges  []IssueLinkedChange   `json:"linked_changes"`
-	LastComment    *IssueLastComment     `json:"last_comment"`
-	CreatedAt      time.Time             `json:"created_at"`
-	UpdatedAt      time.Time             `json:"updated_at"`
-}
-
-type issueLinearMapQuerier interface {
-	GetLinearIssueMapBySmithersIssueID(ctx context.Context, jjhubIssueID int64) (db.LinearIssueMap, error)
+	IdempotencyKey string              `json:"idempotency_key,omitempty"`
+	Kind           string              `json:"kind"`
+	Visibility     string              `json:"visibility"`
+	ID             int64               `json:"id"`
+	Number         int64               `json:"number"`
+	Title          string              `json:"title"`
+	Body           string              `json:"body"`
+	State          string              `json:"state"`
+	Author         IssueUserSummary    `json:"author"`
+	Assignees      []IssueUserSummary  `json:"assignees"`
+	Labels         []LabelSummary      `json:"labels"`
+	MilestoneID    any                 `json:"milestone_id"`
+	CommentCount   int64               `json:"comment_count"`
+	ClosedAt       pgtype.Timestamptz  `json:"closed_at"`
+	FixedBy        *IssueUserSummary   `json:"fixed_by"`
+	FixedAt        pgtype.Timestamptz  `json:"fixed_at"`
+	VerifiedBy     *IssueUserSummary   `json:"verified_by"`
+	VerifiedAt     pgtype.Timestamptz  `json:"verified_at"`
+	Owner          *IssueUserSummary   `json:"owner"`
+	Due            *string             `json:"due"`
+	Priority       *int16              `json:"priority"`
+	Parent         *IssueParentSummary `json:"parent"`
+	LinkedChanges  []IssueLinkedChange `json:"linked_changes"`
+	LastComment    *IssueLastComment   `json:"last_comment"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
 }
 
 type issueLinkedChangesQuerier interface {
@@ -1219,20 +1214,6 @@ func (s *IssueService) mapIssueWith(ctx context.Context, issue db.Issue, lastCom
 		milestoneID = issue.MilestoneID.Int64
 	}
 
-	var linear *LinearIssueReference
-	if q, ok := s.queries.(issueLinearMapQuerier); ok {
-		issueMap, mapErr := q.GetLinearIssueMapBySmithersIssueID(ctx, issue.ID)
-		switch {
-		case mapErr == nil:
-			ref := linearIssueReference(issueMap.LinearIdentifier)
-			linear = &ref
-		case stdErrors.Is(mapErr, pgx.ErrNoRows):
-			// An issue without a mapping is represented explicitly as JSON null.
-		default:
-			return IssueResponse{}, pkgerrors.Internal("failed to load Linear issue link")
-		}
-	}
-
 	var fixedBy *IssueUserSummary
 	if issue.FixedByID.Valid {
 		user, userErr := s.queries.GetUserByID(ctx, issue.FixedByID.Int64)
@@ -1300,7 +1281,6 @@ func (s *IssueService) mapIssueWith(ctx context.Context, issue db.Issue, lastCom
 		Author:         IssueUserSummary{ID: author.ID, Login: author.Username},
 		Assignees:      assignees,
 		Labels:         labels,
-		Linear:         linear,
 		MilestoneID:    milestoneID,
 		CommentCount:   issue.CommentCount,
 		ClosedAt:       issue.ClosedAt,

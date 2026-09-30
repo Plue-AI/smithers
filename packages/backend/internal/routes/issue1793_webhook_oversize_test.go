@@ -50,39 +50,6 @@ func TestIssue1793GitHubWebhookBodyBoundary(t *testing.T) {
 	}
 }
 
-func TestIssue1793LinearWebhookBodyBoundary(t *testing.T) {
-	const limit = 1 << 20
-	for _, tc := range []struct {
-		name       string
-		size       int
-		streamed   bool
-		wantStatus int
-		wantCalled bool
-	}{
-		{"at limit", limit, false, http.StatusOK, true},
-		{"over limit", limit + 1, false, http.StatusRequestEntityTooLarge, false},
-		{"streamed over limit", limit + 1, true, http.StatusRequestEntityTooLarge, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			sync := newLinearFSync()
-			handler := &LinearIntegrationHandler{Sync: sync}
-			req := httptest.NewRequest(http.MethodPost, "/webhooks/linear", strings.NewReader(strings.Repeat("x", tc.size)))
-			if tc.streamed {
-				req.ContentLength = -1
-				req.TransferEncoding = []string{"chunked"}
-			}
-			rec := httptest.NewRecorder()
-			handler.PostLinearWebhook(rec, req)
-			require.Equal(t, tc.wantStatus, rec.Code)
-			if tc.wantCalled {
-				require.Len(t, sync.gotBody, tc.size)
-			} else {
-				require.Nil(t, sync.gotBody)
-			}
-		})
-	}
-}
-
 func TestIssue1793StripeWebhookBodyBoundary(t *testing.T) {
 	const limit = 1 << 20
 	for _, tc := range []struct {

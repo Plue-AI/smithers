@@ -72,16 +72,19 @@ func TestPathParametersAreEscapedPerSegment(t *testing.T) {
 }
 
 func TestQueryParametersSkipUnsetValues(t *testing.T) {
-	client, requests := server(t, http.StatusOK, "application/json", `[]`)
+	client, requests := server(t, http.StatusOK, "application/json", `{}`)
+	from, to, whitespace := "abc", int64(25), "ignore"
+	_, err := client.GetAPIReposOwnerRepoChangesChangeIDDiff(context.Background(), "o", "r", "c", apiclient.GetAPIReposOwnerRepoChangesChangeIDDiffParams{From: &from, To: &to, Whitespace: &whitespace})
+	require.NoError(t, err)
+	_, err = client.GetAPIReposOwnerRepoChangesChangeIDDiff(context.Background(), "o", "r", "c", apiclient.GetAPIReposOwnerRepoChangesChangeIDDiffParams{})
+	require.NoError(t, err)
 	since := time.Date(2026, 9, 1, 8, 30, 0, 500, time.UTC)
-	status, limit := "failed", int64(25)
-	_, err := client.GetAPILinearIDOps(context.Background(), "7", apiclient.GetAPILinearIDOpsParams{Status: &status, Since: &since, Limit: &limit})
+	_, err = client.GetAPIReposOwnerRepoChangesCount(context.Background(), "o", "r", apiclient.GetAPIReposOwnerRepoChangesCountParams{Rev: "main", Since: since})
 	require.NoError(t, err)
-	_, err = client.GetAPILinearIDOps(context.Background(), "7", apiclient.GetAPILinearIDOpsParams{})
-	require.NoError(t, err)
-	require.Len(t, *requests, 2)
-	assert.Equal(t, "limit=25&since=2026-09-01T08%3A30%3A00.0000005Z&status=failed", (*requests)[0].Query)
+	require.Len(t, *requests, 3)
+	assert.Equal(t, "from=abc&to=25&whitespace=ignore", (*requests)[0].Query)
 	assert.Empty(t, (*requests)[1].Query)
+	assert.Equal(t, "rev=main&since=2026-09-01T08%3A30%3A00.0000005Z", (*requests)[2].Query)
 }
 
 func TestTypedBodyIsSentAsJSON(t *testing.T) {

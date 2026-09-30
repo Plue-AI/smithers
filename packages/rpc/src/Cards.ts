@@ -1579,12 +1579,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         error: z.string().nullable().optional()
       }).optional(),
       labels: z.array(z.string()),
-      /*
-       * Lane sync (ADR 0005 "Link an issue to Linear"): the Linear mapping
-       * when the issue DTO carries one (`Linear ENG-482`); absent until
-       * plue#473, and absent-vs-null is not distinguished — no mapping line
-       * renders without the DTO field. Optional so older cards parse.
-       */
       comments: z.array(
         z.object({
           author: z.string().nullable(),
@@ -1935,15 +1929,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * Lane sync (ADR 0005): the connector-setup card — one kind serves both
-   * handoffs. The steps are the wizard (`linear`: authorize → team →
-   * repository → confirm; `github`: install → reconcile), rendered as rows
-   * that fill in; a failed step reads the server error verbatim on its own
-   * line. On confirm the SAME card turns into the connected state (`phase:
-   * "connected"`), which for Linear carries the integration and for GitHub
-   * the installation. The setup key is the OAuth callback's opaque one-time
-   * handle (plue#469's team pick; expires in minutes — an expired one reads
-   * `authorization expired · Open Linear again`, never a silent retry).
+   * Lane sync (ADR 0005): the connector-setup card for the GitHub handoff.
+   * The steps are the wizard (install → reconcile), rendered as rows that
+   * fill in; a failed step reads the server error verbatim on its own line.
+   * On confirm the SAME card turns into the connected state (`phase:
+   * "connected"`), which carries the installation.
    */
   z.object({
     ...cardBaseShape,
@@ -1976,30 +1966,25 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * Lane sync (ADR 0005): the sync-ops card — one kind serves Linear syncs
-   * and GitHub mirror syncs. Rows are the durable ops, newest first, a
-   * failed row carrying the server's error verbatim with a Retry act
+   * Lane sync (ADR 0005): the sync-ops card for GitHub mirror syncs. Rows
+   * are the durable ops, newest first, a failed row carrying the server's
+   * error verbatim with a Retry act
    * (`sync.retry <opId>`); failures are never filtered out. The header's
    * run state and counts stay live while the run is polled.
    *
    * Lane L5 (plue#468/#470 live): the state words are the WIRE's, never a
-   * vocabulary of this app's own — a Linear run is `pending | running |
-   * completed | failed`, a mirror run `queued | running | succeeded |
-   * failed`, a Linear op `pending | success | failed | skipped`, a mirror
-   * ref `pending | succeeded | failed`. They are strings here because the
-   * two backends disagree and inventing a shared enum would rename one of
-   * them on screen; `@smthrs/ui`'s status vocabulary already tints every
-   * one of those words.
+   * vocabulary of this app's own — a mirror run `queued | running |
+   * succeeded | failed`, a mirror ref `pending | succeeded | failed`. They
+   * are strings here so the screen never renames the wire's words;
+   * `@smthrs/ui`'s status vocabulary already tints every one of them.
    */
   z.object({
     ...cardBaseShape,
     kind: z.literal("sync-ops"),
     payload: z.object({
-      /** The header subject: `Linear ENG ↔ org/repo` or `Mirror · org/repo`. */
+      /** The header subject: `Mirror · org/repo`. */
       subject: z.string(),
       source: z.literal("github-mirror"),
-      /** The Linear integration id the run belongs to (Linear only). */
-      integrationId: z.string().optional(),
       /** `org/repo` (the mirror's repository). */
       repo: z.string().optional(),
       /** The run the trigger answered with (`run_id`), when it named one. */
@@ -3000,6 +2985,12 @@ export const CardSchema = Object.assign(
     ) {
       const { body: _body, ...base } = row
       return { ...base, kind: "retired", title: "", loading: false, status: "acted", payload: {} }
+    }
+    const integrations = payload?.integrations as Record<string, unknown> | undefined
+    if (row.kind === "connect" && Array.isArray(integrations?.rows)) {
+      /* D-11 retired the first-party Linear integration; a stored connect card keeps its other rows. */
+      const rows = integrations.rows.filter((entry: unknown) => (entry as Record<string, unknown> | null)?.id !== "linear")
+      return { ...row, payload: { ...payload, integrations: { ...integrations, rows } } }
     }
     if (row.kind === "agents" && Array.isArray(payload?.agents)) {
       return {

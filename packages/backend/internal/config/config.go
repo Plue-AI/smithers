@@ -209,7 +209,7 @@ type FeatureFlagsConfig struct {
 	DraftPRs bool `mapstructure:"draft_prs"`
 	// Reviewers gates code-review reviewer assignment routes. Default false.
 	Reviewers bool `mapstructure:"reviewers"`
-	// MultiAuth gates the multi-provider auth surface (Auth0, Linear OAuth). Default false.
+	// MultiAuth gates the multi-provider auth surface (Auth0). Default false.
 	MultiAuth bool `mapstructure:"multi_auth"`
 	// PrivateRepos gates creating / using private repositories. Default false.
 	PrivateRepos bool `mapstructure:"private_repos"`
@@ -382,9 +382,6 @@ type AuthConfig struct {
 	Auth0ClientSecret  string `mapstructure:"auth0_client_secret"`
 	Auth0RedirectURL   string `mapstructure:"auth0_redirect_url"`
 	Auth0Connection    string `mapstructure:"auth0_connection"`
-	LinearClientID     string `mapstructure:"linear_client_id"`
-	LinearClientSecret string `mapstructure:"linear_client_secret"`
-	LinearRedirectURL  string `mapstructure:"linear_redirect_url"`
 	// WorkerExchangeToken is the shared secret that trusted first-party
 	// workers (e.g. the multi frontend's Cloudflare Worker) present as a
 	// Bearer token to call POST /api/auth/github/token-exchange. When unset
@@ -557,9 +554,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("auth.auth0_client_secret", "")
 	v.SetDefault("auth.auth0_redirect_url", "http://localhost:4000/api/auth/auth0/callback")
 	v.SetDefault("auth.auth0_connection", "github")
-	v.SetDefault("auth.linear_client_id", "")
-	v.SetDefault("auth.linear_client_secret", "")
-	v.SetDefault("auth.linear_redirect_url", "http://localhost:4000/api/auth/linear/callback")
 	v.SetDefault("billing.mode", "unlimited")
 	v.SetDefault("billing.stripe_secret_key", "")
 	v.SetDefault("billing.stripe_webhook_secret", "")
@@ -720,9 +714,6 @@ func Load(configFile string) (*Config, error) {
 		{"auth.auth0_client_secret", "SMITHERS_AUTH_AUTH0_CLIENT_SECRET"},
 		{"auth.auth0_redirect_url", "SMITHERS_AUTH_AUTH0_REDIRECT_URL"},
 		{"auth.auth0_connection", "SMITHERS_AUTH_AUTH0_CONNECTION"},
-		{"auth.linear_client_id", "SMITHERS_AUTH_LINEAR_CLIENT_ID"},
-		{"auth.linear_client_secret", "SMITHERS_AUTH_LINEAR_CLIENT_SECRET"},
-		{"auth.linear_redirect_url", "SMITHERS_AUTH_LINEAR_REDIRECT_URL"},
 		{"auth.worker_exchange_token", "SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN"},
 		{"billing.mode", "SMITHERS_BILLING_MODE"},
 		{"billing.stripe_secret_key", "SMITHERS_BILLING_STRIPE_SECRET_KEY"},

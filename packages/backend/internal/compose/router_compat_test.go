@@ -155,7 +155,6 @@ func buildRouterCompat(
 		telemetryHandler,
 		featureFlagHandler,
 		oauth2Handler,
-		nil, // linearIntegrationHandler
 		nil, // gitHubWebhookHandler
 		smithersMetrics,
 		extras...,

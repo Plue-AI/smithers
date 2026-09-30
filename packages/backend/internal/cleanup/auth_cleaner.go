@@ -17,7 +17,6 @@ type CleanupStore interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteExpiredNonces(ctx context.Context) error
 	DeleteExpiredOAuthStates(ctx context.Context) error
-	DeleteExpiredLinearOAuthSetups(ctx context.Context) error
 	DeleteExpiredVerificationTokens(ctx context.Context) error
 	DeleteExpiredSSETickets(ctx context.Context) error
 	// DeleteExpiredAccessTokens prunes PATs whose expires_at passed more than
@@ -85,9 +84,6 @@ func (c *AuthCleaner) sweep(ctx context.Context) error {
 	}
 	if err := c.store.DeleteExpiredOAuthStates(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("delete expired oauth states: %w", err))
-	}
-	if err := c.store.DeleteExpiredLinearOAuthSetups(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("delete expired linear oauth setups: %w", err))
 	}
 	if err := c.store.DeleteExpiredVerificationTokens(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("delete expired verification tokens: %w", err))

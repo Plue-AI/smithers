@@ -205,7 +205,6 @@ func sseIdentityRouterForTest() http.Handler {
 		nil,                       // telemetryHandler
 		nil,                       // featureFlagHandler
 		nil,                       // oauth2Handler
-		nil,                       // linearHandler
 		nil,                       // gitHubWebhookHandler
 		nil,                       // smithersMetrics
 	)
@@ -283,7 +282,6 @@ func featureGateRouterForTest(cfg *config.Config) http.Handler {
 		nil, // telemetryHandler
 		nil, // featureFlagHandler
 		nil, // oauth2Handler
-		nil, // linearHandler
 		nil, // gitHubWebhookHandler
 		nil, // smithersMetrics
 	)

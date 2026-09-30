@@ -61,7 +61,6 @@ type isolationTenant struct {
 	emailID       int64
 	connection    db.ProviderConnection
 	transfer      db.RepositoryTransferRequest
-	linear        db.LinearIntegration
 	changeset     db.Changeset
 	secretName    string
 	variableName  string
@@ -236,10 +235,6 @@ func seedIsolationTenant(t *testing.T, pool *pgxpool.Pool, name string, transfer
 			SourceOrgID: pgtype.Int8{Int64: tenant.org.ID, Valid: true}, SourceOwner: tenant.org.Name, SourceName: tenant.orgRepo.Name})
 		require.NoError(t, err)
 	}
-	tenant.linear, err = q.CreateLinearIntegration(ctx, db.CreateLinearIntegrationParams{UserID: tenant.user.ID, LinearTeamID: name + "-team", LinearTeamName: mark("linear-team"), LinearTeamKey: "AL",
-		AccessTokenEncrypted: []byte(mark("linear-token")), WebhookKey: name + "-webhook-key", WebhookSecret: mark("linear-webhook-secret"),
-		JjhubRepoID: tenant.repo.ID, JjhubRepoOwner: name, JjhubRepoName: tenant.repo.Name})
-	require.NoError(t, err)
 	tenant.changeset, err = q.CreateChangeset(ctx, db.CreateChangesetParams{OrganizationID: tenant.org.ID, SuperprojectRepositoryID: tenant.orgRepo.ID, ChangeID: "kkkkkkkk" + name,
 		CommitID: strings.Repeat("b", 40), ParentChangeIds: json.RawMessage(`[]`), TargetBookmark: "main", Description: mark("changeset"), CreatedBy: pgtype.Int8{Int64: tenant.user.ID, Valid: true}})
 	require.NoError(t, err)
@@ -362,8 +357,6 @@ func isolationValues(tenant isolationTenant, owner, repo string, missing bool) f
 				return pick(tenant.pairSession.ID, uuid.Nil.String())
 			case "app-timelines":
 				return pick(tenant.timeline.ID, uuid.Nil.String())
-			case "linear":
-				return pick(fmt.Sprint(tenant.linear.ID), "987654")
 			case "hooks":
 				return pick(fmt.Sprint(tenant.webhook.ID), "987654")
 			case "labels":

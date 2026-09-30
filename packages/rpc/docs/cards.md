@@ -17,6 +17,9 @@ empty payload and `status: "acted"`. These rows are retired:
   `agent.new`, `agent.remove`, `issues.link-linear`, `issues.unlink-linear`,
   `sync.retry` and `sync.ops.load-older`
 
+A stored `connect` card keeps its kind and drops any Linear row from
+`integrations.rows`; the first-party Linear integration is retired (D-11).
+
 Malformed rows of a current kind still fail validation.
 
 `CardPatchSchema` requires `kind`, including for metadata-only updates. Its payload

@@ -10,7 +10,7 @@ import (
 // terminates the whole multi-tenant server — chi's Recoverer middleware only
 // guards the request goroutine that invoked it, not detached background
 // goroutines spawned to keep a request handler non-blocking (push-hook
-// workflow sync, agent-run dispatch, Linear initial sync, etc.).
+// workflow sync, agent-run dispatch, etc.).
 func SafeGo(name string, fn func()) {
 	go func() {
 		defer func() {

@@ -374,17 +374,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	webhookDispatcher := webhooks.NewDispatcher(queries)
-	// Complete the dispatcher before any service captures it.
-	linearClient := auth.NewLinearClient(cfg.Auth.LinearClientID, cfg.Auth.LinearClientSecret, cfg.Auth.LinearRedirectURL)
-	linearIntegrationSvc := services.NewLinearIntegrationService(queries, linearClient, cfg.Auth.SessionSecret)
-	linearEnabled := strings.TrimSpace(cfg.Auth.LinearClientID) != "" && strings.TrimSpace(cfg.Auth.LinearClientSecret) != ""
-	var linearSyncSvc *services.LinearSyncService
-	var linearDispatcher *webhooks.LinearDispatcher
-	if linearEnabled {
-		linearSyncSvc = services.NewLinearSyncServiceWithPool(queries, linearIntegrationSvc, pool)
-		linearDispatcher = webhooks.NewLinearDispatcher(webhookDispatcher, linearSyncSvc)
-		webhookDispatcher = linearDispatcher
-	}
 	sshAuthzService := services.NewSSHAuthorizationService(queries)
 	var gitHTTPOptions []services.GitHTTPProxyServiceOption
 	if config.IsSingleOwner(cfg.Auth) {
@@ -396,6 +385,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Startup validation permits this only for the single trusted owner.
 		billingPolicy = services.NewUnlimitedBillingPolicy()
 	}
+	// Every attributed push is capped at, and recorded in, its owner's
+	// storage quota (smithersai/plue#593).
+	repoHostClient.SetPushMeter(services.NewGitStorageMeter(billingPolicy, queries))
 	orgService := services.NewOrgServiceWithPool(queries, pool, services.WithOrgWebhookDispatcher(webhookDispatcher), services.WithOrgBillingPolicy(billingPolicy))
 	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth)
 	if err != nil {
@@ -973,6 +965,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		EmailService:   emailService,
 		DeviceService:  userDeviceService,
 		AuditService:   auditService,
+		SignupProfiles: services.NewSignupProfileService(queries),
 	}
 	sshKeyHandler := &routes.SSHKeyHandler{
 		Service:      sshKeyService,
@@ -1013,7 +1006,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	issueHandler := &routes.IssueHandler{
 		Service: issueService,
 	}
-	issueHandler.LinearLink = services.NewLinearIssueLinkService(queries, linearIntegrationSvc, linearClient)
 
 	gitHandler := &routes.GitSmartHandler{
 		Service: gitHTTPProxyService,
@@ -1303,19 +1295,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		UpstreamAuthorizePath:    oauth2UpstreamAuthorizePath,
 	}
 
-	// Linear integration (multi-tenant sync engine embedded in Go API).
-	var linearHandler *routes.LinearIntegrationHandler
-	if linearEnabled {
-		linearHandler = &routes.LinearIntegrationHandler{
-			Service:        linearIntegrationSvc,
-			Sync:           linearSyncSvc,
-			SyncOperations: linearSyncSvc,
-			AuthConfig:     routes.NewLinearAuthConfig(cfg.Auth.CookieSecure),
-			Repos:          queries,
-		}
-		slog.Info("linear integration enabled")
-	}
-
 	searchIndexer := services.NewSearchIndexer(queries, repoHostClient, pool)
 	pushHookHandler := &routes.InternalPushHookHandler{
 		RepoResolver:   queries,
@@ -1463,7 +1442,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		telemetryHandler,
 		featureFlagHandler,
 		oauth2Handler,
-		linearHandler,
 		gitHubWebhookHandler,
 		smithersMetrics,
 		routerExtras{CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
@@ -1800,11 +1778,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		shutdownErr := errors.Join(fatalWorkerErr, srv.Shutdown(shutdownCtx))
 		if drainErr := requestTracker.WaitForDrain(shutdownCtx); drainErr != nil {
 			shutdownErr = errors.Join(shutdownErr, drainErr)
-		}
-		if linearDispatcher != nil {
-			if err := linearDispatcher.Shutdown(shutdownCtx); err != nil {
-				shutdownErr = errors.Join(shutdownErr, fmt.Errorf("Linear sync did not drain: %w", err))
-			}
 		}
 		drained, killed, activeRemaining := requestTracker.Snapshot()
 

@@ -16,8 +16,7 @@ import {
   positive,
   query,
   str,
-  type Values,
-  withCause
+  type Values
 } from "./Client.ts"
 import * as ProductApi from "./ProductApi.ts"
 
@@ -322,41 +321,6 @@ for (const action of ["create", "list", "view", "update", "delete", "deliveries"
       ["create", "update"].includes(action) ? body : undefined
     )
     return action === "delete" ? { status: "deleted", id: a.id } : result
-  })
-}
-for (const action of ["list", "install", "remove", "sync"]) {
-  add(`extension linear ${action}`, async (c, a, o) => {
-    const path = "/api/integrations/linear"
-    if (action !== "install") {
-      return c.request(
-        action === "list" ? "GET" : action === "remove" ? "DELETE" : "POST",
-        path + (action === "list" ? "" : `/${positive(a.id)}${action === "sync" ? "/sync" : ""}`)
-      )
-    }
-    if (!o["credentials-stdin"]) {
-      throw new UsageError({ message: "Use --credentials-stdin for Linear OAuth credentials" })
-    }
-    const invalid = (message: string) => new Refused({ fault: "user", code: "invalid_input", message })
-    const raw = await c.stdin("Linear OAuth credentials")
-    let credentials: Values
-    try {
-      credentials = object(JSON.parse(raw))
-    } catch (error) {
-      throw withCause(invalid("Linear OAuth credentials must be JSON"), error)
-    }
-    if (!credentials.access_token) throw invalid("OAuth access_token is required")
-    return c.request("POST", path, {
-      linear_team_id: o["team-id"],
-      linear_team_name: str(o["team-name"]),
-      linear_team_key: str(o["team-key"]),
-      repo_owner: o["repo-owner"],
-      repo_name: o["repo-name"],
-      repo_id: o["repo-id"],
-      access_token: credentials.access_token,
-      refresh_token: str(credentials.refresh_token),
-      expires_at: str(o["expires-at"]),
-      linear_actor_id: str(o["actor-id"])
-    })
   })
 }
 add("artifact list", (c, a, o) => c.request("GET", repo(c, o, `/actions/runs/${positive(a.runId)}/artifacts`)))

@@ -244,9 +244,8 @@ const (
 	maxExchangeTokenTTL = 8 * 24 * time.Hour
 	// githubTokenRefreshSkew is how long BEFORE the recorded expiry a stored
 	// GitHub access token is treated as already dead, so we refresh proactively
-	// instead of spending a doomed API call to learn it expired. Matches the
-	// Linear integration's skew (see LinearIntegrationService.RefreshTokenIfNeeded)
-	// and comfortably covers clock drift plus a slow in-flight request.
+	// instead of spending a doomed API call to learn it expired. Five minutes
+	// covers clock drift plus a slow in-flight request.
 	githubTokenRefreshSkew = 5 * time.Minute
 )
 

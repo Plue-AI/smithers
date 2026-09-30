@@ -87,31 +87,8 @@ describe("resource mutations", () => {
       match_headers: []
     })
   })
-  it("connects Linear with OAuth credentials, rejecting an API-key-shaped payload", async () => {
-    const { c, request } = await fixture(), stdin = vi.spyOn(c, "stdin")
-    await expect(resources["extension linear install"]!(c, {}, options)).rejects.toThrow("stdin")
-    stdin.mockResolvedValue("{\"api_key\":\"key\"}")
-    await expect(resources["extension linear install"]!(c, {}, { "credentials-stdin": true })).rejects.toThrow(
-      "access_token"
-    )
-    stdin.mockResolvedValue("{\"access_token\":\"oauth\",\"refresh_token\":\"refresh\"}")
-    await resources["extension linear install"]!(c, {}, {
-      "credentials-stdin": true,
-      "team-id": "team",
-      "repo-owner": "owner",
-      "repo-name": "repo"
-    })
-    expect(request).toHaveBeenLastCalledWith(
-      "POST",
-      "/api/integrations/linear",
-      expect.objectContaining({
-        access_token: "oauth",
-        refresh_token: "refresh",
-        linear_team_id: "team",
-        repo_owner: "owner",
-        repo_name: "repo"
-      })
-    )
+  it("has no first-party Linear commands (D-11)", () => {
+    expect(Object.keys(resources).filter((name) => name.startsWith("extension"))).toEqual([])
   })
   it("sends webhook secret rotation and explicit empty event selection", async () => {
     const { c, request } = await fixture()

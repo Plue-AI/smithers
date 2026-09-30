@@ -106,7 +106,6 @@ type mockIssueQuerier struct {
 	updateIssueCommentFn        func(ctx context.Context, arg db.UpdateIssueCommentParams) (db.IssueComment, error)
 	deleteIssueCommentFn        func(ctx context.Context, id int64) error
 	getIssueByCommentIDFn       func(ctx context.Context, commentID int64) (db.Issue, error)
-	getLinearIssueMapFn         func(ctx context.Context, issueID int64) (db.LinearIssueMap, error)
 	listLinkedChangesFn         func(ctx context.Context, issueID int64) ([]db.ListLinkedChangesForIssueRow, error)
 
 	lastListIssuesArg       db.ListIssuesByRepoFilteredParams
@@ -118,13 +117,6 @@ type mockIssueQuerier struct {
 	lastReplaceAssigneesArg *db.ReplaceIssueAssigneesParams
 
 	createdIssueEvents []db.CreateIssueEventParams
-}
-
-func (m *mockIssueQuerier) GetLinearIssueMapBySmithersIssueID(ctx context.Context, issueID int64) (db.LinearIssueMap, error) {
-	if m.getLinearIssueMapFn != nil {
-		return m.getLinearIssueMapFn(ctx, issueID)
-	}
-	return db.LinearIssueMap{}, pgx.ErrNoRows
 }
 
 func (m *mockIssueQuerier) ListLinkedChangesForIssue(ctx context.Context, issueID int64) ([]db.ListLinkedChangesForIssueRow, error) {

@@ -261,7 +261,7 @@ const upstreamPathOf = (literal: string): string | undefined => {
 
 /**
  * The WRITES a seam file makes with a literal path beside the method — the
- * seams' `sendJson("DELETE", \`/integrations/linear/${id}\`)` helper and a
+ * seams' `sendJson("POST", \`/orgs/${org}/changesets/${id}/land\`)` helper and a
  * `ctx.http(cloud("/github/import"), { method: "POST" })` call — as
  * `METHOD /api/path` pairs. A write whose path is built by a helper
  * (`repoPath(...)`) carries no literal and is not seen here; the path-only
@@ -452,7 +452,7 @@ describe("host parity — the web and native catalogs against the servers' own c
         }
       }
     }
-    // The extraction saw the real seams: the funnel's first list, the file reads, and the Linear disconnect's method.
+    // The extraction saw the real seams: the funnel's first list, the file reads, and a change landing's method.
     expect(checked).toBeGreaterThan(50)
     expect([...(pathCache.get("RepositoriesSeam") ?? [])]).toContain("/api/user/repos")
     expect([...(pathCache.get("FilesSeam") ?? [])]).toContain("/api/repos/")

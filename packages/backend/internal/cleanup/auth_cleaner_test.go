@@ -23,7 +23,6 @@ type mockCleanupStore struct {
 	deleteExpiredSessionsFn           func(context.Context) error
 	deleteExpiredNoncesFn             func(context.Context) error
 	deleteExpiredOAuthStatesFn        func(context.Context) error
-	deleteExpiredLinearOAuthSetupsFn  func(context.Context) error
 	deleteExpiredVerificationTokensFn func(context.Context) error
 	deleteExpiredAccessTokensFn       func(context.Context) (int64, error)
 }
@@ -54,16 +53,6 @@ func (m *mockCleanupStore) DeleteExpiredOAuthStates(ctx context.Context) error {
 	m.mu.Unlock()
 	if m.deleteExpiredOAuthStatesFn != nil {
 		return m.deleteExpiredOAuthStatesFn(ctx)
-	}
-	return nil
-}
-
-func (m *mockCleanupStore) DeleteExpiredLinearOAuthSetups(ctx context.Context) error {
-	m.mu.Lock()
-	m.calls = append(m.calls, "linear_oauth_setups")
-	m.mu.Unlock()
-	if m.deleteExpiredLinearOAuthSetupsFn != nil {
-		return m.deleteExpiredLinearOAuthSetupsFn(ctx)
 	}
 	return nil
 }
@@ -180,16 +169,15 @@ func TestAuthCleanerSweep_CallsAllDeleteQueries(t *testing.T) {
 
 	err := cleaner.sweep(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "linear_oauth_setups", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
+	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
 }
 
 func TestAuthCleanerSweep_ContinuesOnPartialErrors(t *testing.T) {
 	t.Parallel()
 
 	store := &mockCleanupStore{
-		deleteExpiredNoncesFn:            func(context.Context) error { return errors.New("nonces failed") },
-		deleteExpiredOAuthStatesFn:       func(context.Context) error { return errors.New("oauth states failed") },
-		deleteExpiredLinearOAuthSetupsFn: func(context.Context) error { return errors.New("linear oauth setups failed") },
+		deleteExpiredNoncesFn:      func(context.Context) error { return errors.New("nonces failed") },
+		deleteExpiredOAuthStatesFn: func(context.Context) error { return errors.New("oauth states failed") },
 	}
 	cleaner := NewAuthCleaner(store, time.Minute)
 
@@ -197,8 +185,7 @@ func TestAuthCleanerSweep_ContinuesOnPartialErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "delete expired nonces")
 	assert.Contains(t, err.Error(), "delete expired oauth states")
-	assert.Contains(t, err.Error(), "delete expired linear oauth setups")
-	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "linear_oauth_setups", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
+	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
 }
 
 func TestAuthCleanerSweep_RespectsContext(t *testing.T) {
@@ -220,10 +207,6 @@ func TestAuthCleanerSweep_RespectsContext(t *testing.T) {
 			assert.Same(t, ctx, got)
 			return got.Err()
 		},
-		deleteExpiredLinearOAuthSetupsFn: func(got context.Context) error {
-			assert.Same(t, ctx, got)
-			return got.Err()
-		},
 		deleteExpiredVerificationTokensFn: func(got context.Context) error {
 			assert.Same(t, ctx, got)
 			return got.Err()
@@ -238,7 +221,7 @@ func TestAuthCleanerSweep_RespectsContext(t *testing.T) {
 	err := cleaner.sweep(ctx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "linear_oauth_setups", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
+	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
 }
 
 func TestAuthCleanerLifecycle_TickerRunsSweep(t *testing.T) {
@@ -259,14 +242,14 @@ func TestAuthCleanerLifecycle_TickerRunsSweep(t *testing.T) {
 	ft.ch <- time.Now()
 
 	waitForCondition(t, 500*time.Millisecond, func() bool {
-		return len(store.callSnapshot()) == 7
+		return len(store.callSnapshot()) == 6
 	})
 
 	cleaner.Stop()
 	cleaner.Wait()
 
 	assert.Equal(t, 1, ft.StopCalls())
-	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "linear_oauth_setups", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
+	assert.Equal(t, []string{"sessions", "nonces", "oauth_states", "verification_tokens", "sse_tickets", "access_tokens"}, store.callSnapshot())
 }
 
 func TestAuthCleanerLifecycle_StopBlocksUntilSweepCompletes(t *testing.T) {

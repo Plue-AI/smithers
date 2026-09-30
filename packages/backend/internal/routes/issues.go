@@ -33,8 +33,7 @@ type IssueViewRouteService interface {
 }
 
 type IssueHandler struct {
-	Service    IssueRouteService
-	LinearLink LinearIssueLinkRouteService
+	Service IssueRouteService
 }
 
 type createIssueRequest struct {

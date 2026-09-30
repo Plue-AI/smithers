@@ -116,7 +116,6 @@ func githubUserReposSecurityRouter(service routes.GitHubUserReposRouteService) h
 		nil, // telemetryHandler
 		nil, // featureFlagHandler
 		nil, // oauth2Handler
-		nil, // linearHandler
 		nil, // gitHubWebhookHandler
 		nil, // smithersMetrics
 	)

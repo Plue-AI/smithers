@@ -1051,9 +1051,9 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       integrations: {
         repo: "smithersai/smithers",
         rows: [{
-          id: "linear",
+          id: "slack",
           state: "error",
-          detail: "ENG",
+          detail: "C003",
           error: "token revoked",
           lastSyncAt: "2026-09-26T09:40:00Z"
         }]
@@ -1782,7 +1782,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       subject: "Mirror · smithersai/smithers",
       source: "github-mirror",
-      integrationId: "7",
       repo: "smithersai/smithers",
       runId: "run-1",
       runState: "running",
@@ -3168,6 +3167,18 @@ describe("removed presentation compatibility", () => {
     if (row.kind !== "flow-form") {
       expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
     }
+  })
+  test("a stored connect card drops its retired Linear row and keeps the Slack row (D-11)", () => {
+    const slack = { id: "slack", state: "connected", detail: "C003" }
+    const old = saved("connect", {
+      ...FIXTURES.connect.minimal,
+      integrations: { repo: "smithersai/smithers", rows: [slack, { id: "linear", state: "connected", detail: "ENG" }] }
+    })
+    const result = CardSchema.parse(JSON.parse(JSON.stringify(old)))
+    expect(result.kind).toBe("connect")
+    expect(result.payload).toMatchObject({ integrations: { repo: "smithersai/smithers", rows: [slack] } })
+    expect(CardSchema.parse(result)).toEqual(result)
+    expect(CardPatchSchema.safeParse({ kind: "connect", payload: old.payload }).success).toBe(false)
   })
   test("the old snapshot facet becomes a terminal while internal snapshot provenance survives", () => {
     const old = saved("workspace", {

@@ -136,6 +136,7 @@ export const PERSISTED_COLLECTION_IDS: ReadonlyArray<string> = [
   "app-working-copies",
   "app-cloud-workspaces",
   "app-changes",
+  /* D-11 retired the Linear integration; the key stays so reset clears an older store. */
   "app-linear-integrations",
   "app-github-app-statuses",
   /*

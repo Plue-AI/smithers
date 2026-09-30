@@ -104,7 +104,7 @@ func TestSafeGo_RunsFnToCompletionWhenNoPanic(t *testing.T) {
 }
 
 // TestSafeGo_InnerDeferRunsBeforeRecovery pins the guarantee that a defer set
-// up inside fn (e.g. linear_sync.go's `defer s.initialSyncInFlight.Delete(...)`)
+// up inside fn (e.g. a `defer inFlight.Delete(key)` marker)
 // still executes on a panic, before SafeGo's own recover fires — so an
 // in-flight marker is always cleared even when fn panics.
 func TestSafeGo_InnerDeferRunsBeforeRecovery(t *testing.T) {

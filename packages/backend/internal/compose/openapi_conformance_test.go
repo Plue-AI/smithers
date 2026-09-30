@@ -128,7 +128,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
 		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, &routes.RepositoryJobHandler{}, &routes.GitHubProxyHandler{},
 		&routes.GitHubRepoListHandler{}, &routes.GitHubUserReposHandler{}, &routes.GitHubSyncedReposHandler{}, &routes.GitHubImportHandler{},
-		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{}, &routes.LinearIntegrationHandler{},
+		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
 			BillingCapabilities: services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true},

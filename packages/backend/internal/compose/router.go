@@ -123,7 +123,6 @@ func buildRouter(
 	telemetryHandler *routes.TelemetryHandler,
 	featureFlagHandler *routes.FeatureFlagHandler,
 	oauth2Handler *routes.OAuth2Handler,
-	linearHandler *routes.LinearIntegrationHandler,
 	gitHubWebhookHandler *routes.GitHubWebhookHandler,
 	smithersMetrics *routes.SmithersMetrics,
 	routerOptions ...any,
@@ -401,7 +400,6 @@ func buildRouter(
 
 	integrationsHandler := routes.NewIntegrationsHandler(routes.IntegrationCatalog(routes.IntegrationCapabilities{
 		GitHubMirror: gitHubSyncedReposHandler != nil && strings.TrimSpace(cfg.Webhook.GitHubAppSecret) != "",
-		Linear:       linearHandler != nil && strings.TrimSpace(cfg.Auth.LinearClientID) != "" && strings.TrimSpace(cfg.Auth.LinearClientSecret) != "",
 	})...)
 
 	// SSE workflow run log stream — registered at the top-level router (outside /api's JSONTimeout
@@ -586,10 +584,6 @@ func buildRouter(
 		})
 	}
 
-	// Inbound Linear webhook — HMAC-verified inside the handler, no auth middleware.
-	if linearHandler != nil {
-		r.Post("/webhooks/linear", linearHandler.PostLinearWebhook)
-	}
 	// Inbound GitHub App webhook — signature-verified inside the handler, no auth middleware.
 	if gitHubWebhookHandler != nil {
 		r.Post("/webhooks/github", gitHubWebhookHandler.PostGitHubWebhook)
@@ -1025,10 +1019,6 @@ func buildRouter(
 			r.With(issueSSETicket...).Post("/auth/sse-ticket", sseTicketHandler.PostSSETicket)
 			r.With(issueSSETicket...).Post("/v1/sse/ticket", sseTicketHandler.PostSSETicket)
 		}
-		if cfg.FeatureFlags.Integrations && linearHandler != nil {
-			r.With(middleware.AuthRateLimit(queries), authLoader(queries, cfg.Auth), middleware.RequireAuth).Get("/auth/linear", linearHandler.GetLinearOAuthStart)
-			r.With(middleware.AuthRateLimit(queries), authLoader(queries, cfg.Auth), middleware.RequireAuth).Get("/auth/linear/callback", linearHandler.GetLinearOAuthCallback)
-		}
 		r.Post("/auth/logout", authHandler.PostLogout)
 
 		// OAuth2 provider endpoints.
@@ -1097,32 +1087,10 @@ func buildRouter(
 			}
 		}
 
-		if linearHandler != nil {
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/linear/setup/{setupKey}", linearHandler.GetLinearOAuthSetup)
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/linear", linearHandler.ConfigureLinearIntegration)
-		}
-
 		r.Route("/integrations", func(r chi.Router) {
 			r.With(middleware.RequireAuth).Get("/mcp", integrationsHandler.GetMCPIntegrations)
 			r.With(middleware.RequireAuth).Get("/skills", integrationsHandler.GetSkills)
-			if linearHandler != nil {
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/linear", linearHandler.ListLinearIntegrations)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/linear/repositories", linearHandler.ListLinearRepositoryOptions)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/linear/setup/{setupKey}", linearHandler.GetLinearOAuthSetup)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/linear", linearHandler.ConfigureLinearIntegration)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Delete("/linear/{id}", linearHandler.DeleteLinearIntegration)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/linear/{id}/sync", linearHandler.TriggerInitialSync)
-			}
 		})
-
-		if linearHandler != nil {
-			r.Route("/linear/{id}", func(r chi.Router) {
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/ops", linearHandler.ListLinearSyncOps)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/ops/{opId}/retry", linearHandler.RetryLinearSyncOp)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/sync", linearHandler.StartLinearSyncRun)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/sync/{runId}", linearHandler.GetLinearSyncRun)
-			})
-		}
 
 		// Dual-auth write group: accepts both token auth (Authorization: token) and session
 		// auth (smithers_session cookie). The default /api CSRF middleware protects
@@ -1300,8 +1268,6 @@ func buildRouter(
 				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)
 
 				r.With(append(writeRepo, gateIssues)...).Patch("/issues/{number}", issueHandler.PatchIssue)
-				r.With(append(writeRepo, gateIssues)...).Post("/issues/{number}/linear-link", issueHandler.PostLinearIssueLink)
-				r.With(append(writeRepo, gateIssues)...).Delete("/issues/{number}/linear-link", issueHandler.DeleteLinearIssueLink)
 				r.With(append(writeRepo, gateIssues)...).Post("/issues/{number}/comments", issueHandler.PostIssueComment)
 				r.With(append(writeRepo, gateIssues)...).Patch("/issues/comments/{id}", issueHandler.PatchIssueComment)
 				r.With(append(writeRepo, gateIssues)...).Delete("/issues/comments/{id}", issueHandler.DeleteIssueComment)
@@ -1711,6 +1677,9 @@ func buildRouter(
 			// Notification preferences
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/settings/notifications", userHandler.GetNotificationPreferences)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Put("/user/settings/notifications", userHandler.PutNotificationPreferences)
+			// Signup profile: the account claim and poll answers (#1901).
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/settings/signup", userHandler.GetSignupProfile)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Put("/user/settings/signup", userHandler.PutSignupProfile)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/devices", userHandler.PostUserDevice)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/devices", userHandler.DeleteUserDevice)
 

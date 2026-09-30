@@ -54,9 +54,11 @@ afterEach(async () => {
 })
 
 /*
- * The connect card's integration rows read the routes the backend registers
- * (compose/router.go): GET …/issues/sync/channels and GET /api/integrations/linear.
- * A missing route is `unavailable`, never "not connected".
+ * The connect card's integration row reads the route the backend registers
+ * (compose/router.go): GET …/issues/sync/channels. The first-party Linear
+ * integration is retired (D-11), so no read ever asks for it and the card
+ * carries no Linear row. A missing route is `unavailable`, never "not
+ * connected".
  */
 const setup = async (answer: (url: string, init?: RequestInit) => Response | Promise<Response>, options: Partial<Pick<SeamContext, "withToast" | "actor">> = {}) => {
   const data = new Map<string, string>()
@@ -73,7 +75,7 @@ const setup = async (answer: (url: string, init?: RequestInit) => Response | Pro
       seen.push(url)
       if (init?.method !== undefined && init.method !== "GET") writes.push({ method: init.method, body: JSON.parse(String(init.body)) })
       return track(Promise.resolve().then(() => {
-        if (url !== CHANNELS && url !== LINEAR) {
+        if (url !== CHANNELS) {
           unexpectedRequests.push(url)
           throw new Error(`Unexpected Integrations HTTP: ${url}`)
         }
@@ -85,123 +87,77 @@ const setup = async (answer: (url: string, init?: RequestInit) => Response | Pro
 }
 
 const CHANNELS = "https://app.test/api/repos/Owner/Repo/issues/sync/channels"
-const LINEAR = "https://app.test/api/integrations/linear"
 
-test("connected rows come from the registered routes: the owner's Slack admissions and the Linear integration bound to the repository", async () => {
-  const { seam, seen, rows } = await setup(url => url === CHANNELS
-    ? Response.json([{ provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" },
-      { provider: "slack", connection_id: "workspace", scope_id: "T001", conversation_id: "C001", thread_id: "", external_user_id: "" },
-      { provider: "slack", connection_id: "workspace", scope_id: "T001", conversation_id: "C002", thread_id: "", external_user_id: "" }])
-    : Response.json([{ id: 1, repo_owner: "someone", repo_name: "else", linear_team_key: "OPS", is_active: true, last_sync_at: null },
-      { id: 2, repo_owner: "owner", repo_name: "repo", linear_team_key: "ENG", is_active: true, last_sync_at: "2026-09-26T09:40:00Z" }]))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C001, C002\nlinear: connected · ENG" })
-  expect(seen.sort()).toEqual([LINEAR, CHANNELS].sort())
-  expect(rows()).toEqual([
-    { id: "slack", state: "connected", detail: "C001, C002" },
-    { id: "linear", state: "connected", detail: "ENG", lastSyncAt: "2026-09-26T09:40:00Z" }
-  ])
+test("the connected row comes from the registered route: the owner's Slack admissions", async () => {
+  const { seam, seen, rows } = await setup(() => Response.json([{ provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" },
+    { provider: "slack", connection_id: "workspace", scope_id: "T001", conversation_id: "C001", thread_id: "", external_user_id: "" },
+    { provider: "slack", connection_id: "workspace", scope_id: "T001", conversation_id: "C002", thread_id: "", external_user_id: "" }]))
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C001, C002" })
+  expect(seen).toEqual([CHANNELS])
+  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C001, C002" }])
 })
 
-test("no admissions and no Linear row for this repository read not-connected", async () => {
-  const { seam, rows } = await setup(url => url === CHANNELS
-    ? Response.json([{ provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" }])
-    : Response.json([{ id: 1, repo_owner: "someone", repo_name: "else", linear_team_key: "OPS", is_active: true }]))
+test("no Slack admissions read not-connected", async () => {
+  const { seam, rows } = await setup(() => Response.json([{ provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" }]))
   await seam.listIntegrations("Owner/Repo")
-  expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
+  expect(rows()?.map(row => row.state)).toEqual(["not-connected"])
 })
 
-test("a route this server does not register is unavailable, not a disconnected account; a 502 refusal says what failed and whose fault it was", async () => {
-  const { seam, rows, store } = await setup(url => url === CHANNELS
-    ? Response.json({ status: "error", code: "route_not_found", message: "Not found." }, { status: 404 })
-    : Response.json({ status: "error", message: "token revoked" }, { status: 502 }))
+test("a route this server does not register is unavailable, not a disconnected account", async () => {
+  const { seam, rows, store } = await setup(() => Response.json({ status: "error", code: "route_not_found", message: "Not found." }, { status: 404 }))
   try {
     await seam.listIntegrations("Owner/Repo")
-    expect(rows()).toEqual([
-      { id: "slack", state: "unavailable" },
-      { id: "linear", state: "error", error: "Reading the Linear integrations failed (502). Something Smithers depends on failed. Not your doing." }
-    ])
-    expect(rows()?.[1]?.error).not.toContain("token revoked")
+    expect(rows()).toEqual([{ id: "slack", state: "unavailable" }])
   } finally { await store.dispose?.() }
 })
 
-test("malformed successful integration lists report a read error instead of claiming no connection", async () => {
-  const { seam, rows, store } = await setup(url => url === CHANNELS
-    ? Response.json({ channels: { provider: "slack", conversation_id: "C001" } })
-    : Response.json({ integrations: null }))
+test("a 502 refusal says what failed and whose fault it was, never the upstream's words", async () => {
+  const { seam, rows, store } = await setup(() => Response.json({ status: "error", message: "token revoked" }, { status: 502 }))
   try {
     await seam.listIntegrations("Owner/Repo")
-    expect(rows()?.map(row => row.state)).toEqual(["error", "error"])
+    expect(rows()).toEqual([{ id: "slack", state: "error", error: "Reading the Slack channels failed (502). Something Smithers depends on failed. Not your doing." }])
+    expect(rows()?.[0]?.error).not.toContain("token revoked")
   } finally { await store.dispose?.() }
 })
 
-test("supported empty list wrappers remain disconnected", async () => {
-  const { seam, rows, store } = await setup(url => url === CHANNELS
-    ? Response.json({ channels: [] })
-    : Response.json({ integrations: [] }))
+test("a malformed successful list reports a read error instead of claiming no connection", async () => {
+  const { seam, rows, store } = await setup(() => Response.json({ channels: { provider: "slack", conversation_id: "C001" } }))
   try {
     await seam.listIntegrations("Owner/Repo")
-    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
+    expect(rows()?.map(row => row.state)).toEqual(["error"])
   } finally { await store.dispose?.() }
 })
 
-test("malformed rows inside valid list wrappers are filtered", async () => {
-  const { seam, rows, store } = await setup(url => url === CHANNELS
-    ? Response.json({ channels: [null, { provider: "slack", conversation_id: "" }] })
-    : Response.json({ integrations: [null, { repo_owner: "someone", repo_name: "else" }] }))
+test("a supported empty list wrapper remains disconnected", async () => {
+  const { seam, rows, store } = await setup(() => Response.json({ channels: [] }))
   try {
     await seam.listIntegrations("Owner/Repo")
-    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
+    expect(rows()?.map(row => row.state)).toEqual(["not-connected"])
   } finally { await store.dispose?.() }
 })
 
-test("wrapped admissions filter Slack IDs and independently match Linear repository case", async () => {
-  const { seam, rows, seen } = await setup(url => url === CHANNELS
-    ? Response.json({ channels: [null, { provider: "slack", conversation_id: "" }, { provider: "telegram", conversation_id: "OTHER" }, { provider: "slack", conversation_id: "C space" }] })
-    : Response.json({ integrations: [{ repo_owner: "OWNER", repo_name: "REPO", linear_team_name: "Platform", last_sync_at: "" }] }))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C space\nlinear: connected · Platform" })
-  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C space" }, { id: "linear", state: "connected", detail: "Platform" }])
-  expect(seen.sort()).toEqual([CHANNELS, LINEAR].sort())
+test("malformed rows inside a valid list wrapper are filtered", async () => {
+  const { seam, rows, store } = await setup(() => Response.json({ channels: [null, { provider: "slack", conversation_id: "" }] }))
+  try {
+    await seam.listIntegrations("Owner/Repo")
+    expect(rows()?.map(row => row.state)).toEqual(["not-connected"])
+  } finally { await store.dispose?.() }
 })
 
-test.each(["bare", "wrapped"])("a %s Linear list tolerates malformed nonmatching rows beside a valid repository match", async shape => {
-  const integrations = [
-    null,
-    {},
-    { repo_name: "repo", linear_team_key: "MISSING-OWNER" },
-    { repo_owner: 7, repo_name: "repo", linear_team_key: "NONSTRING-OWNER" },
-    { repo_owner: "owner", linear_team_key: "MISSING-REPO" },
-    { repo_owner: "owner", repo_name: false, linear_team_key: "NONSTRING-REPO" },
-    { repo_owner: "someone", repo_name: "else", linear_team_key: "OTHER", is_active: true },
-    { repo_owner: "OWNER", repo_name: "REPO", linear_team_key: "MATCH", is_active: true, last_sync_at: "2026-09-26T09:40:00Z" }
-  ]
-  const { seam, rows, seen } = await setup(url => url === CHANNELS
-    ? Response.json([{ provider: "slack", conversation_id: "C-MATCH" }])
-    : Response.json(shape === "bare" ? integrations : { integrations }))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C-MATCH\nlinear: connected · MATCH" })
-  expect(rows()).toEqual([
-    { id: "slack", state: "connected", detail: "C-MATCH" },
-    { id: "linear", state: "connected", detail: "MATCH", lastSyncAt: "2026-09-26T09:40:00Z" }
-  ])
-  expect(seen).toEqual([CHANNELS, LINEAR])
+test("wrapped admissions filter Slack IDs", async () => {
+  const { seam, rows, seen } = await setup(() => Response.json({ channels: [null, { provider: "slack", conversation_id: "" }, { provider: "telegram", conversation_id: "OTHER" }, { provider: "slack", conversation_id: "C space" }] }))
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C space" })
+  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C space" }])
+  expect(seen).toEqual([CHANNELS])
 })
 
-const linearCases = [
-  { label: "inactive", wire: { is_active: false, linear_team_key: "ENG", linear_team_name: "ignored" }, row: { id: "linear", state: "not-connected", detail: "ENG" }, value: "linear: not-connected · ENG" },
-  { label: "remediation overrides inactive", wire: { is_active: false, remediation_state: "Reconnect Linear", linear_team_id: "team-7" }, row: { id: "linear", state: "error", detail: "team-7", error: "Reconnect Linear" }, value: "linear: error · team-7 · Reconnect Linear" },
-  { label: "empty preferred fields fall back to ID", wire: { is_active: true, linear_team_key: "", linear_team_name: "", linear_team_id: "team-8", last_sync_at: null }, row: { id: "linear", state: "connected", detail: "team-8" }, value: "linear: connected · team-8" },
-  { label: "no team metadata", wire: { is_active: true }, row: { id: "linear", state: "connected" }, value: "linear: connected" }
-] as const
-
-test.each([...linearCases])("Linear $label has the exact owning row and model result", async ({ wire, row, value }) => {
-  const { seam, rows } = await setup(url => url === CHANNELS ? Response.json([]) : Response.json([{ repo_owner: "owner", repo_name: "repo", ...wire }]))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: `slack: not-connected\n${value}` })
-  expect(rows()).toEqual([{ id: "slack", state: "not-connected" }, row])
-})
-
-test("405 is unavailable and unaddressed server failures use safe route-specific copy", async () => {
-  const { seam, rows } = await setup(url => url === CHANNELS ? new Response("private router detail", { status: 405 }) : new Response("private stack", { status: 503 }))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: unavailable\nlinear: error · Reading the Linear integrations failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
-  expect(rows()).toEqual([{ id: "slack", state: "unavailable" }, { id: "linear", state: "error", error: "Reading the Linear integrations failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }])
+test("405 is unavailable and an unaddressed server failure uses safe route-specific copy", async () => {
+  const unavailable = await setup(() => new Response("private router detail", { status: 405 }))
+  expect(await unavailable.seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: unavailable" })
+  expect(unavailable.rows()).toEqual([{ id: "slack", state: "unavailable" }])
+  const failed = await setup(() => new Response("private stack", { status: 503 }))
+  expect(await failed.seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: error · Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+  expect(failed.rows()).toEqual([{ id: "slack", state: "error", error: "Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }])
 })
 
 test.each(["fulfill", "reject"] as const)("disposed ownership fences late integration read: %s", async answer => {
@@ -210,8 +166,7 @@ test.each(["fulfill", "reject"] as const)("disposed ownership fences late integr
   const gate = new Promise<void>(resolve => { release = resolve })
   const admission = new Promise<void>(resolve => { entered = resolve })
   releases.add(release)
-  const { seam, rows, store, retire } = await setup(async url => {
-    if (url !== CHANNELS) return Response.json([])
+  const { seam, rows, store, retire } = await setup(async () => {
     entered()
     await gate
     if (answer === "reject") throw new Error("retired private failure")
@@ -230,17 +185,16 @@ test.each(["fulfill", "reject"] as const)("disposed ownership fences late integr
 })
 
 
-test("refresh preserves concurrent durable connect changes made while both reads are held", async () => {
+test("refresh preserves concurrent durable connect changes made while the read is held", async () => {
   let release!: () => void
   let entered!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   const admission = new Promise<void>(resolve => { entered = resolve })
   releases.add(release)
-  let requests = 0
-  const { seam, store, rows } = await setup(async url => {
-    if (++requests === 2) entered()
+  const { seam, store, rows } = await setup(async () => {
+    entered()
     await gate
-    return url === CHANNELS ? Response.json([{ provider: "slack", conversation_id: "CURRENT" }]) : Response.json([])
+    return Response.json([{ provider: "slack", conversation_id: "CURRENT" }])
   })
   const command = seam.listIntegrations("Owner/Repo")
   await admission
@@ -248,13 +202,13 @@ test("refresh preserves concurrent durable connect changes made while both reads
   if (card?.kind !== "connect") throw new Error("Expected connect card")
   await store.dispatch({ type: "card.upsert", actor: "user", card: { ...card, payload: { ...card.payload, github: { connected: true, login: "will" }, nativeAvailable: true } } }).isPersisted.promise
   release()
-  expect(await command).toEqual({ value: "slack: connected · CURRENT\nlinear: not-connected" })
+  expect(await command).toEqual({ value: "slack: connected · CURRENT" })
   const refreshed = store.collections.cards.get("connect-embedded")
   if (refreshed?.kind !== "connect") throw new Error("Expected refreshed connect card")
   expect(refreshed.payload.github).toEqual({ connected: true, login: "will" })
   expect(refreshed.payload.nativeAvailable).toBe(true)
   expect(refreshed.ordinal).toBe(card.ordinal)
-  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "CURRENT" }, { id: "linear", state: "not-connected" }])
+  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "CURRENT" }])
 })
 
 const signIn = (store: AppStore, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
@@ -266,11 +220,10 @@ for (const owner of ["same", "account", "sign-out"] as const) {
     const gate = new Promise<void>(resolve => { release = resolve })
     const admission = new Promise<void>(resolve => { entered = resolve })
     releases.add(release)
-    let requests = 0
-    const { seam, store, rows, seen } = await setup(async url => {
-      if (++requests === 2) entered()
+    const { seam, store, rows, seen } = await setup(async () => {
+      entered()
       await gate
-      return url === CHANNELS ? Response.json([{ provider: "slack", conversation_id: "OWNER" }]) : Response.json([])
+      return Response.json([{ provider: "slack", conversation_id: "OWNER" }])
     })
     await signIn(store, "will")
     const command = seam.listIntegrations("Owner/Repo")
@@ -282,10 +235,10 @@ for (const owner of ["same", "account", "sign-out"] as const) {
     const result = await command
     await Promise.allSettled([...pending])
     await new Promise<void>(resolve => setImmediate(resolve))
-    expect(seen.sort()).toEqual([CHANNELS, LINEAR].sort())
+    expect(seen).toEqual([CHANNELS])
     if (owner === "same") {
-      expect(result).toEqual({ value: "slack: connected · OWNER\nlinear: not-connected" })
-      expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "OWNER" }, { id: "linear", state: "not-connected" }])
+      expect(result).toEqual({ value: "slack: connected · OWNER" })
+      expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "OWNER" }])
     } else {
       expect(result).toBeUndefined()
       expect(rows()).toBeUndefined()
@@ -294,25 +247,17 @@ for (const owner of ["same", "account", "sign-out"] as const) {
   })
 }
 
-const networkCases = [
-  { route: CHANNELS, row: { id: "slack", state: "error", error: "Could not reach the Slack channels. Nothing answered at all — that's the connection, not something you did. Try it again." }, value: "slack: error · Could not reach the Slack channels. Nothing answered at all — that's the connection, not something you did. Try it again.\nlinear: not-connected", label: "Slack" },
-  { route: LINEAR, row: { id: "linear", state: "error", error: "Could not reach the Linear integrations. Nothing answered at all — that's the connection, not something you did. Try it again." }, value: "slack: not-connected\nlinear: error · Could not reach the Linear integrations. Nothing answered at all — that's the connection, not something you did. Try it again.", label: "Linear" }
-] as const
-
-test.each([...networkCases])("a live $label network rejection is visible on its owning row and model answer", async ({ route, row, value }) => {
-  const { seam, rows, seen } = await setup(url => {
-    if (url === route) throw new Error("offline")
-    return Response.json([])
-  })
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value })
-  expect(rows()).toEqual(route === CHANNELS ? [row, { id: "linear", state: "not-connected" }] : [{ id: "slack", state: "not-connected" }, row])
-  expect(seen.sort()).toEqual([CHANNELS, LINEAR].sort())
+test("a live network rejection is visible on the Slack row and model answer", async () => {
+  const { seam, rows, seen } = await setup(() => { throw new Error("offline") })
+  const error = "Could not reach the Slack channels. Nothing answered at all — that's the connection, not something you did. Try it again."
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: `slack: error · ${error}` })
+  expect(rows()).toEqual([{ id: "slack", state: "error", error }])
+  expect(seen).toEqual([CHANNELS])
 })
 
 const slackAdmission = { provider: "slack", connection_id: "workspace", scope_id: "T001", conversation_id: "C003", thread_id: "", external_user_id: "" }
-const linearIntegration = { id: 7, linear_team_id: "team-7", linear_team_name: "Engineering", linear_team_key: "ENG", repo_owner: "owner", repo_name: "repo", repo_id: 4, is_active: true, last_sync_at: null, created_at: "2026-09-26T09:40:00Z", linear_actor: { id: "viewer-7", name: "Ada", email: "ada@example.test" } }
 
-for (const route of [CHANNELS, LINEAR]) test.each([
+test.each([
   { name: "malformed JSON" },
   { name: "null JSON" },
   { name: "absent wrapper" },
@@ -321,71 +266,49 @@ for (const route of [CHANNELS, LINEAR]) test.each([
   { name: "string JSON" },
   { name: "wrong wrapper shape" },
   { name: "body reader failure" }
-])(`${route === CHANNELS ? "Slack" : "Linear"} $name cannot establish a disconnected account and a later valid read recovers`, async ({ name }) => {
+])("Slack $name cannot establish a disconnected account and a later valid read recovers", async ({ name }) => {
   let phase: "empty" | "invalid" | "recovery" = "empty"
-  const { seam, rows, seen } = await setup(url => {
-    if (url !== route || phase === "empty") return Response.json([])
-    if (phase === "recovery") return Response.json(route === CHANNELS ? [slackAdmission] : [linearIntegration])
+  const { seam, rows, seen } = await setup(() => {
+    if (phase === "empty") return Response.json([])
+    if (phase === "recovery") return Response.json([slackAdmission])
     if (name === "malformed JSON") return new Response("{not-json", { headers: { "content-type": "application/json" } })
     if (name === "null JSON") return Response.json(null)
     if (name === "absent wrapper") return Response.json({})
     if (name === "number JSON") return Response.json(42)
     if (name === "boolean JSON") return Response.json(false)
     if (name === "string JSON") return Response.json("")
-    if (name === "wrong wrapper shape") return Response.json(route === CHANNELS ? { channels: {} } : { integrations: {} })
+    if (name === "wrong wrapper shape") return Response.json({ channels: {} })
     return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error("owned body reader failed")) } }), { headers: { "content-type": "application/json" } })
   })
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: not-connected\nlinear: not-connected" })
-  expect(rows()).toEqual([{ id: "slack", state: "not-connected" }, { id: "linear", state: "not-connected" }])
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: not-connected" })
+  expect(rows()).toEqual([{ id: "slack", state: "not-connected" }])
   phase = "invalid"
   const invalidResult = await seam.listIntegrations("Owner/Repo"), invalidRows = rows()
   phase = "recovery"
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: route === CHANNELS ? "slack: connected · C003\nlinear: not-connected" : "slack: not-connected\nlinear: connected · ENG" })
-  expect(rows()).toEqual(route === CHANNELS
-    ? [{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "not-connected" }]
-    : [{ id: "slack", state: "not-connected" }, { id: "linear", state: "connected", detail: "ENG" }])
-  expect(seen).toEqual([CHANNELS, LINEAR, CHANNELS, LINEAR, CHANNELS, LINEAR])
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C003" })
+  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C003" }])
+  expect(seen).toEqual([CHANNELS, CHANNELS, CHANNELS])
   // A failed read supplies no evidence of disconnected state. Exact new copy
   // is not prescribed; the card and model must agree on the same visible error.
-  const failedRow = invalidRows?.[route === CHANNELS ? 0 : 1]
+  const failedRow = invalidRows?.[0]
   expect(failedRow?.state).toBe("error")
   expect(failedRow?.error).toEqual(expect.any(String))
   expect(failedRow?.error?.trim()).not.toBe("")
-  expect(failedRow?.error).toContain(route === CHANNELS ? "Slack" : "Linear")
-  expect(invalidRows).toEqual(route === CHANNELS
-    ? [{ id: "slack", state: "error", error: failedRow?.error }, { id: "linear", state: "not-connected" }]
-    : [{ id: "slack", state: "not-connected" }, { id: "linear", state: "error", error: failedRow?.error }])
-  expect(invalidResult).toEqual({ value: route === CHANNELS ? `slack: error · ${failedRow?.error}\nlinear: not-connected` : `slack: not-connected\nlinear: error · ${failedRow?.error}` })
+  expect(failedRow?.error).toContain("Slack")
+  expect(invalidRows).toEqual([{ id: "slack", state: "error", error: failedRow?.error }])
+  expect(invalidResult).toEqual({ value: `slack: error · ${failedRow?.error}` })
 })
 
-for (const route of [CHANNELS, LINEAR]) test(`${route === CHANNELS ? "Slack" : "Linear"} supports its wrapped empty list while the other service remains connected`, async () => {
-  const { seam, rows } = await setup(url => url === route
-    ? Response.json(route === CHANNELS ? { channels: [] } : { integrations: [] })
-    : Response.json(url === CHANNELS ? [slackAdmission] : [linearIntegration]))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: route === CHANNELS ? "slack: not-connected\nlinear: connected · ENG" : "slack: connected · C003\nlinear: not-connected" })
-  expect(rows()).toEqual(route === CHANNELS
-    ? [{ id: "slack", state: "not-connected" }, { id: "linear", state: "connected", detail: "ENG" }]
-    : [{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "not-connected" }])
+test("a Slack permission refusal preserves the addressed nested server copy", async () => {
+  const { seam, rows } = await setup(() => Response.json({ error: { message: "Permission denied." } }, { status: 403 }))
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: error · Permission denied." })
+  expect(rows()).toEqual([{ id: "slack", state: "error", error: "Permission denied." }])
 })
 
-test.each([{ status: 404 }, { status: 405 }])("a Linear HTTP$status missing route does not erase the connected Slack row", async ({ status }) => {
-  const { seam, rows } = await setup(url => url === CHANNELS ? Response.json([slackAdmission]) : Response.json({ message: "Route absent" }, { status }))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C003\nlinear: unavailable" })
-  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "unavailable" }])
-})
-
-for (const route of [CHANNELS, LINEAR]) test(`${route === CHANNELS ? "Slack" : "Linear"} permission refusal preserves addressed nested server copy and the independent healthy service`, async () => {
-  const { seam, rows } = await setup(url => url === route ? Response.json({ error: { message: "Permission denied." } }, { status: 403 }) : Response.json(url === CHANNELS ? [slackAdmission] : [linearIntegration]))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: route === CHANNELS ? "slack: error · Permission denied.\nlinear: connected · ENG" : "slack: connected · C003\nlinear: error · Permission denied." })
-  expect(rows()).toEqual(route === CHANNELS
-    ? [{ id: "slack", state: "error", error: "Permission denied." }, { id: "linear", state: "connected", detail: "ENG" }]
-    : [{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "error", error: "Permission denied." }])
-})
-
-test("a failed Slack refusal-body read uses its route-specific fallback while Linear remains connected", async () => {
-  const { seam, rows } = await setup(url => url === CHANNELS ? new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error("private body failure")) } }), { status: 503 }) : Response.json([linearIntegration]))
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: error · Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed.\nlinear: connected · ENG" })
-  expect(rows()).toEqual([{ id: "slack", state: "error", error: "Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }, { id: "linear", state: "connected", detail: "ENG" }])
+test("a failed Slack refusal-body read uses its route-specific fallback", async () => {
+  const { seam, rows } = await setup(() => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error("private body failure")) } }), { status: 503 }))
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: error · Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+  expect(rows()).toEqual([{ id: "slack", state: "error", error: "Reading the Slack channels failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }])
 })
 
 test.each([
@@ -405,14 +328,14 @@ test.each([{ name: "omitted", repo: undefined }, { name: "empty", repo: "" }])("
   const { seam, store, seen, rows } = await setup(() => Response.json([]))
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: "Owner/Repo", org: "Owner", name: "Repo", ownerKind: "user", head: null } }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "Owner/Repo" }).isPersisted.promise
-  expect(await seam.listIntegrations(repo)).toEqual({ value: "slack: not-connected\nlinear: not-connected" })
-  expect(seen).toEqual([CHANNELS, LINEAR])
-  expect(rows()).toEqual([{ id: "slack", state: "not-connected" }, { id: "linear", state: "not-connected" }])
+  expect(await seam.listIntegrations(repo)).toEqual({ value: "slack: not-connected" })
+  expect(seen).toEqual([CHANNELS])
+  expect(rows()).toEqual([{ id: "slack", state: "not-connected" }])
 })
 
 test("the controlled toast wrapper receives the live owner and existing connect card while preserving its metadata", async () => {
   const calls: Array<{ key: string; title: string; doneTitle: string; quiet: boolean | undefined; current: boolean | undefined; sourceCard: string | undefined }> = []
-  const { seam, store, rows } = await setup(url => Response.json(url === CHANNELS ? [slackAdmission] : [linearIntegration]), {
+  const { seam, store, rows } = await setup(() => Response.json([slackAdmission]), {
     actor: () => "smithers",
     withToast: async (key, title, doneTitle, work, quiet, current, sourceCard) => {
       calls.push({ key, title, doneTitle, quiet, current: current?.(), sourceCard })
@@ -422,12 +345,12 @@ test("the controlled toast wrapper receives the live owner and existing connect 
   const original: Extract<Card, { kind: "connect" }> = { id: "connect-embedded", kind: "connect", title: "Existing connections", status: "acted", createdAt: 37, ordinal: 91, payload: { provider: "github", github: { connected: true, login: "will" }, nativeAvailable: true } }
   await store.dispatch({ type: "card.upsert", actor: "user", card: original }).isPersisted.promise
   const eventCount = (await store.eventHistory()).events.length
-  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C003\nlinear: connected · ENG" })
+  expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C003" })
   expect(calls).toEqual([{ key: "integrations.read:Owner/Repo", title: "Reading integrations", doneTitle: "Integrations", quiet: false, current: true, sourceCard: "connect-embedded" }])
-  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "connected", detail: "ENG" }])
+  expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "C003" }])
   const refreshed = store.collections.cards.get("connect-embedded")
   if (refreshed?.kind !== "connect") throw new Error("Expected connect card")
-  expect({ id: refreshed.id, kind: refreshed.kind, title: refreshed.title, status: refreshed.status, createdAt: refreshed.createdAt, ordinal: refreshed.ordinal, payload: refreshed.payload }).toEqual({ ...original, payload: { ...original.payload, integrations: { repo: "Owner/Repo", rows: [{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "connected", detail: "ENG" }] } } })
+  expect({ id: refreshed.id, kind: refreshed.kind, title: refreshed.title, status: refreshed.status, createdAt: refreshed.createdAt, ordinal: refreshed.ordinal, payload: refreshed.payload }).toEqual({ ...original, payload: { ...original.payload, integrations: { repo: "Owner/Repo", rows: [{ id: "slack", state: "connected", detail: "C003" }] } } })
   expect((await store.eventHistory()).events.slice(eventCount).map(event => ({ type: event.type, actor: event.actor }))).toEqual([{ type: "card.upsert", actor: "smithers" }])
 })
 
@@ -436,8 +359,7 @@ const admission = { connection_id: "slack-main", scope_id: "T0123", conversation
 
 test("admitting a Slack channel PUTs the admission, reads the channels back and connects the card without a reload", async () => {
   let admitted = false
-  const { seam, writes, rows } = await setup((url, init) => {
-    if (url === LINEAR) return Response.json([])
+  const { seam, writes, rows } = await setup((_url, init) => {
     if (init?.method === "PUT") { admitted = true; return Response.json({}) }
     return Response.json(admitted ? [{ provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123" }] : [])
   })
@@ -462,7 +384,7 @@ test("a refused admission renders no connection and says the server's words", as
 test("an admission the readback does not list is not a success, and a failed readback says so", async () => {
   const listed = await setup((_url, init) => init?.method === "PUT" ? Response.json({}) : Response.json([{ provider: "slack", conversation_id: "C0999" }]))
   expect(await listed.seam.admitSlackChannel(admission, "Owner/Repo")).toBe("Slack channel C0123 was not among the admitted channels afterwards.")
-  const failed = await setup((url, init) => init?.method === "PUT" ? Response.json({}) : url === LINEAR ? Response.json([]) : Response.json({ message: "down" }, { status: 502 }))
+  const failed = await setup((_url, init) => init?.method === "PUT" ? Response.json({}) : Response.json({ message: "down" }, { status: 502 }))
   expect(await failed.seam.admitSlackChannel(admission, "Owner/Repo")).toContain("Reading the Slack channels failed (502)")
 })
 
@@ -496,9 +418,9 @@ test("a duplicate submit while the first is in flight writes once, and a later r
   let release = () => {}
   const gate = new Promise<void>(resolve => { release = resolve })
   releases.add(release)
-  const { seam, writes } = await setup(async (url, init) => {
+  const { seam, writes } = await setup(async (_url, init) => {
     if (init?.method === "PUT") { await gate; return Response.json({}) }
-    return url === LINEAR ? Response.json([]) : Response.json([{ provider: "slack", conversation_id: "C0123" }])
+    return Response.json([{ provider: "slack", conversation_id: "C0123" }])
   })
   const first = seam.admitSlackChannel(admission, "Owner/Repo")
   await new Promise<void>(resolve => { setTimeout(resolve, 5) })
