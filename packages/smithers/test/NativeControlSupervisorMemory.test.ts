@@ -326,16 +326,16 @@ describe("the shipped Node executor's supervisor memory", () => {
       )
       // The frame-0 reading of the run's own session: opening memory rows are
       // judged there as `memory` items, beside flows and instructions.
-      const settled = events.find((event) =>
-        event.kind === "control.agent.relevance-settled" && event.step === undefined
-      )?.payload as
-        | {
-          readonly frame: number
-          readonly source: string
-          readonly kept: ReadonlyArray<{ readonly kind: string; readonly id: string }>
-          readonly withheld: ReadonlyArray<{ readonly kind: string; readonly id: string }>
-        }
-        | undefined
+      type Settled = {
+        readonly frame: number
+        readonly source: string
+        readonly kept: ReadonlyArray<{ readonly kind: string; readonly id: string }>
+        readonly withheld: ReadonlyArray<{ readonly kind: string; readonly id: string }>
+      }
+      const settled = events
+        .filter((event) => event.kind === "control.agent.relevance-settled")
+        .map((event) => event.payload as unknown as Settled)
+        .find((payload) => payload.frame === 0 && payload.source === "run")
       return { requests, settled }
     }
 
