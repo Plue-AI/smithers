@@ -419,7 +419,10 @@ card.
 `/flows` lists the file flows in `<cwd>/flows/<name>/flow.ts` (a `Flow.make`
 default export) with their descriptions; Enter runs one. `/flow <name>` takes a
 JSON object or `key=value` arguments. A run starts in its
-own tab and runs through the same native control host as `smthrs flow start`: plan,
+own tab and shows as a live card in the chat, `✓ sum · 40ms → 5` once done
+(`✗ sum · failed: <cause>`, `■ sum · stopped`), its steps as rows and a
+longer answer whole in a `Result` row; only a
+form waiting for input also shows in the toasts. It runs through the same native control host as `smthrs flow start`: plan,
 approve for this run, run, watch. Missing required input opens a form built
 from the payload schema by `@smthrs/ui/flow-form`, shared with the GUI, once the composer is empty and no approval is pending;
 Esc, Ctrl+K, Ctrl+S and the tab keys close it and leave the run parked. A
@@ -429,7 +432,7 @@ only from the control plane's watch; **x** asks the control plane to cancel.
 Listing reads `flows/` without importing anything and refreshes within 300 ms
 of any change there. After first draw, projects with `flows/` warm the host
 in the background, importing modules and opening `<cwd>/.flows` (the store `smthrs runs` reads), so an edited `flow.ts` needs a
-restart to run. A markdown flow is a custom agent (below); choosing one in
+restart to run; a module flow added after that lists as `Restart to load`. A markdown flow is a custom agent (below); choosing one in
 `/flows` starts `/agent <name>`. Do not run `smthrs` executors in the same
 directory at the same time. Restarting marks unfinished runs interrupted; retry
 resumes the durable run.

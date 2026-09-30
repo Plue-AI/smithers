@@ -2,7 +2,8 @@ import { noticeDismissDelay, WORK_NOTICE_DELAY_MS, workNoticeVisible } from "@sm
 /**
  * The toast stack: one notice (`setStatus`), plus a row for each piece of
  * background work that has run long enough to mention and has not been
- * settled long. A notice clears itself after 4 s; a failure stays until
+ * settled long; a person's own flow run is a chat card instead, so it shows
+ * here only while its form waits. A notice clears itself after 4 s; a failure stays until
  * another notice replaces it or the next submit. A worker's row says what its
  * subagent card says (`SubagentCard.toast`) and carries the card's Stop and Steer.
  */
@@ -63,7 +64,10 @@ export const rows = (input: {
         tone: tab.status === "failed" ? "danger" as const : "info" as const,
         worker: { tab, actions: Tabs.actions(tab).filter((action) => offered.includes(action.id)) }
       })),
-    ...input.runs.filter((run) => run.status === "input" || workNoticeVisible(run, now)).map((run) => ({
+    // A person's own run is a card in the chat; only its form still asks here.
+    ...input.runs.filter((run) => run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now))).map((
+      run
+    ) => ({
       id: `flow:${run.id}`,
       text: `${flowRunning(run) ? `${tick} ` : flowGlyph(run.status)}${run.flow} · ${run.status}`,
       tone: run.status === "failed" ? "danger" as const : "info" as const

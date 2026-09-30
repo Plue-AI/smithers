@@ -61,7 +61,11 @@ it("shows a real durable park and question without claiming the run is still exe
     expect(tui.screen()).toContain("r Resume")
     expect(tui.screen()).toContain("x Stop")
     await tui.type("x")
-    await tui.until((screen) => screen.includes("■ ask") && screen.includes("Stopped."), 15_000, "cancelled receipt")
+    await tui.until(
+      (screen) => screen.includes("■ ask") && screen.includes("stopped"),
+      15_000,
+      "cancelled receipt"
+    )
     expect(tui.screen()).toContain("r Resume")
     expect(tui.screen()).not.toContain("x Stop")
   } catch (error) {

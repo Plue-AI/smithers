@@ -87,10 +87,10 @@ it("with an OpenAI route, Luna estimates novel work", async () => {
   expect(tui!.screen()).not.toContain("No estimate for this work")
 }, 45_000)
 
-it("a configured estimator's failure stays visible and chat stays usable", async () => {
+it("a configured estimator's failure falls back to the class quietly and chat stays usable", async () => {
   const run = await start({ SMITHERS_FIXTURE_MODELS: "openai", SMITHERS_FIXTURE_COMPLETE_FAILS: "1" })
-  await tui!.until((screen) => screen.includes("No estimate for this work"), 10_000, "estimate warning")
   expect(new Set(run.calls())).toEqual(new Set([Models.delegateModels.luna]))
   expect(run.method()).toBe("class")
   await chats()
+  expect(tui!.screen()).not.toContain("No estimate for this work")
 }, 45_000)

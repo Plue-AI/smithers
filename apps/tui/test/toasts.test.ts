@@ -14,7 +14,15 @@ const tab: Tab = {
   status: "requested",
   startedAt: 0
 }
-const run: Run = { id: "flow", flow: "test", by: "user", input: {}, requested: "{}", status: "requested", startedAt: 0 }
+const run: Run = {
+  id: "flow",
+  flow: "test",
+  by: "agent",
+  input: {},
+  requested: "{}",
+  status: "requested",
+  startedAt: 0
+}
 const project = (tabs: Tab[], runs: Run[], now: number) =>
   rows({ tabs, runs, now, tick: "*", search: undefined, undoing: undefined, toast: undefined })
 
@@ -22,6 +30,12 @@ test("requests remain in the terminal stack through launch and execution", () =>
   expect(project([tab], [run], 299)).toHaveLength(0)
   expect(project([tab], [run], 300).map((row) => row.id)).toEqual(["worker", "flow:flow"])
   expect(project([{ ...tab, status: "running" }], [{ ...run, status: "running" }], 100000)).toHaveLength(2)
+})
+
+test("a person's own run stays out of the stack unless its form waits", () => {
+  const own = { ...run, by: "user" as const }
+  expect(project([], [own, { ...own, id: "done", status: "done", endedAt: 1000 }], 2000)).toHaveLength(0)
+  expect(project([], [{ ...own, status: "input" }], 0).map((row) => row.id)).toEqual(["flow:flow"])
 })
 
 test("terminal failures remain visible and retries restart the debounce", () => {

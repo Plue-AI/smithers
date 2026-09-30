@@ -217,14 +217,16 @@ test("Agents picker excludes module flows and asks for the selected agent's prom
   expect(turns).toEqual([])
 })
 
-test("direct /agent without its prompt keeps the composer field and defers all body and Host work", async () => {
+test("direct /agent without its prompt keeps the composer field, and Enter after the prompt starts it", async () => {
   await command("/agent review")
   expect(frame()).toContain("/agent review")
+  await key("RETURN")
+  expect(frame()).toContain("Type what review should do")
   expect(bodies).toEqual([])
   expect(turns).toEqual([])
   expect(tabs()).toEqual([])
   await type("Check one file")
-  await key("RETURN", { meta: true })
+  await key("RETURN")
   await waitFor(() => bodies.length === 1)
   expect(tabs().at(-1)!.tab.prompt).toBe("Check one file")
   expect(tabs().at(-1)!.tab.agent?.name).toBe("review")

@@ -165,6 +165,20 @@ test.each(["model", "worker-model"] as const)(
   }
 )
 
+test("a flow added after the host opened says Restart to load", () => {
+  const late = [{ ...flows[0]!, name: "echo-label", unloaded: true }]
+  expect(
+    Picker.rows({ kind: "flows", query: "", selected: 0 }, models, "replay:small", Timeline.all, [], noFiles, [], late)
+  )
+    .toEqual([{
+      key: "echo-label",
+      label: "echo-label",
+      hint: "Restart to load",
+      detail: "Compile",
+      value: "echo-label"
+    }])
+})
+
 test("flows include module and markdown entries; agents preserve only markdown and declared-seat hints", () => {
   const before = structuredClone(flows)
   expect(rows({ kind: "flows", query: "", selected: 0 })).toEqual([

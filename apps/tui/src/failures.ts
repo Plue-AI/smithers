@@ -50,7 +50,6 @@ export type Act =
   | "approval"
   | "cap"
   | "command"
-  | "estimate"
   | "estimates"
   | "flow"
   | "fork"
@@ -74,7 +73,6 @@ const unknownSentence: Readonly<Record<Act, string>> = {
   approval: "Your answer was not sent; press y, n or a again.",
   cap: "The new cap was not applied.",
   command: "That command could not run.",
-  estimate: "No estimate for this work.",
   estimates: "Estimates were not saved.",
   flow: "The flow could not start.",
   fork: "This conversation could not be forked.",
@@ -127,6 +125,8 @@ const flow = (failure: FlowError): UserFailureCopy => {
   switch (failure.code) {
     case "unknown_flow":
       return copy("user", `${name === undefined ? "No such flow" : `No flow named ${name}`}; /flows lists them.`)
+    case "not_loaded":
+      return copy("user", `Restart to load ${name ?? "the new flow"}.`)
     case "refused":
       return copy("user", `${name ?? "That flow"} cannot start here.`)
     case "denied":

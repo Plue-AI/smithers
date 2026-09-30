@@ -188,14 +188,12 @@ describe("Estimate", () => {
 
   it("records an unusable answer as a typed failure, falls back to the class median, and asks once per task", async () => {
     let asked = 0
-    const failures: Array<Improve.Failure> = []
     const estimator = new Estimate.Estimator({
       ledger: new Improve.Ledger(undefined),
       model: async () => {
         asked++
         return "not json"
-      },
-      onFailure: (failure) => failures.push(failure)
+      }
     })
     estimator.request({ id: "none", kind: "delegate", key: "delegate", subject: "x", startedAt: 0 })
     await estimator.idle()
@@ -214,9 +212,8 @@ describe("Estimate", () => {
     await estimator.idle()
     expect(estimator.get("next")).toMatchObject({ method: "class", ms: 8 * minute, tokens: 100 })
     expect(asked).toBe(2)
-    // Both failures are on record; the person hears about the first only.
+    // Both failures are on record, and no toast reports them.
     expect(estimator.ledger.failure("next")?.reason).toBe("unusable-answer")
-    expect(failures.map((failure) => failure.id)).toEqual(["none"])
   })
 
   it("records a model error with its message, so a class fallback is never mistaken for no model", async () => {

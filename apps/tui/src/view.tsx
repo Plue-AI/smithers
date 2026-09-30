@@ -264,13 +264,22 @@ const rowGlyph = (status: RowStatus): { readonly glyph: string; readonly tone: s
 const cardRows = 5
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - stringWidth(text)))
 
-/** A panel placed in the transcript: title, summary and its first rows, updated in place. Click, or `enter` while focused, opens its view. */
+/**
+ * A panel placed in the transcript: title, summary and its first rows, updated in place. Click, or `enter` while focused, opens its view.
+ * A flow run's card leads with its status glyph: `✓ sum · 40ms → 5`.
+ */
 export function Card(
-  props: { readonly panel: Panels.Panel; readonly focused?: boolean; readonly onOpen?: () => void }
+  props: {
+    readonly panel: Panels.Panel
+    readonly status?: RowStatus
+    readonly focused?: boolean
+    readonly onOpen?: () => void
+  }
 ) {
   const { panel } = props
   const shown = panel.rows.slice(0, cardRows)
-  const failed = panel.rows.some((row) => row.status === "failed")
+  const failed = props.status === "failed" || panel.rows.some((row) => row.status === "failed")
+  const head = props.status === undefined ? undefined : rowGlyph(props.status)
   return (
     <box
       style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
@@ -280,6 +289,7 @@ export function Card(
       {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
     >
       <text>
+        {head === undefined ? null : <span fg={head.tone}>{head.glyph}{" "}</span>}
         <span fg={color.text}>
           <strong>{panel.title}</strong>
         </span>

@@ -11,7 +11,7 @@ Capture "Browse the repository's flows."
 Press Escape
 Type "/flow echo text=hello"
 Press Enter
-Wait for "echo · done"
+Wait for "→ hello"
 Type "/smithers"
 Press Enter
 Capture "Inspect a real completed durable flow run."
@@ -25,7 +25,7 @@ Wait for "Text"
 Capture "Missing required input opens a schema-driven form."
 Type "hello from the form"
 Press Enter
-Wait for "echo · done"
+Wait for "→ hello from the form"
 Press Ctrl+]
 Press Ctrl+]
 Wait for "hello from the form"
@@ -47,7 +47,7 @@ Wait for "net:post:https://example.test"
 Wait 500 ms
 Capture "Review the network permission."
 Press y
-Wait for "consequential · done"
+Wait for "✓ consequential"
 Press Ctrl+]
 Press Ctrl+]
 Wait for "Authorized"

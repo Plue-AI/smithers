@@ -322,7 +322,7 @@ export const forest = (
         glyph: callGlyph[call.status],
         tone: call.status === "done" ? color.success : call.status === "failed" ? color.danger : color.info,
         name: call.label,
-        sub: "fn",
+        sub: "",
         children: []
       }))
     )
@@ -432,7 +432,7 @@ export function Peek(props: { readonly row: Inbox.Row; readonly lines: ReadonlyA
     <box style={{ flexDirection: "column", paddingLeft: 1 }}>
       <text wrapMode="none">
         <span fg={glyph.tone}>{glyph.glyph}</span> <strong fg={color.text}>{row.name}</strong>
-        <span fg={color.faint}>{`  ${row.seat} · ${row.clock}`}</span>
+        <span fg={color.faint}>{`  ${[row.seat, row.clock].filter((part) => part !== "").join(" · ")}`}</span>
       </text>
       {props.lines.map((line, index) => <text key={index} fg={color.text}>{line}</text>)}
       {row.window === undefined ? null : <text fg={color.faint}>{`window  ${row.window}%`}</text>}

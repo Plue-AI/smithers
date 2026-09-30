@@ -47,7 +47,7 @@ it("draws a flow run with its node calls", () => {
   const all = rows([], [run])
   const node = forest(all[0]!, all, [], () => [{ id: "build#1", label: "build", status: "done" }], now)
   expect(shape(node)).toEqual(["flow:r", [["flow:r:build#1", []]]])
-  expect(node.children[0]).toMatchObject({ glyph: "●", name: "build", sub: "fn" })
+  expect(node.children[0]).toMatchObject({ glyph: "●", name: "build", sub: "" })
 })
 
 it("stops at a parent cycle in restored tabs", () => {

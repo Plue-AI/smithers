@@ -268,8 +268,7 @@ export function App(props: AppProps) {
       ledger: new Improve.Ledger(Estimate.ledgerFile(props.host.cwd), {
         onWriteError: (error) => estimateProblem.current(Failures.line("estimates", error))
       }),
-      model: complete === undefined || seat === undefined ? undefined : (request) => complete({ ...request, seat }),
-      onFailure: (failure) => estimateProblem.current(Failures.line("estimate", failure))
+      model: complete === undefined || seat === undefined ? undefined : (request) => complete({ ...request, seat })
     })
   })
   runsRef.current = runs
@@ -549,6 +548,11 @@ export function App(props: AppProps) {
     ...(extensionPanel === undefined ? [] : [extensionPanel])
   ]
   /** A card's panel as it is now: a workspace panel, a plugin card, or a flow run's view. */
+  /** A flow run's card status, for its head glyph; a form waiting reads as waiting. */
+  const cardStatus = (card: Panels.Panel): Panels.Row["status"] => {
+    const status = card.id.startsWith("flow:") ? runs.get(card.id.slice(5))?.status : undefined
+    return status === "input" ? "waiting" : status
+  }
   const livePanel = (card: Panels.Panel): Panels.Panel =>
     card.id.startsWith("flow:") && runs.has(card.id.slice(5))
       ? { ...runs.panel(card.id.slice(5)), id: card.id }
@@ -641,14 +645,16 @@ export function App(props: AppProps) {
     sync()
     return monitors.subscribe(sync)
   }, [monitors, contributions])
-  // `metadata.tui.card`: each run of that flow started here shows as a live card in the chat.
+  // A run the person started here, and each run of a `metadata.tui.card` flow, shows as a live card in the chat.
   const mountedAt = useRef(Date.now())
   const carded = useRef(new Set<string>())
   const cardFlows = extensions.cards.join("\n")
   useEffect(() => {
-    if (cardFlows === "") return
     for (const run of flowRuns) {
-      if (run.startedAt < mountedAt.current || carded.current.has(run.id) || !extensions.cards.includes(run.flow)) {
+      if (
+        run.startedAt < mountedAt.current || carded.current.has(run.id) ||
+        !(userRuns.current.has(run.id) || extensions.cards.includes(run.flow))
+      ) {
         continue
       }
       carded.current.add(run.id)
@@ -938,7 +944,7 @@ export function App(props: AppProps) {
           snapshot.tabs,
           files.current,
           search?.hits ?? [],
-          runs.listed(),
+          runs.listed().map((flow) => runs.unloaded(flow) ? { ...flow, unloaded: true } : flow),
           paletteActions,
           paletteActs
         ),
@@ -1493,6 +1499,7 @@ export function App(props: AppProps) {
         }
         // The prompt is the agent's one field: without it, the composer asks for it.
         if (prompt === "") {
+          setStatus(`Type what ${agent} should do, then Enter.`)
           setText(`/agent ${agent} `)
           return true
         }
@@ -2666,6 +2673,7 @@ export function App(props: AppProps) {
                           ? (
                             <View.Card
                               panel={card}
+                              status={cardStatus(card)}
                               focused={row.key === focusedCard}
                               onOpen={() =>
                                 perform({

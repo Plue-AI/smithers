@@ -251,17 +251,12 @@ export class Estimator {
   /** Work the model was asked about once; a failed answer is not retried on every reconcile. */
   private asked = new Set<string>()
   private listeners = new Set<() => void>()
-  private report: ((failure: Improve.Failure) => void) | undefined
-  private reported = false
   constructor(options: {
     readonly ledger: Improve.Ledger
     readonly model?: Model | undefined
-    /** Called on the first model failure; every failure is in the ledger. */
-    readonly onFailure?: (failure: Improve.Failure) => void
   }) {
     this.ledger = options.ledger
     this.model = options.model
-    this.report = options.onFailure
   }
   subscribe = (listener: () => void): () => void => {
     this.listeners.add(listener)
@@ -337,9 +332,6 @@ export class Estimator {
       at: Date.now()
     }
     this.ledger.fail(failure)
-    if (this.reported) return
-    this.reported = true
-    this.report?.(failure)
   }
   /** The median of the kind: the estimate when nothing better is known. */
   private fallback(work: Work): Estimate | undefined {

@@ -110,7 +110,7 @@ export const rows = (input: {
     run,
     status: run.status,
     name: run.flow,
-    seat: "fn",
+    seat: "",
     clock: run.status === "queued" ? "" : SubagentCard.duration((run.endedAt ?? input.now) - run.startedAt)
   })
   const byId = new Map(input.tabs.map((tab) => [tab.id, tab]))

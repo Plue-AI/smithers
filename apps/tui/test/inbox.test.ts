@@ -99,10 +99,10 @@ describe("the overview inbox", () => {
     expect(Inbox.meter({})).toBe("")
   })
 
-  it("gives a flow run the fn seat and its form's question as the peek", () => {
+  it("gives a flow run no model label and its form's question as the peek", () => {
     const [section] = rows([], [run("form", "input", { message: "Needs: title" })])
     const row = section!.rows[0]!
-    expect(row).toMatchObject({ seat: "fn", clock: "5s" })
+    expect(row).toMatchObject({ seat: "", clock: "5s" })
     expect(Inbox.peek(row, () => Transcript.empty)).toEqual(["Needs: title"])
   })
 

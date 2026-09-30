@@ -164,6 +164,37 @@ it("keeps the actionable import failure and its original cause", async () => {
   }
 })
 
+it("names a module flow added after the host opened as needing a restart", async () => {
+  const project = mkdtempSync(join(tmpdir(), "tui-late-flow-"))
+  symlinkSync(join(import.meta.dir, "../node_modules"), join(project, "node_modules"), "dir")
+  const write = (name: string) => {
+    mkdirSync(join(project, "flows", name), { recursive: true })
+    writeFileSync(
+      join(project, "flows", name, "flow.ts"),
+      `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+export default Flow.make("${name}", { description: "${name}", capabilities: [], payload: {}, success: Schema.String, body: () => Node.succeed("ok") })
+`
+    )
+  }
+  write("early")
+  const late = FlowControl.make({ cwd: project, environment: {}, approvals: host.approvals! })
+  try {
+    expect(late.loaded!()).toBeUndefined()
+    await late.warm!()
+    expect(late.loaded!()).toEqual(["early"])
+    write("echo-label")
+    expect((await late.discover()).map((flow) => flow.name).sort()).toEqual(["early", "echo-label"])
+    const failure = await late.input("echo-label").catch((error: unknown) => error) as FlowError
+    expect(failure.code).toBe("not_loaded")
+    expect(((await late.input("missing").catch((error: unknown) => error)) as FlowError).code).toBe("unknown_flow")
+  } finally {
+    await late.dispose()
+    rmSync(project, { recursive: true, force: true })
+  }
+}, 60_000)
+
 it("plans, starts and settles a run from the watch", async () => {
   const card = await port.plan("echo", { text: "hi" })
   const runId = await port.start(card)

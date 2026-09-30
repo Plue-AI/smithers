@@ -77,7 +77,8 @@ export const rows = (
   tabs: ReadonlyArray<Tab>,
   files: () => ReadonlyArray<string>,
   hits: ReadonlyArray<Search.Hit>,
-  flows: ReadonlyArray<Listed>,
+  /** `unloaded`: added after the host opened, so it runs after a restart. */
+  flows: ReadonlyArray<Listed & { readonly unloaded?: boolean }>,
   actions: NonNullable<Palette.Sources["actions"]> = [],
   acts: ReadonlyArray<Palette.ActRow> = []
 ): ReadonlyArray<View.Row & { readonly value: string }> => {
@@ -97,6 +98,7 @@ export const rows = (
     return Fuzzy.filter(flows, picker.query, (flow) => flow.name).map((flow) => ({
       key: flow.name,
       label: flow.name,
+      ...(flow.unloaded === true ? { hint: "Restart to load" } : {}),
       detail: flow.description,
       value: flow.name
     }))

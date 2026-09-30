@@ -42,6 +42,7 @@ describe("tagged failures read as one plain sentence", () => {
   it("words every flow code and keeps a person's own stop quiet", () => {
     const cases: ReadonlyArray<readonly [FlowError, string, string]> = [
       [new FlowError("unknown_flow", RAW, { subject: "nope" }), "No flow named nope; /flows lists them.", "user"],
+      [new FlowError("not_loaded", RAW, { subject: "echo-label" }), "Restart to load echo-label.", "user"],
       [new FlowError("refused", RAW, { subject: "ship" }), "ship cannot start here.", "user"],
       [new FlowError("person_only", RAW, { subject: "deploy" }), "deploy starts only from /flow.", "user"],
       [new FlowError("denied", RAW, { subject: "ship" }), "ship was not approved.", "user"],

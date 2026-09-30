@@ -2890,7 +2890,7 @@ describe("extensions", () => {
       await tui.type("finish")
       await tui.press(key.enter)
       await tui.until(
-        (screen) => screen.includes("review · done") && screen.includes("review · Approved."),
+        (screen) => /✓ review · \S+ → Approved\./.test(screen),
         5_000,
         "settled"
       )
@@ -2978,7 +2978,7 @@ describe("extensions", () => {
     await tui.press("\x1bp")
     await tui.until((screen) => screen.includes("ping · running"), 20_000, "running toast")
     await tui.until(
-      (screen) => screen.includes("ping · done") && /✓ ping\s+↑/.test(screen),
+      (screen) => screen.includes("✓ ping · ") && /✓ ping\s+↑/.test(screen),
       90_000,
       "settled from the real run"
     )

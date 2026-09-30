@@ -67,6 +67,8 @@ export const make = (options: {
   )
   const registry = () => NativeControl.layerRegistry(options.cwd)
   let opening: Promise<Opened> | undefined
+  // The module flows the opened host imported; a flow file added later needs a restart.
+  let loaded: ReadonlyArray<string> | undefined
 
   const open = (): Promise<Opened> => {
     opening ??= (async () => {
@@ -95,6 +97,10 @@ export const make = (options: {
       )
       try {
         await runtime.runPromise(Effect.void)
+        loaded = [
+          ...catalog!.executables.map((entry) => entry.descriptor.name),
+          ...catalog!.refused.map((entry) => entry.flow)
+        ]
         return { runtime, catalog: catalog! }
       } catch (error) {
         await runtime.dispose()
@@ -114,16 +120,22 @@ export const make = (options: {
     throw typed(Cause.squash(exit.cause))
   }
 
-  const markdown = (flow: string): Promise<boolean> =>
+  /** A flow's body kind in a fresh registry read; absent when no file declares it. */
+  const kind = (flow: string): Promise<"markdown" | "module" | undefined> =>
     Effect.runPromise(
       Registry.Registry.pipe(Effect.flatMap((each) => each.getOption(flow)), Effect.provide(registry()))
-    ).then((descriptor) => descriptor._tag === "Some" && descriptor.value.body._tag === "Markdown", () => false)
+    ).then(
+      (descriptor) =>
+        descriptor._tag === "None" ? undefined : descriptor.value.body._tag === "Markdown" ? "markdown" : "module",
+      () => undefined
+    )
 
   const events = (runId: string): Promise<ReadonlyArray<ControlEvent>> =>
     control((service) => service.watch({ runId, follow: false }).pipe(Stream.runCollect)).then((events) => [...events])
 
   return {
     warm: () => existsSync(join(options.cwd, "flows")) ? control(() => Effect.void) : Promise.resolve(),
+    loaded: () => loaded,
     discover: () =>
       Effect.runPromise(
         Registry.Registry.pipe(Effect.flatMap((each) => each.list()), Effect.provide(registry()))
@@ -173,7 +185,8 @@ export const make = (options: {
       if (found !== undefined) return found.input
       // A markdown flow is a prompt flow: the control plane runs its body itself and
       // takes any JSON input, so the catalog's delegate refusal does not apply to it.
-      if (await markdown(flow)) return undefined
+      const declared = await kind(flow)
+      if (declared === "markdown") return undefined
       const refused = catalog.refused.find((entry) => entry.flow === flow)
       if (refused !== undefined) {
         const cause = refused.cause instanceof Error ?
@@ -187,6 +200,7 @@ export const make = (options: {
           subject: flow
         })
       }
+      if (declared === "module") throw new FlowError("not_loaded", `${flow} was added after start`, { subject: flow })
       throw new FlowError("unknown_flow", `Unknown flow ${flow}`, { subject: flow })
     },
     plan: (flow, input) =>

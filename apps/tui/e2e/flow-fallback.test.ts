@@ -31,7 +31,7 @@ it("runs the next declared model after context overflow", async () => {
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
     await tui.type("/flow fallback")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("fallback · done"), 30_000, "fallback completion")
+    await tui.until((screen) => screen.includes("✓ fallback ·"), 30_000, "fallback completion")
     const requests = readFileSync(log, "utf8").trim().split("\n")
     expect(requests.slice(0, 2)).toEqual(["first", "second"])
     await tui.press(key.ctrlBracket + key.ctrlBracket)

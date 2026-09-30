@@ -17,8 +17,8 @@ import * as Failures from "./failures.ts"
 import * as Lifecycle from "./lifecycle.ts"
 import type * as Panels from "./panels.ts"
 import type * as Session from "./session.ts"
-import * as Summary from "./summary.ts"
 import { TabError } from "./tab-error.ts"
+import * as Transcript from "./transcript.ts"
 
 type ControlEvent = ControlSchema.ControlEvent
 
@@ -64,6 +64,8 @@ export interface Watch {
 export interface Port {
   /** Initialize the control host after the terminal has drawn. */
   readonly warm?: () => Promise<void>
+  /** The module flows the host imported when it opened; undefined until then. */
+  readonly loaded?: () => ReadonlyArray<string> | undefined
   /** Registry only; never imports a flow module. */
   readonly discover: () => Promise<ReadonlyArray<Listed>>
   readonly input: (flow: string) => Promise<Schema.Top | undefined>
@@ -111,6 +113,8 @@ export const discoveryNotice = (
  */
 export type FlowErrorCode =
   | "unknown_flow"
+  /** A module flow file added after the host opened; a restart loads it. */
+  | "not_loaded"
   | "refused"
   | "person_only"
   | "denied"
@@ -165,6 +169,17 @@ export interface Request {
 }
 
 export const interrupted = "Interrupted; retry to continue."
+
+/** A done run's card words, `40ms → 5`: how long it ran, then its answer on one line. */
+const doneWords = (run: Run): string => {
+  const took = run.endedAt === undefined
+    ? undefined
+    : Transcript.duration(run.endedAt - (run.launchedAt ?? run.startedAt))
+  const answer = run.answer?.replace(/\s+/g, " ").trim() ?? ""
+  const words = [took, answer === "" ? undefined : `→ ${answer.length > 200 ? `${answer.slice(0, 199)}…` : answer}`]
+    .filter((word) => word !== undefined)
+  return words.length === 0 ? "done" : words.join(" ")
+}
 
 /** An approval a run is parked on: what it asks, and the payload that decides it. */
 export interface Gate {
@@ -302,6 +317,11 @@ export class FlowRuns {
   schema = (id: string): Schema.Top | undefined => this.schemas.get(id)
   /** The last discovery; `refresh` updates it in the background. */
   listed = (): ReadonlyArray<Listed> => this.cache
+  /** A listed module flow the opened host did not import: it runs after a restart. */
+  unloaded = (flow: Listed): boolean => {
+    const loaded = this.options.port?.loaded?.()
+    return loaded !== undefined && flow.kind === "module" && !loaded.includes(flow.name)
+  }
   /** Why the newest discovery failed; cleared by the next one that succeeds. */
   failure = (): FlowDiscoveryFailed | undefined => this.discoveryFailure
   private discover(): Promise<ReadonlyArray<Listed>> {
@@ -690,21 +710,26 @@ export class FlowRuns {
   panel = (id: string): Panels.Panel => {
     const run = this.runs.get(id)
     if (run === undefined) return { id: `flow:${id}`, title: id, summary: "Unknown run.", rows: [] }
-    const summary = this.historyFailures.get(id) ?? run.message ??
+    const summary = this.historyFailures.get(id) ?? (run.status === "failed" && run.message !== undefined
+      ? `failed: ${run.message}`
+      : run.message) ??
       (run.status === "done"
-        ? Summary.sentence(run.answer ?? "Done.")
+        ? doneWords(run)
         : run.status === "requested"
-        ? this.opening ? "Opening flows" : "Requested."
-        : run.status === "queued"
-        ? "Queued."
+        ? this.opening ? "Opening flows" : "requested"
         : run.status === "cancelled"
-        ? "Stopped."
-        : run.status === "waiting"
-        ? "Waiting."
+        ? "stopped"
         : run.status === "parked"
-        ? openGate(this.events.get(id) ?? [])?.question ?? "Parked."
-        : "Running.")
-    const nodes = NodeOutput.project(this.events.get(id) ?? []).map((node) => ({
+        ? openGate(this.events.get(id) ?? [])?.question ?? "parked"
+        : run.status === "failed"
+        ? "failed"
+        : run.status === "input"
+        ? "asks"
+        : run.status)
+    // The answer heads the card, so the result node is not a step.
+    const nodes = NodeOutput.project(this.events.get(id) ?? []).filter((node) =>
+      node.nodeId !== NodeOutput.resultNodeId
+    ).map((node) => ({
       id: node.nodeId,
       label: node.flowName,
       status: node.outcome === "success"
@@ -721,7 +746,8 @@ export class FlowRuns {
     const act = run.status === "input"
       ? [{ id: "act", label: "Fill in", details: [], action: { label: "Fill in", prompt: "" } }]
       : []
-    const result = run.answer !== undefined && !nodes.some((node) => node.id === NodeOutput.resultNodeId)
+    // The head holds a one-line answer; a longer one keeps its whole text in a row.
+    const result = run.answer !== undefined && (run.answer.length > 200 || run.answer.trim().includes("\n"))
       ? [{
         id: NodeOutput.resultNodeId,
         label: "Result",

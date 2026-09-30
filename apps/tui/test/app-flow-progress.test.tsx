@@ -124,17 +124,25 @@ afterEach(async () => {
 })
 
 test.each([
-  { status: "done", outcome: { kind: "done", answer: "Review finished" } satisfies Settled },
-  { status: "failed", outcome: { kind: "failed", message: "Review refused" } satisfies Settled },
-  { status: "cancelled", outcome: { kind: "cancelled" } satisfies Settled }
+  {
+    status: "done",
+    head: /✓ review · \d+ms → Review finished/,
+    outcome: { kind: "done", answer: "Review finished" } satisfies Settled
+  },
+  {
+    status: "failed",
+    head: /✗ review · failed: Review refused/,
+    outcome: { kind: "failed", message: "Review refused" } satisfies Settled
+  },
+  { status: "cancelled", head: /■ review · stopped/, outcome: { kind: "cancelled" } satisfies Settled }
 ])(
-  "visible flow progress stays pending through launch and execution, then shows real $status",
-  async ({ status, outcome }) => {
+  "the chat card stays pending through launch and execution, then shows real $status",
+  async ({ status, head, outcome }) => {
     // Waiting on rendered public state exercises the real 300 ms debounce;
     // it asserts no wall-time performance bound and patches no clock.
     await waitFor(() => frame().includes("review · requested"))
     expect(watches).toEqual([])
-    expect(frame()).not.toContain("review · done")
+    expect(frame()).not.toMatch(head)
     await submit("Chat during launch")
     expect(chats).toEqual(["Chat during launch"])
     expect(frame()).toContain("review · requested")
@@ -145,7 +153,7 @@ test.each([
     await waitFor(() => frame().includes("review · running"))
     expect(watches).toEqual(["owned-review"])
     expect(records().filter((record) => record.type === "flow").at(-1)?.run.status).toBe("running")
-    expect(frame()).not.toContain(`review · ${status}`)
+    expect(frame()).not.toMatch(head)
     await act(async () => {
       await setup!.mockInput.typeText("Still usable")
     })
@@ -156,8 +164,10 @@ test.each([
       remote.resolve(outcome)
       await setImmediate()
     })
-    await waitFor(() => frame().includes(`review · ${status}`))
+    await waitFor(() => head.test(frame()))
     expect(frame()).not.toContain("review · running")
+    // The card is the only report: no toast repeats it.
+    expect(frame().match(/review ·/g)).toHaveLength(1)
     expect(records().filter((record) => record.type === "flow").at(-1)?.run.status).toBe(status)
     expect(frame()).toContain("Still usable")
   },
