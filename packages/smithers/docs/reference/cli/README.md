@@ -159,7 +159,7 @@ declared request's kind, options, and schema to shape the answer.
 | `credentials` | `list/add/rotate/revoke`; encrypted secrets are supplied through `--secret-env` or `--secret-file`, and output contains references only. |
 | `triggers` | `list/show/register/enable/disable/fire/serve`; registration accepts flags or `--file`, and `fire` queues an occurrence for the scheduler. |
 | `integrations` | `list` and `doctor [--offline]`. |
-| `eval` | `list/run/baseline/compare`; discover `evals/**/*.eval.ts` modules exporting `suite` and `executor`, and compare saved results with committed baselines. |
+| `eval` | `list/run/baseline/compare`; discover `evals/**/*.eval.ts` modules exporting `suite` and `executor`, and compare saved results with committed baselines. `run` also records score observations in the project's `.flows/engine.db` when it exists. |
 
 Memory defaults to `--namespace user:cli` and accepts `kind:id` or a bare kind
 with `--id`. Bare `memory` prints help. Missing fact arguments, such as

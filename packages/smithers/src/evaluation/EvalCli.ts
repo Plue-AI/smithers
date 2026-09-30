@@ -62,6 +62,7 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
           file = Evaluation.runPath(root, runId)
           const loaded = await Evaluation.load(root, context.args.suite, runtime)
           result = await Evaluation.execute(loaded.suite, loaded.executor, {
+            root,
             runId,
             at: context.options.at ?? new Date().toISOString(),
             ...(context.options.trials === undefined ? {} : { trials: context.options.trials }),

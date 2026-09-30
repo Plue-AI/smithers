@@ -2466,6 +2466,9 @@ importers:
       '@smthrs/sandbox':
         specifier: 1.0.0-rc.1
         version: link:flows/sandbox
+      '@smthrs/scorers':
+        specifier: 1.0.0-rc.1
+        version: link:agent/scorers
       '@smthrs/std':
         specifier: 1.0.0-rc.1
         version: link:agent/std

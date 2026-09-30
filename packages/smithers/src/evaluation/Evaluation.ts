@@ -5,9 +5,15 @@
  */
 
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { Baseline, CaseExecutor, Gate, Regression, Runner, Suite } from "@smthrs/evals"
 import { EvalError } from "@smthrs/evals/EvalError"
-import { Effect } from "effect"
+import * as ScorerRunner from "@smthrs/scorers/Runner"
+import * as RunnerLive from "@smthrs/scorers/RunnerLive"
+import type { ScorerError } from "@smthrs/scorers/ScorerError"
+import * as SqlScoreStore from "@smthrs/scorers/SqlScoreStore"
+import { Effect, Layer } from "effect"
 import { z } from "incur"
 import { randomUUID } from "node:crypto"
 import { link, mkdir, open, readdir, readFile, realpath, rename, unlink } from "node:fs/promises"
@@ -15,6 +21,8 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import * as CliError from "../CliError.ts"
 import type * as Environment from "../Environment.ts"
+import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
+import { executionDatabasePath } from "../internal/ExecutionDatabasePath.ts"
 import * as Project from "../Project.ts"
 
 /**
@@ -317,22 +325,56 @@ export const writeJson = async (
 }
 
 /**
+ * The scorer runner a project's evaluations use.
+ *
+ * With an engine store, observations are recorded through the store-backed
+ * scorer runner into that database, after applying the score-store
+ * migrations, so later runs and gates can read them back. Without one, scoring
+ * stays in process and nothing is recorded.
+ * @category layers
+ * @since 1.0.0
+ */
+export const scoring = (root: string): Layer.Layer<Runner.Runner, ScorerError> => {
+  const filename = executionDatabasePath(root)
+  if (!DatabaseLocation.exists(filename)) return Runner.layerInline
+  return Layer.effect(Runner.Runner)(Effect.service(ScorerRunner.Runner)).pipe(
+    Layer.provide(RunnerLive.layer()),
+    Layer.provide(SqlScoreStore.layer),
+    Layer.provide(DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({ filename }))))
+  )
+}
+
+/**
  * Executes a suite and returns its persistable artifact.
+ *
+ * `options.root` selects the project whose {@link scoring} the run uses;
+ * without it the run scores in process.
  * @category constructors
  * @since 1.0.0
  */
 export const execute = async (
   suite: Suite.Suite,
   executor: CaseExecutor.Service,
-  options: { readonly runId: string; readonly at: string; readonly trials?: number; readonly k?: number },
+  options: {
+    readonly runId: string
+    readonly at: string
+    readonly trials?: number
+    readonly k?: number
+    readonly root?: string
+  },
   runtime: RuntimeConfig = {}
-): Promise<RunArtifact> =>
-  artifactOf(
+): Promise<RunArtifact> => {
+  const { root, ...runOptions } = options
+  return artifactOf(
     await Effect.runPromise(
-      Runner.run(suite, options).pipe(Effect.provideService(CaseExecutor.CaseExecutor, executor)),
+      Runner.run(suite, runOptions).pipe(
+        Effect.provideService(CaseExecutor.CaseExecutor, executor),
+        Effect.provide(root === undefined ? Runner.layerInline : scoring(root))
+      ),
       { signal: runtime.signal }
     )
   )
+}
 
 /**
  * Reads a saved run by identity or path.
