@@ -176,7 +176,9 @@ describe("operator memory", () => {
     const root = fixture()
     const shared = join(root, "shared", "memory.db")
     vi.stubEnv("SMITHERS_MEMORY_DB", shared)
-    expect((await invoke(root, ["notes", "add", "override learning", "--note-id", "learned", "--status", "pending"])).code)
+    expect(
+      (await invoke(root, ["notes", "add", "override learning", "--note-id", "learned", "--status", "pending"])).code
+    )
       .toBe(0)
     expect(existsSync(shared)).toBe(true)
     expect(existsSync(join(root, ".flows", "control.db"))).toBe(false)

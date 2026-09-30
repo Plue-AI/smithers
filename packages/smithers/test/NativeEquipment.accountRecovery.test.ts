@@ -12,9 +12,9 @@ it("rechecks a pinned Claude subscription after expiry and recovers after login"
   const account = join(directory, "claude-2")
   mkdirSync(account)
   const status = join(account, "status")
-  const signedIn = '{"loggedIn":true,"authMethod":"claude.ai"}'
+  const signedIn = "{\"loggedIn\":true,\"authMethod\":\"claude.ai\"}"
   writeFileSync(status, signedIn)
-  writeFileSync(join(directory, "claude"), '#!/bin/sh\n/bin/cat "$CLAUDE_CONFIG_DIR/status"\n', { mode: 0o755 })
+  writeFileSync(join(directory, "claude"), "#!/bin/sh\n/bin/cat \"$CLAUDE_CONFIG_DIR/status\"\n", { mode: 0o755 })
   let now = Date.now()
   const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
   try {
@@ -22,7 +22,7 @@ it("rechecks a pinned Claude subscription after expiry and recovers after login"
     const resolver = NodeControl.seatResolver({ SMITHERS_ACCOUNTS_DIR: directory, PATH: directory }, executor)
     const resolve = () => Effect.scoped(resolver.resolve("opus@claude-2"))
     expect((await Effect.runPromise(resolve())).id).toBe("opus@claude-2")
-    writeFileSync(status, '{"loggedIn":false,"authMethod":"none"}')
+    writeFileSync(status, "{\"loggedIn\":false,\"authMethod\":\"none\"}")
     now += 29_999
     expect((await Effect.runPromise(resolve())).id).toBe("opus@claude-2")
     now += 1
