@@ -68,12 +68,13 @@ export const Attrs = Schema.Struct({
   workspace: Schema.NullOr(Target.Target).pipe(
     Schema.withConstructorDefault(Effect.succeed(null))
   ),
-  /** The hand-written pnpm workspace definition and the manifests it selects. @default null */
+  /**
+   * The hand-written pnpm workspace definition, the manifests it selects, and
+   * the patch files its `patchedDependencies` names. @default null
+   */
   workspaceManifest: Schema.NullOr(Input.PnpmWorkspace).pipe(
     Schema.withConstructorDefault(Effect.succeed(null))
   ),
-  /** Patch files used by a pnpm workspace's patchedDependencies. */
-  patches: Schema.Array(Input.File).pipe(Schema.withConstructorDefault(Effect.succeed([]))),
   /**
    * The registry hosts, and the hosts of anything the installed packages
    * fetch ahead of use (browser builds, for one), the install reaches.
@@ -105,7 +106,6 @@ export const inputsFor = (attrs: Attrs): ReadonlyArray<Input.Declared> => [
   Input.file(".npmrc"),
   Input.file("package.json"),
   Input.file(".pnpmfile.mjs"),
-  ...attrs.patches,
   ...(attrs.workspaceManifest === null ? [] : [attrs.workspaceManifest])
 ]
 

@@ -534,6 +534,44 @@ describe("Input.expandPnpmWorkspace", () => {
       ])
   })
 
+  it("includes every patch file patchedDependencies names, relative to the workspace file", async () => {
+    await write("package.json", "{}\n")
+    await write("sub/package.json", "{}\n")
+    await write("sub/member/package.json", "{}\n")
+    await write(
+      "sub/pnpm-workspace.yaml",
+      [
+        "packages:",
+        "  - '*'",
+        "patchedDependencies:",
+        "  alchemy@2.0.0: patches/alchemy@2.0.0.patch",
+        "  '@scope/name@1.0.0': patches/@scope__name@1.0.0.patch",
+        "  shared@1.0.0: patches/alchemy@2.0.0.patch",
+        ""
+      ].join("\n")
+    )
+
+    expect(await Input.expandPnpmWorkspace(root, "", Input.pnpmWorkspace("//sub/pnpm-workspace.yaml")))
+      .toEqual([
+        "sub/member/package.json",
+        "sub/package.json",
+        "sub/patches/@scope__name@1.0.0.patch",
+        "sub/patches/alchemy@2.0.0.patch",
+        "sub/pnpm-workspace.yaml"
+      ])
+  })
+
+  it.each([
+    ["a patch outside the workspace", "../outside.patch", /declared input escapes the workspace/],
+    ["a non-string patch path", "7", /could not validate pnpm workspace/],
+    ["an empty patch path", "''", /could not validate pnpm workspace/]
+  ])("refuses %s", async (_label, value, message) => {
+    await write("package.json", "{}\n")
+    await write("pnpm-workspace.yaml", `packages:\n  - packages/*\npatchedDependencies:\n  a@1.0.0: ${value}\n`)
+    await expect(Input.expandPnpmWorkspace(root, "", Input.pnpmWorkspace("//pnpm-workspace.yaml")))
+      .rejects.toThrow(message)
+  })
+
   /**
    * A workspace declaration is the membership source for every package the
    * lockfile resolves, so a file it cannot read as one is a refusal rather

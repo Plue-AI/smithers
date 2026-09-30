@@ -254,12 +254,6 @@ describe("Install", () => {
       Install.Install({ packageManager, workspaceManifest: Input.pnpmWorkspace("pnpm-workspace.yaml") })
     ).attrs as Install.Attrs
     expect(Install.inputsFor(withWorkspace)).toHaveLength(5)
-    const withPatch = Target.metadata(Install.Install({
-      packageManager,
-      patches: [Input.file("patches/fix.patch")]
-    })).attrs as Install.Attrs
-    expect(Install.inputsFor(withPatch).map((input) => (input as Input.File).path))
-      .toContain("patches/fix.patch")
   })
 })
 

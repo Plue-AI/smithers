@@ -1157,7 +1157,8 @@ export const listOutputFiles = async (
 }
 
 const PnpmWorkspaceContents = Schema.Struct({
-  packages: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1))
+  packages: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
+  patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.NonEmptyString))
 })
 
 const yamlFailure = (path: string, action: string, cause: unknown): Error =>
@@ -1168,8 +1169,11 @@ const yamlFailure = (path: string, action: string, cause: unknown): Error =>
  *
  * Workspace package patterns are relative to the workspace file, including
  * pnpm's leading-`!` exclusions. The result includes the workspace file, its
- * adjacent root manifest, and every matching member manifest. This makes one
- * declaration both the membership source and the complete lockfile input.
+ * adjacent root manifest, every matching member manifest, and every patch file
+ * its `patchedDependencies` names (also relative to the workspace file). This
+ * makes one declaration both the membership source and the complete lockfile
+ * input: pnpm records each patch's hash in the lockfile and applies it on
+ * install, so a patch edit re-keys the install without a hand-kept list.
  *
  * @category expansion
  * @since 0.1.0
@@ -1231,7 +1235,8 @@ export const expandPnpmWorkspace = async (
       !patterns.some(({ excluded, pattern }) => excluded && minimatch(member, pattern, { dot: true }))
   })
   const rootManifest = directory === "" ? "package.json" : `${directory}/package.json`
-  return [...new Set([path, rootManifest, ...members])].sort()
+  const patches = Object.values(contents.patchedDependencies ?? {}).map((patch) => resolvePath(directory, patch))
+  return [...new Set([path, rootManifest, ...members, ...patches])].sort()
 }
 
 /**
