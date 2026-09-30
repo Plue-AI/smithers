@@ -115,6 +115,56 @@ export const contract = (name: string, harness: Harness): void => {
         })
       }))
 
+    test("carries the admitted input's declared trigger onto the accepted record, and no record when none was declared", () =>
+      Effect.gen(function*() {
+        const control = yield* Control
+        const trigger = {
+          kind: "message",
+          author: "alice",
+          conversationId: "session-1",
+          messageId: "314",
+          text: "Why does /hello greet null?",
+          origin: "chat"
+        }
+        const card = yield* control.plan({
+          flowId: "system/test",
+          input: { suite: "trigger", trigger },
+          idempotencyKey: "plan:trigger"
+        })
+        yield* control.approve(approval(card, `approve:${card.planId}`))
+        const receipt = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: `run:${card.planId}`
+        })
+        if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+          return yield* Effect.die("expected an accepted run")
+        }
+        const events = yield* control.watch({ runId: receipt.runId, follow: false }).pipe(Stream.runCollect)
+        const accepted = events.find((event) => event.kind === "control.run.accepted")
+        expect(accepted?.payload).toMatchObject({ trigger })
+
+        // The same run re-admitted under the same key records nothing twice.
+        const replayed = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: `run:${card.planId}`
+        })
+        expect(replayed._tag).toBe("AlreadyApplied")
+        const again = yield* control.watch({ runId: receipt.runId, follow: false }).pipe(Stream.runCollect)
+        expect(again.filter((event) => event.kind === "control.run.accepted")).toHaveLength(1)
+
+        // An input without a declared trigger admits a record without one.
+        const { runId: bareRunId } = yield* start
+        const bare = yield* control.watch({ runId: bareRunId, follow: false }).pipe(Stream.runCollect)
+        const bareAccepted = bare.find((event) => event.kind === "control.run.accepted")
+        expect(bareAccepted?.payload).not.toHaveProperty("trigger")
+      }))
+
     test("copies mutable inputs and returned summaries at the persistence boundary", () =>
       Effect.gen(function*() {
         const runtime = yield* ControlRuntime

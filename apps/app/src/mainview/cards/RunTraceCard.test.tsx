@@ -117,7 +117,8 @@ const renderTrace = (overrides: Partial<Extract<Card, { kind: "run-trace" }>["pa
 
 test("a message-started run's Steps view leads with the author, the exact quoted text and a door to the conversation", () => {
   const trigger = { kind: "message", author: "alice", conversationId: "session-9", messageId: "314", text: "Why does /hello greet null?", origin: "chat" }
-  const { host, dispatched } = renderTrace({ workflow: "coding/dispatch", traceView: "steps", input: { prompt: trigger.text, trigger } })
+  const accepted = { sequence: 1, kind: "control.run.accepted", occurredAt: 1000, payload: { runId: "run-1", status: "accepted", trigger } }
+  const { host, dispatched } = renderTrace({ workflow: "coding/dispatch", traceView: "steps", events: [accepted] })
   const rows = host.querySelectorAll("[data-trigger]")
   expect([...rows].map((row) => row.getAttribute("data-trigger"))).toEqual(["message"])
   expect(host.querySelector("[data-testid='run-trigger-quote-run-1']")?.textContent).toBe("Why does /hello greet null?")
@@ -126,7 +127,7 @@ test("a message-started run's Steps view leads with the author, the exact quoted
   expect(dispatched.at(-1)?.name).toBe("agent.session.view")
   expect(dispatched.at(-1)?.args).toContain("session-9")
 
-  const bare = renderTrace({ workflow: "coding/dispatch", traceView: "steps", input: { prompt: "Why does /hello greet null?" } })
+  const bare = renderTrace({ workflow: "coding/dispatch", traceView: "steps", events: [{ ...accepted, payload: { runId: "run-1", status: "accepted" } }] })
   expect(bare.host.querySelector("[data-trigger='message']")).toBeNull()
 })
 

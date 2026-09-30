@@ -187,9 +187,10 @@ test("a run's Steps view leads with its recorded triggers: the schedule that fir
     stamp(14, "control.run.completed", 1_759_000_079_000, {})
   ]
   await boot(page)
-  await page.route((url) => url.pathname === "/api/workflow/trigger-registrations", (route) => route.fulfill(json({ status: "ok", rows: [
-    { registrationId: "reg-1", slug: "nightly", flowId: "coding/check", schedule: "0 2 * * *", enabled: true, nextFireAt: "2026-09-28T02:00:00Z" }
-  ] })))
+  /* A schedule is the repository job `flow:<slug>` (state/seams/TriggersSeam.ts `jobPath`). */
+  await page.route((url) => url.pathname === `/api/repos/${repo}/repository-jobs`, (route) => route.fulfill(json([
+    { id: "reg-1", job: "flow:nightly", flow_id: "coding/check", schedule: "0 2 * * *", enabled: true, next_fire_at: "2026-09-28T02:00:00Z" }
+  ])))
   await page.route("**/api/workflow/provision", (route) => route.fulfill({ json: { status: "ready", repo, gatewayId: "nightly" } }))
   await page.route("**/api/workflow/rpc", (route) => {
     const call = route.request().postDataJSON() as { procedure: string; payload: { selector?: { _tag?: string }; after?: { value: number } } }
@@ -219,4 +220,60 @@ test("a run's Steps view leads with its recorded triggers: the schedule that fir
   // No row is invented: the schedule and the decision are the only two.
   await expect(card.locator("[data-trigger]")).toHaveCount(2)
   await capture(page, card, "app-run-steps")
+})
+
+test("a message-started run's Steps view leads with the recorded message — author, exact text and the conversation door — after a reload", async ({ page }) => {
+  const runId = "run-chat"
+  const trigger = { kind: "message", author: "alice", conversationId: "session-9", messageId: "314", text: "Why does /hello greet null?", origin: "chat" }
+  const stamp = (sequence: number, kind: string, occurredAt: number, payload: Record<string, unknown> = {}) => ({ sequence, kind, occurredAt, payload })
+  const journal = [
+    stamp(1, "control.run.accepted", 1_759_000_000_500, { runId, status: "accepted", trigger }),
+    stamp(2, "control.agent.turn-opened", 1_759_000_001_000, { seat: "openai:gpt-6-sol" }),
+    stamp(3, "control.agent.cell-produced", 1_759_000_001_500, { text: 'await ctx.call("read", { path: "src/hello.ts" })' }),
+    stamp(4, "control.agent.cell-call-started", 1_759_000_002_000, { flowName: "read", callId: "c1", input: { path: "src/hello.ts" } }),
+    stamp(5, "control.agent.cell-call-settled", 1_759_000_014_000, { flowName: "read", callId: "c1", outcome: "success", value: "export const hello = () => \"hi\"" }),
+    stamp(6, "control.agent.cell-settled", 1_759_000_014_100, { outcome: "success" }),
+    stamp(7, "control.run.completed", 1_759_000_015_000, {})
+  ]
+  await boot(page)
+  await page.route("**/api/workflow/provision", (route) => route.fulfill({ json: { status: "ready", repo, gatewayId: "chat" } }))
+  await page.route("**/api/workflow/rpc", (route) => {
+    const call = route.request().postDataJSON() as { procedure: string; payload: { selector?: { _tag?: string }; after?: { value: number } } }
+    const tag = call.payload.selector?._tag
+    const rows = tag === "run-summary" || tag === "workspace-runs"
+      ? [{ runId, flowId: "coding/dispatch", status: "completed", createdAt: 1_759_000_000_500, updatedAt: 1_759_000_015_000,
+        turns: 1, calls: 1, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0, inputTokens: 900, outputTokens: 120, verdict: "completed", diagnosis: "completed" }]
+      : tag === "run-events" ? journal.filter((row) => row.sequence > (call.payload.after?.value ?? 0)) : []
+    return route.fulfill({ json: { ok: true, payload: { cursor: { projection: tag, runId: null, value: 0 }, rows } } })
+  })
+  let sessionReads = 0
+  await page.route((url) => url.pathname === `/api/repos/${repo}/agent/sessions/session-9`, (route) => {
+    sessionReads += 1
+    return route.fulfill(json({ id: "session-9", title: "hello greet null", status: "completed", message_count: 1, created_at: at, workspace_id: null }))
+  })
+  await page.route((url) => url.pathname === `/api/repos/${repo}/agent/sessions/session-9/messages`, (route) => route.fulfill(json([])))
+
+  await slash(page, `/runs.open ${runId} ${repo}`)
+  const card = page.locator('[data-kind="run-trace"]').last()
+  await expect(card.getByTestId(`run-trace-${runId}`)).toBeVisible({ timeout: 20_000 })
+  await card.getByRole("button", { name: "Steps", exact: true }).click()
+  const message = card.getByTestId(`run-trigger-${runId}-message`)
+  await expect(message.locator(".agent-mark-name")).toHaveText("alice")
+  await expect(card.getByTestId(`run-trigger-quote-${runId}`)).toHaveText("Why does /hello greet null?")
+  // No row is invented: the recorded message is the only one.
+  await expect(card.locator("[data-trigger]")).toHaveCount(1)
+  await capture(page, card, "app-run-steps-message")
+
+  // The conversation door opens the session the message was posted in.
+  await message.getByRole("button", { name: "Open" }).click()
+  await expect.poll(() => sessionReads).toBe(1)
+
+  // The record is durable: a reload re-reads the same journal, and the row is still there, still once.
+  await page.reload()
+  const restored = page.locator('[data-kind="run-trace"]').last()
+  await expect(restored.getByTestId(`run-trace-${runId}`)).toBeVisible({ timeout: 20_000 })
+  const restoredMessage = restored.getByTestId(`run-trigger-${runId}-message`)
+  await expect(restoredMessage.locator(".agent-mark-name")).toHaveText("alice")
+  await expect(restored.getByTestId(`run-trigger-quote-${runId}`)).toHaveText("Why does /hello greet null?")
+  await expect(restored.locator("[data-trigger]")).toHaveCount(1)
 })

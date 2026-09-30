@@ -18,9 +18,10 @@ import { WorkflowLaunchSchema } from "../state/WorkflowLaunch"
  *
  * - `message`: the chat message a dispatched turn answers, as the backend's
  *   message admission authenticated it (`coding/dispatch` input `trigger`:
- *   author, conversation, exact text). Only an admitted `coding/dispatch`
- *   input carries it; a client-composed request never does, and a turn with
- *   no recorded message has no row rather than one guessed from the prompt.
+ *   author, conversation, exact text) and the control plane carried it onto
+ *   the run's `control.run.accepted` journal record. Only an admitted
+ *   `coding/dispatch` input carries it; a turn with no recorded message has
+ *   no row rather than one guessed from the prompt.
  */
 
 export type RunTrigger =
@@ -34,16 +35,25 @@ type RunCard = Extract<Card, { kind: "run-trace" }>
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 const filled = (value: unknown): value is string => typeof value === "string" && value.trim() !== ""
 
-/** The message a dispatched turn's admission recorded (flows/coding/dispatch.ts `MessageTrigger`). */
+/**
+ * The message a dispatched turn's admission recorded (flows/coding/dispatch.ts
+ * `MessageTrigger`), as the run's `control.run.accepted` journal record
+ * carries it. A run is admitted once, so the first accepted record is the
+ * only one read; a replayed admission re-serves the same record, never a
+ * second row.
+ */
 const messageTrigger = (card: RunCard): ReadonlyArray<RunTrigger> => {
-  const input = card.payload.input
-  if (card.payload.workflow !== "coding/dispatch" || input === undefined || "_workflowLaunch" in input) return []
-  const held = input.trigger
-  if (!isRecord(held) || held.kind !== "message" || held.origin !== "chat") return []
-  const { author, conversationId, messageId, text } = held
-  return filled(author) && filled(conversationId) && filled(messageId) && filled(text)
-    ? [{ kind: "message", author, conversationId, messageId, text }]
-    : []
+  if (card.payload.workflow !== "coding/dispatch") return []
+  for (const record of card.payload.events ?? []) {
+    if (!isRecord(record) || record.kind !== "control.run.accepted") continue
+    const held = isRecord(record.payload) ? record.payload.trigger : undefined
+    if (!isRecord(held) || held.kind !== "message" || held.origin !== "chat") return []
+    const { author, conversationId, messageId, text } = held
+    return filled(author) && filled(conversationId) && filled(messageId) && filled(text)
+      ? [{ kind: "message", author, conversationId, messageId, text }]
+      : []
+  }
+  return []
 }
 
 /** The principal a control record names: the id as stamped, or the login/id/name of a structured one. */

@@ -173,6 +173,22 @@ const fingerprint = (operation: string, principal: typeof Principal.Type, input:
 
 const json = (value: unknown): ControlEvent["payload"] => JSON.parse(JSON.stringify(value)) as ControlEvent["payload"]
 
+/**
+ * The trigger provenance an admitted plan input declared, verbatim.
+ *
+ * The control plane does not know the record's shape: the flow's own input
+ * schema bounded it at plan time (`flows/coding/dispatch.ts` `MessageTrigger`
+ * is the first). Admission carries it onto the accepted record so a journal
+ * reader — the Steps view's trigger row (#2115) — renders what was recorded,
+ * never what it inferred from a prompt. Anything that is not a record is
+ * dropped rather than carried.
+ */
+const declaredTrigger = (decodedInput: unknown): Record<string, unknown> | undefined => {
+  if (decodedInput === null || typeof decodedInput !== "object" || Array.isArray(decodedInput)) return undefined
+  const held = (decodedInput as Record<string, unknown>)["trigger"]
+  return held !== null && typeof held === "object" && !Array.isArray(held) ? held as Record<string, unknown> : undefined
+}
+
 const invalid = (issue: string): InvalidInput => new InvalidInput({ issue })
 
 const AttributedApprovalInput = Schema.Struct({
@@ -1568,6 +1584,8 @@ export const layer: Layer.Layer<
               if (launched._tag === "Parked") {
                 return { ...launched.receipt, receiptId: input.idempotencyKey }
               }
+              const plan = yield* runtime.getPlan(input.planId)
+              const trigger = declaredTrigger(plan.decodedInput)
               yield* emit(
                 launched.run.runId,
                 "control.run.accepted",
@@ -1576,10 +1594,11 @@ export const layer: Layer.Layer<
                   planId: input.planId,
                   digest: input.digest,
                   status: launched.run.status,
+                  ...(trigger === undefined ? {} : { trigger }),
                   ...ControlFacts.runFact(launched.run, "created")
                 } as ControlEvent["payload"]
               )
-              admitted = { plan: yield* runtime.getPlan(input.planId), run: launched.run }
+              admitted = { plan, run: launched.run }
               return {
                 _tag: "Accepted",
                 receiptId: input.idempotencyKey,
