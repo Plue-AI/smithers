@@ -92,6 +92,22 @@ describe("the factory projection", () => {
     expect(featuredFlows(projection)).toEqual([{ id: "review", summary: "Review the change." }])
   })
 
+  test("a schedule row carries its static payload and a non-object payload does not decode", () => {
+    const payload = { note: "Traction.md", days: [1, 2], nested: { on: true, none: null } }
+    const decoded = FactoryProjectionSchema.parse({
+      on: [{ event: "schedule:0 6 * * *", flow: "notes/traction", payload }]
+    })
+    expect(decoded.on[0]!.payload).toEqual(payload)
+    expect(FactoryProjectionSchema.parse({ on: [{ event: "schedule:0 6 * * *", flow: "a" }] }).on[0]).not
+      .toHaveProperty("payload")
+    for (const bad of ["x", 3, [1], null]) {
+      expect(
+        FactoryProjectionSchema.safeParse({ on: [{ event: "schedule:0 6 * * *", flow: "a", payload: bad }] }).success
+      )
+        .toBe(false)
+    }
+  })
+
   test("a table alone decodes; an empty flow list, an empty event, a missing table, a bare id row, or a policy outside the pair does not", () => {
     expect(FactoryProjectionSchema.safeParse({ on: [] }).success).toBe(true)
     expect(FactoryProjectionSchema.safeParse({ on: [{ event: "manual", flow: [] }] }).success).toBe(false)

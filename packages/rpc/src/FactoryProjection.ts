@@ -36,7 +36,8 @@ export const FACTORY_PROJECTION_PATH = ".smithers/factory.json"
 
 /**
  * One row of the Dispatcher table: the event, the flow or flows it starts,
- * and the sentence the card shows for it when the declaration names one.
+ * the sentence the card shows for it when the declaration names one, and, on
+ * a `schedule:` row, the static payload each run starts with.
  *
  * @since 1.0.0
  * @category schemas
@@ -44,7 +45,8 @@ export const FACTORY_PROJECTION_PATH = ".smithers/factory.json"
 export const FactoryRuleSchema = z.object({
   event: z.string().min(1),
   flow: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
-  description: z.string().optional()
+  description: z.string().optional(),
+  payload: z.record(z.string(), z.json()).optional()
 })
 
 /**

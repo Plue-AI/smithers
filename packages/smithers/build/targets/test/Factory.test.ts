@@ -202,6 +202,53 @@ describe("Smithers.Factory", () => {
     ])
   })
 
+  it("carries a static payload on a schedule rule and refuses one anywhere else", () => {
+    const payload = { note: "Traction.md", npmPackage: "@smthrs/cli", nested: { days: [1, 2] } }
+    const factory = Factory.Factory({
+      summary: "S.",
+      on: { "schedule:0 6 * * *": { flow: "notes/traction", description: "Daily traction", payload } }
+    })
+    expect(Factory.rules(factory)).toEqual([
+      { event: "schedule:0 6 * * *", flow: "notes/traction", description: "Daily traction", payload }
+    ])
+    expect(Object.isFrozen(factory.on["schedule:0 6 * * *"])).toBe(true)
+    // The payload survives the rendered projection the backend reads.
+    const text = Factory.renderProjection(factory, [{ ...row(Flow.Flow({ flow: "notes/traction" })), kind: "ts" }])
+    expect(Factory.parseProjection(text)).toMatchObject({ on: [{ event: "schedule:0 6 * * *", payload }] })
+    expect(JSON.parse(text).on[0].payload).toEqual(payload)
+    // An empty payload is still a payload; no payload leaves the row without one.
+    expect(
+      Factory.rules(Factory.Factory({ summary: "S.", on: { "schedule:0 6 * * *": { flow: "a", payload: {} } } }))[0]
+    )
+      .toEqual({ event: "schedule:0 6 * * *", flow: "a", payload: {} })
+    expect(Factory.rules(Factory.Factory({ summary: "S.", on: { "schedule:0 6 * * *": "a" } }))[0])
+      .toEqual({ event: "schedule:0 6 * * *", flow: "a" })
+
+    const refuse = (on: Factory.FactoryOptions["on"]) => () => Factory.Factory({ summary: "S.", on })
+    expect(refuse({ "issue.opened": { flow: "issue", payload: { a: 1 } } })).toThrow(/only a schedule: rule can/)
+    expect(refuse({ manual: { flow: "issue", payload: {} } })).toThrow(/only a schedule: rule can/)
+    expect(refuse({ "schedule:0 6 * * *": { flow: "a", payload: "x" as never } })).toThrow(/Factory/)
+    expect(refuse({ "schedule:0 6 * * *": { flow: "a", payload: [1] as never } })).toThrow(/Factory/)
+    expect(refuse({ "schedule:0 6 * * *": { flow: "a", payload: { f: () => 1 } as never } })).toThrow(/Factory/)
+  })
+
+  it("refuses a schedule payload a Markdown flow could not take, and leaves module flows to admission", () => {
+    const on = (payload: Record<string, unknown>) => ({ "schedule:0 6 * * *": { flow: "review", payload } })
+    const render = (payload: Record<string, unknown>) =>
+      Factory.renderProjection(Factory.Factory({ summary: "S.", flows: [review], on: on(payload) }), [row(review)])
+    expect(() => render({ args: "the last day" })).not.toThrow()
+    expect(() => render({})).not.toThrow()
+    expect(() => render({ args: 3 })).toThrow(/a Markdown flow takes \{ args: string \} and nothing else/)
+    expect(() => render({ args: "x", note: "y" })).toThrow(/does not fit the flow "review"/)
+    expect(() => render({ note: "y" })).toThrow(/does not fit the flow "review"/)
+    // A flow the catalog does not carry a schema for is checked when the run is admitted.
+    expect(() =>
+      Factory.renderProjection(Factory.Factory({ summary: "S.", flows: [review], on: on({ note: "y" }) }), [
+        { ...row(review), kind: "ts" }
+      ])
+    ).not.toThrow()
+  })
+
   it("renders a stable two-space projection that parses back", () => {
     const factory = Factory.Factory({ summary: "S.", flows: [review, lint], on, github })
     const catalog = [row(review), row(lint)]
@@ -343,10 +390,12 @@ describe("Smithers.Factory", () => {
       .toThrow(/more than 16 labels/)
     expect(refuse(Array.from({ length: Factory.maximumIssueViews + 1 }, (_, i) => ({ id: `v${i}`, title: "V" }))))
       .toThrow(/more than 32 views/)
-    expect(Factory.Factory({
-      summary: "S.",
-      issueViews: Array.from({ length: Factory.maximumIssueViews }, (_, i) => ({ id: `v${i}`, title: "V" }))
-    }).issueViews).toHaveLength(32)
+    expect(
+      Factory.Factory({
+        summary: "S.",
+        issueViews: Array.from({ length: Factory.maximumIssueViews }, (_, i) => ({ id: `v${i}`, title: "V" }))
+      }).issueViews
+    ).toHaveLength(32)
     expect(refuse(["bugs"])).toThrow(/must be a plain object/)
     expect(Factory.parseProjection(JSON.stringify({
       summary: "S.",

@@ -142,8 +142,18 @@ export const FlowId = Schema.NonEmptyString.check(
 export const FlowIds = Schema.Union([FlowId, Schema.NonEmptyArray(FlowId)])
 
 /**
+ * The static payload a `schedule:` rule hands the flow it starts: a JSON
+ * object, the same every time the schedule fires.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const SchedulePayload = Schema.Record(Schema.String, Schema.Json)
+
+/**
  * One value of the `on` table: the flow or flows the event starts, bare or
- * with the sentence the Dispatcher card shows for the rule.
+ * with the sentence the Dispatcher card shows for the rule, and, on a
+ * `schedule:` rule, the static `payload` each run starts with.
  *
  * @category schemas
  * @since 1.0.0
@@ -152,7 +162,8 @@ export const RuleValue = Schema.Union([
   FlowIds,
   Schema.Struct({
     flow: FlowIds,
-    description: Schema.optional(Home.Title)
+    description: Schema.optional(Home.Title),
+    payload: Schema.optional(SchedulePayload)
   })
 ])
 
@@ -521,7 +532,11 @@ export const isFactoryDeclaration: (value: unknown) => value is Declaration = Sc
 export type RuleOptions =
   | string
   | ReadonlyArray<string>
-  | { readonly flow: string | ReadonlyArray<string>; readonly description?: string | undefined }
+  | {
+    readonly flow: string | ReadonlyArray<string>
+    readonly description?: string | undefined
+    readonly payload?: Readonly<Record<string, unknown>> | undefined
+  }
 
 /**
  * What a `FACTORY.ts` writes for the factory.
@@ -570,7 +585,11 @@ export interface FactoryOptions {
  * @since 1.0.0
  */
 export const Factory = (options: FactoryOptions): Declaration => {
-  const plain = Home.plainOptions("Factory", options, new Set(["summary", "flows", "on", "github", "machine", "issueViews"]))
+  const plain = Home.plainOptions(
+    "Factory",
+    options,
+    new Set(["summary", "flows", "on", "github", "machine", "issueViews"])
+  )
   const flows = plain["flows"] ?? []
   if (!Array.isArray(flows)) throw new TypeError("Factory flows must be an array of Smithers.Flow declarations")
   const seen = new Set<string>()
@@ -591,6 +610,16 @@ export const Factory = (options: FactoryOptions): Declaration => {
   for (const [event, value] of Object.entries(on)) {
     Home.decode(`Factory on key ${JSON.stringify(event)}`, Event, event)
     Home.decode(`Factory on[${JSON.stringify(event)}]`, RuleValue, value)
+    if (
+      typeof value === "object" && value !== null && !Array.isArray(value) &&
+      (value as { readonly payload?: unknown }).payload !== undefined && !event.startsWith("schedule:")
+    ) {
+      throw new TypeError(
+        `Factory on[${
+          JSON.stringify(event)
+        }] carries a payload; only a schedule: rule can (an event starts a flow with the event itself)`
+      )
+    }
   }
   const github = plain["github"] ?? Policy()
   if (!Schema.is(GithubPolicy)(github)) throw new TypeError("Factory github must be a Smithers.Github.Policy value")
@@ -617,7 +646,8 @@ export const Factory = (options: FactoryOptions): Declaration => {
 export const Rule = Schema.Struct({
   event: Event,
   flow: FlowIds,
-  description: Schema.optional(Home.Title)
+  description: Schema.optional(Home.Title),
+  payload: Schema.optional(SchedulePayload)
 })
 
 /**
@@ -643,7 +673,10 @@ export const rules = (declaration: Declaration): ReadonlyArray<Rule> =>
         flow: (value as { readonly flow: Rule["flow"] }).flow,
         ...((value as { readonly description?: string }).description === undefined
           ? {}
-          : { description: (value as { readonly description: string }).description })
+          : { description: (value as { readonly description: string }).description }),
+        ...((value as { readonly payload?: Rule["payload"] }).payload === undefined
+          ? {}
+          : { payload: (value as { readonly payload: NonNullable<Rule["payload"]> }).payload })
       }
   )
 
@@ -700,8 +733,9 @@ const formatIssue = SchemaIssue.makeFormatterDefault()
  * @category rendering
  * @since 1.0.0
  */
-export const renderProjection = (declaration: Declaration, catalog: ReadonlyArray<FlowCatalog.Row>): string =>
-  `${
+export const renderProjection = (declaration: Declaration, catalog: ReadonlyArray<FlowCatalog.Row>): string => {
+  checkSchedulePayloads(declaration, catalog)
+  return `${
     JSON.stringify(
       Schema.encodeSync(Projection)({
         summary: declaration.summary,
@@ -733,6 +767,35 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
       2
     )
   }\n`
+}
+
+/**
+ * Refuses a `schedule:` payload the flow it starts could not accept, by the
+ * schema the catalog carries for it: a Markdown flow takes `{ args: string }`
+ * and nothing else. A module flow's payload schema is not in the catalog, so
+ * its payload is decoded against that schema when the run is admitted, and a
+ * mismatch fails the run there by name.
+ */
+const checkSchedulePayloads = (declaration: Declaration, catalog: ReadonlyArray<FlowCatalog.Row>) => {
+  for (const rule of rules(declaration)) {
+    if (rule.payload === undefined) continue
+    const ids = typeof rule.flow === "string" ? [rule.flow] : rule.flow
+    for (const id of ids) {
+      const found = catalog.find((flow) => flow.id === id)
+      if (found === undefined || found.kind !== "mdx") continue
+      const fields = Object.keys(rule.payload)
+      if (
+        fields.some((field) => field !== "args") || (fields.length === 1 && typeof rule.payload["args"] !== "string")
+      ) {
+        throw new FlowCatalog.FlowCatalogError({
+          message: `Factory on[${JSON.stringify(rule.event)}] payload does not fit the flow ${
+            JSON.stringify(id)
+          }: a Markdown flow takes { args: string } and nothing else`
+        })
+      }
+    }
+  }
+}
 
 /**
  * Reads a rendered projection back, or reports why the text is not one.
