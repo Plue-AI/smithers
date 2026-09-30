@@ -75,6 +75,25 @@ test("a failed settlement retains its reservation and durable payload for retry"
   ).toBeCloseTo(0.00153, 9);
 });
 
+test("a prompt at the long-context threshold settles at the long-context rate", async () => {
+  const { env, options } = await setup();
+  await recordUsage(env.DB, {
+    ...options,
+    summary: {
+      model: "claude-sonnet-4-5",
+      inputTokens: 150_000,
+      outputTokens: 100,
+      cacheCreationTokens: 40_000,
+      cacheReadTokens: 10_000,
+    },
+  });
+  // 200k prompt tokens reach claude-sonnet-4-5's longContextFrom, so every
+  // class bills at the tiered 6/22.5/7.5/0.6 rates, not the standard ones.
+  expect(
+    (await env.DB.prepare("SELECT spent_usd FROM sessions").first<{ spent_usd: number }>())?.spent_usd,
+  ).toBeCloseTo(1.20825, 9);
+});
+
 test("outstanding reservations still constrain repository budget after UTC month rollover", async () => {
   const { reserveUsage } = await import("../../src/server/proxy/reserveUsage.ts");
   const { env } = await setup();

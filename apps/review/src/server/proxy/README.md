@@ -6,7 +6,8 @@ The metered Anthropic proxy (`POST /anthropic/v1/messages` only).
   API key, stream the response back and meter a teed copy via `waitUntil`.
 - `anthropicEndpointAllowed.ts`: method/path allowlist for the shared key.
 - `authenticateProxyRequest.ts`: resolve session tokens and `srk_` API keys.
-- `modelPrices.ts`: explicit price allowlist; unknown models throw.
+- `modelPrices.ts`: explicit price allowlist; unknown models throw. Dated
+  successors and long-context tiers resolve like the backend rate card.
 - `priceRequest.ts`: validate bounded text/local-tool requests and calculate
   a conservative input-plus-output reservation.
 - `reserveUsage.ts`: atomically enforce session, repository and API-key

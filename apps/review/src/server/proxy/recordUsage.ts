@@ -27,7 +27,6 @@ export async function recordUsage(
     retainReservation?: boolean;
   },
 ): Promise<RecordedUsage> {
-  const price = modelPrices(options.summary.model);
   const counts = [
     options.summary.inputTokens,
     options.summary.outputTokens,
@@ -35,6 +34,13 @@ export async function recordUsage(
     options.summary.cacheReadTokens,
   ];
   if (counts.some((n) => !Number.isSafeInteger(n) || n < 0)) throw new Error("invalid usage token count");
+  // Anthropic reports cache tokens beside input_tokens; the long-context
+  // threshold reads the whole prompt. `now` keeps settlement retries
+  // deterministic across a dated successor flip.
+  const price = modelPrices(options.summary.model, {
+    promptTokens: options.summary.inputTokens + options.summary.cacheCreationTokens + options.summary.cacheReadTokens,
+    at: options.now,
+  });
   const costUsd =
     (options.summary.inputTokens * price.input +
       options.summary.outputTokens * price.output +

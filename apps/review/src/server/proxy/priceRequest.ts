@@ -81,7 +81,6 @@ export async function priceRequest(request: Request): Promise<{ body: ArrayBuffe
     throw new Error("unsupported Messages request fields");
   }
   if (typeof input.model !== "string") throw new Error("model is required");
-  const price = modelPrices(input.model);
   if (!Number.isSafeInteger(input.max_tokens) || input.max_tokens < 1 || input.max_tokens > 64_000) {
     throw new Error("max_tokens must be an integer between 1 and 64000");
   }
@@ -105,10 +104,13 @@ export async function priceRequest(request: Request): Promise<{ body: ArrayBuffe
     throw new Error("only local tools with five-minute caching are supported");
   }
   // Text tokenization is bounded by UTF-8 bytes. Four tokens per serialized byte
-  // plus 4096 covers message/tool framing and injected tool prompts. This stays
-  // below 200k, excluding long-context premiums. Reserve every input token at
-  // the five-minute cache-write rate, even when it will be uncached or a hit.
+  // plus 4096 covers message/tool framing and injected tool prompts. The bound
+  // selects the long-context card when it reaches the model's threshold, so a
+  // tiered model never reserves at the short-context rate. Reserve every input
+  // token at the five-minute cache-write rate, even when it will be uncached or
+  // a hit.
   const inputBound = bytes * 4 + 4096;
+  const price = modelPrices(input.model, { promptTokens: inputBound });
   return {
     body,
     model: input.model,
