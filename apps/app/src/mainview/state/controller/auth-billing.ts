@@ -564,9 +564,10 @@ export const createAuthBillingController = (
       return nativeSignIn(openExternal)
     }
     if (typeof window === "undefined") return
-    // A sign-in from a repository page comes back to that page (the server
-    // validates the path against its own origin and ignores anything else).
-    const returnTo = signInReturnTo(window.location)
+    // A repository page returns to itself; the landing needs a success marker
+    // so its entrance resumes onboarding without a second Get started click.
+    // The server validates either path against its own origin.
+    const returnTo = window.location.pathname === "/" ? `/?${AUTH_SIGNED_IN_PARAM}=github` : signInReturnTo(window.location)
     const query = returnTo === null ? "" : `?${AUTH_RETURN_TO_PARAM}=${encodeURIComponent(returnTo)}`
     // The hop leaves the page: let the durable queue settle, or the state this click just changed is lost.
     return Promise.resolve(store.settled?.()).then(() => {

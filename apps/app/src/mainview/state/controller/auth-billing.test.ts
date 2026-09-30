@@ -170,7 +170,7 @@ describe("signed-in session adoption", () => {
 /*
  * The sign-in return path. From a repository page (`/owner/name`) the
  * sign-in door names that page as `return_to`; from the landing page it
- * names nothing. Coming back, `?signed-in=github` on either page counts as
+ * names an app-resume marker. Coming back, `?signed-in=github` on either page counts as
  * handled (so the boot strips it) without a chat message: the session probe
  * already says who signed in.
  */
@@ -221,13 +221,13 @@ describe("sign-in return path", () => {
     })
   })
 
-  test("from the landing page the sign-in door carries no return path", async () => {
+  test("from the landing page the sign-in door returns with an app-resume marker", async () => {
     const { controller } = await signedOutController()
     await withWindow("/", "?repo=smithersai/smithers", async (assigned) => {
       controller.signIn()
       // The redirect waits for the durable queue first (DurableCollection.settled), so it lands a tick later.
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(assigned).toEqual(["/api/auth/github/start"])
+      expect(assigned).toEqual(["/api/auth/github/start?return_to=%2F%3Fsigned-in%3Dgithub"])
     })
   })
 
@@ -244,7 +244,7 @@ describe("sign-in return path", () => {
     await withWindow("/", "", async (assigned) => {
       controller.signIn()
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(assigned).toEqual(["/api/auth/github"])
+      expect(assigned).toEqual(["/api/auth/github?return_to=%2F%3Fsigned-in%3Dgithub"])
     })
   })
 

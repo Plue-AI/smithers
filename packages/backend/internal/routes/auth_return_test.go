@@ -21,6 +21,7 @@ func TestGitHubBrowserReturnRoundtrip(t *testing.T) {
 		stale              bool
 	}{
 		{"repository", "/smithersai/smithers/?tab=issues#open", "/smithersai/smithers/?tab=issues#open", false},
+		{"landing app resume", "/?signed-in=github", "/?signed-in=github", false},
 		{"stale flow", "/old/repo/", "https://app.example/", true},
 		{"no target", "", "https://app.example/", false},
 	} {
