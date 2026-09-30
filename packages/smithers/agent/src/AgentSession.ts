@@ -386,6 +386,18 @@ const noLateFields: ReadonlySet<string> = new Set()
 export const traceId = (runId: string): string => Digest.digest(`smithers/run-trace/${runId}`).slice(0, 32)
 
 /**
+ * The durable child a control run executes its registered module in.
+ *
+ * The approved plan's execution digest keeps that child stable across an
+ * adopted-code resume; a fork's own run id gives it a separate child.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const moduleExecutionId = (runId: string, executionDigest: string): string =>
+  Digest.digest(Digest.canonical(["control/module", runId, executionDigest]))
+
+/**
  * The fixed parent every attempt of one run opens its `smithers.run` span
  * under, so a resumed or re-driven run stays in the one trace {@link traceId}
  * names.
@@ -3142,9 +3154,7 @@ export const make = (
           // continues that child: unchanged steps replay and only re-keyed
           // ones run again.
           return yield* executable.flow.execute({ input }, {
-            executionId: Digest.digest(
-              Digest.canonical(["control/module", payload.runId, card.executionDigest ?? executionDigest])
-            )
+            executionId: moduleExecutionId(payload.runId, card.executionDigest ?? executionDigest)
           }).pipe(
             CapabilitySet.attenuate(patterns(card.envelope.capabilities)),
             Effect.provide(options.budget(envelope)),
