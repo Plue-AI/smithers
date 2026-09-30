@@ -38,24 +38,40 @@ const normalCursor = (value: string, cursor: number) => {
   const at = Math.max(start(value, cursor), Math.min(cursor, end(value, cursor) - 1))
   return characterAt(value, at)?.index ?? at
 }
-const kind = (char: string) => /\s/.test(char) ? 0 : /[\p{L}\p{N}_]/u.test(char) ? 1 : 2
+// Word classes follow the base code point of each extended grapheme, so an accent or astral letter never splits.
+const kind = (char: string) => {
+  const base = String.fromCodePoint(char.codePointAt(0) ?? 32)
+  return /\s/u.test(base) ? 0 : /[\p{L}\p{N}\p{M}_]/u.test(base) ? 1 : 2
+}
 const word = (value: string, cursor: number, key: string): number => {
-  let to = cursor
+  const parts = [...characters.segment(value)]
+  const last = parts.length - 1
+  const kinds = parts.map(part => kind(part.segment))
+  const found = parts.findIndex(part => cursor >= part.index && cursor < part.index + part.segment.length)
+  let to = found < 0 ? parts.length : found
   if (key === 'b') {
     to = Math.max(0, to - 1)
-    while (to > 0 && kind(value[to]!) === 0) to--
-    while (to > 0 && kind(value[to - 1]!) === kind(value[to]!)) to--
+    while (to > 0 && kinds[to] === 0) to--
+    while (to > 0 && kinds[to - 1] === kinds[to]) to--
   } else if (key === 'e') {
-    if (to >= value.length - 1) return to
-    to = Math.min(value.length - 1, to + 1)
-    while (to < value.length - 1 && kind(value[to]!) === 0) to++
-    while (to < value.length - 1 && kind(value[to + 1]!) === kind(value[to]!)) to++
+    if (to >= last) return cursor
+    to++
+    while (to < last && kinds[to] === 0) to++
+    while (to < last && kinds[to + 1] === kinds[to]) to++
   } else {
-    const from = kind(value[to] ?? ' ')
-    while (to < value.length && kind(value[to]!) === from) to++
-    while (to < value.length && kind(value[to]!) === 0) to++
+    const from = kinds[to] ?? 0
+    while (to < parts.length && kinds[to] === from) to++
+    while (to < parts.length && kinds[to] === 0) to++
   }
-  return Math.max(0, to)
+  return parts[to]?.index ?? value.length
+}
+// Start of the last character in the same-class run that begins at `at`.
+const runEnd = (value: string, at: number) => {
+  const parts = [...characters.segment(value)]
+  let to = parts.findIndex(part => at >= part.index && at < part.index + part.segment.length)
+  if (to < 0) return at
+  while (to + 1 < parts.length && kind(parts[to + 1]!.segment) === kind(parts[to]!.segment)) to++
+  return parts[to]?.index ?? at
 }
 
 function motion(buffer: VimBuffer, key: string, count: number): number | undefined {
@@ -148,14 +164,13 @@ export function vimKey(buffer: VimBuffer, key: string, ctrl = false): boolean {
   } else if (['d', 'c', 'y'].includes(buffer.pending)) {
     const operator = buffer.pending
     const linewise = key === operator || ['j', 'k', 'ArrowUp', 'ArrowDown'].includes(key)
-    const changeWord = operator === 'c' && key === 'w' && cursor < value.length && kind(value[cursor]!) !== 0
+    const changeWord = operator === 'c' && key === 'w' && cursor < value.length && kind(characterAt(value, cursor)!.segment) !== 0
     let destination = motion(buffer, key, count)
     if (changeWord) {
       destination = cursor
       for (let n = 0; n < count; n++) {
         if (n > 0) destination = word(value, destination, 'w')
-        const type = kind(value[destination] ?? ' ')
-        while (destination + 1 < value.length && kind(value[destination + 1]!) === type) destination++
+        destination = runEnd(value, destination)
       }
     }
     if (key === operator) {
@@ -165,7 +180,7 @@ export function vimKey(buffer: VimBuffer, key: string, ctrl = false): boolean {
     if (destination !== undefined) {
       const from = linewise ? start(value, Math.min(cursor, destination)) : Math.min(cursor, destination)
       const to = linewise ? Math.min(value.length, end(value, Math.max(cursor, destination)) + 1)
-        : Math.min(value.length, Math.max(cursor, destination) + (key === 'e' || changeWord ? 1 : 0))
+        : Math.min(value.length, (key === 'e' || changeWord ? nextVimCharacter(value, Math.max(cursor, destination)) : Math.max(cursor, destination)))
       buffer.register = value.slice(from, to); buffer.linewise = linewise
       if (operator !== 'y') {
         const deleteFrom = linewise && operator === 'd' && to === value.length && from > 0 ? from - 1 : from

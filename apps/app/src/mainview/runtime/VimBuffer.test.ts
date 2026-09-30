@@ -145,3 +145,41 @@ test('forward end-word stays on the terminal empty line instead of jumping back'
   keys(w, 'b')
   expect(w.cursor).toBe(0)
 })
+
+test('word motions and operators keep combining marks and astral letters whole', () => {
+  const cafe = normal('café word')
+  keys(cafe, 'c', 'w')
+  expect([cafe.value, cafe.cursor, cafe.mode, cafe.register]).toEqual([' word', 0, 'insert', 'café'])
+
+  for (const [operator, register, value] of [['d', 'café ', 'next'], ['y', 'café ', 'café next']]) {
+    const buffer = normal('café next')
+    keys(buffer, operator!, 'w')
+    expect([buffer.register, buffer.value]).toEqual([register, value])
+  }
+  for (const [operator, value] of [['d', ' next'], ['y', 'café next']]) {
+    const buffer = normal('café next')
+    keys(buffer, operator!, 'e')
+    expect([buffer.register, buffer.value]).toEqual(['café', value])
+  }
+
+  const astral = normal('\u{10400}bc next')
+  keys(astral, 'w')
+  expect(astral.cursor).toBe(5)
+  keys(astral, 'b')
+  expect(astral.cursor).toBe(0)
+  keys(astral, 'e')
+  expect(astral.cursor).toBe(3)
+  keys(astral, '$', 'b', 'b')
+  expect(astral.cursor).toBe(0)
+  keys(astral, 'c', 'w')
+  expect(astral.value).toBe(' next')
+
+  const controls = normal('服务 x')
+  keys(controls, 'w')
+  expect(controls.cursor).toBe(3)
+  const emoji = normal('a \u{1F469}‍\u{1F4BB}!b')
+  keys(emoji, 'w')
+  expect(emoji.cursor).toBe(2)
+  keys(emoji, 'w')
+  expect(emoji.cursor).toBe(8)
+})

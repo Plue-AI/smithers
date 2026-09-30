@@ -40,10 +40,10 @@ Each mounted field retains its editing mode when moving between panes.
 
 Supported normal-mode commands:
 
-- `h/j/k/l` and arrows; `w/b/e` word motions; `0/^/$` line motions; `gg/G` first/last line.
+- `h/j/k/l` and arrows; `w/b/e` word motions over whole characters (accents and astral letters stay attached); `0/^/$` line motions; `gg/G` first/last line.
 - `i/a` and `I/A` insert at the cursor or line boundary; `o/O` open a line.
 - `d/c/y` followed by a motion delete, change, or copy; `dd/cc/yy` act on lines.
-- `x` deletes, `r` replaces a character, `p/P` paste, `u` undoes, Ctrl+R redoes.
+- `x` deletes, `r` replaces a character (any one Unicode character, digits and `u` included), `p/P` paste, `u` undoes, Ctrl+R redoes.
 - Counts such as `3w` and `2dd`; visual motions with D/C/Y to act on the selection.
 
 The unnamed copy register is shared across fields. This is a native text-field
