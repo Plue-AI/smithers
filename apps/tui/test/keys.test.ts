@@ -39,7 +39,7 @@ const handled = (source: string, file: string): ReadonlyArray<Handled> =>
 
 /** Pure helpers take the name as a parameter and compare it or switch on it. */
 const helper = (file: string, parameter: string): ReadonlyArray<Handled> =>
-  [...read(file).matchAll(new RegExp(String.raw`(?:\b${parameter}\s*===|\bcase)\s*(${literal})`, "g"))].map((
+  [...read(file).matchAll(new RegExp(String.raw`(?:\b${parameter}\s*===|(?<![-.])\bcase)\s*(${literal})`, "g"))].map((
     match
   ) => ({
     name: JSON.parse(match[1]!) as string,

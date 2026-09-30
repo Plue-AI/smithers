@@ -24,7 +24,7 @@ import * as Workspace from "@smthrs/kernel/Workspace"
 import { structuredPatch } from "diff"
 import { Effect, Layer, Option } from "effect"
 import { createHash } from "node:crypto"
-import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs"
+import { lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs"
 import { basename, dirname, isAbsolute, join, relative } from "node:path"
 import * as Changes from "./changes.ts"
 import type * as Monitors from "./monitors.ts"
@@ -60,8 +60,8 @@ export interface Command {
   readonly base: string
   /** Absolute patterns from a hermetic call's `writes`; `undefined` when it declared none. */
   readonly writes: ReadonlyArray<string> | undefined
-  /** Declared `writes: []` and nothing in its text says otherwise; see `readOnly`. */
-  readonly readOnly: boolean
+  /** What it does if it declared `writes: []` and nothing in its text says otherwise; see `readOnly`. */
+  readonly readOnly: Reading
 }
 
 export interface Request {
@@ -135,8 +135,48 @@ export const real = (path: string): string => {
       rest.unshift(...link.split("/"))
     }
   }
-  return head
+  return cased(head)
 }
+
+/** `path` with its existing part spelled as on disk, which a case-insensitive volume need not match. */
+const cased = (path: string): string => {
+  let head = path
+  const tail: Array<string> = []
+  for (;;) {
+    try {
+      return join(realpathSync.native(head), ...tail)
+    } catch {
+      if (head === "/") return path
+      tail.unshift(basename(head))
+      head = dirname(head)
+    }
+  }
+}
+
+/** Whether names on the volume holding `path` match regardless of case: `A` finds `a`. */
+const insensitive = (path: string): boolean => {
+  for (let at = path; at !== dirname(at); at = dirname(at)) {
+    const name = basename(at)
+    const swapped = name === name.toLowerCase() ? name.toUpperCase() : name.toLowerCase()
+    if (swapped === name) continue
+    try {
+      const here = statSync(at)
+      try {
+        const there = statSync(join(dirname(at), swapped))
+        return here.ino === there.ino && here.dev === there.dev
+      } catch {
+        return false
+      }
+    } catch {
+      // Not on disk yet: the volume is its nearest existing parent's.
+    }
+  }
+  return false
+}
+
+/** How the volume holding `path` compares names: lowercased where case does not matter. */
+const comparing = (path: string): (text: string) => string =>
+  insensitive(path) ? (text) => text.toLowerCase() : (text) => text
 
 /**
  * Keys that never change what a call does, per flow. A hermetic call's
@@ -342,116 +382,339 @@ const replaced = (flow: string, input: unknown, path: string, cwd: string): stri
 }
 
 /**
- * Programs whose every use reads, plus the read-only forms of a few more.
- * Interpreters run only a script file the call names, which the owner's
- * `writes: []` decision trusts; inline or piped code is never pre-allowed.
+ * How a reading program may be called. Every word that starts with `-` must
+ * be a bundle of `letters` (a count may follow: `-n5`, `-U3`), a bare count
+ * (`-5`), or one of `options` whole, with or without `=value`. An
+ * abbreviation is not the option it abbreviates, so it is refused.
  */
-const readers = new Set([
+interface Reader {
+  readonly letters?: string
+  readonly options?: ReadonlyArray<string>
+  /** The first word after `global` options must be one of these: `git status`. */
+  readonly subcommands?: ReadonlyArray<string>
+  readonly global?: ReadonlyArray<string>
+}
+
+/** Programs that can neither write nor start another program, whatever their options. */
+const plain = new Set([
   "basename",
-  "bun",
   "cat",
   "cmp",
   "column",
   "cut",
-  "diff",
   "dirname",
   "du",
   "echo",
   "false",
-  "find",
-  "git",
   "grep",
   "head",
   "jq",
   "ls",
   "md5sum",
-  "node",
-  "npm",
-  "pnpm",
   "printf",
   "pwd",
-  "python",
-  "python3",
   "realpath",
-  "rg",
   "sha256sum",
   "shasum",
-  "sort",
   "stat",
   "tail",
   "test",
   "tr",
-  "tree",
   "true",
   "wc",
-  "which",
-  "yarn"
+  "which"
 ])
 
-/** Subcommands that only read, per program with subcommands. */
-const readingSubcommands: Readonly<Record<string, ReadonlySet<string>>> = {
-  git: new Set(["status", "diff", "log", "show", "grep", "ls-files", "rev-parse", "blame"]),
-  npm: new Set(["test", "t"]),
-  pnpm: new Set(["test", "t"]),
-  yarn: new Set(["test"]),
-  bun: new Set(["test"])
-}
-
-/** Arguments that make a reader write, or run a program or inline code. */
-const writingArguments: Readonly<Record<string, RegExp>> = {
-  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
-  git: /^(--output|-O|--open-files-in-pager|-c$|--config-env|--exec-path)/,
-  rg: /^(--pre|--hostname-bin)/,
-  tree: /^-o/,
-  node: /^(-e|-p|-r|-i|--eval|--print|--require|--import|--loader|--experimental-loader|--interactive)/,
-  python: /^-[A-Za-z]*c/,
-  python3: /^-[A-Za-z]*c/,
-  sort: /^(-[A-Za-z]*o|--output)/
-}
-
-/** Interpreters, which must name the script file they run. */
-const interpreters = new Set(["node", "python", "python3"])
-
-/** Modules `python -m` may run: test runners, like a script file. */
-const modules = new Set(["pytest", "unittest"])
-
-/** Whether one command's words read as only reading. */
-const reading = (words: ReadonlyArray<string>): boolean => {
-  const [program, ...rest] = words
-  if (program === undefined) return true
-  // Assignments before the command set its environment, which can load code.
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(program)) return false
-  const tool = basename(program)
-  if (!readers.has(tool)) return false
-  const subcommands = readingSubcommands[tool]
-  if (subcommands !== undefined && !(tool === "bun" && rest[0] !== undefined && /\.[cm]?[jt]sx?$/.test(rest[0]))) {
-    const sub = rest.find((word) => !word.startsWith("-"))
-    if (sub === undefined || !subcommands.has(sub)) return false
+/** Programs with options that write or start another program: only the listed options pass. */
+const readers: Readonly<Record<string, Reader>> = {
+  diff: {
+    letters: "abBcCiNqrstTuUwy",
+    options: [
+      "--",
+      "--brief",
+      "--color",
+      "--ignore-all-space",
+      "--ignore-blank-lines",
+      "--ignore-case",
+      "--ignore-space-change",
+      "--new-file",
+      "--recursive",
+      "--side-by-side",
+      "--strip-trailing-cr",
+      "--text",
+      "--unified"
+    ]
+  },
+  find: {
+    options: [
+      "-a",
+      "-and",
+      "-depth",
+      "-empty",
+      "-false",
+      "-iname",
+      "-ipath",
+      "-iregex",
+      "-maxdepth",
+      "-mindepth",
+      "-mmin",
+      "-mtime",
+      "-name",
+      "-newer",
+      "-not",
+      "-o",
+      "-or",
+      "-path",
+      "-perm",
+      "-print",
+      "-print0",
+      "-prune",
+      "-regex",
+      "-size",
+      "-true",
+      "-type",
+      "-wholename",
+      "-xdev"
+    ]
+  },
+  git: {
+    global: ["--no-pager"],
+    subcommands: ["status", "diff", "log", "show", "grep", "ls-files", "rev-parse", "blame"],
+    letters: "abcCehilLmMnopPqRsStuUvwzAEFG",
+    options: [
+      "--",
+      "--abbrev-commit",
+      "--abbrev-ref",
+      "--after-context",
+      "--all",
+      "--author",
+      "--before-context",
+      "--branch",
+      "--cached",
+      "--check",
+      "--color",
+      "--context",
+      "--count",
+      "--date",
+      "--decorate",
+      "--deleted",
+      "--diff-filter",
+      "--exclude-standard",
+      "--exit-code",
+      "--extended-regexp",
+      "--files-with-matches",
+      "--first-parent",
+      "--fixed-strings",
+      "--follow",
+      "--format",
+      "--full-name",
+      "--graph",
+      "--grep",
+      "--ignore-case",
+      "--ignored",
+      "--is-inside-work-tree",
+      "--line-number",
+      "--max-count",
+      "--merges",
+      "--modified",
+      "--name-only",
+      "--name-status",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-merges",
+      "--no-renames",
+      "--no-textconv",
+      "--numstat",
+      "--oneline",
+      "--others",
+      "--patch",
+      "--porcelain",
+      "--pretty",
+      "--quiet",
+      "--raw",
+      "--reverse",
+      "--short",
+      "--shortstat",
+      "--show-prefix",
+      "--show-toplevel",
+      "--since",
+      "--stat",
+      "--staged",
+      "--summary",
+      "--unified",
+      "--until",
+      "--untracked-files",
+      "--verify",
+      "--word-diff"
+    ]
+  },
+  rg: {
+    letters: "aABcCeEfFgHiIjlLmMnNopPqrsStTuUvwx0",
+    options: [
+      "--",
+      "--after-context",
+      "--before-context",
+      "--case-sensitive",
+      "--color",
+      "--context",
+      "--count",
+      "--count-matches",
+      "--files",
+      "--files-with-matches",
+      "--files-without-match",
+      "--fixed-strings",
+      "--follow",
+      "--glob",
+      "--heading",
+      "--hidden",
+      "--iglob",
+      "--ignore-case",
+      "--invert-match",
+      "--json",
+      "--line-number",
+      "--line-regexp",
+      "--max-count",
+      "--max-depth",
+      "--multiline",
+      "--no-filename",
+      "--no-heading",
+      "--no-ignore",
+      "--no-line-number",
+      "--null",
+      "--only-matching",
+      "--quiet",
+      "--regexp",
+      "--smart-case",
+      "--sort",
+      "--type",
+      "--type-not",
+      "--vimgrep",
+      "--with-filename",
+      "--word-regexp"
+    ]
+  },
+  sort: {
+    letters: "bdfghkMnrstuVz",
+    options: [
+      "--dictionary-order",
+      "--general-numeric-sort",
+      "--human-numeric-sort",
+      "--ignore-case",
+      "--ignore-leading-blanks",
+      "--month-sort",
+      "--numeric-sort",
+      "--reverse",
+      "--stable",
+      "--unique",
+      "--version-sort",
+      "--zero-terminated"
+    ]
+  },
+  tree: {
+    letters: "aCdDfFghiIJlLnNpPQrstuUvx",
+    options: ["--charset", "--dirsfirst", "--du", "--filelimit", "--gitignore", "--noreport", "--prune"]
   }
-  const writing = writingArguments[tool]
-  if (writing !== undefined && rest.some((word) => writing.test(word))) return false
-  if (!interpreters.has(tool)) return true
-  const module = rest.indexOf("-m")
-  if (module >= 0) return modules.has(rest[module + 1] ?? "")
-  return rest.some((word) => !word.startsWith("-")) || (tool === "node" && rest.includes("--test"))
 }
 
-/** Shell text as its commands and whether any of them writes through a redirection. */
+const allowed = (reader: Reader, word: string): boolean =>
+  /^-[0-9]+$/.test(word) ||
+  (reader.letters !== undefined && new RegExp(`^-[${reader.letters}]+[0-9]*$`).test(word)) ||
+  reader.options?.includes(word.split("=")[0]!) === true
+
+/**
+ * Programs that run the workspace's own code: the script file a call names,
+ * by the extension its interpreter runs it by.
+ */
+const scripts: Readonly<Record<string, RegExp>> = {
+  bun: /\.[cm]?[jt]sx?$/,
+  node: /\.[cm]?[jt]s$/,
+  python: /\.py$/,
+  python3: /\.py$/
+}
+
+/** The words that start each program's test runner, which also runs the workspace's own code. */
+const runners: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>> = {
+  bun: [["test"]],
+  node: [["--test"]],
+  npm: [["test"], ["t"]],
+  pnpm: [["test"], ["t"]],
+  python: [["-m", "pytest"], ["-m", "unittest"]],
+  python3: [["-m", "pytest"], ["-m", "unittest"]],
+  yarn: [["test"]]
+}
+
+/**
+ * What a declared-read-only command does, read lexically: `reads`, `runs`
+ * the workspace's own scripts or tests, or `false` for anything else.
+ */
+export type Reading = "reads" | "runs" | false
+
+/** Whether `word` names a regular file inside `root`, from `base`. */
+const within = (word: string, root: string, base: string): boolean => {
+  const target = real(isAbsolute(word) ? word : join(base, word))
+  const inside = relative(root, target)
+  try {
+    return inside !== "" && !inside.startsWith("..") && !isAbsolute(inside) && statSync(target).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * One command. A program is found by its bare name only, never a path to
+ * one. A script or test runner never takes piped or redirected input, which
+ * could be code, and a runner takes no options, which could load some.
+ */
+const reading = (command: Words, root: string, base: string): Reading => {
+  const [program, ...rest] = command.words
+  if (program === undefined) return "reads"
+  if (program.includes("/")) return false
+  const runner = runners[program]?.find((prefix) => prefix.every((word, at) => rest[at] === word))
+  if (runner !== undefined) {
+    return !command.fed && rest.slice(runner.length).every((word) => !word.startsWith("-")) && "runs"
+  }
+  const script = scripts[program]
+  if (script !== undefined) {
+    const file = rest[0]
+    return !command.fed && file !== undefined && script.test(file) && within(file, root, base) && "runs"
+  }
+  if (plain.has(program)) return "reads"
+  const reader = readers[program]
+  if (reader === undefined) return false
+  let at = 0
+  if (reader.subcommands !== undefined) {
+    while (reader.global?.includes(rest[at] ?? "") === true) at++
+    if (!reader.subcommands.includes(rest[at] ?? "")) return false
+    at++
+  }
+  return rest.slice(at).every((word) => !word.startsWith("-") || word === "-" || allowed(reader, word)) && "reads"
+}
+
+/** One command's words, quotes and escapes removed. */
+interface Words {
+  readonly words: ReadonlyArray<string>
+  /** Its input is a pipe or a file: `a | b`, `b < file`. */
+  readonly fed: boolean
+}
+
+/** Shell text as its commands, and what in it a lexical reading cannot follow. */
 interface Parsed {
-  /** Each command's words, quotes and escapes removed. */
-  readonly commands: ReadonlyArray<ReadonlyArray<string>>
+  readonly commands: ReadonlyArray<Words>
   /** An unquoted `>` other than `N>&M` or to `/dev/null`, or a here-document. */
   readonly redirects: boolean
+  /** Text the shell rewrites before it runs: `$` outside single quotes, or an unquoted `*`, `?`, `[` or `{`. */
+  readonly expands: boolean
 }
 
 /** Reads shell text as the shell splits it: separators and redirections inside quotes are text. */
 const parse = (shell: string): Parsed => {
-  const found: Array<Array<string>> = [[]]
+  const found: Array<{ words: Array<string>; fed: boolean }> = [{ words: [], fed: false }]
   let redirects = false
+  let expands = false
   let word: string | undefined
   let quote: string | undefined
   const end = () => {
-    if (word !== undefined) found.at(-1)!.push(word)
+    if (word !== undefined) found.at(-1)!.words.push(word)
     word = undefined
   }
   for (let at = 0; at < shell.length; at++) {
@@ -459,7 +722,10 @@ const parse = (shell: string): Parsed => {
     if (quote !== undefined) {
       if (char === quote) quote = undefined
       else if (char === "\\" && quote === "\"" && at + 1 < shell.length) word = (word ?? "") + shell[++at]
-      else word = (word ?? "") + char
+      else {
+        expands ||= char === "$" && quote === "\""
+        word = (word ?? "") + char
+      }
     } else if (char === "'" || char === "\"") {
       quote = char
       word = word ?? ""
@@ -477,27 +743,45 @@ const parse = (shell: string): Parsed => {
     } else if (char === "<" && shell[at + 1] === "<") {
       redirects = true
       end()
-    } else if (/[;&|\n(){}]/.test(char)) {
+    } else if (char === "<") {
       end()
-      found.push([])
-    } else if (/[\s<]/.test(char)) end()
-    else word = (word ?? "") + char
+      found.at(-1)!.fed = true
+    } else if (char === "&" && shell[at - 1] === "|") continue
+    else if (/[;&|\n(){}]/.test(char)) {
+      end()
+      expands ||= char === "{"
+      // `|` and `|&` feed the next command; `||` does not.
+      found.push({ words: [], fed: char === "|" && shell[at - 1] !== "|" && shell[at + 1] !== "|" })
+    } else if (/\s/.test(char)) end()
+    else {
+      expands ||= /[$*?[]/.test(char)
+      word = (word ?? "") + char
+    }
   }
   end()
-  return { commands: found, redirects }
+  return { commands: found, redirects, expands }
 }
 
 /**
- * Whether shell text reads as only reading, lexically: every command in it is
- * a known reader in a reading form, with no command substitution, variable in
- * command position, here-document, or output redirection except `N>&M` or to
+ * Whether shell text reads as only reading, lexically, run from `base`
+ * inside the workspace `root` (both real): every command in it is a known
+ * reader called with allowed options, or runs a script file inside `root`
+ * or the workspace's tests (`runs`), with no expansion, command
+ * substitution, here-document, or output redirection except `N>&M` or to
  * `/dev/null`. It is a check of the declaration, not a sandbox; `Memory`
  * stops trusting declarations once one changed a file or could not be checked.
  */
-export const readOnly = (shell: string): boolean => {
-  if (/`|\$\(|<\(|>\(/.test(shell)) return false
+export const readOnly = (shell: string, root: string, base = root): Reading => {
+  if (/`|<\(|>\(/.test(shell)) return false
   const parsed = parse(shell)
-  return !parsed.redirects && parsed.commands.every(reading)
+  if (parsed.redirects || parsed.expands) return false
+  let found: Reading = "reads"
+  for (const command of parsed.commands) {
+    const one = reading(command, root, base)
+    if (one === false) return false
+    if (one === "runs") found = one
+  }
+  return found
 }
 
 /** How a shell call reads for `Memory`; see `Command`. */
@@ -528,8 +812,9 @@ const command = (flow: string, input: unknown, cwd: string): Command | undefined
     base,
     writes,
     readOnly: writes !== undefined && writes.length === 0 && typeof value.command === "string" && inside &&
-      ["container", "env", "script", "stdin", "interpreter", "args"].every((key) => value[key] === undefined) &&
-      readOnly(value.command)
+        ["container", "env", "script", "stdin", "interpreter", "args"].every((key) => value[key] === undefined)
+      ? readOnly(value.command, root, base)
+      : false
   }
 }
 
@@ -739,23 +1024,42 @@ export type Decision =
  * holding it, or a glob.
  */
 const touches = (shell: Command, path: string): "names" | "may" | undefined => {
-  const name = basename(path)
+  const key = comparing(path)
+  const refused = key(path)
+  const name = basename(refused)
   let may = false
-  for (const words of parse(shell.text).commands) {
+  for (const { words } of parse(shell.text).commands) {
     for (const word of words) {
       if (word === "") continue
       const resolved = isAbsolute(word) ? word : join(shell.base, word)
-      const target = real(resolved)
-      if (basename(word) === name && target === path) return "names"
-      may ||= basename(word) === name || path.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
-        Capability.matches(
-          new Capability.CapabilityPattern({ action: "fs:write", resource: resolved }),
-          Capability.make("fs:write", path)
-        ))
+      const target = key(real(resolved))
+      const named = key(basename(word)) === name
+      if (named && target === refused) return "names"
+      may ||= named || refused.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
+        covers(key(resolved), refused))
     }
   }
   return may ? "may" : undefined
 }
+
+/** Whether a write glob covers a path. */
+const covers = (glob: string, path: string): boolean =>
+  Capability.matches(
+    new Capability.CapabilityPattern({ action: "fs:write", resource: glob }),
+    Capability.make("fs:write", path)
+  )
+
+/** Whether `path` is the same file as the refused `refused`, as their volume compares names. */
+const same = (refused: string, path: string): boolean => {
+  const key = comparing(refused)
+  return key(refused) === key(path)
+}
+
+/**
+ * Version control's own files: writing them can make a later `git status`
+ * run a program, so no `a` covers them.
+ */
+const internal = (resource: string): boolean => /\/\.(git|jj)(\/|$)/i.test(resource)
 
 /**
  * What each run already decided, so the person is asked once per decision.
@@ -766,10 +1070,12 @@ const touches = (shell: Command, path: string): "names" | "may" | undefined => {
  *   path through edit, write or apply_patch, and any shell call with a word
  *   that resolves to the file or a declared write that covers it. A shell
  *   call with a word that only could reach it is asked, even under `a`.
- * - `a` allows every request its label names for the rest of the run.
+ * - `a` allows every request its label names for the rest of the run,
+ *   except writes to `.git` or `.jj`.
  * - A shell call that declares `writes: []` and reads as only reading
  *   (`readOnly`) runs unasked, while the run has refused nothing and every
- *   such earlier call was captured changing no file.
+ *   such earlier call was captured changing no file. One that runs a script
+ *   or tests runs unasked only until `a` allows edits.
  *
  * A denial wins over every allowance. The host keeps one `Memory` under
  * `ask` only: `deny` must never meet an allowance.
@@ -815,18 +1121,17 @@ export class Memory {
     const shell = request.command ?? run?.commands.get(request.meta.identity)
     if (run !== undefined) {
       if (run.refused.has(request.meta.identity)) return { _tag: "deny" }
-      if (request.capability.action === "fs:write" && run.paths.has(request.capability.resource)) {
+      if (
+        request.capability.action === "fs:write" &&
+        [...run.paths].some((path) => same(path, request.capability.resource))
+      ) {
         return { _tag: "deny" }
       }
       if (shell !== undefined) {
         let may = false
         for (const path of run.paths) {
-          const covered = shell.writes?.some((glob) =>
-            Capability.matches(
-              new Capability.CapabilityPattern({ action: "fs:write", resource: glob }),
-              Capability.make("fs:write", path)
-            )
-          ) === true
+          const key = comparing(path)
+          const covered = shell.writes?.some((glob) => covers(key(glob), key(path))) === true
           const touched = touches(shell, path)
           if (covered || touched === "names") return { _tag: "deny", path: relative(shell.base, path) || path }
           may ||= touched === "may"
@@ -834,10 +1139,16 @@ export class Memory {
         if (may) return this.asked(run, request, shell)
       }
       if (run.allowed.has(request.meta.identity)) return { _tag: "allow" }
-      if (run.grants.some((pattern) => Capability.matches(pattern, request.capability))) return { _tag: "allow" }
+      if (
+        !(request.capability.action === "fs:write" && internal(request.capability.resource)) &&
+        run.grants.some((pattern) => Capability.matches(pattern, request.capability))
+      ) return { _tag: "allow" }
     }
+    // Once `a` allows edits nobody sees, a script or test may be one of them.
+    const reading = shell?.readOnly === "reads" ||
+      (shell?.readOnly === "runs" && run?.grants.some((pattern) => pattern.action === "fs:write") !== true)
     if (
-      shell?.readOnly === true && declared && this.checkable && request.call !== undefined &&
+      reading && declared && this.checkable && request.call !== undefined &&
       (run === undefined || (run.trusted && run.paths.size === 0))
     ) {
       this.run(request.meta.source).declared.add(request.call)
@@ -969,7 +1280,7 @@ export const pending = (list: ReadonlyArray<GrantStore.PendingRequest>): Readonl
       resource: request.capability.resource,
       tier: request.tier,
       always: request.capability.action === "fs:write"
-        ? request.tier === "compensable"
+        ? request.tier === "compensable" && !internal(request.capability.resource)
         : Option.isSome(Capability.patternFromCapability(request.capability))
     }
   })
