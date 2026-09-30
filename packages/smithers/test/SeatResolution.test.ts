@@ -535,6 +535,44 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     )
   })
 
+  it("keeps a Claude alias on the signed-in Claude Code while the pool has no Anthropic key", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-code-seat-"))
+    try {
+      writeFileSync(
+        join(directory, "claude"),
+        `#!/bin/sh\necho '${JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" })}'\n`,
+        { mode: 0o755 }
+      )
+      let routes: ReadonlyArray<string> = ["chatgpt"]
+      const { executor } = poolExecutor(() => routes)
+      const { ANTHROPIC_API_KEY: _metered, SMITHERS_MODEL_PROXY_URL: _proxy, ...keyless } = pooled
+      const subscribed = await Effect.runPromise(resolveWith({ ...keyless, PATH: directory }, executor, "opus"))
+      expect(subscribed.id).toBe("opus")
+      expect(await prepared(subscribed, subscribed.modelId)).toMatchObject({
+        routeId: "claude-code",
+        url: "claude-code:claude-opus-5-5"
+      })
+      // The alias is offered either way, and a key connected later serves it.
+      expect(
+        await NodeControl.seatCandidates({
+          environment: keyless,
+          homeDirectory: directory,
+          readFile: () => undefined,
+          claudeCode: async () => undefined
+        })
+      ).toContain("opus")
+      routes = ["anthropic"]
+      const pooledSeat = await Effect.runPromise(
+        resolveWith({ ...keyless, PATH: directory }, executor, "opus")
+      )
+      expect((await prepared(pooledSeat, pooledSeat.modelId)).url).toBe(
+        "https://cloud.example.test/provider-pool/anthropic/v1/messages"
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it("refuses an empty pool without API-key fallback, then uses a newly connected account", async () => {
     let routes: ReadonlyArray<string> = []
     const { asked, executor } = poolExecutor(() => routes)

@@ -199,12 +199,18 @@ export const seatResolver = (
  */
 const aliasSeat = async (declared: string, host: Providers.Host): Promise<string> => {
   const seat = Providers.expandSeat(declared)
-  return seat !== declared && seat.startsWith("anthropic:") &&
-      accountPoolOf(host.environment)?.routes.includes("anthropic") !== true &&
-      (await credential("anthropic", host))._tag === "Refused"
+  return seat !== declared && seat.startsWith("anthropic:") && (await credential("anthropic", host))._tag === "Refused"
     ? `claude-code:${declared}`
     : seat
 }
+
+/**
+ * Whether a Claude alias that {@link aliasSeat} sends to Claude Code first
+ * tries the account pool's anthropic route: the pool knows only when the seat
+ * resolves whether it holds a connected Anthropic API key.
+ */
+const poolFirst = (declared: string, seat: string, host: Providers.Host): boolean =>
+  seat === `claude-code:${declared}` && accountPoolOf(host.environment)?.routes.includes("anthropic") === true
 
 /**
  * Resolves a seat alias (`luna`, `sol`, ...) as the seat {@link aliasSeat}
@@ -221,9 +227,12 @@ const withAliases = (base: SeatResolver.Service, host: Providers.Host): SeatReso
           )
         }
         const seat = yield* Effect.promise(() => aliasSeat(declared, host))
+        const resolved = poolFirst(declared, seat, host)
+          ? base.resolve(Providers.expandSeat(declared)).pipe(Effect.catch(() => base.resolve(seat)))
+          : base.resolve(seat)
         return yield* (seat === declared
-          ? base.resolve(seat)
-          : base.resolve(seat).pipe(Effect.map((resolved) => Seat.make({ ...resolved, id: declared }))))
+          ? resolved
+          : resolved.pipe(Effect.map((resolved) => Seat.make({ ...resolved, id: declared }))))
       })
   })
 
@@ -591,11 +600,12 @@ export const seatCandidates = async (host: Providers.Host): Promise<ReadonlyArra
   const pool = accountPoolOf(host.environment)
   const available = await Promise.all(SeatRouter.seats.map(async (alias) => {
     const seat = await aliasSeat(alias, host)
-    const provider = seat.slice(0, seat.indexOf(":"))
     // A route the pool is configured for is offered: the pool is asked which
     // routes have accounts when the seat resolves.
-    const route = poolRouteOf(provider, host.environment)
+    const expanded = poolFirst(alias, seat, host) ? Providers.expandSeat(alias) : seat
+    const route = poolRouteOf(expanded.slice(0, expanded.indexOf(":")), host.environment)
     if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return true
+    const provider = seat.slice(0, seat.indexOf(":"))
     return (await credential(provider, host))._tag !== "Refused"
   }))
   return SeatRouter.seats.filter((_, index) => available[index])
