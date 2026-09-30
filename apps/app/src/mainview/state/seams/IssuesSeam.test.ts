@@ -12,7 +12,8 @@ import { invalidatePreparedViews } from "../PreparedView"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { applicationIdentityFromFetch } from "../TestFixtures"
-import { readIssueOptions } from "./IssuesSeam"
+import { fetchIssuePayload, readIssueOptions } from "./IssuesSeam"
+import type { SeamContext } from "./SeamContext"
 
 /*
  * The issues seam, driven through the one command run path: issues.list /
@@ -1382,4 +1383,202 @@ test("owner resolution persists and returns before the receipt, deduplicates and
     expect(failed.kind === "issue" && failed.payload.sync?.resolution?.status).toBe("failed")
     expect(store.collections.toasts.get(toast.id)?.status).toBe("failed")
   } finally { release(); await controller.dispose(); await store.dispose?.() }
+})
+
+// Public helper units use exactly their declared HTTP/base URL authority, not a
+// fabricated controller context or partial AppStore.
+const issueReadContext = (routes: Record<string, RouteAnswer>, calls: string[]) => {
+  const services = backend(routes, calls)
+  if (services.fetchImpl === undefined) throw new Error("Fixture requires its owned HTTP boundary")
+  return { baseUrl: "https://app.test", http: services.fetchImpl } satisfies Pick<SeamContext, "http" | "baseUrl">
+}
+
+describe("issue picker options through the public read boundary", () => {
+  test("native issue options retain source order and lenient rows, omit conversations, and encode repository segments", async () => {
+    const calls: string[] = []
+    const ctx = issueReadContext({
+      "GET /api/repos/team%20space/project%20%E2%98%83/issues": json(200, [
+        wireIssue(7, { title: "Repair the native flake" }), wireIssue(8, { kind: "chat" }), null, "not a row", { number: "9" }, { number: 10 }
+      ])
+    }, calls)
+    expect(await readIssueOptions(ctx, "team space/project ☃")).toEqual({ options: [
+      { value: "7", label: "#7 Repair the native flake" }, { value: "10", label: "#10 " }
+    ] })
+    expect(calls).toEqual(["GET /api/repos/team%20space/project%20%E2%98%83/issues?state=open"])
+  })
+
+  test("native 404 answers the import door without reading GitHub source issues, and lists once imported", async () => {
+    let imported = false
+    const calls: string[] = []
+    const ctx = issueReadContext({
+      "GET /api/repos/will/flows/issues": () => imported ? json(200, [wireIssue(7, { title: "Imported bug" })]) : json(404, { message: "repository not imported" }),
+      "GET /api/user/github-repos/will/flows/issues": json(200, [wireGithubIssue(12, { title: "Source bug" })])
+    }, calls)
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [], error: "Import will/flows to fix an issue: /repos.import will/flows" })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open"])
+    imported = true
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [{ value: "7", label: "#7 Imported bug" }] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open", "GET /api/repos/will/flows/issues?state=open"])
+  })
+
+  test("native 403 returns its refusal without changing trackers, then the same read recovers", async () => {
+    let refused = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues": () => refused
+      ? json(403, { message: "Issue access denied" }) : json(200, [wireIssue(7, { title: "Accessible again" })]) }, calls)
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [], error: "Issue access denied" })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open"])
+    refused = false
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [{ value: "7", label: "#7 Accessible again" }] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open", "GET /api/repos/will/flows/issues?state=open"])
+  })
+
+  test.each(["syntax", "null"] as const)("native %s payload is unreadable, not empty options or a fallback", async malformed => {
+    let bad = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues": () => bad
+      ? malformed === "syntax" ? new Response("{not-json", { headers: { "content-type": "application/json" } }) : json(200, null)
+      : json(200, []) }, calls)
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [], error: "The backend answered issues for will/flows with an unreadable payload" })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open"])
+    bad = false
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open", "GET /api/repos/will/flows/issues?state=open"])
+  })
+
+  test("a rejected native options transport reports the connection and retries only that read", async () => {
+    let disconnected = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues": () => {
+      if (disconnected) throw new TypeError("disconnected")
+      return json(200, [])
+    } }, calls)
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [], error:
+      "Could not reach the backend to list issues for will/flows. Nothing answered at all — that's the connection, not something you did. Try it again." })
+    disconnected = false
+    expect(await readIssueOptions(ctx, "will/flows")).toEqual({ options: [] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues?state=open", "GET /api/repos/will/flows/issues?state=open"])
+  })
+})
+
+describe("coding-flow issue payload public read", () => {
+  test("returns literal forge and task facts without fetching comments or publishing a card", async () => {
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": json(200, wireIssue(7, {
+      title: "Fix with tests", body: "Keep the guard.", state: "fixed", visibility: "public",
+      author: { login: "ana", avatar_url: "https://avatars.test/ana" },
+      assignees: [{ login: "engineer", avatar_url: "https://avatars.test/engineer" }, null],
+      labels: [{ name: "bug", color: "ff0000" }, null], fixed_by: { username: "engineer" }, verified_by: "reviewer"
+    })) }, calls)
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toEqual({
+      repo: "will/flows", number: 7, title: "Fix with tests", state: "fixed", author: "ana", createdAt: "2026-08-10T09:00:00Z",
+      assignees: [{ login: "engineer", avatar: "https://avatars.test/engineer" }], labelColors: { bug: "ff0000" }, authorAvatar: "https://avatars.test/ana",
+      visibility: "public", issueBody: "Keep the guard.", labels: ["bug"], comments: [],
+      task: { fixedBy: { id: "engineer", name: "engineer" }, verifiedBy: { id: "reviewer", name: "reviewer" } }
+    })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7"])
+  })
+
+  test("404 names the explicit GitHub read door without silently reading another tracker", async () => {
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": json(404, { message: "not found" }) }, calls)
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Issue #7 in will/flows answered 404. For a GitHub issue, use /issues.view 7 will/flows --source github.")
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7"])
+  })
+
+  test("503 keeps the server sentence and a subsequent payload read recovers", async () => {
+    let unavailable = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": () => unavailable
+      ? json(503, { message: "Tracker is restarting" }) : json(200, { number: 7, title: "Back online" }) }, calls)
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Loading issue #7 in will/flows failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed.")
+    unavailable = false
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toEqual({ repo: "will/flows", number: 7, title: "Back online", state: "open",
+      author: null, issueBody: "", labels: [], comments: [] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7"])
+  })
+
+  test.each(["syntax", "null"] as const)("%s detail refuses unreadable payload rather than inventing an empty issue", async malformed => {
+    let bad = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": () => bad
+      ? malformed === "syntax" ? new Response("{not-json", { headers: { "content-type": "application/json" } }) : json(200, null)
+      : json(200, { title: "Valid minimal record" }) }, calls)
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("The backend answered issue #7 in will/flows with an unreadable payload")
+    bad = false
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toEqual({ repo: "will/flows", number: 7, title: "Valid minimal record", state: "open",
+      author: null, issueBody: "", labels: [], comments: [] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7"])
+  })
+
+  test("transport rejection has a literal connection refusal and supports a fresh read", async () => {
+    let disconnected = true
+    const calls: string[] = []
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": () => {
+      if (disconnected) throw new TypeError("disconnected")
+      return json(200, { number: 7 })
+    } }, calls)
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Could not reach the backend to load issue #7 in will/flows. Nothing answered at all — that's the connection, not something you did. Try it again.")
+    disconnected = false
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toEqual({ repo: "will/flows", number: 7, title: "", state: "open", author: null, issueBody: "", labels: [], comments: [] })
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7"])
+  })
+})
+
+describe("comment pagination failures preserve honest view state", () => {
+  test("a repeated opaque cursor refuses partial success, keeps requests scoped, and a fresh full read recovers", async () => {
+    let repeated = true
+    const calls: string[] = []
+    const { store, controller } = await issuesController(backend({
+      "GET /api/repos/will/flows/issues/7": json(200, wireIssue(7)),
+      "GET /api/repos/will/flows/issues/7/comments": request => repeated
+        ? new Response(JSON.stringify([wireComment(new URL(request.url).searchParams.has("cursor") ? 32 : 31, "partial")]), {
+          headers: { "content-type": "application/json", link: '<https://untrusted.invalid/wrong?cursor=opaque%2F%2B%20%E2%98%83>; rel="next"' }
+        }) : json(200, [wireComment(41, "Complete conversation")])
+    }, calls))
+    calls.length = 0
+    const refused = await controller.commands.run("issues.view", "7 will/flows")
+    expect(refused.status).toBe("failed")
+    if (refused.status !== "failed") throw new Error("Repeated cursor must refuse")
+    expect(refused.error).toBe("Comments for #7 did not finish loading.")
+    const failed = cardOfKind(store, "issue-will/flows-7", "status")
+    expect(failed).toMatchObject({ status: "error", loading: false, body: "Comments for #7 did not finish loading." })
+    expect([...store.collections.cards.values()].filter(card => card.kind === "issue")).toHaveLength(0)
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments",
+      "GET /api/repos/will/flows/issues/7/comments?cursor=opaque%2F%2B%20%E2%98%83"])
+    repeated = false
+    expect((await controller.commands.run("issues.view", "7 will/flows")).status).toBe("executed")
+    await settled()
+    const recovered = cardOfKind(store, failed.id, "issue")
+    expect(recovered).toMatchObject({ status: "active", loading: false })
+    expect(recovered.payload.comments).toEqual([{ id: 41, author: "bob", commentBody: "Complete conversation", createdAt: "2026-08-11T10:00:00Z" }])
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments",
+      "GET /api/repos/will/flows/issues/7/comments?cursor=opaque%2F%2B%20%E2%98%83", "GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments"])
+  })
+
+  test("malformed comments after valid detail cannot publish an issue with invented empty comments and retry recovers", async () => {
+    let malformed = true
+    const calls: string[] = []
+    const { store, controller } = await issuesController(backend({
+      "GET /api/repos/will/flows/issues/7": json(200, wireIssue(7, { title: "Read the complete discussion" })),
+      "GET /api/repos/will/flows/issues/7/comments": () => json(200, malformed ? { comments: [] } : [wireComment(31, "Recovered discussion")])
+    }, calls))
+    calls.length = 0
+    const refused = await controller.commands.run("issues.view", "7 will/flows")
+    expect(refused.status).toBe("failed")
+    if (refused.status !== "failed") throw new Error("Malformed comments must refuse")
+    expect(refused.error).toBe("The backend answered comments for #7 with an unreadable payload")
+    const failed = cardOfKind(store, "issue-will/flows-7", "status")
+    expect(failed).toMatchObject({ status: "error", loading: false, body: "The backend answered comments for #7 with an unreadable payload" })
+    expect([...store.collections.cards.values()].filter(card => card.kind === "issue")).toHaveLength(0)
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments"])
+    malformed = false
+    expect((await controller.commands.run("issues.view", "7 will/flows")).status).toBe("executed")
+    await settled()
+    const recovered = cardOfKind(store, failed.id, "issue")
+    expect(recovered).toMatchObject({ status: "active", loading: false, payload: { title: "Read the complete discussion" } })
+    expect(recovered.payload.comments).toEqual([{ id: 31, author: "bob", commentBody: "Recovered discussion", createdAt: "2026-08-11T10:00:00Z" }])
+    expect(calls).toEqual(["GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments",
+      "GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments"])
+  })
 })
