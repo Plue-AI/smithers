@@ -130,8 +130,8 @@ so there is no run-time composition error to handle.
 [`WorkspaceSandbox`](#workspacesandbox) and its `EffectDispatcher` are optional
 and are resolved at construction, because `actionExecute` runs on the engine's
 own fiber, which does not carry the store's layer context. `StepSandbox`,
-`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`, and
-`Selection` are optional in the same way.
+`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`,
+[`ReplayOnly`](#replayonly), and `Selection` are optional in the same way.
 
 ### Behavior
 
@@ -970,6 +970,59 @@ a root references is protected by the mtime fence anyway.
 
 Full guide: [Collect unreferenced artifacts](https://engine-store.smithers.sh/guides/collect-unreferenced-artifacts/).
 
+## StepCacheFold
+
+[src/StepCacheFold.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/StepCacheFold.ts)
+
+`flows_step_cache` heads as a fold of the journal. Drop the heads and
+`rebuild` writes them back from the retained `cache-provenance` entries.
+
+| Export            | Signature                                                                                                   | Meaning                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `rebuild`         | `() => Effect<Rebuilt, JournalError \| CacheStoreError \| SqlError, Journal \| SqlClient \| DurableWriter>` | Folds every run's retained entries and replaces the heads. |
+| `reduce`          | `(state: State, entry: JournalEvent.Entry) => State`                                                        | Folds one entry.                                           |
+| `initial`         | `State`                                                                                                     | The empty fold.                                            |
+| `projection`      | `Projection<State>`                                                                                         | The same fold for `Journal.project` over one run.          |
+| `candidates`      | `(state: State) => ReadonlyArray<CacheStore.RecordedRef>`                                                   | The head each key may be rebuilt with.                     |
+| `refId`           | `(ref: CacheStore.RecordedRef) => string`                                                                   | A recorded row's stable identity.                          |
+| `eventType`       | `"flows.engine.cache-provenance"`                                                                           | The entries the fold reads.                                |
+| `retiringActions` | `["expired", "stale_read_set", "replay_failed"]`                                                            | Provenance actions that retire the row they name.          |
+
+| Type      | Fields                                                              |
+| --------- | ------------------------------------------------------------------- |
+| `State`   | `admitted` and `retired`: the rows `put` inserted, the ones evicted |
+| `Rebuilt` | `runs`, `compacted`, `rewound`, `admitted`, `retired`, `heads`      |
+
+A `put` that inserts a head journals an `admitted` entry naming its row in the
+same transaction. A duplicate or a losing conflict writes a ledger row but no
+`admitted` entry. These entries retire the row they name:
+
+| Entry                       | Why the row cannot serve                           |
+| --------------------------- | -------------------------------------------------- |
+| `expired`, `stale_read_set` | The engine evicted it.                             |
+| `replay_failed`             | The engine may have quarantined it for corruption. |
+
+A producer slot keeps the first `replay_failed` reason it journalled, so a
+corruption can hide behind an earlier host failure; the fold retires the row on
+any reason, and a row whose replay failed only on the host is a miss.
+
+A key with one admitted row that no entry retired gets that row back as its
+head. A key with several gets no head: one of them left without a journal
+entry, such as by `sweepExpired`, and the journal cannot say which one the
+store held. The journal holds provenance, not results: the result stays in the
+ledger row the entry addresses, because the journal is redacted and replayed
+to sync subscribers.
+
+A rebuild writes a subset of the live heads. It drops heads with no local
+entry, such as shared-tier write-backs. A store with a compacted run, or one where
+any run was ever rewound, gets no heads, because compaction and rewind may have
+deleted the eviction that retired a row. Retention is not yet covered: it
+deletes a run's entries and compaction floor, so a rebuild after retention can
+restore a row a deleted run evicted. A single admitted row that `sweepExpired`
+or an operator `evict` removed also returns; every restored hit still passes
+the engine's age, read-set, and digest checks. Run it on a
+quiescent store: a write between the journal read and the rewrite is missed.
+
 ## Retention
 
 [src/Retention.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/Retention.ts)
@@ -1160,6 +1213,37 @@ The record goes through the journal's durable channel, so a `tolerate` verdict
 cannot silently drop its only record. For `noteCorruption`, `"fail"` fails the
 dispatch and `"tolerate"` lets it fall back to a real execution, which
 re-captures and heals the corrupt address.
+
+## ReplayOnly
+
+[src/ReplayOnly.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/ReplayOnly.ts)
+
+An engine composed with this service replays recorded work and executes none.
+`smthrs runs verify` drives a copy of a run's store with it to report which
+recorded steps the current code would replay and which step it would execute
+again.
+
+```ts
+interface Service {
+  readonly observe: (dispatch: Dispatch) => Effect<void>
+}
+```
+
+| Export         | Signature                                                  | Meaning                                                      |
+| -------------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `ReplayOnly`   | `Context.Service<Service>`                                 | Service tag, resolved when the engine is composed.           |
+| `layer`        | `(observe: Service["observe"]) => Layer<ReplayOnly>`       | Provides it.                                                 |
+| `WouldExecute` | `TaggedError<{ runId, stepKeyDigest, attempt, action }>`   | The defect a dispatch dies with instead of running a body.   |
+| `Dispatch`     | `{ runId, stepKeyDigest, attempt, action, tier, outcome }` | `outcome` is `"replayed"`, `"resumes"` or `"would-execute"`. |
+
+A dispatch served from a durable record, a recorded failure included, reports
+`replayed`. The first dispatch that would run a body dies before its attempt
+row, snapshot, boundary, or body: it reports `resumes` when it would re-enter a
+recorded attempt that never finished, such as a step parked inside its body,
+and `would-execute` when no record matches its key. The defect is never
+retried, so the run settles `failed` instead of spinning in its retry policy.
+Replays still write the journal rows a resume converges on, so drive a copy of
+the store, never the original.
 
 ## OwnerIdentity
 

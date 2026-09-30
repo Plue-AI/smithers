@@ -251,21 +251,21 @@ An agent producing a bounded, gate-checked candidate diff inside the declared wr
 - **Type:** the `GitTarget` module
 - **Since:** `0.1.0`
 
-The git target flavors: `Git.Commit`, `Git.Pr`, `Git.Submodules`, and `Git.Submodule`. The package executor handles these declarations; `Git.Pr` is unsupported in this RC: the plan refuses it before any gate runs. `Git.Submodule` and `Git.Submodules` join the `build` verb and are cacheable; `Git.Commit` and `Git.Pr` join `run` and are not. `Git.Commit` gates run against a scratch copy holding the exact tree the commit records, not against the working tree.
+The git target flavors: `Git.Commit`, `Git.Pr`, `Git.Submodules`, and `Git.Submodule`. The package executor handles these declarations; `Git.Pr` is deferred past 1.0 ([#3164](https://github.com/smithersai/smithers/issues/3164)): the plan refuses it before any gate runs. `Git.Submodule` and `Git.Submodules` join the `build` verb and are cacheable; `Git.Commit` and `Git.Pr` join `run` and are not. `Git.Commit` gates run against a scratch copy holding the exact tree the commit records, not against the working tree.
 
 ### `Smithers.Github`
 
 - **Type:** the `GithubTarget` module
 - **Since:** `0.1.0`
 
-The GitHub target flavors: `Github.Setup`, `Github.Workflow`, `Github.CiGen`, `Github.Pr`, `Github.Pages`, `Github.Release`, and `Github.Ci`. The package executor handles these declarations and none is cacheable. `Github.Pr`, `Github.Pages`, and `Github.Release` are unsupported in this RC: the plan refuses each one as `not implemented by this executor` before any gate or provider call. `Github.Pr` shares the outward gate `Outward.refuse`: a declaration that names no `HttpSecret` over `GITHUB_TOKEN`, or that declares `approval: "required"` without a granted approval, yields `Refused`.
+The GitHub target flavors: `Github.Setup`, `Github.Workflow`, `Github.CiGen`, `Github.Pr`, `Github.Pages`, `Github.Release`, and `Github.Ci`. The package executor handles these declarations and none is cacheable. `Github.Pr` ([#3164](https://github.com/smithersai/smithers/issues/3164)), `Github.Pages`, and `Github.Release` ([#3165](https://github.com/smithersai/smithers/issues/3165)) are deferred past 1.0: the plan refuses each one as `not implemented by this executor` before any gate or provider call. `Github.Pr` shares the outward gate `Outward.refuse`: a declaration that names no `HttpSecret` over `GITHUB_TOKEN`, or that declares `approval: "required"` without a granted approval, yields `Refused`.
 
 ### `Smithers.Npm`
 
 - **Type:** `{ NodeModules, Pack, Publish, Published, Downstream }`
 - **Since:** `0.1.0`
 
-The npm-facing surface. `Npm.NodeModules({ packageJson })` is the workspace declaration for the installed module tree; `Npm.Pack`, `Npm.Publish`, `Npm.Published`, and `Npm.Downstream` are rules that run under the package executor. `Npm.Pack` and `Npm.Published` are supported and cacheable. `Npm.Publish` is unsupported and the plan refuses it before any gate runs; `Npm.Downstream` is unsupported because the isolated remote checkout runner is not implemented, so the plan refuses it before it runs.
+The npm-facing surface. `Npm.NodeModules({ packageJson })` is the workspace declaration for the installed module tree; `Npm.Pack`, `Npm.Publish`, `Npm.Published`, and `Npm.Downstream` are rules that run under the package executor. `Npm.Pack` and `Npm.Published` are supported and cacheable. `Npm.Publish` is deferred past 1.0 ([#3163](https://github.com/smithersai/smithers/issues/3163)) and the plan refuses it before any gate runs; `Npm.Downstream` is deferred ([#3166](https://github.com/smithersai/smithers/issues/3166)) because the isolated remote checkout runner is not implemented, so the plan refuses it before it runs.
 
 ### `Smithers.Markdown`
 
@@ -405,7 +405,7 @@ Every other export of `Smithers.ts`, in source order:
 | `Smithers.Go`                     | namespace          | Go toolchain and package rules.                                                                                                                                                   |
 | `Smithers.Stamp`                  | namespace          | Late-bound build stamps.                                                                                                                                                          |
 | `Smithers.Nix`                    | namespace          | Nix dev-shell version authority and tools.                                                                                                                                        |
-| `Smithers.Changesets`             | namespace          | Changesets versioning and publication declarations; `Changesets.Publish` is unsupported in this RC and the plan refuses it.                                                       |
+| `Smithers.Changesets`             | namespace          | Changesets versioning and publication declarations; `Changesets.Publish` is deferred past 1.0 ([#3163](https://github.com/smithersai/smithers/issues/3163)) and the plan refuses it.                                                       |
 | `Smithers.Api`                    | namespace          | API-surface checks, `Api.Compat`.                                                                                                                                                 |
 | `Smithers.Size`                   | namespace          | Artifact-size checks, `Size.Budgets`.                                                                                                                                             |
 

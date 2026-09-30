@@ -1,0 +1,172 @@
+{
+  "candidate": "436ed8b92527ce6d52f37e95f29387ba53dfc691",
+  "issues": [
+    3202,
+    3169,
+    3269
+  ],
+  "incomingMainSourceChanges": [],
+  "qualifiedFilesUnchanged": {
+    "packages/smithers/agent/registry/src/Executable.ts": "c6336c71d6dfd4aaf66ec7f173ad96b83552f515dba3b3dd814caa127a94e4c7",
+    "packages/smithers/agent/registry/src/internal/ModuleClosure.ts": "cad3de28e6dfc56d9dc713d0a7b5a49dba3c68604e4a8f38fc129666f2ca925d",
+    "packages/smithers/agent/registry/test/Executable.test.ts": "cd3b2a9e6bfce296ae8a75c273aa77ba9b162ec76cba60c4282673a2c1b2ea56",
+    "packages/smithers/agent/registry/test/ModuleClosure.test.ts": "df8d2442078b03b0332de1873de08e0c53df2340db544f9bf259e451730f7fbf",
+    "packages/smithers/agent/registry/test/ModuleIdentityNative.test.ts": "ea3e0c176fb0e351b43a0a6c8edcf7ba63df7dec25cac1ccfc4462d8c46650af",
+    "packages/smithers/agent/registry/test/TemplateClosure.test.ts": "733f3b26886e01a62882f824f871da40f3ffcb6bfd905eb80f681cf9bf92b398",
+    "packages/smithers/agent/registry/test/TemplateClosureNative.test.ts": "e96a3ee1fd419c0d2d546c069141de77ac1f284f1c784f6cd597307996accf8d",
+    "packages/smithers/agent/registry/test/fixtures/native/identity-contract.ts": "14831ec7de6ddb58b6fbc5a807bf6eca9a974f9f488075364adf51f5320605b3",
+    "packages/smithers/agent/registry/test/fixtures/native/template-closure.ts": "09d2fad2af4cbcd2d7a0af051c30cb5532d18f71a6c40787735a4b2e3c5a250c",
+    "packages/smithers/agent/registry/README.md": "8494ee2f77609254fdb6fbb0d8b79bc1e8ceb7e076b6af94df2861d04b97446b",
+    "packages/smithers/agent/registry/docs/api.md": "b1cefcb8cd3777d95e0085f4cb9a80aec044c5cb0d03cbabe4cccedf3c37aa12",
+    "packages/smithers/agent/registry/docs/concepts/descriptors.md": "85224c31ffef572cb0c20b1059974a2096d2e9f38540f49a65b4fce9f03a7076",
+    "packages/smithers/agent/registry/docs/guides/run-a-discovered-flow.md": "79347ef21dc18982112607aa8a4b7a20f47ee4d3a0acd7efba1973f9b8dee597",
+    "packages/smithers/src/internal/backend/Client.ts": "2c9ad45b07124c374a6fc5c0f490a124d9c837778f5e2a15bb72707065eeb6f9",
+    "packages/smithers/test/BackendSession.test.ts": "d60b23be8830d9c5a5e23fe41c3adf6226dd47a2fc743239166e7a17aa2841d6",
+    "packages/smithers/test/BackendSse.test.ts": "e980a242a50acbd2c871d3fe4ac8075a044ef8ae70850a628aaa5b6f29594c29"
+  },
+  "registry": "869 full tests, measured100%2121statements/1541branches/385functions/1964lines, including18actualNode/Bun controls",
+  "streams": "49passed; independent formatter unit and realTCP/CLI normal completion/socketdrop/SIGINT130; secrets redacted, LF/tab preserved",
+  "review": "Sol implementation and independent regressions reviewed by orchestrator; originalred and failed controls retained",
+  "generated": [
+    {
+      "name": "docs-sync",
+      "argv": [
+        "pnpm",
+        "run",
+        "docs:sync"
+      ],
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-docs-sync.log"
+    },
+    {
+      "name": "site-sync",
+      "argv": [
+        "pnpm",
+        "--filter",
+        "@smithers/site",
+        "run",
+        "sync:docs"
+      ],
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-sync.log"
+    },
+    {
+      "name": "docs-check",
+      "argv": [
+        "pnpm",
+        "run",
+        "docs:check"
+      ],
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-docs-check.log"
+    },
+    {
+      "name": "index-check",
+      "argv": [
+        "pnpm",
+        "exec",
+        "smthrs",
+        "lint",
+        "//:targetIndex"
+      ],
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-index-check.log"
+    }
+  ],
+  "limits": [
+    "#3267 stdout C1/bidi JSON serializer issue remainsopen;3169 only claimsstderr safety and originalOSC/BEL/C0 JSON escaping.",
+    "FullCLItesttypes foreign3241 remainsopen; allsource and strict scoped new/changedtests pass. No fullCLIcoverage claim.",
+    "Registry admission selects explicitfailclosed unsupportedmeasuredruntime/mappedloads; no unsupported coherent execution or new sandbox claim. Installedunmappedpackages/builtins retainhosttrust.",
+    "Incomplete app, finalreviewbounds and releaseconsumer work is preserved by exact owned stash and excluded."
+  ],
+  "siteFullDocsSuite": {
+    "tests": 81,
+    "pass": 80,
+    "fail": 1,
+    "blocker": "#3241 missing ProcessConfinement in TestHost testing-flows tutorial;80passed before glyph source-text repair",
+    "log": "smithers-burndown-20260930-checkpoint6-site-docs-check.log"
+  },
+  "siteGlyphRepair": {
+    "sourceTextOnly": [
+      "packages/smithers/agent/scorers/src/Scorers.ts",
+      "packages/smithers/agent/scorers/docs/api.md",
+      "packages/smithers/agent/scorers/docs/exports.md",
+      "packages/smithers/flows/journal/docs/api.md"
+    ],
+    "checks": [
+      {
+        "name": "docs-sync",
+        "argv": [
+          "pnpm",
+          "run",
+          "docs:sync"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint6-3269-docs-sync.log"
+      },
+      {
+        "name": "site-sync",
+        "argv": [
+          "pnpm",
+          "--filter",
+          "@smithers/site",
+          "run",
+          "sync:docs"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint6-3269-site-sync.log"
+      },
+      {
+        "name": "site-text-check",
+        "argv": [
+          "node",
+          "apps/site/scripts/check-docs.mjs"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint6-3269-site-text-check.log"
+      },
+      {
+        "name": "docs-check",
+        "argv": [
+          "pnpm",
+          "run",
+          "docs:check"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint6-3269-docs-check.log"
+      }
+    ]
+  },
+  "siteProjectionDriftBeforeSourceTextRepair": [
+    {
+      "script": "check-docs.mjs",
+      "exit": 1,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-check-docs.mjs.log"
+    },
+    {
+      "script": "gen-cli-data.mjs",
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-gen-cli-data.mjs.log"
+    },
+    {
+      "script": "sync-api-docs.mjs",
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-sync-api-docs.mjs.log"
+    },
+    {
+      "script": "ingest-reference.mjs",
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-ingest-reference.mjs.log"
+    },
+    {
+      "script": "gen-examples.mjs",
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-gen-examples.mjs.log"
+    },
+    {
+      "script": "generate-llms.mjs",
+      "exit": 0,
+      "log": "/tmp/smithers-burndown-20260930-checkpoint6-site-generate-llms.mjs.log"
+    }
+  ]
+}

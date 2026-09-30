@@ -71,18 +71,18 @@ savepoints and transaction retries discard their registrations. See
 [commit state and its entry together](https://journal.smithers.sh/guides/commit-state-and-entry/).
 
 `owner` is mandatory on `emitDurable`, `checkpoint`, and `compact`. The insert,
-the checkpoint replacement, and the truncation land only while `flows_runs`
-still records that owner as the running run's owner, and otherwise fail
-`fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
+the checkpoint replacement, and the truncation join the `Consensus` strategy's
+`guard` inside their write transaction and land only while the strategy still
+records that owner as holding the run, and otherwise fail `fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
 `invalid_event` instead: that is a caller contract violation, and reporting it
 as `fence_lost` would send the caller hunting a race that never happened.
 `emitDurableUnfenced` is the one sanctioned ownerless path, for an import or a
 repair tool that owns no run. Reaching for it to dodge `fence_lost` writes
 exactly the zombie entry the fence exists to reject.
 
-`flows_runs` belongs to [`@smthrs/run-store`](/docs/reference/api/run-store/), so a composition
-that installs only this package's migrations fails every fenced call with
-`sink_failed` and `no such table: flows_runs`.
+`SqlJournal.layer` fences through [`SqlConsensus`](#sqlconsensus), whose lease
+table this package's own migrations create; `SqlJournal.layerWith` fences
+through any injected [`Consensus`](#consensus).
 
 ### Errors
 
@@ -154,6 +154,9 @@ purpose: the durable core never closes them into an interpreter-specific union.
 | `Entry`               | `Schema.Class`                           | `{ runId, seq, eventId, sourceId, sourceSeq, emittedAtMs, eventType, payload, meta }`                    |
 | `makeEventId`         | `(runId, sourceId, sourceSeq) => string` | the deterministic durable id, length-prefixed so a separator in an identifier cannot forge another tuple |
 | `maxIdentifierLength` | `1024`                                   | the identifier ceiling                                                                                   |
+| `companionRunId`      | `(stream, runId) => RunId`               | the id of the run's companion stream named `stream`                                                      |
+| `companionPrefix`     | `"flows.companion/"`                     | the reserved prefix of every companion stream id                                                         |
+| `isCompanionRunId`    | `(runId) => boolean`                     | whether a run id names a companion stream                                                                |
 
 `RunId`, `SourceId`, and both an `Input`'s and a committed `Entry`'s
 `eventType` are non-empty, at most `maxIdentifierLength` UTF-16 code units,
@@ -168,6 +171,15 @@ ordinary text and round-trips exactly.
 
 `Seq` and `SourceSeq` stop below `Number.MAX_SAFE_INTEGER`, so the journal can
 always allocate the next sequence.
+
+A companion stream carries one store's facts about a run beside the run's own
+stream: an ordinary stream with its own sequence clock, named
+`flows.companion/<stream>/<sha-256 of the run id>` so the id fits the
+identifier ceiling for every run id. A consumer that reads the run's stream by
+position never sees a companion fact, and a rewind or compaction of the run's
+stream never truncates one. Each fact names its run in its payload.
+`@smthrs/run-store` records ownership transitions on the `run-store` companion
+stream, and refuses to create a run whose id begins with `companionPrefix`.
 
 `entries`, `stream`, `checkpoint`, `latestCheckpoint`, and `compact` decode the
 same schemas, so an identifier the writer refuses is refused on every read with
@@ -226,33 +238,93 @@ It lives here rather than with the ownership arbitration in
 That package's `Ownership` re-exports it alongside `LivenessEvidence`,
 `LivenessProbe`, and the heartbeat constants.
 
+## Consensus
+
+The injectable strategy that arbitrates who holds a run. The journal owns the
+rules (one writer per run, fenced and unfenced appends, commit-time
+admission, the generation fence, steal only on staleness plus liveness
+evidence, and ownership transitions as events), and a strategy chooses where
+the lease lives and how the fence is checked at commit time.
+
+| Export                                                                                          | Signature                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Consensus`                                                                                     | `Context.Service<Consensus, Service>`                                                                                                          |
+| `Service.claim`                                                                                 | `(runId, claimant: OwnerId, nowMs) => Effect<ClaimOutcome, ConsensusError>`                                                                    |
+| `Service.activate`                                                                              | `(runId, owner: OwnerId, grantedAtMs, nowMs) => Effect<ActivateOutcome, ConsensusError>`                                                       |
+| `Service.heartbeat`                                                                             | `(runId, owner: OwnerId, nowMs) => Effect<HeartbeatOutcome, ConsensusError>`                                                                   |
+| `Service.release`                                                                               | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`                                                                                      |
+| `Service.steal`                                                                                 | `(runId, claimant: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<ClaimOutcome, ConsensusError>`                                        |
+| `Service.recover`                                                                               | `(runId, staleClaimant: OwnerId, grantedAtMs, observer: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<RecoverOutcome, ConsensusError>` |
+| `Service.guard`                                                                                 | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`; fails `fence_lost` unless `owner` holds the run                                     |
+| `ClaimOutcome`                                                                                  | `Claimed { grantedAtMs }` or `Rejected { reason }`                                                                                             |
+| `ActivateOutcome`                                                                               | `Activated` or `Lost`                                                                                                                          |
+| `HeartbeatOutcome`                                                                              | `Renewed { heartbeatAtMs }` or `Lost`                                                                                                          |
+| `RecoverOutcome`                                                                                | `Recovered` or `Rejected { reason }`                                                                                                           |
+| `RejectionReason`                                                                               | `already_claimed`, `owner_held`, `owner_live`, `evidence_invalid`, `claim_fresh`, `claim_changed`, `unavailable`                               |
+| `ConsensusError`                                                                                | `{ code: "fence_lost" \| "persistence_failed", message, cause? }`                                                                              |
+| `LivenessEvidence`                                                                              | `{ expectedOwner: OwnerId, checkedAtMs, kind }` with `kind` one of `same-host-pid-dead`, `cross-host-unreachable-stale`, `lease-expired`       |
+| `matchesEvidence`, `sameOwner`                                                                  | The evidence and identity predicates every strategy applies                                                                                    |
+| `heartbeatInterval`, `heartbeatStaleAfter`, `heartbeatSkewAllowance`, `heartbeatWriteTolerance` | The lease durations every strategy judges staleness against                                                                                    |
+| `make`, `makeNoop`, `makeLocal`, `layerNoop`, `layerLocal`                                      | Constructors and layers; `layerLocal` is the in-memory single-process strategy                                                                 |
+
+The claim lifecycle is two-phase: `claim` (or `steal`, its evidence-gated
+form) reserves the run and returns the grant timestamp, `activate` presents
+that grant to take ownership, and `release` clears whichever of the caller's
+claim or ownership still stands. `recover` clears a third party's stale claim
+after its claimant was proven dead. Every operation takes the caller's clock
+reading, so staleness is judged against the reading the caller observed.
+Heartbeats and lease state never enter the journal.
+
+`layerLocal` keeps its leases per layer build and outside any database
+transaction: provide one instance to every service that must agree, and
+prefer `SqlConsensus` wherever a database is present.
+
+## SqlConsensus
+
+The default database-backed strategy. Its lease is the `flows_consensus_leases`
+row this package's migration `0006_consensus` creates, holding the owner tuple,
+the two-phase claim columns, the grant timestamp, and the heartbeat. `guard`
+is a plain SELECT inside the caller's write transaction, and every mutating
+operation runs through `DurableWriter.write`, joining an enclosing transaction
+as a savepoint, so a rolled-back ownership write rolls its lease back too.
+
+| Export  | Signature                                                      |
+| ------- | -------------------------------------------------------------- |
+| `make`  | `Effect<Consensus.Service, never, DurableWriter \| SqlClient>` |
+| `layer` | `Layer<Consensus, never, DurableWriter \| SqlClient>`          |
+
+The migration backfills a lease for every `flows_runs` row that was running
+or claimed when the table is already present, so an owner driving a run
+before the upgrade keeps its fence afterwards.
+
 ## Redaction
 
 The scrub applied to every `payload` and `meta` before persistence.
 
-| Export             | Signature                                        | Meaning                                                                 |
-| ------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `make`             | `(options?: Options) => Redactor`                | builds a redactor over a rule set                                       |
-| `makeNoop`         | `() => Redactor`                                 | the identity redactor, for persisting verbatim by choice                |
-| `redact`           | `(value: unknown, options?: Options) => unknown` | the scrub itself                                                        |
-| `redactJsonString` | `(json: string, redactor: Redactor) => string`   | scrubs an already-encoded column at a display surface                   |
-| `isSensitiveKey`   | `(key: string) => boolean`                       | whether a field name names a credential                                 |
-| `Redactor`         | `(value: unknown) => unknown`                    | the function type the journal consumes                                  |
-| `Rule`             | `{ id, pattern, replace?, rewrite? }`            | one textual rule; `rewrite` for a value a regex cannot bound            |
-| `Options`          | `{ rules?, onTooDeep? }`                         | `onTooDeep` is `"throw"` (default) or `"name"`                          |
-| `defaultRules`     | `ReadonlyArray<Rule>`                            | the built-in credential shapes                                          |
-| `diagnosticRules`  | `ReadonlyArray<Rule>`                            | `defaultRules` plus the spellings too broad for a durable row           |
-| `redactDiagnostic` | `(value: unknown) => unknown`                    | `redact` with `diagnosticRules`, naming a too-deep value                |
-| `lineRedactor`     | `(rules?: ReadonlyArray<Rule>) => LineRedactor`  | redacts a stream line by line, holding a value open across lines        |
-| `LineRedactor`     | `{ line, flush }`                                | `line` returns the lines safe to emit; `flush` ends the stream          |
-| `maxHeldLines`     | `256`                                            | lines a `LineRedactor` holds for one open value before withholding      |
-| `placeholder`      | `"[REDACTED]"`                                   | the substitution                                                        |
-| `maxDepth`         | `256`                                            | container edges traversed before a payload is refused                   |
-| `binaryWalkLimit`  | `65_536`                                         | bytes, and own members, before a binary view is named instead of walked |
-| `binaryMarker`     | `"[Binary]"`                                     | a named binary view                                                     |
-| `functionMarker`   | `"[Function]"`                                   | a named function                                                        |
-| `symbolMarker`     | `"[Symbol]"`                                     | a named symbol                                                          |
-| `depthMarker`      | `"[Deep]"`                                       | a value past `maxDepth`, under `onTooDeep: "name"`                      |
+| Export                | Signature                                        | Meaning                                                                 |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `make`                | `(options?: Options) => Redactor`                | builds a redactor over a rule set                                       |
+| `makeNoop`            | `() => Redactor`                                 | the identity redactor, for persisting verbatim by choice                |
+| `redact`              | `(value: unknown, options?: Options) => unknown` | the scrub itself                                                        |
+| `redactJsonString`    | `(json: string, redactor: Redactor) => string`   | scrubs an already-encoded column at a display surface                   |
+| `isSensitiveKey`      | `(key: string) => boolean`                       | whether a field name names a credential                                 |
+| `Redactor`            | `(value: unknown) => unknown`                    | the function type the journal consumes                                  |
+| `Rule`                | `{ id, pattern, replace?, rewrite? }`            | one textual rule; `rewrite` for a value a regex cannot bound            |
+| `Options`             | `{ rules?, onTooDeep? }`                         | `onTooDeep` is `"throw"` (default) or `"name"`                          |
+| `defaultRules`        | `ReadonlyArray<Rule>`                            | the built-in credential shapes                                          |
+| `diagnosticRules`     | `ReadonlyArray<Rule>`                            | `defaultRules` plus the spellings too broad for a durable row           |
+| `redactDiagnostic`    | `(value: unknown) => unknown`                    | `redact` with `diagnosticRules`, naming a too-deep value                |
+| `lineRedactor`        | `(rules?: ReadonlyArray<Rule>) => LineRedactor`  | redacts a stream line by line, holding a value open across lines        |
+| `LineRedactor`        | `{ line, flush }`                                | `line` returns the lines safe to emit; `flush` ends the stream          |
+| `maxHeldLines`        | `256`                                            | lines a `LineRedactor` holds for one open value before withholding      |
+| `placeholder`         | `"[REDACTED]"`                                   | the substitution                                                        |
+| `maxDepth`            | `256`                                            | container edges traversed before a payload is refused                   |
+| `RedactionDepthError` | `{ code: "depth_exceeded", maxDepth, message }`  | what `onTooDeep: "throw"` throws past `maxDepth`; a tagged error        |
+| `binaryWalkLimit`     | `65_536`                                         | bytes, and own members, before a binary view is named instead of walked |
+| `binaryMarker`        | `"[Binary]"`                                     | a named binary view                                                     |
+| `functionMarker`      | `"[Function]"`                                   | a named function                                                        |
+| `symbolMarker`        | `"[Symbol]"`                                     | a named symbol                                                          |
+| `depthMarker`         | `"[Deep]"`                                       | a value past `maxDepth`, under `onTooDeep: "name"`                      |
 
 Built-in text rules cover credential assignments around `:`, `=` or `=>`, in
 every value shape `util.inspect` and escaped JSON write, credential flags such
@@ -383,10 +455,10 @@ migrated in-memory database:
 `TestJournalOptions` is the production option type, so every field forwards to
 `SqlJournal.layer` unchanged and a new production option is reachable here the
 day it is added. The defaults are `capacity: 1024` and `overflow: "reject"`.
-This bundle creates the journal's tables only, so a suite exercising a fenced
-call supplies `flows_runs` itself or takes
-`@smthrs/engine-store/test/TestStores`, which provides the journal, run,
-attempt, and cache services over one database.
+This bundle creates the journal's tables, the consensus lease table included,
+so a suite exercising a fenced call takes the run through `Consensus.claim`
+and `activate`, or takes `@smthrs/engine-store/test/TestStores`, which
+provides the journal, run, attempt, and cache services over one database.
 
 `@smthrs/journal/test/Notifying` wraps a record-of-Effect-methods service so a
 hook fires around every operation:

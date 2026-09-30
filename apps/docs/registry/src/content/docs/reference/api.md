@@ -905,9 +905,13 @@ fresh module identities, so an edited helper is adopted after a refresh and
 import cycles stay cycles. Relative imports and package resolution retain each
 module's directory; `import.meta.url` names the temporary sibling. Source
 directories must be writable. Temporary files are removed when loading settles
-or is interrupted. `import()` and `require()` calls, and bare specifiers other
-than a package.json `imports` key naming one file, load through the host's
-normal module cache.
+or is interrupted. Measured project helpers reached through `import()` or
+`require()`, tsconfig aliases, or conditional package mappings without one
+static target are refused with `body_unavailable` before the entry is imported.
+Those loads cannot guarantee fresh measured bytes through the host module
+cache, and deferred calls can outlive sibling cleanup. Installed packages
+without project mappings and Node/Bun builtins retain host trust and use the
+normal host loader.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
 defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes

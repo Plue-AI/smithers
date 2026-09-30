@@ -9740,15 +9740,16 @@ The `exports` map declares these subpaths:
 | `@smthrs/flow/StepIdentity`     | `src/Action/StepIdentity.ts`     | any      |
 | `@smthrs/flow/<Module>`         | `src/<Module>.ts`                | any      |
 
-`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
+`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `Deadline`, `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
 
 ## Namespaces
 
-The package index re-exports sixteen namespaces:
+The package index re-exports seventeen namespaces:
 
 | Namespace         | Summary                                                              |
 | ----------------- | -------------------------------------------------------------------- |
 | `Action`          | Durable action definitions and combinators.                          |
+| `Deadline`        | The wall-clock bound one run settles by, shared across its rounds.   |
 | `DurableClock`    | Durable clock and timer services.                                    |
 | `DurableDeferred` | Durable deferred values.                                             |
 | `DurableQueue`    | Durable queues.                                                      |
@@ -10034,6 +10035,36 @@ Derives an invocation key from engine-generated input.
 
 A directory output captured and replayed as one tree artifact.
 
+## Deadline
+
+### `Deadline.start`
+
+- **Signature:** `start(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): Effect.Effect<LineageDeadline | undefined, never, FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+Starts the current execution's deadline: the lineage deadline the round inherited from a handoff, or `deadline` counted from the execution's journaled first start (or from `startedAtMs`, when the host holds a durable start of its own), with a durable clock armed at it. Answers `undefined` when neither applies. Dies with a `RangeError` when `deadline` is not a positive finite duration. Start at most one deadline per execution.
+
+### `Deadline.remainingMs`
+
+- **Signature:** `remainingMs(deadline: LineageDeadline): Effect.Effect<number>`
+- **Since:** `1.0.0`
+
+The whole milliseconds left before the deadline passes; zero or less once it has.
+
+### `Deadline.within`
+
+- **Signature:** `within(deadline: LineageDeadline | undefined, flowName: string): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowInstance>`
+- **Since:** `1.0.0`
+
+Races `body` against a started deadline and settles it with `Flow.DeadlineExceeded` at the deadline, at once when it has already passed. A round that hands off stamps the deadline on its `Flow.Handoff`. `undefined` runs `body` unbounded.
+
+### `Deadline.bound`
+
+- **Signature:** `bound(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+`start`, then `within`. The engine applies it to every execution of a flow that declares `deadline`.
+
 ## DurableClock
 
 ### `DurableClock.DurableClock`
@@ -10290,26 +10321,26 @@ Every registered tag. The sweep tests read it.
 
 `Flow` exports 46 symbols. Its models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
 
-| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                          |
-| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                                       |
-| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                                                 |
-| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                                          |
-| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                                       |
-| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, and `maxRounds`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `start`, `ensure`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
-| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                                            |
-| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                                                |
-| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                                       |
-| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                                             |
-| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                                       |
-| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                                             |
-| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                                              |
-| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                                                |
-| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                                          |
-| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                                                 |
-| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                  |
-| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                           |
-| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                          |
+| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                                                   |
+| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                                                             |
+| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                                                      |
+| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                                                   |
+| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, `maxRounds`, and `deadline`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `start`, `ensure`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
+| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                                                        |
+| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                                                            |
+| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                                                   |
+| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                                                         |
+| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                                                   |
+| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                                                         |
+| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                                                          |
+| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                                                            |
+| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                                                      |
+| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                                                             |
+| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                              |
+| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                                       |
+| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                                      |
 
 ### `Flow.Capabilities`
 
@@ -10398,12 +10429,12 @@ Declares the host's execution-id source as a layer. Callers that name an `execut
 
 ### `Flow.make`
 
-- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
+- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
 - **Default:** `success` is `Schema.Void`, `error` is `Schema.Never`, `annotations` is `Context.empty()`
 - **Required:** `payload` and `body`
 - **Since:** `0.1.0`
 
-Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer.
+Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
 
 `declaredFrom: original` retains a native declaration's diagnostic source location,
 including its absence, while constructing a fresh flow with the supplied body.
@@ -10460,6 +10491,13 @@ id acknowledges admission, not a successful result or a reached wait point.
 - **Since:** `0.1.0`
 
 A lineage asked for one more round than its flow's `maxRounds` allows. It is recorded as a defect in the execution result, not as a typed `execute` failure.
+
+### `Flow.DeadlineExceeded`
+
+- **Type:** `Schema.TaggedError` with fields `code: "deadline_exceeded"`, `flowName: string`, `executionId: string`, `deadlineMs: number`, `startedAtMs: number`, and `message: string`
+- **Since:** `1.0.0`
+
+An execution was still unsettled when its flow's `deadline` elapsed. It is recorded as a defect in the execution result, not as a typed `execute` failure, and its attached children are cancelled with it.
 
 ### `Flow.done`
 
@@ -10529,10 +10567,17 @@ A flow execution that parked on a durable wait. The optional `cause` carries wha
 
 ### `Flow.Handoff`
 
-- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, and `payload: Unknown`
+- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, optional `capabilityCeilings`, `payload: Unknown`, and optional `deadline: LineageDeadline`
 - **Since:** `0.1.0`
 
-A round that ended by handing off to the next round of its trampoline lineage.
+A round that ended by handing off to the next round of its trampoline lineage. `deadline` is the lineage deadline the next round runs under, stamped by a bounded round.
+
+### `Flow.LineageDeadline`
+
+- **Type:** `Schema.Struct({ startedAtMs: Number, deadlineMs: Number })`
+- **Since:** `1.0.0`
+
+The deadline a trampoline lineage's rounds share: the originating round's journaled first start and its bound, so every round expires at `startedAtMs + deadlineMs`.
 
 ### `Flow.intoResult`
 
@@ -10611,7 +10656,7 @@ Executing a flow would close a cycle in the persisted parent-execution chain. `p
 - **Type:** `Context.Service` keyed `"@smthrs/flow/FlowRuntime/FlowInstance"`
 - **Since:** `0.1.0`
 
-One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
+One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, the optional `lineageDeadline` a round after a handoff inherited, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
 
 ### `FlowRuntime.DeferredDoneIfWaitingOutcome`
 
@@ -11404,27 +11449,28 @@ The wait implementation: park under `event` with the wake token, and settle with
 
 Every failure the package defines is a `Schema.TaggedError` carrying a stable `code`:
 
-| Tag                                                    | Raised when                                                                                                          | Fields                                                                  |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `@smthrs/flow/InfraInterrupt`                          | An action adapter explicitly marks an infrastructure event for `interruptRetryPolicy`; engines do not synthesize it. | `code`, `reason`                                                        |
-| `@smthrs/flow/InfraInterruptRetriesExhausted`          | An action spends its `interruptRetryPolicy` without reaching an ordinary success or failure.                         | `code`, `actionName`, `attempts`, `interrupt`, `message`                |
-| `@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey` | An irreversible action attempts a retry without a declared idempotency key.                                          | `code`, `actionName`, `attempt`                                         |
-| `@smthrs/flow/ConcurrentKeylessDispatch`               | Two ordinal-keyed invocations of one allocation scope are in flight at once.                                         | `code`, `actionName`                                                    |
-| `@smthrs/flow/UncanonicalIdempotencyKey`               | A caller-declared object-form `idempotencyKey` carries material canonical serialization rejects.                     | `code`, `actionName`, `reason`, `path`, `message`                       |
-| `@smthrs/flow/DurableDeferred/TokenInvalid`            | A completion token does not parse, or names a different deferred than the surface it was submitted through.          | `code`, `message`                                                       |
-| `@smthrs/flow/ExecutionIdRequired`                     | Opt-in derivation could not canonicalize the payload, or a served resume was not scoped to an id.                    | `code`, `flowName`                                                      |
-| `@smthrs/flow/MaxRoundsExceeded`                       | A trampoline lineage opens a round past its flow's `maxRounds` budget.                                               | `code`, `flowName`, `lineageId`, `maxRounds`, `roundOrdinal`, `message` |
-| `@smthrs/flow/CancelRequestFailed`                     | `interrupt` cannot durably record its cancellation request, or a durable engine is asked for `interruptUnsafe`.      | `code`, `executionId`, `reason`                                         |
-| `@smthrs/flow/FlowCycleDetected`                       | Executing a flow would close a cycle in the persisted parent-execution chain.                                        | `code`, `path`                                                          |
-| `@smthrs/flow/FlowExecutionNotFound`                   | `poll` names an execution id the runtime never recorded.                                                             | `code`, `executionId`                                                   |
-| `@smthrs/flow/HumanTaskFailed`                         | A question is unanswerable, spends its attempt budget on refused answers, or passes its deadline while open.         | `code`, `task`, `attempts`, `rejections`, `message`                     |
-| `@smthrs/flow/HumanAnswerInvalid`                      | An answer is outside the durable JSON boundary, or the attempt it addresses is not open.                             | `code`, `message`                                                       |
-| `@smthrs/flow/InterpreterError`                        | The interpreter refuses a graph it cannot drive.                                                                     | `code`, `flow`, `node`, `message`                                       |
-| `@smthrs/flow/PollExhausted`                           | A poll uses its last attempt without a satisfied check, under `onTimeout: "fail"`.                                   | `code`, `poll`, `attempts`, `message`                                   |
-| `@smthrs/flow/RetryPolicyExpired`                      | A historical retry sequence crossed the policy's `expirationMs` wall-clock bound.                                    | `code`, `actionName`, `attempt`, `expirationMs`, `lastError`            |
-| `@smthrs/flow/RetryAttemptsExhausted`                  | A historical retry sequence exhausted the policy's `maxAttempts` bound.                                              | `code`, `actionName`, `attempt`, `maxAttempts`, `lastError`             |
-| `@smthrs/flow/SleepRequestInvalid`                     | A sleep payload names no deadline, two deadlines, or a value that is not a length of time.                           | `code`, `message`                                                       |
-| `@smthrs/flow/WaitForRequestInvalid`                   | A wait payload names no target, two targets, a token that does not parse, or a token addressed to another execution. | `code`, `message`                                                       |
+| Tag                                                    | Raised when                                                                                                          | Fields                                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `@smthrs/flow/InfraInterrupt`                          | An action adapter explicitly marks an infrastructure event for `interruptRetryPolicy`; engines do not synthesize it. | `code`, `reason`                                                          |
+| `@smthrs/flow/InfraInterruptRetriesExhausted`          | An action spends its `interruptRetryPolicy` without reaching an ordinary success or failure.                         | `code`, `actionName`, `attempts`, `interrupt`, `message`                  |
+| `@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey` | An irreversible action attempts a retry without a declared idempotency key.                                          | `code`, `actionName`, `attempt`                                           |
+| `@smthrs/flow/ConcurrentKeylessDispatch`               | Two ordinal-keyed invocations of one allocation scope are in flight at once.                                         | `code`, `actionName`                                                      |
+| `@smthrs/flow/UncanonicalIdempotencyKey`               | A caller-declared object-form `idempotencyKey` carries material canonical serialization rejects.                     | `code`, `actionName`, `reason`, `path`, `message`                         |
+| `@smthrs/flow/DurableDeferred/TokenInvalid`            | A completion token does not parse, or names a different deferred than the surface it was submitted through.          | `code`, `message`                                                         |
+| `@smthrs/flow/ExecutionIdRequired`                     | Opt-in derivation could not canonicalize the payload, or a served resume was not scoped to an id.                    | `code`, `flowName`                                                        |
+| `@smthrs/flow/MaxRoundsExceeded`                       | A trampoline lineage opens a round past its flow's `maxRounds` budget.                                               | `code`, `flowName`, `lineageId`, `maxRounds`, `roundOrdinal`, `message`   |
+| `@smthrs/flow/DeadlineExceeded`                        | An execution is still unsettled when its flow's `deadline` elapses.                                                  | `code`, `flowName`, `executionId`, `deadlineMs`, `startedAtMs`, `message` |
+| `@smthrs/flow/CancelRequestFailed`                     | `interrupt` cannot durably record its cancellation request, or a durable engine is asked for `interruptUnsafe`.      | `code`, `executionId`, `reason`                                           |
+| `@smthrs/flow/FlowCycleDetected`                       | Executing a flow would close a cycle in the persisted parent-execution chain.                                        | `code`, `path`                                                            |
+| `@smthrs/flow/FlowExecutionNotFound`                   | `poll` names an execution id the runtime never recorded.                                                             | `code`, `executionId`                                                     |
+| `@smthrs/flow/HumanTaskFailed`                         | A question is unanswerable, spends its attempt budget on refused answers, or passes its deadline while open.         | `code`, `task`, `attempts`, `rejections`, `message`                       |
+| `@smthrs/flow/HumanAnswerInvalid`                      | An answer is outside the durable JSON boundary, or the attempt it addresses is not open.                             | `code`, `message`                                                         |
+| `@smthrs/flow/InterpreterError`                        | The interpreter refuses a graph it cannot drive.                                                                     | `code`, `flow`, `node`, `message`                                         |
+| `@smthrs/flow/PollExhausted`                           | A poll uses its last attempt without a satisfied check, under `onTimeout: "fail"`.                                   | `code`, `poll`, `attempts`, `message`                                     |
+| `@smthrs/flow/RetryPolicyExpired`                      | A historical retry sequence crossed the policy's `expirationMs` wall-clock bound.                                    | `code`, `actionName`, `attempt`, `expirationMs`, `lastError`              |
+| `@smthrs/flow/RetryAttemptsExhausted`                  | A historical retry sequence exhausted the policy's `maxAttempts` bound.                                              | `code`, `actionName`, `attempt`, `maxAttempts`, `lastError`               |
+| `@smthrs/flow/SleepRequestInvalid`                     | A sleep payload names no deadline, two deadlines, or a value that is not a length of time.                           | `code`, `message`                                                         |
+| `@smthrs/flow/WaitForRequestInvalid`                   | A wait payload names no target, two targets, a token that does not parse, or a token addressed to another execution. | `code`, `message`                                                         |
 
 `Flow.make`, `Poll.make`, `RetryPolicy.make`, and `DurableQueue.makeWorker` refuse invalid static configuration by throwing a `RangeError` at construction, and `Poll.make` throws a `TypeError` for an `input` that declares the reserved `attempt` field. Those are programmer errors, not typed failures.
 
@@ -12881,7 +12927,7 @@ const commit = S.Git.Commit({
   message: S.Agents.codex,
   changes: ["src/**", "test/**"]
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3164): declaration only; execution refuses.
 const gitPr = S.Git.Pr({
   gates: [tests],
   secrets: [githubToken],
@@ -12948,21 +12994,21 @@ const compactCi = S.Github.Ci({
   },
   changes: [".github/workflows/**"]
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3164): declaration only; execution refuses.
 const githubPr = S.Github.Pr({
   gates: [tests],
   secrets: [githubToken],
   sandbox: { network: true },
   approval: "required"
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3165): declaration only; execution refuses.
 const pages = S.Github.Pages({
   site: build,
   secrets: [githubToken],
   sandbox: { network: true },
   approval: "required"
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3165): declaration only; execution refuses.
 const release = S.Github.Release({
   manifest: S.file("package.json"),
   notes: S.Agents.codex,
@@ -12982,7 +13028,7 @@ const npmPack = S.Npm.Pack({
   manifest: S.file("package.json"),
   data: [build]
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3163): declaration only; execution refuses.
 const npmPublish = S.Npm.Publish({
   pack: npmPack,
   gates: [tests],
@@ -12993,7 +13039,7 @@ const npmPublish = S.Npm.Publish({
   approval: "required"
 })
 const publishedPackage = S.Npm.Published({ manifest: S.file("package.json") })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3166): declaration only; execution refuses.
 const downstream = S.Npm.Downstream({
   repository: "https://github.com/acme/widget-consumer.git",
   overrides: { "@acme/widget": npmPack },
@@ -13037,7 +13083,7 @@ const changesetsVersion = S.Changesets.Version({
     "pnpm-lock.yaml"
   ]
 })
-// Unsupported in this RC: declaration only; execution refuses.
+// Deferred past 1.0 (https://github.com/smithersai/smithers/issues/3163): declaration only; execution refuses.
 const changesetsPublish = S.Changesets.Publish({
   config: S.file(".changeset/config.json"),
   pack: npmPack,
@@ -13435,21 +13481,21 @@ An agent producing a bounded, gate-checked candidate diff inside the declared wr
 - **Type:** the `GitTarget` module
 - **Since:** `0.1.0`
 
-The git target flavors: `Git.Commit`, `Git.Pr`, `Git.Submodules`, and `Git.Submodule`. The package executor handles these declarations; `Git.Pr` is unsupported in this RC: the plan refuses it before any gate runs. `Git.Submodule` and `Git.Submodules` join the `build` verb and are cacheable; `Git.Commit` and `Git.Pr` join `run` and are not. `Git.Commit` gates run against a scratch copy holding the exact tree the commit records, not against the working tree.
+The git target flavors: `Git.Commit`, `Git.Pr`, `Git.Submodules`, and `Git.Submodule`. The package executor handles these declarations; `Git.Pr` is deferred past 1.0 ([#3164](https://github.com/smithersai/smithers/issues/3164)): the plan refuses it before any gate runs. `Git.Submodule` and `Git.Submodules` join the `build` verb and are cacheable; `Git.Commit` and `Git.Pr` join `run` and are not. `Git.Commit` gates run against a scratch copy holding the exact tree the commit records, not against the working tree.
 
 ### `Smithers.Github`
 
 - **Type:** the `GithubTarget` module
 - **Since:** `0.1.0`
 
-The GitHub target flavors: `Github.Setup`, `Github.Workflow`, `Github.CiGen`, `Github.Pr`, `Github.Pages`, `Github.Release`, and `Github.Ci`. The package executor handles these declarations and none is cacheable. `Github.Pr`, `Github.Pages`, and `Github.Release` are unsupported in this RC: the plan refuses each one as `not implemented by this executor` before any gate or provider call. `Github.Pr` shares the outward gate `Outward.refuse`: a declaration that names no `HttpSecret` over `GITHUB_TOKEN`, or that declares `approval: "required"` without a granted approval, yields `Refused`.
+The GitHub target flavors: `Github.Setup`, `Github.Workflow`, `Github.CiGen`, `Github.Pr`, `Github.Pages`, `Github.Release`, and `Github.Ci`. The package executor handles these declarations and none is cacheable. `Github.Pr` ([#3164](https://github.com/smithersai/smithers/issues/3164)), `Github.Pages`, and `Github.Release` ([#3165](https://github.com/smithersai/smithers/issues/3165)) are deferred past 1.0: the plan refuses each one as `not implemented by this executor` before any gate or provider call. `Github.Pr` shares the outward gate `Outward.refuse`: a declaration that names no `HttpSecret` over `GITHUB_TOKEN`, or that declares `approval: "required"` without a granted approval, yields `Refused`.
 
 ### `Smithers.Npm`
 
 - **Type:** `{ NodeModules, Pack, Publish, Published, Downstream }`
 - **Since:** `0.1.0`
 
-The npm-facing surface. `Npm.NodeModules({ packageJson })` is the workspace declaration for the installed module tree; `Npm.Pack`, `Npm.Publish`, `Npm.Published`, and `Npm.Downstream` are rules that run under the package executor. `Npm.Pack` and `Npm.Published` are supported and cacheable. `Npm.Publish` is unsupported and the plan refuses it before any gate runs; `Npm.Downstream` is unsupported because the isolated remote checkout runner is not implemented, so the plan refuses it before it runs.
+The npm-facing surface. `Npm.NodeModules({ packageJson })` is the workspace declaration for the installed module tree; `Npm.Pack`, `Npm.Publish`, `Npm.Published`, and `Npm.Downstream` are rules that run under the package executor. `Npm.Pack` and `Npm.Published` are supported and cacheable. `Npm.Publish` is deferred past 1.0 ([#3163](https://github.com/smithersai/smithers/issues/3163)) and the plan refuses it before any gate runs; `Npm.Downstream` is deferred ([#3166](https://github.com/smithersai/smithers/issues/3166)) because the isolated remote checkout runner is not implemented, so the plan refuses it before it runs.
 
 ### `Smithers.Markdown`
 
@@ -13589,7 +13635,7 @@ Every other export of `Smithers.ts`, in source order:
 | `Smithers.Go`                     | namespace          | Go toolchain and package rules.                                                                                                                                                   |
 | `Smithers.Stamp`                  | namespace          | Late-bound build stamps.                                                                                                                                                          |
 | `Smithers.Nix`                    | namespace          | Nix dev-shell version authority and tools.                                                                                                                                        |
-| `Smithers.Changesets`             | namespace          | Changesets versioning and publication declarations; `Changesets.Publish` is unsupported in this RC and the plan refuses it.                                                       |
+| `Smithers.Changesets`             | namespace          | Changesets versioning and publication declarations; `Changesets.Publish` is deferred past 1.0 ([#3163](https://github.com/smithersai/smithers/issues/3163)) and the plan refuses it.                                                       |
 | `Smithers.Api`                    | namespace          | API-surface checks, `Api.Compat`.                                                                                                                                                 |
 | `Smithers.Size`                   | namespace          | Artifact-size checks, `Size.Budgets`.                                                                                                                                             |
 
@@ -14730,6 +14776,11 @@ credentialed half of the composition lives here and nowhere else.
 ```ts
 interface Service {
   readonly resolve: (id: string) => Effect.Effect<Seat.Seat, Seat.SeatUnresolved>
+  readonly routedAs?: ((id: string) => Routed | undefined) | undefined
+}
+
+interface Routed {
+  readonly phase: SeatRouter.Phase | undefined
 }
 ```
 
@@ -14737,6 +14788,12 @@ One seat string in, one resolved seat out. Because the resolver owns the seat
 vocabulary, a host may define its own: `provider:modelId` is the convention the
 resolver in [`@smthrs/cli`](/docs/reference/api/cli/) understands, not a rule the agent
 enforces.
+
+`routedAs` names the ids the host routes by the routing graph instead of
+resolving them, such as a role it maps to `auto`, and the phase each routes
+as; `undefined` leaves Jev to classify the phase. `AgentAction` and
+`AgentSession` route such an id exactly as a declared `auto`, with that phase
+pinned. Without the method, every id resolves as declared.
 
 ### SeatResolver.SeatResolver
 
@@ -18684,7 +18741,8 @@ both, because they are structurally identical records and this text is identity
 rather than display: a stored decision keeps these exact bytes and is read back
 through them.
 
-Throws an `Error` naming the action when it is outside the closed vocabulary,
+Throws an `InvalidCapabilityAction` (`_tag` `@smthrs/capability/InvalidCapabilityAction`,
+`code` `invalid_capability_action`) naming the action when it is outside the closed vocabulary,
 so an invalid structural input cannot be rendered into a string that collides
 with a valid one.
 
@@ -19202,7 +19260,10 @@ ceiling. `attenuate(patterns)(effect)` intersects one any-of group;
 `attenuateGroups(groups)(effect)` intersects every group, including persisted
 ceilings during recovery. Neither can widen the current authority. An empty
 outer array inherits; an empty group denies all capabilities. `fromPatterns`,
-`intersect`, `allows`, `equals`, and `none` operate on the same immutable values.
+`fromGroups`, `intersect`, `allows`, `equals`, and `none` operate on the same
+immutable values. `within(inner, outer)` conservatively proves that `inner`
+allows nothing `outer` rejects; it answers `false` when it cannot prove it, so
+unrestricted authority is within only unrestricted authority.
 
 ---
 
@@ -20343,6 +20404,7 @@ The Node composition for the command tree.
 | `EngineDurable`                                            | `Application.Engine & { stores }`                                                                                                                                                                                                             | The durable engine plus the shared database seam other stores hang off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `engineDurable`                                            | `(root: string, registry?, authority?) => EngineDurable`                                                                                                                                                                                      | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects.                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `layerSeatEvaluator`                                       | layer                                                                                                                                                                                                                                         | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback.                  |
+| `accountPoolDefaultModel` | constructor | Queries connected host-permitted account-pool routes and returns their shared default seat; incomplete, failed or unusable discovery returns no seat. Requires the shared `RequestExecutor`. |
 | `seatResolver`, `layerSeatResolver`                        | constructor, layer                                                                                                                                                                                                                            | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
 | `seatCandidates`, `layerSeatCatalog`                       | constructor, layer                                                                                                                                                                                                                            | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat.                                                                                                                                                                                                                                                      |
 | `supervisorStance`                                         | `(environment) => "careful" \| "paranoid"`                                                                                                                                                                                                    | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -20700,6 +20762,8 @@ inherited I/O and returns its exit status. A `Profile` supplies `name`, `transpo
 terminal, cancellation signal, or loopback port forwarding for an SSH profile. Tool credentials remain
 managed by tools on the execution machine.
 
+Read-only Node SQLite connections use a one-second busy timeout by default. `NodeDatabase.layer({ readOnly: true, busyTimeout })` can set a different bounded lock wait; writable connections retain a zero default.
+
 ---
 
 # @smthrs/control
@@ -20879,16 +20943,26 @@ the same run.
 
 ### Listing
 
-| Export            | Shape                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaultPageSize` | `100`.                                                                                                                                                                                                                                                                                                                                                                    |
-| `maxPageSize`     | `500`.                                                                                                                                                                                                                                                                                                                                                                    |
-| `PageLimit`       | An integer between 1 and `maxPageSize`.                                                                                                                                                                                                                                                                                                                                   |
-| `ListRequest`     | `{ _tag: "flows", filters?, cursor?, limit? }`, `{ _tag: "runs", filters?: { runId?, flowId?, status?, principalId?, parentRunId?, lineageId? }, cursor?, limit? }`, `{ _tag: "triggers", filters?: { triggerId?, flowId?, enabled? }, cursor?, limit? }`, or `{ _tag: "fires", filters?: { triggerId?, runId?, outcome? }, cursor?, limit? }`.                           |
-| `ListResponse`    | `{ _tag: "flows", items, warnings?, nextCursor? }`, `{ _tag: "runs", items: RunSummary[], nextCursor? }`, `{ _tag: "triggers", items: TriggerSummary[], nextCursor? }`, or `{ _tag: "fires", items: FireSummary[], nextCursor? }`.                                                                                                                                        |
-| `TriggerSummary`  | `{ triggerId, flowId, input: Json, cron, timezone?, overlap: "skip" \| "buffer-one" \| "supersede", catchUp: "none" \| "one" \| "all", maxCatchUp?, enabled, revision, lastFiredAtMs?, pendingAtMs?, activeRunId?, nextOccurrencesMs: number[], schedulerLastTickMs? }`. One registered trigger. `schedulerLastTickMs` absent means no scheduler has ticked on this host. |
-| `FireOutcome`     | `"launched" \| "completed" \| "skipped" \| "buffered" \| "superseded" \| "failed"`. The same words the triggers package records in its fire ledger.                                                                                                                                                                                                                       |
-| `FireSummary`     | `{ triggerId, occurrenceAtMs, outcome: FireOutcome \| null, runId?, error?, waiting?: "approval" }`. One claimed occurrence; `outcome: null` is the window between the claim and its result.                                                                                                                                                                              |
+| Export            | Shape                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaultPageSize` | `100`.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `maxPageSize`     | `500`.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `PageLimit`       | An integer between 1 and `maxPageSize`.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `ListRequest`     | `{ _tag: "flows", filters?, cursor?, limit? }`, `{ _tag: "runs", filters?: { runId?, flowId?, status?, principalId?, parentRunId?, lineageId? }, cursor?, limit? }`, `{ _tag: "triggers", filters?: { triggerId?, flowId?, enabled? }, cursor?, limit? }`, `{ _tag: "fires", filters?: { triggerId?, runId?, outcome? }, cursor?, limit? }`, or `{ _tag: "plans", filters?: { flowId?, decision? }, cursor?, limit? }`. |
+| `ListResponse`    | `{ _tag: "flows", items, warnings?, nextCursor? }`, `{ _tag: "runs", items: RunSummary[], nextCursor? }`, `{ _tag: "triggers", items: TriggerSummary[], nextCursor? }`, `{ _tag: "fires", items: FireSummary[], nextCursor? }`, or `{ _tag: "plans", items: PlanSummary[], nextCursor? }`.                                                                                                                              |
+| `TriggerSummary`  | `{ triggerId, flowId, input: Json, cron, timezone?, overlap: "skip" \| "buffer-one" \| "supersede", catchUp: "none" \| "one" \| "all", maxCatchUp?, enabled, revision, lastFiredAtMs?, pendingAtMs?, activeRunId?, nextOccurrencesMs: number[], schedulerLastTickMs? }`. One registered trigger. `schedulerLastTickMs` absent means no scheduler has ticked on this host.                                               |
+| `FireOutcome`     | `"launched" \| "completed" \| "skipped" \| "buffered" \| "superseded" \| "failed"`. The same words the triggers package records in its fire ledger.                                                                                                                                                                                                                                                                     |
+| `FireSummary`     | `{ triggerId, occurrenceAtMs, outcome: FireOutcome \| null, runId?, error?, waiting?: "approval" }`. One claimed occurrence; `outcome: null` is the window between the claim and its result.                                                                                                                                                                                                                            |
+| `PlanDecision`    | `"pending" \| "approved" \| "denied"`.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `PlanSummary`     | `{ card: PlanCard, input: Json, decision: PlanDecision }`. One stored plan; `card.approval` is the payload `approve` or `deny` takes.                                                                                                                                                                                                                                                                                   |
+
+`plans` lists stored plans oldest first, narrowed by `flowId` and `decision`.
+A build target that declares `approval: "required"` leaves a pending
+`system/target` plan whose `input` is `{ label, digest }`; list them with
+`{ _tag: "plans", filters: { flowId: "system/target", decision: "pending" } }`
+and submit `card.approval` to `approve` or `deny`. A page returns at most
+`limit` plans and `nextCursor` while later plans may match. Plans are an
+operator's to read: a reader restricted to its own runs lists none.
 
 Run listings default to 100 items and accept limits from 1 through 500. Pass
 `nextCursor` back unchanged with the same filters. Run cursors contain stable
@@ -24013,8 +24087,8 @@ so there is no run-time composition error to handle.
 [`WorkspaceSandbox`](#workspacesandbox) and its `EffectDispatcher` are optional
 and are resolved at construction, because `actionExecute` runs on the engine's
 own fiber, which does not carry the store's layer context. `StepSandbox`,
-`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`, and
-`Selection` are optional in the same way.
+`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`,
+[`ReplayOnly`](#replayonly), and `Selection` are optional in the same way.
 
 ### Behavior
 
@@ -24853,6 +24927,59 @@ a root references is protected by the mtime fence anyway.
 
 Full guide: [Collect unreferenced artifacts](https://engine-store.smithers.sh/guides/collect-unreferenced-artifacts/).
 
+## StepCacheFold
+
+[src/StepCacheFold.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/StepCacheFold.ts)
+
+`flows_step_cache` heads as a fold of the journal. Drop the heads and
+`rebuild` writes them back from the retained `cache-provenance` entries.
+
+| Export            | Signature                                                                                                   | Meaning                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `rebuild`         | `() => Effect<Rebuilt, JournalError \| CacheStoreError \| SqlError, Journal \| SqlClient \| DurableWriter>` | Folds every run's retained entries and replaces the heads. |
+| `reduce`          | `(state: State, entry: JournalEvent.Entry) => State`                                                        | Folds one entry.                                           |
+| `initial`         | `State`                                                                                                     | The empty fold.                                            |
+| `projection`      | `Projection<State>`                                                                                         | The same fold for `Journal.project` over one run.          |
+| `candidates`      | `(state: State) => ReadonlyArray<CacheStore.RecordedRef>`                                                   | The head each key may be rebuilt with.                     |
+| `refId`           | `(ref: CacheStore.RecordedRef) => string`                                                                   | A recorded row's stable identity.                          |
+| `eventType`       | `"flows.engine.cache-provenance"`                                                                           | The entries the fold reads.                                |
+| `retiringActions` | `["expired", "stale_read_set", "replay_failed"]`                                                            | Provenance actions that retire the row they name.          |
+
+| Type      | Fields                                                              |
+| --------- | ------------------------------------------------------------------- |
+| `State`   | `admitted` and `retired`: the rows `put` inserted, the ones evicted |
+| `Rebuilt` | `runs`, `compacted`, `rewound`, `admitted`, `retired`, `heads`      |
+
+A `put` that inserts a head journals an `admitted` entry naming its row in the
+same transaction. A duplicate or a losing conflict writes a ledger row but no
+`admitted` entry. These entries retire the row they name:
+
+| Entry                       | Why the row cannot serve                           |
+| --------------------------- | -------------------------------------------------- |
+| `expired`, `stale_read_set` | The engine evicted it.                             |
+| `replay_failed`             | The engine may have quarantined it for corruption. |
+
+A producer slot keeps the first `replay_failed` reason it journalled, so a
+corruption can hide behind an earlier host failure; the fold retires the row on
+any reason, and a row whose replay failed only on the host is a miss.
+
+A key with one admitted row that no entry retired gets that row back as its
+head. A key with several gets no head: one of them left without a journal
+entry, such as by `sweepExpired`, and the journal cannot say which one the
+store held. The journal holds provenance, not results: the result stays in the
+ledger row the entry addresses, because the journal is redacted and replayed
+to sync subscribers.
+
+A rebuild writes a subset of the live heads. It drops heads with no local
+entry, such as shared-tier write-backs. A store with a compacted run, or one where
+any run was ever rewound, gets no heads, because compaction and rewind may have
+deleted the eviction that retired a row. Retention is not yet covered: it
+deletes a run's entries and compaction floor, so a rebuild after retention can
+restore a row a deleted run evicted. A single admitted row that `sweepExpired`
+or an operator `evict` removed also returns; every restored hit still passes
+the engine's age, read-set, and digest checks. Run it on a
+quiescent store: a write between the journal read and the rewrite is missed.
+
 ## Retention
 
 [src/Retention.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/Retention.ts)
@@ -25043,6 +25170,37 @@ The record goes through the journal's durable channel, so a `tolerate` verdict
 cannot silently drop its only record. For `noteCorruption`, `"fail"` fails the
 dispatch and `"tolerate"` lets it fall back to a real execution, which
 re-captures and heals the corrupt address.
+
+## ReplayOnly
+
+[src/ReplayOnly.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/ReplayOnly.ts)
+
+An engine composed with this service replays recorded work and executes none.
+`smthrs runs verify` drives a copy of a run's store with it to report which
+recorded steps the current code would replay and which step it would execute
+again.
+
+```ts
+interface Service {
+  readonly observe: (dispatch: Dispatch) => Effect<void>
+}
+```
+
+| Export         | Signature                                                  | Meaning                                                      |
+| -------------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `ReplayOnly`   | `Context.Service<Service>`                                 | Service tag, resolved when the engine is composed.           |
+| `layer`        | `(observe: Service["observe"]) => Layer<ReplayOnly>`       | Provides it.                                                 |
+| `WouldExecute` | `TaggedError<{ runId, stepKeyDigest, attempt, action }>`   | The defect a dispatch dies with instead of running a body.   |
+| `Dispatch`     | `{ runId, stepKeyDigest, attempt, action, tier, outcome }` | `outcome` is `"replayed"`, `"resumes"` or `"would-execute"`. |
+
+A dispatch served from a durable record, a recorded failure included, reports
+`replayed`. The first dispatch that would run a body dies before its attempt
+row, snapshot, boundary, or body: it reports `resumes` when it would re-enter a
+recorded attempt that never finished, such as a step parked inside its body,
+and `would-execute` when no record matches its key. The defect is never
+retried, so the run settles `failed` instead of spinning in its retry policy.
+Replays still write the journal rows a resume converges on, so drive a copy of
+the store, never the original.
 
 ## OwnerIdentity
 
@@ -26559,24 +26717,36 @@ class SandboxedFlowError extends Schema.TaggedError("@smthrs/flows/SandboxedFlow
 })
 ```
 
-The one failure type every refusal in this module raises.
+The failure type every protocol refusal in this module raises.
 
-| `code`              | Meaning                                                                                                  |
-| ------------------- | -------------------------------------------------------------------------------------------------------- |
-| `bundle_failed`     | The entry module could not be bundled.                                                                   |
-| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                 |
-| `guest_failed`      | The guest runtime exited non-zero, including exit 126 or 127 for a runtime the image does not contain.   |
-| `flow_failed`       | The child flow ran and reported a failure, including an entry that exports no flow of the requested tag. |
-| `result_unreadable` | The guest exited 0 but wrote no result, or wrote one that is not the protocol's JSON.                    |
-| `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                 |
-| `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                            |
-| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                         |
-| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.           |
-| `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                     |
+| `code`              | Meaning                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundle_failed`     | The entry module could not be bundled.                                                                                                                |
+| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                                                              |
+| `guest_failed`      | The guest runtime exited non-zero, including exit 126 or 127 for a runtime the image does not contain.                                                |
+| `flow_failed`       | The child flow ran and reported a failure, including an entry that exports no flow of the requested tag.                                              |
+| `result_unreadable` | The guest exited 0 but wrote no result, or one that is not the protocol's JSON, belongs to another attempt, or echoes a different capability ceiling. |
+| `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                                                              |
+| `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                                                                         |
+| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                                                                      |
+| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.                                                        |
+| `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                                                                  |
 
 Messages quote the tail of the guest's stdout and stderr where they help, cut at
 4 KiB and marked when they were cut. A child's typed error arrives as its tag and
 its own fields, not as a stack trace into the bundle.
+
+### `ExecuteError`
+
+```ts
+const ExecuteError: Schema.Union<[typeof SandboxedFlowError, typeof PermissionDenied]>
+type ExecuteError = SandboxedFlowError | PermissionDenied
+```
+
+Every typed failure of a sandboxed execution. A child that needed a capability
+the caller's ceiling does not hold fails with the kernel's own
+`PermissionDenied` from `@smthrs/capability/Permission`, the same typed error a
+local run of the child fails with.
 
 ### `Limits` and `ResolvedLimits`
 
@@ -26648,11 +26818,14 @@ interface Result<A> {
   readonly diff: ReadonlyArray<DiffEntry>
   /** Workspace-relative paths that existed before the guest ran and were gone after. */
   readonly deleted: ReadonlyArray<string>
+  /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted; null is no receipt. */
+  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null
 }
 
 const DiffEntry: Schema.Struct<{ path: Schema.String; bytes: Schema.Uint8Array }>
 const Diff: Schema.Array<typeof DiffEntry>
 const Deleted: Schema.Array<Schema.String> // decodes a missing key as []
+const EnforcedCeiling: Schema.NullOr<Schema.Array<Schema.Array<typeof CapabilityPattern>>> // decodes a missing key as null
 ```
 
 One `DiffEntry` per file the guest created or changed, as it stood when the
@@ -26660,6 +26833,9 @@ guest exited, and one `deleted` path per file it removed. A file counts as
 changed when its size or its modification time differs; a provider whose `stat`
 reports no modification time compares sizes alone. The schemas are
 JSON-encodable for the journal: the bytes serialize as base64.
+`capabilityCeiling` is the receipt of the authority the child ran under. A
+result journaled before ceilings crossed the machine boundary has no receipt
+and decodes as `null`, which is not a claim of unrestricted authority.
 
 ### `resultSchema` and `ResultSchema`
 
@@ -26668,6 +26844,7 @@ type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
   readonly diff: typeof Diff
   readonly deleted: typeof Deleted
+  readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
 const resultSchema: <Success extends Schema.Top>(success: Success) => ResultSchema<Success>
@@ -26683,7 +26860,7 @@ const execute: <Tag, Payload, Success, Error, Requires>(
   flow: Flow.Flow<Tag, Payload, Success, Error, Requires>,
   payload: Payload["Type"],
   options: ExecuteOptions
-) => Effect<Result<Success["Type"]>, SandboxedFlowError>
+) => Effect<Result<Success["Type"]>, ExecuteError>
 ```
 
 Runs `flow` with `payload` inside a machine `options.provider` provisions. The
@@ -26694,6 +26871,10 @@ behind for a later execution with the same session key to reattach.
 `payload` is the decoded payload, encoded through the flow's payload schema for
 the wire. A value the schema's own JSON codec refuses is a programmer error and
 dies, the same posture `Flow.executionId` takes.
+
+The guest runs the child under the caller's current capability authority
+intersected with the child's own declaration, and can only narrow it. See
+[capability ceilings](https://flows.smithers.sh/concepts/runner-protocol/#capability-ceilings).
 
 Diff change detection compares sizes by path against a snapshot taken before the
 guest ran. A created file and a file whose size changed are collected; a file
@@ -26708,7 +26889,7 @@ type SandboxedAction<Tag, Payload, Success> = Action.Declared<
   Tag,
   Payload,
   ResultSchema<Success>,
-  typeof SandboxedFlowError
+  typeof ExecuteError
 >
 
 function action<Tag, Payload, Success, Error, Requires, const Name extends string>(
@@ -26723,7 +26904,7 @@ function action<Tag, Payload, Success, Error, Requires, const Name extends strin
 
 Declares the durable action a parent flow calls to run `flow` in a sandbox. Its
 payload schema is the flow's, its success schema is `resultSchema` over the
-flow's, and its error schema is `SandboxedFlowError`. The tag is
+flow's, and its error schema is `ExecuteError`. The tag is
 `<flow tag>/sandboxed` unless `options.name` says otherwise. Both forms preserve
 the literal name, so providing one declaration's implementation cannot satisfy
 a differently named declaration. An optional name retains both possible tags.
@@ -27691,11 +27872,13 @@ The gateway's own remote procedures. Control mutations are not re-declared here:
 it unchanged on `/rpc`. The group shares `ControlRpcs.ControlAuth`, so one
 bearer credential authenticates both mounts.
 
-| Procedure              | Payload                           | Success                | Error                                                                                                                                                                           |
-| ---------------------- | --------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`   | `GatewayError`                                                                                                                                                                  |
-| `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`         | `GatewayError`                                                                                                                                                                  |
-| `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput` | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
+| Procedure              | Payload                           | Success                   | Error                                                                                                                                                                           |
+| ---------------------- | --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`      | `GatewayError`                                                                                                                                                                  |
+| `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`            | `GatewayError`                                                                                                                                                                  |
+| `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput`    | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
+| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
+| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
 
 | Export                 | Shape                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -27709,6 +27892,36 @@ Control records the decision and its durable resume delegation as one domain
 command; the gateway never composes a second mutation, and its error union is
 exactly the one `Control.approve` and `Control.deny` declare. See
 [Submit an approval from a client](https://gateway.smithers.sh/guides/submit-an-approval/).
+
+`Run.Fork` and `Run.Verify` are served by the host that owns the project's
+stores, through `RunHistory`; see below.
+
+## `RunHistory`
+
+A run's recorded history as the gateway serves it. `Run.Fork` branches a run at
+the exact journal sequence `at` into a parked child, optionally with one step's
+recorded result replaced; `Run.Verify` reports what resuming a run under the
+current flow code would replay and what it would execute again. They answer
+exactly what `smthrs runs fork` and `smthrs runs verify` print, because
+`smthrs serve` implements the service over the same history library. A gateway
+composed without the service answers both `Unavailable`. Both procedures are
+in the `write:runs` token scope.
+
+| Export           | Shape                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Step`           | `{ stepKeyDigest, action?, node? }`                                                                                      |
+| `VerifyInput`    | `{ runId }`                                                                                                              |
+| `VerifyReport`   | `{ runId, verdict: "consistent" \| "divergent", replayed, resumes?, executes?, notReplayed }`                            |
+| `StepEdit`       | `{ stepKeyDigest, result }`                                                                                              |
+| `ForkInput`      | `{ runId, at, lineage?, step?: StepEdit }`                                                                               |
+| `ForkOutput`     | `{ runId, parentRunId, status: "parked" }`                                                                               |
+| `HistoryRefused` | the host's refusal: the CLI's stable `code` and sentence (`history_missing`, `history_frame_missing`, `run_active`, ...) |
+| `Service`        | `{ fork(input), verify(input) }`                                                                                         |
+| `RunHistory`     | the service tag a host provides                                                                                          |
+
+A divergent report is an answer, not a failure: the CLI exits 1 with
+`run_divergent` for it, while `Run.Verify` returns the report so a client can
+show which recorded steps would not replay.
 
 ## `Diagnosis`
 
@@ -28218,7 +28431,7 @@ frame counts before the first write.
 `readOnlyCap` is the one budget that defaults to disarmed (0), because a run
 that is only meant to read, a question or a review, has nothing to be capped
 at. `approvalChannel` defaults to `false`: a park is durable waiting, and a
-run with nobody to answer it refuses the transition in-frame.
+run with nobody to answer it fails with `approval_unavailable`, carrying the question.
 
 `State` is a schema class carrying the controller's view of the run across
 frames: the panel of realm names, the call ledger, the checks and failures
@@ -28577,7 +28790,7 @@ Turn-boundary steering values and their source contract. Human steering
 reaches a run only at safe turn boundaries.
 
 Every frame exit records its steering decision, including rejected and raised
-cells, refused parks, and completions. A completion promotes a queued follow-up
+cells, answerable parks, and completions. A completion promotes a queued follow-up
 and continues when delivery has work for the next frame. At an exhausted frame
 limit, the decision is empty and notifications remain pending at the source;
 they are never acknowledged without a frame available to consume them.
@@ -28906,7 +29119,7 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("/harness/H
 }) {}
 ```
 
-`HarnessErrorCode` is `assembly_failed`, `incompatible_journal`,
+`HarnessErrorCode` is `assembly_failed`, `approval_unavailable`, `incompatible_journal`,
 `render_failed`, `model_failed`, `engine_failed`, `read_only_cap`,
 `completion_unjudged`, `completion_incomplete`, `claim_unproven`, or `suspended`. The set is closed to codes this package and `@smthrs/agent`
 actually raise, and `test/Contracts.test.ts` pins every member to a
@@ -30585,7 +30798,7 @@ operationId? }`. Restore to `commitId`: it is content addressed, and jj
 resolves it even after later edits rewrite the working copy and hide it.
 `changeId` is for display; a later rewrite such as `jj squash` moves it to a
 different tree. `operationId` is the jj operation that recorded the capture;
-Node and Bun report it, the browser layer does not.
+Node, Bun, and the browser layer report it.
 
 `restore` puts the working copy back to `revision`, replacing the tree rather
 than merging into it. `diff` is a git-format unified diff between two
@@ -30712,8 +30925,8 @@ Node and Bun `snapshot` capture without closing a change: `jj op log -n1 -T id`
 snapshots the working copy and names the operation, and `jj log --at-op` reads
 `@` at exactly that operation. Nothing is committed, described, or opened, so a
 compensable attempt leaves no change of its own in the log, and the message is
-not written to the repository. The browser's frozen WASM ABI still closes the
-current change and replaces its description when a message is supplied.
+not written to the repository. Browser snapshots preserve the current change
+and description too, and report the operation id through the WASM ABI.
 
 Repository state operations are fenced as a unit. `snapshot`, `restore`, and
 `diff` share one single-permit semaphore per repository inside a process and an
@@ -31116,18 +31329,18 @@ savepoints and transaction retries discard their registrations. See
 [commit state and its entry together](https://journal.smithers.sh/guides/commit-state-and-entry/).
 
 `owner` is mandatory on `emitDurable`, `checkpoint`, and `compact`. The insert,
-the checkpoint replacement, and the truncation land only while `flows_runs`
-still records that owner as the running run's owner, and otherwise fail
-`fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
+the checkpoint replacement, and the truncation join the `Consensus` strategy's
+`guard` inside their write transaction and land only while the strategy still
+records that owner as holding the run, and otherwise fail `fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
 `invalid_event` instead: that is a caller contract violation, and reporting it
 as `fence_lost` would send the caller hunting a race that never happened.
 `emitDurableUnfenced` is the one sanctioned ownerless path, for an import or a
 repair tool that owns no run. Reaching for it to dodge `fence_lost` writes
 exactly the zombie entry the fence exists to reject.
 
-`flows_runs` belongs to [`@smthrs/run-store`](/docs/reference/api/run-store/), so a composition
-that installs only this package's migrations fails every fenced call with
-`sink_failed` and `no such table: flows_runs`.
+`SqlJournal.layer` fences through [`SqlConsensus`](#sqlconsensus), whose lease
+table this package's own migrations create; `SqlJournal.layerWith` fences
+through any injected [`Consensus`](#consensus).
 
 ### Errors
 
@@ -31199,6 +31412,9 @@ purpose: the durable core never closes them into an interpreter-specific union.
 | `Entry`               | `Schema.Class`                           | `{ runId, seq, eventId, sourceId, sourceSeq, emittedAtMs, eventType, payload, meta }`                    |
 | `makeEventId`         | `(runId, sourceId, sourceSeq) => string` | the deterministic durable id, length-prefixed so a separator in an identifier cannot forge another tuple |
 | `maxIdentifierLength` | `1024`                                   | the identifier ceiling                                                                                   |
+| `companionRunId`      | `(stream, runId) => RunId`               | the id of the run's companion stream named `stream`                                                      |
+| `companionPrefix`     | `"flows.companion/"`                     | the reserved prefix of every companion stream id                                                         |
+| `isCompanionRunId`    | `(runId) => boolean`                     | whether a run id names a companion stream                                                                |
 
 `RunId`, `SourceId`, and both an `Input`'s and a committed `Entry`'s
 `eventType` are non-empty, at most `maxIdentifierLength` UTF-16 code units,
@@ -31213,6 +31429,15 @@ ordinary text and round-trips exactly.
 
 `Seq` and `SourceSeq` stop below `Number.MAX_SAFE_INTEGER`, so the journal can
 always allocate the next sequence.
+
+A companion stream carries one store's facts about a run beside the run's own
+stream: an ordinary stream with its own sequence clock, named
+`flows.companion/<stream>/<sha-256 of the run id>` so the id fits the
+identifier ceiling for every run id. A consumer that reads the run's stream by
+position never sees a companion fact, and a rewind or compaction of the run's
+stream never truncates one. Each fact names its run in its payload.
+`@smthrs/run-store` records ownership transitions on the `run-store` companion
+stream, and refuses to create a run whose id begins with `companionPrefix`.
 
 `entries`, `stream`, `checkpoint`, `latestCheckpoint`, and `compact` decode the
 same schemas, so an identifier the writer refuses is refused on every read with
@@ -31271,33 +31496,93 @@ It lives here rather than with the ownership arbitration in
 That package's `Ownership` re-exports it alongside `LivenessEvidence`,
 `LivenessProbe`, and the heartbeat constants.
 
+## Consensus
+
+The injectable strategy that arbitrates who holds a run. The journal owns the
+rules (one writer per run, fenced and unfenced appends, commit-time
+admission, the generation fence, steal only on staleness plus liveness
+evidence, and ownership transitions as events), and a strategy chooses where
+the lease lives and how the fence is checked at commit time.
+
+| Export                                                                                          | Signature                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Consensus`                                                                                     | `Context.Service<Consensus, Service>`                                                                                                          |
+| `Service.claim`                                                                                 | `(runId, claimant: OwnerId, nowMs) => Effect<ClaimOutcome, ConsensusError>`                                                                    |
+| `Service.activate`                                                                              | `(runId, owner: OwnerId, grantedAtMs, nowMs) => Effect<ActivateOutcome, ConsensusError>`                                                       |
+| `Service.heartbeat`                                                                             | `(runId, owner: OwnerId, nowMs) => Effect<HeartbeatOutcome, ConsensusError>`                                                                   |
+| `Service.release`                                                                               | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`                                                                                      |
+| `Service.steal`                                                                                 | `(runId, claimant: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<ClaimOutcome, ConsensusError>`                                        |
+| `Service.recover`                                                                               | `(runId, staleClaimant: OwnerId, grantedAtMs, observer: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<RecoverOutcome, ConsensusError>` |
+| `Service.guard`                                                                                 | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`; fails `fence_lost` unless `owner` holds the run                                     |
+| `ClaimOutcome`                                                                                  | `Claimed { grantedAtMs }` or `Rejected { reason }`                                                                                             |
+| `ActivateOutcome`                                                                               | `Activated` or `Lost`                                                                                                                          |
+| `HeartbeatOutcome`                                                                              | `Renewed { heartbeatAtMs }` or `Lost`                                                                                                          |
+| `RecoverOutcome`                                                                                | `Recovered` or `Rejected { reason }`                                                                                                           |
+| `RejectionReason`                                                                               | `already_claimed`, `owner_held`, `owner_live`, `evidence_invalid`, `claim_fresh`, `claim_changed`, `unavailable`                               |
+| `ConsensusError`                                                                                | `{ code: "fence_lost" \| "persistence_failed", message, cause? }`                                                                              |
+| `LivenessEvidence`                                                                              | `{ expectedOwner: OwnerId, checkedAtMs, kind }` with `kind` one of `same-host-pid-dead`, `cross-host-unreachable-stale`, `lease-expired`       |
+| `matchesEvidence`, `sameOwner`                                                                  | The evidence and identity predicates every strategy applies                                                                                    |
+| `heartbeatInterval`, `heartbeatStaleAfter`, `heartbeatSkewAllowance`, `heartbeatWriteTolerance` | The lease durations every strategy judges staleness against                                                                                    |
+| `make`, `makeNoop`, `makeLocal`, `layerNoop`, `layerLocal`                                      | Constructors and layers; `layerLocal` is the in-memory single-process strategy                                                                 |
+
+The claim lifecycle is two-phase: `claim` (or `steal`, its evidence-gated
+form) reserves the run and returns the grant timestamp, `activate` presents
+that grant to take ownership, and `release` clears whichever of the caller's
+claim or ownership still stands. `recover` clears a third party's stale claim
+after its claimant was proven dead. Every operation takes the caller's clock
+reading, so staleness is judged against the reading the caller observed.
+Heartbeats and lease state never enter the journal.
+
+`layerLocal` keeps its leases per layer build and outside any database
+transaction: provide one instance to every service that must agree, and
+prefer `SqlConsensus` wherever a database is present.
+
+## SqlConsensus
+
+The default database-backed strategy. Its lease is the `flows_consensus_leases`
+row this package's migration `0006_consensus` creates, holding the owner tuple,
+the two-phase claim columns, the grant timestamp, and the heartbeat. `guard`
+is a plain SELECT inside the caller's write transaction, and every mutating
+operation runs through `DurableWriter.write`, joining an enclosing transaction
+as a savepoint, so a rolled-back ownership write rolls its lease back too.
+
+| Export  | Signature                                                      |
+| ------- | -------------------------------------------------------------- |
+| `make`  | `Effect<Consensus.Service, never, DurableWriter \| SqlClient>` |
+| `layer` | `Layer<Consensus, never, DurableWriter \| SqlClient>`          |
+
+The migration backfills a lease for every `flows_runs` row that was running
+or claimed when the table is already present, so an owner driving a run
+before the upgrade keeps its fence afterwards.
+
 ## Redaction
 
 The scrub applied to every `payload` and `meta` before persistence.
 
-| Export             | Signature                                        | Meaning                                                                 |
-| ------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `make`             | `(options?: Options) => Redactor`                | builds a redactor over a rule set                                       |
-| `makeNoop`         | `() => Redactor`                                 | the identity redactor, for persisting verbatim by choice                |
-| `redact`           | `(value: unknown, options?: Options) => unknown` | the scrub itself                                                        |
-| `redactJsonString` | `(json: string, redactor: Redactor) => string`   | scrubs an already-encoded column at a display surface                   |
-| `isSensitiveKey`   | `(key: string) => boolean`                       | whether a field name names a credential                                 |
-| `Redactor`         | `(value: unknown) => unknown`                    | the function type the journal consumes                                  |
-| `Rule`             | `{ id, pattern, replace?, rewrite? }`            | one textual rule; `rewrite` for a value a regex cannot bound            |
-| `Options`          | `{ rules?, onTooDeep? }`                         | `onTooDeep` is `"throw"` (default) or `"name"`                          |
-| `defaultRules`     | `ReadonlyArray<Rule>`                            | the built-in credential shapes                                          |
-| `diagnosticRules`  | `ReadonlyArray<Rule>`                            | `defaultRules` plus the spellings too broad for a durable row           |
-| `redactDiagnostic` | `(value: unknown) => unknown`                    | `redact` with `diagnosticRules`, naming a too-deep value                |
-| `lineRedactor`     | `(rules?: ReadonlyArray<Rule>) => LineRedactor`  | redacts a stream line by line, holding a value open across lines        |
-| `LineRedactor`     | `{ line, flush }`                                | `line` returns the lines safe to emit; `flush` ends the stream          |
-| `maxHeldLines`     | `256`                                            | lines a `LineRedactor` holds for one open value before withholding      |
-| `placeholder`      | `"[REDACTED]"`                                   | the substitution                                                        |
-| `maxDepth`         | `256`                                            | container edges traversed before a payload is refused                   |
-| `binaryWalkLimit`  | `65_536`                                         | bytes, and own members, before a binary view is named instead of walked |
-| `binaryMarker`     | `"[Binary]"`                                     | a named binary view                                                     |
-| `functionMarker`   | `"[Function]"`                                   | a named function                                                        |
-| `symbolMarker`     | `"[Symbol]"`                                     | a named symbol                                                          |
-| `depthMarker`      | `"[Deep]"`                                       | a value past `maxDepth`, under `onTooDeep: "name"`                      |
+| Export                | Signature                                        | Meaning                                                                 |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `make`                | `(options?: Options) => Redactor`                | builds a redactor over a rule set                                       |
+| `makeNoop`            | `() => Redactor`                                 | the identity redactor, for persisting verbatim by choice                |
+| `redact`              | `(value: unknown, options?: Options) => unknown` | the scrub itself                                                        |
+| `redactJsonString`    | `(json: string, redactor: Redactor) => string`   | scrubs an already-encoded column at a display surface                   |
+| `isSensitiveKey`      | `(key: string) => boolean`                       | whether a field name names a credential                                 |
+| `Redactor`            | `(value: unknown) => unknown`                    | the function type the journal consumes                                  |
+| `Rule`                | `{ id, pattern, replace?, rewrite? }`            | one textual rule; `rewrite` for a value a regex cannot bound            |
+| `Options`             | `{ rules?, onTooDeep? }`                         | `onTooDeep` is `"throw"` (default) or `"name"`                          |
+| `defaultRules`        | `ReadonlyArray<Rule>`                            | the built-in credential shapes                                          |
+| `diagnosticRules`     | `ReadonlyArray<Rule>`                            | `defaultRules` plus the spellings too broad for a durable row           |
+| `redactDiagnostic`    | `(value: unknown) => unknown`                    | `redact` with `diagnosticRules`, naming a too-deep value                |
+| `lineRedactor`        | `(rules?: ReadonlyArray<Rule>) => LineRedactor`  | redacts a stream line by line, holding a value open across lines        |
+| `LineRedactor`        | `{ line, flush }`                                | `line` returns the lines safe to emit; `flush` ends the stream          |
+| `maxHeldLines`        | `256`                                            | lines a `LineRedactor` holds for one open value before withholding      |
+| `placeholder`         | `"[REDACTED]"`                                   | the substitution                                                        |
+| `maxDepth`            | `256`                                            | container edges traversed before a payload is refused                   |
+| `RedactionDepthError` | `{ code: "depth_exceeded", maxDepth, message }`  | what `onTooDeep: "throw"` throws past `maxDepth`; a tagged error        |
+| `binaryWalkLimit`     | `65_536`                                         | bytes, and own members, before a binary view is named instead of walked |
+| `binaryMarker`        | `"[Binary]"`                                     | a named binary view                                                     |
+| `functionMarker`      | `"[Function]"`                                   | a named function                                                        |
+| `symbolMarker`        | `"[Symbol]"`                                     | a named symbol                                                          |
+| `depthMarker`         | `"[Deep]"`                                       | a value past `maxDepth`, under `onTooDeep: "name"`                      |
 
 Built-in text rules cover credential assignments around `:`, `=` or `=>`, in
 every value shape `util.inspect` and escaped JSON write, credential flags such
@@ -31428,10 +31713,10 @@ migrated in-memory database:
 `TestJournalOptions` is the production option type, so every field forwards to
 `SqlJournal.layer` unchanged and a new production option is reachable here the
 day it is added. The defaults are `capacity: 1024` and `overflow: "reject"`.
-This bundle creates the journal's tables only, so a suite exercising a fenced
-call supplies `flows_runs` itself or takes
-`@smthrs/engine-store/test/TestStores`, which provides the journal, run,
-attempt, and cache services over one database.
+This bundle creates the journal's tables, the consensus lease table included,
+so a suite exercising a fenced call takes the run through `Consensus.claim`
+and `activate`, or takes `@smthrs/engine-store/test/TestStores`, which
+provides the journal, run, attempt, and cache services over one database.
 
 `@smthrs/journal/test/Notifying` wraps a record-of-Effect-methods service so a
 hook fires around every operation:
@@ -32249,7 +32534,7 @@ The sentinel an implicit temporary directory is named with. An implicit
 is outside the workspace root by construction, so granting an ordinary
 workspace write does not grant system temporary-directory access.
 
-### FileSystem.AtomicFileSystemTypeId, AtomicRoot, AtomicRequest, AtomicResults, AtomicResult, AtomicHandlers, AtomicFileSystem, AtomicHostFileSystem
+### FileSystem.AtomicFileSystemTypeId, AtomicRoot, AtomicRequest, Resolution, AtomicBatchRequest, AtomicBatchValue, AtomicBatchResponse, AtomicResults, AtomicResult, AtomicHandlers, AtomicFileSystem, AtomicHostFileSystem
 
 ```ts
 const AtomicFileSystemTypeId: unique symbol
@@ -32269,9 +32554,19 @@ type AtomicRequest =
     readonly options?: { readonly exclude?: ReadonlyArray<string> | undefined } | undefined
   })
   | (AtomicRoot & { readonly operation: "rename"; readonly from: string; readonly to: string })
-  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<BatchRequest> })
+  | (AtomicRoot & { readonly operation: "resolve"; readonly path: string })
+  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<AtomicBatchRequest> })
 // ...one member per operation: makeDirectory, readDirectory, readFile,
 // readFileString, readLink, realPath, remove, stat, writeFile, writeFileString
+
+interface Resolution {
+  readonly path: string
+  readonly target: string | null
+}
+
+type AtomicBatchRequest = BatchRequest | { readonly operation: "resolve"; readonly path: string }
+type AtomicBatchValue = BatchValue | { readonly operation: "resolve"; readonly resolution: Resolution }
+// AtomicBatchResponse: BatchResponse whose entries carry AtomicBatchValue
 
 interface AtomicResults {
   readonly exists: boolean
@@ -32279,7 +32574,8 @@ interface AtomicResults {
   readonly readFile: Uint8Array
   readonly stat: FileSystem.File.Info
   readonly rename: void
-  readonly batch: BatchResponse
+  readonly resolve: Resolution
+  readonly batch: AtomicBatchResponse
   // ...one entry per operation
 }
 
@@ -32292,6 +32588,7 @@ type AtomicHandlers = {
 }
 
 interface AtomicFileSystem {
+  readonly noFollowAuthorization?: true | undefined
   readonly execute: <R extends AtomicRequest>(request: R) => Effect.Effect<AtomicResult<R>, PlatformError>
   readonly isolated?: FileSystem.FileSystem | undefined
 }
@@ -32313,6 +32610,13 @@ than a type its caller picked. The wire shape is unchanged: every member is the
 same flat JSON object, so a journaled or serialized request still decodes. An
 executor that dispatches in process can be written as an `AtomicHandlers`
 record, which does not compile while an operation is unimplemented.
+
+An executor that sets `noFollowAuthorization` answers `resolve`, alone and as
+a batch member, and the guarded layer authorizes through it instead of host
+pathnames. `resolve` walks from the pinned root without following any link. When
+`target` is `null`, `path` is the whole request in on-disk spelling, with a
+missing component and its descendants as requested. Otherwise `path` is the
+first link on the way and `target` is its text.
 
 ### FileSystem.withAtomicFileSystem
 
@@ -32340,6 +32644,21 @@ already carries a descriptor-relative executor: that executor is the stronger
 guarantee, and a path-delegating attestation would route `access`, `copy`,
 `chmod`, `link`, `symlink`, `open`, `watch`, `sink`, `stream`, and every
 `makeTemp*` call back through pathnames after the capability check.
+
+### FileSystem.FileSystemFault
+
+```ts
+class FileSystemFault extends Schema.TaggedError<FileSystemFault>()("@smthrs/kernel/FileSystemFault", {
+  code: "executor_already_present" | "isolated_operation_unsupported" | "workspace_identity_changed"
+  message: string
+})
+```
+
+The tagged failure of a broken composition. `withIsolatedFileSystem` throws
+`executor_already_present`. A guarded batch whose root no longer names the
+authorized descriptor reports `workspace_identity_changed` as the `cause` of a
+`Busy` `PlatformError`. `isolated_operation_unsupported` is a defect: an
+attested volume never advertises `resolve` or `batch`.
 
 ### FileSystem.confined
 
@@ -40744,9 +41063,44 @@ and replacement of the pinned root retain the same refusal checks.
 | `AtomicFileSystem.defaultLimits`      | 16 MiB content, 24 MiB request, 24 MiB response, 64 KiB helper stderr |
 | `AtomicFileSystem.defaultConcurrency` | `os.availableParallelism()`                                           |
 | `AtomicFileSystem.defaultTimeoutMs`   | 300000                                                                |
+| `AtomicFileSystem.AtomicHelperError`  | the tagged configuration failure, below                               |
 
-**Cost.** Every operation starts one helper process.
-That is the price of descriptor-relative confinement on a runtime with no
+**Configuration errors.** An option outside its bounds, a request that cannot
+be serialized, and a helper that is missing, unusable, or untrusted fail with
+`AtomicHelperError` (`_tag` `@smthrs/platform-node/AtomicHelperError`), never a
+bare `Error`. Classify one by `code`. A rejected option or request reaches an
+operation as `BadArgument` whose `cause` is the `AtomicHelperError`;
+`AtomicFileSystem.resolveHelper()` throws it directly.
+
+| `code`                          | Raised when                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `limit_invalid`                 | a `limits` byte ceiling is not a positive safe integer within its bound     |
+| `concurrency_invalid`           | `concurrency` is not a positive integer                                     |
+| `timeout_invalid`               | `timeoutMs` is not a positive integer no greater than 2147483647            |
+| `request_not_serializable`      | JSON has no form for the request                                            |
+| `helper_missing`                | no helper exists at any searched location; the message carries install hint |
+| `helper_unusable`               | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` names a helper that cannot run        |
+| `helper_path_invalid`           | the helper path is relative, ends in a separator, or loops through links    |
+| `helper_not_regular_file`       | the helper path is not a regular file                                       |
+| `helper_inside_workspace`       | the helper lives in, or appeared in, the confined workspace                 |
+| `staging_directory_not_private` | the per-user staging directory is a link or has another owner               |
+| `staging_unavailable`           | no location can hold a staged copy of the helper                            |
+
+**Protocol faults.** A helper that answers out of protocol, over a bound, or
+not at all fails closed: the operation fails with a `PlatformError` whose `cause`
+is an `AtomicHelperFault` (`_tag` `@smthrs/platform-node/AtomicHelperFault`).
+Classify one by `code`: `response_unframed`, `response_tag_unknown`,
+`response_length_invalid`, `response_length_mismatch`, `envelope_malformed`,
+`field_malformed`, `file_type_unknown`, `payload_malformed`,
+`read_limit_exceeded`, `entries_malformed`, `batch_malformed`,
+`digest_malformed`, `result_malformed`, `operation_unsupported`,
+`helper_timeout`, `response_limit_exceeded`, `helper_rejected`, `helper_exited`.
+An errno the helper itself reports is an `AtomicHelperRejection` with the native
+`code` and `syscall`.
+
+**Cost.** Every operation starts one helper process. Under the kernel's guarded
+layer, authorization adds two more, resolving the path before and after the
+grant decision. That is the price of descriptor-relative confinement on a runtime with no
 `openat`, and it is why the adapter carries a process ceiling: without one, an
 `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty entries
 would start fifty helpers at once. Batch a wide fan-out, or raise
@@ -40939,6 +41293,10 @@ A proxy must support IP tunnels; refusal never falls back to direct access.
 Dispatchers close after their response body and are destroyed on failure or
 cancellation. Ordinary requests without the web destination policy retain the
 shared dispatcher, including local model connections.
+
+A request whose pinned addresses include none of the family Undici asks for
+fails with a `TransportError` whose `cause` is an `EgressAddressError` (`_tag`
+`@smthrs/platform-node/EgressAddressError`, `code` `no_approved_address`).
 
 Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
 fail closed. The transport sets Host from the URL and discards caller-supplied
@@ -41561,7 +41919,8 @@ does not use. `budget` is absent for a flow that declares none; read it through
 one with `sandbox: { provider, network?, cpus?, memoryMib?, timeoutSecs? }`:
 `provider` is one of `SandboxProvider` (`aws`, `cloudflare`, `command`,
 `container`, `daytona`, `directory`, `just-bash`, `kubernetes`, `microsandbox`,
-`vercel`), `network` is `none` or `{ allow: [hosts] }` of host names, `cpus` is a positive
+`vercel`), `network` is `none`, `open`, or `{ allow: [hosts] }` of host names (absent,
+the provider's default applies; `microsandbox` then gives no network), `cpus` is a positive
 number, and the other limits are positive whole numbers. A selection places the
 flow in `sandbox`. An unknown provider or key, a malformed option, or a
 `placement` other than `sandbox` refuses the flow with `invalid_sandbox`.
@@ -41834,17 +42193,21 @@ const FlowBudget: Schema.Struct<{
   milliseconds: Schema.optional<typeof BudgetCeiling>
   usd: Schema.optional<typeof UsdCeiling>
   onExceeded: Schema.optional<typeof BudgetOnExceeded>
+  deadline: Schema.optional<typeof BudgetCeiling>
 }>
 
 const budgetUnbounded: FlowBudget
 const budgetOf: (descriptor: FlowDescriptor) => FlowBudget
+const deadlineMillis: (value: unknown) => number | undefined
 ```
 
 The tokens, milliseconds and dollars a flow declares that a control plane
 should approve for one of its runs. Tokens and milliseconds are positive safe
 integers, so the schema refuses zero, a negative, a fraction, `NaN`, and
 anything past `Number.MAX_SAFE_INTEGER`; `usd` is a positive finite amount, so
-`0.5` is fifty cents. Every field survives durable JSON unchanged.
+`0.5` is fifty cents. `deadline` is the milliseconds of wall-clock time one run
+may take from its first start, read from the frontmatter's top-level `deadline`.
+Every field survives durable JSON unchanged.
 
 `budgetUnbounded` is the budget of a flow that declares no ceiling. It is
 a named frozen value rather than a `{}` written at each host, for the same
@@ -41854,6 +42217,11 @@ spending enforcement is a decision a reader has to be able to see.
 `budgetOf` is how a host reads the field. It answers an absent `budget` with
 `budgetUnbounded` and returns a frozen copy otherwise, so one host cannot
 rewrite the ceiling every other undeclared descriptor reports.
+
+`deadlineMillis` reads a deadline the way frontmatter and `smthrs flow start
+--deadline` write one: a duration such as `30 minutes`, or whole milliseconds as
+a number or numeric string. Anything that is not a positive safe integer of
+milliseconds answers `undefined`.
 
 ### Descriptor.DiscoveryWarning and DiscoveryWarningCode
 
@@ -41869,15 +42237,15 @@ class DiscoveryWarning {
 
 A non-fatal source-discovery diagnostic. Anything a scan can survive is
 reported this way rather than raised, and read back through
-`registry.warnings()`. The 34 codes are grouped by what they say:
+`registry.warnings()`. The 35 codes are grouped by what they say:
 
-| Group                  | Codes                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                          |
-| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
-| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                               |
-| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                    |
-| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                               |
+| Group                  | Codes                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                                              |
+| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_deadline`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
+| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                                                   |
+| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                                        |
+| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                                                   |
 
 `service` names a service missing during construction of a module's exported `layer`.
 The optional export is built once in a scoped host context; see
@@ -42371,9 +42739,13 @@ fresh module identities, so an edited helper is adopted after a refresh and
 import cycles stay cycles. Relative imports and package resolution retain each
 module's directory; `import.meta.url` names the temporary sibling. Source
 directories must be writable. Temporary files are removed when loading settles
-or is interrupted. `import()` and `require()` calls, and bare specifiers other
-than a package.json `imports` key naming one file, load through the host's
-normal module cache.
+or is interrupted. Measured project helpers reached through `import()` or
+`require()`, tsconfig aliases, or conditional package mappings without one
+static target are refused with `body_unavailable` before the entry is imported.
+Those loads cannot guarantee fresh measured bytes through the host module
+cache, and deferred calls can outlive sibling cleanup. Installed packages
+without project mappings and Node/Bun builtins retain host trust and use the
+normal host loader.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
 defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes
@@ -43086,7 +43458,8 @@ const create: (runId: string, stateJson: string, options?: CreateOptions) => Eff
 
 Inserts a `pending` row. `stateJson` is JSON text: it is parsed, bounded, and
 stored as the caller's own bytes. `created_at_ms` is stamped from the Effect
-`Clock`.
+`Clock`. A `runId` that begins with the journal's `companionPrefix` names a
+companion stream and fails `invalid_run`.
 
 #### get
 
@@ -43424,6 +43797,31 @@ lengths, and validity flags, never the value that failed.
 Run state has no byte ceiling by design: it is what a resume re-enters, so a
 large state has to persist.
 
+### Ownership transitions
+
+```ts
+const OwnershipTransition: Schema<"claimed" | "activated" | "released" | "stolen" | "expired">
+const ownershipEventType: (transition: OwnershipTransition) => string // "flows.consensus.<transition>"
+const companionStream: string // "run-store"
+```
+
+Every transition the consensus strategy grants is appended as a
+`flows.consensus.<transition>` fact, with payload `{ runId, owner,
+grantedAtMs }`, to the run's companion stream
+`JournalEvent.companionRunId(companionStream, runId)`, in the transaction that
+made it. `claim` records `claimed`; `activate` records `activated`, or
+`released` when the snapshot moved on; `claimAndOwn` records `claimed` or
+`stolen` and then `activated`, with a `released` first when an owner re-owns
+its own stale run; `steal` records `stolen`; `abandonClaim` and an owner's
+non-running `transitionOwned` record `released`; `recoverClaim` records
+`expired`. A refused operation and a heartbeat record nothing, and a
+rolled-back transaction leaves no fact.
+
+The facts sit beside the run's own stream, so a consumer that reads that stream
+by position never sees one. They are recorded when the caller runs with a
+`Journal` in its context, which the ordinary composition
+(`Layer.mergeAll(SqlJournal.layer(...), RunStore.layer)`) provides.
+
 ### RunStore constructors and layers
 
 ```ts
@@ -43671,14 +44069,16 @@ const LivenessEvidence: Schema.Struct<{
 }>
 ```
 
-| Kind                           | Accepted when                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                           |
-| `cross-host-unreachable-stale` | The hosts differ.                                                               |
-| `lease-expired`                | Any host. The store verifies this claim itself against the persisted heartbeat. |
+| Kind                           | Accepted when                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------- |
+| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                              |
+| `cross-host-unreachable-stale` | The hosts differ.                                                                  |
+| `lease-expired`                | Any host. The strategy verifies this claim itself against the persisted heartbeat. |
 
-`checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe cannot
-be replayed into a later decision.
+Defined by [`@smthrs/journal`](/docs/reference/api/journal/)'s `Consensus`, because steal
+requires staleness plus liveness evidence in every strategy, and re-exported
+here. `checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe
+cannot be replayed into a later decision.
 
 ### LivenessProbe, LivenessContext, LivenessCheck
 
@@ -43740,8 +44140,9 @@ stranding that host's runs forever. Node hosts only.
 const heartbeatLoop: (runId: string, owner: OwnerId) => Effect<never, never, RunStore>
 ```
 
-Pulses every `heartbeatInterval` on the injected `Clock` and interrupts itself
-when the fence is gone, so race it against the owned work with
+Pulses every `heartbeatInterval` on the injected `Clock`, each pulse renewing
+the `Consensus` strategy's lease through `RunStore.heartbeat`, and interrupts
+itself when the fence is gone, so race it against the owned work with
 `Effect.raceFirst`. A heartbeat outcome other than `Updated` is durable evidence
 and interrupts immediately. An independent deadline bounds failing or stalled
 writes by `heartbeatWriteTolerance` and interrupts the pending write at expiry.
@@ -43797,9 +44198,12 @@ const layer: Layer<never, MigrationError | SqlError, SqlClient.SqlClient>
 `set` owns `flows_runs`, `flows_attempts`, `flows_run_source`, and
 `flows_run_changes` under the namespace `run-store` and
 reserves migration id block 1000, so its ids can never collide with another
-package's. Compose `set` with the other storage packages' sets and run them in
-one pass rather than layering several migrators;
-[`@smthrs/engine-store`](/docs/reference/api/engine-store/) already does.
+package's. `run` and `layer` install [`@smthrs/journal`](/docs/reference/api/journal/)'s set
+ahead of it, because the SQL `RunStore` arbitrates ownership through the
+journal's `SqlConsensus` and its `flows_consensus_leases` table. Compose `set`
+with the other storage packages' sets and run them in one pass rather than
+layering several migrators; [`@smthrs/engine-store`](/docs/reference/api/engine-store/)
+already does.
 
 The schema enforces the ownership invariants as SQL `CHECK` constraints, so no
 writer, including one issuing raw SQL, can leave a half-owned row behind.
@@ -43817,10 +44221,11 @@ human tasks use it to publish the prompt, answer kind, and attempt budget.
 
 ## Heartbeat
 
-`@smthrs/run-store/Heartbeat` is a leaf module holding the four lease durations
-and the one place they are related. `RunStore` needs the staleness cutoff and
-`Ownership` needs all four, and `Ownership` imports `RunStore`, so neither could
-own them without the other restating them.
+`@smthrs/run-store/Heartbeat` is a leaf module re-exporting the four lease
+durations from [`@smthrs/journal`](/docs/reference/api/journal/)'s `Consensus`, where every
+strategy judges staleness against them. `RunStore` needs the staleness cutoff
+and `Ownership` needs all four, and `Ownership` imports `RunStore`, so neither
+could own them without the other restating them.
 
 | Constant                  | Value      | What it governs                                                                     |
 | ------------------------- | ---------- | ----------------------------------------------------------------------------------- |
@@ -44060,6 +44465,12 @@ The layer also serves `SandboxHealth`, built with `SandboxHealth.make` over the 
 
 What `layerHost` deliberately does not do is what `SandboxSupervision` does for the spawn-only seam: retire an unhealthy session and open a fresh one behind the caller's back. That is right for a transport, where a command is the whole unit of work, and wrong here, because the body holding these services has been writing to this machine. Swapping it mid-action would silently discard those writes and hand the body an empty tree that still looks like its workspace. A dead machine surfaces as a failure instead, and re-provisioning belongs to whoever retries the action, which acquires the session key again.
 
+```ts
+const children = Sandbox.fanOut(session, { count: 16 }) // Effect<ReadonlyArray<Session>, ProviderError, Scope>
+```
+
+`fanOut(session, { count, concurrency? })` forks `count` children, 1 to `maxFanOut` (128), from a session that declares `fork`. Each run is a new batch: it forks one base from the session, then every child from that base, so the children share one starting tree while the session keeps changing. Children are keyed `<session id>/<batch>/child-<n>`, start without the session's credentials, and are released with the base when the acquiring scope closes, so a fan-out inside the parent's scope never outlives the parent. A count outside the bound throws a `RangeError`; a machine without `fork` fails with `unavailable`; one failed fork fails the fan-out, and machines already forked are released with the scope. `DirectorySandbox` forks by copying the session directory without vendor sign-ins (`.claude/.credentials.json`, `.claude.json`, `.codex/auth.json`, `.config/anthropic`); `TestSession` forks its in-memory tree and leaves behind the paths named in `credentials`.
+
 ## SandboxConformance
 
 ```ts
@@ -44146,7 +44557,7 @@ const provider = ContainerSandbox.make({
 })
 ```
 
-The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; `network: "none"` says so explicitly, and setting `network` to another engine mode is an explicit egress opt-in. An allowlist `network: { allow }` throws at `make`: an engine network mode is not a host firewall. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it. A nonzero removal exit logs the resource name and exit code without CLI stderr. A CLI failure without an exit code logs the resource name. Teardown still finishes within five seconds.
+The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; `network: "none"` says so explicitly, `network: "open"` is the engine's `bridge` network, and setting `network` to another engine mode is an explicit egress opt-in. An allowlist `network: { allow }` throws at `make`: an engine network mode is not a host firewall. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it. A nonzero removal exit logs the resource name and exit code without CLI stderr. A CLI failure without an exit code logs the resource name. Teardown still finishes within five seconds.
 
 Creation environment values travel through `--env-file /dev/stdin`. The host must expose `/dev/stdin`; values containing CR, LF, or NUL fail with `spawn_error` before creation because the CLI env-file format cannot represent them. Per-command environment operands travel as a base64 line on exec stdin, followed by the command's original stdin bytes. The guest shell reads that line before starting the command. The guest image needs `base64` as well as `sh` and `env`. Environment values are absent from local CLI argv.
 
@@ -44225,7 +44636,7 @@ Commands run through `execStreamWith(shell, ["-c", command])` with the workdir a
 
 `kill(process, signal)` signals the command and everything it started. A second guest command walks the process tree below the recorded pid (`pgrep -P`, or `/proc` where there is none), stops the whole collected set, delivers the signal, and continues it, so no shell in the tree runs its next statement between one `kill(2)` and the next; the walk reaches descendants that left the command's process group with `setsid` while their parent is alive. The SDK's `signal(number)` then reaches the command's process group, which covers a guest without the walk's tools and a command whose pid is not known yet. Delivery succeeds when either did, and a command seen to exit is never signalled again. Closing a spawn's scope before its exit was observed, as an interrupted caller does, sends `SIGTERM` the same way, waits two seconds for the exit, and sends `SIGKILL` to whatever ignored it, all inside the five-second teardown bound. A start that the caller abandoned while the SDK was still starting it is killed when its handle arrives.
 
-`image` and `snapshot` are exclusive; naming both fails with `unavailable` before any vendor call. A removed machine is gone with its files. With the default `backend: "local"`, `acquire` refuses before provisioning unless `sdk.defaultBackendKind()` is `local`, and refuses again when the opened machine reports another `backendKind`, so an ambient `MSB_BACKEND`, `MSB_API_KEY`, or `MSB_PROFILE` cannot move guest work off the host; a composition that must stay local also calls `sdk.setDefaultBackend("local")` once at startup. `backend: "any"` accepts the hosted backend. `cpus`, `maxCpus`, `memoryMib`, `maxMemoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `pullPolicy`, and `scripts` go to the builder as named. `network: "none"` calls `disableNetwork()`; `network: { allow }` goes to `network(b => b.policy(...))` as deny-by-default ingress and egress with egress allowed to DNS on port 53 at the host resolver (the vendor's `Rule.allowDns()` rule) and to each listed host; an empty list sends no rules, so DNS is denied too. A `*.` entry becomes a domain-suffix rule, which the vendor also matches against the apex, so a deny rule for the apex precedes the suffix rules unless another entry admits the apex. `networkPolicy` (a `NetworkPolicy`: per-direction defaults and ordered rules in the vendor's shape) goes to the same builder call for rules the neutral option cannot say; naming both throws at `make`. A machine created under either option carries a `smithers.network` label recording it, and an acquire with a network option refuses to reattach a machine whose label differs, before relabelling or connecting. `rootDiskMib` sets the root disk of an image boot; a snapshot boot keeps the disk it captured.
+`image` and `snapshot` are exclusive; naming both fails with `unavailable` before any vendor call. A removed machine is gone with its files. With the default `backend: "local"`, `acquire` refuses before provisioning unless `sdk.defaultBackendKind()` is `local`, and refuses again when the opened machine reports another `backendKind`, so an ambient `MSB_BACKEND`, `MSB_API_KEY`, or `MSB_PROFILE` cannot move guest work off the host; a composition that must stay local also calls `sdk.setDefaultBackend("local")` once at startup. `backend: "any"` accepts the hosted backend. `cpus`, `maxCpus`, `memoryMib`, `maxMemoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `pullPolicy`, and `scripts` go to the builder as named. `network: "none"`, and a machine that names neither `network` nor `networkPolicy`, calls `disableNetwork()`: the vendor's own default reaches the public internet, so the provider closes it. `network: "open"` leaves that vendor default. `network: { allow }` goes to `network(b => b.policy(...))` as deny-by-default ingress and egress with egress allowed only to each listed host, whose domain rules also admit the DNS queries for exactly those names; an empty list sends no rules, so DNS is denied too. A `*.` entry becomes a domain-suffix rule, which the vendor also matches against the apex, so a deny rule for the apex precedes the suffix rules unless another entry admits the apex. `networkPolicy` (a `NetworkPolicy`: per-direction defaults and ordered rules in the vendor's shape) goes to the same builder call for rules the neutral option cannot say; naming both throws at `make`. Every machine carries a `smithers.network` label recording its network. An acquire refuses to reattach a machine whose label differs or is missing (one booted under the vendor's open default), before relabelling or connecting; bringing back a sticky machine whose guest stopped answering refuses the same way, and `captureSnapshot` refuses to start a stopped machine that records no network. `rootDiskMib` sets the root disk of an image boot; a snapshot boot keeps the disk it captured.
 
 Snapshots are named `<family>.<member>` (`snapshotName(family, member)`, separator `snapshotSeparator`): the family is the preparation a snapshot repeats, the member tells its captures apart and never contains the separator, so `snapshotFamily(name)` places every name in exactly one family. `captureSnapshot({ sdk, machine, family, member, secrets, stopTimeoutMs? })` scrubs a machine of credentials, stops it, captures its root disk as that snapshot, removes the machine whether or not the capture succeeded, and returns the name; a family and member that cannot name a snapshot fail with `unavailable` before any vendor call and leave the machine. `hasSnapshot(sdk, name)` answers whether one exists (a `SnapshotNotFound` answer is `false`; any other failure is `unavailable`). `pruneSnapshots(sdk, family, keep, retain?)` removes that family's snapshots beyond the `keep` newest, except those named in `retain`, and returns their names; a family whose name extends another's is never touched by the other's prune. `removeSnapshot(sdk, name)` removes one; one already gone is not an error. A machine booted from a snapshot does not depend on it afterwards, so pruning never disturbs a running machine.
 
@@ -44274,7 +44685,7 @@ const provider = VercelSandbox.make({
 
 The machine name is `smthrs-<slug>`, lowercased. `acquire` calls `Sandbox.getOrCreate` with `persistent: true` and `resume: true`, so a name that already exists is resumed with its filesystem, and the scope finalizer calls `stop()`, which leaves the persistent sandbox in place for the next acquire. Credentials resolve in a fixed order: an explicit `oidcToken` or `VERCEL_OIDC_TOKEN` wins; otherwise `token`, `teamId`, and `projectId` are sent together or not at all; the environment consulted is `options.env`, never `process.env`. Vercel limits the timeout accepted by one create request to five minutes, so longer requested lifetimes create at that ceiling and then call `extendTimeout` with only the remaining duration, because that API extends by its argument rather than setting an absolute target. Commands run through `runCommand` as `sh -c` and never `sh -lc`: a login shell sources profile scripts, and anything those print lands ahead of the command's own standard output, which callers parse as data. `commandEnv` sits under the per-spawn environment. A read drains `readFile`'s stream, string or bytes, into one buffer, and `null` is `not_found`; a write runs `mkdir -p` for the parent and calls `writeFiles`.
 
-`network: "none"` sends `networkPolicy: "deny-all"` and `network: { allow }` sends `networkPolicy: { allow }`, Vercel's egress firewall. `getOrCreate` applies a policy only when it creates, so `acquire` also calls `update({ networkPolicy })` before its first guest command; a resumed sandbox never runs under an older policy. Omitting `network` leaves Vercel's default, full internet access. A malformed policy throws at `make`.
+`network: "none"` sends `networkPolicy: "deny-all"` and `network: { allow }` sends `networkPolicy: { allow }`, Vercel's egress firewall. `getOrCreate` applies a policy only when it creates, so `acquire` also calls `update({ networkPolicy })` before its first guest command; a resumed sandbox never runs under an older policy. `network: "open"` sends `networkPolicy: "allow-all"`, which also lifts a resumed sandbox's earlier policy. Omitting `network` is `network: "none"`, including the update of a resumed sandbox: Vercel's full internet access needs an explicit `"open"`. A malformed policy throws at `make`.
 
 `timeoutMs` must be a positive finite number, `maxDurationMs` is a caller-owned cap checked before any vendor request, and `workdir` must be absolute; each refusal is a `spawn_error` raised before anything is acquired. Output arrives after the command finishes, so there is no streaming and no `kill`; `runCommand` has no input channel, so standard input is staged as a workspace file and redirected. There is no real-backend suite; the provider is proven against a fake that keeps the vendor API shapes and runs every command through a real shell against real files.
 
@@ -44292,7 +44703,7 @@ const provider = DaytonaSandbox.make({
 
 The machine name is `smthrs-<slug>`, lowercased. `acquire` calls `get(name)` first; a 404 creates a sandbox with that name, and an existing one is started with `startTimeoutSeconds`. Creation or attachment is registered as a scoped resource before start and workspace preparation, so any later failure still runs the blocking delete finalizer, `delete(sandbox, deleteTimeoutSeconds, true)`. The workdir is `options.workdir` or the sandbox's own `getWorkDir()`, and either must be absolute. Commands run through `process.executeCommand(command, cwd, env)`. Daytona's byte-native download and stream-upload operations serve file transfer: `downloadFile` for reads, with `FILE_NOT_FOUND` mapped to `not_found`, and `uploadFileStream` for writes.
 
-`network: "none"` and an empty allowlist create the sandbox with `networkBlockAll: true`; `network: { allow }` creates it with `domainAllowList` set to the hosts joined by commas. The runner enforces both as iptables rules. An attached sandbox keeps the network it was created with, so `acquire` calls `updateNetworkSettings` with the same fields after `start` and before any guest command; a refused update fails with `unavailable` and deletes the sandbox. Omitting `network` leaves Daytona's default network. A malformed policy throws at `make`.
+`network: "none"` and an empty allowlist create the sandbox with `networkBlockAll: true`; `network: { allow }` creates it with `domainAllowList` set to the hosts joined by commas. The runner enforces both as iptables rules. An attached sandbox keeps the network it was created with, so `acquire` calls `updateNetworkSettings` with the same fields after `start` and before any guest command; a refused update fails with `unavailable` and deletes the sandbox. `network: "open"` sends `networkBlockAll: false`, the same way. Omitting `network` is `network: "none"`, so `networkBlockAll: true` is sent on create and after reattach: Daytona's own network needs an explicit `"open"`. A malformed policy throws at `make`.
 
 Teardown deletes the sandbox, so nothing survives a normal release; only a crash-left sandbox is found again by name. `executeCommand` returns one `result` string with no stderr field on the wire, so a command's standard error arrives merged into standard output rather than separately, and output arrives after the command finishes; there is no streaming and no `kill`, and standard input is staged as a workspace file and redirected. There is no real-backend suite; the provider is proven against a fake that keeps the documented API and error shapes (unverified live) and runs every command through a real shell against real files.
 
@@ -44375,7 +44786,7 @@ https://smithers.sh/docs/reference/api/scorers/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/scorers/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/scorers/docs/api.md) · [package docs](https://scorers.smithers.sh)
 
-> **Related APIs:** [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/journal`](/docs/reference/api/journal/)
+> **Related APIs:** [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/sandbox`](/docs/reference/api/sandbox/)
 
 `@smthrs/scorers` declares scorers, attaches them to target flows, decides
 replay-stable sampling, and persists the resulting observations. It does not
@@ -44814,6 +45225,44 @@ changes the `scorerKey`. `agreement` measures a judge against human labels.
 | `Rubric.make`          | const     | constructors | Declares a rubric scorer over a caller-supplied judge.           |
 | `Rubric.agreement`     | const     | calibration  | Counts judge agreement with human labels.                        |
 
+## Scorers
+
+Import `Scorers` from `@smthrs/scorers`, or the `@smthrs/scorers/Scorers` subpath.
+`exact()` compares string `output` and string `groundTruth` after trimming edges
+and collapsing whitespace; `contains()` checks case-sensitive containment.
+Non-text input is inconclusive. `rubric` is the existing `Rubric.make` contract.
+
+`testsPass({ command, sandbox, timeoutMs? })` runs the declared command through
+an already acquired `@smthrs/sandbox` session. It drains both output streams and
+waits for the real exit: zero scores 1, every other valid exit scores 0. The
+result includes `meta.exitCode`. Launch, transport or timeout failure raises
+`ScorerError` with code `inconclusive`; `Runner` retains it as an inconclusive
+observation. The command scope closes on completion, interruption and timeout.
+The default timeout is 60,000 ms; a blank command or a nonpositive/noninteger
+timeout is an invalid declaration. Command and timeout enter the scorer identity.
+The host selects the sandbox; the scorer does not grant filesystem or network access.
+
+`diffSize({ max })` and `touchedFiles({ max })` grade string `output` containing
+a complete text unified diff. `diffSize` counts added plus removed hunk lines;
+`touchedFiles` counts distinct paths, including deleted files, with repeated
+hunks deduplicated. Equality to the cap passes. Both return counts in `reason`
+and `meta: { added, removed, files, count, max }`. Empty diffs count zero;
+malformed, incomplete, binary or metadata-only files without unified headers are inconclusive. `max` must be a
+nonnegative safe integer and enters the scorer identity.
+
+### Scorers export index
+
+| Export                     | Kind      | Category | Summary                                                                      |
+| -------------------------- | --------- | -------- | ---------------------------------------------------------------------------- |
+| `Scorers.exact`            | const     | scorers  | Normalized text equality: trims edges and collapses whitespace.              |
+| `Scorers.contains`         | const     | scorers  | Case-sensitive containment of ground-truth text.                             |
+| `Scorers.rubric`           | const     | scorers  | The existing model-agnostic 1 to 5 rubric scorer.                               |
+| `Scorers.TestsPassOptions` | interface | models   | A declared command and already acquired sandbox session.                     |
+| `Scorers.testsPass`        | const     | scorers  | Grades sandbox command exit; launch and transport failure stay inconclusive. |
+| `Scorers.DiffOptions`      | interface | models   | An inclusive nonnegative diff budget.                                        |
+| `Scorers.diffSize`         | const     | scorers  | Added plus removed lines against an inclusive cap.                           |
+| `Scorers.touchedFiles`     | const     | scorers  | Distinct file paths against an inclusive cap.                                |
+
 ---
 
 # @smthrs/std
@@ -45198,27 +45647,32 @@ The code-intelligence seam.
 | Export           | Type                                          | Meaning                                                             |
 | ---------------- | --------------------------------------------- | ------------------------------------------------------------------- |
 | `Position`       | interface                                     | `path`, `line`, `character`, in the protocol's 0-based coordinates. |
-| `LanguageServer` | interface and `Context.Service` tag           | Ten methods, each returning `Effect<unknown, StdError>`.            |
+| `LanguageServer` | interface and `Context.Service` tag           | Ten queries, `sync`, `close`, and `refresh`.                        |
 | `make`           | `(service: LanguageServer) => LanguageServer` |                                                                     |
 | `makeNoop`       | `() => LanguageServer`                        | Answers `unsupported` for every request.                            |
 | `layerNoop`      | `Layer<LanguageServer>`                       |                                                                     |
 
-The methods are `hover`, `definition`, `references`, `implementation`,
+The queries are `hover`, `definition`, `references`, `implementation`,
 `documentSymbols`, `workspaceSymbols`, `prepareCallHierarchy`,
-`callHierarchyIncoming`, `callHierarchyOutgoing`, and `diagnostics`.
+`callHierarchyIncoming`, `callHierarchyOutgoing`, and `diagnostics`, each
+returning `Effect<unknown, StdError>`. `sync(path, text)` sends a file's new
+text, `close(path)` says it is gone, and `refresh` re-reads every synced file
+from disk, resending changed ones and closing deleted ones.
 
 ## NodeLanguageServer
 
 A host LSP client over the permission-checked process spawner, speaking framed
 JSON-RPC on ordinary stdio pipes.
 
-| Export                 | Type                                                                                 | Meaning                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `environment?`, `initializationOptions?`, `timeoutMs?`. |
-| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.                                   |
-| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                                                     |
-| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                                                    |
-| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                                                    |
+| Export                 | Type                                                                                 | Meaning                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `extensions?`, `environment?`, `initializationOptions?`, `timeoutMs?`, `settleMs?`, `quietMs?`. |
+| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.                                                                           |
+| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                                                                                             |
+| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                                                                                            |
+| `makeLazy`             | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` | Starts each server on the first request for one of its files.                                                              |
+| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                                                                                            |
+| `layerLazy`            | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           | Provides `makeLazy`.                                                                                                       |
 
 `make` sends `initialize` with `cwd` as the root URI and then `initialized`, so
 the service is ready when it resolves. `timeoutMs` defaults to 30,000 and bounds
@@ -45616,6 +46070,30 @@ const layer: Layer.Layer<CacheStore, never, DurableWriter | SqlClient.SqlClient>
 Provides the SQL-backed store. Compose the migrations beneath it so the tables
 exist before the service is exposed. See
 [compose a durable step cache](https://step-cache.smithers.sh/guides/compose-a-store/).
+
+### rebuildHeads
+
+```ts
+const rebuildHeads: (
+  candidates: Iterable<RecordedRef>
+) => Effect.Effect<number, CacheStoreError, DurableWriter | SqlClient.SqlClient>
+```
+
+Replaces every head with the ledger rows the candidates name, in one writer
+transaction. The head is copied from the ledger row byte for byte, so payload
+limits and provenance are the ones admitted when it was recorded. A candidate
+with no ledger row is skipped. Invalid candidates, or two for one key, fail
+`invalid_cache` before any head is touched. Returns the number of heads
+written. `@smthrs/engine-store`'s `StepCacheFold.rebuild` supplies the
+candidates from the journal.
+
+### RecordedRef
+
+```ts
+type RecordedRef = Pick<CacheEntry, "keyDigest" | "recordedRunId" | "recordedEventSeq">
+```
+
+One ledger row's identity: the key and the journal event that recorded it.
 
 ### makeNoop
 
@@ -48232,6 +48710,7 @@ interface ReplayOptions {
 interface ForkOptions {
   readonly workspaceRoot?: string | undefined
   readonly retainWorkspace?: boolean | undefined
+  readonly override?: StepOverride | undefined
   readonly pageSize?: number | undefined
   readonly maxHistoryEntries?: number | undefined
 }
@@ -48250,7 +48729,9 @@ through `Journal.maxEntriesLimit` (10,000). Any other value is refused with
 `invalid` before reading the journal. `maxHistoryEntries` overrides
 `Options.maxHistoryEntries` for one call. `workspaceRoot` defaults to `.flows/forks` and only moves which lane
 the derived workspace name lands in. `retainWorkspace` keeps the child lane
-registered after the service scope closes. `detachedChildren` defaults to
+registered after the service scope closes. `override` replaces one step's
+recorded result on the child; see [Fork a run](https://time-travel.smithers.sh/guides/fork-a-run/#edit-a-step-result).
+`detachedChildren` defaults to
 `"block"`. `wholeRepo` restores the jj operation the frame recorded instead of
 only its working-copy tree, so bookmark moves, rebases, `describe`, and
 `abandon` after the frame are undone too, even when no compensable effect was
@@ -48440,6 +48921,7 @@ moment the code under test reaches a third.
 | --------------- | -------------------------------------------------------------------------------------------------------------- |
 | `Snapshot`      | `{ runId, frame, changeId, planDigest? }`. The anchor at a frame. An absent digest means no plan was in force. |
 | `AttemptRef`    | `{ stepKeyDigest, attempt }`. An attempt row as `flows_attempts` addresses it.                                 |
+| `StepOverride`  | `{ stepKeyDigest, result }`. The step result a fork replays on its child in place of the parent's.             |
 | `Descendants`   | `{ attached: LineageEdge[]; detached: LineageEdge[] }`.                                                        |
 | `Audit`         | `{ id, runId, frame, status, rateLimit?, detail? }` with `status` of `in_progress`, `completed`, or `failed`.  |
 | `AuditPatch`    | `{ status?, rateLimit?, detail? }`. The only keys an open audit row may be advanced through.                   |
@@ -48482,7 +48964,7 @@ from either.
 | `archivedAt(runId, seq)`                                          | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                       |
 | `nextForkId(parentRunId, frame)`                                  | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                         |
 | `abandonForkIntents(staleBeforeMs)`                               | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                             |
-| `createFork(parentRunId, frame, childRunId?)`                     | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. The parent is untouched.                                                                                                                                        |
+| `createFork(parentRunId, frame, childRunId?, override?)`          | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. `override` replaces one copied step result in the same transaction. The parent is untouched.                                                                    |
 | `recordReceipt(receipt)`                                          | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                         |
 
 Every method fails as `TimeTravelError`.

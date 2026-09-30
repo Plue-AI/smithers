@@ -263,9 +263,44 @@ and replacement of the pinned root retain the same refusal checks.
 | `AtomicFileSystem.defaultLimits`      | 16 MiB content, 24 MiB request, 24 MiB response, 64 KiB helper stderr |
 | `AtomicFileSystem.defaultConcurrency` | `os.availableParallelism()`                                           |
 | `AtomicFileSystem.defaultTimeoutMs`   | 300000                                                                |
+| `AtomicFileSystem.AtomicHelperError`  | the tagged configuration failure, below                               |
 
-**Cost.** Every operation starts one helper process.
-That is the price of descriptor-relative confinement on a runtime with no
+**Configuration errors.** An option outside its bounds, a request that cannot
+be serialized, and a helper that is missing, unusable, or untrusted fail with
+`AtomicHelperError` (`_tag` `@smthrs/platform-node/AtomicHelperError`), never a
+bare `Error`. Classify one by `code`. A rejected option or request reaches an
+operation as `BadArgument` whose `cause` is the `AtomicHelperError`;
+`AtomicFileSystem.resolveHelper()` throws it directly.
+
+| `code`                          | Raised when                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `limit_invalid`                 | a `limits` byte ceiling is not a positive safe integer within its bound     |
+| `concurrency_invalid`           | `concurrency` is not a positive integer                                     |
+| `timeout_invalid`               | `timeoutMs` is not a positive integer no greater than 2147483647            |
+| `request_not_serializable`      | JSON has no form for the request                                            |
+| `helper_missing`                | no helper exists at any searched location; the message carries install hint |
+| `helper_unusable`               | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` names a helper that cannot run        |
+| `helper_path_invalid`           | the helper path is relative, ends in a separator, or loops through links    |
+| `helper_not_regular_file`       | the helper path is not a regular file                                       |
+| `helper_inside_workspace`       | the helper lives in, or appeared in, the confined workspace                 |
+| `staging_directory_not_private` | the per-user staging directory is a link or has another owner               |
+| `staging_unavailable`           | no location can hold a staged copy of the helper                            |
+
+**Protocol faults.** A helper that answers out of protocol, over a bound, or
+not at all fails closed: the operation fails with a `PlatformError` whose `cause`
+is an `AtomicHelperFault` (`_tag` `@smthrs/platform-node/AtomicHelperFault`).
+Classify one by `code`: `response_unframed`, `response_tag_unknown`,
+`response_length_invalid`, `response_length_mismatch`, `envelope_malformed`,
+`field_malformed`, `file_type_unknown`, `payload_malformed`,
+`read_limit_exceeded`, `entries_malformed`, `batch_malformed`,
+`digest_malformed`, `result_malformed`, `operation_unsupported`,
+`helper_timeout`, `response_limit_exceeded`, `helper_rejected`, `helper_exited`.
+An errno the helper itself reports is an `AtomicHelperRejection` with the native
+`code` and `syscall`.
+
+**Cost.** Every operation starts one helper process. Under the kernel's guarded
+layer, authorization adds two more, resolving the path before and after the
+grant decision. That is the price of descriptor-relative confinement on a runtime with no
 `openat`, and it is why the adapter carries a process ceiling: without one, an
 `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty entries
 would start fifty helpers at once. Batch a wide fan-out, or raise
@@ -458,6 +493,10 @@ A proxy must support IP tunnels; refusal never falls back to direct access.
 Dispatchers close after their response body and are destroyed on failure or
 cancellation. Ordinary requests without the web destination policy retain the
 shared dispatcher, including local model connections.
+
+A request whose pinned addresses include none of the family Undici asks for
+fails with a `TransportError` whose `cause` is an `EgressAddressError` (`_tag`
+`@smthrs/platform-node/EgressAddressError`, `code` `no_approved_address`).
 
 Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
 fail closed. The transport sets Host from the URL and discards caller-supplied

@@ -54,8 +54,14 @@ relative imports, and `Executable.fromDescriptor` refuses when any of them
 changed. The default executable loader evaluates the verified bytes of that
 whole closure under fresh module identities, so refresh adopts an edited
 entry or helper, including its priority, cache, and placement annotations,
-even after an earlier load in the same process. `import()` and `require()`
-calls still load through the host's own module cache.
+even after an earlier load in the same process. Discovery also measures literal
+`import()` and `require()` project helpers and mapped aliases. Executable
+admission refuses those runtime loads, tsconfig aliases and conditional
+package mappings without one static target before evaluating the entry: their
+host cache cannot guarantee fresh measured bytes, and deferred calls can
+outlive temporary cleanup. Use relative static imports or a package `imports`
+key naming one static target. Installed packages without project mappings and
+Node/Bun builtins retain host trust.
 
 Body paths may be filesystem paths or `file:` URLs. Verification decodes file
 URLs, including percent-encoded filenames, through the host `Path` service.

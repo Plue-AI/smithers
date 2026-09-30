@@ -85,7 +85,8 @@ const create: (runId: string, stateJson: string, options?: CreateOptions) => Eff
 
 Inserts a `pending` row. `stateJson` is JSON text: it is parsed, bounded, and
 stored as the caller's own bytes. `created_at_ms` is stamped from the Effect
-`Clock`.
+`Clock`. A `runId` that begins with the journal's `companionPrefix` names a
+companion stream and fails `invalid_run`.
 
 #### get
 
@@ -423,6 +424,31 @@ lengths, and validity flags, never the value that failed.
 Run state has no byte ceiling by design: it is what a resume re-enters, so a
 large state has to persist.
 
+### Ownership transitions
+
+```ts
+const OwnershipTransition: Schema<"claimed" | "activated" | "released" | "stolen" | "expired">
+const ownershipEventType: (transition: OwnershipTransition) => string // "flows.consensus.<transition>"
+const companionStream: string // "run-store"
+```
+
+Every transition the consensus strategy grants is appended as a
+`flows.consensus.<transition>` fact, with payload `{ runId, owner,
+grantedAtMs }`, to the run's companion stream
+`JournalEvent.companionRunId(companionStream, runId)`, in the transaction that
+made it. `claim` records `claimed`; `activate` records `activated`, or
+`released` when the snapshot moved on; `claimAndOwn` records `claimed` or
+`stolen` and then `activated`, with a `released` first when an owner re-owns
+its own stale run; `steal` records `stolen`; `abandonClaim` and an owner's
+non-running `transitionOwned` record `released`; `recoverClaim` records
+`expired`. A refused operation and a heartbeat record nothing, and a
+rolled-back transaction leaves no fact.
+
+The facts sit beside the run's own stream, so a consumer that reads that stream
+by position never sees one. They are recorded when the caller runs with a
+`Journal` in its context, which the ordinary composition
+(`Layer.mergeAll(SqlJournal.layer(...), RunStore.layer)`) provides.
+
 ### RunStore constructors and layers
 
 ```ts
@@ -670,14 +696,16 @@ const LivenessEvidence: Schema.Struct<{
 }>
 ```
 
-| Kind                           | Accepted when                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                           |
-| `cross-host-unreachable-stale` | The hosts differ.                                                               |
-| `lease-expired`                | Any host. The store verifies this claim itself against the persisted heartbeat. |
+| Kind                           | Accepted when                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------- |
+| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                              |
+| `cross-host-unreachable-stale` | The hosts differ.                                                                  |
+| `lease-expired`                | Any host. The strategy verifies this claim itself against the persisted heartbeat. |
 
-`checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe cannot
-be replayed into a later decision.
+Defined by [`@smthrs/journal`](/docs/reference/api/journal/)'s `Consensus`, because steal
+requires staleness plus liveness evidence in every strategy, and re-exported
+here. `checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe
+cannot be replayed into a later decision.
 
 ### LivenessProbe, LivenessContext, LivenessCheck
 
@@ -739,8 +767,9 @@ stranding that host's runs forever. Node hosts only.
 const heartbeatLoop: (runId: string, owner: OwnerId) => Effect<never, never, RunStore>
 ```
 
-Pulses every `heartbeatInterval` on the injected `Clock` and interrupts itself
-when the fence is gone, so race it against the owned work with
+Pulses every `heartbeatInterval` on the injected `Clock`, each pulse renewing
+the `Consensus` strategy's lease through `RunStore.heartbeat`, and interrupts
+itself when the fence is gone, so race it against the owned work with
 `Effect.raceFirst`. A heartbeat outcome other than `Updated` is durable evidence
 and interrupts immediately. An independent deadline bounds failing or stalled
 writes by `heartbeatWriteTolerance` and interrupts the pending write at expiry.
@@ -796,9 +825,12 @@ const layer: Layer<never, MigrationError | SqlError, SqlClient.SqlClient>
 `set` owns `flows_runs`, `flows_attempts`, `flows_run_source`, and
 `flows_run_changes` under the namespace `run-store` and
 reserves migration id block 1000, so its ids can never collide with another
-package's. Compose `set` with the other storage packages' sets and run them in
-one pass rather than layering several migrators;
-[`@smthrs/engine-store`](/docs/reference/api/engine-store/) already does.
+package's. `run` and `layer` install [`@smthrs/journal`](/docs/reference/api/journal/)'s set
+ahead of it, because the SQL `RunStore` arbitrates ownership through the
+journal's `SqlConsensus` and its `flows_consensus_leases` table. Compose `set`
+with the other storage packages' sets and run them in one pass rather than
+layering several migrators; [`@smthrs/engine-store`](/docs/reference/api/engine-store/)
+already does.
 
 The schema enforces the ownership invariants as SQL `CHECK` constraints, so no
 writer, including one issuing raw SQL, can leave a half-owned row behind.
@@ -816,10 +848,11 @@ human tasks use it to publish the prompt, answer kind, and attempt budget.
 
 ## Heartbeat
 
-`@smthrs/run-store/Heartbeat` is a leaf module holding the four lease durations
-and the one place they are related. `RunStore` needs the staleness cutoff and
-`Ownership` needs all four, and `Ownership` imports `RunStore`, so neither could
-own them without the other restating them.
+`@smthrs/run-store/Heartbeat` is a leaf module re-exporting the four lease
+durations from [`@smthrs/journal`](/docs/reference/api/journal/)'s `Consensus`, where every
+strategy judges staleness against them. `RunStore` needs the staleness cutoff
+and `Ownership` needs all four, and `Ownership` imports `RunStore`, so neither
+could own them without the other restating them.
 
 | Constant                  | Value      | What it governs                                                                     |
 | ------------------------- | ---------- | ----------------------------------------------------------------------------------- |

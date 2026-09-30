@@ -341,11 +341,13 @@ The gateway's own remote procedures. Control mutations are not re-declared here:
 it unchanged on `/rpc`. The group shares `ControlRpcs.ControlAuth`, so one
 bearer credential authenticates both mounts.
 
-| Procedure              | Payload                           | Success                | Error                                                                                                                                                                           |
-| ---------------------- | --------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`   | `GatewayError`                                                                                                                                                                  |
-| `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`         | `GatewayError`                                                                                                                                                                  |
-| `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput` | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
+| Procedure              | Payload                           | Success                   | Error                                                                                                                                                                           |
+| ---------------------- | --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`      | `GatewayError`                                                                                                                                                                  |
+| `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`            | `GatewayError`                                                                                                                                                                  |
+| `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput`    | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
+| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
+| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
 
 | Export                 | Shape                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -359,6 +361,36 @@ Control records the decision and its durable resume delegation as one domain
 command; the gateway never composes a second mutation, and its error union is
 exactly the one `Control.approve` and `Control.deny` declare. See
 [Submit an approval from a client](https://gateway.smithers.sh/guides/submit-an-approval/).
+
+`Run.Fork` and `Run.Verify` are served by the host that owns the project's
+stores, through `RunHistory`; see below.
+
+## `RunHistory`
+
+A run's recorded history as the gateway serves it. `Run.Fork` branches a run at
+the exact journal sequence `at` into a parked child, optionally with one step's
+recorded result replaced; `Run.Verify` reports what resuming a run under the
+current flow code would replay and what it would execute again. They answer
+exactly what `smthrs runs fork` and `smthrs runs verify` print, because
+`smthrs serve` implements the service over the same history library. A gateway
+composed without the service answers both `Unavailable`. Both procedures are
+in the `write:runs` token scope.
+
+| Export           | Shape                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Step`           | `{ stepKeyDigest, action?, node? }`                                                                                      |
+| `VerifyInput`    | `{ runId }`                                                                                                              |
+| `VerifyReport`   | `{ runId, verdict: "consistent" \| "divergent", replayed, resumes?, executes?, notReplayed }`                            |
+| `StepEdit`       | `{ stepKeyDigest, result }`                                                                                              |
+| `ForkInput`      | `{ runId, at, lineage?, step?: StepEdit }`                                                                               |
+| `ForkOutput`     | `{ runId, parentRunId, status: "parked" }`                                                                               |
+| `HistoryRefused` | the host's refusal: the CLI's stable `code` and sentence (`history_missing`, `history_frame_missing`, `run_active`, ...) |
+| `Service`        | `{ fork(input), verify(input) }`                                                                                         |
+| `RunHistory`     | the service tag a host provides                                                                                          |
+
+A divergent report is an answer, not a failure: the CLI exits 1 with
+`run_divergent` for it, while `Run.Verify` returns the report so a client can
+show which recorded steps would not replay.
 
 ## `Diagnosis`
 

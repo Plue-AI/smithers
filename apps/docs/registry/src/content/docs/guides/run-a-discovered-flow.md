@@ -65,6 +65,18 @@ Nothing here raises. A delegate only another host registers
 because one broken file must not take every unrelated flow down with it. The codes are what separate the two kinds: the first pair is a
 statement about this host, the second is a defect in the flow.
 
+For measured project helpers, use relative static imports or package `imports`
+keys with one static file target. Transitive static imports and cycles share the
+measured closure. Refresh after an edit; an old descriptor is refused before
+any module is evaluated.
+
+Discovery also measures literal `import()` and `require()` project helpers and
+mapped aliases. Admission refuses those runtime loads, tsconfig aliases and
+conditional mappings without one static target with `body_unavailable`: the
+host module cache cannot guarantee fresh measured bytes, and deferred loads
+can outlive temporary module cleanup. Installed packages without project
+mappings and Node/Bun builtins remain host dependencies.
+
 ## Register everything runnable
 
 `Executable.layer(options)` is the layer a host passes as its registration

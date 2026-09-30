@@ -31,15 +31,16 @@ The `exports` map declares these subpaths:
 | `@smthrs/flow/StepIdentity`     | `src/Action/StepIdentity.ts`     | any      |
 | `@smthrs/flow/<Module>`         | `src/<Module>.ts`                | any      |
 
-`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
+`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `Deadline`, `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
 
 ## Namespaces
 
-The package index re-exports sixteen namespaces:
+The package index re-exports seventeen namespaces:
 
 | Namespace         | Summary                                                              |
 | ----------------- | -------------------------------------------------------------------- |
 | `Action`          | Durable action definitions and combinators.                          |
+| `Deadline`        | The wall-clock bound one run settles by, shared across its rounds.   |
 | `DurableClock`    | Durable clock and timer services.                                    |
 | `DurableDeferred` | Durable deferred values.                                             |
 | `DurableQueue`    | Durable queues.                                                      |
@@ -325,6 +326,36 @@ Derives an invocation key from engine-generated input.
 
 A directory output captured and replayed as one tree artifact.
 
+## Deadline
+
+### `Deadline.start`
+
+- **Signature:** `start(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): Effect.Effect<LineageDeadline | undefined, never, FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+Starts the current execution's deadline: the lineage deadline the round inherited from a handoff, or `deadline` counted from the execution's journaled first start (or from `startedAtMs`, when the host holds a durable start of its own), with a durable clock armed at it. Answers `undefined` when neither applies. Dies with a `RangeError` when `deadline` is not a positive finite duration. Start at most one deadline per execution.
+
+### `Deadline.remainingMs`
+
+- **Signature:** `remainingMs(deadline: LineageDeadline): Effect.Effect<number>`
+- **Since:** `1.0.0`
+
+The whole milliseconds left before the deadline passes; zero or less once it has.
+
+### `Deadline.within`
+
+- **Signature:** `within(deadline: LineageDeadline | undefined, flowName: string): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowInstance>`
+- **Since:** `1.0.0`
+
+Races `body` against a started deadline and settles it with `Flow.DeadlineExceeded` at the deadline, at once when it has already passed. A round that hands off stamps the deadline on its `Flow.Handoff`. `undefined` runs `body` unbounded.
+
+### `Deadline.bound`
+
+- **Signature:** `bound(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+`start`, then `within`. The engine applies it to every execution of a flow that declares `deadline`.
+
 ## DurableClock
 
 ### `DurableClock.DurableClock`
@@ -581,26 +612,26 @@ Every registered tag. The sweep tests read it.
 
 `Flow` exports 46 symbols. Its models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
 
-| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                          |
-| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                                       |
-| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                                                 |
-| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                                          |
-| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                                       |
-| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, and `maxRounds`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `start`, `ensure`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
-| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                                            |
-| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                                                |
-| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                                       |
-| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                                             |
-| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                                       |
-| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                                             |
-| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                                              |
-| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                                                |
-| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                                          |
-| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                                                 |
-| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                  |
-| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                           |
-| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                          |
+| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                                                   |
+| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                                                             |
+| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                                                      |
+| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                                                   |
+| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, `maxRounds`, and `deadline`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `start`, `ensure`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
+| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                                                        |
+| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                                                            |
+| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                                                   |
+| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                                                         |
+| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                                                   |
+| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                                                         |
+| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                                                          |
+| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                                                            |
+| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                                                      |
+| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                                                             |
+| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                              |
+| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                                       |
+| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                                      |
 
 ### `Flow.Capabilities`
 
@@ -689,12 +720,12 @@ Declares the host's execution-id source as a layer. Callers that name an `execut
 
 ### `Flow.make`
 
-- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
+- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
 - **Default:** `success` is `Schema.Void`, `error` is `Schema.Never`, `annotations` is `Context.empty()`
 - **Required:** `payload` and `body`
 - **Since:** `0.1.0`
 
-Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer.
+Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
 
 `declaredFrom: original` retains a native declaration's diagnostic source location,
 including its absence, while constructing a fresh flow with the supplied body.
@@ -751,6 +782,13 @@ id acknowledges admission, not a successful result or a reached wait point.
 - **Since:** `0.1.0`
 
 A lineage asked for one more round than its flow's `maxRounds` allows. It is recorded as a defect in the execution result, not as a typed `execute` failure.
+
+### `Flow.DeadlineExceeded`
+
+- **Type:** `Schema.TaggedError` with fields `code: "deadline_exceeded"`, `flowName: string`, `executionId: string`, `deadlineMs: number`, `startedAtMs: number`, and `message: string`
+- **Since:** `1.0.0`
+
+An execution was still unsettled when its flow's `deadline` elapsed. It is recorded as a defect in the execution result, not as a typed `execute` failure, and its attached children are cancelled with it.
 
 ### `Flow.done`
 
@@ -820,10 +858,17 @@ A flow execution that parked on a durable wait. The optional `cause` carries wha
 
 ### `Flow.Handoff`
 
-- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, and `payload: Unknown`
+- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, optional `capabilityCeilings`, `payload: Unknown`, and optional `deadline: LineageDeadline`
 - **Since:** `0.1.0`
 
-A round that ended by handing off to the next round of its trampoline lineage.
+A round that ended by handing off to the next round of its trampoline lineage. `deadline` is the lineage deadline the next round runs under, stamped by a bounded round.
+
+### `Flow.LineageDeadline`
+
+- **Type:** `Schema.Struct({ startedAtMs: Number, deadlineMs: Number })`
+- **Since:** `1.0.0`
+
+The deadline a trampoline lineage's rounds share: the originating round's journaled first start and its bound, so every round expires at `startedAtMs + deadlineMs`.
 
 ### `Flow.intoResult`
 
@@ -902,7 +947,7 @@ Executing a flow would close a cycle in the persisted parent-execution chain. `p
 - **Type:** `Context.Service` keyed `"@smthrs/flow/FlowRuntime/FlowInstance"`
 - **Since:** `0.1.0`
 
-One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
+One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, the optional `lineageDeadline` a round after a handoff inherited, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
 
 ### `FlowRuntime.DeferredDoneIfWaitingOutcome`
 
@@ -1695,27 +1740,28 @@ The wait implementation: park under `event` with the wake token, and settle with
 
 Every failure the package defines is a `Schema.TaggedError` carrying a stable `code`:
 
-| Tag                                                    | Raised when                                                                                                          | Fields                                                                  |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `@smthrs/flow/InfraInterrupt`                          | An action adapter explicitly marks an infrastructure event for `interruptRetryPolicy`; engines do not synthesize it. | `code`, `reason`                                                        |
-| `@smthrs/flow/InfraInterruptRetriesExhausted`          | An action spends its `interruptRetryPolicy` without reaching an ordinary success or failure.                         | `code`, `actionName`, `attempts`, `interrupt`, `message`                |
-| `@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey` | An irreversible action attempts a retry without a declared idempotency key.                                          | `code`, `actionName`, `attempt`                                         |
-| `@smthrs/flow/ConcurrentKeylessDispatch`               | Two ordinal-keyed invocations of one allocation scope are in flight at once.                                         | `code`, `actionName`                                                    |
-| `@smthrs/flow/UncanonicalIdempotencyKey`               | A caller-declared object-form `idempotencyKey` carries material canonical serialization rejects.                     | `code`, `actionName`, `reason`, `path`, `message`                       |
-| `@smthrs/flow/DurableDeferred/TokenInvalid`            | A completion token does not parse, or names a different deferred than the surface it was submitted through.          | `code`, `message`                                                       |
-| `@smthrs/flow/ExecutionIdRequired`                     | Opt-in derivation could not canonicalize the payload, or a served resume was not scoped to an id.                    | `code`, `flowName`                                                      |
-| `@smthrs/flow/MaxRoundsExceeded`                       | A trampoline lineage opens a round past its flow's `maxRounds` budget.                                               | `code`, `flowName`, `lineageId`, `maxRounds`, `roundOrdinal`, `message` |
-| `@smthrs/flow/CancelRequestFailed`                     | `interrupt` cannot durably record its cancellation request, or a durable engine is asked for `interruptUnsafe`.      | `code`, `executionId`, `reason`                                         |
-| `@smthrs/flow/FlowCycleDetected`                       | Executing a flow would close a cycle in the persisted parent-execution chain.                                        | `code`, `path`                                                          |
-| `@smthrs/flow/FlowExecutionNotFound`                   | `poll` names an execution id the runtime never recorded.                                                             | `code`, `executionId`                                                   |
-| `@smthrs/flow/HumanTaskFailed`                         | A question is unanswerable, spends its attempt budget on refused answers, or passes its deadline while open.         | `code`, `task`, `attempts`, `rejections`, `message`                     |
-| `@smthrs/flow/HumanAnswerInvalid`                      | An answer is outside the durable JSON boundary, or the attempt it addresses is not open.                             | `code`, `message`                                                       |
-| `@smthrs/flow/InterpreterError`                        | The interpreter refuses a graph it cannot drive.                                                                     | `code`, `flow`, `node`, `message`                                       |
-| `@smthrs/flow/PollExhausted`                           | A poll uses its last attempt without a satisfied check, under `onTimeout: "fail"`.                                   | `code`, `poll`, `attempts`, `message`                                   |
-| `@smthrs/flow/RetryPolicyExpired`                      | A historical retry sequence crossed the policy's `expirationMs` wall-clock bound.                                    | `code`, `actionName`, `attempt`, `expirationMs`, `lastError`            |
-| `@smthrs/flow/RetryAttemptsExhausted`                  | A historical retry sequence exhausted the policy's `maxAttempts` bound.                                              | `code`, `actionName`, `attempt`, `maxAttempts`, `lastError`             |
-| `@smthrs/flow/SleepRequestInvalid`                     | A sleep payload names no deadline, two deadlines, or a value that is not a length of time.                           | `code`, `message`                                                       |
-| `@smthrs/flow/WaitForRequestInvalid`                   | A wait payload names no target, two targets, a token that does not parse, or a token addressed to another execution. | `code`, `message`                                                       |
+| Tag                                                    | Raised when                                                                                                          | Fields                                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `@smthrs/flow/InfraInterrupt`                          | An action adapter explicitly marks an infrastructure event for `interruptRetryPolicy`; engines do not synthesize it. | `code`, `reason`                                                          |
+| `@smthrs/flow/InfraInterruptRetriesExhausted`          | An action spends its `interruptRetryPolicy` without reaching an ordinary success or failure.                         | `code`, `actionName`, `attempts`, `interrupt`, `message`                  |
+| `@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey` | An irreversible action attempts a retry without a declared idempotency key.                                          | `code`, `actionName`, `attempt`                                           |
+| `@smthrs/flow/ConcurrentKeylessDispatch`               | Two ordinal-keyed invocations of one allocation scope are in flight at once.                                         | `code`, `actionName`                                                      |
+| `@smthrs/flow/UncanonicalIdempotencyKey`               | A caller-declared object-form `idempotencyKey` carries material canonical serialization rejects.                     | `code`, `actionName`, `reason`, `path`, `message`                         |
+| `@smthrs/flow/DurableDeferred/TokenInvalid`            | A completion token does not parse, or names a different deferred than the surface it was submitted through.          | `code`, `message`                                                         |
+| `@smthrs/flow/ExecutionIdRequired`                     | Opt-in derivation could not canonicalize the payload, or a served resume was not scoped to an id.                    | `code`, `flowName`                                                        |
+| `@smthrs/flow/MaxRoundsExceeded`                       | A trampoline lineage opens a round past its flow's `maxRounds` budget.                                               | `code`, `flowName`, `lineageId`, `maxRounds`, `roundOrdinal`, `message`   |
+| `@smthrs/flow/DeadlineExceeded`                        | An execution is still unsettled when its flow's `deadline` elapses.                                                  | `code`, `flowName`, `executionId`, `deadlineMs`, `startedAtMs`, `message` |
+| `@smthrs/flow/CancelRequestFailed`                     | `interrupt` cannot durably record its cancellation request, or a durable engine is asked for `interruptUnsafe`.      | `code`, `executionId`, `reason`                                           |
+| `@smthrs/flow/FlowCycleDetected`                       | Executing a flow would close a cycle in the persisted parent-execution chain.                                        | `code`, `path`                                                            |
+| `@smthrs/flow/FlowExecutionNotFound`                   | `poll` names an execution id the runtime never recorded.                                                             | `code`, `executionId`                                                     |
+| `@smthrs/flow/HumanTaskFailed`                         | A question is unanswerable, spends its attempt budget on refused answers, or passes its deadline while open.         | `code`, `task`, `attempts`, `rejections`, `message`                       |
+| `@smthrs/flow/HumanAnswerInvalid`                      | An answer is outside the durable JSON boundary, or the attempt it addresses is not open.                             | `code`, `message`                                                         |
+| `@smthrs/flow/InterpreterError`                        | The interpreter refuses a graph it cannot drive.                                                                     | `code`, `flow`, `node`, `message`                                         |
+| `@smthrs/flow/PollExhausted`                           | A poll uses its last attempt without a satisfied check, under `onTimeout: "fail"`.                                   | `code`, `poll`, `attempts`, `message`                                     |
+| `@smthrs/flow/RetryPolicyExpired`                      | A historical retry sequence crossed the policy's `expirationMs` wall-clock bound.                                    | `code`, `actionName`, `attempt`, `expirationMs`, `lastError`              |
+| `@smthrs/flow/RetryAttemptsExhausted`                  | A historical retry sequence exhausted the policy's `maxAttempts` bound.                                              | `code`, `actionName`, `attempt`, `maxAttempts`, `lastError`               |
+| `@smthrs/flow/SleepRequestInvalid`                     | A sleep payload names no deadline, two deadlines, or a value that is not a length of time.                           | `code`, `message`                                                         |
+| `@smthrs/flow/WaitForRequestInvalid`                   | A wait payload names no target, two targets, a token that does not parse, or a token addressed to another execution. | `code`, `message`                                                         |
 
 `Flow.make`, `Poll.make`, `RetryPolicy.make`, and `DurableQueue.makeWorker` refuse invalid static configuration by throwing a `RangeError` at construction, and `Poll.make` throws a `TypeError` for an `input` that declares the reserved `attempt` field. Those are programmer errors, not typed failures.
 
