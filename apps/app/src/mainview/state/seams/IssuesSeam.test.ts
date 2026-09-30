@@ -9,9 +9,9 @@ import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { processRepositoryEvents } from "../RepositoryNotifications"
 import { invalidatePreparedViews } from "../PreparedView"
-import { initialSetup } from "@smthrs/rpc/RepositorySetup"
+import { initialSetup, setupCandidate, type SetupRecoveryResponse } from "@smthrs/rpc/RepositorySetup"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
-import { applicationIdentityFromFetch } from "../TestFixtures"
+import { applicationIdentityFromFetch, waitFor } from "../TestFixtures"
 import { fetchIssuePayload, readIssueOptions } from "./IssuesSeam"
 import type { SeamContext } from "./SeamContext"
 
@@ -136,7 +136,19 @@ test.each([
   { name: "enabled CI", enabled: true, owner: "will", tips: 0 },
   { name: "another account's CI", enabled: true, owner: "someone-else", tips: 1 }
 ])("issue creation suggests optional CI once for $name", async scenario => {
+  // The suggestion reads the host's verified registration for the signed-in
+  // account (#2536): a saved card, even another account's enabled CI, is not will's.
+  const verified = initialSetup("will/flows", "ci", "will")
+  const registration = (job: string): SetupRecoveryResponse["registration"] => scenario.enabled && scenario.owner === "will" && job === "ci"
+    ? { state: "known", active: { registrationId: "test", workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a", revision: verified.revision,
+      digest: setupCandidate(verified), sourceRevision: "test", enabled: true, owned: true, draft: verified.draft } }
+    : { state: "known" }
   const { store, controller } = await issuesController(backend({
+    "GET /api/repository-setup/state": request => {
+      const job = new URL(request.url).searchParams.get("job") ?? ""
+      const body: SetupRecoveryResponse = { owner: "will", repo: "will/flows", job: job as SetupRecoveryResponse["job"], registration: registration(job), setup: { state: "none" } }
+      return json(200, body)
+    },
     "POST /api/repos/will/flows/issues": json(201, wireIssue(8)),
     "GET /api/repos/will/flows/issues/8": json(200, wireIssue(8)),
     "GET /api/repos/will/flows/issues/8/comments": json(200, [])
@@ -147,6 +159,7 @@ test.each([
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "ci-settings", kind: "repository-setup", title: "CI", createdAt: 1, ordinal: 1, status: "active", payload: setup
     } }).isPersisted.promise
+    await waitFor(() => [...store.collections.repositoryJobObservations.values()].some(row => row.job === "ci" && row.state === "completed"))
     await controller.commands.run("issues.create", "Improve logging")
     await controller.commands.run("issues.create", "Improve tests")
     await store.settled?.()
