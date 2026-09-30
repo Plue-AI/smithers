@@ -28,12 +28,14 @@ func TestMythicalLaneAccountsOnProductSchema(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state = 'active', max_parallel = 2 WHERE repository_id = $1`, repoID)
 	require.NoError(t, err)
 
-	workspace := func() string {
+	// Each lane is its own named workspace: one identity holds one active
+	// workspace (uq_workspaces_active, migration 0084).
+	workspace := func(name string) string {
 		var id string
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id) VALUES ($1, $2) RETURNING id::text`, repoID, userID).Scan(&id))
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, name) VALUES ($1, $2, $3) RETURNING id::text`, repoID, userID, name).Scan(&id))
 		return id
 	}
-	ws1, ws2, ws3, ws4 := workspace(), workspace(), workspace(), workspace()
+	ws1, ws2, ws3, ws4 := workspace("lane-1"), workspace("lane-2"), workspace("lane-3"), workspace("lane-4")
 	connection := func(provider, label, email string) string {
 		kind := "api_key"
 		if provider == "codex" {
