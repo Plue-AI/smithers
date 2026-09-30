@@ -185,7 +185,10 @@ it("files a TODO under one request id, resent after an unanswered filing and dro
     ["/api/repos/o/r/mythical/todos", "id-1"]
   ])
   // An answered filing frees its id: the next filing of the text is a new TODO.
-  answers.push(() => Promise.reject(new Error("/api/repos/o/r/mythical/todos: HTTP 403")), () => Promise.resolve(queued))
+  answers.push(
+    () => Promise.reject(new Error("/api/repos/o/r/mythical/todos: HTTP 403")),
+    () => Promise.resolve(queued)
+  )
   expect(await file("o/r", "Add dark mode")).toMatchObject({ ok: false, settled: true })
   await file("o/r", "Add dark mode")
   expect(sent.map((each) => each.body.request)).toEqual(["id-1", "id-1", "id-2", "id-3"])

@@ -1593,7 +1593,20 @@ export function App(props: AppProps) {
         setStatus(`Unknown command /${verb}`, "warning")
         return true
     }
-  }, [transcript, name, newSession, quit, switchSeat, setStatus, setText, props.host.cwd, workspace, runs, revision, factoryRepo])
+  }, [
+    transcript,
+    name,
+    newSession,
+    quit,
+    switchSeat,
+    setStatus,
+    setText,
+    props.host.cwd,
+    workspace,
+    runs,
+    revision,
+    factoryRepo
+  ])
 
   /** A prompt for the agent, taken literally: never a `!` shell line or a `/` command. */
   const send = useCallback((text: string, followUp = false) => {

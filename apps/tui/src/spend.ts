@@ -69,7 +69,10 @@ export const ledger = (root: string = directory()): Budget.Ledger => ({
       for (const day of [previousDay(today), today]) {
         for (const entry of read(root, day)) {
           if (entry.runId !== runId) continue
-          held.set(entry.stepKey, { spent: entry.spent, ...(entry.costUsd === undefined ? {} : { costUsd: entry.costUsd }) })
+          held.set(entry.stepKey, {
+            spent: entry.spent,
+            ...(entry.costUsd === undefined ? {} : { costUsd: entry.costUsd })
+          })
         }
       }
       return held
