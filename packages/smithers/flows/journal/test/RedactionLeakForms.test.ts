@@ -594,10 +594,79 @@ describe("the scanner's cost", () => {
         Redaction.redactDiagnostic(
           "curl -H 'Authorization: Token x' -u a:b --token t https://h/?sig=1\n".repeat(n / 4)
         )
+    ],
+    [
+      "brackets nested around many quotes (#3088)",
+      (n: number) => () => Redaction.redact(`${"[".repeat(n)}${"\"a\" ".repeat(n)} token: x`)
     ]
   ])("grows linearly over %s", (_name, run) => {
     run(500)()
     expect(bestRatio(run(8_000), run(32_000))).toBeLessThan(10)
+  })
+
+  // Each unclosed container past its line reads the 4 KiB floor, and the
+  // first few read on through the text's scan budget (#3088).
+  it("grows linearly over unclosed multi-line containers in a durable row (#3088)", () => {
+    const run = (n: number) => () => Redaction.redact("token: {\n  a: 1,\n".repeat(n))
+    run(100)()
+    expect(bestRatio(run(1_000), run(4_000))).toBeLessThan(10)
+  })
+
+  // A held block was re-redacted whole after every line: 255 held lines cost
+  // 21 times what 64 did on Node, and about as much on Bun (#3088).
+  it("grows linearly over the lines one open value holds (#3088)", () => {
+    const hold = (lines: number) => () => {
+      for (let block = 0; block < 20; block++) {
+        const redactor = Redaction.lineRedactor()
+        redactor.line("password: {")
+        for (let line = 0; line < lines; line++) redactor.line(`  x: ${"a".repeat(200)},`)
+        redactor.line("}")
+      }
+    }
+    hold(16)()
+    expect(bestRatio(hold(64), hold(255))).toBeLessThan(10)
+  })
+
+  // The dropped middle of an overlong line kept one entry per open bracket:
+  // 32 MiB of `[` held 1.7 GB (#3088). Past a fixed depth it is no longer read.
+  it("holds bounded state for the middle of an overlong line (#3088)", () => {
+    const redactor = Redaction.lineRedactor()
+    const chunk = "[".repeat(64 * 1024)
+    const before = process.memoryUsage().heapUsed
+    for (let part = 0; part < 256; part++) redactor.part(chunk)
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(256 * 1024 * 1024)
+    expect(redactor.line("")).toEqual([Redaction.omittedLine])
+    expect(redactor.line(`token=${secret}`)).toEqual([])
+    expect(redactor.flush()).toEqual([Redaction.placeholder])
+  })
+})
+
+describe("the durable container window (#3088)", () => {
+  it("reads a credential-named container past 4 KiB whole", () => {
+    const members = Array.from({ length: 300 }, (_, index) => `  field${index}: "value${index}",`).join("\n")
+    const row = `apiKey: {\n${members}\n  inner: "${secret}"\n}\nafter: 1`
+    expect(row.length).toBeGreaterThan(4096)
+    expect(Redaction.redact(row)).toBe(`apiKey: ${Redaction.placeholder}\nafter: 1`)
+  })
+
+  it("still stops an unclosed container at its line once the text's scan budget is spent", () => {
+    const row = "token: {\n  a: 1,\n".repeat(2_000)
+    const out = Redaction.redact(row) as string
+    expect(out.split("\n").filter((line) => line === `token: ${Redaction.placeholder}`)).toHaveLength(2_000)
+  })
+})
+
+describe("a held block past the first lines", () => {
+  it("releases every line, redacted as one block, once its value closes", () => {
+    const redactor = Redaction.lineRedactor()
+    const emitted: Array<string> = [...redactor.line("password: {")]
+    for (let line = 0; line < 40; line++) emitted.push(...redactor.line(`  part${line}: ${secret},`))
+    emitted.push(...redactor.line("}"))
+    for (let line = 0; line < 40; line++) emitted.push(...redactor.line(`plain ${line}`))
+    emitted.push(...redactor.flush())
+    expect(emitted.join("\n")).not.toContain(secret)
+    expect(emitted.at(-1)).toBe("plain 39")
+    expect(emitted.filter((line) => line.startsWith("plain "))).toHaveLength(40)
   })
 })
 

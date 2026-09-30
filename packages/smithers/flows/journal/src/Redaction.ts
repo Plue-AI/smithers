@@ -136,10 +136,18 @@ const skipContainer = (text: string, open: number, limit = text.length): number 
   return end
 }
 
-/** A bracket or string still open at some point of the text: a bracket by its closer, a string by its quote and escape depth. */
+/**
+ * A bracket or string still open at some point of the text: a bracket by its
+ * closer, a string by its quote and escape depth. `string` is the index of the
+ * innermost open string at or below this entry, -1 when there is none, so
+ * finding the innermost string costs one read however deep the brackets
+ * above it are nested. A scan from the top made a text of n brackets and then
+ * n quotes cost n² (#3088).
+ */
 interface Open {
   readonly close: string
   readonly depth?: number
+  readonly string: number
 }
 
 /**
@@ -149,14 +157,7 @@ interface Open {
  */
 const escapeDepth = (slashes: number): number => (slashes ^ (slashes + 1)) >> 1
 
-// `Array.prototype.findLastIndex` is ES2023; consumers compile this source
-// against ES2022 declarations.
-const lastIndex = (stack: ReadonlyArray<Open>, matches: (open: Open) => boolean): number => {
-  for (let index = stack.length - 1; index >= 0; index--) if (matches(stack[index]!)) return index
-  return -1
-}
-
-const innermostString = (stack: ReadonlyArray<Open>): number => lastIndex(stack, (open) => open.depth !== undefined)
+const innermostString = (stack: ReadonlyArray<Open>): number => stack.at(-1)?.string ?? -1
 
 /**
  * Updates `stack` with the brackets and strings that `text[from, to)` opens
@@ -172,20 +173,23 @@ const track = (stack: Array<Open>, text: string, from: number, to: number): void
       while (text[i - 1 - slashes] === "\\") slashes++
       const inner = innermostString(stack)
       if (inner === -1) {
-        stack.push({ close: char, depth: escapeDepth(slashes) })
+        stack.push({ close: char, depth: escapeDepth(slashes), string: stack.length })
         continue
       }
       if (stack[inner]!.close !== char) continue
-      const closes = lastIndex(
-        stack,
-        (open) => open.depth !== undefined && slashes % (2 * (open.depth + 1)) === open.depth
-      )
-      if (closes === -1) stack.push({ close: char, depth: escapeDepth(slashes) })
+      // Only strings can close, so walk the strings alone, innermost first.
+      let closes = inner
+      while (closes !== -1) {
+        const depth = stack[closes]!.depth!
+        if (slashes % (2 * (depth + 1)) === depth) break
+        closes = closes === 0 ? -1 : stack[closes - 1]!.string
+      }
+      if (closes === -1) stack.push({ close: char, depth: escapeDepth(slashes), string: stack.length })
       else stack.length = closes
       continue
     }
     const closer = closers[char]
-    if (closer !== undefined) stack.push({ close: closer })
+    if (closer !== undefined) stack.push({ close: closer, string: innermostString(stack) })
     else if (stack.at(-1)?.depth === undefined && char === stack.at(-1)?.close) stack.pop()
   }
 }
@@ -319,6 +323,28 @@ const separatesPairs = (text: string, end: number): boolean =>
     : /^[,;](?:\s|$|\s*\\*["'`]?[A-Za-z_][\w.-]*\\*["'`]?\s*(?:=>|[=:]))/.test(text.slice(end, end + 64))
 
 /**
+ * How far past its line every durable container may read, whatever the
+ * {@link Budget} has left: a pretty-printed credential object of this size
+ * is read whole on any row.
+ */
+const containerWindow = 4096
+
+/**
+ * How many characters durable container scans past a line may read over one
+ * text, in total: {@link containerBudget} times the text's length. A fixed
+ * window alone left a secret more than 4 KiB inside a credential-named
+ * container in the row, and extending it without a total made a text of
+ * unclosed brackets cost the square of its length (#3088). With the budget a
+ * large container is read whole, and a row of unclosed brackets still costs
+ * a constant multiple of its length plus {@link containerWindow} per value.
+ */
+interface Budget {
+  remaining: number
+}
+
+const containerBudget = 4
+
+/**
  * The end of the bare value at `start`, read as a run of tokens: words,
  * balanced containers anywhere in it (`{bcrypt}$2a$...`, `Tr0ub(4dor)&3`,
  * `Some("x")`), inspect markers (`<Buffer 73 65>`, `<ref *1>`), and quoted
@@ -330,14 +356,18 @@ const bareValueEnd = (
   text: string,
   start: number,
   scope: Scope,
-  stack: ReadonlyArray<Open>
+  stack: ReadonlyArray<Open>,
+  budget: Budget
 ): number => {
   const inner = stack[innermostString(stack)]
-  // A durable value never reads an unclosed quote past its line, nor a
-  // bracket past a 4 KiB window, and one it cannot close stops at its line:
-  // each unbalanced bracket costs a bounded scan, not the rest of the text.
+  // A durable value never reads an unclosed quote past its line, and one it
+  // cannot close stops at its line. A bracket reads past 4 KiB only while
+  // the text's scan budget lasts: each unbalanced bracket costs a bounded
+  // scan, and all of them together a bounded multiple of the text.
   const bound = scope.diagnostic ? text.length : lineEnd(text, start)
-  const window = scope.diagnostic ? text.length : Math.min(text.length, start + 4096)
+  const window = scope.diagnostic
+    ? text.length
+    : Math.min(text.length, start + Math.max(containerWindow, budget.remaining))
   // Never before the opener: a closed container may already have carried the
   // value past its first line.
   const unclosed = (open: number, end: number): number => Math.max(open, Math.min(end, bound))
@@ -348,7 +378,10 @@ const bareValueEnd = (
   const container = (open: number): number => {
     if (scope.diagnostic) return skipContainer(text, open, window)
     const end = skipContainer(text, open, bound)
-    return lastClosed || !/[[{(,]\s*$/.test(text.slice(open, bound)) ? end : skipContainer(text, open, window)
+    if (lastClosed || !/[[{(,]\s*$/.test(text.slice(open, bound))) return end
+    const past = skipContainer(text, open, window)
+    budget.remaining -= past - open
+    return past
   }
   let end = start
   // The value's own first token is never the next name: in
@@ -484,6 +517,7 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
   // What is open before the current value. Values are skipped, so a bracket
   // or quote inside a credential never counts.
   const stack: Array<Open> = []
+  const budget: Budget = { remaining: containerBudget * text.length }
   let scanned = 0
   for (let match = keys.exec(text); match !== null; match = keys.exec(text)) {
     const name = match[1]!
@@ -526,7 +560,7 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
       }
       if (alreadyRedacted.test(text.slice(start + 1, end - (text[end - 1] === quote ? 1 + depth : 0)))) continue
     } else {
-      end = bareValueEnd(text, start, scope, stack)
+      end = bareValueEnd(text, start, scope, stack, budget)
       end = userinfoEnd(text, start, end)
       // In a journal row a placeholder then a space is a value an earlier pass
       // already bounded: what follows it is the next part of the line,
@@ -1492,6 +1526,17 @@ export const maxHeldLines = 256
 
 const maxHeldBytes = 64 * 1024
 
+/** Held lines a {@link lineRedactor} asks about one by one before it asks only as the block grows by half. */
+const eagerHeldLines = 16
+
+/**
+ * The most brackets and strings the dropped middle of an overlong line may
+ * leave open before a {@link lineRedactor} stops reading it and treats the
+ * line as leaving a value open. Without it the middle's state grew by one
+ * entry per bracket: 32 MiB of `[` held 1.7 GB (#3088).
+ */
+const maxDroppedDepth = 1024
+
 /**
  * The longest line a {@link lineRedactor} reads whole. A longer line keeps
  * its first and last 16 KiB; its middle is scanned for what it leaves open
@@ -1543,6 +1588,13 @@ const globalRules = (rules: ReadonlyArray<Rule>): ReadonlyArray<Rule> =>
  * the rest of the stream is withheld. Such a line is never emitted, only
  * {@link omittedLine}, and neither is any block it was held in.
  *
+ * Its state is bounded whatever the stream does: the line still arriving is
+ * a 16 KiB head, a 16 KiB tail and at most 1024 open brackets or strings of
+ * its middle, a middle nested deeper counting as one left open; the held
+ * block is bounded by {@link maxHeldLines} and 64 KiB. Its cost is linear:
+ * past the first 16 held lines the block is re-read only once it has grown
+ * by half, on Node and on Bun alike (#3088).
+ *
  * `rules` defaults to {@link diagnosticRules}. The array is read on every
  * line, so a caller may add a rule, a session secret, as the stream runs.
  *
@@ -1552,6 +1604,7 @@ const globalRules = (rules: ReadonlyArray<Rule>): ReadonlyArray<Rule> =>
 export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): LineRedactor => {
   const held: Array<string> = []
   let heldBytes = 0
+  let askAt = 0
   let heldOverlong = false
   let withheld = false
   // The line still arriving: whole up to the bound, then a head, a rolling
@@ -1561,6 +1614,7 @@ export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): Line
   let tail = ""
   let overlong = false
   let middle: Array<Open> = []
+  let middleDeep = false
   let middleKey = false
   let carry = ""
   const resetPartial = () => {
@@ -1568,11 +1622,21 @@ export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): Line
     tail = ""
     overlong = false
     middle = []
+    middleDeep = false
     middleKey = false
     carry = ""
   }
   const scanDropped = (dropped: string) => {
-    track(middle, dropped, 0, dropped.length)
+    // What the middle leaves open is read in slices, and once it is nested
+    // past `maxDroppedDepth` it is not read at all: the line is then already
+    // risky, and the stack held one entry per bracket of a line of any length.
+    for (let from = 0; from < dropped.length && !middleDeep; from += edge) {
+      track(middle, dropped, from, Math.min(dropped.length, from + edge))
+      if (middle.length > maxDroppedDepth) {
+        middleDeep = true
+        middle = []
+      }
+    }
     const seen = carry + dropped
     const begin = seen.search(/-----BEGIN[^-]*PRIVATE KEY/)
     const lastBegin = seen.lastIndexOf("-----BEGIN")
@@ -1586,6 +1650,7 @@ export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): Line
     const overlongBlock = heldOverlong
     held.length = 0
     heldBytes = 0
+    askAt = 0
     heldOverlong = false
     return overlongBlock ? [omittedLine] : text.split("\n")
   }
@@ -1611,13 +1676,14 @@ export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): Line
     part(rest)
     let text = head
     if (overlong) {
-      const risky = middle.length > 0 || middleKey
+      const risky = middle.length > 0 || middleDeep || middleKey
       text = `${head} ${tail}`
       resetPartial()
       if (risky) {
         const before = held.length === 0 ? [] : [placeholder]
         held.length = 0
         heldBytes = 0
+        askAt = 0
         heldOverlong = false
         withheld = true
         return [...before, omittedLine]
@@ -1626,7 +1692,15 @@ export const lineRedactor = (rules: ReadonlyArray<Rule> = diagnosticRules): Line
     } else resetPartial()
     held.push(text)
     heldBytes += text.length + 1
-    if (redacted(held.join("\n") + continuationProbe).endsWith(continuationProbe)) return release()
+    // Asking after every line re-redacted the whole block per line, so a
+    // block of n bytes cost n² (#3088). Past the first lines the question is
+    // asked again only once the block has grown by half, which keeps the
+    // cost linear; a block that closed in between is released with the
+    // lines after it, redacted as one block, which hides no less.
+    if (held.length <= eagerHeldLines || heldBytes >= askAt) {
+      if (redacted(held.join("\n") + continuationProbe).endsWith(continuationProbe)) return release()
+      askAt = heldBytes + (heldBytes >> 1)
+    }
     if (held.length <= maxHeldLines && heldBytes <= maxHeldBytes) return []
     withheld = true
     return release()
