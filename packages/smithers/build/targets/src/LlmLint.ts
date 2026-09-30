@@ -288,7 +288,9 @@ export const ReviewAttempt = Schema.Struct({
 export const Report = Schema.Struct({
   files: Schema.Array(Schema.String).check(Schema.isMaxLength(maximumReviewFiles)),
   findings: Schema.Array(Finding).check(Schema.isMaxLength(maximumFindings)),
-  attempts: Schema.optional(Schema.Array(ReviewAttempt))
+  attempts: Schema.optional(Schema.Array(ReviewAttempt)),
+  /** What a budgeted review spent: model calls and estimated prompt tokens. */
+  usage: Schema.optional(Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int }))
 })
 
 /**
@@ -366,6 +368,28 @@ export const ReviewError = Schema.Union([ModelCliMissing, LlmReviewError, Findin
  */
 export type ReviewError = typeof ReviewError.Type
 
+/**
+ * Aggregate limits over one review: model calls, estimated prompt tokens
+ * (three bytes per token, the review's cost measure), and wall-clock time
+ * across every call. Exhausting any of them fails the review.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const ReviewBudget = Schema.Struct({
+  modelCalls: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  promptTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  wallMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
+})
+
+/**
+ * Aggregate limits over one review.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ReviewBudget = typeof ReviewBudget.Type
+
 /** A declared model context window. */
 const ContextTokens = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(minimumContextTokens),
@@ -406,6 +430,13 @@ export const Payload = Schema.Struct({
   failOn: Severity,
   securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   contextTokens: Schema.optional(ContextTokens),
+  /**
+   * A required review cannot pass without reviewing something: an empty
+   * selection or a missing model executable fails it instead of passing or
+   * skipping.
+   */
+  required: Schema.optional(Schema.Boolean),
+  budget: Schema.optional(ReviewBudget),
   /**
    * `changed` (the default) reviews the paths that differ from `base`. `all`
    * reviews every tracked or untracked, non-ignored path the include globs
@@ -1626,6 +1657,33 @@ const parseFindings = (text: string): Effect.Effect<ReadonlyArray<Finding>, LlmR
     )
   )
 
+/** Prefix of the failure a review reports when its aggregate budget runs out; such a failure is never retried. */
+const budgetExhausted = "Review budget exhausted"
+
+/** The aggregate spend of one review against its declared budget. */
+interface Spend {
+  readonly budget: ReviewBudget | undefined
+  readonly started: number
+  modelCalls: number
+  promptTokens: number
+}
+
+/** Charges one model call against the budget and returns that call's timeout. */
+const charge = (spend: Spend, tokens: number, timeoutMs: number): number => {
+  const budget = spend.budget
+  if (budget?.modelCalls !== undefined && spend.modelCalls + 1 > budget.modelCalls) {
+    throw new Error(`${budgetExhausted}: ${budget.modelCalls} model calls`)
+  }
+  if (budget?.promptTokens !== undefined && spend.promptTokens + tokens > budget.promptTokens) {
+    throw new Error(`${budgetExhausted}: ${budget.promptTokens} prompt tokens`)
+  }
+  const remaining = budget?.wallMs === undefined ? timeoutMs : budget.wallMs - (Date.now() - spend.started)
+  if (remaining < 1) throw new Error(`${budgetExhausted}: ${budget!.wallMs} ms`)
+  spend.modelCalls += 1
+  spend.promptTokens += tokens
+  return Math.min(timeoutMs, remaining)
+}
+
 /** Reviews one batch with a single engine CLI call. */
 const reviewBatch = (
   runtime: RuntimeOptions,
@@ -1633,6 +1691,7 @@ const reviewBatch = (
   batch: Batch,
   context: ReadonlyArray<Segment>,
   mask: CredentialMask,
+  spend: Spend,
   onCompletion?: (completion: typeof SecurityCompletion.Type) => void
 ): Effect.Effect<ReadonlyArray<Finding>, ModelCliMissing | LlmReviewError> =>
   Effect.flatMap(
@@ -1648,18 +1707,24 @@ const reviewBatch = (
               `exceeding the ${window}-token context window`
           )
         }
-        return { prompt, policy }
+        return { prompt, policy, timeoutMs: charge(spend, tokens, runtime.timeoutMs) }
       },
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     }),
-    ({ policy, prompt }) =>
+    ({ policy, prompt, timeoutMs }) =>
       runtime.cliOverride
-        ? invokeEngine(runtime, payload.engine, payload.model, prompt, payload.securityChecks !== undefined)
+        ? invokeEngine(
+          { ...runtime, timeoutMs },
+          payload.engine,
+          payload.model,
+          prompt,
+          payload.securityChecks !== undefined
+        )
         : reviewModel(
           payload.engine,
           payload.model,
           prompt,
-          runtime.timeoutMs,
+          timeoutMs,
           maximumModelOutputBytes,
           policy
         ).pipe(
@@ -1791,7 +1856,8 @@ const securityBatch = (
   context: ReadonlyArray<Segment>,
   batchIndex: number,
   attempts: Array<typeof ReviewAttempt.Type>,
-  mask: CredentialMask
+  mask: CredentialMask,
+  spend: Spend
 ): Effect.Effect<ReadonlyArray<Finding>, LlmReviewError> =>
   Effect.gen(function*() {
     const alternate = payload.engine === "claude" ? "codex" : "claude"
@@ -1837,6 +1903,7 @@ const securityBatch = (
             batch,
             context,
             mask,
+            spend,
             (value) => {
               completion = value
             }
@@ -1875,7 +1942,10 @@ const securityBatch = (
             return yield* Effect.fail(new LlmReviewError({ phase: "review", message, attempts: [...attempts] }))
           }
           if (result._tag === "Success") return result.success
-          if (attempt === 2 || result.failure._tag === "smithers-build/ModelCliMissing") {
+          if (
+            attempt === 2 || result.failure._tag === "smithers-build/ModelCliMissing" ||
+            result.failure.message.startsWith(budgetExhausted)
+          ) {
             return yield* Effect.fail(
               new LlmReviewError({
                 phase: result.failure._tag === "smithers-build/LlmReviewError" ? result.failure.phase : "review",
@@ -1981,6 +2051,15 @@ export const review = (
       },
       catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
     })
+    const spend: Spend = { budget: payload.budget, started: Date.now(), modelCalls: 0, promptTokens: 0 }
+    const usage = () =>
+      payload.budget === undefined
+        ? {}
+        : { usage: { modelCalls: spend.modelCalls, promptTokens: spend.promptTokens } }
+    const emptyRequired = new LlmReviewError({
+      phase: "diff",
+      message: "Required review selected no files to review; an empty review cannot pass"
+    })
     const files = snapshot === undefined
       ? yield* changedFiles(runtime.workspaceRoot, payload, runtime.timeoutMs, runtime.sensitiveEnv)
       : [...snapshot.values()].filter((file) =>
@@ -1988,7 +2067,8 @@ export const review = (
         payload.include.some((glob) => matchesGlob(file.path, glob))
       ).map((file) => file.path).sort()
     if (files.length === 0) {
-      return { files: [], findings: [], ...(payload.securityChecks === undefined ? {} : { attempts: [] }) }
+      if (payload.required === true) return yield* Effect.fail(emptyRequired)
+      return { files: [], findings: [], ...(payload.securityChecks === undefined ? {} : { attempts: [] }), ...usage() }
     }
     const paths = snapshot === undefined
       ? yield* contextPaths(runtime.workspaceRoot, payload.context)
@@ -2007,6 +2087,7 @@ export const review = (
     )
     // Snapshot every bounded changed file before planning or the first provider request.
     const changed = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
+    if (payload.required === true && changed.length === 0) return yield* Effect.fail(emptyRequired)
     const relations = yield* relatedSources(runtime, payload, snapshot, changed, new Set(paths))
     const plan = yield* Effect.try({
       try: () => {
@@ -2083,7 +2164,13 @@ export const review = (
         if (!reviewed.includes(segment.path)) reviewed.push(segment.path)
       }
       const batchFindings = yield* (payload.securityChecks === undefined
-        ? reviewBatch(runtime, payload, batch, context, mask)
+        ? reviewBatch(runtime, payload, batch, context, mask, spend).pipe(
+          Effect.mapError((error) =>
+            payload.required === true && error._tag === "smithers-build/ModelCliMissing"
+              ? new LlmReviewError({ phase: "review", message: `Required review cannot run: ${error.message}` })
+              : error
+          )
+        )
         : securityBatch(
           runtime,
           options.executable,
@@ -2092,7 +2179,8 @@ export const review = (
           context,
           batchIndex,
           attempts,
-          mask
+          mask,
+          spend
         ))
       batchIndex++
       findings.push(...batchFindings)
@@ -2161,7 +2249,7 @@ export const review = (
         })
       )
     }
-    return { files: reviewed, findings, ...(payload.securityChecks === undefined ? {} : { attempts }) }
+    return { files: reviewed, findings, ...(payload.securityChecks === undefined ? {} : { attempts }), ...usage() }
   })
 
 /**
@@ -2229,6 +2317,10 @@ export const Attrs = Schema.Struct({
   securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   /** The selected model's context window in tokens; defaults to {@link defaultContextTokens}. */
   contextTokens: Schema.optional(ContextTokens),
+  /** Whether an empty selection or a missing model executable fails instead of passing or skipping. */
+  required: Schema.optional(Schema.Boolean),
+  /** Aggregate model-call, prompt-token and wall-clock limits; exhausting one fails the review. */
+  budget: Schema.optional(ReviewBudget),
   /**
    * `changed` (the default) reviews the files that differ from
    * `changes.base`; `all` reviews every included file.
@@ -2302,6 +2394,8 @@ export const LlmLint = Target.make("LlmLint", {
       failOn: attrs.failOn,
       securityChecks: attrs.securityChecks,
       ...(attrs.contextTokens === undefined ? {} : { contextTokens: attrs.contextTokens }),
+      ...(attrs.required === undefined ? {} : { required: attrs.required }),
+      ...(attrs.budget === undefined ? {} : { budget: attrs.budget }),
       scope: attrs.scope
     })
 })

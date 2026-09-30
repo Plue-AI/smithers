@@ -71,6 +71,8 @@ const payloadOf = (attrs: LlmLint.Attrs, base: string): LlmLint.Payload => ({
   failOn: attrs.failOn,
   securityChecks: attrs.securityChecks,
   ...(attrs.contextTokens === undefined ? {} : { contextTokens: attrs.contextTokens }),
+  ...(attrs.required === undefined ? {} : { required: attrs.required }),
+  ...(attrs.budget === undefined ? {} : { budget: attrs.budget }),
   scope: attrs.scope
 })
 
@@ -114,6 +116,8 @@ export interface Options {
   readonly revision?: string | undefined
   readonly patterns: ReadonlyArray<string>
   readonly plan?: boolean | undefined
+  /** Every selected review, policy reviews included, must review something and run. */
+  readonly required?: boolean | undefined
 }
 
 /**
@@ -317,6 +321,9 @@ export const prepare = async (options: Options) => {
     declarationPolicy.snapshot = snapshot.filter(({ path }) => declarations.has(path))
     if (declarationPolicy.snapshot.length !== declarations.size) throw new Error("Incomplete declaration snapshot")
   }
+  if (options.required === true) {
+    for (const policy of policies) policy.payload = { ...policy.payload, required: true }
+  }
   return { root, policyRevision, revision, policyChanges, policies, snapshot }
 }
 
@@ -331,6 +338,7 @@ export const run = async (options: Options) => {
     policyRevision: prepared.policyRevision,
     revision: prepared.revision,
     policyChanges: prepared.policyChanges,
+    required: options.required === true,
     deletedFiles: prepared.snapshot.filter((file) => file.deleted).map((file) => file.path),
     labels: prepared.policies.map(({ label }) => label)
   }

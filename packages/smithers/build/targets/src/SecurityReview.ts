@@ -27,7 +27,7 @@ import { Minimatch } from "minimatch"
 import * as NodeFs from "node:fs"
 import * as NodePath from "node:path"
 import * as Input from "./Input.ts"
-import { Finding, LlmLint, Reproduction } from "./LlmLint.ts"
+import { Finding, LlmLint, Reproduction, type ReviewBudget } from "./LlmLint.ts"
 import type { Engine } from "./ModelEngine.ts"
 import * as Target from "./Target.ts"
 
@@ -212,6 +212,9 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
  * model call in the diff review and `auditBatchSize` (default 8) in the full
  * audit. Related files share a call and carry their unchanged callers and
  * dependencies; `contextTokens` is the model's context window each call fits.
+ * `required` makes both targets fail on an empty selection or a missing model
+ * executable, and `budget` caps their aggregate model calls, prompt tokens and
+ * wall-clock time.
  *
  * `workspaceRoot` is the absolute workspace root the declaration is checked
  * against. It defaults to the root derived from the declaring `PACKAGE.ts`
@@ -236,6 +239,8 @@ export interface Options {
   readonly batchSize?: number | undefined
   readonly auditBatchSize?: number | undefined
   readonly contextTokens?: number | undefined
+  readonly required?: boolean | undefined
+  readonly budget?: ReviewBudget | undefined
   readonly summary?: string | undefined
   readonly workspaceRoot?: string | undefined
 }
@@ -512,7 +517,9 @@ export const SecurityReview = (options: Options): SecurityTargets => {
     model,
     failOn: "error" as const,
     securityChecks: checks.map((check) => check.id),
-    ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens })
+    ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens }),
+    ...(options.required === undefined ? {} : { required: options.required }),
+    ...(options.budget === undefined ? {} : { budget: options.budget })
   }
   return {
     security: LlmLint({

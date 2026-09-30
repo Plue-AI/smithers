@@ -326,6 +326,19 @@ describe("TrustedReview Git boundary", () => {
     expect(await Fs.stat(marker).then(() => true, () => false)).toBe(false)
   })
 
+  it("passes an empty optional selection but fails it when the review is required", async () => {
+    const { root, trusted } = await fixture()
+    const optional = await run({ ...options(root, trusted), plan: false })
+    if (optional.planned) throw new Error("expected executed reviews")
+    expect(optional).toMatchObject({ ok: true, required: false, reviews: [{ label: "//:security", files: [] }] })
+    const prepared = await prepare({ ...options(root, trusted), required: true })
+    expect(prepared.policies.every(({ payload }) => payload.required === true)).toBe(true)
+    const result = await serve(root, ["review", "//...", "--policy-revision", trusted, "--required"])
+    const receipt = result.output + result.logs
+    expect(result.exitCode, receipt).toBe(1)
+    expect(receipt).toContain("Required review selected no files")
+  })
+
   it("returns a failed review receipt when the required provider key is absent", async () => {
     const { root, trusted } = await fixture()
     await write(root, "src/service.ts", "export const value = 'candidate'\n")

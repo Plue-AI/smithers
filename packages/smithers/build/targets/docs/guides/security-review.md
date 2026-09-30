@@ -136,6 +136,8 @@ must not produce weaponized exploits or instructions to attack live systems.
 | `batchSize`      | `4`               | Changed files per model call in `security`.                   |
 | `auditBatchSize` | `8`               | Changed files per model call in `securityAudit`.              |
 | `contextTokens`  | `200000`          | The model's context window every call fits.                   |
+| `required`       | `false`           | Empty selections and missing engines fail instead of passing. |
+| `budget`         | none              | `modelCalls`, `promptTokens` and `wallMs` for the review.     |
 | `deps`           | `[]`              | Targets that must run first.                                  |
 | `summary`        | generated         | One-line summary of `security`.                               |
 
@@ -156,6 +158,21 @@ check, keeping the most severe.
 A review makes at most 64 model calls, so the audit covers at most
 `64 * auditBatchSize` files. Narrow `include` or raise `auditBatchSize` for a
 larger package.
+
+## Required reviews
+
+An optional review with nothing selected passes with no files, and a missing
+model executable skips it. A required review fails in both cases: an approval
+gate cannot be satisfied by a review that reviewed nothing. Declare
+`required: true`, or pass `--required` to `smithers-build review` to require
+every selected review, policy reviews included. Refusals, incomplete coverage
+and parse failures fail every security review.
+
+`budget` bounds the whole review: `modelCalls` counts every attempt,
+`promptTokens` sums the estimated tokens sent, and `wallMs` limits wall-clock
+time, each call's timeout shrinking to what remains. A call that would exceed a
+bound is not sent, is never retried, and fails the review. A budgeted report
+includes its `usage`. Interrupting a review stops its model calls.
 
 ## Cost and CI
 

@@ -1542,7 +1542,10 @@ const makeCommands = (config: RuntimeConfig) =>
       options: workspaceOption.extend({
         policyRevision: z.string().describe("Full approved commit SHA containing the trusted review index"),
         revision: z.string().default("HEAD").describe("Committed source revision: HEAD or a full commit SHA"),
-        plan: z.boolean().default(false).describe("Show pinned policy and source selection without inference")
+        plan: z.boolean().default(false).describe("Show pinned policy and source selection without inference"),
+        required: z.boolean().default(false).describe(
+          "Fail every selected review that selects no files or cannot run instead of passing it"
+        )
       }),
       alias: { workspace: "w" },
       async run(context) {
@@ -1553,7 +1556,8 @@ const makeCommands = (config: RuntimeConfig) =>
             policyRevision: context.options.policyRevision,
             revision: context.options.revision,
             patterns: context.args.patterns,
-            plan: context.options.plan
+            plan: context.options.plan,
+            required: context.options.required
           })
         } catch (cause) {
           return context.error({ code: "review_failed", exitCode: 1, message: Diagnostic.describe(cause) })
