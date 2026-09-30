@@ -216,10 +216,10 @@ check_auth() {
 
 require_auth() {
   if check_auth; then
-    log backfill "codex auth ok (${SWB_CODEX_AUTH:-api-key}, $CODEX_HOME)"
+    log backfill "codex auth ok (${SWB_CODEX_AUTH:-api-key}, ${CODEX_HOME:-stubbed check})"
     return 0
   fi
-  echo "codex-backfill.sh: the requested Codex auth is unavailable" >&2
+  echo "codex-backfill.sh: the requested Codex auth is unavailable (${SWB_CODEX_AUTH:-api-key}, home ${SWB_CODEX_HOME:-${CODEX_HOME:-default}})" >&2
   exit 1
 }
 

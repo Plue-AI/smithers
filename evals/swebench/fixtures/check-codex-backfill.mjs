@@ -50,10 +50,9 @@ const last = (id, state) => lastIn(rows, id, state)
 assert.equal(text(join(temporary, "phase-a.exit")).trim(), "1", "a logged-out rig fails")
 assert.match(
   text(join(temporary, "phase-a.log")),
-  /is not logged in/u,
-  "and says which home it checked and how to log it in"
+  /requested Codex auth is unavailable \(api-key, home /u,
+  "and says which auth mode and home it checked"
 )
-assert.match(text(join(temporary, "phase-a.log")), /codex login --with-api-key/u)
 assert.equal(
   rowsOf(join(temporary, "manifest-after-auth-failure.jsonl")).length,
   0,
