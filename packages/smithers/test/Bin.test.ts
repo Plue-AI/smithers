@@ -1687,6 +1687,48 @@ const stageUnservableSeat = (): string => {
   return cwd
 }
 
+/**
+ * The same unservable seat behind a canonical `Flow.make` file flow whose body
+ * calls one model-backed `AgentAction`: the engine records the flow's root and
+ * the action's child, and both must settle with the control run.
+ */
+const stageCanonicalUnservableSeat = (): string => {
+  const cwd = stageUnservableSeat()
+  rmSync(join(cwd, "flows", "failing", "flow.mdx"))
+  writeFileSync(
+    join(cwd, "flows", "failing", "flow.ts"),
+    [
+      "import * as AgentAction from \"@smthrs/agent/AgentAction\"",
+      "import { Flow } from \"@smthrs/flow\"",
+      "import { Node } from \"@smthrs/plan\"",
+      "import { Schema } from \"effect\"",
+      "",
+      "const payload = { args: Schema.optionalKey(Schema.String) }",
+      "const implementationVersion = \"failing/v1\"",
+      "const Work = AgentAction.make(\"failing/Work\", {",
+      "  implementationVersion,",
+      "  payload,",
+      "  output: Schema.String,",
+      "  seat: \"openai:gpt-5-mini\",",
+      "  prompt: () => \"Report the repository state.\"",
+      "})",
+      "",
+      "export const layer = Work.layer",
+      "export default Flow.make(\"failing\", {",
+      "  description: \"A flow whose seat resolves and whose first turn cannot.\",",
+      "  capabilities: [],",
+      "  effects: { reads: [], writes: [], mode: \"expected\", onConflict: \"serialize\", tier: \"irreversible\" },",
+      "  payload,",
+      "  success: Schema.String,",
+      "  error: AgentAction.AgentFailure,",
+      "  body: Node.capture({ action: Work.name, implementationVersion }, (input) => Work.call(input))",
+      "})",
+      ""
+    ].join("\n")
+  )
+  return cwd
+}
+
 const launch = (cwd: string, args: ReadonlyArray<string>) =>
   spawnSync(process.execPath, ["--no-warnings", "--import", scriptedHost, executable, ...args], {
     cwd,
@@ -1731,6 +1773,23 @@ describe("an attached launch's exit status", processBudget, () => {
   })
 
   /**
+   * The failed body settles the run itself, and the engine then re-surfaces the
+   * same failure to the driver. A second terminal write lost the claim and
+   * logged a settlement error for a status that was already recorded (#3262).
+   */
+  it("settles a failed launch with one terminal write and no settlement error", () => {
+    const cwd = stageUnservableSeat()
+    try {
+      const launched = launch(cwd, ["up", "failing", "--json"])
+      expect(launched.status).toBe(1)
+      expect(launched.stderr).not.toContain("ClaimLost")
+      expect(launched.stderr).not.toContain("A terminal control status could not be written")
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  /**
    * One refusal is one operator line.
    *
    * The billing refusal in the release validation printed two WARN stacks for one
@@ -1755,6 +1814,53 @@ describe("an attached launch's exit status", processBudget, () => {
       expect(warnings).toHaveLength(1)
       expect(warnings[0]).toContain("An agent run failed")
       expect(launched.stderr).not.toContain("could not be encoded through its own codec")
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  /**
+   * The same refusal from a canonical `Flow.make` + `AgentAction` flow (#3118).
+   * Its root and its action's child both settle, and a wake queued before
+   * that settlement drains after the scoped handler is gone: it must not be
+   * reported as parked work for an unregistered flow, nor may the body's
+   * failure be written to the control run twice.
+   */
+  it("prints one operator-facing warning for one canonical agent refusal", () => {
+    const cwd = stageCanonicalUnservableSeat()
+    try {
+      const launched = launch(cwd, ["up", "failing", "--json", "--verbose"])
+
+      expect(launched.error).toBeUndefined()
+      expect(launched.status, launched.stderr).toBe(1)
+      const warnings = launched.stderr.split("\n").filter((line) => line.includes("WARN"))
+      expect(warnings, launched.stderr).toHaveLength(1)
+      expect(warnings[0]).toContain("An agent run failed")
+      expect(launched.stderr).not.toContain("which is not registered in this process")
+      expect(launched.stderr).not.toContain("could not start on the engine")
+      expect(launched.stderr).not.toContain("A terminal control status could not be written")
+      expect(launched.stderr).not.toContain("could not be encoded through its own codec")
+      expect(launched.stderr.split("\n").filter((line) => line.includes("ERROR"))).toEqual([])
+
+      const engine = new DatabaseSync(join(cwd, ".flows", "engine.db"), { readOnly: true })
+      try {
+        const rows = engine.prepare("SELECT status FROM flows_runs").all() as unknown as ReadonlyArray<
+          { readonly status: string }
+        >
+        expect(rows).toHaveLength(2)
+        expect(rows.map((row) => row.status)).toEqual(["failed", "failed"])
+      } finally {
+        engine.close()
+      }
+      const control = new DatabaseSync(join(cwd, ".flows", "control.db"), { readOnly: true })
+      try {
+        const failures = control.prepare(
+          "SELECT run_id FROM flows_journal_events WHERE event_type = 'control.run.failed'"
+        ).all()
+        expect(failures).toEqual([{ run_id: (JSON.parse(launched.stdout) as { readonly runId: string }).runId }])
+      } finally {
+        control.close()
+      }
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }

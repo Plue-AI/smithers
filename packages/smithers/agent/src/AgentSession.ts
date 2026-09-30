@@ -3517,7 +3517,12 @@ export const make = (
         )
       }).pipe(
         Effect.catchCause((cause) =>
-          settleDriverFailure(cause, runId, (detail) => settleTerminal(runId, "failed", detail))
+          settleDriverFailure(cause, runId, (detail) =>
+            // A body that exited has already recorded its own terminal status
+            // through `settle`; the engine only re-surfaces its failure here.
+            // Writing again lost the claim and logged a settlement error for a
+            // status that was written (#3262).
+            launchedDrives.get(runId)?.settled === true ? Effect.void : settleTerminal(runId, "failed", detail))
         )
       )
 
