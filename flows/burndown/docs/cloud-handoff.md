@@ -35,11 +35,16 @@ and receipt directories are on the host filesystem; command credentials are
 excluded from artifacts.
 
 All jj mutations run in one executable through the repository's VCS lock. The
-host verifies the exported base is an ancestor of the local prepared stack and
-checks each touched path against its base, current `main`, local parent, and
-working copy. Conflicting work is refused without overwriting it. The checked
-paths are staged under the same lock so jj can select additions. A custom diff
-editor reconstructs those paths, and each commit includes only those paths with
+host verifies the exported base belongs to current main history and checks each
+owned path against its exported base, current main, shared parent and working
+copy. A stale or divergent shared parent is supported when those owned bytes
+match. Changed owned paths are refused with the artifact retained. Under the
+same lock, `jj split --onto` extracts only artifact paths onto the exported base,
+then onto the preceding reconstructed commit. A private diff editor restores
+exact artifact trees, including reversions. Full changed-path and parent checks
+reject any unexpected content. Shared files, parent, description, bookmarks and
+other prepared revisions remain intact; a working revision with descendants is
+refused before extraction. The queue owns subsequent rebasing. Each commit uses
 the coauthor trailer from the trusted coding assignment. The host retains its
 `tool` and `model` in `attribution.json`; Sol uses the GPT-6.1 Sol trailer and
 Opus uses the Claude Opus trailer. Reconstruction replaces guest-generated model
@@ -47,10 +52,31 @@ trailers with that assignment's attribution. A replay with a different identity
 is refused. An artifact prepared without an assignment preserves its original
 message without inventing an author. Preparation leaves `main` unchanged.
 
-Successful receipt replay returns the same prepared IDs. An uncommitted failure
+Before seeding shared paths, a durable intent records the exact initial and
+seeded states plus the shared revision identity. A retry restores only matching
+states under the same lock; changed bytes, a new parent or descendants refuse
+rollback with the intent retained. While a crashed seed remains in the shared
+checkout, another worker must respect the retained intent and path claim; if it
+commits those bytes, automatic rollback refuses its changed parent. Only the
+locked script writes `receipt.json`. Lock-runner failures use separate immutable
+`runner-error-<id>.json` evidence and cannot overwrite another attempt's intent. This also covers process death before split.
+Successful receipt replay rechecks the exact visible commit chain under the lock
+and returns the same prepared IDs. An uncommitted failure
 rolls back only checked own paths while their bytes still match the exported
 states. A partial failure keeps the artifact, completed commit mappings, and
-failure receipt for inspection; it does not silently restart or discard changes. Workspace cleanup can proceed only after the host has durably retained the
+failure receipt for inspection; ordinary replay does not restart or discard changes.
+Supported retained recovery can qualify already extracted commits under the lock:
+it requires visible, nondivergent commit IDs and verifies source order, exact parent,
+message and model attribution, the entire
+changed-path set, every cumulative byte and mode, and current owned before-states.
+It archives the prior receipt as `recovery-from-<hash>.json` and reuses verified
+IDs without splitting again. Each lock attempt has its own immutable executable
+so another caller cannot change its recovery mode while it waits. A wrong or ambiguous candidate
+is refused with its receipt retained. Later unrelated work, parent changes and
+descendants remain intact when recovery requires no additional extraction.
+A pending extraction records its source, parent and candidate IDs before mapping
+completion. Replay refuses an incomplete mapping so a process or wrapper failure
+cannot duplicate a commit. Workspace cleanup can proceed only after the host has durably retained the
 artifact, even when review or preparation fails. Without an artifact, execution
 that may have produced commits keeps its workspace for recovery.
 
@@ -70,3 +96,14 @@ Do not treat a `running` workspace status as proof that SSH works, or a transpor
 failure as proof that the reported commit is invalid. Retain the artifact before
 cleanup, then run host review and reconstruction through their existing boundaries.
 Tracked in [smithers#2944](https://github.com/smithersai/smithers/issues/2944).
+
+For an already retained artifact, call `recoverCloudHandoff(recoveryPath)` from
+`../cloud-placement.ts` on the host. It validates the manifest assignment and
+READY sources against the content-addressed artifact, repeats source review,
+and invokes the same locked preparation. It returns the original assignment key
+with local commit IDs for the existing queue and retains source-to-local mappings
+in the manifest. It requires `BURNDOWN_REVIEW_ACCOUNT`; it performs no Cloud
+coding, workspace deletion, or engine-state edits. Review failure retains its
+own verdict receipt. A successful retry moves an earlier failure to historical
+evidence and clears active failure/stage fields. A recovered SSH grant likewise
+retains the sanitized previous grant as `grantFailure`, with active status acquired.

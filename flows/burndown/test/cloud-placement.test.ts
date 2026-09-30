@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
 import { type Account, discoverAccounts } from "../accounts.ts"
+import type { CloudHandoff } from "../cloud-handoff.ts"
 import { layerPlacementWith, makeCloudPlacement } from "../cloud-placement.ts"
 import { agentArgv, Placement } from "../run-agent.ts"
 import type { Assignment } from "../schema.ts"
@@ -1337,3 +1338,343 @@ test("Cloud refuses unsupported Claude model before contacting identity or repos
     }).pipe(Effect.provide(NodeServices.layer))
   )
 })
+
+test("Cloud recovered SSH grant clears active failure while retaining sanitized grant evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-grant-recovered-"))
+  let grants = 0
+  try {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = yield* makeCloudPlacement({
+          spawner,
+          artifactDirectory: dir,
+          workdir: dir,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          api: {
+            request: async () => ({ id: "ws-recovered-grant", status: "running" }),
+            sshPrefix: async () => {
+              if (++grants === 1) throw Object.assign(Error("PRIVATE-TRANSIENT-GRANT"), { status: 503 })
+              return []
+            }
+          }
+        }).machine(assignment, account)
+        const first = yield* Effect.exit(
+          Effect.gen(function*() {
+            const guest = yield* ChildProcessSpawner
+            return yield* guest.string(ChildProcess.make("sh", ["-c", "true"]))
+          }).pipe(
+            Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir + "first" })),
+            Effect.scoped
+          )
+        )
+        assert.equal(first._tag, "Failure")
+        yield* Effect.gen(function*() {
+          const guest = yield* ChildProcessSpawner
+          assert.equal(yield* guest.string(ChildProcess.make("sh", ["-c", "printf recovered"])), "recovered")
+          const raw = yield* Effect.promise(() => readRecovery(dir))
+          assert.ok(!raw.includes("PRIVATE-TRANSIENT-GRANT"))
+          const recovery = JSON.parse(raw)
+          assert.equal(recovery.grant.status, "acquired")
+          assert.equal(recovery.failure, undefined, "a recovered grant is no longer an active failure")
+          assert.equal(recovery.stage, undefined)
+          assert.equal(recovery.grantFailure.status, "failed")
+          assert.equal(recovery.grantFailure.httpStatus, 503)
+          assert.equal(recovery.grantFailure.errorClass, "Error")
+        }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+// Retained bytes are real filesystem evidence; injected review and reconstruction
+// isolate recovery from Cloud allocation and coding, which must never recur.
+for (
+  const mode of [
+    "success",
+    "review-failure",
+    "handoff-failure",
+    "repository-mismatch",
+    "source-mismatch",
+    "issue-mismatch",
+    "unsupported-model",
+    "artifact-tampered",
+    "mapping-missing",
+    "mapping-invalid"
+  ] as const
+) {
+  test(`Cloud retained recovery ${mode} requalifies local handoff without guest execution`, async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises")
+    const { retainCloudHandoff } = await import("../cloud-handoff.ts")
+    const dir = await mkdtemp(join(tmpdir(), "burndown-supported-recovery-"))
+    const source = "a".repeat(40)
+    const local = "c".repeat(40)
+    const base = "b".repeat(40)
+    const artifact: CloudHandoff = {
+      version: 1 as const,
+      repository: "smithersai/smithers",
+      base,
+      commits: [{
+        sha: source,
+        parent: base,
+        message: "fix: retained fixture",
+        changes: [{
+          path: "fixture.txt",
+          before: null,
+          after: {
+            type: "file" as const,
+            mode: "644" as const,
+            data: Buffer.from("retained fixture").toString("base64")
+          }
+        }]
+      }]
+    }
+    try {
+      const artifactPath = await retainCloudHandoff(artifact, {
+        repository: artifact.repository,
+        artifactDirectory: dir
+      })
+      if (mode === "artifact-tampered") {
+        await writeFile(
+          artifactPath,
+          JSON.stringify({ ...artifact, commits: [{ ...artifact.commits[0]!, message: "tampered" }] })
+        )
+      }
+      const retainedBytes = await readFile(artifactPath, "utf8")
+      const recoveryPath = join(dir, "recoveries", "fixture", "recovery.json")
+      await mkdir(dirname(recoveryPath), { recursive: true })
+      await writeFile(
+        recoveryPath,
+        JSON.stringify({
+          version: 1,
+          assignment: {
+            key: assignment.key,
+            repository: mode === "repository-mismatch" ? "smithersai/plue" : artifact.repository,
+            tool: "codex",
+            model: mode === "unsupported-model" ? "unsupported" : assignment.model,
+            issues: [42]
+          },
+          workspaceId: "ws-retained-recovery",
+          cleanup: "preserved",
+          phase: "failed",
+          artifactPath,
+          result: {
+            status: "ready",
+            commits: [{
+              issue: mode === "issue-mismatch" ? 43 : 42,
+              commit: mode === "source-mismatch" ? base : source
+            }]
+          },
+          failure: { stage: "ssh-grant", kind: "unavailable" },
+          stage: "metadata"
+        })
+      )
+      const placementModule = await import("../cloud-placement.ts")
+      assert.ok("recoverCloudHandoff" in placementModule, "retained evidence has a supported recovery entry point")
+      const recover = placementModule.recoverCloudHandoff as (
+        path: string,
+        options: {
+          review: (prompt: string, signal: AbortSignal) => Promise<string>
+          handoff: NonNullable<Parameters<typeof makeCloudPlacement>[0]["handoff"]>
+        }
+      ) => Promise<{ key: string; status: string; commits: ReadonlyArray<{ issue: number; commit: string }> }>
+      const calls: Array<string> = []
+      const options = {
+        review: async (prompt: string) => {
+          calls.push("review")
+          assert.match(prompt, /retained fixture/)
+          return mode === "review-failure" ? "VERDICT: FAIL" : "VERDICT: PASS"
+        },
+        handoff: async (received: CloudHandoff, attribution: { tool: string; model: string }) => {
+          calls.push("handoff")
+          assert.deepEqual(received, artifact)
+          assert.deepEqual(attribution, { tool: "codex", model: assignment.model })
+          if (mode === "handoff-failure") throw Error("fixture reconstruction unavailable")
+          return {
+            artifactPath,
+            receiptPath: join(dir, "receipt.json"),
+            commit: local,
+            commits: mode === "mapping-missing"
+              ? []
+              : [{ source, local: mode === "mapping-invalid" ? "invalid" : local }]
+          }
+        }
+      }
+      if (mode === "success") {
+        for (let replay = 0; replay < 2; replay++) {
+          const result = await recover(recoveryPath, options)
+          assert.equal(result.key, assignment.key)
+          assert.equal(result.status, "ready")
+          assert.deepEqual(result.commits, [{ issue: 42, commit: local }])
+          const recovery = JSON.parse(await readFile(recoveryPath, "utf8"))
+          assert.equal(recovery.phase, "prepared")
+          assert.deepEqual(recovery.prepared, [{ source, local }])
+          assert.equal(recovery.failure, undefined)
+          assert.equal(recovery.stage, undefined)
+          assert.equal(recovery.workspaceId, "ws-retained-recovery")
+          assert.equal(recovery.cleanup, "preserved", "local recovery leaves remote workspace untouched")
+          assert.deepEqual(JSON.parse(await readFile(artifactPath, "utf8")), artifact)
+        }
+        assert.deepEqual(calls, ["review", "handoff", "review", "handoff"])
+      } else {
+        await assert.rejects(recover(recoveryPath, options))
+        assert.deepEqual(
+          calls,
+          mode === "review-failure"
+            ? ["review"]
+            : ["handoff-failure", "mapping-missing", "mapping-invalid"].includes(mode)
+            ? ["review", "handoff"]
+            : []
+        )
+        assert.equal(await readFile(artifactPath, "utf8"), retainedBytes)
+        const recovery = JSON.parse(await readFile(recoveryPath, "utf8"))
+        assert.notEqual(recovery.phase, "prepared")
+        assert.equal(recovery.workspaceId, "ws-retained-recovery")
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+for (
+  const mode of [
+    "relative-receipt",
+    "symlink-receipt",
+    "oversized-receipt",
+    "symlink-artifact",
+    "outside-artifact",
+    "oversized-artifact",
+    "missing-repository"
+  ] as const
+) {
+  test(`Cloud retained recovery refuses ${mode} and retains committed-work evidence`, async () => {
+    const { copyFile, mkdir, symlink, truncate, writeFile } = await import("node:fs/promises")
+    const { recoverCloudHandoff } = await import("../cloud-placement.ts")
+    const { retainCloudHandoff } = await import("../cloud-handoff.ts")
+    const dir = await mkdtemp(join(tmpdir(), "burndown-recovery-boundary-"))
+    const source = "a".repeat(40)
+    const base = "b".repeat(40)
+    const artifact: CloudHandoff = {
+      version: 1,
+      repository: "smithersai/smithers",
+      base,
+      commits: [{
+        sha: source,
+        parent: base,
+        message: "fix: safety fixture",
+        changes: [{
+          path: "fixture.txt",
+          before: null,
+          after: { type: "file", mode: "644", data: Buffer.from("committed work").toString("base64") }
+        }]
+      }]
+    }
+    try {
+      const artifactPath = await retainCloudHandoff(artifact, {
+        repository: artifact.repository,
+        artifactDirectory: dir
+      })
+      const artifactBytes = await readFile(artifactPath)
+      const recoveryDirectory = join(dir, "recoveries", "fixture")
+      const recoveryPath = join(recoveryDirectory, "recovery.json")
+      await mkdir(recoveryDirectory, { recursive: true })
+      let referencedArtifact = artifactPath
+      if (mode === "symlink-artifact") {
+        referencedArtifact = join(dirname(artifactPath), "linked-artifact.json")
+        await symlink(artifactPath, referencedArtifact)
+      } else if (mode === "outside-artifact") {
+        referencedArtifact = join(dir, "outside", "hash", "artifact.json")
+        await mkdir(dirname(referencedArtifact), { recursive: true })
+        await copyFile(artifactPath, referencedArtifact)
+      } else if (mode === "oversized-artifact") {
+        await truncate(artifactPath, 100 * 1024 * 1024 + 1)
+      }
+      const receipt = {
+        version: 1,
+        assignment: {
+          key: assignment.key,
+          repository: artifact.repository,
+          tool: "codex",
+          model: assignment.model,
+          issues: [42]
+        },
+        result: { status: "ready", commits: [{ issue: 42, commit: source }] },
+        artifactPath: referencedArtifact,
+        workspaceId: "ws-retained-safety",
+        cleanup: "preserved",
+        phase: "retained"
+      }
+      await writeFile(recoveryPath, mode === "oversized-receipt" ? " ".repeat(16 * 1024 + 1) : JSON.stringify(receipt))
+      const originalRecovery = await readFile(recoveryPath, "utf8")
+      let invokedPath = recoveryPath
+      if (mode === "relative-receipt") invokedPath = "recovery.json"
+      else if (mode === "symlink-receipt") {
+        invokedPath = join(recoveryDirectory, "linked-recovery.json")
+        await symlink(recoveryPath, invokedPath)
+      }
+      let reviews = 0
+      let handoffs = 0
+      const options = {
+        review: async () => {
+          reviews++
+          return "VERDICT: PASS"
+        },
+        ...(mode === "missing-repository"
+          ? { repoDirectory: join(dir, "missing-checkout") }
+          : {
+            handoff: async () => {
+              handoffs++
+              throw Error("unsafe reconstruction reached")
+            }
+          })
+      }
+      await assert.rejects(
+        recoverCloudHandoff(invokedPath, options),
+        mode === "relative-receipt" || mode === "symlink-receipt"
+          ? /invalid Cloud recovery receipt path/
+          : mode === "oversized-receipt" ?
+          /receipt exceeds limit/
+          : mode === "symlink-artifact" || mode === "outside-artifact" ?
+          /artifact path mismatch/
+          : mode === "oversized-artifact"
+          ? /artifact exceeds limit/
+          : /ENOENT|no such file|not found/i
+      )
+      assert.equal(handoffs, 0, "invalid retained evidence never reaches reconstruction")
+      assert.equal(reviews, mode === "missing-repository" ? 1 : 0)
+      if (mode === "missing-repository") {
+        const recovery = JSON.parse(await readFile(recoveryPath, "utf8"))
+        assert.equal(recovery.phase, "failed")
+        assert.deepEqual(recovery.failure, { stage: "reconstruction", kind: "validation-or-host" })
+        assert.equal(recovery.workspaceId, receipt.workspaceId)
+        assert.equal(recovery.cleanup, "preserved")
+        assert.equal(await readFile(recovery.recoveryReviewPath, "utf8"), "VERDICT: PASS")
+      } else {
+        assert.equal(
+          await readFile(recoveryPath, "utf8"),
+          originalRecovery,
+          "prequalification refusal leaves recovery evidence unchanged"
+        )
+        assert.deepEqual(
+          (await readdir(recoveryDirectory)).sort(),
+          mode === "symlink-receipt" ? ["linked-recovery.json", "recovery.json"] : ["recovery.json"]
+        )
+      }
+      if (mode !== "oversized-artifact") assert.deepEqual(await readFile(artifactPath), artifactBytes)
+      else {
+        const { stat } = await import("node:fs/promises")
+        assert.equal(
+          (await stat(artifactPath)).size,
+          100 * 1024 * 1024 + 1,
+          "oversized retained file is not truncated or rewritten"
+        )
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}

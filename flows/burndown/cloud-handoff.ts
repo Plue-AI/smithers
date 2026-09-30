@@ -44,6 +44,8 @@ export interface HandoffOptions {
   /** Trusted coding assignment, kept beside the untrusted exported artifact. */
   readonly attribution?: CloudAttribution
   readonly lockPath?: string
+  /** Supported retained recovery may verify existing partial commits under the lock. */
+  readonly recoverPartial?: boolean
   /** Tests replace the lock runner; production always invokes its executable script once. */
   readonly run?: (command: string, args: ReadonlyArray<string>) => Promise<void>
 }
@@ -160,28 +162,30 @@ export const validateCloudHandoff = (value: unknown, repository: string): CloudH
 
 // A single executable script owns all jj reads that snapshot the shared working
 // copy and all mutations. Its editor updates only selected paths in jj's private
-// right-side tree; jj preserves unrelated working-copy changes on commit.
+// right-side tree; extraction leaves the shared parent and unrelated WIP intact.
 const reconstruction = String.raw`#!/usr/bin/env python3
-import base64, json, os, pathlib, re, stat, subprocess, sys, tempfile
+import base64, hashlib, json, os, pathlib, re, stat, subprocess, sys, tempfile
 HERE=pathlib.Path(__file__).resolve().parent
 ARTIFACT=json.loads((HERE/'artifact.json').read_text())
 RECEIPT=HERE/'receipt.json'
 REPO=pathlib.Path((HERE/'repository.txt').read_text())
 ATTRIBUTION=json.loads((HERE/'attribution.json').read_text())
+RECOVER=False
 COAUTHOR=None if ATTRIBUTION is None else ('Co-Authored-By: GPT-6.1 Sol <noreply@openai.com>' if ATTRIBUTION['tool']=='codex' else 'Co-Authored-By: Claude Opus <noreply@anthropic.com>')
-inflight=None
 committed=False
 report={'status':'preparing','commits':[]}
 if RECEIPT.exists():
     report=json.loads(RECEIPT.read_text())
 
-def save():
+def save_json(path,value):
     with tempfile.NamedTemporaryFile(mode='w',dir=HERE,delete=False) as stream:
-        json.dump(report,stream,indent=2);stream.flush();os.fsync(stream.fileno());name=stream.name
-    os.replace(name,RECEIPT)
+        json.dump(value,stream,indent=2);stream.flush();os.fsync(stream.fileno());name=stream.name
+    os.replace(name,path)
     directory=os.open(HERE,os.O_RDONLY)
     try: os.fsync(directory)
     finally: os.close(directory)
+
+def save(): save_json(RECEIPT,report)
 
 def jj(*args):
     result=subprocess.run(['jj','--no-pager','--color=never',*args],cwd=REPO,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -221,36 +225,134 @@ def disk(root,path):
     if not stat.S_ISREG(info.st_mode): raise RuntimeError('unsupported working-copy entry: '+path)
     return {'type':'file','mode':'755' if info.st_mode&0o111 else '644','data':base64.b64encode(target.read_bytes()).decode()}
 
+def message(commit):
+    result=commit['message'].rstrip()
+    if COAUTHOR:
+        result=re.sub(r'(?im)^Co-Authored-By: [^\r\n]*<noreply@(?:openai\.com|anthropic\.com)>[ \t\r]*$', '', result).rstrip()
+        result+='\n\n'+COAUTHOR
+    return result
+
+def verify_existing(local,index,parent,state):
+    commit=ARTIFACT['commits'][index]
+    if not isinstance(local,str) or not re.fullmatch('[0-9a-f]{40}',local) or revision(local)!=local:
+        raise RuntimeError('invalid retained local commit identity')
+    if jj('--ignore-working-copy','log','--no-graph','-r',local+' & ::visible_heads()','-T','commit_id').decode()!=local:
+        raise RuntimeError('retained local commit is hidden')
+    if jj('--ignore-working-copy','log','--no-graph','-r',local+' & divergent()','-T','commit_id').strip():
+        raise RuntimeError('retained local change is divergent')
+    if jj('--ignore-working-copy','log','--no-graph','-r',local,'-T','parents.map(|p| p.commit_id()).join(" ")').decode()!=parent:
+        raise RuntimeError('retained commit parent differs')
+    if jj('--ignore-working-copy','log','--no-graph','-r',local,'-T','description').decode().rstrip()!=message(commit):
+        raise RuntimeError('retained commit attribution or message differs')
+    actual=set(jj('--ignore-working-copy','diff','--from',parent,'--to',local,'--name-only').decode().splitlines())
+    if actual!={change['path'] for change in commit['changes']}:
+        raise RuntimeError('retained commit includes unexpected or missing changes')
+    for change in commit['changes']: state[change['path']]=change['after']
+    for path,after in state.items():
+        if tree(local,path)!=after: raise RuntimeError('retained commit tree differs: '+path)
+
+def restore_seed():
+    intent=report.get('seeding')
+    if not intent: return
+    index=intent['index']
+    if not isinstance(index,int) or not 0<=index<len(ARTIFACT['commits']): raise RuntimeError('invalid retained seed intent')
+    if revision('@-')!=report['shared_parent'] or jj('--ignore-working-copy','log','--no-graph','-r','@','-T','change_id')!=jj('--ignore-working-copy','log','--no-graph','-r',intent['shared'],'-T','change_id'):
+        raise RuntimeError('shared revision changed since seeding; rollback refused')
+    if jj('--ignore-working-copy','log','--no-graph','-r','descendants(@) ~ @','-T','commit_id').strip():
+        raise RuntimeError('shared working-copy has descendants; rollback refused')
+    seed=HERE/('seed-'+str(index)+'.json')
+    rollback=HERE/('rollback-'+str(index)+'.py')
+    if seed.is_symlink() or rollback.is_symlink(): raise RuntimeError('invalid retained seed files')
+    selected=json.loads(seed.read_text())
+    for change in selected:
+        observed=disk(REPO,change['path'])
+        if observed not in (change['before'],change['after']): raise RuntimeError('working-copy changed during rollback')
+    restored=subprocess.run([str(rollback),'',str(REPO),'before'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    if restored.returncode: raise RuntimeError('own-path rollback failed')
+    jj('st')
+    report.pop('seeding');report['rolled_back']=True;save()
+
 try:
     os.chdir(REPO)
     if report.get('status')=='prepared':
-        for item in report['commits']: revision(item['local'])
+        if len(report['commits'])!=len(ARTIFACT['commits']): raise RuntimeError('invalid retained commit count')
+        state={}
+        for commit in ARTIFACT['commits']:
+            for change in commit['changes']: state.setdefault(change['path'],change['before'])
+        parent=ARTIFACT['base']
+        for index,item in enumerate(report['commits']):
+            if item['source']!=ARTIFACT['commits'][index]['sha']: raise RuntimeError('retained source mapping differs')
+            verify_existing(item['local'],index,parent,state);parent=item['local']
         sys.exit(0)
+    if report.get('status')=='failed' or report.get('commits') or report.get('pending') or report.get('seeding'):
+        identity=hashlib.sha256(json.dumps(report,sort_keys=True).encode()).hexdigest()
+        save_json(HERE/('recovery-from-'+identity+'.json'),report)
+    restore_seed()
     jj('st')
     main=revision('main')
+    upstream=jj('--ignore-working-copy','log','--no-graph','-r','present(main@origin)','-T','commit_id').decode()
+    anchor=upstream or main
+    shared=revision('@')
     head=revision('@-')
     description=jj('--ignore-working-copy','log','--no-graph','-r','@','-T','description').decode()
-    anchored=jj('--ignore-working-copy','log','--no-graph','-r',ARTIFACT['base']+' & ::'+head,'-T','commit_id').decode()
-    if anchored!=ARTIFACT['base']: raise RuntimeError('Cloud base is not an ancestor of local prepared commits')
+    anchored=jj('--ignore-working-copy','log','--no-graph','-r',ARTIFACT['base']+' & ::'+anchor,'-T','commit_id').decode()
+    if anchored!=ARTIFACT['base']: raise RuntimeError('Cloud base is not an ancestor of current main')
 
-    if report.get('commits'): raise RuntimeError('partial preparation retained; inspect existing receipt before retry')
+    if (report.get('commits') or report.get('pending')) and not RECOVER: raise RuntimeError('partial preparation retained; inspect existing receipt before retry')
     initial={}
     for commit in ARTIFACT['commits']:
         for change in commit['changes']: initial.setdefault(change['path'],change['before'])
     for path,before in initial.items():
         if tree(ARTIFACT['base'],path)!=before: raise RuntimeError('exported base bytes mismatch: '+path)
-        if tree(main,path)!=before: raise RuntimeError('main changed an owned path: '+path)
+        if tree(anchor,path)!=before or tree(main,path)!=before: raise RuntimeError('main changed an owned path: '+path)
         if tree(head,path)!=before: raise RuntimeError('prepared local commit changed an owned path: '+path)
         if disk(REPO,path)!=before: raise RuntimeError('shared working-copy edits on owned path: '+path)
-    report={'status':'preparing','main':main,'base':ARTIFACT['base'],'commits':[]};save()
+    completed=list(report.get('commits',[]))
+    if RECOVER and (completed or report.get('pending')):
+        if len(completed)>len(ARTIFACT['commits']): raise RuntimeError('invalid retained commit count')
+        state=dict(initial);parent=ARTIFACT['base']
+        for index,item in enumerate(completed):
+            if item['source']!=ARTIFACT['commits'][index]['sha']: raise RuntimeError('retained source mapping differs')
+            verify_existing(item['local'],index,parent,state);parent=item['local']
+        pending=report.get('pending')
+        if pending:
+            index=len(completed)
+            if index>=len(ARTIFACT['commits']) or pending['source']!=ARTIFACT['commits'][index]['sha'] or pending['parent']!=parent:
+                raise RuntimeError('retained pending identity differs')
+            local=pending.get('local')
+            if not local:
+                candidates=jj('--ignore-working-copy','log','--no-graph','-r','children('+parent+') ~ @','-T','commit_id ++ "\\n"').decode().splitlines()
+                candidates=[candidate for candidate in candidates if candidate not in pending['children']]
+                if len(candidates)!=1: raise RuntimeError('retained extraction must identify exactly one commit')
+                local=candidates[0]
+            verify_existing(local,index,parent,state)
+            completed.append({'source':pending['source'],'local':local})
+        # Qualification changes only this receipt. Later unrelated WIP, parent
+        # and descendants are preserved when no further extraction is needed.
+    if len(completed)<len(ARTIFACT['commits']) and jj('--ignore-working-copy','log','--no-graph','-r','descendants(@) ~ @','-T','commit_id').strip():
+        raise RuntimeError('shared working-copy has descendants; extraction refused')
+    report={'status':'preparing','main':main,'base':ARTIFACT['base'],'shared_parent':head,'upstream':upstream,'commits':completed,'recovered':RECOVER};save()
+    cumulative=dict(initial)
+    parent=ARTIFACT['base']
     for index,commit in enumerate(ARTIFACT['commits']):
+        for change in commit['changes']: cumulative[change['path']]=change['after']
+        if index<len(completed):
+            parent=completed[index]['local'];continue
         committed=False
-        for change in commit['changes']:
-            if disk(REPO,change['path'])!=change['before']: raise RuntimeError('working-copy changed before reconstruction: '+change['path'])
+        for path,before in initial.items():
+            if disk(REPO,path)!=before: raise RuntimeError('working-copy changed before reconstruction: '+path)
+        selected=[{'path':path,'before':initial[path],'after':after} for path,after in cumulative.items()]
+        exact=list(selected)
+        if all(change['before']==change['after'] for change in selected):
+            selected=[dict(change) for change in selected]
+            seed=next(change for change in commit['changes'] if change['before']!=initial[change['path']])
+            next(change for change in selected if change['path']==seed['path'])['after']=seed['before']
+        selection=HERE/('selection-'+str(index)+'.json')
+        selection.write_text(json.dumps(selected))
         editor=HERE/('editor-'+str(index)+'.py')
         editor.write_text('''#!/usr/bin/env python3
 import base64,json,os,pathlib,shutil,sys,tempfile
-changes=json.loads(pathlib.Path('''+repr(str(HERE/'artifact.json'))+''').read_text())['commits']['''+str(index)+''']['changes']
+changes=json.loads(pathlib.Path('''+repr(str(selection))+''').read_text())
 right=pathlib.Path(sys.argv[2])
 direction='before' if len(sys.argv)>3 and sys.argv[3]=='before' else 'after'
 for change in changes:
@@ -281,44 +383,93 @@ for change in changes:
         editor.chmod(0o700)
         config=HERE/('editor-'+str(index)+'.toml')
         config.write_text('[merge-tools.cloud-handoff]\nprogram = '+json.dumps(str(editor))+'\nedit-args = ["$left", "$right"]\n')
-        paths=[selector(change['path']) for change in commit['changes']]
+        paths=[selector(path) for path in initial]
         # jj's diff editor materializes only already changed paths. Seed the
         # checked own paths so additions enter that selection, then the editor
         # reconstructs exactly that tree without selecting shared WIP.
-        inflight=(commit,editor)
+        # Journal the exact seed before touching shared bytes. The immutable
+        # rollback program is independent of the later private-tree selections.
+        seed=HERE/('seed-'+str(index)+'.json')
+        save_json(seed,selected)
+        rollback=HERE/('rollback-'+str(index)+'.py')
+        rollback.write_text(editor.read_text().replace(repr(str(selection)),repr(str(seed))))
+        rollback.chmod(0o700)
+        with rollback.open('rb') as stream: os.fsync(stream.fileno())
+        report['seeding']={'index':index,'source':commit['sha'],'shared':shared};save()
         seeded=subprocess.run([str(editor),'',str(REPO)],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         if seeded.returncode: raise RuntimeError('could not seed checked Cloud paths')
-        additions=[selector(change['path']) for change in commit['changes'] if change['after'] is not None]
+        additions=[selector(change['path']) for change in selected if change['after'] is not None]
         if additions: jj('file','track','--include-ignored',*additions)
-        jj('--config-file',str(config),'diffedit','-r','@','--tool','cloud-handoff',*paths)
-        for change in commit['changes']:
-            if disk(REPO,change['path'])!=change['after'] or tree('@',change['path'])!=change['after']: raise RuntimeError('reconstructed working-copy differs: '+change['path'])
-        message=commit['message'].rstrip()
-        if COAUTHOR:
-            message=re.sub(r'(?im)^Co-Authored-By: [^\r\n]*<noreply@(?:openai\.com|anthropic\.com)>[ \t\r]*$', '', message).rstrip()
-            message+='\n\n'+COAUTHOR
-        if revision('main')!=main: raise RuntimeError('main changed during preparation')
-        jj('commit',*paths,'--message='+message)
+        jj('st')
+        for change in selected:
+            if disk(REPO,change['path'])!=change['after'] or tree('@',change['path'])!=change['after']:
+                raise RuntimeError('shared path changed while seeding: '+change['path'])
+
+        description_message=message(commit)
+        if revision('main')!=main or jj('--ignore-working-copy','log','--no-graph','-r','present(main@origin)','-T','commit_id').decode()!=upstream: raise RuntimeError('main changed during preparation')
+        # Extract the cumulative own-path delta without moving the shared parent.
+        # Later extractions may produce an artificial three-way conflict against
+        # the previous artifact commit; the private editor sets the exact tree.
+        children=jj('--ignore-working-copy','log','--no-graph','-r','children('+parent+') ~ @','-T','commit_id ++ "\\n"').decode().splitlines()
+        report['pending']={'source':commit['sha'],'parent':parent,'children':children};save()
+        jj('split','--onto',parent,*paths,'--message='+description_message)
         committed=True
-        local=revision('@-')
-        report['commits'].append({'source':commit['sha'],'local':local});save()
-        inflight=None
-        for change in commit['changes']:
-            if tree(local,change['path'])!=change['after']: raise RuntimeError('prepared commit tree differs: '+change['path'])
-        if description: jj('describe','@','--message='+description)
-        if revision('main')!=main: raise RuntimeError('main changed during preparation')
+        candidates=jj('--ignore-working-copy','log','--no-graph','-r','children('+parent+') ~ @','-T','commit_id ++ "\\n"').decode().splitlines()
+        candidates=[candidate for candidate in candidates if candidate not in children]
+        if len(candidates)!=1: raise RuntimeError('extraction must produce exactly one commit')
+        local=candidates[0]
+        report['pending']['local']=local;save()
+        structural=[]
+        for change in exact:
+            kind=jj('--ignore-working-copy','file','list','-r',local,'-T','file_type',selector(change['path'])).decode()
+            if kind and kind not in ('file','symlink'): structural.append(change['path'])
+        if structural:
+            # Nonmaterializable type conflicts require removal in our private
+            # tree before an exact entry can be written. Never remove other paths.
+            selection.write_text(json.dumps([dict(change,after=None) for change in exact if change['path'] in structural]))
+            jj('--ignore-working-copy','--config-file',str(config),'diffedit','--from','root()','--to',local,'--tool','cloud-handoff',*[selector(path) for path in structural])
+            local=revision('latest((children('+parent+') ~ @) ~ ('+(' | '.join(children) if children else 'none()')+'),1)')
+            report['pending']['local']=local;save()
+        selection.write_text(json.dumps(exact))
+        jj('--ignore-working-copy','--config-file',str(config),'diffedit','--from','root()','--to',local,'--tool','cloud-handoff',*paths)
+        local=revision('latest((children('+parent+') ~ @) ~ ('+(' | '.join(children) if children else 'none()')+'),1)')
+        report['pending']['local']=local;save()
+        # A removed conflict is absent on the right. Materialize it against its
+        # verified earlier entry so jj tracks the replacement, including symlinks.
+        for path in structural:
+            prior=parent if tree(parent,path) is not None else ARTIFACT['base']
+            selection.write_text(json.dumps([change for change in exact if change['path']==path]))
+            jj('--ignore-working-copy','--config-file',str(config),'diffedit','--from',prior,'--to',local,'--tool','cloud-handoff',selector(path))
+            local=revision('latest((children('+parent+') ~ @) ~ ('+(' | '.join(children) if children else 'none()')+'),1)')
+            report['pending']['local']=local;save()
+        local=revision('latest((children('+parent+') ~ @) ~ ('+(' | '.join(children) if children else 'none()')+'),1)')
+        report['pending']['local']=local;save()
+        verify_existing(local,index,parent,cumulative)
+        for path in cumulative:
+            if disk(REPO,path)!=initial[path]: raise RuntimeError('shared working-copy changed after extraction: '+path)
+        if revision('@-')!=head or revision('main')!=main or jj('--ignore-working-copy','log','--no-graph','-r','present(main@origin)','-T','commit_id').decode()!=upstream: raise RuntimeError('shared parent or main changed during preparation')
+        if jj('--ignore-working-copy','diff','--from',shared,'--to','@','--name-only').strip():
+            raise RuntimeError('shared working-copy tree changed during preparation')
+        if jj('--ignore-working-copy','log','--no-graph','-r','@','-T','description').decode()!=description:
+            raise RuntimeError('shared description changed during preparation')
+        report['commits'].append({'source':commit['sha'],'local':local});report.pop('pending');report.pop('seeding');save()
+        parent=local
     report['status']='prepared';save()
 except Exception as error:
-    if report.get('status')=='prepared': sys.exit(1)
-    if inflight and not committed:
-        commit,editor=inflight
+    if report.get('status')=='prepared':
+        print(str(error),file=sys.stderr);sys.exit(1)
+    if report.get('pending') and not committed:
         try:
-            for change in commit['changes']:
-                observed=disk(REPO,change['path'])
-                if observed not in (change['before'],change['after']): raise RuntimeError('working-copy changed during rollback')
-            rollback=subprocess.run([str(editor),'',str(REPO),'before'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            if rollback.returncode: raise RuntimeError('own-path rollback failed')
-            jj('st');report['rolled_back']=True
+            pending=report['pending']
+            candidates=jj('--ignore-working-copy','log','--no-graph','-r','children('+pending['parent']+') ~ @','-T','commit_id ++ "\\n"').decode().splitlines()
+            candidates=[candidate for candidate in candidates if candidate not in pending['children']]
+            if candidates:
+                pending['candidates']=candidates;committed=True
+            else: report.pop('pending')
+        except Exception as discovery_error:
+            report['discovery_error']=str(discovery_error);committed=True
+    if report.get('seeding'):
+        try: restore_seed()
         except Exception as rollback_error: report['rollback_error']=str(rollback_error)
     report['status']='failed';report['error']=str(error);save();sys.exit(1)
 `
@@ -419,13 +570,19 @@ export const prepareCloudHandoff = async (value: unknown, options: HandoffOption
   await syncDirectory(directory)
   const repository = options.repository === "smithersai/smithers" ? "smithers" : "plue"
   const repoDirectory = await realpath(options.repoDirectory)
+  await retainFile(join(directory, "repository.txt"), repoDirectory, 0o600)
   const receiptPath = join(directory, "receipt.json")
   try {
     const existing = JSON.parse(await readFile(receiptPath, "utf8")) as {
       status?: string
       commits?: Array<{ source: string; local: string }>
+      pending?: unknown
+      seeding?: unknown
     }
-    if (existing.status !== "prepared" && existing.commits?.length) {
+    if (
+      existing.status !== "prepared" && !options.recoverPartial && !existing.seeding &&
+      (existing.commits?.length || existing.pending)
+    ) {
       throw new Error("partial preparation retained; inspect existing receipt before retry")
     }
     if (existing.status === "prepared") {
@@ -435,14 +592,16 @@ export const prepareCloudHandoff = async (value: unknown, options: HandoffOption
           commit.source !== artifact.commits[index]!.sha || !sha.test(commit.local)
         )
       ) throw new Error("Cloud handoff preparation lacks a complete receipt")
-      return { artifactPath, receiptPath, commits: existing.commits, commit: existing.commits.at(-1)!.local }
+      // The locked script requalifies visibility, uniqueness and the exact tree;
+      // a retained commit ID alone can still resolve after jj rewrites it.
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
-  const script = join(directory, "prepare.py")
-  await replaceHostFile(join(directory, "repository.txt"), repoDirectory, 0o600)
-  await replaceHostFile(script, reconstruction, 0o700)
+  const script = join(directory, `prepare-${randomUUID()}.py`)
+  const source = reconstruction.replace("RECOVER=False", options.recoverPartial ? "RECOVER=True" : "RECOVER=False")
+  await replaceHostFile(join(directory, "prepare.py"), source, 0o700)
+  await durableWrite(script, source, 0o700)
   await replaceHostFile(
     join(directory, "symlink-reader.txt"),
     fileURLToPath(new URL("./cloud-symlink.ts", import.meta.url)),
@@ -463,13 +622,14 @@ export const prepareCloudHandoff = async (value: unknown, options: HandoffOption
     } catch (readError) {
       if ((readError as NodeJS.ErrnoException).code !== "ENOENT") throw readError
     }
-    if (receipt.status !== "prepared") {
-      const failed = JSON.stringify({ ...receipt, status: "failed", runnerError: String(error) })
-      const temporary = receiptPath + ".failed-" + randomUUID()
-      await durableWrite(temporary, failed, 0o600)
-      await rename(temporary, receiptPath)
-      await syncDirectory(directory)
-    }
+    // Only the locked reconstruction script writes receipt.json. A runner
+    // failure may race a new attempt after lock release; retain it separately.
+    await durableWrite(
+      join(directory, `runner-error-${randomUUID()}.json`),
+      JSON.stringify({ status: "failed", runnerError: "Cloud handoff lock runner failed", receiptPath }),
+      0o600
+    )
+    await syncDirectory(directory)
     throw new Error(typeof receipt.error === "string" ? receipt.error : String(error), { cause: error })
   }
   const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as {

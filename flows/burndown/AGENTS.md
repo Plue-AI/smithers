@@ -20,3 +20,17 @@ Historical closure or Will-only receipts are not current open-issue evidence.
 Unknown usage or login failures are retryable observations, never proof that
 all accounts are exhausted. Claim helpers resolve from the fixed host source
 or an explicitly configured compatible path. Reset recovery polls live usage.
+
+Retained Cloud handoff anchors reconstructed commits to the verified artifact
+base, independent of the shared checkout parent. Extract only artifact paths;
+leave shared work, protected bookmarks and prepared revisions intact. The queue
+owns subsequent rebasing. Refuse changed owned paths with retained recovery
+rather than overwriting current main or another agent's work.
+
+A pushed change is separate from issue completion. Final exact-revision Fable
+review assesses the entire current issue against executed evidence and emits one
+typed disposition per issue. Complete closes only satisfied acceptance; landed
+prerequisites stay open with concrete issue-backed remaining requirements.
+Missing or contradictory evidence never completes. Persist acceptance before
+push and the confirmed push before issue writes. Receipt failures retain original
+READY work for receipt replay, never a new coding repair or duplicate push.
