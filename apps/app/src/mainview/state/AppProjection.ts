@@ -603,6 +603,42 @@ export const appProjectionHasOrphanedProviderRequests = (snapshot: AppProjection
     snapshot.sessions.some(row => (row.codingProviderRequests?.length ?? 0) > 0)
 }
 
+/** Older account cleanup omitted the request list, so a direct switch or a sign-out followed by another
+ * account's sign-in can leave the previous owner's request metadata under the signed-in identity. An
+ * unknown or unavailable owner is never a definitive mismatch. */
+export const appProjectionHasForeignProviderRequests = (snapshot: AppProjectionSnapshot): boolean => {
+  const identity = snapshot.identitySessions.find(row => row.id === "identity")
+  const owner = identity?.state === "signed-in" ? accountOwnerOf(identity) : undefined
+  return typeof owner === "string" &&
+    snapshot.sessions.some(row => row.codingProviderRequests?.some(request => request.owner !== owner) === true)
+}
+
+/** Keeps only the signed-in owner's requests; everything else in the snapshot is untouched. */
+export const scrubForeignProviderRequests = (snapshot: AppProjectionSnapshot): AppProjectionSnapshot => {
+  const identity = snapshot.identitySessions.find(row => row.id === "identity")
+  const owner = identity?.state === "signed-in" ? accountOwnerOf(identity) : undefined
+  if (typeof owner !== "string") return snapshot
+  return { ...snapshot,
+    sessions: snapshot.sessions.map(row => {
+      if (row.codingProviderRequests === undefined) return row
+      const { codingProviderRequests, ...rest } = row
+      const kept = codingProviderRequests.filter(request => request.owner === owner)
+      return kept.length === 0 ? rest : { ...rest, codingProviderRequests: kept }
+    }),
+    // The retained transition log carries each request list verbatim.
+    transitions: snapshot.transitions.map(row => {
+      if (row.type !== "coding.provider.requests.changed") return row
+      let requests: unknown[] = []
+      try {
+        const parsed: unknown = JSON.parse(row.payload)
+        const list = (parsed as { requests?: unknown } | null)?.requests
+        if (Array.isArray(list)) requests = list.filter(item => (item as { owner?: unknown } | null)?.owner === owner)
+      } catch { /* an unreadable payload keeps nothing */ }
+      return { ...row, payload: JSON.stringify({ requests }) }
+    })
+  }
+}
+
 /** One account-boundary predicate governs projection cleanup and private journal rotation. */
 export const appTransitionErasesPrivateState = (snapshot: AppProjectionSnapshot, transition: AppTransition): boolean => {
   if (transition.type === "app.reset") return true

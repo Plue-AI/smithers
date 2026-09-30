@@ -14,7 +14,7 @@ export const PRIVACY_RETIREMENT_EVENT = "smithers-privacy-retirement"
 export interface PrivacyRetirement {
   readonly version: 2
   readonly id: string
-  readonly mode: "account" | "reset"
+  readonly mode: "account" | "reset" | "scrub"
   readonly backend: "opfs" | "localStorage"
   readonly targetStreamId: string
   readonly phase: "pending" | "remote-pending" | "complete"
@@ -22,7 +22,7 @@ export interface PrivacyRetirement {
   readonly erasures: ReadonlyArray<AgentTurnErasure>
 }
 const markerFields = {
-  id: z.string().regex(/^[a-zA-Z0-9-]{1,128}$/), mode: z.enum(["account", "reset"]), backend: z.enum(["opfs", "localStorage"]),
+  id: z.string().regex(/^[a-zA-Z0-9-]{1,128}$/), mode: z.enum(["account", "reset", "scrub"]), backend: z.enum(["opfs", "localStorage"]),
   targetStreamId: z.string().regex(/^[a-zA-Z0-9-]{1,128}$/)
 }
 const markerSchema = z.object({ version: z.literal(2), ...markerFields,

@@ -51,7 +51,9 @@ import {
 APP_PROJECTION_COLLECTION_NAMES,
 
 TRACE_MESSAGE_PREFIX,appProjectionKey,
+appProjectionHasForeignProviderRequests,
 appProjectionHasOrphanedProviderRequests,
+scrubForeignProviderRequests,
 appTransitionErasesPrivateState,
 seedAppProjection,
 type AppProjectionSnapshot
@@ -1265,6 +1267,10 @@ const initializeAppStore = async (
     const verified = upgraded ?? replayAppEvents(savedCheckpoint, [...collections.appEvents.values()].map(storedRow), savedHead)
     // Seeding a missing legacy identity does not prove that its owner signed out.
     const orphanedProviderRequests = appProjectionHasOrphanedProviderRequests(upgradeSource ?? verified.snapshot)
+    // A signed-in checkpoint may still hold another account's request metadata: scrub it, keep the rest.
+    const foreignProviderRequests = !orphanedProviderRequests && appProjectionHasForeignProviderRequests(verified.snapshot)
+    const scrubbing = orphanedProviderRequests || foreignProviderRequests
+    let foreignScrub = false
     if (orphanedProviderRequests && upgradeSource !== undefined) {
       // Old projector suffixes cannot be replayed by this build. Destructive
       // cleanup needs a sealed signed-out head, not merely cached identity rows.
@@ -1275,7 +1281,7 @@ const initializeAppStore = async (
         throw new PrivacyAuthorityMissing()
       }
     }
-    if (bootRetirement?.phase !== "pending" && !orphanedProviderRequests) {
+    if (bootRetirement?.phase !== "pending" && !scrubbing) {
       recoveryBoundary = { head: verified.head, checkpoint: upgraded?.checkpoint ?? savedCheckpoint,
         events: upgraded === undefined ? [...collections.appEvents.values()].map(storedRow) : [], commands: verified.snapshot.commandIntents }
       recoverySnapshot = verified.snapshot
@@ -1294,26 +1300,32 @@ const initializeAppStore = async (
     // A pre-fix signed-out checkpoint can still contain coding-account receipts.
     // Retire it only after authority verifies, using the same durable fence and
     // recovery-copy erasure as sign-out. A failed cleanup must fail the open.
-    if (orphanedProviderRequests && bootRetirement?.phase !== "pending" && resolved.privacy !== undefined) {
+    if (scrubbing && bootRetirement?.phase !== "pending") foreignScrub = foreignProviderRequests
+    if (scrubbing && bootRetirement?.phase !== "pending" && resolved.privacy !== undefined) {
       if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
       bootRetirement = beginPrivacyRetirement(privacyStorage(privacyRecord), {
-        id: crypto.randomUUID(), mode: "account", backend: resolved.mode, targetStreamId: crypto.randomUUID()
+        id: crypto.randomUUID(), mode: foreignScrub ? "scrub" : "account", backend: resolved.mode, targetStreamId: crypto.randomUUID()
       }, deriveTurnErasures(verified.snapshot.httpTurnLegs))
       retirementApplied = false
     }
-    if (bootRetirement?.phase === "pending" || orphanedProviderRequests) {
+    if (bootRetirement?.phase === "pending" || scrubbing) {
       if (bootRetirement?.phase === "pending") {
         addPendingTurnErasures(privacyRecord!, bootRetirement, deriveTurnErasures(verified.snapshot.httpTurnLegs))
         // An interrupted older sign-out may already name the contaminated
         // stream. Its replacement needs a new identity before retiring it.
-        if (orphanedProviderRequests && retirementApplied) {
+        if (scrubbing && retirementApplied) {
+          foreignScrub = foreignProviderRequests
           const targetStreamId = crypto.randomUUID()
           retargetPrivacyRetirement(privacyRecord!, bootRetirement, targetStreamId)
           bootRetirement = { ...bootRetirement, targetStreamId }
           retirementApplied = false
         }
       }
-      if (!retirementApplied) {
+      if (!retirementApplied && (foreignScrub || bootRetirement?.mode === "scrub")) {
+        const rotated = initializeAppStream(scrubForeignProviderRequests(initial.state.snapshot),
+          bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
+        initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
+      } else if (!retirementApplied) {
         const transition: AppTransition = bootRetirement?.mode === "reset"
           ? { type: "app.reset", actor: "system" }
           : { type: "identity.session.cleared", actor: "user" }
