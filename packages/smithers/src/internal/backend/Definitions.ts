@@ -589,11 +589,6 @@ export const definitions = {
     args: z.object({ "lanes": z.coerce.number().describe("Lanes, 1 to 8") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
-  "history land": {
-    description: "Land a proposed TODO's pull request once its review approves and CI is green",
-    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
-    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
-  },
   "history retry": {
     description: "Give a blocked, rejected or declined issue a fresh set of attempts",
     args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
