@@ -1,0 +1,25 @@
+diff --git a/install_api.cjs b/install_api.cjs
+index 6a820b51d474b28d28025ca771c6005251f82a2e..8b665a3fe5d1337418472fe4de3ce465ac47f802 100644
+--- a/install_api.cjs
++++ b/install_api.cjs
+@@ -8,6 +8,7 @@ const path = require("path");
+ let cachedIsMusl = undefined;
+ 
+ module.exports = {
++  getTarget,
+   replaceBinEntry,
+   runInstall() {
+     const dprintFileName = os.platform() === "win32" ? "dprint.exe" : "dprint";
+@@ -289,6 +290,12 @@ function getArch() {
+ }
+ 
+ function getLinuxFamily() {
++  // Smithers: the musl builds are static and need no ELF interpreter, so they
++  // also run where the glibc build cannot exec (a NixOS guest without a
++  // working /lib64/ld-linux-x86-64.so.2 answers spawnSync with ENOENT).
++  if (require("./hashes.json")["linux-" + getArch() + "-musl"] !== undefined) {
++    return "musl";
++  }
+   return getIsMusl() ? "musl" : "glibc";
+ 
+   function getIsMusl() {

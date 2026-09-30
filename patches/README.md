@@ -23,3 +23,17 @@ package managers' frozen installs. These checks import and inspect stacks; they
 do not deploy infrastructure. Remove each patch when upgrading to an upstream
 version that uses the supported Effect APIs, and repeat these checks before
 deploying with that version.
+
+# dprint static Linux binary
+
+`dprint@0.57.1.patch` makes the npm `dprint` wrapper run the static musl build
+on every Linux host with a musl build, instead of the glibc build. The glibc
+build names `/lib64/ld-linux-*.so` as its ELF interpreter, so a NixOS Cloud
+guest without a working loader link answered every `dprint check` with
+`spawnSync … ENOENT`; the static build needs no interpreter. When the musl
+optional package is not installed, the unmodified wrapper downloads it from
+the registry through `HTTPS_PROXY` and verifies it against the digest in the
+package's `hashes.json`; it fails closed without the network. The patch also
+exports `getTarget` so `packages/smithers/build/targets/test/DprintLinuxBinary.test.ts`
+can pin the selection. Remove it when upstream dprint prefers an
+interpreter-free Linux binary.

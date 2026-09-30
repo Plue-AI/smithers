@@ -121,6 +121,7 @@
     "@distilled.cloud/hetzner@1.0.0-rc.8": "patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch",
     "@distilled.cloud/planetscale@1.0.0-rc.8": "patches/@distilled.cloud__planetscale@1.0.0-rc.8.patch",
     "@distilled.cloud/railway@1.0.0-rc.8": "patches/@distilled.cloud__railway@1.0.0-rc.8.patch",
-    "alchemy@2.0.0-beta.76": "patches/alchemy@2.0.0-beta.76.patch"
+    "alchemy@2.0.0-beta.76": "patches/alchemy@2.0.0-beta.76.patch",
+    "dprint@0.57.1": "patches/dprint@0.57.1.patch"
   }
 }
