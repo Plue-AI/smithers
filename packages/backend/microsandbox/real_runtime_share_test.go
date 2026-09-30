@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -44,8 +45,13 @@ func TestRealMicroVMRuntimeShareLinksAreNeverFollowed(t *testing.T) {
 			links[name] = true
 		}
 	})
-	for _, name := range []string{"link", "hostdir", "hostfile", "loop"} {
-		require.True(t, links[name], "the guest's %s reached the host as a link", name)
+	// On macOS the share keeps a guest's link as a host link; a Linux host
+	// may store it as a regular file with virtualized metadata. Either way the
+	// walk must stay inside the machine's directory.
+	if goruntime.GOOS == "darwin" {
+		for _, name := range []string{"link", "hostdir", "hostfile", "loop"} {
+			require.True(t, links[name], "the guest's %s reached the host as a link", name)
+		}
 	}
 	require.NotContains(t, seen, sentinel, "the walk never entered the host directory a guest link names")
 	require.NotContains(t, seen, "passwd")
