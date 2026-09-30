@@ -127,6 +127,27 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &index))
 	require.Len(t, index.Pages, 1)
 	require.Len(t, index.Pages[0].Backlinks, 1)
+	// History pages through revisions newest first, with page/per_page, a
+	// total header and next links that keep the space.
+	for revision := 1; revision <= 2; revision++ {
+		rec = request("PATCH", "/home?visibility=private", ownerToken, fmt.Sprintf(`{"body":"private edit %d","expected_revision":%d}`, revision, revision), "application/json")
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+	}
+	var history []services.WikiRevisionResponse
+	historyPath := fmt.Sprintf("/history/%d?visibility=private", privatePage.ID)
+	rec = request("GET", historyPath+"&page=1&per_page=2", ownerToken, "", "")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	require.Equal(t, "3", rec.Header().Get("X-Total-Count"))
+	require.Contains(t, rec.Header().Get("Link"), `rel="next"`)
+	require.Contains(t, rec.Header().Get("Link"), "visibility=private")
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &history))
+	require.Equal(t, []int64{3, 2}, []int64{history[0].Revision, history[1].Revision})
+	rec = request("GET", historyPath+"&page=2&per_page=2", ownerToken, "", "")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	require.NotContains(t, rec.Header().Get("Link"), `rel="next"`)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &history))
+	require.Len(t, history, 1)
+	require.Equal(t, int64(1), history[0].Revision)
 	rec = request("GET", "/home?visibility=bogus", ownerToken, "", "")
 	require.Equal(t, 400, rec.Code)
 	// New collection routes must not shadow previously valid page slugs.
@@ -169,7 +190,7 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	var events []services.WikiEvent
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &events))
-	require.Len(t, events, 3)
+	require.Len(t, events, 5, "create, two edits, attach, delete")
 	// Binary uploads exceed the JSON group's 1 MiB cap, but retain write auth.
 	large := strings.Repeat("x", (1<<20)+1)
 	rec = request("PUT", "/attachments/large?path=large.bin&expected_revision=0", outsiderToken, large, "application/octet-stream")
