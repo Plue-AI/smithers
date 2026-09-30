@@ -19,6 +19,7 @@ import {
   type Values,
   withCause
 } from "./Client.ts"
+import * as ProductApi from "./ProductApi.ts"
 
 /**
  * @private
@@ -156,11 +157,12 @@ add(
 )
 add("variable get", (c, a, o) => c.request("GET", repo(c, o, `/variables/${esc(a.name)}`)))
 add("variable set", (c, a, o) => c.request("POST", repo(c, o, "/variables"), { name: a.name, value: str(o.body) }))
-add("ssh-key list", (c) => c.request("GET", "/api/user/keys"))
-add("ssh-key add", (c, _a, o) => c.request("POST", "/api/user/keys", { title: o.title, key: o.key }))
+add("ssh-key list", (c) => ProductApi.getApiUserKeys(c))
+add("ssh-key add", (c, _a, o) => ProductApi.postApiUserKeys(c, { body: { title: str(o.title), key: str(o.key) } }))
 add("ssh-key delete", async (c, a) => {
-  await c.request("DELETE", `/api/user/keys/${positive(a.id)}`)
-  return { status: "deleted", id: Number(a.id) }
+  const id = positive(a.id)
+  await ProductApi.deleteApiUserKeysId(c, { path: { id } })
+  return { status: "deleted", id }
 })
 add(
   "notification list",

@@ -4,11 +4,17 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { MythicalItemSchema, MythicalItemStateSchema, mythicalMachine } from "../../rpc/src/Mythical.ts"
+import {
+  MythicalItemSchema,
+  MythicalItemStateSchema,
+  mythicalMachine,
+  mythicalReceiptDuration
+} from "../../rpc/src/Mythical.ts"
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
 import {
+  checkDuration,
   groupOf,
   itemLine,
   machineLine,
@@ -86,6 +92,33 @@ describe("history rendering", () => {
       }
     }))).toBe("✓ affected-lint abcdef0 · ✗ affected-test abcdef0")
     expect(receiptLine(item("running"))).toBe("")
+  })
+  it("appends each receipt's duration and names the run that recorded them once, as the TUI does", () => {
+    const timed = item("proposed", {
+      checks: {
+        state: "passed",
+        failed: [],
+        receipts: [
+          { check: "affected-lint", tier: "fast", status: "passed", commit: "abcdef0123", runId: "run-1", durationMs: 850 },
+          { check: "affected-test", tier: "slow", status: "passed", commit: "abcdef0123", runId: "run-1", durationMs: 64_000 },
+          { check: "affected-docs", tier: "fast", status: "passed", commit: "abcdef0123", runId: "run-2\u001b[2J" }
+        ]
+      }
+    })
+    expect(receiptLine(timed))
+      .toBe("✓ affected-lint abcdef0 0s · ✓ affected-test abcdef0 1m 04s · ✓ affected-docs abcdef0 · run run-1 · run run-2")
+    expect(render(stack([timed]), now)).toBe([
+      "active · 1/2 lanes",
+      "◆ Needs you 1",
+      "  #12 Fix login · PR open · checks passed",
+      "    ✓ affected-lint abcdef0 0s · ✓ affected-test abcdef0 1m 04s · ✓ affected-docs abcdef0 · run run-1 · run run-2"
+    ].join("\n"))
+  })
+  it("words a check's duration as @smthrs/rpc does", () => {
+    for (const ms of [-5, 0, 999, 1_000, 59_999, 60_000, 64_000, 3_599_999, 3_600_000, 3_660_000, 7_500_000]) {
+      const receipt = { check: "c", tier: "fast", status: "passed", commit: "c", durationMs: Math.max(0, ms) } as const
+      expect(checkDuration(ms)).toBe(mythicalReceiptDuration(receipt))
+    }
   })
   it("shows the machine an issue's lane runs on under it, as the app and TUI do", () => {
     const placed = item("running", {
@@ -287,7 +320,14 @@ describe("the factory from the terminal, over a local HTTP server", () => {
           state: "passed",
           failed: [],
           receipts: [
-            { check: "affected-lint", tier: "fast", status: "passed", commit: "1a2b3c4d5e".padEnd(40, "0") },
+            {
+              check: "affected-lint",
+              tier: "fast",
+              status: "passed",
+              commit: "1a2b3c4d5e".padEnd(40, "0"),
+              runId: "run-verify-1",
+              durationMs: 42_000
+            },
             { check: "affected-test", tier: "slow", status: "passed", commit: "1a2b3c4d5e".padEnd(40, "0") }
           ]
         },
@@ -331,7 +371,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         "#12 Fix login · implementing",
         "#12 Fix login · checking · checks pending",
         "#12 Fix login · PR open · checks passed · https://github.com/owner/repo/pull/5",
-        "  ✓ affected-lint 1a2b3c4 · ✓ affected-test 1a2b3c4"
+        "  ✓ affected-lint 1a2b3c4 42s · ✓ affected-test 1a2b3c4 · run run-verify-1"
       ])
       expect(watched.output).toContain("#12 Fix login · PR open · checks passed")
       expect(f.requests.filter((r) => r.url === "/api/repos/owner/repo/mythical/items/12")).toHaveLength(4)

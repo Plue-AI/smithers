@@ -51,6 +51,8 @@ export interface Config {
    * default is `true` so a composition that says nothing keeps the refusal.
    */
   readonly startsRuns?: boolean | undefined
+  /** Compile and validate authored flow plans while keeping execution disabled. */
+  readonly plansFlows?: boolean | undefined
   /** A human can answer parked agent steps on this host. Unattended compositions default to false. */
   readonly approvalChannel?: boolean | undefined
   /** Trusted local observational checkers, keyed by flow id. Remote clients never execute these callbacks. */

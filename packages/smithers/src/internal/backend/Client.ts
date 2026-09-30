@@ -411,6 +411,14 @@ export class Client {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(signal ? { signal } : {}),
       redirect: "error"
+    }).catch((error: unknown) => {
+      if (requestSignal?.aborted) {
+        throw withCause(new Refused({ fault: "user", code: "cancelled", message: "API request cancelled" }), error)
+      }
+      if (signal?.aborted || error instanceof Error && error.name === "TimeoutError") {
+        throw withCause(new Refused({ fault: "infra", code: "backend_timed_out", message: "Smithers API timed out. Check api_origin and your connection" }), error)
+      }
+      throw withCause(new Refused({ fault: "infra", code: "backend_unavailable", message: "Cannot reach Smithers API. Check api_origin and your connection" }), error)
     })
     if (!response.ok) {
       let detail: Values = {}

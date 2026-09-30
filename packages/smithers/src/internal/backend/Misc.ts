@@ -4,6 +4,7 @@
  */
 
 import { Refused, UsageError } from "../../CliError.ts"
+import { createReadStream } from "node:fs"
 import { esc, list, object, query, str } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 /**
@@ -28,7 +29,35 @@ misc.api = async (c, a, o) => {
         return [value.slice(0, index).trim(), value.slice(index + 1).trim()]
       })
     )
-  const body = list(o.field).length ? pairs(o.field, "=") : undefined
+  let body: unknown = list(o.field).length ? pairs(o.field, "=") : undefined
+  if (o.input !== undefined) {
+    if (list(o.field).length) throw new UsageError({ message: "Use --input or --field, together they are not allowed" })
+    let text: string
+    if (o.input === "-") text = await c.stdin("JSON input")
+    else {
+      const chunks: Array<Buffer> = []
+      let size = 0
+      try {
+        for await (const chunk of createReadStream(str(o.input))) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+          size += bytes.length
+          if (size > 4 * 1024 * 1024) {
+            throw new Refused({ fault: "user", code: "input_too_large", message: "JSON input exceeds 4 MiB" })
+          }
+          chunks.push(bytes)
+        }
+      } catch (error) {
+        if (error instanceof Refused) throw error
+        throw new Refused({ fault: "user", code: "input_unreadable", message: "Cannot read JSON input file" })
+      }
+      text = Buffer.concat(chunks).toString("utf8")
+    }
+    try {
+      body = JSON.parse(text)
+    } catch {
+      throw new UsageError({ message: "Input must contain one valid JSON value" })
+    }
+  }
   const response = await c.response(method, str(a.endpoint), body, { headers: pairs(o.header, ":") })
   const text = await c.text(response)
   if (!text) return null

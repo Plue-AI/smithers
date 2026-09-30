@@ -26,12 +26,12 @@ afterAll(async () => {
 const scriptedHost = fileURLToPath(new URL("./fixtures/scripted-native-host.ts", import.meta.url))
 const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 
-const run = (root: string, args: ReadonlyArray<string>) =>
+const run = (root: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}) =>
   new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(
       process.execPath,
       ["--no-warnings", "--import", scriptedHost, executable, ...args, "--root", root, "--json"],
-      { cwd: root, env: { ...process.env, SMITHERS_REMOTE: "", SMITHERS_BACKEND: "sqlite" } }
+      { cwd: root, env: { ...process.env, SMITHERS_REMOTE: "", SMITHERS_BACKEND: "sqlite", ...env } }
     )
     let stdout = ""
     let stderr = ""
@@ -171,6 +171,69 @@ describe("observing verbs", { timeout: 240_000 }, () => {
     expect(JSON.parse(logs.stdout).map((event: { sequence: number }) => event.sequence)).toEqual([1, 2])
     expect(snapshot(root)).toEqual(before)
     expect((await readdir(join(root, ".flows"))).sort()).toEqual(files)
+  })
+})
+
+/** Every observing verb, each over the one parked run. */
+const verbs = [
+  ["runs", "list"],
+  ["runs", "count"],
+  ["runs", "show", "run-1"],
+  ["runs", "devtools", "run-1"],
+  ["runs", "logs", "run-1"],
+  ["approvals", "list"]
+] as const
+
+/** The refusal an observing verb answers over a store it cannot read. */
+const refusesOlderStore = (
+  result: { code: number | null; stdout: string; stderr: string },
+  verb: ReadonlyArray<string>,
+  root: string
+) => {
+  expect(result.code, result.stdout + result.stderr).toBe(1)
+  const refusal = JSON.parse(result.stdout) as { code: string; message: string }
+  expect(refusal).toEqual({
+    code: "store_schema_older",
+    message: `${verb.slice(0, 2).join(" ")} cannot read the store at ${
+      join(root, ".flows")
+    }: an older smthrs wrote it. Run smthrs serve to migrate it.`
+  })
+}
+
+describe("observing verbs over a store they cannot read", { timeout: 240_000 }, () => {
+  // Each store predates something the verbs read: control.db lacks a column
+  // (its runs' state), then a table (the journal); engine.db lacks its runs.
+  it.each([
+    ["control", "a column", "ALTER TABLE flows_runs RENAME COLUMN state_json TO state_json_before"],
+    ["control", "a table", "ALTER TABLE flows_journal_events RENAME TO flows_journal_events_before"],
+    ["engine", "a table", "ALTER TABLE flows_runs RENAME TO flows_runs_before"]
+  ] as const)("refuse typed and change nothing when %s.db lacks %s they read", async (kind, _, statement) => {
+    const root = await fixture()
+    edit(root, kind, (db) => db.exec(statement))
+    const before = snapshot(root)
+    const readers = kind === "engine" ? verbs.filter(([, verb]) => verb === "show" || verb === "devtools") : verbs
+    const results = await Promise.all(readers.map((verb) => run(root, verb)))
+    readers.forEach((verb, index) => refusesOlderStore(results[index]!, verb, root))
+    expect(snapshot(root)).toEqual(before)
+  })
+
+  it("reads an older engine schema that still has everything the verbs read", async () => {
+    const root = await fixture()
+    // A table no observing verb reads, as an older engine.db would lack it.
+    edit(root, "engine", (db) => db.exec("CREATE TABLE unrelated_before (id INTEGER)"))
+    const tables = (db: DatabaseSync) =>
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<
+        { name: string }
+      >).map((row) => row.name)
+    edit(root, "engine", (db) => {
+      const reads = new Set(["flows_runs", "flows_migrations", "unrelated_before"])
+      for (const table of tables(db)) if (!reads.has(table)) db.exec(`DROP TABLE "${table}"`)
+    })
+    const before = snapshot(root)
+    const shown = await run(root, ["runs", "show", "run-1"])
+    expect(shown.code, shown.stdout + shown.stderr).toBe(0)
+    expect(JSON.parse(shown.stdout)).toMatchObject({ runId: "run-1", status: "parked" })
+    expect(snapshot(root)).toEqual(before)
   })
 })
 

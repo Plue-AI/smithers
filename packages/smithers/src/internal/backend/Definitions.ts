@@ -300,7 +300,8 @@ export const definitions = {
     options: z.object({
       method: z.string().default("GET"),
       field: z.array(z.string()).optional(),
-      header: z.array(z.string()).optional()
+      header: z.array(z.string()).optional(),
+      input: z.string().describe("JSON request body from a file, or - for stdin").optional()
     })
   },
   "artifact download": {

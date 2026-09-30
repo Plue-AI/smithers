@@ -98,14 +98,41 @@ export const itemLine = (item: Values, changes: ReadonlyArray<unknown> = []): st
 }
 
 /**
- * Each check receipt on the item's candidate, as the TUI shows them: `✓ affected-lint 1a2b3c4 · ✗ affected-test 1a2b3c4`.
+ * How long a check ran, as `mythicalReceiptDuration` shows it: `42s`, `1m 04s`, `2h 05m`.
  * @private
  * @since 1.0.0
  */
-export const receiptLine = (item: Values): string =>
-  list(object(item.checks).receipts).map(object).map((receipt) =>
-    `${receipt.status === "passed" ? "✓" : "✗"} ${clean(receipt.check)} ${str(receipt.commit).slice(0, 7)}`
-  ).join(" · ")
+export const checkDuration = (ms: number): string => {
+  const total = Math.floor(Math.max(0, ms) / 1000)
+  if (total < 60) return `${total}s`
+  const pad = (value: number) => String(value).padStart(2, "0")
+  if (total < 3600) return `${Math.floor(total / 60)}m${total % 60 === 0 ? "" : ` ${pad(total % 60)}s`}`
+  const minutes = Math.floor((total % 3600) / 60)
+  return `${Math.floor(total / 3600)}h${minutes === 0 ? "" : ` ${pad(minutes)}m`}`
+}
+
+/**
+ * Each check receipt on the item's candidate and how long it ran, then the
+ * run that recorded them, as the TUI shows them:
+ * `✓ affected-lint 1a2b3c4 42s · ✗ affected-test 1a2b3c4 1m 04s · run run-1`.
+ * @private
+ * @since 1.0.0
+ */
+export const receiptLine = (item: Values): string => {
+  const receipts = list(object(item.checks).receipts).map(object)
+  const runs = [...new Set(receipts.map((receipt) => str(receipt.runId)).filter(Boolean))]
+  return [
+    ...receipts.map((receipt) =>
+      [
+        receipt.status === "passed" ? "✓" : "✗",
+        clean(receipt.check),
+        str(receipt.commit).slice(0, 7),
+        typeof receipt.durationMs === "number" ? checkDuration(receipt.durationMs) : ""
+      ].filter(Boolean).join(" ")
+    ),
+    ...runs.map((run) => `run ${clean(run)}`)
+  ].join(" · ")
+}
 
 /**
  * The machine the item's lane runs on, as every surface shows it
@@ -164,10 +191,10 @@ export const render = (value: unknown, now = Date.now()): string => {
     head,
     ...groups.filter(([, rows]) => rows.length > 0).flatMap(([label, rows]) => [
       `${label} ${rows.length}`,
-      ...rows.map(({ item }) => {
-        const machine = machineLine(item)
-        return `  ${itemLine(item, changes)}${machine === "" ? "" : `\n    ${machine}`}`
-      })
+      ...rows.map(({ item }) =>
+        [`  ${itemLine(item, changes)}`, ...[receiptLine(item), machineLine(item)].filter(Boolean).map((line) => `    ${line}`)]
+          .join("\n")
+      )
     ])
   ].join("\n")
 }

@@ -451,6 +451,28 @@ describe("smithers executable", processBudget, () => {
     }
   })
 
+  /**
+   * The docs generator imports `src/Cli.ts` in-process under Node's type
+   * stripping, a second source-checkout entry beside `src/bin.ts`. A sibling
+   * import spelled `./Diagnosis.js` for a `Diagnosis.ts` file broke both.
+   * `--check` writes nothing; reaching the drift comparison proves the whole
+   * CLI graph loaded and every help page rendered, whether or not the
+   * committed pages are current.
+   */
+  it("loads the CLI the docs generator imports from the source checkout", () => {
+    const generator = fileURLToPath(new URL("../../../apps/site/scripts/gen-cli-data.mjs", import.meta.url))
+    const result = spawnSync(process.execPath, ["--no-warnings", generator, "--check"], {
+      encoding: "utf8",
+      timeout: 180_000,
+      env: { ...process.env, NODE_OPTIONS: "" }
+    })
+    expect(result.error).toBeUndefined()
+    const reasons = result.stderr.split("\n").filter((line) => line !== "")
+    expect(reasons.filter((line) => !line.startsWith("drift: "))).toEqual([])
+    expect(result.status).toBe(reasons.length === 0 ? 0 : 1)
+    if (reasons.length === 0) expect(result.stdout).toBe("up to date\n")
+  })
+
   it("exits with usage status for malformed JSON input", () => {
     const result = run(["plan", "system/test", "--data", "{"])
 

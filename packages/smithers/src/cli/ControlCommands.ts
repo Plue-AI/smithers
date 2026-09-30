@@ -5,6 +5,7 @@
 
 import { Control, type ControlSchema } from "@smthrs/control"
 import * as RunDevTools from "@smthrs/gateway/RunDevTools"
+import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as RunTrace from "@smthrs/gateway/RunTrace"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
@@ -12,7 +13,7 @@ import { Clock, Effect } from "effect"
 import { Cli, z } from "incur"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import * as CliError from "../CliError.ts"
 import { cancelAll, unexpectedRunList } from "../commands/CancelAll.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
@@ -22,6 +23,7 @@ import { defaultApprovalScope } from "../internal/ApprovalScope.ts"
 import * as BoundedEvents from "../internal/BoundedEvents.ts"
 import * as Failure from "../internal/Failure.ts"
 import * as FeaturedFlows from "../internal/FeaturedFlows.ts"
+import * as NodeControl from "../NodeControl.ts"
 import * as RunListing from "../internal/RunListing.ts"
 import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
@@ -106,15 +108,52 @@ const checks = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =
 const discovered = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
   Effect.andThen(checks(connection, runtime), FlowCatalog.discovered)
 
+/**
+ * The refusal an observing verb answers when the store is older than this
+ * binary in a way it cannot read: a table or column it reads does not exist
+ * yet. An older schema that still has everything the verb reads is read as
+ * found; observing never migrates, so the sentence names the command that does.
+ * Any other failure is returned unchanged.
+ */
+const olderStore = (
+  verb: string,
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime,
+  cause: unknown
+): unknown => {
+  if (DurableWriter.codeOf(cause) !== "schema") return cause
+  const store = dirname(NodeControl.databasePath(Bridge.configuration(connection, runtime).root ?? process.cwd()))
+  return new CliError.Refused({
+    fault: "user",
+    code: "store_schema_older",
+    message: `${verb} cannot read the store at ${store}: an older smthrs wrote it. Run smthrs serve to migrate it.`
+  })
+}
+
+/** Runs one observing verb, refusing an unreadable older store with {@link olderStore}. */
+const observing = async <A>(
+  verb: string,
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime,
+  read: () => Promise<A>
+): Promise<A> => {
+  try {
+    return await read()
+  } catch (cause) {
+    throw olderStore(verb, connection, runtime, cause)
+  }
+}
+
 /** An observing verb's answer: `empty` when there are no records to read. */
 const observe = async <A>(
+  verb: string,
   connection: Bridge.ConnectionOptions,
   runtime: Bridge.Runtime,
   empty: A,
   read: () => Promise<A>
 ): Promise<A> =>
   Bridge.hasRecords(connection, runtime)
-    ? read()
+    ? observing(verb, connection, runtime, read)
     : Bridge.project(Effect.as(checks(connection, runtime), empty), connection, runtime)
 
 const unknownRun = (runId: string) =>
@@ -300,7 +339,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       }),
       run: (c) =>
         guard(c, () =>
-          observe<unknown>(c.options, runtime, { _tag: "runs", items: [] }, async () => {
+          observe<unknown>("runs list", c.options, runtime, { _tag: "runs", items: [] }, async () => {
             await reconcileHistory(c.options, runtime)
             return Bridge.read(
               Effect.gen(function*() {
@@ -322,7 +361,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       options: runFilters,
       run: (c) =>
         guard(c, () =>
-          observe(c.options, runtime, { count: 0 }, async () => {
+          observe("runs count", c.options, runtime, { count: 0 }, async () => {
             await reconcileHistory(c.options, runtime)
             return Bridge.read(
               Effect.map(Effect.flatMap(RunListing.request(c.options), RunListing.count), (count) => ({ count })),
@@ -342,22 +381,24 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             await Bridge.project(checks(c.options, runtime), c.options, runtime)
             throw unknownRun(c.args.run)
           }
-          await reconcileHistory(c.options, runtime)
-          return Bridge.read(
-            Effect.gen(function*() {
-              const control = yield* Control.Control
-              const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
-              const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
-              if (run === undefined) throw unknownRun(c.args.run)
-              const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
-                operation: "run diagnosis",
-                subject: run.runId
-              })
-              return { ...run, diagnosis: Forensics.digest(events, run.runId) }
-            }),
-            c.options,
-            runtime
-          )
+          return observing("runs show", c.options, runtime, async () => {
+            await reconcileHistory(c.options, runtime)
+            return Bridge.read(
+              Effect.gen(function*() {
+                const control = yield* Control.Control
+                const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
+                const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
+                if (run === undefined) throw unknownRun(c.args.run)
+                const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
+                  operation: "run diagnosis",
+                  subject: run.runId
+                })
+                return { ...run, diagnosis: Forensics.digest(events, run.runId) }
+              }),
+              c.options,
+              runtime
+            )
+          })
         }, { next: Presentation.runs({ show: false }) })
     })
     .command("devtools", {
@@ -376,37 +417,39 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             await Bridge.project(checks(c.options, runtime), c.options, runtime)
             throw unknownRun(c.args.run)
           }
-          await reconcileHistory(c.options, runtime)
-          return Bridge.read(
-            Effect.gen(function*() {
-              const control = yield* Control.Control
-              const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
-              const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
-              if (run === undefined) throw unknownRun(c.args.run)
-              const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
-                operation: "run devtools",
-                subject: run.runId
-              })
-              // The same fold the app's run card and the terminal read: one projection, three doors.
-              const model = RunTrace.traceFromJournal(
-                { runId: run.runId, flowId: run.flowId, status: run.status },
-                events
-              )
-              const node = c.args.node
-              if (node !== undefined && !model.rows.some((row) => row.id === node)) {
-                throw new CliError.Refused({
-                  fault: "user",
-                  code: "node_not_found",
-                  message: `Run ${run.runId} has no trace node ${node}`
+          return observing("runs devtools", c.options, runtime, async () => {
+            await reconcileHistory(c.options, runtime)
+            return Bridge.read(
+              Effect.gen(function*() {
+                const control = yield* Control.Control
+                const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
+                const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
+                if (run === undefined) throw unknownRun(c.args.run)
+                const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
+                  operation: "run devtools",
+                  subject: run.runId
                 })
-              }
-              const bound = { frames: c.options.frames }
-              human = RunDevTools.lines(model, node, { ...bound, width: runtime.stdout?.columns }).join("\n")
-              return { ...RunDevTools.devTools(model), inspection: RunDevTools.inspect(model, node, bound) }
-            }),
-            c.options,
-            runtime
-          )
+                // The same fold the app's run card and the terminal read: one projection, three doors.
+                const model = RunTrace.traceFromJournal(
+                  { runId: run.runId, flowId: run.flowId, status: run.status },
+                  events
+                )
+                const node = c.args.node
+                if (node !== undefined && !model.rows.some((row) => row.id === node)) {
+                  throw new CliError.Refused({
+                    fault: "user",
+                    code: "node_not_found",
+                    message: `Run ${run.runId} has no trace node ${node}`
+                  })
+                }
+                const bound = { frames: c.options.frames }
+                human = RunDevTools.lines(model, node, { ...bound, width: runtime.stdout?.columns }).join("\n")
+                return { ...RunDevTools.devTools(model), inspection: RunDevTools.inspect(model, node, bound) }
+              }),
+              c.options,
+              runtime
+            )
+          })
         }, { next: Presentation.runs({ show: false }), render: () => ({ human }) })
       }
     })
@@ -455,10 +498,11 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
               }
             })
           }
-        } catch (cause) {
+        } catch (failure) {
           renderer?.close("failed")
+          const cause = olderStore("runs logs", c.options, runtime, failure)
           return c.error({
-            code: "logs_failed",
+            code: cause instanceof CliError.Refused ? cause.code : "logs_failed",
             message: String(Redaction.redactDiagnostic(Failure.operatorSentence(cause)))
           })
         } finally {
@@ -631,7 +675,14 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(
           c,
-          () => observe(c.options, runtime, [], () => Bridge.read(pendingApprovals(c.options.run), c.options, runtime)),
+          () =>
+            observe(
+              "approvals list",
+              c.options,
+              runtime,
+              [],
+              () => Bridge.read(pendingApprovals(c.options.run), c.options, runtime)
+            ),
           { next: afterDecision }
         )
     })
