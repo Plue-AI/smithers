@@ -42,7 +42,7 @@ test("Get started for free swaps to the app before the boot answers", async ({ p
 for (const failure of ["chunk", "page"] as const) {
   test(`Get started for free reports an aborted app ${failure} and Reload reloads the document`, async ({ page }) => {
     let aborted = 0
-    const route = failure === "chunk" ? /\/_astro\/AppIsland\.[^/]+\.js$/ : /\/smithersai\/smithers\/\?tutorial$/
+    const route = failure === "chunk" ? /\/_astro\/AppIsland\.[^/]+\.js$/ : /\/smithersai\/smithers\/$/
     await page.route(route, request => { aborted++; return request.abort() })
     await page.goto("/")
     const start = page.getByRole("link", { name: "Get started for free", exact: true })
@@ -81,7 +81,7 @@ test("a returning entry reveals the landing error if its preloaded island fails"
 test.describe("touch landing", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 844, height: 390 } })
   test("Get started for free hides the physical key chip on a coarse pointer", async ({ page }) => {
-    await page.route(/\/smithersai\/smithers\/\?tutorial$/, request => request.abort())
+    await page.route(/\/smithersai\/smithers\/$/, request => request.abort())
     await page.goto("/")
     await expect(page.locator("#start")).toBeVisible()
     expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true)

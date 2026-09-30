@@ -231,16 +231,22 @@ test("the source public/_headers the build copies into dist already passes, so t
 })
 
 test("the landing page's Get started for free opens the tutorial, through Astro's scoped class names", (t) => {
-  const actions = (href, attrs = "") =>
+  const actions = (href, attrs = ' data-app-document="/smithersai/smithers/"') =>
     `<div class="actions astro-lcdefpme"><script>document.documentElement.classList.add("js")</script>` +
     `<a id="start" class="start astro-lcdefpme" href="${href}" aria-keyshortcuts="s"${attrs}><span>Get started for free</span></a></div>`
   const app = "/smithersai/smithers/"
-  assert.deepEqual(checkLandingActions(fixture(t, { "index.html": actions(`${app}?tutorial`) }), app), [])
+  assert.deepEqual(checkLandingActions(fixture(t, { "index.html": actions("/?tutorial") }), app), [])
   assert.deepEqual(checkLandingActions(fixture(t, { "index.html": actions(app) }), app), [
-    "index.html: Get started for free must open the tutorial at /smithersai/smithers/?tutorial, got /smithersai/smithers/"
+    "index.html: Get started for free must open the tutorial at /?tutorial, got /smithersai/smithers/"
   ])
   const intoDocs = checkLandingActions(fixture(t, { "index.html": actions("/docs/quickstart/") }), app)
-  assert.deepEqual(intoDocs, ["index.html: Get started for free must open the tutorial at /smithersai/smithers/?tutorial, got /docs/quickstart/"])
+  assert.deepEqual(intoDocs, ["index.html: Get started for free must open the tutorial at /?tutorial, got /docs/quickstart/"])
+  assert.deepEqual(checkLandingActions(fixture(t, { "index.html": actions("/?tutorial", "") }), app), [
+    "index.html: Get started for free must load the app document at /smithersai/smithers/, got no document"
+  ])
+  assert.deepEqual(checkLandingActions(fixture(t, { "index.html": actions("/?tutorial", ' data-app-document="/missing/repo/"') }), app), [
+    "index.html: Get started for free must load the app document at /smithersai/smithers/, got /missing/repo/"
+  ])
   const noStart = checkLandingActions(
     fixture(t, { "index.html": `<div class="actions"><a class="btn ghost" href="/docs/">Docs</a></div>` }),
     app

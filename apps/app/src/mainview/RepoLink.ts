@@ -52,26 +52,32 @@ export interface CatalogRepository {
   readonly summary?: string
 }
 
-/** The catalog entry the request names (GitHub names are case-insensitive); the catalog's spelling wins. */
-export const catalogRepository = (catalog: unknown, requested: string): CatalogRepository | null => {
-  if (typeof catalog !== "object" || catalog === null) return null
+/** Valid repository identities from the live catalog, in its published order. */
+export const catalogRepositories = (catalog: unknown): Array<CatalogRepository> => {
+  if (typeof catalog !== "object" || catalog === null) return []
   const repos: unknown = (catalog as { readonly repos?: unknown }).repos
-  if (!Array.isArray(repos)) return null
-  const wanted = requested.toLowerCase()
+  if (!Array.isArray(repos)) return []
+  const repositories: Array<CatalogRepository> = []
+  const seen = new Set<string>()
   for (const entry of repos) {
     const name: unknown = typeof entry === "object" && entry !== null ? (entry as { readonly name?: unknown }).name : undefined
-    if (typeof name !== "string" || !REPO_NAME.test(name) || name.toLowerCase() !== wanted) continue
+    if (typeof name !== "string" || !REPO_NAME.test(name) || name.split("/").some(part => part === "." || part === "..") || seen.has(name.toLowerCase())) continue
+    seen.add(name.toLowerCase())
     const slash = name.indexOf("/")
     const summary: unknown = (entry as { readonly summary?: unknown }).summary
-    return {
+    repositories.push({
       id: name,
       org: name.slice(0, slash),
       name: name.slice(slash + 1),
       ...(typeof summary === "string" && summary.trim() !== "" ? { summary: summary.trim() } : {})
-    }
+    })
   }
-  return null
+  return repositories
 }
+
+/** The catalog entry the request names; the catalog's spelling wins. */
+export const catalogRepository = (catalog: unknown, requested: string): CatalogRepository | null =>
+  catalogRepositories(catalog).find(repository => repository.id.toLowerCase() === requested.toLowerCase()) ?? null
 
 /*
  * The server drops a longer return path (apps/server validReturnTo), so the
@@ -166,10 +172,11 @@ export const openRequestedRepo = async (
 ): Promise<string | void> => {
   const entry = () => options.scope === "command" ? controller.store.session().repositoryCommandEntry : controller.store.session().repositoryEntry
   const current = () => entry()?.requestId === requestId && (options.isCurrent?.() ?? true)
-  const finish = (error?: string, failureKind: "unavailable" | "not-public" = "unavailable"): string | void => {
+  const finish = (error?: string, failureKind: "unavailable" | "not-public" = "unavailable", publicRepositories?: ReadonlyArray<string>): string | void => {
     if (!current()) return
     const result = {
-      requestId, repo: requested, phase: error === undefined ? "ready" : "failed", ...(error === undefined ? {} : { error, failureKind })
+      requestId, repo: requested, phase: error === undefined ? "ready" : "failed", ...(error === undefined ? {} : { error, failureKind }),
+      ...(publicRepositories === undefined ? {} : { publicRepositories: [...publicRepositories] })
     } as const
     if (options.scope === "command") {
       const owned = controller.store.session().repositoryCommandEntry
@@ -203,7 +210,8 @@ export const openRequestedRepo = async (
       }
     }
     // App's route welcome names this path and owns its sign-in door.
-    return finish(`${requested} is not in the public repository catalog.`, "not-public")
+    return finish(`${requested} is not in the public repository catalog.`, "not-public",
+      catalogRepositories(catalog).map(repo => repo.id).filter(id => id.toLowerCase() !== requested.toLowerCase()))
   }
   const { repositories } = controller.store.collections
   const existing = repositories.get(repository.id)

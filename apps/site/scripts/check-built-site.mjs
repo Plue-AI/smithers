@@ -113,10 +113,12 @@ export function checkLandingActions(root, appPath) {
   const classes = (tag) => tag.match(/class="([^"]*)"/)?.[1]?.split(/\s+/) ?? []
   const start = anchors.find((tag) => /\bid="start"/.test(tag) || classes(tag).includes("start"))
   if (start === undefined) return ["index.html: the landing page has no Get started for free action"]
-  const tutorialPath = `${appPath}?tutorial`
+  const tutorialPath = "/?tutorial"
   if (href(start) !== tutorialPath) {
     return [`index.html: Get started for free must open the tutorial at ${tutorialPath}, got ${href(start) ?? "no href"}`]
   }
+  const document = start.match(/data-app-document="([^"]*)"/)?.[1]
+  if (document !== appPath) return [`index.html: Get started for free must load the app document at ${appPath}, got ${document ?? "no document"}`]
   return []
 }
 

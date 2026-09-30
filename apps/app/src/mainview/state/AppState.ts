@@ -713,6 +713,8 @@ export const RepositoryEntrySchema = z.object({
   repo: z.string(),
   phase: z.enum(["pending", "ready", "failed"]),
   failureKind: z.enum(["unavailable", "not-public"]).optional(),
+  /** Alternatives from this entry's live catalog receipt, never a build-time roster. */
+  publicRepositories: z.array(z.string()).optional(),
   error: z.string().optional()
 })
 export type RepositoryEntry = z.infer<typeof RepositoryEntrySchema>
