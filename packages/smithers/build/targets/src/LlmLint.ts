@@ -564,7 +564,7 @@ class CredentialMask {
     ]
     const found: Array<{ value: string; name: string; offset: number }> = []
     const named =
-      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|([^\s,;#}]+))/g
+      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{\[("'`])[^\s,;#}]+))/g
     for (const match of contents.matchAll(named)) {
       const name = (match[1] ?? match[2])!
       if (

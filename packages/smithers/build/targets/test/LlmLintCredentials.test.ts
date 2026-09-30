@@ -181,6 +181,7 @@ it("pre-scans every batch before sending a shared credential in an earlier file"
 
 it.each([
   ["quoted JSON API key", "export const headers = {\"api_key\": \"tiny42\"}\n", "tiny42"],
+  ["object literal token", "export const config = {token: \"objtok42\"}\n", "objtok42"],
   ["uppercase password", "export const DB_PASSWORD = \"UPPERCASE42\"\n", "UPPERCASE42"],
   ["short password", "export const DB_PASSWORD = \"p4ss\"\n", "p4ss"],
   ["dotenv key", "API_KEY=short-secret\n", "short-secret"]
@@ -366,7 +367,7 @@ it("blocks security completion on locally detected credentials even when every r
     executable,
     `#!/usr/bin/env node\nlet p='';for await(const c of process.stdin)p+=c;const answer=${
       JSON.stringify(answer)
-    };process.stdout.write(process.argv.includes('exec')?JSON.stringify({type:'item.completed',item:{type:'agent_message',text:answer}})+'\\n'+JSON.stringify({type:'turn.completed'})+'\\n':JSON.stringify({result:answer}))`
+    };process.stdout.write(process.argv.includes('exec')?JSON.stringify({type:'item.completed',item:{type:'agent_message',text:answer}})+'\\n'+JSON.stringify({type:'turn.completed'})+'\\n':JSON.stringify({type:'result',subtype:'success',is_error:false,result:answer}))`
   )
   await Fs.chmod(executable, 0o755)
   const failure = await Effect.runPromise(
