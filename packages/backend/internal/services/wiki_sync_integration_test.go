@@ -101,6 +101,13 @@ func TestWikiSyncObsidianRoundTrip(t *testing.T) {
 	index, err := svc.GetWikiIndex(ctx, &actor, actor.Username, repo)
 	require.NoError(t, err)
 	require.Len(t, index.Pages, 2)
+	// An imported attachment takes the slug the API requires for its path and bytes.
+	wantAsset := WikiAttachmentSlug("assets/a.bin", wikiDigest(binary))
+	var importedSlugs []string
+	for _, indexed := range index.Pages {
+		importedSlugs = append(importedSlugs, indexed.Slug)
+	}
+	require.Contains(t, importedSlugs, wantAsset)
 	// A concurrent edit refuses both overwrites and leaves the cursor replayable.
 	require.NoError(t, os.WriteFile(filepath.Join(folder, path), []byte("local conflict"), 0600))
 	newer := "remote conflict"
@@ -182,7 +189,7 @@ func TestWikiSyncReplayAndScopes(t *testing.T) {
 	require.Error(t, svc.SyncWiki(private, &other, actor.Username, repo, "replay", local))
 	// Outbound binary content uses the same page/revision stream.
 	binary := []byte{0, 255, 128, 10}
-	asset, err := svc.PutWikiAttachment(ctx, &actor, actor.Username, repo, "asset", PutWikiAttachmentInput{Path: "asset.bin", MediaType: "application/octet-stream", Data: binary})
+	asset, err := svc.PutWikiAttachment(ctx, &actor, actor.Username, repo, WikiAttachmentSlug("asset.bin", wikiDigest(binary)), PutWikiAttachmentInput{Path: "asset.bin", MediaType: "application/octet-stream", Data: binary})
 	require.NoError(t, err)
 	require.NoError(t, svc.SyncWiki(ctx, &actor, actor.Username, repo, "replay", local))
 	data, err = os.ReadFile(filepath.Join(folder, "asset.bin"))

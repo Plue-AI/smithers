@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"path"
 	"strings"
@@ -58,6 +59,19 @@ func normalizeWikiAttachmentPath(value string) (string, error) {
 	}
 	return value, nil
 }
+// WikiAttachmentSlug is the one slug a new attachment may take: its path's
+// slug (lowercase ASCII letters and digits; every other run is one "-"), then
+// "-" and the first 12 hex digits of its bytes' SHA-256. A client derives it
+// before writing; a new file at a renamed attachment's old path gets its own.
+// Later writes address the attachment's existing slug, which a rename keeps.
+func WikiAttachmentSlug(filename, digest string) string {
+	base := slugifyWikiTitle(filename)
+	if base == "" {
+		base = "attachment"
+	}
+	return base + "-" + digest[:12]
+}
+
 func (s *WikiService) PutWikiAttachment(ctx context.Context, actor *db.User, owner, repo, slug string, input PutWikiAttachmentInput) (WikiPageResponse, error) {
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
@@ -89,6 +103,9 @@ func (s *WikiService) PutWikiAttachment(ctx context.Context, actor *db.User, own
 	missing := errors.Is(err, pgx.ErrNoRows)
 	if err != nil && !missing {
 		return WikiPageResponse{}, pkgerrors.Internal("failed to read attachment").WithCause(err)
+	}
+	if derived := WikiAttachmentSlug(filename, wikiDigest(input.Data)); missing && slug != derived {
+		return WikiPageResponse{}, pkgerrors.BadRequest(fmt.Sprintf("a new attachment's slug must be %q", derived))
 	}
 	if (missing && input.ExpectedRevision != 0) || (!missing && (input.ExpectedRevision != current.Revision || len(current.Attachment) == 0)) {
 		return WikiPageResponse{}, pkgerrors.Conflict("attachment changed; expected_revision must match")

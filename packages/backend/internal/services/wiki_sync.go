@@ -308,7 +308,11 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 	if wikiDigest(data) != d.Digest {
 		return WikiEvent{}, api.Conflict("provider content changed")
 	}
+	// Both slugs are stable across an interrupted create, so replay finds it.
 	slug := "sync-" + wikiDigest([]byte(adapter.Provider() + ":" + adapter.Scope() + ":" + d.ID))[:32]
+	if !isWikiMarkdownPath(d.Path) {
+		slug = WikiAttachmentSlug(d.Path, d.Digest)
+	}
 	revision := int64(0)
 	if previous != nil {
 		slug = previous.Slug

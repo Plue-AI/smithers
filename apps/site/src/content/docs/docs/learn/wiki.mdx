@@ -138,12 +138,12 @@ The argument is the page id from `wiki index`. Attaching a file is available in 
 ```sh
 curl "$SMITHERS_API/api/repos/acme/app/wiki/history/7?visibility=private" \
   -H "Authorization: Bearer $SMITHERS_TOKEN"
-curl -X PUT "$SMITHERS_API/api/repos/acme/app/wiki/attachments/logo?path=assets/logo.png&expected_revision=0&visibility=private" \
+curl -X PUT "$SMITHERS_API/api/repos/acme/app/wiki/attachments/assets-logo-png-$(shasum -a 256 logo.png | cut -c1-12)?path=assets/logo.png&expected_revision=0&visibility=private" \
   -H "Authorization: Bearer $SMITHERS_TOKEN" \
   -H "Content-Type: image/png" --data-binary @logo.png
 ```
 
-`GET /wiki/history/{pageID}/{revision}/content` returns a revision's exact content, even after a delete. Attachments are up to 16 MiB.
+`GET /wiki/history/{pageID}/{revision}/content` returns a revision's exact content, even after a delete. Attachments are up to 16 MiB. A new attachment's slug is its path's slug, `-`, and the first 12 hex digits of the file's SHA-256.
 
 </TabItem>
 </Tabs>

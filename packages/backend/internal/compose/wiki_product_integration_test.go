@@ -159,7 +159,16 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 		require.Contains(t, rec.Body.String(), `"body":"page"`)
 	}
 	payload := "<svg onload='alert(1)'></svg>"
-	rec = request("PUT", "/attachments/image?visibility=private&path=assets/image.svg&expected_revision=0", ownerToken, payload, "image/svg+xml")
+	// A new attachment's slug is its path's slug and content digest; any other is refused.
+	imageDigest := sha256Hex(payload)
+	imageSlug := "assets-image-svg-" + imageDigest[:12]
+	require.Equal(t, imageSlug, services.WikiAttachmentSlug("assets/image.svg", imageDigest))
+	for _, slug := range []string{"image", "assets-image-svg", "assets-image-svg-000000000000"} {
+		rec = request("PUT", "/attachments/"+slug+"?visibility=private&path=assets/image.svg&expected_revision=0", ownerToken, payload, "image/svg+xml")
+		require.Equal(t, 400, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), imageSlug)
+	}
+	rec = request("PUT", "/attachments/"+strings.ToUpper(imageSlug)+"?visibility=private&path=assets/image.svg&expected_revision=0", ownerToken, payload, "image/svg+xml")
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	var file services.WikiPageResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &file))
@@ -177,9 +186,9 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 			require.Contains(t, rec.Header().Get("Content-Security-Policy"), "sandbox")
 		}
 	}
-	rec = request("PUT", "/attachments/image?visibility=private&path=assets/image.svg&expected_revision=0", ownerToken, payload, "image/svg+xml")
+	rec = request("PUT", "/attachments/"+imageSlug+"?visibility=private&path=assets/image.svg&expected_revision=0", ownerToken, payload, "image/svg+xml")
 	require.Equal(t, 409, rec.Code)
-	rec = request("DELETE", "/image?visibility=private", ownerToken, "", "")
+	rec = request("DELETE", "/"+file.Slug+"?visibility=private", ownerToken, "", "")
 	require.Equal(t, 204, rec.Code, rec.Body.String())
 	rec = request("GET", fmt.Sprintf("/history/%d?visibility=private", file.ID), ownerToken, "", "")
 	require.Equal(t, 200, rec.Code, rec.Body.String())
@@ -193,9 +202,10 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 	require.Len(t, events, 5, "create, two edits, attach, delete")
 	// Binary uploads exceed the JSON group's 1 MiB cap, but retain write auth.
 	large := strings.Repeat("x", (1<<20)+1)
-	rec = request("PUT", "/attachments/large?path=large.bin&expected_revision=0", outsiderToken, large, "application/octet-stream")
+	largePath := "/attachments/large-bin-" + sha256Hex(large)[:12] + "?path=large.bin&expected_revision=0"
+	rec = request("PUT", largePath, outsiderToken, large, "application/octet-stream")
 	require.Equal(t, 403, rec.Code, rec.Body.String())
-	rec = request("PUT", "/attachments/large?path=large.bin&expected_revision=0", ownerToken, large, "application/octet-stream")
+	rec = request("PUT", largePath, ownerToken, large, "application/octet-stream")
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	// Making the repository private also hides its public wiki.
 	_, err = pool.Exec(ctx, `UPDATE repositories SET is_public=false WHERE id=$1`, repo.ID)
@@ -206,4 +216,9 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 	rec = request("GET", "/navigation/index?visibility=private", outsiderToken, "", "")
 	require.NotEqual(t, 200, rec.Code)
 	require.NotContains(t, rec.Body.String(), "wiki_space_unreadable")
+}
+
+func sha256Hex(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
 }
