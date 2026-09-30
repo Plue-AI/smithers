@@ -17,7 +17,9 @@ it("rejects invalid file-flow payloads before creating plans or runs and accepts
   try {
     await mkdir(join(root, "flows", "echo"), { recursive: true })
     await symlink(modules, join(root, "node_modules"), "dir")
-    await writeFile(join(root, "flows", "echo", "flow.ts"), `
+    await writeFile(
+      join(root, "flows", "echo", "flow.ts"),
+      `
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
@@ -33,23 +35,29 @@ export default Flow.make("echo", {
   payload: { value: Schema.String }, success: Schema.String,
   body: Node.capture({ action: Echo.name, implementationVersion: "echo/v1" }, ({ value }) => Echo.call({ value }))
 })
-`)
+`
+    )
     const command = async (args: ReadonlyArray<string>) => {
       const result = await execute(process.execPath, ["--no-warnings", bin, ...args, "--root", root, "--json"], {
         cwd: root,
         env: { PATH: process.env["PATH"], HOME: join(root, "home"), XDG_CONFIG_HOME: join(root, "config") },
         timeout: 60_000
-      }).then((result) => ({ ...result, code: 0 }), (error) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code }))
+      }).then(
+        (result) => ({ ...result, code: 0 }),
+        (error) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code })
+      )
       return { ...result, json: JSON.parse(result.stdout) }
     }
     for (const input of [{}, { value: 42 }, { value: null }, { value: false }, { value: ["hello"] }]) {
       for (const verb of ["plan", "start"]) {
         const result = await command(["flow", verb, "echo", "--data", JSON.stringify(input)])
         expect(result.code, result.stdout).not.toBe(0)
-        expect(result.json, `${verb} ${JSON.stringify(input)}: ${result.stdout} ${result.stderr}`).toMatchObject({ code: "InvalidInput" })
+        expect(result.json, `${verb} ${JSON.stringify(input)}: ${result.stdout} ${result.stderr}`).toMatchObject({
+          code: "InvalidInput"
+        })
         expect(result.json.message).toContain("value")
-        expect(result.stdout).not.toContain('"planId"')
-        expect(result.stdout).not.toContain('"runId"')
+        expect(result.stdout).not.toContain("\"planId\"")
+        expect(result.stdout).not.toContain("\"runId\"")
       }
     }
     const listed = await command(["runs", "list"])
@@ -60,12 +68,12 @@ export default Flow.make("echo", {
     } finally {
       db.close()
     }
-    const planned = await command(["flow", "plan", "echo", "--data", '{"value":""}'])
+    const planned = await command(["flow", "plan", "echo", "--data", "{\"value\":\"\"}"])
     expect(planned.code, planned.stdout).toBe(0)
-    expect(planned.json).toMatchObject({ flowId: "echo", inputSummary: '{"value":""}' })
+    expect(planned.json).toMatchObject({ flowId: "echo", inputSummary: "{\"value\":\"\"}" })
     expect(planned.json.nodes.length).toBeGreaterThan(0)
     await expect(access(join(root, "executed.txt"))).rejects.toThrow()
-    const started = await command(["flow", "start", "echo", "--data", '{"value":"valid"}', "--wait"])
+    const started = await command(["flow", "start", "echo", "--data", "{\"value\":\"valid\"}", "--wait"])
     expect(started.code, started.stdout).toBe(0)
     expect(started.json).toMatchObject({ _tag: "Accepted", runId: expect.any(String) })
     const shown = await command(["runs", "show", started.json.runId])

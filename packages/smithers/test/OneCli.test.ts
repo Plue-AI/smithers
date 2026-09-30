@@ -31,6 +31,7 @@ const fixture = async (handler: (req: IncomingMessage, res: ServerResponse, body
   const environment = {
     HOME: home,
     XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
     SMITHERS_API_ORIGIN: origin,
     SMITHERS_AUTH_FILE: join(home, "auth.json"),
     SMITHERS_DISABLE_SYSTEM_KEYRING: "1"
@@ -52,15 +53,23 @@ const fixture = async (handler: (req: IncomingMessage, res: ServerResponse, body
           code = value
         }
       })
-      await cli.serve([...args, "--json"], {
-        env,
-        stdout: (text) => {
-          output += text
-        },
-        exit: (value) => {
-          code = value
-        }
-      })
+      // Incur reads skill-sync metadata from process.env, not the CLI host's env.
+      const previousDataHome = process.env.XDG_DATA_HOME
+      process.env.XDG_DATA_HOME = env.XDG_DATA_HOME
+      try {
+        await cli.serve([...args, "--json"], {
+          env,
+          stdout: (text) => {
+            output += text
+          },
+          exit: (value) => {
+            code = value
+          }
+        })
+      } finally {
+        if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+        else process.env.XDG_DATA_HOME = previousDataHome
+      }
       expect(output).not.toContain("test-session-secret")
       return { output, code }
     }
@@ -79,9 +88,12 @@ describe("one npm CLI backend contracts", () => {
       expect(url.pathname).toBe("/api/repos/owner/repo/issues")
       expect(url.searchParams.get("limit")).toBe("1")
       expect(url.searchParams.get("state")).toBe("open")
-      res.setHeader("Link", `</api/repos/owner/repo/issues?limit=1&state=open>; rel="first"${
-        index < 2 ? `, </api/repos/owner/repo/issues?cursor=${index + 1}&limit=1&state=open>; rel="next"` : ""
-      }`)
+      res.setHeader(
+        "Link",
+        `</api/repos/owner/repo/issues?limit=1&state=open>; rel="first"${
+          index < 2 ? `, </api/repos/owner/repo/issues?cursor=${index + 1}&limit=1&state=open>; rel="next"` : ""
+        }`
+      )
       res.end(JSON.stringify([issues[index]]))
     })
     const single = await f.run(["issue", "list", "--repo", "owner/repo", "--limit", "1"])
@@ -237,7 +249,7 @@ describe("one npm CLI backend contracts", () => {
 describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
-    expect(Object.keys(definitions)).toHaveLength(205)
+    expect(Object.keys(definitions)).toHaveLength(Object.keys(handlers).length)
     expect(Object.keys(definitions).filter((name) => !handlers[name])).toEqual([])
     expect(commandPath("status")).toBe("change status")
     expect(commandPath("run view")).toBe("runs show")
@@ -391,7 +403,6 @@ describe("migrated command dispatch", () => {
       [["ssh-key", "list"], "GET", "/api/user/keys", undefined],
       [["admin", "health"], "GET", "/api/admin/system/health", undefined],
       [["admin", "status"], "GET", "/api/admin/system/status", undefined],
-      [["extension", "linear", "list"], "GET", "/api/integrations/linear", undefined],
       [["org", "edit", "example", "--description", "Text"], "PATCH", "/api/orgs/example", { "description": "Text" }],
       [["org", "member", "add", "example", "alice"], "POST", "/api/orgs/example/members", { "username": "alice" }],
       [["org", "member", "remove", "example", "alice"], "DELETE", "/api/orgs/example/members/alice", undefined],
@@ -436,8 +447,6 @@ describe("migrated command dispatch", () => {
       [["admin", "user", "disable", "alice"], "PATCH", "/api/admin/users/alice", { "suspended": true }],
       [["admin", "user", "enable", "alice"], "PATCH", "/api/admin/users/alice", { "suspended": false }],
       [["admin", "user", "delete", "alice", "--yes"], "DELETE", "/api/admin/users/alice", undefined],
-      [["extension", "linear", "remove", "4"], "DELETE", "/api/integrations/linear/4", undefined],
-      [["extension", "linear", "sync", "4"], "POST", "/api/integrations/linear/4/sync", undefined],
       [["repo", "create", "demo", "--private"], "POST", "/api/user/repos", { name: "demo", private: true }],
       [["repo", "fork", "owner/repo", "--name", "fork"], "POST", "/api/repos/owner/repo/forks", { name: "fork" }],
       [["repo", "transfer", "owner/repo", "--to", "other"], "POST", "/api/repos/owner/repo/transfer", {

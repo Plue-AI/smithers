@@ -194,7 +194,10 @@ export const render = (value: unknown, now = Date.now()): string => {
     ...groups.filter(([, rows]) => rows.length > 0).flatMap(([label, rows]) => [
       `${label} ${rows.length}`,
       ...rows.map(({ item }) =>
-        [`  ${itemLine(item, changes)}`, ...[receiptLine(item), machineLine(item)].filter(Boolean).map((line) => `    ${line}`)]
+        [
+          `  ${itemLine(item, changes)}`,
+          ...[receiptLine(item), machineLine(item)].filter(Boolean).map((line) => `    ${line}`)
+        ]
           .join("\n")
       )
     ])

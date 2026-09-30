@@ -109,14 +109,30 @@ describe("history rendering", () => {
         state: "passed",
         failed: [],
         receipts: [
-          { check: "affected-lint", tier: "fast", status: "passed", commit: "abcdef0123", runId: "run-1", durationMs: 850 },
-          { check: "affected-test", tier: "slow", status: "passed", commit: "abcdef0123", runId: "run-1", durationMs: 64_000 },
+          {
+            check: "affected-lint",
+            tier: "fast",
+            status: "passed",
+            commit: "abcdef0123",
+            runId: "run-1",
+            durationMs: 850
+          },
+          {
+            check: "affected-test",
+            tier: "slow",
+            status: "passed",
+            commit: "abcdef0123",
+            runId: "run-1",
+            durationMs: 64_000
+          },
           { check: "affected-docs", tier: "fast", status: "passed", commit: "abcdef0123", runId: "run-2\u001b[2J" }
         ]
       }
     })
     expect(receiptLine(timed))
-      .toBe("✓ affected-lint abcdef0 0s · ✓ affected-test abcdef0 1m 04s · ✓ affected-docs abcdef0 · run run-1 · run run-2")
+      .toBe(
+        "✓ affected-lint abcdef0 0s · ✓ affected-test abcdef0 1m 04s · ✓ affected-docs abcdef0 · run run-1 · run run-2"
+      )
     expect(render(stack([timed]), now)).toBe([
       "active · 1/2 lanes",
       "◆ Needs you 1",
