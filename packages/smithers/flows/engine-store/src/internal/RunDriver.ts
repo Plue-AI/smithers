@@ -1242,6 +1242,7 @@ export const make = (
           cancellation: { interruptedAtMs }
         })
         let cascaded: ReadonlyArray<string> = []
+        let settled = false
         yield* transactState(
           Effect.gen(function*() {
             yield* store.acknowledgeCancel(runId, dependencies.owner, interruptedAtMs).pipe(Effect.orDie)
@@ -1252,6 +1253,7 @@ export const make = (
               stateJson
             ).pipe(Effect.orDie)
             if (transitioned._tag !== "Transitioned") return
+            settled = true
             // Cancellation cascades to linked children (`Flow.interrupt` is
             // documented to preserve "child-flow handling"). It is recorded
             // durably, in this transaction, off the durable edge table, so the
@@ -1310,6 +1312,11 @@ export const make = (
           const activeCoordinator = yield* Deferred.await(coordinatorDeferred)
           yield* Effect.forEach(cascaded, (childId) => activeCoordinator.wake(childId), { discard: true })
         }
+        // A cancelled round is a terminal settlement like a completed or
+        // failed one, so every parent already parked on it — through any round
+        // of its lineage — is woken to read the cancellation (#2758). Only
+        // after the transition this call committed: a lost fence woke nobody.
+        if (settled) yield* announceSettled(runId, state)
       })
 
     /**

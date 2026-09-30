@@ -566,12 +566,12 @@ describe("a shared attached child", () => {
       }
       yield* drained
       assert.strictEqual((yield* store.get(successor.executionId)).status, "cancelled")
-      // Automatic cancellation wakes are tracked by smithers#2758. Until
-      // then, a manual parent resume must still observe the terminal row.
-      assert.strictEqual((yield* store.get("parked-parent")).status, "suspended")
-      assert.deepStrictEqual(observations, [{ tag: "Suspended", interrupted: false }])
-
-      yield* driver.resume(Parent, "parked-parent")
+      // The committed cancellation wakes the parked parent itself (#2758), and
+      // the woken round reads the successor's terminal row (#2752).
+      for (let turn = 0; turn < 5000; turn++) {
+        if ((yield* store.get("parked-parent")).status === "completed") break
+        yield* Effect.sleep("5 millis")
+      }
       yield* drained
       assert.strictEqual((yield* store.get("parked-parent")).status, "completed")
       assert.deepStrictEqual(observations, [
