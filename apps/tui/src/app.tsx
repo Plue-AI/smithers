@@ -933,7 +933,8 @@ export function App(props: AppProps) {
     whichKey,
     steered,
     driven,
-    continued
+    continued,
+    width
   })
   live.current = {
     turn,
@@ -948,7 +949,8 @@ export function App(props: AppProps) {
     whichKey,
     steered,
     driven,
-    continued
+    continued,
+    width
   }
 
   /** Sets the follow-up queue for the screen and for keys handled before the next render. */
@@ -1563,15 +1565,26 @@ export function App(props: AppProps) {
       case "hotkeys":
         setTranscript((current) => Transcript.note(current, Keys.sheet(), Date.now()))
         return true
-      case "devtools":
-        setTranscript((current) =>
-          Transcript.note(
-            current,
-            DevTools.note(argument, { activity: current.activity, run: runs.get, journal: runs.journal, width }),
-            Date.now()
+      case "devtools": {
+        const emit = () =>
+          setTranscript((current) =>
+            Transcript.note(
+              current,
+              DevTools.note(argument, {
+                activity: current.activity,
+                run: runs.get,
+                journal: runs.journal,
+                width: live.current.width
+              }),
+              Date.now()
+            )
           )
-        )
+        // A restored tab reads its history first; the note follows the read, whatever it found.
+        const tab = DevTools.tabOf(argument)
+        if (tab === undefined || runs.get(tab) === undefined) emit()
+        else void runs.hydrate(tab).then(emit)
         return true
+      }
       case "quit":
       case "exit":
         quit()

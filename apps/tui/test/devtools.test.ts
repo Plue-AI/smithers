@@ -48,15 +48,28 @@ describe("/devtools", () => {
     const lines = text.split("\n")
     expect(lines[0]).toBe("run run-9 · review · completed · 2 spans · t = 600ms")
     expect(lines.slice(1, 4)).toEqual([
-      "> ● run run-9 · review                                          600ms",
-      "    ● frame 1 · openai:gpt-5.6-sol                              600ms",
-      "      ● files.read                                              500ms"
+      "> ● run run-9 · review                                          600ms   run:run-9",
+      "    ● frame 1 · openai:gpt-5.6-sol                              600ms   frame-1",
+      "      ● files.read                                              500ms   call-1"
     ])
     expect(text).toContain("Frames 3")
-    expect(DevTools.model(run("running"), events).root.status).toBe("running")
-    expect(DevTools.model(run("failed"), events).root.status).toBe("failed")
-    expect(DevTools.model(run("cancelled"), events).root.status).toBe("cancelled")
+    // The run's own lifecycle word, in the run card's vocabulary where it has one.
+    for (
+      const [status, word] of [
+        ["running", "running"],
+        ["failed", "failed"],
+        ["cancelled", "cancelled"],
+        ["waiting", "waiting-approval"],
+        ["parked", "parked"],
+        ["queued", "queued"]
+      ] as const
+    ) {
+      expect(DevTools.model(run(status), events).root.status).toBe(word)
+    }
     expect(DevTools.model(run("queued"), events).root.id).toBe("run:tab-1")
+    expect(DevTools.note("tab-1", options({ run: () => run("requested"), journal: () => [] }))).toBe(
+      "No history for tab-1 yet"
+    )
   })
 
   test("a node argument inspects that node", () => {
@@ -79,6 +92,14 @@ describe("/devtools", () => {
     const text = DevTools.note("  ", options({ activity }))
     expect(text.split("\n")[0]).toMatch(/^run terminal · chat · running/)
     expect(DevTools.note(" frame-1", options({ activity }))).toContain("frame · ")
+  })
+
+  test("an unknown node and surplus words are refused, and the tab id is what the caller hydrates", () => {
+    const flow = options({ run: () => run("done", "run-9"), journal: () => events })
+    expect(DevTools.note("tab-1 nope", flow)).toBe("Unknown node: nope")
+    expect(DevTools.note("tab-1 call-1 extra", flow)).toBe("Usage: /devtools [id] [node]")
+    expect(DevTools.tabOf("  tab-1 call-1")).toBe("tab-1")
+    expect(DevTools.tabOf("   ")).toBeUndefined()
   })
 
   test("an id that names no tab and no node of this conversation is refused in the tab command's words", () => {
