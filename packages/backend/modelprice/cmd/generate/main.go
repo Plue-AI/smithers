@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/scanner"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/modelprice"
@@ -163,12 +164,13 @@ func main() {
 			fmt.Fprintln(os.Stderr, "stale "+docPath+"; run go run ./packages/backend/modelprice/cmd/generate")
 			os.Exit(1)
 		}
-		for file, needle := range map[string]string{
-			"evals/swebench/prices.ts":                    "prices.generated.ts",
-			"apps/review/src/server/proxy/modelPrices.ts": "prices.generated.ts",
-		} {
+		pricing := "packages/smithers/agent/model/src/Pricing.ts"
+		consumers := []string{"evals/swebench/prices.ts", "apps/review/src/server/proxy/modelPrices.ts"}
+		for _, file := range append(consumers, pricing) {
 			content, err := os.ReadFile(file)
-			if err != nil || !strings.Contains(string(content), needle) {
+			generated := importsValue(string(content), file, path, "modelPrices")
+			public := file != pricing && importsValue(string(content), file, "@smthrs/model/Pricing", "table")
+			if err != nil || !(generated || public) {
 				fmt.Fprintln(os.Stderr, "consumer does not import generated prices: "+file)
 				os.Exit(1)
 			}
@@ -181,4 +183,68 @@ func main() {
 	if err := os.WriteFile(docPath, sheet.Bytes(), 0644); err != nil {
 		panic(err)
 	}
+}
+
+// importsValue follows a runtime table import, including aliases and namespace
+// imports. Tokenizing keeps comments, quoted examples and type-only imports
+// from satisfying the provenance check.
+func importsValue(source, file, module, binding string) bool {
+	var scan scanner.Scanner
+	scan.Init(strings.NewReader(source))
+	scan.Mode = scanner.ScanIdents | scanner.ScanStrings | scanner.ScanChars | scanner.ScanRawStrings | scanner.ScanComments | scanner.SkipComments
+	// TypeScript single-quoted module names are not Go character literals.
+	scan.Error = func(*scanner.Scanner, string) {}
+	type token struct {
+		kind rune
+		text string
+	}
+	var tokens []token
+	for kind := scan.Scan(); kind != scanner.EOF; kind = scan.Scan() {
+		tokens = append(tokens, token{kind, scan.TokenText()})
+	}
+	for i, tok := range tokens {
+		if tok.kind != scanner.Ident || tok.text != "import" {
+			continue
+		}
+		j := i + 1
+		if j >= len(tokens) || tokens[j].text == "type" {
+			continue
+		}
+		value := false
+		if tokens[j].text == "*" {
+			value = j+2 < len(tokens) && tokens[j+1].text == "as" && tokens[j+2].kind == scanner.Ident
+			j += 3
+		} else if tokens[j].text == "{" {
+			j++
+			for j < len(tokens) && tokens[j].text != "}" {
+				// Each comma-separated named specifier begins with its
+				// exported name, or with type for an erased import.
+				if tokens[j].kind == scanner.Ident && tokens[j].text == binding {
+					value = true
+				}
+				for j < len(tokens) && tokens[j].text != "," && tokens[j].text != "}" {
+					j++
+				}
+				if j < len(tokens) && tokens[j].text == "," {
+					j++
+				}
+			}
+			j++
+		}
+		if !value || j+1 >= len(tokens) || tokens[j].text != "from" {
+			continue
+		}
+		literal := tokens[j+1]
+		if (literal.kind != scanner.String && literal.kind != scanner.Char) || len(literal.text) < 2 || literal.text[len(literal.text)-1] != literal.text[0] {
+			continue
+		}
+		specifier := literal.text[1 : len(literal.text)-1]
+		if strings.HasPrefix(specifier, ".") {
+			specifier = filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(file), specifier)))
+		}
+		if specifier == filepath.ToSlash(module) {
+			return true
+		}
+	}
+	return false
 }
