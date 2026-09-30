@@ -127,6 +127,10 @@ export const Receipt = Schema.Struct({
   status: Schema.Literals(["passed", "failed", "superseded"]),
   // Older durable receipts omit this and retain their real-red semantics.
   fault: Schema.optionalKey(Schema.Literals(["infra", "factory"])),
+  // When the check's process started and finished, in epoch milliseconds;
+  // older durable receipts and checks without a process omit them.
+  startedAt: Schema.optionalKey(Schema.Int),
+  finishedAt: Schema.optionalKey(Schema.Int),
   evidence: Schema.String,
   findings: Schema.Array(Finding)
 })

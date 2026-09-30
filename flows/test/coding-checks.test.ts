@@ -196,6 +196,10 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   assert.equal(passed.status, "passed")
   assert.equal(passed.fault, undefined)
   assert.ok(receiptMatches(implementation, check, passed))
+  assert.ok(
+    Number.isInteger(passed.startedAt) && passed.finishedAt! > passed.startedAt!,
+    "the receipt records when the check's process started and finished"
+  )
   assert.equal(
     JSON.parse(passed.evidence).stdout.trim(),
     "old source|value.txt",

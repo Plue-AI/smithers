@@ -93,6 +93,10 @@ as infrastructure: the stack retries without spending a TODO attempt or blaming
 its plan. Output text never determines the fault class. Older persisted receipts
 without `fault` keep their original real-red behavior.
 
+Every command receipt records `startedAt` and `finishedAt`, the epoch
+milliseconds around its process, so a TODO can show how long each check took.
+Older receipts omit them.
+
 Invalid exports,
 missing executables, timeouts and unavailable cleanup fail execution instead of
 inventing validation evidence. Output is drained and a bounded prefix is stored

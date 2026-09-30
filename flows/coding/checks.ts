@@ -1,7 +1,7 @@
 /** Revision checks are ordinary actions over Plue's read-only JJ tree export. */
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
-import { Effect, Layer, Path, Schema, Semaphore } from "effect"
+import { Clock, Effect, Layer, Path, Schema, Semaphore } from "effect"
 import { contained, type ImmutableSourceOptions, runSourceProcess, withImmutableSource } from "./immutable-source.ts"
 import { Check, checkInputDigest, CodingError, Implementation, Receipt } from "./schema.ts"
 
@@ -80,7 +80,9 @@ export const checkLayers = (options: CheckHostOptions) => {
               return yield* invalid("A written path contains a line break; the check cannot name it")
             }
             const environment = { ...options.environment, SMITHERS_CHECK_FILES: implementation.writes.join("\n") }
+            const startedAt = yield* Clock.currentTimeMillis
             const result = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
+            const finishedAt = yield* Clock.currentTimeMillis
             const passed = result.exitCode === 0
             const fault = command.infraExitCodes?.includes(result.exitCode) ? "infra" as const : "factory" as const
             return {
@@ -93,6 +95,8 @@ export const checkLayers = (options: CheckHostOptions) => {
               inputDigest: checkInputDigest(implementation, check),
               status: passed ? "passed" as const : "failed" as const,
               ...(passed ? {} : { fault }),
+              startedAt,
+              finishedAt,
               evidence: JSON.stringify({
                 argv: command.argv,
                 cwd: command.cwd,
