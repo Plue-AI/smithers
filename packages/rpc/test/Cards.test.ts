@@ -1107,6 +1107,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       failure: { class: "dependency", tag: "@smthrs/flow/DependencyUnavailable" },
       observationError: "the events projection refused (500)",
       lastSeq: 42,
+      deadlineAt: 1_790_000_900_000,
       quietForMs: 600_000,
       input: { repo: "smithersai/smithers" },
       kind: "prototype",
@@ -1750,7 +1751,20 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       error: "The import failed.",
       cloudRepo: "acme/widgets",
       replay: 2,
-      accountOwner: "acme"
+      accountOwner: "acme",
+      cached: {
+        commit: "fc3f257b643b41dd8de24d4b0d3248253ab411c5",
+        report: {
+          repo: "acme/widgets",
+          clone: {
+            _tag: "clone",
+            repo: "acme/widgets",
+            commit: "fc3f257b643b41dd8de24d4b0d3248253ab411c5",
+            files: 12,
+            lines: 340
+          }
+        }
+      }
     }
   },
   "connector-setup": {
@@ -2936,6 +2950,21 @@ describe("every persisted card kind", () => {
     expect(CardSchema.safeParse({ ...base, kind: "moons", payload: {} }).success).toBe(false)
   })
 
+  test("deadline and cached report fields retain their declared types when present", () => {
+    for (const deadlineAt of ["1790000900000", null]) {
+      expect(CardSchema.safeParse(card("run-trace", { ...FIXTURES["run-trace"].full, deadlineAt })).success).toBe(false)
+    }
+    const malformedCached = [
+      null,
+      { commit: 42, report: {} },
+      { commit: "fc3f257", report: null },
+      { commit: "fc3f257", report: [] }
+    ]
+    for (const cached of malformedCached) {
+      expect(CardSchema.safeParse(card("registration", { ...FIXTURES.registration.full, cached })).success).toBe(false)
+    }
+  })
+
   test("PR read failures and repository import launch identity refuse invalid persisted values", () => {
     expect(CardSchema.safeParse(card("pr", { ...FIXTURES.pr.full, readErrors: { commits: 500 } })).success).toBe(false)
     expect(CardSchema.safeParse(card("repo-import", { ...FIXTURES["repo-import"].full, requestId: 1 })).success).toBe(
@@ -3098,7 +3127,10 @@ describe("removed presentation compatibility", () => {
     }),
     saved("connector-setup", { connector: "linear" }),
     saved("sync-ops", { source: "linear" }),
-    saved("request-queue", { requests: [{ login: "ada", note: null, createdAt: "2026-09-05T09:00:00Z" }], approving: null }),
+    saved("request-queue", {
+      requests: [{ login: "ada", note: null, createdAt: "2026-09-05T09:00:00Z" }],
+      approving: null
+    }),
     ...[
       "repo.welcome",
       "repo.explore",

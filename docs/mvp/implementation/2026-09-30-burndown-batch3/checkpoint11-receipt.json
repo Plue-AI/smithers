@@ -1,0 +1,62 @@
+{
+  "issues": [
+    3273
+  ],
+  "base": "52284e40eab08981bf88c77a2c3256244cff1476",
+  "sourceFiles": {
+    "packages/rpc/test/Cards.test.ts": "31b24a8c0adddf7fad41aaad69fa9e928ca9e29df98d4e291fe7cfe5f6540587",
+    "apps/app/src/mainview/cards/RegistrationCard.cached.test.tsx": "f663bcabb18c605fe8a7013b6b239196aa418ea2effcf49398a4fea0d0670351",
+    "apps/app/src/mainview/flows/parity.test.ts": "58efeb236a102f952b7ee4bbfce4670bb9e1ad0f6d3679bbb9c66a9884a5dd10"
+  },
+  "sourceInputs": {
+    "packages/rpc/src/Cards.ts": "d1769df0ed069d0b24a6fee478564ab2b2bd79d6bb1129eeed56d51f238e047e",
+    "apps/app/src/mainview/cards/RegistrationCard.tsx": "235c1e4de19a2d71b1286e185804c9851e7bc338b36619e6abfb3cfe3655779c",
+    "apps/app/src/mainview/cards/Registration.ts": "02dcbe218b43d557086d390d8254c6f048a18c2090ca939b7b4243fa9f32f011",
+    "apps/app/src/mainview/cards/fixtures/register-repository-ready.json": "8e500df3eea489eed11682083e99aa48b733394b3930f224d34babada5b5cf55",
+    "apps/app/src/mainview/flows/FlowArgs.ts": "cf7d6052eb78b7f81228af4c4432d3942316cc2dca3e78112b057e28535fc5e3",
+    "apps/app/src/mainview/flows/SlashPayload.ts": "a730d6bbe395194f400f352f6a336900488e5a94ad0adcdac00c4d9b465f350a",
+    "apps/app/src/mainview/flows/FlowAction.ts": "24fc41d7723483a63a7453d6b7f045dbdc1cc36615d2026f2b2302abae5c4514",
+    "packages/rpc/tsconfig.test.json": "bb8298e88b6718c31994fed03b7fb9c763f8917b559cd78739fee42aa42f4ea6",
+    "apps/app/tsconfig.json": "7f23403b5d7283f61658673f7ab7f3504927c44be25c5a43cfd31f08f4b8328c"
+  },
+  "manifestSha256": "97e322fa64e3e33a8eb29af20b21d121d3fc06e0d7c3138e96d1e6a5581a1820",
+  "archiveSha256": "9370d365d4c6952b374cb5ddc2bceb5a480397a4a08da065d66aadf34892cddb",
+  "validation": [
+    {
+      "cwd": "packages/rpc",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH ./node_modules/.bin/vitest run",
+      "result": "49 files, 1650 pass, 0 fail"
+    },
+    {
+      "cwd": "apps/app",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/Users/williamcory/.bun/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/release/smithers-jj-export bun test src/mainview/cards/Registration.cached.test.ts src/mainview/cards/RegistrationCard.cached.test.tsx src/mainview/cards/RegistrationCard.failures.test.tsx src/mainview/cards/RegistrationCard.tiles.test.tsx src/mainview/flows/parity.test.ts",
+      "result": "28 pass, 0 fail, 1180 assertions, 5 files"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "./node_modules/.bin/tsc --noEmit -p tsconfig.test.json",
+      "result": "exit 0"
+    },
+    {
+      "cwd": "apps/app",
+      "command": "./node_modules/.bin/tsc --noEmit -p tsconfig.json",
+      "result": "exit 2; 48 foreign diagnostics; zero in changed app paths"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "./node_modules/.bin/dprint check test/Cards.test.ts",
+      "result": "exit 0; parent authorized incidental pre-existing request-queue formatting correction in same owned test file"
+    },
+    {
+      "command": "git diff --check -- [three owned paths]",
+      "result": "exit 0"
+    }
+  ],
+  "limits": [
+    "No deployed repository registration or actual gateway launch is claimed; test qualifies written command binding/typed-link acceptance.",
+    "No new full app run; full registration/parity suite has no independent remaining failures. Broad types retain #3257/#3268 and other exact foreign diagnostics.",
+    "RPC cached report contract is Record<string,unknown>; full fixture includes nonempty clone evidence; UI behavior separately exercises retained complete ready report.",
+    "No coverage threshold/config/assertion weakening; no declaration baseline or public production changes."
+  ],
+  "review": "Orchestrator reviewed exact full/minimum inventories, malformed optional values, actual DOM/store activation through canonical typed link grammar and noncached controls. Existing all-group affordance gate remains exact; owning RPC format was fully repaired and requalified."
+}

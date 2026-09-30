@@ -381,7 +381,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/ModelCards.tsx": 11,
       /* Mark-all-read. */
       "../cards/NotificationsCard.tsx": 1,
-    "../cards/RegistrationCard.tsx": 2,
+    "../cards/RegistrationCard.tsx": 3, // Failure Retry, completed Open, and cached Analyze again; each uses the canonical flow binding.
       "../cards/EnvCard.tsx": 3,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
