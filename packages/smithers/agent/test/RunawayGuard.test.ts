@@ -319,6 +319,19 @@ const readRequestFacts = (root: string, runId: string): ReadonlyArray<typeof Con
   }
 }
 
+/** The waiting reason every `control.run.parked` fact of the run recorded, in order. */
+const readParkReasons = (root: string, runId: string): ReadonlyArray<unknown> => {
+  const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+  try {
+    const rows = database.prepare(
+      "SELECT payload_json FROM flows_journal_events WHERE run_id = ? AND event_type = ? ORDER BY seq"
+    ).all(runId, "control.run.parked") as unknown as ReadonlyArray<{ readonly payload_json: string }>
+    return rows.map((row) => (JSON.parse(row.payload_json) as { readonly reason?: unknown }).reason)
+  } finally {
+    database.close()
+  }
+}
+
 const firstOwner: Ownership.OwnerId = { hostId: "runaway-first", pid: 1, nonce: "first" }
 const secondOwner: Ownership.OwnerId = { hostId: "runaway-second", pid: 2, nonce: "second" }
 
@@ -522,6 +535,8 @@ describe("a run parked on its token budget by a call larger than its allowance",
     expect(parked.kind).toBe("control.approval.requested")
     if (parked.approval === undefined) return
     expect(modelCalls).toEqual(["runaway-first"])
+    // The control fact of the park says what the run waits on (#2189).
+    expect(readParkReasons(root, parked.runId)).toEqual(["budget"])
     // The raise covers the spend, the refused call, and one more allowance,
     // so the call that tripped the guard is admitted under it.
     expect(parked.approval.target.envelope.budget).toEqual({ tokens: 40, onExceeded: "park" })
@@ -589,6 +604,8 @@ type Parked = Awaited<ReturnType<typeof parkInFirstProcess>>
 const parkOnTimeout = async (root: string, guarded: Guarded) => {
   const parked: Parked = await parkInFirstProcess(root, { milliseconds: 600_000, onExceeded: "park" }, guarded)
   expect(parked.kind).toBe("control.approval.requested")
+  // A timeout parks on the same `budget` wait a ceiling does.
+  expect(readParkReasons(root, parked.runId)).toEqual(["budget"])
   return { runId: parked.runId, sequence: parked.sequence!, approval: parked.approval! }
 }
 

@@ -2743,8 +2743,11 @@ export const make = (
      * `smithers status` diagnosis reads, so the reason a run died belongs in it.
      * Beside it goes the failure's typed {@link Fault}, which the gateway
      * carries to the worker so nothing downstream re-reads the prose.
+     * A park the flow declared carries its waiting `reason` (`budget`,
+     * `approval`, ...), so a reader of the fact knows what the run waits on
+     * without asking the engine.
      */
-    const writeStatus = (runId: string, status: RunStatus, detail?: string, fault?: Fault.Fault) =>
+    const writeStatus = (runId: string, status: RunStatus, detail?: string, fault?: Fault.Fault, reason?: string) =>
       Effect.suspend(() => {
         let fence: string
         return ControlFacts.commitRun(
@@ -2757,7 +2760,8 @@ export const make = (
           `control.run.${status}`,
           {
             ...(detail === undefined ? {} : { cause: detail.slice(0, 4096) }),
-            ...(fault === undefined ? {} : { fault })
+            ...(fault === undefined ? {} : { fault }),
+            ...(reason === undefined ? {} : { reason })
           }
         ).pipe(
           Effect.tap(() =>
@@ -2873,7 +2877,15 @@ export const make = (
         // would leave a cancelled run looking resumable.
         : Cause.hasInterruptsOnly(exit.cause)
         ? suspended
-          ? writeStatus(runId, waitingReason === "approval" ? "waiting-approval" : "parked")
+          // A wait the flow declared (a budget or time guard's, an approval's)
+          // names its reason on the fact; the engine classifies the rest.
+          ? writeStatus(
+            runId,
+            waitingReason === "approval" ? "waiting-approval" : "parked",
+            undefined,
+            undefined,
+            waitingReason
+          )
           : settleInterrupted(runId)
         : exit.cause.reasons.some((
             reason
