@@ -2,6 +2,7 @@ package revocation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -9,6 +10,52 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
+
+func TestDelayedNotificationFromSkippedHistoryDoesNotDisableEnabledUser(t *testing.T) {
+	log := newFakeLog()
+	disabled, err := log.InsertRevocationEvent(context.Background(), Event{Kind: KindUserDisabled, UserID: 7}.ToParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.InsertRevocationEvent(context.Background(), Event{Kind: KindUserEnabled, UserID: 7}.ToParams()); err != nil {
+		t.Fatal(err)
+	}
+	bus, cancel := startBus(t, log)
+	defer cancel()
+	if bus.Cursor() != 2 || bus.IsUserDisabled(7) {
+		t.Fatalf("startup must skip history: cursor=%d disabled=%v", bus.Cursor(), bus.IsUserDisabled(7))
+	}
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	watch := bus.Watch(watchCtx, Principal{UserID: 7})
+	oldPayload, err := json.Marshal(FromRow(disabled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus.deliverPayload(context.Background(), string(oldPayload))
+	if bus.IsUserDisabled(7) {
+		t.Fatal("late skipped suspension disabled a re-enabled user")
+	}
+	select {
+	case event := <-watch:
+		t.Fatalf("late skipped suspension closed a new watch: %+v", event)
+	default:
+	}
+
+	// The boundary must not discard notifications for events committed later.
+	newRow, err := log.InsertRevocationEvent(context.Background(), Event{Kind: KindUserDisabled, UserID: 7}.ToParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPayload, err := json.Marshal(FromRow(newRow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus.deliverPayload(context.Background(), string(newPayload))
+	if event := waitFor(t, watch, time.Second); event.ID != newRow.ID || !bus.IsUserDisabled(7) {
+		t.Fatalf("new suspension was lost after startup: %+v", event)
+	}
+}
 
 type gatedInitialLog struct {
 	*fakeLog

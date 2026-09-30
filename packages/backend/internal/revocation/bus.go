@@ -99,6 +99,7 @@ type Bus struct {
 
 	mu              sync.Mutex
 	cursor          int64
+	initialCursor   int64 // Durable history skipped at Start; never lowered by polling.
 	seen            map[int64]time.Time
 	revokedTokens   map[string]time.Time
 	revokedSessions map[string]time.Time
@@ -204,6 +205,7 @@ func (b *Bus) positionCursor(ctx context.Context) bool {
 			if latest > b.cursor {
 				b.cursor = latest
 			}
+			b.initialCursor = latest
 			b.positioned = true
 			b.mu.Unlock()
 			return true
@@ -330,6 +332,12 @@ func (b *Bus) deliverPayload(ctx context.Context, payload string) {
 	// Notifications are hints, never durable scan progress. A later event may
 	// arrive before an earlier notification (or after it was lost).
 	b.catchUp(ctx)
+	b.mu.Lock()
+	skippedHistory := b.positioned && event.ID <= b.initialCursor
+	b.mu.Unlock()
+	if skippedHistory {
+		return
+	}
 	b.apply(event)
 }
 
