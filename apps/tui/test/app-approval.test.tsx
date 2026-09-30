@@ -526,6 +526,58 @@ test("completion menu and oversized approval share the 80x24 control budget", as
   expect(frame()).toContain("FINAL_ARGUMENT")
 }, 15000)
 
+test.each([[80, 24], [60, 18], [110, 32]])(
+  "ten queued follow-ups, completions and an oversized approval preserve controls at %sx%s",
+  async (width, height) => {
+    pending = [{
+      ...request,
+      requestId: "combined-queue",
+      subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FINAL_ARGUMENT"
+    }]
+    await act(async () => setup!.renderer.resize(width!, height!))
+    await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+    const prompts = Array.from({ length: 10 }, (_, index) => `Follow-up ${index + 1}`)
+    for (const prompt of prompts) {
+      await type(prompt)
+      await act(async () => {
+        setup!.mockInput.pressKey("RETURN", { meta: true })
+        await setImmediate()
+      })
+      await setup!.renderOnce()
+    }
+    await type("/")
+    // Native layout can settle after the input render; inspect the settled frame.
+    await act(async () => {
+      await setTimeout(600)
+    })
+    await setup!.renderOnce()
+    const screen = frame()
+    expect(screen).toContain("10 queued:")
+    expect(screen).toContain("Follow-up 10")
+    expect(screen).toContain("alt+up Edit queue")
+    expect(screen).toContain("/model")
+    expect(screen).toContain("very-long-directory")
+    expect(screen.split("\n")[height! - 2]).toContain("Replay")
+    expect(screen.split("\n")[height! - 1]).toContain("enter Choose")
+    await press("\x1b[B")
+    expect(frame()).toContain("/new")
+    expect(frame()).toMatch(/ 2\/\d+ /)
+    expect(replies).toEqual([])
+    await press("c", true)
+    await waitFor(() => frame().includes("y allow  n deny"))
+    await act(async () => {
+      setup!.mockInput.pressKey("\x1b[1;3A")
+      await setImmediate()
+    })
+    await setup!.renderOnce()
+    // The bounded queue is only a projection: all prompts return to the editor.
+    expect(setup!.renderer.currentFocusedEditor?.plainText).toBe(prompts.join("\n\n"))
+    expect(frame()).not.toContain("10 queued:")
+    expect(replies).toEqual([])
+  },
+  15000
+)
+
 test("replacing a scrolled approval reveals the new request from its beginning", async () => {
   pending = [{
     ...request,

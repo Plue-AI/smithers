@@ -2766,26 +2766,39 @@ export function App(props: AppProps) {
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
-  const completionRows = short || approvals.length > 0 ? Math.max(1, Math.floor(chatHeight / 4)) : 8
-  const completionHeight = menu === undefined || panelFocus || form !== undefined || reviewTab !== undefined
-    ? 0
-    : 1 + Math.min(completionRows, Math.max(1, menu.items.length))
-  // Reserve both controls together, including their margins, the largest composer,
-  // model/footer, tabs/status, and queued prompts/toasts.
+  const composerHeight = Math.max(1, Math.floor(chatHeight / (short ? 4 : 3)))
+  const controlsHeight = chatHeight - composerHeight - 7 -
+    Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short))
+  const menuVisible = menu !== undefined && !panelFocus && form === undefined && reviewTab === undefined
+  const queueRows = short ? 1 : Math.max(
+    1,
+    Math.min(
+      Math.floor(chatHeight / 4) - 2,
+      controlsHeight - (menuVisible ? 2 : 0) -
+        (approvals.length > 0 ? 2 : 0) - 2
+    )
+  )
+  const visibleQueue = shownQueue.slice(-queueRows)
+  const compactQueue = short || visibleQueue.length < shownQueue.length
+  const queueHeight = shownQueue.length === 0 || reviewTab !== undefined ? 0 : visibleQueue.length + 2
+  const completionRows = Math.max(
+    1,
+    Math.min(
+      short || approvals.length > 0 ? Math.floor(chatHeight / 4) : 8,
+      controlsHeight - queueHeight - (approvals.length > 0 ? 2 : 0) - 1
+    )
+  )
+  const completionHeight = menuVisible ? 1 + Math.min(completionRows, Math.max(1, menu.items.length)) : 0
+  // Queue, completions and approval share the space above the composer and footer.
   const approvalHeight = Math.max(
     2,
-    Math.min(
-      Math.floor(chatHeight / 2),
-      chatHeight - completionHeight - (short ? Math.floor(chatHeight / 4) : Math.floor(chatHeight / 3)) - 7 -
-        Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
-        (shownQueue.length === 0 ? 0 : (short ? 3 : shownQueue.length + 2))
-    )
+    Math.min(Math.floor(chatHeight / 2), controlsHeight - queueHeight - completionHeight)
   )
   const formHeight = Math.max(
     3,
     chatHeight - (short ? 2 : 4) -
       Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
-      (shownQueue.length === 0 ? 0 : (short ? 3 : shownQueue.length + 2))
+      queueHeight
   )
 
   return (
@@ -3058,14 +3071,14 @@ export function App(props: AppProps) {
             null :
             (
               <box style={{ marginTop: 1, paddingLeft: 2, flexShrink: 0 }}>
-                {(short ? shownQueue.slice(-1) : shownQueue).map((prompt) => (
+                {visibleQueue.map((prompt) => (
                   <text key={prompt.id} fg={color.muted} wrapMode="none">
-                    {short ? `${shownQueue.length} queued: ` : "Follow-up: "}
+                    {compactQueue ? `${shownQueue.length} queued: ` : "Follow-up: "}
                     {prompt.text.split("\n")[0]}
                   </text>
                 ))}
                 <text fg={color.faint} wrapMode="none">
-                  {short ? "alt+up Edit queue" : "↳ alt+up to edit all queued messages"}
+                  {compactQueue ? "alt+up Edit queue" : "↳ alt+up to edit all queued messages"}
                 </text>
               </box>
             )}
