@@ -58,6 +58,10 @@ export const useTranscriptView = (options: {
   const [inspection, setInspection] = useState<
     { source: string; seq: number; first: Activity.Activity["records"][number] } | undefined
   >()
+  const [inspectionInterrupted, setInspectionInterrupted] = useState(false)
+  /** The surface inspection owns, including its own jumps between views. */
+  const inspectionSurface = useRef<string | undefined>(undefined)
+  const previousSurface = useRef(surface)
   const scroll = useRef<ScrollBoxRenderable>(null)
   const workerScroll = useRef<ScrollBoxRenderable | null>(null)
   /** Inspection borrows navigation; closing gives back the exact view it borrowed. */
@@ -111,6 +115,21 @@ export const useTranscriptView = (options: {
     pendingReveal.current = undefined
   }, [])
   useLayoutEffect(() => cancelReveal, [cancelReveal])
+  useLayoutEffect(() => {
+    if (previousSurface.current === surface) return
+    previousSurface.current = surface
+    if (restore.current?.surface !== surface) restore.current = undefined
+    if (origin.current !== undefined && inspectionSurface.current !== surface) {
+      cancelReveal()
+      origin.current = undefined
+      inspectionSurface.current = undefined
+      setInspection(undefined)
+      // The first dismissal closes the interrupted inspection in this view.
+      setInspectionInterrupted(true)
+    } else if (inspectionSurface.current === undefined) {
+      setInspectionInterrupted(false)
+    }
+  }, [surface, cancelReveal])
 
   /** A worker's lane color: its card rail, its crumb and its steering accent. */
   const lane = (id: string): string => laneColor(Math.max(0, tabs.findIndex((tab) => tab.id === id)))
@@ -159,9 +178,9 @@ export const useTranscriptView = (options: {
     source.id === inspection?.source &&
     source.activity.records[0] === inspection.first
   )
-  const monitored =
-    (surface.startsWith("tab:") ? activitySources.find((source) => source.id === surface.slice(4)) : pinnedActivity)
-      ?? latestActivity.find((source) => source.activity.status === "running") ?? latestActivity[0]
+  const monitored = surface.startsWith("tab:")
+    ? activitySources.find((source) => source.id === surface.slice(4))
+    : pinnedActivity ?? latestActivity.find((source) => source.activity.status === "running") ?? latestActivity[0]
   const showActivity = monitored !== undefined && (panel === undefined || surface.startsWith("tab:"))
   const activeInspection = showActivity && pinnedActivity === monitored ? inspection : undefined
   useLayoutEffect(() => {
@@ -181,10 +200,12 @@ export const useTranscriptView = (options: {
   }
   const inspectActivity = (seq: number, jumping = true) => {
     cancelReveal()
+    setInspectionInterrupted(false)
     if (monitored === undefined) return
     if (activeInspection === undefined || origin.current === undefined) {
       origin.current = { surface, panelFocus, scrollTop: viewport()?.scrollTop ?? 0 }
     }
+    inspectionSurface.current = surface
     setPanelFocus(false)
     const nextInspection = { source: monitored.id, seq, first: monitored.activity.records[0]! }
     setInspection(nextInspection)
@@ -192,9 +213,11 @@ export const useTranscriptView = (options: {
     if (id === undefined || !jumping) return
     // A worker's step shows in its own tab, which scrolls to it.
     if (monitored.id !== chat) {
+      inspectionSurface.current = `tab:${monitored.id}`
       if (surface !== `tab:${monitored.id}`) setSurface(`tab:${monitored.id}`)
       return
     }
+    inspectionSurface.current = "chat"
     if (surface !== "chat") setSurface("chat")
     const key = Timeline.key(id)
     reveal(key)
@@ -209,6 +232,8 @@ export const useTranscriptView = (options: {
   const followLive = () => {
     cancelReveal()
     setInspection(undefined)
+    setInspectionInterrupted(false)
+    inspectionSurface.current = undefined
     const prior = origin.current
     origin.current = undefined
     if (prior === undefined) return
@@ -218,6 +243,8 @@ export const useTranscriptView = (options: {
   }
   const snapToLive = () => {
     cancelReveal()
+    setInspectionInterrupted(false)
+    inspectionSurface.current = undefined
     origin.current = undefined
     restore.current = undefined
     setInspection(undefined)
@@ -252,6 +279,7 @@ export const useTranscriptView = (options: {
     monitored,
     showActivity,
     activeInspection,
+    inspectionInterrupted,
     /** The chat row the scrubber's playhead is on. */
     jumpTarget: jump?.source === chat ? Timeline.key(jump.id) : undefined,
     /** A worker's transcript item the scrubber's playhead is on. */
@@ -263,6 +291,8 @@ export const useTranscriptView = (options: {
     clearInspection: () => {
       cancelReveal()
       setInspection(undefined)
+      setInspectionInterrupted(false)
+      inspectionSurface.current = undefined
       origin.current = undefined
       restore.current = undefined
       setLiveEdge(0)

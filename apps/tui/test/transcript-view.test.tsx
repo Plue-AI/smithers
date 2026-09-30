@@ -320,13 +320,65 @@ test("inspection begun in another worker replaces the stale return surface and f
   await action((view) => view.inspectActivity(1, false))
   await change({ surface: "tab:w2", panelFocus: true })
   expect(current().activeInspection).toBeUndefined()
+  expect(current().inspectionInterrupted).toBe(true)
   await action((view) => view.inspectActivity(1, false))
   expect(current().activeInspection?.source).toBe("w2")
+  expect(current().inspectionInterrupted).toBe(false)
   await action((view) => view.followLive())
   await drainReveal()
   expect(surfaces).toEqual(["tab:w2"])
   expect(panelFocus).toEqual([false, false, true])
   expect(current().activeInspection).toBeUndefined()
+})
+
+test.each([Transcript.empty, Transcript.user(Transcript.empty, "Work", false, 200)])(
+  "manual navigation to a worker without activity cancels the inherited timeline and return target",
+  async (emptyWorker) => {
+    const firstWorker = running(100)
+    await mount({ tabs, worker: (id) => id === "w1" ? firstWorker : emptyWorker, surface: "tab:w1" })
+    await action((view) => view.inspectActivity(1, false))
+    expect(current().activeInspection?.source).toBe("w1")
+    await change({ surface: "tab:w2" })
+    expect(current().activeInspection).toBeUndefined()
+    expect(current().monitored).toBeUndefined()
+    expect(current().showActivity).toBe(false)
+    expect(current().inspectionInterrupted).toBe(true)
+    await action((view) => view.followLive())
+    await drainReveal()
+    expect(surfaces).toEqual([])
+    expect(current().inspectionInterrupted).toBe(false)
+    expect(setup!.captureCharFrame()).toContain("no activity")
+    await action((view) => view.inspectActivity(1))
+    expect(current().activeInspection).toBeUndefined()
+    expect(surfaces).toEqual([])
+  }
+)
+
+test("another manual navigation clears the interrupted dismissal without resurrecting its origin", async () => {
+  const worker = running(100)
+  await mount({ tabs, worker: (id) => id === "w1" ? worker : Transcript.empty, surface: "tab:w1" })
+  await action((view) => view.inspectActivity(1, false))
+  await change({ surface: "tab:w2" })
+  expect(current().inspectionInterrupted).toBe(true)
+  await change({ surface: "tab:w3" })
+  expect(current().inspectionInterrupted).toBe(false)
+  await action((view) => view.followLive())
+  expect(surfaces).toEqual([])
+})
+
+test("manual navigation cancels a delayed reveal before it can move the destination viewport", async () => {
+  await mount({ transcript: longTranscript(100), tabs })
+  await action((view) => view.inspectActivity(1))
+  await change({ surface: "tab:w2" })
+  const box = current().scroll.current!
+  box.scrollTop = 0
+  await drainReveal()
+  expect(box.scrollTop).toBe(0)
+  expect(current().activeInspection).toBeUndefined()
+  await action((view) => view.followLive())
+  await drainReveal()
+  expect(box.scrollTop).toBe(0)
+  expect(surfaces).toEqual([])
 })
 
 test("a new activity identity captures the current return position instead of a stale inspection origin", async () => {

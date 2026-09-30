@@ -401,6 +401,36 @@ test("starting inspection in a different agent returns to that agent and submits
   expect(inserts(0)).toEqual([])
 })
 
+test.each(["timeline", "escape"])(
+  "%s after navigating from inspection to an agent awaiting activity keeps its composer target at 80×24",
+  async (dismissal) => {
+    await mount(24, 80)
+    await command("Coordinate both agents")
+    await delegate("agent-a", "Agent A")
+    await delegate("agent-b", "Agent B")
+    await stream(1)
+    await key("ARROW_RIGHT", { ctrl: true })
+    await key("ARROW_RIGHT", { ctrl: true })
+    expect(frame()).toContain("Continue Agent A")
+    await key("t", { ctrl: true })
+    await key("ARROW_RIGHT", { ctrl: true })
+    expect(frame()).toContain("Continue Agent B")
+    if (dismissal === "timeline") await key("t", { ctrl: true })
+    else await key("ESCAPE")
+    await drainDeferredScroll()
+    expect(frame()).toContain("Continue Agent B")
+    expect(composer().focused).toBe(true)
+    await type("Reply from empty B")
+    await key("RETURN")
+    expect(inserts(1)).toEqual([])
+    expect(inserts(2)).toEqual(["Reply from empty B"])
+    expect(inserts(0)).toEqual([])
+    await key("ESCAPE")
+    expect(frame()).not.toContain("Continue Agent B")
+    expect(frame()).toContain("Steer, or alt+enter to queue")
+  }
+)
+
 test.each([24, 32])(
   "a scrolled send at 80×%i reveals its text after worker toasts and deferred layout",
   async (height) => {

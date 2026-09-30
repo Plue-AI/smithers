@@ -833,6 +833,7 @@ export function App(props: AppProps) {
     monitored,
     showActivity,
     activeInspection,
+    inspectionInterrupted,
     jumpTarget,
     workerJump,
     inspectActivity,
@@ -2025,6 +2026,13 @@ export function App(props: AppProps) {
     } else if (key.name === "?" && text === "" && open === undefined && liveForm.current === undefined) {
       key.preventDefault()
       return setWhichKeyOpen(true)
+    }
+    if (
+      inspectionInterrupted && open === undefined &&
+      (key.name === "escape" || (key.ctrl && key.name === "t" && !showActivity))
+    ) {
+      key.preventDefault()
+      return flushSync(followLive)
     }
     if (key.ctrl && key.name === "t" && showActivity && monitored !== undefined && open === undefined) {
       key.preventDefault()
