@@ -77,16 +77,20 @@ try {
   // -----------------------------------------------------------------------
   /** Where the detectors live. A move of the harness breaks this, not the rule. */
   const harnessSource = resolve(root, "../../packages/smithers/agent/harness/src")
+  const rateCard = resolve(root, "../../packages/smithers/agent/model/src/internal/prices.generated.ts")
   const allowed = (from, specifier) => {
     if (specifier.startsWith("node:")) return true
     const target = resolve(root, dirname(from), specifier)
     return target === join(root, "lib/journal-facts.mjs")
       || target === join(root, "lib/journal-rows.mjs")
       || target === join(root, "prices.ts")
+      || target === rateCard
       || (dirname(target) === harnessSource && /^[A-Za-z]+\.ts$/u.test(basename(target)))
   }
   assert.ok(allowed("select-candidate.mjs", "../../packages/smithers/agent/harness/src/Sufficiency.ts"))
   assert.ok(allowed("lib/journal-facts.mjs", "../../../packages/smithers/agent/harness/src/NarrowedCheck.ts"))
+  assert.ok(allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.generated.ts"), "the generated rate card")
+  assert.ok(!allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.ts"), "no other model module")
   assert.ok(!allowed("select-candidate.mjs", "../../packages/harness/src/Sufficiency.ts"), "a stale harness path")
   assert.ok(!allowed("select-candidate.mjs", "../../packages/smithers/agent/harness/test/fixtures/r97Journals.json"))
 
