@@ -434,6 +434,10 @@ evidence do not acquire invented phases, successful checks, or file changes.
   status)` returns the model `traceFromJournal` would build for the same records.
   A record out of sequence order, or a native fact that supersedes earlier
   telemetry, refolds the journal. `TraceFold` types the handle.
+- `runMemoryOf(records)` folds the `relevance-settled` rows into the memory a
+  run was brought and the memory Jev withheld, by id and relevance, most
+  relevant first; undefined when Jev never read. `RunMemory` and `MemoryItem`
+  type it. `smthrs status` prints the same fold.
 - `turnNarratives(model)` derives concise recorded turn text. `spanPath(model,
   id)` finds recorded ancestry. `durationWords(ms)` formats elapsed time.
 - `waterfallGeometry`, `phaseExtent`, and `phaseBandGeometry` calculate layout

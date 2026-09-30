@@ -2188,3 +2188,67 @@ export const durationWords = (ms: number): string => {
   const seconds = Math.round((ms - minutes * 60_000) / 1000)
   return `${minutes}m${String(seconds).padStart(2, "0")}s`
 }
+
+/** One memory item a run's relevance readings weighed.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface MemoryItem {
+  readonly id: string
+  readonly kind: string
+  /** How likely the item is needed: 1 − Jev's probability that it is not. */
+  readonly relevance: number
+}
+
+/** The memory a run was shown and the memory Jev withheld from it.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface RunMemory {
+  readonly kept: ReadonlyArray<MemoryItem>
+  readonly withheld: ReadonlyArray<MemoryItem>
+}
+
+const memoryItems = (value: unknown): ReadonlyArray<MemoryItem> =>
+  Array.isArray(value) ?
+    value.flatMap((raw: unknown) => {
+      const item = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : undefined
+      return item?.kind === "memory" && typeof item.id === "string" && typeof item.p === "number"
+        ? [{ id: item.id, kind: "memory", relevance: 1 - item.p }]
+        : []
+    }) :
+    []
+
+/**
+ * What memory a run was brought, from the `control.agent.relevance-settled`
+ * rows of its `run-events` projection: ids and probabilities, never text. A
+ * reading also weighs flows, skills and instructions; only memory counts here.
+ * An item any reading kept is in; one only ever withheld is withheld; both
+ * most relevant first. Undefined when Jev never read for the run.
+ *
+ * @category folds
+ * @since 1.0.0
+ */
+export const runMemoryOf = (records: ReadonlyArray<JournalRecord>): RunMemory | undefined => {
+  const kept = new Map<string, MemoryItem>()
+  const withheld = new Map<string, MemoryItem>()
+  let read = false
+  for (const record of records) {
+    if (record.kind !== "control.agent.relevance-settled") continue
+    read = true
+    const payload = typeof record.payload === "object" && record.payload !== null
+      ? record.payload as Record<string, unknown>
+      : {}
+    for (const item of memoryItems(payload.kept)) kept.set(item.id, item)
+    for (const item of memoryItems(payload.withheld)) withheld.set(item.id, item)
+  }
+  if (!read) return undefined
+  const byRelevance = (left: MemoryItem, right: MemoryItem) =>
+    right.relevance - left.relevance || left.id.localeCompare(right.id)
+  return {
+    kept: [...kept.values()].sort(byRelevance),
+    withheld: [...withheld.values()].filter((item) => !kept.has(item.id)).sort(byRelevance)
+  }
+}

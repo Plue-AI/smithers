@@ -360,7 +360,8 @@ or clipping.
 | `resolvedOutput` | `(value: Pick<Digest, "finalOutput" \| "nativeResolution">) => string \| undefined` | Assistant output first, otherwise a committed native result matching the host's root binding.                                                                     |
 | `verdict`        | `(value: Digest) => string`                                                         | One line: the status plus the reason that most explains it.                                                                                                       |
 | `duration`       | `(span: Pick<Digest, "startedAt" \| "endedAt">) => string`                          | The wall-clock span the handled events cover, as `12s` or `3m 04s`.                                                                                               |
-| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, refusals, cause, and output.                                                                                  |
+| `usd`            | `(value: number) => string`                                                         | A USD amount: `$12.34` from one dollar, `$0.0042` below it.                                                                                                       |
+| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, cost, refusals, cause, and output.                                                                            |
 | `asRecord`       | `(value: unknown) => Record<string, unknown>`                                       | A wire payload as a record, or an empty record when it is not one.                                                                                                |
 | `asString`       | `(value: unknown) => string \| undefined`                                           | A payload field as a string, or nothing.                                                                                                                          |
 | `asNumber`       | `(value: unknown) => number \| undefined`                                           | A payload field as a number, or nothing.                                                                                                                          |
@@ -440,6 +441,10 @@ evidence do not acquire invented phases, successful checks, or file changes.
   status)` returns the model `traceFromJournal` would build for the same records.
   A record out of sequence order, or a native fact that supersedes earlier
   telemetry, refolds the journal. `TraceFold` types the handle.
+- `runMemoryOf(records)` folds the `relevance-settled` rows into the memory a
+  run was brought and the memory Jev withheld, by id and relevance, most
+  relevant first; undefined when Jev never read. `RunMemory` and `MemoryItem`
+  type it. `smthrs status` prints the same fold.
 - `turnNarratives(model)` derives concise recorded turn text. `spanPath(model,
   id)` finds recorded ancestry. `durationWords(ms)` formats elapsed time.
 - `waterfallGeometry`, `phaseExtent`, and `phaseBandGeometry` calculate layout

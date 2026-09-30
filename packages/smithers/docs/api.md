@@ -349,15 +349,15 @@ Readiness as one report.
 Read-only projections of a run's events. Nothing here opens a database, so
 `--remote` renders exactly what a local run renders.
 
-| Export             | Signature                 | Meaning                                                                                                                  |
-| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                            |
-| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
-| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                             |
-| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands.                                     |
-| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                    |
-| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                   |
-| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                       |
+| Export             | Signature                 | Meaning                                                                                                                                                                   |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                                                                             |
+| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output, and the memory the run was brought and withheld. |
+| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                                                                              |
+| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, memory, cause, and the exact next commands.                                                                              |
+| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                                                                     |
+| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                                                                    |
+| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                                                                        |
 
 ## NodeOutput
 

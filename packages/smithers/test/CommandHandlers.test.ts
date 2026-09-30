@@ -890,6 +890,33 @@ describe("forensic projections", () => {
     expect(CliError.exitCode(error as CliError.UsageError)).toBe(2)
   })
 
+  it("names the memory a run was brought and the memory Jev withheld on its status card", async () => {
+    const reading = (sequence: number, kept: ReadonlyArray<string>, withheld: ReadonlyArray<string>) =>
+      event(sequence, "control.agent.relevance-settled", {
+        scope: "run-1/coding/draft-plan",
+        frame: 0,
+        source: "run",
+        withholdAt: 0.9,
+        latencyMs: 5,
+        kept: kept.map((id) => ({ kind: "memory", id, digest: `d-${id}`, p: 0.1 })),
+        withheld: withheld.map((id) => ({ kind: "memory", id, digest: `d-${id}`, p: 0.95 }))
+      })
+    const history = historyControl([
+      event(1, "control.run.running", { runId: "run-1", status: "running" }),
+      reading(2, ["coding-learning-migrations"], ["coding-learning-release"]),
+      reading(3, ["coding-learning-tests"], [])
+    ])
+    const card = await run(text(["status", "run-1"]), history)
+    expect(card).toContain(
+      "Memory    2 in: coding-learning-migrations, coding-learning-tests · 1 withheld: coding-learning-release"
+    )
+    const unread = await run(
+      text(["status", "run-1"]),
+      historyControl([event(1, "control.run.running", { runId: "run-1", status: "running" })])
+    )
+    expect(unread).not.toContain("Memory")
+  })
+
   it("projects a finite history as a transcript for humans and as raw events under --json", async () => {
     const history = historyControl([
       event(1, "control.run.running", { runId: "run-1", status: "running" }),

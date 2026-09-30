@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Card } from "../state/AppState"
-import { memoryWords, runInputsOf, runMemoryOf } from "./RunInputs"
+import { memoryWords, runInputsOf } from "./RunInputs"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
 
@@ -18,15 +18,14 @@ const run = (payload: Partial<RunCard["payload"]>): RunCard => ({
 
 describe("run inputs", () => {
   test("a run Jev never read has no memory row at all", () => {
-    expect(runMemoryOf([])).toBeUndefined()
     expect(runInputsOf(run({}), [])).toEqual({ secrets: [] })
   })
 
   test("an item any reading kept is in; one only ever withheld is withheld; both by relevance", () => {
-    const memory = runMemoryOf([
+    const memory = runInputsOf(run({ events: [
       reading(1, [["wiki/auth/sessions", 0.18], ["rpc/Session.ts", 0.23]], [["wiki/billing", 0.95], ["wiki/auth/legacy", 0.97]]),
       reading(2, [["wiki/billing", 0.4]], [["app/Login.tsx", 0.92]])
-    ])!
+    ] } as Partial<RunCard["payload"]>), []).memory!
     expect(memory.kept.map((item) => [item.id, Number(item.relevance.toFixed(2))]))
       .toEqual([["wiki/auth/sessions", 0.82], ["rpc/Session.ts", 0.77], ["wiki/billing", 0.6]])
     expect(memory.withheld.map((item) => item.id)).toEqual(["app/Login.tsx", "wiki/auth/legacy"])

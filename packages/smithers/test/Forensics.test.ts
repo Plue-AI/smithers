@@ -176,6 +176,58 @@ describe("Forensics.digest", () => {
 })
 
 describe("Forensics.renderDiagnosis", () => {
+  const relevance = (
+    kept: ReadonlyArray<readonly [string, number]>,
+    withheld: ReadonlyArray<readonly [string, number]>,
+    at: number
+  ) =>
+    event("control.agent.relevance-settled", {
+      scope: "run-1/coding/draft-plan",
+      frame: 0,
+      source: "run",
+      withholdAt: 0.9,
+      latencyMs: 4,
+      kept: [
+        { kind: "flow", id: "lookup", digest: "d-lookup", p: 0.2 },
+        ...kept.map(([id, p]) => ({ kind: "memory", id, digest: `d-${id}`, p }))
+      ],
+      withheld: withheld.map(([id, p]) => ({ kind: "memory", id, digest: `d-${id}`, p }))
+    }, at)
+
+  it("lists the memory a run was brought and the memory Jev withheld, by id", () => {
+    const d = Forensics.digest([
+      turn(0),
+      relevance([["coding-learning-a", 0.05]], [["coding-learning-b", 0.97]], 1),
+      relevance([["coding-learning-c", 0.3]], [], 2)
+    ])
+    expect(d.memory).toEqual({
+      kept: [
+        { id: "coding-learning-a", kind: "memory", relevance: 0.95 },
+        { id: "coding-learning-c", kind: "memory", relevance: 0.7 }
+      ],
+      withheld: [{ id: "coding-learning-b", kind: "memory", relevance: expect.closeTo(0.03) }]
+    })
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, d)).toContain(
+      "Memory    2 in: coding-learning-a, coding-learning-c · 1 withheld: coding-learning-b"
+    )
+  })
+
+  it("says a read run was brought no memory, and omits the line when Jev never read", () => {
+    const empty = Forensics.digest([turn(0), relevance([], [], 1)])
+    expect(empty.memory).toEqual({ kept: [], withheld: [] })
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, empty)).toContain("Memory    0 in\n")
+    const unread = Forensics.digest([turn(0)])
+    expect("memory" in unread).toBe(false)
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, unread)).not.toContain("Memory")
+  })
+
+  it("keeps journaled memory ids terminal-inert", () => {
+    const d = Forensics.digest([relevance([["note\u001b[31mred", 0.1]], [], 1)])
+    const card = Forensics.renderDiagnosis({ runId: "run-1" }, d)
+    expect(card).not.toContain("\u001b")
+    expect(card).toContain("Memory    1 in: note")
+  })
+
   it("shows the nested provider refusal from an older recorded stack", () => {
     const cause =
       "/harness/HarnessError: The cell frame failed\n    at harness.ts:1\n  [cause]: flows/model/ModelError: Add credits to continue.\n    at model.ts:1"

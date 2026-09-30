@@ -34,6 +34,7 @@ import {
   uniqueCallEvents,
   usd
 } from "@smthrs/gateway/Diagnosis"
+import { type RunMemory, runMemoryOf } from "@smthrs/gateway/RunTrace"
 import { causeLine, terminalSafe } from "./internal/Failure.ts"
 
 /**
@@ -92,6 +93,11 @@ export interface Digest {
   readonly parkedApproval: string | undefined
   readonly startedAt: number | undefined
   readonly endedAt: number | undefined
+  /**
+   * The memory the run was brought and the memory Jev withheld, by id,
+   * absent when Jev never read for the run. The run card folds the same rows.
+   */
+  readonly memory?: RunMemory | undefined
 }
 
 /**
@@ -165,12 +171,14 @@ export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?
     if (cardStatuses.has(suffix)) status = suffix
   }
 
+  const memory = runMemoryOf(events)
   return {
     ...facts,
     status,
     duplicateCalls,
     flows: [...flowCounts.entries()].sort((left, right) => right[1] - left[1]),
-    parkedApproval
+    parkedApproval,
+    ...(memory === undefined ? {} : { memory })
   }
 }
 
@@ -278,6 +286,15 @@ export const renderDiagnosis = (
   if (d.costUsd > 0) lines.push(`${label("Cost")}${usd(d.costUsd)}`)
   for (const [index, refusal] of d.refusals.slice(0, 3).entries()) {
     lines.push(`${label(index === 0 ? "Refusals" : "")}${refusal.count}× ${clip(refusal.message, 110)}`)
+  }
+  if (d.memory !== undefined) {
+    const ids = (items: RunMemory["kept"]) => clip(terminalSafe(items.map((item) => item.id).join(", ")), 90)
+    const { kept, withheld } = d.memory
+    lines.push(
+      `${label("Memory")}${kept.length} in${kept.length === 0 ? "" : `: ${ids(kept)}`}${
+        withheld.length === 0 ? "" : ` · ${withheld.length} withheld: ${ids(withheld)}`
+      }`
+    )
   }
   if (d.cause !== undefined) {
     lines.push(`${label("Cause")}${clip(causeLine(d.cause), 240)}`)

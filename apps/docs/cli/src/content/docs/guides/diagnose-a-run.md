@@ -56,7 +56,12 @@ Lines appear only when they have something to say. A run whose model calls
 were priced gains a `Cost` line under `Tokens`: their USD total, each call at
 its provider's reported charge or else its usage at the model's rate card. A
 run with refused flow calls gains a `Refusals` line, aggregated by message with a count, which is
-usually where a stuck agent's real problem is. A run that is still waiting
+usually where a stuck agent's real problem is. A run Jev read memory for
+gains a `Memory` line: the ids of the memory it was brought, then those
+withheld as unneeded (`smthrs memory notes get <id>` shows one).
+`smthrs runs show <run-id> --json` carries the same lists as
+`diagnosis.memory`, and a client reads the same `relevance-settled` rows from
+the run's `run-events` projection. A run that is still waiting
 gains an `Unblock` line, and that line is the point of the card. It names
 what ends the wait:
 
