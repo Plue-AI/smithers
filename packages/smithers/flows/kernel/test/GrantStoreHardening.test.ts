@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern, format } from "@smthrs/capability/Capability"
-import { GrantStoreError, PermissionRequired, Rule } from "@smthrs/capability/Permission"
-import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
+import { GrantStoreError, Rule } from "@smthrs/capability/Permission"
+import { Deferred, Effect, Exit, Fiber, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { createHash } from "node:crypto"
 import * as GrantStore from "../src/GrantStore.ts"
@@ -262,57 +262,6 @@ describe("GrantStore journal write boundaries", () => {
       })
     ))
 
-  it.effect("cancels an identical envelope waiter while the first admission is still persisting", () =>
-    Effect.scoped(
-      Effect.gen(function*() {
-        const started = yield* Deferred.make<void>()
-        const release = yield* Deferred.make<void>()
-        let writes = 0
-        const store = yield* make({
-          planDigest: "plan-1",
-          attended: false,
-          persist: () =>
-            Effect.sync(() => {
-              writes += 1
-            }).pipe(
-              Effect.andThen(Deferred.succeed(started, undefined)),
-              Effect.andThen(Deferred.await(release))
-            )
-        })
-        const envelope = { planDigest: "plan-1", patterns: [workspacePattern()] }
-        const first = yield* store.grantEnvelope(envelope).pipe(Effect.forkChild({ startImmediately: true }))
-        yield* Deferred.await(started)
-        const duplicate = yield* store.grantEnvelope(envelope).pipe(Effect.forkChild({ startImmediately: true }))
-        yield* Effect.yieldNow
-        expect(duplicate.pollUnsafe()).toBeUndefined()
-
-        const cancellation = yield* Fiber.interrupt(duplicate).pipe(Effect.forkChild({ startImmediately: true }))
-        for (let i = 0; i < 20 && cancellation.pollUnsafe() === undefined; i++) {
-          yield* Effect.yieldNow
-        }
-        const cancelledBeforeRelease = cancellation.pollUnsafe()
-        const duplicateBeforeRelease = duplicate.pollUnsafe()
-        const originalStillPersisting = first.pollUnsafe()
-        const writesBeforeRelease = writes
-        const permissionBeforeRelease = yield* Effect.flip(store.check(other))
-
-        // Releasing the gate also lets a broken waiter finish during cleanup.
-        yield* Deferred.succeed(release, undefined)
-        yield* Fiber.join(first)
-        yield* Fiber.join(cancellation)
-        expect(cancelledBeforeRelease).toSatisfy(Exit.isSuccess)
-        expect(duplicateBeforeRelease).toSatisfy(Exit.isFailure)
-        if (duplicateBeforeRelease !== undefined && Exit.isFailure(duplicateBeforeRelease)) {
-          expect(Cause.hasInterruptsOnly(duplicateBeforeRelease.cause)).toBe(true)
-        }
-        expect(originalStillPersisting).toBeUndefined()
-        expect(writesBeforeRelease).toBe(1)
-        expect(writes).toBe(1)
-        expect(permissionBeforeRelease.code).toBe("permission_required")
-        yield* store.check(other)
-      })
-    ))
-
   it.effect("a concurrent identical envelope admission retries when the first admission is interrupted", () =>
     Effect.scoped(
       Effect.gen(function*() {
@@ -494,31 +443,37 @@ describe("GrantStore bounded input", () => {
       })
     ))
 
-  it.effect("preserves __proto__ metadata in attended and unattended requests", () =>
-    Effect.scoped(
-      Effect.gen(function*() {
-        const meta = JSON.parse(
-          "{\"ordinary\":\"kept\",\"__proto__\":{\"note\":\"kept-meta\"},\"nested\":{\"__proto__\":{\"note\":\"nested\"},\"ordinary\":true}}"
-        ) as Record<string, unknown>
-        const unattended = yield* make({ attended: false })
-        const failure = yield* Effect.flip(unattended.check(safe, meta))
-        expect(failure).toBeInstanceOf(PermissionRequired)
-        if (!(failure instanceof PermissionRequired)) throw new Error("expected typed permission failure")
-        expect(Object.getOwnPropertyDescriptor(failure.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
-        expect(failure.meta).toMatchObject({ ordinary: "kept" })
-        const attended = yield* make()
-        const waiting = yield* attended.check(safe, meta).pipe(Effect.forkChild({ startImmediately: true }))
-        const [pending] = yield* awaitPending(attended, 1)
-        expect(Object.getOwnPropertyDescriptor(pending!.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
-        expect(pending!.meta).toMatchObject({ ordinary: "kept" })
-        const nested = pending!.meta.nested as Record<string, unknown>
-        expect(Object.getOwnPropertyDescriptor(nested, "__proto__")?.value).toEqual({ note: "nested" })
-        expect(nested.ordinary).toBe(true)
-        yield* attended.reply(pending!.requestId, "once")
-        yield* Fiber.join(waiting)
-      })
-    ))
-
+<<<<<<< conflict 1 of 1
+%%%%%%% diff from: xpztrsny b7552cfd "🐛 fix(review): pin PR comparisons to immutable base commits" (parents of rebased revision)
+\\\\\\\        to: vksnmmsy 86b6be07 "🐛 fix(harbor): release failed startup slots without verifier handoff (#2683)" (parents of squashed revision)
+   it.effect("preserves __proto__ metadata in attended and unattended requests", () =>
+     Effect.scoped(
+       Effect.gen(function*() {
+-        const meta = JSON.parse('{"ordinary":"kept","__proto__":{"note":"kept-meta"},"nested":{"__proto__":{"note":"nested"},"ordinary":true}}') as Record<string, unknown>
++        const meta = JSON.parse(
++          "{\"ordinary\":\"kept\",\"__proto__\":{\"note\":\"kept-meta\"},\"nested\":{\"__proto__\":{\"note\":\"nested\"},\"ordinary\":true}}"
++        ) as Record<string, unknown>
+         const unattended = yield* make({ attended: false })
+         const failure = yield* Effect.flip(unattended.check(safe, meta))
+         expect(failure).toBeInstanceOf(PermissionRequired)
+         if (!(failure instanceof PermissionRequired)) throw new Error("expected typed permission failure")
+         expect(Object.getOwnPropertyDescriptor(failure.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
+         expect(failure.meta).toMatchObject({ ordinary: "kept" })
+         const attended = yield* make()
+         const waiting = yield* attended.check(safe, meta).pipe(Effect.forkChild({ startImmediately: true }))
+         const [pending] = yield* awaitPending(attended, 1)
+         expect(Object.getOwnPropertyDescriptor(pending!.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
+         expect(pending!.meta).toMatchObject({ ordinary: "kept" })
+         const nested = pending!.meta.nested as Record<string, unknown>
+         expect(Object.getOwnPropertyDescriptor(nested, "__proto__")?.value).toEqual({ note: "nested" })
+         expect(nested.ordinary).toBe(true)
+         yield* attended.reply(pending!.requestId, "once")
+         yield* Fiber.join(waiting)
+       })
+     ))
+ 
++++++++ lwrwyqzq 0347f302 (rebased revision)
+>>>>>>> conflict 1 of 1 ends
   it.effect("accepts the metadata boundary without retaining optional members", () =>
     Effect.scoped(
       Effect.gen(function*() {

@@ -36,6 +36,27 @@ describe("FlowProxy", () => {
       expect(discardPayload).toMatchObject({ executionId: "client-discard", payload: { value: 1 } })
     }))
 
+  it("carries capability ceilings through each RPC and HTTP request", () => {
+    const rpcGroup = FlowProxy.toRpcGroup([flow])
+    const httpGroup = FlowProxy.toHttpApiGroup("flows", [flow])
+    const capabilityCeilings = [[{ action: "fs:write", resource: "/workspace/**" }], []]
+    for (const operation of [flow._tag, `${flow._tag}Discard`, `${flow._tag}Resume`] as const) {
+      const schemas = [
+        rpcGroup.requests.get(operation)!.payloadSchema,
+        httpGroup.endpoints[operation]!.payload.get("application/json")!.schemas[0]
+      ]
+      for (const schema of schemas) {
+        const decode = Schema.decodeUnknownSync(schema as Schema.Codec<unknown>)
+        const request = {
+          executionId: "remote-1",
+          ...(operation === `${flow._tag}Resume` ? {} : { payload: { value: 1 } }),
+          capabilityCeilings
+        }
+        expect(decode(request)).toMatchObject({ capabilityCeilings })
+      }
+    }
+  })
+
   it("rejects malformed execution ids in every RPC and HTTP payload schema", () => {
     const rpcGroup = FlowProxy.toRpcGroup([flow])
     const httpGroup = FlowProxy.toHttpApiGroup("flows", [flow])

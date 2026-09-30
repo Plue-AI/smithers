@@ -149,7 +149,7 @@ export const make = (options: Options): Sandbox.Provider => {
           prefix: Effect.tryPromise({
             try: (signal) => api.sshPrefix(`${options.repository}/${id}`, signal),
             catch: () => failure("could not obtain workspace SSH access")
-          })
+          }).pipe(Effect.map((prefix) => [...prefix, "env", "HOME=/home/developer"]))
         })
         return yield* provider.acquire(session)
       })

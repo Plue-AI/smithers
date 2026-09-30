@@ -17,6 +17,7 @@
  * @since 0.1.0
  */
 
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type { NonEmptyReadonlyArray } from "effect/Array"
 import * as Effect from "effect/Effect"
@@ -147,11 +148,13 @@ const guardDefects = (flowName: string) => <A, E, R>(effect: Effect.Effect<A, E,
 type ExecuteRequest = {
   readonly payload: any
   readonly executionId: string
+  readonly capabilityCeilings?: CapabilitySet.CapabilitySet["groups"]
 }
 
 /** The decoded body of a resume request, which names only an execution. */
 type ResumeRequest = {
   readonly executionId: string
+  readonly capabilityCeilings?: CapabilitySet.CapabilitySet["groups"]
 }
 
 /**
@@ -181,6 +184,7 @@ const handleExecute = (
       })
     })
   ).pipe(
+    CapabilitySet.attenuateGroups(request.capabilityCeilings ?? []),
     guardDefects(flow._tag),
     Effect.annotateLogs({ module: "FlowProxyServer", method })
   )
@@ -198,6 +202,7 @@ const handleResume = (
 (request: ResumeRequest) =>
   Effect.suspend(() => resumeExecutionId(scope, flow, request.executionId)).pipe(
     Effect.flatMap((executionId) => flow.resume(executionId)),
+    CapabilitySet.attenuateGroups(request.capabilityCeilings ?? []),
     guardDefects(flow._tag),
     Effect.annotateLogs({ module: "FlowProxyServer", method })
   )

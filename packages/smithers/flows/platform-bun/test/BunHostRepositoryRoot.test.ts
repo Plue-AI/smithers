@@ -41,7 +41,11 @@ describe("BunHost repository-root validation", () => {
 
         expect(error).toBeInstanceOf(BunHost.BunHostError)
         expect(error).toBeInstanceOf(Error)
-        expect(error).toMatchObject({ name: "BunHostError", code: "invalid_repository_root" })
+        expect(error).toMatchObject({
+          _tag: "@smthrs/platform-bun/BunHostError",
+          name: "BunHostError",
+          code: "invalid_repository_root"
+        })
         const message = (error as Error).message
         // The Bun factory that refused, and the root it refused, verbatim.
         expect(message).toContain(`BunHost.${factory}`)

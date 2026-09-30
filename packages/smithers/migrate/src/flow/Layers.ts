@@ -178,6 +178,7 @@ export const seatResolver = (options: {
           ? seatOf(
             Route.openaiResponsesCompatible({
               id: "openrouter",
+              providerName: "openrouter",
               baseUrl: "https://openrouter.ai/api",
               apiKey: redacted
             }),

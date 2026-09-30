@@ -464,6 +464,9 @@ const continuation = /\s*\+\s*/y
 /** A value an earlier pass already replaced. */
 const alreadyRedacted = /^\[REDACTED\]$/
 
+/** A URL password, the same run the `url-credentials` rule reads, before its `@`. */
+const userinfoPassword = /[^\s:@/]+(?=@)/y
+
 /**
  * Redacts the value after each name `names` matches. A quoted value is
  * consumed whole at any string-escape depth, with the pieces `util.inspect`
@@ -492,7 +495,14 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
     const opener = text[start + depth]
     const quote = isQuote(opener) ? opener! : undefined
     let end: number
-    if (quote !== undefined) {
+    // URL userinfo (`https://x-access-token:abc@github.com/o/r`): the value is
+    // the password before `@`, as the URL rule reads it. The host and path are
+    // what a failed clone or request is diagnosed by.
+    userinfoPassword.lastIndex = start
+    if (match.index >= 2 && text.startsWith("//", match.index - 2) && userinfoPassword.test(text)) {
+      end = userinfoPassword.lastIndex
+      if (alreadyRedacted.test(text.slice(start, end))) continue
+    } else if (quote !== undefined) {
       start += depth
       const inner = stack[innermostString(stack)]
       if (inner !== undefined) {

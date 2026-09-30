@@ -29,4 +29,3 @@ export * from "./SnapshotBoundary.ts"
  */
 export { FlowNotRegistered, SuspendedResumeGaveUp } from "./Trampoline.ts"
 
-export { RemoteCapabilityCeilingUnsupported } from "./Placed.ts"

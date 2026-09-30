@@ -10,6 +10,7 @@
  * @since 0.1.0
  */
 
+import { CapabilityPattern } from "@smthrs/capability/Capability"
 import { type Flow, FlowRuntime } from "@smthrs/flow"
 import type { NonEmptyReadonlyArray } from "effect/Array"
 import * as Schema from "effect/Schema"
@@ -106,9 +107,14 @@ const ExecutionId = Schema.String.check(
   Schema.makeFilter(isWellFormedUtf16, { expected: "well-formed UTF-16 text" })
 )
 
+/** Authority carried by a placed request; each inner group is an alternative, and groups intersect. */
+const CapabilityCeilings = Schema.Array(Schema.Array(CapabilityPattern))
+const OptionalCapabilityCeilings = Schema.optional(CapabilityCeilings)
+
 type ExecutePayload<Payload extends Flow.AnyStructSchema> = Schema.Struct<{
   readonly payload: Payload
   readonly executionId: typeof ExecutionId
+  readonly capabilityCeilings: typeof OptionalCapabilityCeilings
 }>
 
 const executePayload = <Payload extends Flow.AnyStructSchema>(
@@ -116,7 +122,8 @@ const executePayload = <Payload extends Flow.AnyStructSchema>(
 ): ExecutePayload<Payload> =>
   Schema.Struct({
     payload,
-    executionId: ExecutionId
+    executionId: ExecutionId,
+    capabilityCeilings: OptionalCapabilityCeilings
   })
 
 /**
@@ -381,6 +388,9 @@ export type ConvertHttpApi<Flows extends Flow.Any> = Flows extends Flow.Flow<
     > :
   never
 
-const ResumePayload = Schema.Struct({ executionId: ExecutionId })
+const ResumePayload = Schema.Struct({
+  executionId: ExecutionId,
+  capabilityCeilings: OptionalCapabilityCeilings
+})
 
 const CancelRequestFailed = FlowRuntime.CancelRequestFailed

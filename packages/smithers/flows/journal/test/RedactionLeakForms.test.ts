@@ -128,6 +128,17 @@ describe("the default rules", () => {
     expect(Redaction.redact("mkdir -p build/out")).toBe("mkdir -p build/out")
     expect(Redaction.redact(["ssh", "-p", "2222", "host"])).toEqual(["ssh", "-p", "2222", "host"])
   })
+
+  it("keeps the host and path of a URL whose user names a credential", () => {
+    // A git remote's user is `x-access-token`, which reads as a credential
+    // name; its value is still only the password before `@`.
+    const remote = (password: string) => `'https://x-access-token:${password}@github.com/acme/private.git/': 403`
+    expect(Redaction.redact(remote(secret))).toBe(remote(Redaction.placeholder))
+    expect(Redaction.redact(`token:${secret}@github.com`)).toBe(`token:${Redaction.placeholder}`)
+    const diagnostic = String(Redaction.redactDiagnostic(remote(secret)))
+    expect(diagnostic).not.toContain(secret)
+    expect(diagnostic).toContain(`${Redaction.placeholder}@github.com/acme/private.git/': 403`)
+  })
 })
 
 describe("the default rules in a durable row", () => {

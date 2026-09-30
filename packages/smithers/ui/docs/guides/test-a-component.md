@@ -14,6 +14,10 @@ Also run a typecheck over your tests. The package ships TypeScript sources
 rather than a build, so `tsc --noEmit` is what catches a prop that no longer
 exists.
 
+When editing this package's JSX, write rendered edge spaces as `{" "}`. The
+pinned dprint TypeScript plugin drops literal spaces beside expressions such as
+`<span>{label} </span>`; see [dprint/dprint-plugin-typescript#476](https://github.com/dprint/dprint-plugin-typescript/issues/476).
+
 ## Register happy-dom in a preload, not a test file
 
 Radix resolves its server-safe `useLayoutEffect` shim at module load time. With

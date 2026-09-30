@@ -53,6 +53,23 @@ const run = <A, E>(effect: Effect.Effect<A, E, ChildProcessSpawner>) =>
   Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
 
 describe("CloudSandbox", () => {
+  it("defaults guest HOME to the workspace user and preserves explicit child overrides", async () => {
+    const f = fixture()
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      yield* Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const home = yield* spawner.string(ChildProcess.make("sh", ["-c", "printf '%s' \"$HOME\""]))
+        expect(home).toBe("/home/developer")
+        const override = yield* spawner.string(
+          ChildProcess.make("sh", ["-c", "printf '%s' \"$HOME\""], { env: { HOME: "/custom/home" }, extendEnv: false })
+        )
+        expect(override).toBe("/custom/home")
+      }).pipe(Effect.provide(Sandbox.layerHost(provider, { session: "home" })), Effect.scoped)
+    }))
+    expect(f.requests.at(-1)?.method).toBe("DELETE")
+  })
+
   it("places commands and binary files on the acquired workspace, refreshes grants, then deletes it", async () => {
     const f = fixture(["pending", "provisioning", "running"])
     await run(Effect.gen(function*() {

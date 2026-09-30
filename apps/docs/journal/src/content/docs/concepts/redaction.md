@@ -61,6 +61,9 @@ A quoted value keeps its quotes around the placeholder
 (`PASSWORD="[REDACTED]"`). A name ending in `key` counts only where
 `isSensitiveKey` agrees, so `sortKey` and `idempotencyKey` keep their values,
 and a count under a plural `tokens` name (`max_tokens: 4096`) is kept.
+A credential name that is a URL's user
+(`https://x-access-token:…@github.com/acme/app.git`) takes only the password
+before `@`, so the host and path a failed clone is diagnosed by are kept.
 
 In a journal row a bare value is one token, and a string or container the text
 never closes stops at the end of its line: a stray backtick in an agent's

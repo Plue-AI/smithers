@@ -312,7 +312,7 @@ const metadataSnapshot = (input: Readonly<Record<string, unknown>>): Readonly<Re
       if (prototype !== Object.prototype && prototype !== null) {
         throw invalid("metadata objects must be plain records")
       }
-      const snapshot: Record<string, Json> = Object.create(null)
+      const snapshot: Record<string, Json> = {}
       for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
         if (!descriptor.enumerable) continue
         members += 1

@@ -71,27 +71,36 @@ const waitForEsrch = async (pid: number): Promise<void> => {
 }
 
 describe("ChildProcessSpawner real Node lifecycle", () => {
-  it.effect("passes own __proto__ and ordinary environment values to a real child", () =>
-    Effect.gen(function*() {
-      const env = Object.create(null) as Record<string, string>
-      env.__proto__ = "kept-env"
-      env.ORDINARY = "kept"
-      const command = ChildProcess.make(process.execPath, [
-        "-e",
-        "console.log(JSON.stringify({ordinary:process.env.ORDINARY,special:process.env['__proto__']}))"
-      ], { env, extendEnv: false })
-      const pattern = new CapabilityPattern({ action: "proc:spawn", resource: "**" })
-      const output = yield* withGuardedSpawner({
-        attended: false,
-        rules: [new Permission.Rule({ effect: "allow", pattern })]
-      }, () =>
-        Effect.gen(function*() {
-          const spawner = yield* EffectChildProcessSpawner
-          return yield* spawner.string(command)
-        }))
-      expect(JSON.parse(output)).toEqual({ ordinary: "kept", special: "kept-env" })
-    }))
-
+<<<<<<< conflict 1 of 1
+%%%%%%% diff from: xpztrsny b7552cfd "🐛 fix(review): pin PR comparisons to immutable base commits" (parents of rebased revision)
+\\\\\\\        to: vksnmmsy 86b6be07 "🐛 fix(harbor): release failed startup slots without verifier handoff (#2683)" (parents of squashed revision)
+   it.effect("passes own __proto__ and ordinary environment values to a real child", () =>
+     Effect.gen(function*() {
+       const env = Object.create(null) as Record<string, string>
+       env.__proto__ = "kept-env"
+       env.ORDINARY = "kept"
+       const command = ChildProcess.make(process.execPath, [
+         "-e",
+         "console.log(JSON.stringify({ordinary:process.env.ORDINARY,special:process.env['__proto__']}))"
+       ], { env, extendEnv: false })
+       const pattern = new CapabilityPattern({ action: "proc:spawn", resource: "**" })
+       const output = yield* withGuardedSpawner({
+         attended: false,
+         rules: [new Permission.Rule({ effect: "allow", pattern })]
+-      }, () => Effect.gen(function*() {
+-        const spawner = yield* EffectChildProcessSpawner
+-        return yield* spawner.string(command)
+-      }))
++      }, () =>
++        Effect.gen(function*() {
++          const spawner = yield* EffectChildProcessSpawner
++          return yield* spawner.string(command)
++        }))
+       expect(JSON.parse(output)).toEqual({ ordinary: "kept", special: "kept-env" })
+     }))
+ 
++++++++ lwrwyqzq 0347f302 (rebased revision)
+>>>>>>> conflict 1 of 1 ends
   it.effect("leaves no process side effect when the real store denies before spawn", () =>
     Effect.gen(function*() {
       const directory = yield* Effect.promise(() => temporaryDirectory())
