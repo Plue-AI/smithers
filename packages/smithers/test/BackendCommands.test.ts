@@ -914,3 +914,71 @@ describe("stack lifecycle", () => {
     expect(request.mock.calls.some(([, , body]) => object(body).method === "DELETE")).toBe(true)
   })
 })
+
+describe("workspace create over local HTTP (#2939)", () => {
+  // The backend create route stores these fields and refuses every other one (strict decoding).
+  const stored = new Set(["name", "snapshot_id", "source_bookmark", "kind", "environment", "client_lease_seconds"])
+  const createServer = async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const fixture = await homeFixture((req, res) => {
+      let raw = ""
+      req.on("data", (chunk) => {
+        raw += String(chunk)
+      })
+      req.on("end", () => {
+        expect(`${req.method} ${req.url}`).toBe("POST /api/repos/owner/repo/workspaces")
+        const body = JSON.parse(raw) as Record<string, unknown>
+        bodies.push(body)
+        const unknown = Object.keys(body).find((key) => !stored.has(key))
+        res.writeHead(unknown === undefined ? 202 : 400, { "Content-Type": "application/json" })
+        res.end(
+          JSON.stringify(
+            unknown === undefined ? { id: "box", status: "pending", kind: body.kind ?? "container" } : {
+              message: `unknown field "${unknown}"`
+            }
+          )
+        )
+      })
+    })
+    return { ...fixture, bodies }
+  }
+  it("sends the selected kind and creates the workspace", async () => {
+    const fixture = await createServer()
+    try {
+      const result = await fixture.run(["workspace", "create", "--repo", "owner/repo", "--name", "dev", "--kind", "vm"])
+      expect(result.code, result.error).toBe(0)
+      expect(fixture.bodies).toEqual([{ name: "dev", kind: "vm" }])
+    } finally {
+      await fixture.close()
+    }
+  })
+  it.each([
+    [["--cpus", "4", "--memory", "8192", "--disk", "32768"], "resources"],
+    [["--image", "docker.io/library/python:3.13-slim"], "image"],
+    [["--allow", "github.com"], "network"],
+    [["--idle-timeout", "1800"], "idle_timeout_seconds"],
+    [["--service", "web=npm start"], "services"]
+  ])("passes %j through and exits non-zero with the backend refusal", async (flags, field) => {
+    const fixture = await createServer()
+    try {
+      const result = await fixture.run(["workspace", "create", "--repo", "owner/repo", ...flags])
+      expect(fixture.bodies).toHaveLength(1)
+      expect(fixture.bodies[0]).toHaveProperty(field)
+      expect(result.code).not.toBe(0)
+      expect(result.output + result.error).toContain("code: request_refused")
+      expect(result.output + result.error).toContain(`unknown field \\"${field}\\"`)
+    } finally {
+      await fixture.close()
+    }
+  })
+  it("refuses an unknown kind before any request", async () => {
+    const fixture = await createServer()
+    try {
+      const result = await fixture.run(["workspace", "create", "--repo", "owner/repo", "--kind", "gpu"])
+      expect(result.code).not.toBe(0)
+      expect(fixture.bodies).toEqual([])
+    } finally {
+      await fixture.close()
+    }
+  })
+})

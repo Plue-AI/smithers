@@ -8,7 +8,9 @@ description: Create and reuse named repository workspaces.
 `POST /api/repos/{owner}/{repo}/workspaces` accepts `name`, optional
 `source_bookmark`, and optional `kind` (`container`, `vm`, or `desktop`).
 An omitted bookmark uses the repository default. An omitted kind uses
-`container`.
+`container`. Any other field, such as `resources`, `image`, `network`,
+`idle_timeout_seconds` or `services`, is refused with `400 unknown field`
+before provisioning. The route never drops a setting silently.
 
 ```json
 {"name":"issue-2924","source_bookmark":"main","kind":"vm"}

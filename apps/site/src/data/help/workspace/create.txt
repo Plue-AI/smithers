@@ -8,14 +8,15 @@ Options:
   --disk <number>
   --idle-timeout <number>
   --image <string>
+  --kind <container|vm|desktop>
   --memory <number>
-  --name <string>           (default: )
+  --name <string>                 (default: )
   --network <string>
   --repo, -R <string>
   --service <array>
   --snapshot <string>
   --wait
-  --wait-timeout <number>   (default: 600)
+  --wait-timeout <number>         (default: 600)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

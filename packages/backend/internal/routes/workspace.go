@@ -140,6 +140,7 @@ type createWorkspaceRequest struct {
 	Name           string                        `json:"name"`
 	SnapshotID     string                        `json:"snapshot_id"`
 	SourceBookmark string                        `json:"source_bookmark,omitempty"`
+	SourceRef      string                        `json:"source_ref,omitempty"` // a pushed ref of the caller (#1968)
 	Kind           string                        `json:"kind,omitempty"`
 	Environment    services.WorkspaceEnvironment `json:"environment,omitempty"`
 	// ClientLeaseSeconds leases the workspace to this client; renew it with
@@ -365,9 +366,10 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Strict: a setting this route does not store (resources, image, network,
+	// idle timeout, services) is refused before provisioning, never dropped (#2939).
 	var req createWorkspaceRequest
-	if err := decodeJSONBodyError(w, r, &req); err != nil {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
+	if !decodeStrictJSONBody(w, r, &req) {
 		return
 	}
 
@@ -379,6 +381,7 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 		Name:           req.Name,
 		SnapshotID:     req.SnapshotID,
 		SourceBookmark: req.SourceBookmark,
+		SourceRef:      req.SourceRef,
 		Kind:           req.Kind,
 		Environment:    req.Environment,
 		// A lease is optional; zero leaves the workspace unleased.

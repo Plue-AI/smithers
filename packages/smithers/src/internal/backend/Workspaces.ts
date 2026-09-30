@@ -78,7 +78,7 @@ const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint
  * @since 1.0.0
  */
 export const workspaceBody = (o: Values) => {
-  const body: Values = { name: str(o.name), ...pick(o, ["image"]) }
+  const body: Values = { name: str(o.name), ...pick(o, ["image", "kind"]) }
   if (o.snapshot) body.snapshot_id = o.snapshot
   const resources: Values = {}
   for (const [key, field] of [["cpus", "cpus"], ["memory", "memory_mb"], ["disk", "disk_mb"]]) {
