@@ -1,0 +1,5 @@
+{"at": 0, "event": {"_tag": "model-requested"}}
+{"at": 1, "event": {"_tag": "model-delta", "delta": {"type": "text-start", "id": "m1"}}}
+{"at": 2, "event": {"_tag": "model-delta", "delta": {"type": "text-delta", "id": "m1", "text": "```cell\nlet answer\ntry {\n  await ctx.call(\"agent.delegate\", { id: \"part\", title: \"Part\", prompt: \"Review your part\" })\n  const [part] = await ctx.call(\"agent.wait\", { ids: [\"part\"] })\n  answer = `parent of ${part.answer}`\n} catch {\n  answer = \"leaf\"\n}\nctx.done(answer)\n```"}}}
+{"at": 3, "event": {"_tag": "model-delta", "delta": {"type": "text-end", "id": "m1"}}}
+{"at": 4, "event": {"_tag": "model-settled", "message": {"stopReason": "stop"}}}

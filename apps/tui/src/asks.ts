@@ -59,7 +59,7 @@ export const schema = (ask: Pick<Ask, "options">): Schema.Top =>
     ? Schema.Struct({ answer: Schema.Literals(ask.options as [string, ...Array<string>]) })
     : Schema.Struct({ answer: Schema.String.check(Schema.isMinLength(1)) })
 
-type Open = Ask & { readonly settle: (answer: string) => void }
+type Open = Ask & { readonly settle: (answer: string) => void; readonly refuse: (reason: string) => void }
 
 export class Asks {
   private asks = new Map<string, Open>()
@@ -90,6 +90,10 @@ export class Asks {
         settle: (answer: string) => {
           signal?.removeEventListener("abort", withdraw)
           resolve(answer)
+        },
+        refuse: (reason: string) => {
+          signal?.removeEventListener("abort", withdraw)
+          reject(new Error(reason))
         }
       }
       this.asks.set(id, ask)
@@ -104,6 +108,16 @@ export class Asks {
     if (ask === undefined || (by !== person && ask.holder !== by)) return false
     this.asks.delete(id)
     ask.settle(answer)
+    this.ports.changed()
+    return true
+  }
+
+  /** Fails an open ask with `reason`: nobody can answer it. */
+  refuse(id: string, reason: string): boolean {
+    const ask = this.asks.get(id)
+    if (ask === undefined) return false
+    this.asks.delete(id)
+    ask.refuse(reason)
     this.ports.changed()
     return true
   }
@@ -211,4 +225,4 @@ export class Asks {
   }
 }
 
-const plain = ({ settle: _, ...ask }: Open): Ask => ask
+const plain = ({ settle: _settle, refuse: _refuse, ...ask }: Open): Ask => ask

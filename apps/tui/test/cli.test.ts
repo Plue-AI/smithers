@@ -1,6 +1,8 @@
 import { expect, it } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import * as Cli from "../src/cli.ts"
 
 it("shows help without validating the workspace or starting a model", () => {
@@ -52,6 +54,22 @@ it("refuses redirected interactive streams while print mode still works", () => 
   expect(printed.stderr).toBe("")
   // The test's own bound covers both child bounds under a loaded suite.
 }, 25_000)
+
+it("print mode delegates, waits for its children and prints their aggregate", () => {
+  const app = resolve(import.meta.dir, "../src/main.tsx")
+  // Every worker replays the same cell: delegate a part and wait for it, until depth four is refused.
+  const env = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/fan-out.jsonl"),
+    SMITHERS_TUI_SESSION_DIR: mkdtempSync(join(tmpdir(), "tui-print-sessions-"))
+  }
+  const printed = spawnSync("bun", [app, "--print", "Review the range"], { encoding: "utf8", env, timeout: 20_000 })
+  expect(printed.status, printed.stderr).toBe(0)
+  expect(printed.stdout.split("\n")[0]).toBe("parent of parent of parent of leaf")
+  expect(printed.stdout).toContain("AgentDepthExceeded (depth_exceeded)")
+  expect(printed.stdout).not.toContain("Unknown flow")
+}, 30_000)
 
 it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
   "does not load terminal libraries for %j",

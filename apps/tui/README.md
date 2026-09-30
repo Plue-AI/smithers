@@ -64,7 +64,10 @@ first available non-Cerebras seat (usually the ChatGPT subscription from
 failure a worker tries its routing graph's backups that run here;
 `SMITHERS_TUI_WORKER_SEATS=a,b` sets that fallback order instead, for routed
 and resumed workers too. The picker lists only
-providers this machine can reach. Print mode answers one request directly.
+providers this machine can reach. Print mode (`-p`) runs the prompt as one
+worker on the worker seat, or `--model`: it can delegate and wait like any
+worker, and an ask that reaches the person fails, since nobody is at the
+terminal.
 
 Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n**; `deny` refuses

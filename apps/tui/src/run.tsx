@@ -14,17 +14,16 @@ import * as Log from "./log.ts"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
-import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
 import * as Approvals from "./approvals.ts"
 import * as Box from "./box.ts"
 import * as Budget from "./budget.ts"
 import * as Cli from "./cli.ts"
-import type * as Context from "./context.ts"
 import * as FlowControl from "./flow-control.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
+import * as Print from "./print.ts"
 import * as Session from "./session.ts"
 import * as Spend from "./spend.ts"
 
@@ -90,29 +89,20 @@ const host = Host.make({
 })
 
 if (values.print !== undefined) {
-  const notice = Approvals.notices()
-  const turn = host.run({
+  const outcome = await Print.run({
+    host,
     prompt: values.print,
-    seat,
-    history: [] as Array<Context.Entry>,
-    onEvent: (event) => {
-      if (event._tag !== "cell-call-settled" || !Approvals.denied(event.result)) return
-      const line = notice(event.flowName)
-      if (line !== undefined) console.error(line)
-    }
+    workerSeat: replay === undefined ? available.workerSeat ?? seat : seat,
+    model: values.model,
+    delegable: Models.delegable(available.models),
+    onNotice: (line) => console.error(line)
   })
-  const outcome = await turn.done
   await host.dispose()
   if (outcome._tag === "done") {
     console.log(outcome.answer)
     process.exit(0)
   }
-  if (outcome._tag === "failed") {
-    const failure = FailureCopy.describe(outcome.error, seat)
-    console.error(`${failure.headline}\n${failure.line}`)
-  } else {
-    console.error("Stopped")
-  }
+  console.error(outcome._tag === "failed" ? `${outcome.headline}\n${outcome.line}` : "Stopped")
   process.exit(1)
 }
 
