@@ -389,6 +389,7 @@ const settle = (
     landed: ReadonlyArray<string>
     quarantined: ReadonlyArray<{ key: string; error: string }>
     receiptsPending?: ReadonlyArray<{ key: string; error: string }> | undefined
+    retainedSnapshots?: ReadonlyArray<{ path: string; error: string }> | undefined
   }
 ) =>
   Effect.promise(async () => {
@@ -458,7 +459,10 @@ const settle = (
     await writeFile(
       join(opsDir, "status.txt"),
       `${line}\n${
-        (landed.receiptsPending ?? []).map((item) => `receipts pending ${item.key}: ${item.error}`).join("\n")
+        [
+          ...(landed.receiptsPending ?? []).map((item) => `receipts pending ${item.key}: ${item.error}`),
+          ...(landed.retainedSnapshots ?? []).map((item) => `snapshot retained ${item.path}: ${item.error}`)
+        ].join("\n")
       }\n`
     )
     if (capped) {

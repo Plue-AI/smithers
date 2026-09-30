@@ -113,7 +113,8 @@ export type PacePlan = typeof PacePlan.Type
 export const LandReport = Schema.Struct({
   landed: Schema.Array(Schema.String),
   quarantined: Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String })),
-  receiptsPending: Schema.optional(Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String })))
+  receiptsPending: Schema.optional(Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String }))),
+  retainedSnapshots: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String, error: Schema.String })))
 })
 export type LandReport = typeof LandReport.Type
 

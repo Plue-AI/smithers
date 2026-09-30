@@ -6,10 +6,10 @@
 import * as MergeQueue from "@smthrs/patterns/MergeQueue"
 import { Data, Effect } from "effect"
 import { execFile, execFileSync, spawn } from "node:child_process"
-import { mkdtempSync, readFileSync } from "node:fs"
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmod, mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises"
+import { homedir, hostname, tmpdir } from "node:os"
+import { basename, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 import { acceptanceReviewPrelude, pushedReceiptProgram } from "./acceptance-program.ts"
 import {
@@ -489,6 +489,141 @@ done
 `
 }
 
+/**
+ * A durable lease for one owned verification snapshot. It is written before the
+ * landing process starts and deleted only after the snapshot is really gone, so a
+ * cleanup failure, a timed-out removal or a host restart leaves a recoverable record.
+ */
+interface SnapshotLease {
+  readonly version: 1
+  readonly path: string
+  readonly host: string
+  readonly pid: number
+  readonly started: string | null
+  readonly createdAt: string
+  readonly diagnostics: ReadonlyArray<string>
+}
+
+const snapshotLedger = (explicit?: string) =>
+  explicit ?? process.env.BURNDOWN_SNAPSHOT_LEDGER ?? join(scriptDir, "snapshots")
+const snapshotName = /^burndown-verification-[A-Za-z0-9]{6}$/
+const leasePath = (ledger: string, snapshot: string) => join(ledger, `${basename(snapshot)}.json`)
+/** Snapshots this process still owns; a same-process lease outside this set is retained. */
+const activeSnapshots = new Set<string>()
+
+/** Process start identity; a reused pid (for example after a host restart) never matches. */
+const processStart = (pid: number): string | null | undefined => {
+  try {
+    const started = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 })
+      .trim()
+    return started === "" ? undefined : started
+  } catch (cause) {
+    const error = cause as { status?: number; stdout?: string }
+    // ps exits 1 with no rows for a missing pid; any other failure proves nothing.
+    return error.status === 1 && (error.stdout ?? "").trim() === "" ? undefined : null
+  }
+}
+let ownStart: string | null | undefined
+
+const ownerAlive = (lease: SnapshotLease): boolean => {
+  ownStart ??= processStart(process.pid) ?? null
+  if (lease.pid === process.pid && lease.started === ownStart) return activeSnapshots.has(lease.path)
+  const started = processStart(lease.pid)
+  if (started === undefined) return false
+  // Without a recorded or readable identity a live pid is assumed to be the owner.
+  return started === null || lease.started === null || started === lease.started
+}
+
+const writeLease = (ledger: string, lease: SnapshotLease) => {
+  mkdirSync(ledger, { recursive: true })
+  const path = leasePath(ledger, lease.path)
+  writeFileSync(`${path}.tmp`, JSON.stringify(lease))
+  // Rename keeps a crash from leaving a torn lease that recovery would have to refuse.
+  renameSync(`${path}.tmp`, path)
+}
+
+const retainDiagnostic = (ledger: string, lease: SnapshotLease, diagnostic: string) => {
+  try {
+    writeLease(ledger, {
+      ...lease,
+      diagnostics: [...lease.diagnostics, `${new Date().toISOString()} ${diagnostic}`].slice(-10)
+    })
+  } catch {
+    // The lease written at creation still records the path for recovery.
+  }
+}
+
+/** The real removal, and a bounded view of it; removal may finish after the deadline. */
+const removeBounded = (path: string, timeout: number) => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const removal = rm(path, { recursive: true, force: true, maxRetries: 0 })
+  const bounded = Promise.race([
+    removal,
+    new Promise<never>((_, fail) => {
+      timer = setTimeout(() => fail(new Error("snapshot cleanup timeout")), timeout)
+    })
+  ]).finally(() => clearTimeout(timer))
+  return { removal, bounded }
+}
+
+export interface SnapshotRecovery {
+  readonly recovered: ReadonlyArray<string>
+  readonly retained: ReadonlyArray<{ readonly path: string; readonly diagnostics: ReadonlyArray<string> }>
+}
+
+/**
+ * Removes verification snapshots whose recorded owner has exited, on this host only.
+ * Only paths named by a valid lease are deleted; a live sibling runner's snapshot,
+ * another host's lease and an unrecognised path are retained. The whole pass is bounded.
+ */
+export const recoverRetainedSnapshots = async (
+  options: { ledger?: string; timeout?: number } = {}
+): Promise<SnapshotRecovery> => {
+  const ledger = snapshotLedger(options.ledger)
+  const deadline = Date.now() + Math.min(options.timeout ?? 5000, 5000)
+  const recovered: Array<string> = []
+  const retained: Array<{ path: string; diagnostics: ReadonlyArray<string> }> = []
+  let names: Array<string>
+  try {
+    names = (await readdir(ledger)).filter((name) => name.endsWith(".json")).sort()
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return { recovered, retained }
+    throw cause
+  }
+  for (const name of names) {
+    let lease: SnapshotLease
+    try {
+      lease = JSON.parse(await readFile(join(ledger, name), "utf8")) as SnapshotLease
+    } catch (cause) {
+      retained.push({ path: join(ledger, name), diagnostics: [`unreadable lease: ${String(cause)}`] })
+      continue
+    }
+    const valid = lease.version === 1 && typeof lease.path === "string" && typeof lease.pid === "number" &&
+      Array.isArray(lease.diagnostics) && name === `${basename(lease.path)}.json` &&
+      snapshotName.test(basename(lease.path)) && resolve(lease.path) === lease.path &&
+      resolve(dirname(lease.path)) === resolve(tmpdir())
+    if (!valid) {
+      retained.push({ path: join(ledger, name), diagnostics: ["invalid lease; never deleted"] })
+      continue
+    }
+    if (lease.host !== hostname() || ownerAlive(lease)) continue
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      retained.push({ path: lease.path, diagnostics: [...lease.diagnostics, "recovery deadline reached"] })
+      continue
+    }
+    try {
+      await removeBounded(lease.path, remaining).bounded
+      await unlink(join(ledger, name))
+      recovered.push(lease.path)
+    } catch (cause) {
+      retainDiagnostic(ledger, lease, `recovery: ${String(cause)}`)
+      retained.push({ path: lease.path, diagnostics: [...lease.diagnostics, `recovery: ${String(cause)}`] })
+    }
+  }
+  return { recovered, retained }
+}
+
 /** Cancel the lock, shell, and detached tool descendants before reporting quarantine. */
 export const runLandingProcess = (
   command: string,
@@ -499,6 +634,7 @@ export const runLandingProcess = (
     timeout?: number
     signal?: AbortSignal
     snapshotCleanupTimeout?: number
+    snapshotLedger?: string
   } = {}
 ): Promise<{ stdout: string; stderr: string }> =>
   new Promise((accept, reject) => {
@@ -511,27 +647,51 @@ export const runLandingProcess = (
     let failure: Error | undefined
     let settled = false
     let drainTimer: ReturnType<typeof setTimeout> | undefined
+    const ledger = snapshotLedger(options.snapshotLedger)
     const verificationRoot = mkdtempSync(join(tmpdir(), "burndown-verification-"))
+    ownStart ??= processStart(process.pid) ?? null
+    const lease: SnapshotLease = {
+      version: 1,
+      path: verificationRoot,
+      host: hostname(),
+      pid: process.pid,
+      started: ownStart,
+      createdAt: new Date().toISOString(),
+      diagnostics: []
+    }
+    try {
+      writeLease(ledger, lease)
+    } catch (cause) {
+      // Never run without a durable record of the snapshot it may leave behind.
+      rmSync(verificationRoot, { recursive: true, force: true })
+      reject(new Error(`LANDING_FAILED: snapshot lease: ${String(cause)}`))
+      return
+    }
+    activeSnapshots.add(verificationRoot)
     const removeSnapshot = async () => {
-      let cleanupTimer: ReturnType<typeof setTimeout> | undefined
+      const { removal, bounded } = removeBounded(
+        verificationRoot,
+        Math.min(options.snapshotCleanupTimeout ?? 5000, 5000)
+      )
+      // A timed-out removal may still finish; release the lease only when it really does.
+      void removal.then(() => {
+        try {
+          unlinkSync(leasePath(ledger, verificationRoot))
+        } catch {
+          // Recovery retries retained leases.
+        }
+      }, () => undefined)
       try {
-        await Promise.race([
-          rm(verificationRoot, { recursive: true, force: true, maxRetries: 0 }),
-          new Promise<never>((_, fail) => {
-            cleanupTimer = setTimeout(
-              () => fail(new Error("snapshot cleanup timeout")),
-              Math.min(options.snapshotCleanupTimeout ?? 5000, 5000)
-            )
-          })
-        ])
+        await bounded
       } catch (cause) {
+        retainDiagnostic(ledger, lease, `snapshot cleanup: ${String(cause)}`)
         failure = new Error(
           `${failure?.message ?? "LANDING_FAILED"}; snapshot cleanup: ${
             String(cause)
           }; cleanup incomplete at ${verificationRoot}`
         )
       } finally {
-        clearTimeout(cleanupTimer)
+        activeSnapshots.delete(verificationRoot)
       }
     }
     const spawnChild = () =>
@@ -781,7 +941,18 @@ export const landAll = (ready: ReadonlyArray<WorkerResult>, inFlight: ReadonlyAr
         ? []
         : [{ key: result.key, repo: item.assignment.repo, commits: result.commits, notes: result.notes }]
     })
-    if (members.length === 0) return { landed: [], quarantined: [] } satisfies LandReport
+    // Retry retained snapshots of exited owners before landing creates new ones.
+    const snapshots = yield* Effect.promise(() =>
+      recoverRetainedSnapshots().catch((cause): SnapshotRecovery => ({
+        recovered: [],
+        retained: [{ path: snapshotLedger(), diagnostics: [`ledger unreadable: ${String(cause)}`] }]
+      }))
+    )
+    const retainedSnapshots = snapshots.retained.map((item) => ({
+      path: item.path,
+      error: item.diagnostics.at(-1) ?? "owner running"
+    }))
+    if (members.length === 0) return { landed: [], quarantined: [], retainedSnapshots } satisfies LandReport
     const outcome = yield* MergeQueue.run(null, {
       failurePolicy: "quarantine",
       concurrency: 1,
@@ -796,6 +967,7 @@ export const landAll = (ready: ReadonlyArray<WorkerResult>, inFlight: ReadonlyAr
       receiptsPending: outcome.quarantined.filter((q) => q.error.receiptsPending).map((q) => ({
         key: q.id,
         error: q.error.log
-      }))
+      })),
+      retainedSnapshots
     } satisfies LandReport
   }).pipe(Effect.mapError(String))

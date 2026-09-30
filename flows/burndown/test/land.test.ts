@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
-import { mkdirSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
-import { homedir, tmpdir } from "node:os"
+import { homedir, hostname, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
 import { validateCurrentAcceptance } from "../acceptance.ts"
@@ -16,12 +16,23 @@ import {
   reviewProgram
 } from "../land.ts"
 
+// Snapshot leases go to a private ledger so these tests never write the host landing ledger.
+const snapshotLedger = mkdtempSync(join(tmpdir(), "burndown-ledger-"))
+process.env.BURNDOWN_SNAPSHOT_LEDGER = snapshotLedger
+process.on("exit", () => rmSync(snapshotLedger, { recursive: true, force: true }))
+const leaseFor = (snapshot: string) => join(snapshotLedger, `${snapshot.split("/").at(-1)}.json`)
+const exists = (path: string) =>
+  realpath(path).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return false
+    throw error
+  })
+
 // The embedded review discovers `claude-N` accounts under the host home; give the landing script a private
 // account root so these tests never depend on the developer machine's ~/.smithers/accounts.
 function withReviewAccounts(script: string, root: string) {
   const home = join(root, "review-home")
   mkdirSync(join(home, ".smithers/accounts/claude-1"), { recursive: true })
-  const source = 'join(homedir(), ".smithers/accounts")'
+  const source = "join(homedir(), \".smithers/accounts\")"
   assert.ok(script.includes(source))
   return script.replace(source, `join(${JSON.stringify(home)}, ".smithers/accounts")`)
 }
@@ -1127,7 +1138,13 @@ async function completeLandingFixture(t: test.TestContext) {
     runLanding(extra: Record<string, string> = {}, issue = 1) {
       return spawnSync(
         "sh",
-        ["-c", withReviewAccounts(landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] }), f.root)],
+        [
+          "-c",
+          withReviewAccounts(
+            landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] }),
+            f.root
+          )
+        ],
         {
           cwd: f.root,
           env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, ...extra },
@@ -1429,7 +1446,14 @@ async function realLandingFixture(t: test.TestContext, advancedMain = false) {
         "sh",
         [
           "-c",
-          withReviewAccounts(landingScript({ key: candidateKey, repo: "smithersai/smithers", commits: [{ issue: 1, commit: candidate }] }), f.root)
+          withReviewAccounts(
+            landingScript({
+              key: candidateKey,
+              repo: "smithersai/smithers",
+              commits: [{ issue: 1, commit: candidate }]
+            }),
+            f.root
+          )
         ],
         {
           cwd: f.root,
@@ -1593,7 +1617,7 @@ for (const exitCode of [0, 6]) {
     }
     const owned = JSON.parse(await readFile(ownedPath, "utf8")) as string
     t.after(async () => {
-      await chmod(owned, 0o700)
+      if (await exists(owned)) await chmod(owned, 0o700)
       await rm(owned, { recursive: true, force: true })
     })
     assert.match(String(runningError), /snapshot cleanup:[\s\S]*EACCES/)
@@ -1604,6 +1628,20 @@ for (const exitCode of [0, 6]) {
     assert.ok(receipt.log.includes(owned))
     assert.ok(Buffer.byteLength(receipt.log) <= 4000)
     if (exitCode === 6) assert.match(receipt.log, /CHECK_RED_END/)
+    // The lease keeps the diagnostic until deletion really succeeds.
+    const { recoverRetainedSnapshots } = await import("../land.ts")
+    const blocked = await recoverRetainedSnapshots({ ledger: snapshotLedger })
+    assert.ok(!blocked.recovered.includes(owned))
+    const retained = blocked.retained.find((item) => item.path === owned)
+    assert.match(retained?.diagnostics.join("\n") ?? "", /snapshot cleanup:[\s\S]*EACCES[\s\S]*recovery:.*EACCES/)
+    assert.match(await readFile(leaseFor(owned), "utf8"), /recovery:.*EACCES/)
+    assert.ok(await exists(owned))
+    // Real permission repair: the next pass removes the snapshot and releases its lease.
+    await chmod(owned, 0o700)
+    const repaired = await recoverRetainedSnapshots({ ledger: snapshotLedger })
+    assert.ok(repaired.recovered.includes(owned))
+    assert.equal(await exists(owned), false)
+    assert.equal(await exists(leaseFor(owned)), false)
   })
 }
 
@@ -1645,6 +1683,152 @@ test("snapshot removal deadline reports bounded failure with original output", a
     assert.ok(Date.now() < deadline, "snapshot removal completes after bounded failure")
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
+  // The late removal releases its own lease; nothing is left for recovery.
+  while (await exists(leaseFor(owned))) {
+    assert.ok(Date.now() < deadline, "late removal releases the lease")
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+})
+
+test("successful landing releases its snapshot lease", async () => {
+  const { runLandingProcess } = await import("../land.ts")
+  const { stdout } = await runLandingProcess(process.execPath, [
+    "-e",
+    "console.log('OWNED '+process.env.BURNDOWN_VERIFICATION_ROOT)"
+  ])
+  const owned = /OWNED (\S+)/.exec(stdout)?.[1] ?? assert.fail(stdout)
+  assert.equal(await exists(owned), false)
+  assert.equal(await exists(leaseFor(owned)), false)
+})
+
+// A separate host process runs a real landing; SIGKILL models a crash or host restart mid-landing.
+const landingHost = (ledger: string) =>
+  spawn(process.execPath, [
+    "--experimental-strip-types",
+    "--input-type=module",
+    "-e",
+    `const { runLandingProcess } = await import(${
+      JSON.stringify(new URL("../land.ts", import.meta.url).href)
+    }); await runLandingProcess(process.execPath, ["-e", ${
+      JSON.stringify(
+        "require('node:fs').writeFileSync(process.env.BURNDOWN_VERIFICATION_ROOT + '/pid', String(process.pid)); setTimeout(() => {}, 60000)"
+      )
+    }], { snapshotLedger: ${JSON.stringify(ledger)} })`
+  ], { stdio: "ignore" })
+
+const orphans = new Set<number>()
+test.after(() => {
+  for (const pid of orphans) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // Already exited.
+    }
+  }
+})
+const waitForLeases = async (ledger: string, count: number) => {
+  const deadline = Date.now() + 30_000
+  while (true) {
+    const names = (await readdir(ledger).catch(() => [])).filter((name) => name.endsWith(".json"))
+    if (names.length >= count) {
+      // Wait until each landing child is running, then make sure it never outlives the test.
+      for (const name of names) {
+        const pid = Number(
+          await waitForFile(join(JSON.parse(await readFile(join(ledger, name), "utf8")).path, "pid"), 30_000)
+        )
+        orphans.add(pid)
+      }
+      return names.sort()
+    }
+    assert.ok(Date.now() < deadline, "landing host wrote its lease")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
+test("recovery removes a dead host's snapshot and never a live sibling runner's", async (t) => {
+  const { recoverRetainedSnapshots } = await import("../land.ts")
+  const ledger = await mkdtemp(join(tmpdir(), "burndown-ledger-"))
+  t.after(() => rm(ledger, { recursive: true, force: true }))
+  const crashed = landingHost(ledger)
+  const [crashedLease] = await waitForLeases(ledger, 1)
+  const crashedPath = JSON.parse(await readFile(join(ledger, crashedLease!), "utf8")).path as string
+  const sibling = landingHost(ledger)
+  t.after(() => sibling.kill("SIGKILL"))
+  const siblingLease = (await waitForLeases(ledger, 2)).find((name) => name !== crashedLease)!
+  const siblingPath = JSON.parse(await readFile(join(ledger, siblingLease), "utf8")).path as string
+  const crashedExit = new Promise((done) => crashed.once("exit", done))
+  crashed.kill("SIGKILL")
+  await crashedExit
+  // The crashed host never ran its cleanup: its snapshot and lease survive it.
+  assert.ok(await exists(crashedPath))
+  const recovery = await recoverRetainedSnapshots({ ledger })
+  assert.deepEqual(recovery.recovered, [crashedPath])
+  assert.deepEqual(recovery.retained, [])
+  assert.equal(await exists(crashedPath), false)
+  assert.equal(await exists(join(ledger, crashedLease!)), false)
+  assert.ok(await exists(siblingPath), "a live sibling's snapshot is never deleted")
+  assert.ok(await exists(join(ledger, siblingLease)))
+  // Its landing child is detached; killing the host alone would orphan the snapshot again.
+  const siblingExit = new Promise((done) => sibling.once("exit", done))
+  sibling.kill("SIGKILL")
+  await siblingExit
+  assert.deepEqual((await recoverRetainedSnapshots({ ledger })).recovered, [siblingPath])
+})
+
+test("recovery treats a reused pid as a dead owner and refuses foreign or unrecognised leases", async (t) => {
+  const { recoverRetainedSnapshots } = await import("../land.ts")
+  const ledger = await mkdtemp(join(tmpdir(), "burndown-ledger-"))
+  t.after(() => rm(ledger, { recursive: true, force: true }))
+  const snapshot = async (lease: Record<string, unknown>) => {
+    const path = await mkdtemp(join(tmpdir(), "burndown-verification-"))
+    t.after(() => rm(path, { recursive: true, force: true }))
+    await writeFile(join(path, "keep"), "snapshot")
+    const record = {
+      version: 1,
+      path,
+      host: hostname(),
+      pid: process.ppid,
+      started: "Thu Jan  1 00:00:00 1970",
+      createdAt: new Date().toISOString(),
+      diagnostics: [],
+      ...lease
+    }
+    await writeFile(join(ledger, `${path.split("/").at(-1)}.json`), JSON.stringify(record))
+    return path
+  }
+  // Alive pid, different start identity: the pid was reused after the owner (or host) went away.
+  const reused = await snapshot({})
+  const foreign = await snapshot({ host: `${hostname()}-other` })
+  const liveUnknownStart = await snapshot({ started: null })
+  const outside = await mkdtemp(join(tmpdir(), "burndown-other-"))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  await writeFile(
+    join(ledger, `${outside.split("/").at(-1)}.json`),
+    JSON.stringify({
+      version: 1,
+      path: outside,
+      host: hostname(),
+      pid: 2 ** 22 + 1,
+      started: null,
+      createdAt: "",
+      diagnostics: []
+    })
+  )
+  await writeFile(join(ledger, "torn.json"), "{")
+  const recovery = await recoverRetainedSnapshots({ ledger })
+  assert.deepEqual(recovery.recovered, [reused])
+  assert.equal(await exists(reused), false)
+  for (const kept of [foreign, liveUnknownStart]) assert.ok(await exists(join(kept, "keep")))
+  assert.ok(await exists(outside), "a lease naming a path outside the snapshot namespace is never followed")
+  assert.deepEqual(
+    recovery.retained.map((item) => item.path).sort(),
+    [
+      join(ledger, `${outside.split("/").at(-1)}.json`),
+      join(ledger, "torn.json")
+    ].sort()
+  )
+  assert.ok(recovery.retained.some((item) => item.diagnostics.includes("invalid lease; never deleted")))
+  assert.ok(recovery.retained.some((item) => /unreadable lease/.test(item.diagnostics.join(""))))
 })
 
 test("real jj rejected push retries the member and then lands an unrelated member", async (t) => {
@@ -1816,7 +2000,10 @@ test("large green check and review logs stay on disk without exceeding landing o
   )
   const result = await runLandingProcess("sh", [
     "-c",
-    withReviewAccounts(landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] }), f.root)
+    withReviewAccounts(
+      landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] }),
+      f.root
+    )
   ], {
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog },

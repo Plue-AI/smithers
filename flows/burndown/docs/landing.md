@@ -23,8 +23,13 @@ and removes it after forced cancellation, independently of inherited output pipe
 Process discovery and snapshot removal each have a five-second cleanup bound;
 root process exit has a one-second bound.
 Cleanup failures report the incomplete cleanup path; removal may finish later
-after a timeout. Filesystem errors or a host crash can
-leave snapshots for operator removal. Failures retain the last
+after a timeout. Each snapshot has a lease in `landings/snapshots/` written
+before the process starts and deleted only once the snapshot is gone, with
+cleanup diagnostics kept until then. Before each landing pass the queue removes
+leased snapshots whose owner process (pid and start time) has exited on this
+host, within one five-second bound. Live runners, other hosts and leases naming
+paths outside the snapshot namespace are never touched; retained snapshots are
+listed in `status.txt`. Failures retain the last
 4,000 bytes in the quarantine receipt and the full check log on the host.
 
 A verified non-operator Claude subscription reviews the final rebased diff with
