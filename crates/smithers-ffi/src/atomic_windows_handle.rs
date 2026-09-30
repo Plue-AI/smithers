@@ -1257,6 +1257,9 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         fs::write(directory.join("Mémoire.txt"), b"canonical").unwrap();
         let root = Directory::root(&temporary.path().join("canonicaldirectory")).unwrap();
+        // The temporary directory may be an 8.3 spelling (`RUNNER~1`); handles
+        // answer long names, so compare against Node's native realpath.
+        let mut native_paths = Vec::new();
         for (name, expected) in [
             (None, directory.clone()),
             (
@@ -1275,15 +1278,19 @@ mod tests {
             assert!(native.status.success());
             let expected: String = serde_json::from_slice(&native.stdout).unwrap();
             assert_eq!(root.canonical_path(name).unwrap(), expected);
+            native_paths.push(expected);
         }
         fs::hard_link(directory.join("Mémoire.txt"), directory.join("hard")).unwrap();
         // Kernel authorization canonicalizes through this answer (#2882).
         let hard = root.canonical_path(Some(OsStr::new("hard"))).unwrap();
         assert!(
-            [directory.join("hard"), directory.join("Mémoire.txt")]
-                .iter()
-                .any(|path| path.to_str() == Some(hard.as_str())),
-            "{hard}"
+            [
+                Path::new(&native_paths[0]).join("hard"),
+                Path::new(&native_paths[1]).to_path_buf(),
+            ]
+            .iter()
+            .any(|path| path.to_str() == Some(hard.as_str())),
+            "{hard} {native_paths:?}"
         );
     }
 
