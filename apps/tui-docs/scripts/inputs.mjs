@@ -16,6 +16,7 @@ export function runtimeInputs() {
     if (!pkg) return
     seen.add(name)
     files.push(join(repoRoot, pkg.dir, "package.json"), ...walk(join(repoRoot, pkg.dir, "src")))
+    if (name === "@smthrs/cli") files.push(...walk(join(repoRoot, pkg.dir, "vendor/opentui-native")))
     for (const dependency of Object.keys(pkg.manifest.dependencies ?? {})) visit(dependency)
   }
   visit("smithers-tui")

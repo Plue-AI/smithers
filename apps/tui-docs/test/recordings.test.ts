@@ -1,10 +1,15 @@
+import * as Filegroup from "@smthrs/targets/Filegroup"
+import * as Target from "@smthrs/targets/Target"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
+import { fileURLToPath } from "node:url"
 import { docsText } from "../../site/scripts/docs-text.mjs"
+import { runtimeInputs } from "../scripts/inputs.mjs"
 import { parseScripts } from "../scripts/scripts.mjs"
 import { providerFixture } from "../scripts/provider-fixture.mjs"
 import { monitorCell } from "../scripts/scenarios.mjs"
+import { sourceFiles } from "../scripts/targets.ts"
 
 test("monitor recording uses HTTP judge", async () => {
   const fixture = await providerFixture({ judge: true })
@@ -109,4 +114,31 @@ test("scripts distinguish durable answers from text and bound timing and setup",
     () => parseScripts("```tui-script wrong\nExpect file \"../key\" contains \"x\"\nCapture \"x\"\n```"),
     /Invalid fixture path/
   )
+})
+
+test("recording and graph inputs include the shipped native runtime and every manifest artifact", () => {
+  const root = fileURLToPath(new URL("../../../", import.meta.url))
+  const prefix = "packages/smithers/vendor/opentui-native/"
+  const manifest = JSON.parse(readFileSync(root + prefix + "manifest.json", "utf8")) as {
+    targets: Record<string, { file: string }>
+  }
+  const expected = [
+    "manifest.json",
+    "runtime.bun.mjs",
+    "runtime.node.mjs",
+    "runtime.d.ts",
+    "target.mjs",
+    ...Object.entries(manifest.targets).flatMap(([target, artifact]) => [
+      `${target}/index.bun.mjs`,
+      `${target}/${artifact.file}`
+    ])
+  ].map((file) => prefix + file)
+  const inputs = runtimeInputs()
+  const graph = Filegroup.sources(Target.metadata(sourceFiles).attrs as Filegroup.Attrs)
+  for (const file of expected) {
+    assert(inputs.includes(file), `Recording digest omits native input ${file}`)
+    assert(graph.some((source) => source._tag === "File" && source.path === file), `Target graph omits ${file}`)
+    assert(readFileSync(root + file).length > 0, `Shipped native input is empty: ${file}`)
+  }
+  assert.equal(new Set(inputs).size, inputs.length, "Native inputs must remain deduplicated")
 })
