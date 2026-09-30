@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { writeOnlyGesture } from "../../flows/CommandGesture"
-import type { Card } from "../AppState"
+import { SessionSchema, type Card } from "../AppState"
 import type { FailureController } from "../controller/failures"
 import { createSecretsSeam } from "./SecretsSeam"
 import type { SeamContext } from "./SeamContext"
@@ -13,8 +13,9 @@ import type { SeamContext } from "./SeamContext"
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(done => { resolve = done })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
@@ -42,6 +43,10 @@ function harness(options: {
 }) {
   let rows: RequestRow[] = options.rows ?? []
   let ordinal = 0
+  let login: string | null = "alice"
+  let revision = 1
+  let disposed = false
+  const sleeping = deferred<void>()
   const cards = new Map<string, Card>()
   const calls: Call[] = []
   const toasts: string[] = []
@@ -50,9 +55,9 @@ function harness(options: {
   const sleeps: number[] = []
   const watchers: Array<(payload: Extract<Card, { kind: "provider-accounts" }>["payload"]) => void> = []
   const ctx = {
-    baseUrl: "https://smithers.sh", isDisposed: () => false, nextOrdinal: () => ++ordinal, actor: () => "user",
+    baseUrl: "https://smithers.sh", isDisposed: () => disposed, nextOrdinal: () => ++ordinal, actor: () => "user",
     store: { session: () => ({ codingProviderRequests: rows }), collections: {
-      identitySessions: { get: () => ({ login: "alice", ownerRevision: 1 }) },
+      identitySessions: { get: () => ({ login, ownerRevision: revision }) },
       cloudSessions: { get: () => ({ state: "signed-in", ownerRevision: 1 }) },
       cards: { get: (id: string) => cards.get(id) }
     } },
@@ -77,7 +82,8 @@ function harness(options: {
     work.push(pending)
     return pending
   }) as FailureController["withToast"]
-  const seam = createSecretsSeam(ctx, withToast, { sleep: async ms => { sleeps.push(ms); await options.sleep?.(ms) } })
+  const seam = createSecretsSeam(ctx, withToast, { sleep: async ms => { sleeps.push(ms); sleeping.resolve(); await options.sleep?.(ms) } })
+  const anotherSeam = (actor: "user" | "smithers") => createSecretsSeam({ ...ctx, actor: () => actor } as SeamContext, withToast, { sleep: async ms => { await options.sleep?.(ms) } })
   if (options.card) {
     cards.set("provider-accounts", { id: "provider-accounts", kind: "provider-accounts", title: "Accounts", status: "active", createdAt: 0, ordinal: 0, payload: { accounts: [] } })
   }
@@ -90,7 +96,7 @@ function harness(options: {
     if (card?.kind === "provider-accounts") cards.set(card.id, { ...card, payload: { ...card.payload, accounts: list } })
   }
   const onCard = (watch: (typeof watchers)[number]) => { watchers.push(watch) }
-  return { seam, calls, toasts, messages, work, sleeps, rows: () => rows, accounts, setAccounts, onCard }
+  return { seam, anotherSeam, login: (name: string | null) => { login = name; revision += 1 }, retire: () => { disposed = true }, sleepEntered: sleeping.promise, calls, toasts, messages, work, sleeps, rows: () => rows, accounts, setAccounts, onCard }
 }
 
 test("the connections list renders the Accounts card in pool order without revoked rows, and keeps a text result", async () => {
@@ -455,4 +461,288 @@ test("any other 403 keeps the connect buttons", async () => {
   const h = harness({ http: async () => Response.json({ message: "forbidden" }, { status: 403 }) })
   expect(await h.seam.listCodingProviders()).toBe("Coding connections unavailable (HTTP 403).")
   expect(h.accounts()).toBeUndefined()
+})
+
+const unreadablePools = [
+  { label: "malformed JSON", response: () => new Response("{") },
+  { label: "null", response: () => Response.json(null) },
+  { label: "object", response: () => Response.json({}) },
+  { label: "scalar", response: () => Response.json(42) },
+  { label: "one invalid required row", response: () => Response.json([POOL[0], { provider: "claude", state: "active", label: "missing id" }]) },
+  { label: "body read failure", response: () => new Response(new ReadableStream<Uint8Array>({ start: controller => controller.error(new Error("controlled pool read failure")) })) }
+]
+test.each(unreadablePools)("$label cannot turn the last observed pool into verified empty accounts, and a later read recovers", async ({ response }) => {
+  const replies = [Response.json(POOL), response(), Response.json([])]
+  const h = harness({ http: async () => { const reply = replies.shift(); if (!reply) throw new Error("Unexpected pool read"); return reply } })
+  await h.seam.listCodingProviders()
+  const before = h.accounts()
+  expect(await h.seam.listCodingProviders()).toBe("Coding connections unavailable.")
+  expect(h.accounts()).toEqual(before)
+  expect(await h.seam.listCodingProviders()).toEqual({ value: "No coding connections." })
+  expect(h.accounts()).toEqual({ accounts: [] })
+  expect(h.calls).toEqual([
+    { method: "GET", path: "/api/user/provider-connections" },
+    { method: "GET", path: "/api/user/provider-connections" },
+    { method: "GET", path: "/api/user/provider-connections" }
+  ])
+})
+
+test("pool projection groups providers, keeps equal ranks stable, and omits revoked rows with a literal model result", async () => {
+  const h = harness({ http: async () => Response.json([
+    { id: "y", provider: "codex", state: "active", label: "Codex Y", sort_order: 2 },
+    { id: "c", provider: "claude", state: "refresh_failed", label: "Claude C", sort_order: 2 },
+    { id: "gone", provider: "claude", state: "revoked", label: "Gone", sort_order: 0 },
+    { id: "b", provider: "claude", state: "active", label: "Claude B", account_email: "b@example.test", sort_order: 1 },
+    { id: "a", provider: "claude", state: "active", label: "Claude A", limited_until: "2026-09-30T00:00:00Z", sort_order: 1 },
+    { id: "x", provider: "codex", state: "active", label: "Codex X", sort_order: 0 }
+  ]) })
+  expect(await h.seam.listCodingProviders()).toEqual({ value: "b · claude · b@example.test · active\na · claude · Claude A · active · limited until 2026-09-30T00:00:00Z\nc · claude · Claude C · refresh_failed\nx · codex · Codex X · active\ny · codex · Codex Y · active" })
+  expect(h.accounts()).toEqual({ accounts: [
+    { id: "b", provider: "claude", state: "active", label: "Claude B", email: "b@example.test", limitedUntil: null },
+    { id: "a", provider: "claude", state: "active", label: "Claude A", email: null, limitedUntil: "2026-09-30T00:00:00Z" },
+    { id: "c", provider: "claude", state: "refresh_failed", label: "Claude C", email: null, limitedUntil: null },
+    { id: "x", provider: "codex", state: "active", label: "Codex X", email: null, limitedUntil: null },
+    { id: "y", provider: "codex", state: "active", label: "Codex Y", email: null, limitedUntil: null }
+  ] })
+})
+
+const invalidStarts = [
+  { label: "non-object", body: null },
+  { label: "invalid device id", body: device("pending", { id: "not-a-device-id" }) },
+  { label: "non-string code", body: device("pending", { user_code: 4 }) },
+  { label: "non-HTTPS verification", body: device("pending", { verification_uri: "http://auth.openai.com/device" }) },
+  { label: "malformed verification URL", body: device("pending", { verification_uri: "missing-origin" }) },
+  { label: "non-string expiry", body: device("pending", { expires_at: null }) },
+  { label: "unknown state", body: device("unknown") },
+  { label: "already connected", body: device("connected") }
+]
+test.each(invalidStarts)("Codex $label start fails without admitting a code or polling", async ({ body }) => {
+  const h = harness({ http: async () => Response.json(body, { status: 201 }) })
+  expect(await h.seam.connectCodex()).toEqual({ value: "Requested" })
+  expect(await h.work[0]).toBe("Codex sign-in failed.")
+  expect(h.rows()).toEqual([{ id: expect.any(String), owner: "alice", action: "codex", state: "failed" }])
+  expect(h.accounts()).toBeUndefined()
+  expect(h.sleeps).toEqual([])
+  expect(h.calls).toEqual([{ method: "POST", path: "/api/user/provider-connections/codex/device" }])
+})
+
+const invalidPolls = [
+  { label: "different valid device id", response: () => Response.json(device("connected", { id: "1f9ed5c2-989d-4311-9a35-37e68a219088" })) },
+  { label: "malformed JSON", response: () => new Response("{") },
+  { label: "null body", response: () => Response.json(null) },
+  { label: "unknown state", response: () => Response.json(device("unknown")) },
+  { label: "body reader failure", response: () => new Response(new ReadableStream<Uint8Array>({ start: controller => controller.error(new Error("controlled poll read failure")) })) }
+]
+test.each(invalidPolls)("Codex $label poll cannot complete sign-in and clears its pending code", async ({ response }) => {
+  const h = harness({ http: async call => call.path.endsWith("/codex/device") ? Response.json(device("pending"))
+    : call.path.endsWith(`/codex/device/${DEVICE_ID}`) ? response() : Response.json([]) })
+  await h.seam.connectCodex()
+  expect(await h.work[0]).toBe("Codex sign-in failed.")
+  expect(h.rows()[0]?.state).toBe("failed")
+  expect(h.accounts()?.pending).toBeUndefined()
+  expect(h.sleeps).toEqual([5000])
+  expect(h.calls.filter(call => call.method === "POST")).toEqual([
+    { method: "POST", path: "/api/user/provider-connections/codex/device" },
+    { method: "POST", path: `/api/user/provider-connections/codex/device/${DEVICE_ID}` }
+  ])
+})
+
+test("a rate-limited Codex poll waits again and only a matching connected reply completes it", async () => {
+  const responses = [new Response(null, { status: 429 }), Response.json(device("connected"))]
+  const h = harness({ http: async call => call.path.endsWith("/codex/device") ? Response.json(device("pending", { interval_seconds: 2 }))
+    : call.path.includes("/codex/device/") ? responses.shift()! : Response.json([]) })
+  await h.seam.connectCodex()
+  expect(await h.work[0]).toBe(true)
+  expect(h.sleeps).toEqual([2000, 2000])
+  expect(h.rows()[0]?.state).toBe("completed")
+  expect(h.calls.filter(call => call.path.includes("/codex/device/"))).toHaveLength(2)
+})
+
+test.each(["owner change", "retirement"])("%s while Codex is waiting prevents any poll or terminal publication", async change => {
+  const wait = deferred<void>()
+  const h = harness({ sleep: () => wait.promise, http: async call => call.path.endsWith("/codex/device") ? Response.json(device("pending")) : Response.json([]) })
+  await h.seam.connectCodex()
+  await h.sleepEntered
+  if (change === "owner change") h.login("bob")
+  else h.retire()
+  const request = h.rows()
+  const card = h.accounts()
+  wait.resolve()
+  expect(await h.work[0]).not.toBe(true)
+  await tick()
+  expect(h.rows()).toEqual(request)
+  expect(h.accounts()).toEqual(card)
+  expect(h.calls.some(call => call.path.includes("/codex/device/"))).toBe(false)
+  expect(h.messages).toEqual([])
+})
+
+test("user and Smithers seams over one store join a held Codex sign-in", async () => {
+  const start = deferred<Response>()
+  const h = harness({ http: async call => call.path.endsWith("/codex/device") ? start.promise
+    : call.path.includes("/codex/device/") ? Response.json(device("connected")) : Response.json([]) })
+  const agent = h.anotherSeam("smithers")
+  const answers = await Promise.all([h.seam.connectCodex(), agent.connectCodex()])
+  expect(answers).toEqual([{ value: "Requested" }, { value: "Requested" }])
+  expect(h.rows()).toHaveLength(1)
+  expect(h.work).toHaveLength(1)
+  expect(h.calls).toEqual([{ method: "POST", path: "/api/user/provider-connections/codex/device" }])
+  start.resolve(Response.json(device("pending")))
+  expect(await h.work[0]).toBe(true)
+  expect(h.rows()[0]?.state).toBe("completed")
+})
+
+const signedOutActions = [
+  { label: "Claude", run: (seam: ReturnType<typeof createSecretsSeam>) => seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-unsigned-fixture" })), expected: "Sign in to connect Claude." },
+  { label: "Codex", run: (seam: ReturnType<typeof createSecretsSeam>) => seam.connectCodex(), expected: "Sign in to connect Codex." },
+  { label: "list", run: (seam: ReturnType<typeof createSecretsSeam>) => seam.listCodingProviders(), expected: "Sign in to list coding connections." },
+  { label: "move", run: (seam: ReturnType<typeof createSecretsSeam>) => seam.moveCodingProvider("a", "down"), expected: "Sign in to reorder coding connections." },
+  { label: "revoke", run: (seam: ReturnType<typeof createSecretsSeam>) => seam.revokeCodingProvider("a"), expected: "Sign in to revoke a coding connection." }
+]
+test.each(signedOutActions)("signed-out $label admission causes no HTTP, request, card, or toast", async ({ run, expected }) => {
+  const h = harness({ http: async () => { throw new Error("Unsigned request must not run") } })
+  h.login(null)
+  expect(await run(h.seam)).toBe(expected)
+  expect(h.calls).toEqual([])
+  expect(h.rows()).toEqual([])
+  expect(h.accounts()).toBeUndefined()
+  expect(h.toasts).toEqual([])
+})
+
+const orderedPool = [
+  { id: "a", provider: "claude", state: "active", label: "A", sort_order: 0 },
+  { id: "b", provider: "claude", state: "active", label: "B", sort_order: 1 },
+  { id: "c", provider: "claude", state: "active", label: "C", sort_order: 2 },
+  { id: "x", provider: "codex", state: "active", label: "X", sort_order: 0 },
+  { id: "y", provider: "codex", state: "active", label: "Y", sort_order: 1 }
+]
+
+test.each(["success", "HTTP refusal", "transport throw"])("queued orders serialize a held first PUT and recover after %s", async firstOutcome => {
+  const firstEntered = deferred<void>(), secondEntered = deferred<void>()
+  const firstReply = deferred<Response>(), secondReply = deferred<Response>()
+  let server = orderedPool
+  let puts = 0
+  const h = harness({ http: async call => {
+    if (call.method === "GET") return Response.json(server)
+    if (call.method !== "PUT") throw new Error("Only pool reads and order writes are expected")
+    if (++puts === 1) { firstEntered.resolve(); return firstReply.promise }
+    if (puts === 2) { secondEntered.resolve(); return secondReply.promise }
+    throw new Error("An order must not be retried automatically")
+  } })
+  await h.seam.listCodingProviders()
+  await tick()
+  expect(await h.seam.moveCodingProvider("a", "down")).toEqual({ value: "Requested" })
+  await firstEntered.promise
+  expect(await h.seam.moveCodingProvider("c", "up")).toEqual({ value: "Requested" })
+  await tick()
+  expect(h.calls.filter(call => call.method === "PUT")).toEqual([
+    { method: "PUT", path: "/api/user/provider-connections/order", body: '{"provider":"claude","ids":["b","a","c"]}' }
+  ])
+  expect(h.accounts()?.accounts.map(row => row.id)).toEqual(["b", "c", "a", "x", "y"])
+  expect(h.rows().filter(row => row.action === "order" && row.state === "requested").map(row => row.ids)).toEqual([["b", "c", "a"]])
+  if (firstOutcome === "success") {
+    server = [
+      { id: "a", provider: "claude", state: "active", label: "A", sort_order: 1 },
+      { id: "b", provider: "claude", state: "active", label: "B", sort_order: 0 },
+      { id: "c", provider: "claude", state: "active", label: "C", sort_order: 2 },
+      { id: "x", provider: "codex", state: "active", label: "X", sort_order: 0 },
+      { id: "y", provider: "codex", state: "active", label: "Y", sort_order: 1 }
+    ]
+    firstReply.resolve(new Response(null, { status: 204 }))
+  } else if (firstOutcome === "HTTP refusal") firstReply.resolve(new Response(null, { status: 503 }))
+  else firstReply.reject(new Error("controlled order transport failure"))
+  await secondEntered.promise
+  const firstResult = await h.work[0]
+  if (firstOutcome === "success") expect(firstResult).toBe(true)
+  else if (firstOutcome === "HTTP refusal") expect(firstResult).toBe("Connection move failed (HTTP 503).")
+  else {
+    expect(typeof firstResult).toBe("string")
+    expect(firstResult).not.toBe("")
+  }
+  let secondSettled = false
+  void h.work[1]?.then(() => { secondSettled = true })
+  await tick()
+  expect(secondSettled).toBe(false)
+  expect(h.calls.filter(call => call.method === "PUT")).toEqual([
+    { method: "PUT", path: "/api/user/provider-connections/order", body: '{"provider":"claude","ids":["b","a","c"]}' },
+    { method: "PUT", path: "/api/user/provider-connections/order", body: '{"provider":"claude","ids":["b","c","a"]}' }
+  ])
+  server = [
+    { id: "a", provider: "claude", state: "active", label: "A", sort_order: 2 },
+    { id: "b", provider: "claude", state: "active", label: "B", sort_order: 0 },
+    { id: "c", provider: "claude", state: "active", label: "C", sort_order: 1 },
+    { id: "x", provider: "codex", state: "active", label: "X", sort_order: 0 },
+    { id: "y", provider: "codex", state: "active", label: "Y", sort_order: 1 }
+  ]
+  secondReply.resolve(new Response(null, { status: 204 }))
+  expect(await h.work[1]).toBe(true)
+  await tick()
+  expect(h.accounts()?.accounts.map(row => row.id)).toEqual(["b", "c", "a", "x", "y"])
+  expect(h.rows().find(row => row.action === "order" && row.ids?.join(",") === "b,c,a")?.state).toBe("completed")
+  expect(puts).toBe(2)
+})
+
+const directionCases = [
+  { label: "Claude down", id: "a", direction: "down", body: '{"provider":"claude","ids":["b","a","c"]}', ids: ["b", "a", "c", "x", "y"], wire: [
+    { id: "a", provider: "claude", state: "active", label: "A", sort_order: 1 },
+    { id: "b", provider: "claude", state: "active", label: "B", sort_order: 0 },
+    { id: "c", provider: "claude", state: "active", label: "C", sort_order: 2 },
+    { id: "x", provider: "codex", state: "active", label: "X", sort_order: 0 },
+    { id: "y", provider: "codex", state: "active", label: "Y", sort_order: 1 }
+  ] },
+  { label: "Codex up", id: "y", direction: "up", body: '{"provider":"codex","ids":["y","x"]}', ids: ["a", "b", "c", "y", "x"], wire: [
+    { id: "a", provider: "claude", state: "active", label: "A", sort_order: 0 },
+    { id: "b", provider: "claude", state: "active", label: "B", sort_order: 1 },
+    { id: "c", provider: "claude", state: "active", label: "C", sort_order: 2 },
+    { id: "x", provider: "codex", state: "active", label: "X", sort_order: 1 },
+    { id: "y", provider: "codex", state: "active", label: "Y", sort_order: 0 }
+  ] }
+] as const
+test.each([...directionCases])("$label writes only its provider's complete order and preserves its peer pool", async ({ id, direction, body, ids, wire }) => {
+  let server: ReadonlyArray<(typeof orderedPool)[number]> = orderedPool
+  const h = harness({ http: async call => {
+    if (call.method === "GET") return Response.json(server)
+    if (call.method !== "PUT") throw new Error("Only an order write is expected")
+    server = wire
+    return new Response(null, { status: 204 })
+  } })
+  await h.seam.listCodingProviders()
+  await tick()
+  expect(await h.seam.moveCodingProvider(id, direction)).toEqual({ value: "Requested" })
+  expect(await h.work[0]).toBe(true)
+  await tick()
+  expect(h.calls.filter(call => call.method === "PUT")).toEqual([{ method: "PUT", path: "/api/user/provider-connections/order", body }])
+  expect(h.accounts()?.accounts.map(row => row.id)).toEqual([...ids])
+  expect(h.rows()).toHaveLength(1)
+  expect(h.rows()[0]?.state).toBe("completed")
+})
+
+const remainingMoveEdges = [
+  { label: "last Claude down", id: "c", direction: "down" },
+  { label: "single Codex up", id: "x", direction: "up" },
+  { label: "single Codex down", id: "x", direction: "down" }
+] as const
+test.each([...remainingMoveEdges])("$label is already in place without creating durable work", async ({ id, direction }) => {
+  const h = harness({ http: async () => Response.json(orderedPool.filter(row => row.id !== "y")) })
+  await h.seam.listCodingProviders()
+  await tick()
+  const before = h.accounts()
+  expect(await h.seam.moveCodingProvider(id, direction)).toEqual({ value: "Already in place." })
+  expect(h.accounts()).toEqual(before)
+  expect(h.calls).toEqual([{ method: "GET", path: "/api/user/provider-connections" }])
+  expect(h.rows()).toEqual([])
+  expect(h.work).toEqual([])
+})
+
+const invalidResumedOrders = [
+  { label: "missing provider", row: { id: "order-no-provider", owner: "alice", action: "order", ids: ["a", "b"], state: "requested" } },
+  { label: "missing ids", row: { id: "order-no-ids", owner: "alice", action: "order", provider: "claude", state: "requested" } },
+  { label: "invalid id", row: { id: "order-bad-id", owner: "alice", action: "order", provider: "claude", ids: ["a", "bad_id"], state: "requested" } }
+] satisfies Array<{ label: string; row: RequestRow }>
+test.each(invalidResumedOrders)("a schema-valid resumed order with $label fails before any outbound write", async ({ row }) => {
+  expect(SessionSchema.shape.codingProviderRequests.unwrap().safeParse([row]).success).toBe(true)
+  const h = harness({ rows: [row], http: async () => { throw new Error("Invalid resumed order must not reach HTTP") } })
+  h.seam.resumeCodingProviders()
+  expect(await h.work[0]).toBe("Invalid connection.")
+  expect(h.rows()).toEqual([{ ...row, state: "failed" }])
+  expect(h.calls).toEqual([])
 })
