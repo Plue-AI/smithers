@@ -353,5 +353,11 @@ describe("the Summary overview's groups", () => {
     expect(frame).toContain("enter Open")
     expect(frame).not.toContain("a Answer")
     expect(frame).toContain("Other")
+    act(() => setup?.renderer.destroy())
+    const held = { ...cards, ask: () => ask, answering: true as const }
+    frame = (await mount(<View.Batch batch={lone} width={70} cards={held} />, 70, 6)).captureCharFrame()
+    expect(frame).toContain("New name for add()?  1 sum  2 plus")
+    expect(frame).not.toContain("enter Open")
+    expect(frame).not.toContain("a Answer")
   })
 })

@@ -134,7 +134,8 @@ test("shows the one ask beside Summary and on its card, and a answers it from th
   expect(frame()).toContain("enter Answer  esc Back")
   expect(frame()).not.toContain("enter Run")
   // The card above no longer offers what the form now does.
-  expect(frame()).not.toContain("a Answer  enter Open")
+  expect(frame()).not.toContain("a Answer")
+  expect(frame()).not.toContain("enter Open")
   await key("ARROW_DOWN")
   expect(frame()).toContain("> plus")
   await key("RETURN")

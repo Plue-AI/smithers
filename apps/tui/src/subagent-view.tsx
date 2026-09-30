@@ -42,6 +42,8 @@ export interface Cards {
   readonly ask?: (id: string) => Asks.Ask | undefined
   /** The worker whose ask `a` answers from here: the only thing waiting for the person. */
   readonly answers?: string
+  /** A form has the keys: an ask's card shows none. */
+  readonly answering?: true
 }
 
 /** An ask's numbered choices: `1 sum  2 plus  3 other`; blank without options. */
@@ -73,8 +75,12 @@ function AskLines(props: { readonly tab: Tab; readonly ask: Asks.Ask; readonly c
             </>
           )
           : null}
-        <span fg={color.text}>enter</span>
-        <span fg={color.muted}>{" Open"}</span>
+        {props.cards.answering === true ? null : (
+          <>
+            <span fg={color.text}>enter</span>
+            <span fg={color.muted}>{" Open"}</span>
+          </>
+        )}
       </text>
     </>
   )

@@ -2556,7 +2556,7 @@ export function App(props: AppProps) {
     onFiles: toggleFiles,
     onAction: workerAction,
     ask: (id) => workspace.asks.fromPerson(id),
-    ...(soleAsk === undefined || form !== undefined ? {} : { answers: soleAsk.from })
+    ...(form !== undefined ? { answering: true } : soleAsk === undefined ? {} : { answers: soleAsk.from })
   }
   /** Titles from the chat down to a worker's parent, for its breadcrumb. */
   const path = (tab: Tab): ReadonlyArray<string> => {
