@@ -19,6 +19,8 @@ import { FlowEngine } from "@smthrs/engine"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import type { RunStore } from "@smthrs/run-store"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import { RunState } from "../RunState.ts"
 
 /** Paged lookup retains only the matching record, including unexpected event types.
  * @category accessors
@@ -102,6 +104,7 @@ export const prove = (options: {
           readonly childRunId?: unknown
           readonly parentRunId?: unknown
           readonly forkJournalOffset?: unknown
+          readonly copiedFromRunId?: unknown
         } | null
         return candidate.eventType === "flows.time-travel.fork-created" &&
           candidate.sourceId === "flows/time-travel/fork" && Number(candidate.sourceSeq) === candidate.seq &&
@@ -109,26 +112,55 @@ export const prove = (options: {
           value.parentRunId === parent && typeof value.forkJournalOffset === "number" &&
           Number.isSafeInteger(value.forkJournalOffset) && value.forkJournalOffset >= copied.seq &&
           candidate.seq === value.forkJournalOffset + 1 &&
-          same(value, { childRunId: child, parentRunId: parent, forkJournalOffset: value.forkJournalOffset })
+          (value.copiedFromRunId === undefined || typeof value.copiedFromRunId === "string") &&
+          same(value, {
+            childRunId: child,
+            parentRunId: parent,
+            forkJournalOffset: value.forkJournalOffset,
+            ...(value.copiedFromRunId === undefined ? {} : { copiedFromRunId: value.copiedFromRunId })
+          })
       })
       if (marker === undefined) return yield* Effect.fail(conflict)
-      const cutoff = yield* find(journal, parent, (candidate) => candidate.seq === marker.seq - 1)
+      const copiedFrom = (marker.payload as { copiedFromRunId?: string }).copiedFromRunId
+      const sourceRunId = copiedFrom ?? parent
+      if (copiedFrom !== undefined) {
+        const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
+        const state = yield* decodeState(run.stateJson).pipe(Effect.mapError(() => conflict))
+        const sourceRun = yield* runs.get(copiedFrom).pipe(Effect.mapError(() => conflict))
+        const sourceState = yield* decodeState(sourceRun.stateJson).pipe(Effect.mapError(() => conflict))
+        const parentRun = yield* runs.get(parent).pipe(Effect.mapError(() => conflict))
+        if (
+          !state.forkKeyRunIds?.includes(copiedFrom) || state.parentExecutionId !== parent ||
+          sourceState.parentExecutionId === undefined || parentRun.parentRunId !== sourceState.parentExecutionId
+        ) return yield* Effect.fail(conflict)
+        // A carried origin must belong to the run the new parent forked.
+        // Its receipt alone never grants reuse of an unrelated run's records.
+        const parentFork = yield* find(journal, parent, (candidate) => {
+          const value = candidate.payload as { childRunId?: unknown; parentRunId?: unknown } | null
+          return candidate.eventType === "flows.time-travel.fork-created" &&
+            candidate.sourceId === "flows/time-travel/fork" &&
+            Number(candidate.sourceSeq) === candidate.seq &&
+            value?.childRunId === parent && value.parentRunId === sourceState.parentExecutionId
+        })
+        if (parentFork === undefined) return yield* Effect.fail(conflict)
+      }
+      const cutoff = yield* find(journal, sourceRunId, (candidate) => candidate.seq === marker.seq - 1)
       if (
         cutoff === undefined ||
         !same(marker.meta, { lineageId: (cutoff.meta as { lineageId?: unknown } | null)?.lineageId })
       ) {
         return yield* Effect.fail(conflict)
       }
-      const original = yield* find(journal, parent, source)
+      const original = yield* find(journal, sourceRunId, source)
       if (
         original === undefined || original.seq !== copied.seq || original.emittedAtMs !== copied.emittedAtMs ||
         original.eventType !== copied.eventType || !same(original.payload, copied.payload) ||
         !same(original.meta, copied.meta)
       ) return yield* Effect.fail(conflict)
-      if (isRecord(original.meta) && original.meta["lineageId"] === FlowEngine.Lineage.root(parent)) {
-        return { ancestor: parent, record: original }
+      if (isRecord(original.meta) && original.meta["lineageId"] === FlowEngine.Lineage.root(sourceRunId)) {
+        return { ancestor: sourceRunId, record: original }
       }
-      child = parent
+      child = sourceRunId
       entry = original
     }
     return yield* Effect.fail(conflict)

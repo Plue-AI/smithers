@@ -57,6 +57,11 @@ export interface JournalRecord {
    * reads. Absent means "some other record", which the folds skip.
    */
   readonly eventType?: string | undefined
+  /**
+   * When the record was written, for the cut a carried child is copied at
+   * (`TimeTravelStore.CarriedChild`). Absent reads as zero.
+   */
+  readonly emittedAtMs?: number | undefined
 }
 /**
  * The store's entire contents, as returned by the `state()` method
@@ -471,7 +476,7 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
         }))
       )
     ),
-    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
+    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override, rebinding) =>
       Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(
         Effect.andThen(atomic(() => {
           fail("createFork:start")
@@ -527,6 +532,31 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
             eventType: forkCreatedEventType,
             payload: { parentRunId, forkJournalOffset: frame.seq, childRunId: runId }
           })
+          // Named spawned children cross under the ids the forked parent opens
+          // them with, cut at the parent frame record's emission time, as the
+          // SQL store cuts them. This store keeps journal records and no run
+          // or attempt rows, so the records stand in for the attempts the SQL
+          // store carries, and a payload rebinding has nothing to replace.
+          const cutMs = prefix.reduce(
+            (latest, record) => record.seq >= latest.seq ? record : latest,
+            { seq: -1, emittedAtMs: 0 } as Pick<JournalRecord, "seq" | "emittedAtMs">
+          ).emittedAtMs ?? 0
+          for (const child of rebinding?.children ?? []) {
+            const spawned = edges.find((edge) =>
+              edge.kind === "child" && edge.parentRunId === parentRunId && edge.childRunId === child.from
+            )
+            if (spawned === undefined) {
+              throw error("invalid", `run ${child.from} is not a child ${parentRunId} spawned`)
+            }
+            if (spawned.parentSeq > frame.seq) continue
+            const own = records.filter((record) => record.runId === child.from).sort((a, b) => a.seq - b.seq)
+            const cut = own.findIndex((record) => (record.emittedAtMs ?? 0) > cutMs)
+            const kept = cut < 0 ? own : own.slice(0, cut)
+            records.push(
+              ...kept.map((record) => ({ ...record, runId: child.to, eventId: `fork:${child.to}:${record.eventId}` }))
+            )
+            edges.push({ ...spawned, parentRunId: runId, childRunId: child.to })
+          }
           // The frame's anchors cross the fork with the prefix, mirroring the
           // SQL store: the child's history must be self-contained without a
           // later projection of its copied journal.

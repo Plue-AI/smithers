@@ -104,6 +104,51 @@ export const StepOverride = Schema.Struct({
  */
 export type StepOverride = typeof StepOverride.Type
 /**
+ * A spawned child execution a fork carries under a new id.
+ *
+ * `from` is a child the parent spawned; `to` is the id the forked parent will
+ * open that child under, which only the caller can derive. The carried child
+ * keeps the attempts it had finished when the parent's frame was written,
+ * keyed by `from`'s step keys, so it replays them. `payload`, when
+ * present, replaces the child's recorded invocation payload.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const CarriedChild = Schema.Struct({
+  from: Schema.NonEmptyString,
+  to: Schema.NonEmptyString,
+  payload: Schema.optional(Schema.Unknown)
+})
+/**
+ * The value form of {@link CarriedChild}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type CarriedChild = typeof CarriedChild.Type
+/**
+ * What a fork rebinds on its child besides one step result: the root's
+ * recorded payload (its input) and the spawned children it carries.
+ *
+ * An absent `payload` keeps the parent's. An empty or absent `children` carries
+ * none, so every child the forked parent opens starts fresh.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const Rebinding = Schema.Struct({
+  payload: Schema.optional(Schema.Unknown),
+  children: Schema.optional(Schema.Array(CarriedChild))
+})
+/**
+ * The value form of {@link Rebinding}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type Rebinding = typeof Rebinding.Type
+/**
  * A run's descendants at a frame, split by whether they still depend on the
  * history under that frame.
  *
@@ -463,14 +508,24 @@ export interface Service {
    * that provisions nothing beforehand wants.
    *
    * `override` replaces one copied step result in the same transaction. A step
-   * with no successful attempt finished at the frame refuses the whole fork
-   * with `not_found`, so nothing is committed.
+   * with no successful attempt finished at the frame, on the child or on a
+   * carried child, refuses the whole fork with `not_found`, so nothing is
+   * committed.
+   *
+   * `rebinding` replaces the child's recorded payload and carries the named
+   * spawned children (see {@link CarriedChild}). A named child the parent
+   * never spawned refuses `invalid`; one it spawned after the frame is not
+   * carried, and the forked parent opens it afresh. A carried child keeps the
+   * attempts its journal had finished by the parent's frame record (by
+   * emission time), or by the edited step when `override` names one of its
+   * steps, and is driven from its start by the forked parent.
    */
   readonly createFork: (
     parentRunId: string,
     frame: Frame,
     childRunId?: string,
-    override?: StepOverride
+    override?: StepOverride,
+    rebinding?: Rebinding
   ) => Effect.Effect<Fork, TimeTravelError>
   /**
    * Persists one compensation receipt against its audit row, before the

@@ -41,6 +41,7 @@ const fixture = () => ({
     Array<JournalEvent.Entry>
   >,
   parents: { child: "parent", parent: null } as Record<string, string | null>,
+  states: {} as Record<string, string>,
   record: { ...attempted },
   missingRun: false
 })
@@ -80,13 +81,65 @@ const accept = (state: Fixture) =>
             claim: null,
             claimedAtMs: null,
             cancelRequestedAtMs: null,
-            stateJson: "{}"
+            stateJson: state.states[runId] ?? "{}"
           })
     })
   })
 
 describe("copied producer record admission", () => {
   it.effect("accepts a verified ancestor record with equivalent nested JSON", () => accept(fixture()))
+
+  const carried = () => {
+    const state = fixture()
+    state.parents.child = "fork-root"
+    state.parents["fork-root"] = "root"
+    state.entries["fork-root"] = [marker("fork-root", "root")]
+    state.entries.child![1] = {
+      ...marker("child", "fork-root"),
+      payload: { childRunId: "child", parentRunId: "fork-root", forkJournalOffset: 0, copiedFromRunId: "parent" }
+    }
+    state.states.child = JSON.stringify({
+      version: 1,
+      flowName: "example",
+      payload: {},
+      parentExecutionId: "fork-root",
+      forkKeyRunIds: ["parent"]
+    })
+    state.states.parent = JSON.stringify({ version: 1, flowName: "example", payload: {}, parentExecutionId: "root" })
+    return state
+  }
+  it.effect("accepts a carried child only with its origin and the parent's fork receipt", () => accept(carried()))
+  for (
+    const [name, change] of [
+      ["missing carried origin", (state: Fixture) => {
+        state.states.child = JSON.stringify({
+          version: 1,
+          flowName: "example",
+          payload: {},
+          parentExecutionId: "fork-root"
+        })
+      }],
+      ["unrelated source parent", (state: Fixture) => {
+        state.parents["fork-root"] = "stranger"
+      }],
+      ["missing parent fork receipt", (state: Fixture) => {
+        state.entries["fork-root"] = []
+      }],
+      ["malformed carried state", (state: Fixture) => {
+        state.states.child = "{}"
+      }],
+      ["changed carried source", (state: Fixture) => {
+        state.entries.parent![0] = entry("parent", { payload: {} })
+      }]
+    ] as const
+  ) {
+    it.effect(`refuses ${name}`, () =>
+      Effect.gen(function*() {
+        const state = carried()
+        change(state)
+        expect((yield* Effect.flip(accept(state))).code).toBe("idempotency_conflict")
+      }))
+  }
 
   const refused: ReadonlyArray<readonly [string, (state: Fixture) => void]> = [
     ["missing run", (state) => {

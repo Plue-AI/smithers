@@ -274,7 +274,9 @@ describe("time travel over an engine-written journal", () => {
       planRecorded: "flows.engine.plan-recorded",
       subgraphAppended: "flows.engine.subgraph-appended",
       deferredCompleted: "flows.engine.deferred-completed",
+      deferredConsumed: "flows.engine.deferred-consumed",
       clockScheduled: "flows.engine.clock-scheduled",
+      clockCompleted: "flows.engine.clock-completed",
       childSpawnKind: "flows/engine-store/child-spawn"
     })
   })
@@ -315,6 +317,8 @@ describe("time travel over an engine-written journal", () => {
             return "done"
           }))
         yield* engine.execute(parent, { executionId: "contract-parent", payload: {}, discard: true })
+        yield* joinDrive(parent, "contract-parent")
+        yield* TestClock.adjust("1 second")
         yield* joinDrive(parent, "contract-parent")
 
         const runs = yield* RunStore.RunStore

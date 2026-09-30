@@ -53,7 +53,7 @@ import * as Replay from "./internal/Replay.ts"
 import * as Rewind from "./internal/Rewind.ts"
 import * as SnapshotProjector from "./internal/SnapshotProjector.ts"
 import { error, type TimeTravelError } from "./TimeTravelError.ts"
-import { StepOverride, TimeTravelStore } from "./TimeTravelStore.ts"
+import { type Rebinding, StepOverride, TimeTravelStore } from "./TimeTravelStore.ts"
 
 /**
  * Where in history an operation acts: a run, and a frame inside it.
@@ -156,6 +156,13 @@ export interface ForkOptions {
    * the frame again. The step must have succeeded at or before the frame.
    */
   readonly override?: StepOverride | undefined
+  /**
+   * Rebind the child, given the id the fork mints for it: replace its recorded
+   * payload (its root input) and carry named spawned children under new ids
+   * (`TimeTravelStore.Rebinding`). A step whose key a new payload changes runs
+   * again; every step whose key it leaves alone replays.
+   */
+  readonly rebind?: ((childRunId: string) => Effect.Effect<Rebinding, TimeTravelError>) | undefined
 }
 
 /**
@@ -625,6 +632,7 @@ export const makeWith = (
               workspaceRoot: options?.workspaceRoot ?? workspaceRoot,
               retainWorkspace: options?.retainWorkspace,
               override,
+              rebind: options?.rebind,
               pageSize: options?.pageSize,
               maxEntries,
               refreshAnchors: refreshAnchors(decoded.runId, decoded.frame.seq, maxEntries)

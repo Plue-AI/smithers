@@ -148,6 +148,48 @@ attempt at the frame refuses `not_found` before anything is written. A step the
 shared step cache holds refuses `invalid`, because a cache hit is served ahead
 of the attempt row and would hide the edit.
 
+## Edit the input and carry spawned children
+
+Pass `rebind` to change what the child starts from. It receives the id the fork
+mints for the child and returns a `TimeTravelStore.Rebinding`:
+
+```ts
+const fork = yield * timeTravel.fork(position, {
+  rebind: (childRunId) =>
+    Effect.gen(function*() {
+      const to = yield* Interpreter.childExecutionId(childRunId, boundaryNode, Inner._tag, payload)
+      return { payload: editedInput, children: [{ from: parentChildId, to }] }
+    })
+})
+```
+
+`payload` replaces the child's recorded payload, its root input. The child
+replays every recorded step whose key the new input leaves unchanged and runs
+every step whose key it changes, and everything that depends on those.
+
+A spawned child execution keeps its own journal and attempts, so a fork does
+not carry it by default: the forked parent opens its children afresh and runs
+their steps again. Name one in `children` to carry it. `from` is the child the
+parent spawned and `to` is the id the forked parent will open it under, which
+only the caller can derive: a `.child()` boundary derives it with
+`Interpreter.childExecutionId` from the parent's execution id. The carried
+child keeps the attempts it had finished when the parent's frame was written,
+so the forked parent drives it again and those steps replay. `override` may
+name a step the carried child recorded: the child replays the steps before it
+and runs every step after it again. A child spawned after the frame is not
+carried, and a run the parent never spawned refuses `invalid`. The memory store
+keeps journal records only, so it carries a child's records and holds no step
+result to edit.
+
+`smthrs runs fork --input <json|@file>` edits a run's input from the CLI. A
+run's input belongs to its approved plan, so the CLI plans and approves the
+edited input as a plan of its own, as `flow start` does, and binds the fork to
+it. The CLI forks every run as a run of its own: the fork's payload names the
+fork, its module flow runs in a module child of its own that carries the
+parent's recorded steps, and `--step` may name one of those steps. The CLI
+forks runs a control plane launched; a standalone engine execution has no
+control identity to resume, so fork it through this API.
+
 ## Bound what the fork reads
 
 `ForkOptions.maxHistoryEntries` caps the suffix the fork assesses for this one
@@ -156,14 +198,14 @@ call, overriding the service default. A suffix past the cap fails
 
 ## Failures
 
-| Code              | Cause                                                                                                     |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `already_crossed` | The frame lies inside an irreversible action after its boundary and before its completion receipt.        |
-| `live_parent`     | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy. |
-| `not_found`       | The frame addresses no record of that run, or `override` names a step with no success at the frame.       |
-| `invalid`         | A malformed option, a durable payload that does not decode, or an override the step cache would hide.     |
-| `limit_exceeded`  | The suffix the fork would assess is longer than the cap allows.                                           |
-| `unknown`         | The store, the journal, or Jujutsu failed. The cause is attached.                                         |
+| Code              | Cause                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `already_crossed` | The frame lies inside an irreversible action after its boundary and before its completion receipt.                                              |
+| `live_parent`     | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy.                                       |
+| `not_found`       | The frame addresses no record of that run, or `override` names a step with no success at the frame.                                             |
+| `invalid`         | A malformed option, a durable payload that does not decode, an override the step cache would hide, or a carried child the parent never spawned. |
+| `limit_exceeded`  | The suffix the fork would assess is longer than the cap allows.                                                                                 |
+| `unknown`         | The store, the journal, or Jujutsu failed. The cause is attached.                                                                               |
 
 If the process dies after the lane is provisioned and before the store commits
 the fork, the next build of `TimeTravel.layer` forgets the lane and the

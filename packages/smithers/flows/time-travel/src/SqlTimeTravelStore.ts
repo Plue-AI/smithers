@@ -358,7 +358,7 @@ export const make: Effect.Effect<
         SELECT state_json FROM flows_runs
         WHERE run_id = ${runId} AND EXISTS (
           SELECT 1 FROM flows_time_travel_edges
-          WHERE child_run_id = ${runId} AND kind = 'fork'
+          WHERE child_run_id = ${runId} AND kind IN ('fork', 'child')
         )
       `.pipe(Effect.mapError(mapError))
 
@@ -384,6 +384,8 @@ export const make: Effect.Effect<
           const atFrame = yield* Schema.decodeUnknownEffect(RunState)(state).pipe(Effect.mapError(mapError))
           return yield* Schema.encodeEffect(RunStateJson)({
             ...atFrame,
+            payload: current.payload,
+            ...(current.parentExecutionId === undefined ? {} : { parentExecutionId: current.parentExecutionId }),
             ...(current.forkKeyRunIds === undefined ? {} : { forkKeyRunIds: current.forkKeyRunIds })
           }).pipe(Effect.mapError(mapError))
         }
@@ -483,6 +485,49 @@ export const make: Effect.Effect<
           Dialect.jsonText(sql, sql`event.payload_json`, "$.executionId")
         } = flows_clock_deadlines.execution_id
                 AND ${Dialect.jsonText(sql, sql`event.payload_json`, "$.clockName")} = flows_clock_deadlines.clock_name
+            )
+        `
+        // A completion or consumption recorded in the suffix is undone on the
+        // row that survives it, so the rows keep matching the journal the
+        // deferred/clock fold rebuilds them from (issue #2054). A clock whose
+        // completion is archived is pending again and fires, which is what a
+        // clock whose deferred completion was archived already had to do.
+        yield* sql`
+          UPDATE flows_clock_deadlines
+          SET completed_at_ms = NULL
+          WHERE execution_id = ${runId}
+            AND completed_at_ms IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM flows_journal_events AS event
+              WHERE event.run_id = ${runId}
+                AND event.seq > ${afterSeq}
+                AND event.event_type = ${EventTypes.clockCompleted}
+                AND ${Dialect.jsonText(sql, sql`event.payload_json`, "$.flowName")} = flows_clock_deadlines.flow_name
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.executionId")
+        } = flows_clock_deadlines.execution_id
+                AND ${Dialect.jsonText(sql, sql`event.payload_json`, "$.clockName")} = flows_clock_deadlines.clock_name
+            )
+        `
+        yield* sql`
+          UPDATE flows_deferred_completions
+          SET consumed_at_ms = NULL
+          WHERE execution_id = ${runId}
+            AND consumed_at_ms IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM flows_journal_events AS event
+              WHERE event.run_id = ${runId}
+                AND event.seq > ${afterSeq}
+                AND event.event_type = ${EventTypes.deferredConsumed}
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.flowName")
+        } = flows_deferred_completions.flow_name
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.executionId")
+        } = flows_deferred_completions.execution_id
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.deferredName")
+        } = flows_deferred_completions.deferred_name
             )
         `
       }).pipe(Effect.mapError(mapError))
@@ -964,7 +1009,7 @@ export const make: Effect.Effect<
           ).pipe(Effect.mapError(mapError))
         ))
       ),
-      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
+      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override, rebinding) =>
         Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(Effect.andThen(
           writer.write(
             Effect.gen(function*() {
@@ -1049,10 +1094,16 @@ export const make: Effect.Effect<
               const parent = yield* Schema.decodeUnknownEffect(RunStateJson)(parentState[0]!.state_json).pipe(
                 Effect.mapError((cause) => error("unknown", "could not materialize executable fork state", cause))
               )
-              const stateJson = yield* restartableStateJson(
+              const restartable = yield* restartableStateJson(
                 derived ?? parentState[0]!.state_json,
                 [parentRunId, ...(parent.forkKeyRunIds ?? [])]
               )
+              const stateJson = rebinding?.payload === undefined ?
+                restartable :
+                yield* Schema.encodeEffect(RunStateJson)({
+                  ...yield* Schema.decodeUnknownEffect(RunStateJson)(restartable),
+                  payload: rebinding.payload
+                }).pipe(Effect.mapError(mapError))
               yield* sql`
             INSERT INTO flows_runs (
               run_id,
@@ -1114,10 +1165,140 @@ export const make: Effect.Effect<
                * whole edit: the parent keeps its own row, and every step past
                * the frame runs again on the child against the edited value.
                */
+              const copiedRunIds = [runId]
+              const children = rebinding?.children ?? []
+              if (children.length > 0) {
+                const edges = yield* edgesUnder(parentRunId)
+                const [cut] = yield* sql<{ readonly emitted_at_ms: number }>`
+                  SELECT emitted_at_ms FROM flows_journal_events
+                  WHERE run_id = ${parentRunId} AND seq = ${frame.seq}`
+                const [tail] = yield* sql<{ readonly seq: number }>`
+                  SELECT MAX(seq) AS seq FROM flows_journal_events WHERE run_id = ${parentRunId}`
+                const cutMs = Number(cut?.emitted_at_ms ?? 0)
+                // Same-millisecond child records have no ordering against an
+                // earlier parent frame. Only its full tail admits that tie.
+                const inclusive = Number(tail?.seq) === frame.seq
+                for (const child of children) {
+                  const edge = edges.find((candidate) =>
+                    candidate.kind === "child" &&
+                    candidate.parent_run_id === parentRunId && candidate.child_run_id === child.from
+                  )
+                  if (edge === undefined) {
+                    return yield* Effect.fail(error(
+                      "invalid",
+                      `run ${child.from} is not a child ${parentRunId} spawned`
+                    ))
+                  }
+                  if (Number(edge.parent_seq) > frame.seq) continue
+                  const [last] = yield* sql<{ readonly seq: number }>`
+                    SELECT MAX(seq) AS seq FROM flows_journal_events
+                    WHERE run_id = ${child.from} AND seq < COALESCE((
+                      SELECT MIN(seq) FROM flows_journal_events WHERE run_id = ${child.from}
+                      AND (emitted_at_ms > ${cutMs} OR (${inclusive ? 0 : 1} = 1 AND emitted_at_ms = ${cutMs}))
+                    ), 9223372036854775807)`
+                  const childFrame = { lineageId: child.from, seq: Number(last?.seq ?? 0) }
+                  if (override !== undefined) {
+                    const [editedAt] = yield* sql<{ readonly seq: number | null }>`
+                      SELECT MAX(seq) AS seq FROM flows_journal_events
+                      WHERE run_id = ${child.from} AND seq <= ${childFrame.seq}
+                        AND event_type = ${EventTypes.attemptFinished}
+                        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.stepKeyDigest")} = ${override.stepKeyDigest}
+                        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.state")} = 'succeeded'`
+                    // Results downstream of an edited action were computed
+                    // from its old answer and must execute on the child.
+                    if (editedAt?.seq != null) childFrame.seq = Number(editedAt.seq)
+                  }
+                  const refs = yield* attemptsAtFrame(child.from, childFrame, EventTypes.attemptFinished, true)
+                  const [unresolvedChild] = yield* sql<{ readonly count: number }>`
+                    SELECT COUNT(*) AS count FROM flows_attempts AS attempts
+                    WHERE attempts.run_id = ${child.from}
+                      AND (attempts.step_key_digest, attempts.attempt) NOT IN (${attemptRefsSelect(refs)})
+                      AND EXISTS (
+                        SELECT 1 FROM flows_journal_events AS events
+                        WHERE events.run_id = ${child.from} AND events.seq <= ${childFrame.seq}
+                          AND events.event_type = ${EffectBoundary.eventType}
+                          AND ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.tier")} = 'irreversible'
+                          AND ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.id")} =
+                            ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.runId")} || ':' ||
+                            attempts.step_key_digest || ':' || attempts.attempt
+                      )`
+                  if (Number(unresolvedChild!.count) > 0) {
+                    return yield* Effect.fail(error(
+                      "already_crossed",
+                      "fork frame crosses an unfinished irreversible child action"
+                    ))
+                  }
+                  const [source] = yield* sql<{ readonly state_json: string }>`
+                    SELECT state_json FROM flows_runs WHERE run_id = ${child.from}`
+                  if (source === undefined) {
+                    return yield* Effect.fail(error("not_found", `run ${child.from} was not found`))
+                  }
+                  const original = yield* Schema.decodeUnknownEffect(RunStateJson)(source.state_json)
+                    .pipe(Effect.mapError(mapError))
+                  const childState = yield* restartableStateJson(
+                    (yield* stateAtFrame(child.from, childFrame)) ?? source.state_json,
+                    [child.from, ...(original.forkKeyRunIds ?? [])]
+                  ).pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunStateJson)))
+                  const childStateJson = yield* Schema.encodeEffect(RunStateJson)({
+                    ...childState,
+                    parentExecutionId: runId,
+                    ...(child.payload === undefined ? {} : { payload: child.payload })
+                  }).pipe(Effect.mapError(mapError))
+                  yield* sql`
+                    INSERT INTO flows_runs(run_id, status, created_at_ms, parent_run_id, state_json, lineage_id, round_ordinal)
+                    VALUES(${child.to}, 'pending', ${nowMs}, ${runId}, ${childStateJson}, ${child.to}, 0)`
+                  yield* sql`INSERT INTO flows_run_parents(child_id, parent_id, seq)
+                    SELECT ${child.to}, ${runId}, COALESCE(MAX(seq), 0) + 1 FROM flows_run_parents`
+                  yield* sql`
+                    INSERT INTO flows_journal_events
+                      (run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json)
+                    SELECT ${child.to}, seq, ${`fork:${child.to}:`} || event_id, source_id, source_seq,
+                           emitted_at_ms, event_type, payload_json, meta_json
+                    FROM flows_journal_events WHERE run_id = ${child.from} AND seq <= ${childFrame.seq}`
+                  yield* sql`
+                    INSERT INTO flows_attempts
+                      (run_id, step_key_digest, attempt, state, started_at_ms, finished_at_ms,
+                       heartbeat_at_ms, checkpoint_json, error_json, outcome_json, meta_json)
+                    SELECT ${child.to}, step_key_digest, attempt, state, started_at_ms, finished_at_ms,
+                           heartbeat_at_ms, checkpoint_json, error_json, outcome_json, meta_json
+                    FROM flows_attempts WHERE run_id = ${child.from}
+                      AND (step_key_digest, attempt) IN (${attemptRefsSelect(refs)})`
+                  yield* sql`
+                    INSERT INTO flows_time_travel_snapshots(run_id, lineage_id, seq, change_id, operation_id, plan_digest)
+                    SELECT ${child.to}, lineage_id, seq, change_id, operation_id, plan_digest
+                    FROM flows_time_travel_snapshots WHERE run_id = ${child.from} AND seq <= ${childFrame.seq}`
+                  yield* sql`
+                    INSERT INTO flows_time_travel_edges(parent_run_id, parent_seq, child_run_id, kind, attached)
+                    VALUES(${runId}, ${edge.parent_seq}, ${child.to}, 'child', ${edge.attached})`
+                  const [cutRecord] = yield* sql<{ readonly meta_json: string }>`
+                    SELECT meta_json FROM flows_journal_events WHERE run_id = ${child.from} AND seq = ${childFrame.seq}`
+                  yield* sql`
+                    INSERT INTO flows_journal_events
+                      (run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json)
+                    VALUES(${child.to}, ${childFrame.seq + 1}, ${`fork:${child.to}:created`},
+                      'flows/time-travel/fork', ${childFrame.seq + 1}, ${nowMs}, ${forkCreatedEventType},
+                      ${
+                    JSON.stringify({
+                      parentRunId: runId,
+                      forkJournalOffset: childFrame.seq,
+                      childRunId: child.to,
+                      copiedFromRunId: child.from
+                    })
+                  },
+                      ${
+                    JSON.stringify({
+                      lineageId: cutRecord === undefined ? child.from : JSON.parse(cutRecord.meta_json).lineageId
+                    })
+                  })`
+                  copiedRunIds.push(child.to)
+                }
+              }
               if (override !== undefined) {
                 const edited = yield* sql<{ readonly attempt: number }>`
                   UPDATE flows_attempts SET outcome_json = ${JSON.stringify(override.result)}
-                  WHERE run_id = ${runId} AND step_key_digest = ${override.stepKeyDigest} AND state = 'succeeded'
+                  WHERE run_id IN ${
+                  sql.in(copiedRunIds)
+                } AND step_key_digest = ${override.stepKeyDigest} AND state = 'succeeded'
                   RETURNING attempt
                 `
                 if (edited.length === 0) {
