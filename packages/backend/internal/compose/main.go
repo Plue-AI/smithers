@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -576,6 +577,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminOrgService := services.NewAdminOrgService(queries)
 	adminRepoService := services.NewAdminRepoService(queries)
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
+	if err := configureGitHubSyncWebhooks(cfg.Webhook, gitHubSyncedRepoService, webhookService); err != nil {
+		slog.Error("invalid github-sync webhook configuration", "error", err)
+		return err
+	}
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
@@ -1713,6 +1718,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			launchWorker(func() { repositoryStorageReconciler.Start(workerCtx) })
 		}
 		launchWorker(func() { gitHubSyncedRepoService.StartReconciler(workerCtx) })
+		launchWorker(func() { gitHubSyncedRepoService.StartSyncWebhookReconciler(workerCtx, 10*time.Minute) })
 		launchWorker(func() { pairSessionService.StartStaleSweeper(workerCtx) })
 		agentService.StartSessionReaper(workerCtx, time.Duration(cfg.Sandbox.AgentMaxRuntimeSecs)*time.Second)
 		authCleaner.Start(workerCtx)
@@ -1956,6 +1962,23 @@ func validateProductionConfig(environment string, e2eTestRoutes bool) error {
 	if strings.EqualFold(strings.TrimSpace(environment), "production") && e2eTestRoutes {
 		return errors.New("SMITHERS_ENABLE_E2E_TEST_ROUTES must not be enabled in production")
 	}
+	return nil
+}
+
+// configureGitHubSyncWebhooks restores the optional mirrored-repository event
+// feed. Configuration errors refuse startup without exposing the signing key.
+func configureGitHubSyncWebhooks(cfg config.WebhookConfig, synced *services.GitHubSyncedRepoService, hooks *services.WebhookService) error {
+	endpoint, secret := strings.TrimSpace(cfg.GitHubSyncURL), strings.TrimSpace(cfg.GitHubSyncSecret)
+	if endpoint == "" && secret == "" {
+		return nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || secret == "" || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
+		return errors.New("webhook.github_sync_url must be an https URL set together with webhook.github_sync_secret")
+	}
+	synced.SetSyncWebhook(func(ctx context.Context, owner, repo string) (bool, error) {
+		return hooks.EnsureSystemWebhook(ctx, owner, repo, endpoint, secret, services.GitHubSyncWebhookEvents)
+	})
 	return nil
 }
 

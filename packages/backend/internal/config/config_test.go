@@ -124,6 +124,8 @@ var allEnvKeys = []string{
 	// Webhook
 	"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY",
 	"SMITHERS_WEBHOOK_GITHUB_APP_SECRET",
+	"SMITHERS_WEBHOOK_GITHUB_SYNC_URL",
+	"SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET",
 	"SMITHERS_PROVIDER_CONNECTIONS_CLAUDE_TOKEN_URL",
 	"SMITHERS_PROVIDER_CONNECTIONS_CLAUDE_CLIENT_ID",
 	"SMITHERS_PROVIDER_CONNECTIONS_CODEX_TOKEN_URL",
@@ -212,6 +214,20 @@ var allEnvKeys = []string{
 
 // clearConfigEnv unsets all SMITHERS_ env vars that config.Load() reads,
 // and restores them after the test via t.Cleanup.
+func TestLoad_GitHubSyncWebhookDefaultsAndEnvironment(t *testing.T) {
+	clearConfigEnv(t)
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Webhook.GitHubSyncURL)
+	assert.Empty(t, cfg.Webhook.GitHubSyncSecret)
+	t.Setenv("SMITHERS_WEBHOOK_GITHUB_SYNC_URL", "https://sync.example/webhooks/smithers")
+	t.Setenv("SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET", "integration-signing-key")
+	cfg, err = Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "https://sync.example/webhooks/smithers", cfg.Webhook.GitHubSyncURL)
+	assert.Equal(t, "integration-signing-key", cfg.Webhook.GitHubSyncSecret)
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range allEnvKeys {

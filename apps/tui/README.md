@@ -176,6 +176,7 @@ completion menu follow opencode's shapes; fuzzy matching is pi's.
 
 A worker's timeline shows what entered its window: `→ context 12 in · 3
 withheld` at run start and `→ memory 7 in · 4 withheld` for recalled memory.
+An unjudged or failed memory opening shows `→ memory unavailable`.
 A worker whose child runs the agent `poc` (or `…/poc`), a POC lane, shows its lanes side
 by side in the overview's cards pane, the POC's open questions under it.
 
@@ -331,6 +332,10 @@ model, clock and tokens, and buttons for the actions its status allows:
 Steer. Its transcript is drawn with the chat's own cells. **j**/**k** pick a
 row and **u** undoes its changes. A worker's toast reads like its card
 (`◐ title · 42s`) with Stop and Steer.
+
+Type in a finished worker's tab to continue its conversation. Wrapped workers
+resume the same Claude Code or Codex session. Delegating a failed or stopped
+request id again starts the new request in that tab.
 
 Workers run locally. Restarting the TUI restores their transcripts and
 auto-relaunches running and waiting workers; parked workers relaunch at reset.
@@ -506,10 +511,10 @@ The file may declare `model: [sol, opus]` to set an ordered primary and fallback
 An explicit model override uses the host's fallback settings.
 The tab runs as a worker with the body appended to the worker instructions,
 `effort` as its reasoning effort, `capabilities` as its envelope and `flows`
-narrowing the filesystem and shell flows. The registry lists a body that
-declares `flows:` with capabilities `*`; the tab still runs under the file's
-own `capabilities:`. Retry reads the file again, so edits apply,
-and keeps the agent and the model. The tab records `agent: {name, digest}`.
+narrowing the filesystem and shell flows. For an agent declaring `flows:`, the
+registry lists its declared `capabilities:`; if omitted, it lists `*`. The tab
+runs under the file's `capabilities:`. Retry rereads the file, applies edits,
+and keeps the agent and model. The tab records `agent: {name, digest}`.
 
 Every refusal is a code and one line:
 
@@ -525,6 +530,10 @@ Every refusal is a code and one line:
 
 `examples/custom-agent` is a directory with one agent; run
 `bun run tui apps/tui/examples/custom-agent` and type `/agent review`.
+
+When editing TUI JSX, write rendered edge spaces as `{" "}`. The pinned dprint
+TypeScript plugin drops literal spaces beside expressions such as
+`<span>{mark} </span>`; see [dprint/dprint-plugin-typescript#476](https://github.com/dprint/dprint-plugin-typescript/issues/476).
 
 ## Tests
 
