@@ -3,15 +3,20 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +31,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
@@ -34,7 +40,11 @@ import (
 // descriptors and uploads run artifacts through the assembled router, with
 // the per-job token the scheduler mints. The fake sandbox runs each guest's
 // real start and poll commands with bash in a private directory, so the
-// shipped job script and the smithers-ci helper are what execute.
+// shipped job script and the smithers-ci helper are what execute. Like the
+// Microsandbox worker it refuses exec secrets (plue#621) and routes the
+// guest's HTTP through a per-guest egress proxy that swaps each bound
+// placeholder for its value, so the token reaches the guest only as a
+// placeholder.
 func TestNixCIGuestCacheAndArtifactsPostgres(t *testing.T) {
 	for _, tool := range []string{"bash", "python3", "tail"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -72,8 +82,8 @@ func TestNixCIGuestCacheAndArtifactsPostgres(t *testing.T) {
 	handler = mux
 
 	guests := newLocalCIGuests(t)
-	// The scheduler claims through the product lease every deployment uses.
-	worker := services.NewWorkflowSandboxSchedulerWorker(services.NewProductWorkflowSandboxScheduler(q), guests,
+	schedulerStore := &ciTestSchedulerStore{Queries: q, pool: pool}
+	worker := services.NewWorkflowSandboxSchedulerWorker(schedulerStore, guests,
 		services.WithWorkflowSandboxSchedulerGitBaseURL(srv.URL),
 		services.WithWorkflowSandboxSchedulerAPIBaseURL(srv.URL+"/api"),
 		services.WithWorkflowSandboxSchedulerCIGuests(guests),
@@ -127,6 +137,8 @@ func TestNixCIGuestCacheAndArtifactsPostgres(t *testing.T) {
 	token := guests.tokenFor(first)
 	require.NotEmpty(t, token)
 	assert.NotContains(t, strings.Join(firstLogs, "\n"), token, "the job token is redacted from logs")
+	assert.Positive(t, guests.substitutions(), "the guest's requests carried the placeholder and the proxy swapped it")
+	guests.assertNoResidue(t, token)
 	assert.Equal(t, http.StatusUnauthorized,
 		ciTestInternal(t, srv.URL, token, http.MethodPost, "/internal/caches/restore", `{"key":"deps"}`),
 		"the job token dies with its job")
@@ -243,22 +255,79 @@ func ciTestLogs(t *testing.T, pool *pgxpool.Pool, runID int64) []string {
 	return out
 }
 
+// ciTestSchedulerStore is the product queries plus the claim fence a
+// deployment store supplies (see ports.RuntimeStores.WorkflowScheduler).
+type ciTestSchedulerStore struct {
+	*db.Queries
+	pool *pgxpool.Pool
+}
+
+func (s *ciTestSchedulerStore) ClaimQueuedWorkflowRuns(ctx context.Context, limit int32) ([]runtimeports.ClaimQueuedWorkflowRunsRow, error) {
+	rows, err := s.pool.Query(ctx, `UPDATE workflow_runs SET status = 'running', started_at = NOW(), updated_at = NOW()
+		WHERE id IN (SELECT id FROM workflow_runs WHERE status = 'queued' AND execution_plane = 'sandbox' ORDER BY id LIMIT $1)
+		RETURNING id, repository_id, workflow_definition_id, trigger_ref, trigger_commit_sha, trigger_event`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []runtimeports.ClaimQueuedWorkflowRunsRow
+	for rows.Next() {
+		var row runtimeports.ClaimQueuedWorkflowRunsRow
+		if err := rows.Scan(&row.ID, &row.RepositoryID, &row.WorkflowDefinitionID, &row.TriggerRef, &row.TriggerCommitSha, &row.TriggerEvent); err != nil {
+			return nil, err
+		}
+		_, _ = rand.Read(row.ClaimToken.Bytes[:])
+		row.ClaimToken.Valid = true
+		row.ClaimGeneration = 1
+		row.ClaimLeaseExpiresAt = pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *ciTestSchedulerStore) RenewWorkflowSandboxClaim(context.Context, runtimeports.RenewWorkflowSandboxClaimParams) (pgtype.Timestamptz, error) {
+	return pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, nil
+}
+
+func (s *ciTestSchedulerStore) finish(ctx context.Context, id int64, status string) (db.WorkflowRun, error) {
+	var repoID int64
+	if err := s.pool.QueryRow(ctx, `UPDATE workflow_runs SET status = $2, completed_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND status = 'running' RETURNING repository_id`, id, status).Scan(&repoID); err != nil {
+		return db.WorkflowRun{}, err
+	}
+	return s.Queries.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: id, RepositoryID: repoID})
+}
+
+func (s *ciTestSchedulerStore) MarkWorkflowRunSuccess(ctx context.Context, arg runtimeports.MarkWorkflowRunSuccessParams) (db.WorkflowRun, error) {
+	return s.finish(ctx, arg.ID, "success")
+}
+
+func (s *ciTestSchedulerStore) MarkWorkflowRunFailure(ctx context.Context, arg runtimeports.MarkWorkflowRunFailureParams) (db.WorkflowRun, error) {
+	return s.finish(ctx, arg.ID, "failure")
+}
+
 // localCIGuests is a fake sandbox provider whose guests are private
 // directories on this machine. It runs the scheduler's commands with bash,
-// mapping the guest's fixed paths into the guest's directory.
+// mapping the guest's fixed paths into the guest's directory, and gives each
+// guest a forward HTTP proxy that substitutes the guest's bound secrets the
+// way the per-sandbox egress proxy does.
 type localCIGuests struct {
 	t     *testing.T
 	mu    sync.Mutex
 	next  int
 	roots map[string]string
+	// bound holds each guest's egress bindings, as its proxy received them.
+	bound   map[string][]sandbox.EgressProxySecret
+	proxies map[string]*httptest.Server
 	// tokens records the job token each run's guest received.
-	tokens map[int64]string
+	tokens  map[int64]string
+	swapped int
 	// probe runs inside the job's lifetime, with the job's own token.
 	probe func(token string, runID int64)
 }
 
 func newLocalCIGuests(t *testing.T) *localCIGuests {
-	return &localCIGuests{t: t, roots: map[string]string{}, tokens: map[int64]string{}}
+	return &localCIGuests{t: t, roots: map[string]string{}, bound: map[string][]sandbox.EgressProxySecret{}, proxies: map[string]*httptest.Server{}, tokens: map[int64]string{}}
 }
 
 func (g *localCIGuests) tokenFor(runID int64) string {
@@ -267,11 +336,38 @@ func (g *localCIGuests) tokenFor(runID int64) string {
 	return g.tokens[runID]
 }
 
-func (g *localCIGuests) CIGuestVMRequest(_ context.Context, _ int64, gitRepos []sandbox.GitRepositorySpec) (sandbox.CreateRequest, error) {
-	return sandbox.CreateRequest{Kind: "vm", GitRepos: gitRepos}, nil
+func (g *localCIGuests) substitutions() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.swapped
 }
 
-func (g *localCIGuests) CreateSandbox(_ context.Context, _ sandbox.CreateRequest) (sandbox.CreateResult, error) {
+// assertNoResidue scans every guest's disk: the value exists only in the
+// proxy, never in a file the job could read.
+func (g *localCIGuests) assertNoResidue(t *testing.T, value string) {
+	t.Helper()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, root := range g.roots {
+		require.NoError(t, filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			assert.NotContains(t, string(raw), value, "guest file %s holds the secret", path)
+			return nil
+		}))
+	}
+}
+
+func (g *localCIGuests) CIGuestVMRequest(_ context.Context, _ int64, gitRepos []sandbox.GitRepositorySpec) (sandbox.CreateRequest, error) {
+	return sandbox.CreateRequest{Kind: "vm", GitRepos: gitRepos, EgressProxy: &sandbox.EgressProxyPolicy{Enabled: true}}, nil
+}
+
+func (g *localCIGuests) CreateSandbox(_ context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 	g.mu.Lock()
 	g.next++
 	id := fmt.Sprintf("vm-%d", g.next)
@@ -284,27 +380,73 @@ func (g *localCIGuests) CreateSandbox(_ context.Context, _ sandbox.CreateRequest
 	if err := os.WriteFile(filepath.Join(root, "repo", "lock.txt"), []byte("v1\n"), 0o644); err != nil {
 		return sandbox.CreateResult{}, err
 	}
+	var bound []sandbox.EgressProxySecret
+	if req.EgressProxy != nil {
+		bound = append(bound, req.EgressProxy.Secrets...)
+	}
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out := r.Clone(r.Context())
+		out.RequestURI = ""
+		for _, secret := range bound {
+			if !slices.Contains(secret.Hosts, r.URL.Hostname()) {
+				continue
+			}
+			for _, header := range secret.MatchHeaders {
+				if value := out.Header.Get(header); strings.Contains(value, sandbox.EgressProxyPlaceholder(secret.Name)) {
+					out.Header.Set(header, strings.ReplaceAll(value, sandbox.EgressProxyPlaceholder(secret.Name), secret.Value))
+					g.mu.Lock()
+					g.swapped++
+					g.mu.Unlock()
+				}
+			}
+		}
+		resp, err := http.DefaultTransport.RoundTrip(out)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for name, values := range resp.Header {
+			w.Header()[name] = values
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	g.t.Cleanup(proxy.Close)
 	g.mu.Lock()
 	g.roots[id] = root
+	g.bound[id] = bound
+	g.proxies[id] = proxy
 	g.mu.Unlock()
 	return sandbox.CreateResult{ID: id}, nil
 }
 
+var ciTestRunIDPattern = regexp.MustCompile(`export SMITHERS_WORKFLOW_RUN_ID='\\''(\d+)'\\''`)
+
 func (g *localCIGuests) Execute(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	if len(req.Secrets) > 0 {
+		return sandbox.ExecResult{}, errors.New("secret_delivery_unavailable: operation-scoped secret delivery is unavailable")
+	}
 	g.mu.Lock()
 	root := g.roots[vmID]
-	g.mu.Unlock()
-	if token := req.Secrets["SMITHERS_CI_JOB_TOKEN"]; token != "" && g.probe != nil {
-		var runID int64
-		_, _ = fmt.Sscan(req.Secrets["SMITHERS_WORKFLOW_RUN_ID"], &runID)
-		g.probe(token, runID)
+	proxy := g.proxies[vmID]
+	var token string
+	for _, secret := range g.bound[vmID] {
+		if secret.Name == "SMITHERS_CI_JOB_TOKEN" {
+			token = secret.Value
+		}
 	}
-	if token := req.Secrets["SMITHERS_CI_JOB_TOKEN"]; token != "" {
+	g.mu.Unlock()
+	if match := ciTestRunIDPattern.FindStringSubmatch(req.Command); match != nil && token != "" {
 		var runID int64
-		_, _ = fmt.Sscan(req.Secrets["SMITHERS_WORKFLOW_RUN_ID"], &runID)
+		_, _ = fmt.Sscan(match[1], &runID)
 		g.mu.Lock()
 		g.tokens[runID] = token
+		probe := g.probe
 		g.mu.Unlock()
+		if probe != nil {
+			probe(token, runID)
+		}
 	}
 	command := strings.NewReplacer(
 		"/workspace/repo", filepath.Join(root, "repo"),
@@ -312,10 +454,12 @@ func (g *localCIGuests) Execute(ctx context.Context, vmID string, req sandbox.Ex
 		"/var/lib/smithers-ci", filepath.Join(root, "lib"),
 	).Replace(req.Command)
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
-	cmd.Env = os.Environ()
-	for name, value := range req.Secrets {
-		cmd.Env = append(cmd.Env, name+"="+value)
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); !strings.EqualFold(name, "no_proxy") && !strings.EqualFold(name, "http_proxy") && !strings.EqualFold(name, "https_proxy") {
+			cmd.Env = append(cmd.Env, entry)
+		}
 	}
+	cmd.Env = append(cmd.Env, "http_proxy="+proxy.URL, "HTTP_PROXY="+proxy.URL)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

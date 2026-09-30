@@ -1,14 +1,17 @@
 -- name: IssueWorkflowTaskGuestToken :execrows
--- Mints (or replaces) the job credential for a task that is running now. A
--- task that is not running, or that belongs to another run or repository,
--- gets no credential.
+-- Mints (or replaces) the job credential for a task that is about to run or
+-- is running: it is minted before the task's guest boots so it can travel in
+-- the guest's egress policy. A finished or blocked task, or one that belongs
+-- to another run or repository, gets no credential. The credential
+-- authenticates only while its task is running (GetWorkflowRunByTaskGuestToken
+-- callers check task_status).
 INSERT INTO workflow_task_guest_tokens (workflow_task_id, token_hash, expires_at)
 SELECT wt.id, sqlc.arg(token_hash), sqlc.arg(expires_at)
 FROM workflow_tasks AS wt
 WHERE wt.id = sqlc.arg(workflow_task_id)
   AND wt.workflow_run_id = sqlc.arg(workflow_run_id)
   AND wt.repository_id = sqlc.arg(repository_id)
-  AND wt.status = 'running'
+  AND wt.status IN ('pending', 'assigned', 'running')
 ON CONFLICT (workflow_task_id) DO UPDATE
 SET token_hash = EXCLUDED.token_hash,
     expires_at = EXCLUDED.expires_at,

@@ -70,7 +70,7 @@ FROM workflow_tasks AS wt
 WHERE wt.id = $3
   AND wt.workflow_run_id = $4
   AND wt.repository_id = $5
-  AND wt.status = 'running'
+  AND wt.status IN ('pending', 'assigned', 'running')
 ON CONFLICT (workflow_task_id) DO UPDATE
 SET token_hash = EXCLUDED.token_hash,
     expires_at = EXCLUDED.expires_at,
@@ -85,9 +85,12 @@ type IssueWorkflowTaskGuestTokenParams struct {
 	RepositoryID   int64     `json:"repository_id"`
 }
 
-// Mints (or replaces) the job credential for a task that is running now. A
-// task that is not running, or that belongs to another run or repository,
-// gets no credential.
+// Mints (or replaces) the job credential for a task that is about to run or
+// is running: it is minted before the task's guest boots so it can travel in
+// the guest's egress policy. A finished or blocked task, or one that belongs
+// to another run or repository, gets no credential. The credential
+// authenticates only while its task is running (GetWorkflowRunByTaskGuestToken
+// callers check task_status).
 func (q *Queries) IssueWorkflowTaskGuestToken(ctx context.Context, arg IssueWorkflowTaskGuestTokenParams) (int64, error) {
 	result, err := q.db.Exec(ctx, issueWorkflowTaskGuestToken,
 		arg.TokenHash,

@@ -103,7 +103,8 @@ func TestWorkspaceArtifactCIRetriesReapAllocatedVMs(t *testing.T) {
 			queries.createAccessTokenFn = ledger.create
 			queries.deleteAccessTokenFn = ledger.delete
 			worker := NewWorkflowSandboxSchedulerWorker(queries, client, WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"), WithWorkflowSandboxSchedulerCIGuests(artifactCIGuests{req: req}))
-			id, _, err := worker.provisionNixCIGuest(t.Context(), nixTask(1, "build"), nixCIRunEnvironment{RepositoryID: 100, Owner: "alice", RepositoryName: "demo", CloneUserID: 9})
+			guest, err := worker.provisionNixCIGuest(t.Context(), nixTask(1, "build"), nixCIRunEnvironment{RepositoryID: 100, Owner: "alice", RepositoryName: "demo", CloneUserID: 9}, nil)
+			id := guest.ID
 			require.Equal(t, 1, deletes)
 			if cleanupFails {
 				require.ErrorContains(t, err, "delete failed")

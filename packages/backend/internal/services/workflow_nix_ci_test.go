@@ -158,7 +158,9 @@ type fakeNixCIGuests struct {
 }
 
 func (f *fakeNixCIGuests) CIGuestVMRequest(_ context.Context, repositoryID int64, gitRepos []sandbox.GitRepositorySpec) (sandbox.CreateRequest, error) {
-	req := sandbox.CreateRequest{Kind: "vm", Image: "registry.test/nix:closure", GitRepos: gitRepos}
+	// Like WorkspaceService.CIGuestVMRequest, every CI guest's only egress
+	// path is its per-sandbox proxy.
+	req := sandbox.CreateRequest{Kind: "vm", Image: "registry.test/nix:closure", GitRepos: gitRepos, EgressProxy: &sandbox.EgressProxyPolicy{Enabled: true}}
 	f.mu.Lock()
 	f.requests = append(f.requests, req)
 	f.mu.Unlock()

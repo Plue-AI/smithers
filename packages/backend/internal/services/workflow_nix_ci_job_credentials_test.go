@@ -27,18 +27,20 @@ func TestNixCITaskCommand_RestoresBeforeStepsAndSavesAfterThem(t *testing.T) {
 		{Action: "save", Key: "deps", Paths: []string{"deps"}},
 	}})
 	require.NoError(t, err)
+	source := strings.Index(script, ". '"+nixCIJobEnvPath+"'")
 	cd := strings.Index(script, "cd '"+nixCITaskWorkdir+"'")
 	restore := strings.Index(script, "smithers-ci cache restore")
 	step := strings.Index(script, "make build")
 	save := strings.Index(script, "smithers-ci cache save")
-	require.True(t, cd >= 0 && restore > cd && step > restore && save > step, script)
+	require.True(t, source >= 0 && cd > source && restore > cd && step > restore && save > step, script)
 	assert.Contains(t, script, "export PATH='"+nixCIToolBinDir+"'")
 
 	plain, err := nixCITaskCommand(nixCITask{Job: "build", Steps: []StepConfig{{Run: "make build"}}})
 	require.NoError(t, err)
 	assert.NotContains(t, plain, "smithers-ci cache")
 
-	start := nixCIStartCommand(nixCITask{Cache: []WorkflowCacheDescriptor{{Action: "save", Key: "k'ey", Paths: []string{"a"}}}}, script)
+	start := nixCIStartCommand(nixCITask{Cache: []WorkflowCacheDescriptor{{Action: "save", Key: "k'ey", Paths: []string{"a"}}}}, script, nil)
+	assert.Contains(t, start, "printf '%s' '' > '"+nixCIJobEnvPath+"'", "an empty job environment is still written, so sourcing it succeeds")
 	assert.Contains(t, start, "cat > '"+nixCIToolHelperPath+"' <<'SMITHERS_CI_HELPER_EOF'")
 	assert.Contains(t, start, `[{"action":"save","key":"k'ey","paths":["a"]}]`)
 	assert.NotContains(t, nixCIGuestHelper, "\nSMITHERS_CI_HELPER_EOF\n", "the helper cannot end its own heredoc")
@@ -49,16 +51,24 @@ type fakeCIJobCredentials struct {
 	issued   []db.IssueWorkflowTaskGuestTokenParams
 	revoked  []int64
 	issueErr error
+	issued0  bool
+	onIssue  func()
 	onRevoke func(taskID int64)
 }
 
 func (f *fakeCIJobCredentials) IssueWorkflowTaskGuestToken(_ context.Context, arg db.IssueWorkflowTaskGuestTokenParams) (int64, error) {
+	if f.onIssue != nil {
+		f.onIssue()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.issueErr != nil {
 		return 0, f.issueErr
 	}
 	f.issued = append(f.issued, arg)
+	if f.issued0 {
+		return 0, nil
+	}
 	return 1, nil
 }
 
@@ -72,17 +82,30 @@ func (f *fakeCIJobCredentials) RevokeWorkflowTaskGuestToken(_ context.Context, t
 	return nil
 }
 
-// jobTokenGuest is a one-job guest that echoes its job token into its log.
+// jobTokenGuest is a one-job guest whose egress proxy received the job token.
+// It echoes the real value into its log, as a job could by reflecting a
+// substituted response, so the test also proves redaction.
 func jobTokenGuest(client *mockWorkflowSandboxVMClient) *string {
 	var token string
 	var mu sync.Mutex
 	polls := 0
+	client.createVMFn = func(_ context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if req.EgressProxy != nil {
+			for _, secret := range req.EgressProxy.Secrets {
+				if secret.Name == "SMITHERS_CI_JOB_TOKEN" {
+					token = secret.Value
+				}
+			}
+		}
+		return sandbox.CreateResult{ID: "vm-1"}, nil
+	}
 	client.execAwaitFn = func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		ok := int32(0)
 		if strings.Contains(req.Command, "SMITHERS_CI_EOF") {
-			token = req.Secrets["SMITHERS_CI_JOB_TOKEN"]
 			return sandbox.ExecResult{StatusCode: &ok}, nil
 		}
 		polls++
@@ -109,6 +132,11 @@ func TestNixCIRun_JobTokenReachesOnlyItsGuestAndDiesWithTheJob(t *testing.T) {
 	client := guests.client(t)
 	token := jobTokenGuest(client)
 	creds := &fakeCIJobCredentials{}
+	creds.onIssue = func() {
+		client.mu.Lock()
+		assert.Empty(t, client.createCalls, "the token is minted before the guest boots")
+		client.mu.Unlock()
+	}
 	creds.onRevoke = func(int64) {
 		assert.Equal(t, "done", nixCITaskStatuses(queries)[1], "the task is terminal before its token is revoked")
 		client.mu.Lock()
@@ -134,20 +162,24 @@ func TestNixCIRun_JobTokenReachesOnlyItsGuestAndDiesWithTheJob(t *testing.T) {
 	assert.Equal(t, middleware.HashCIJobToken(*token), issued.TokenHash, "only the hash is stored")
 	assert.Equal(t, []int64{1}, creds.revoked)
 
-	for _, req := range client.createCalls {
-		raw, _ := json.Marshal(req)
-		assert.NotContains(t, string(raw), *token, "the token is not part of the guest's create request")
-	}
-	var withToken int
+	require.Len(t, client.createCalls, 1)
+	created := client.createCalls[0]
+	require.NotNil(t, created.EgressProxy)
+	require.True(t, created.EgressProxy.Enabled)
+	assert.Equal(t, []sandbox.EgressProxySecret{{
+		Name: "SMITHERS_CI_JOB_TOKEN", Value: *token, Hosts: []string{"api.example.test"}, MatchHeaders: []string{"authorization"},
+	}}, created.EgressProxy.Secrets, "the token travels only as the guest's egress binding")
+	created.EgressProxy = nil
+	raw, _ := json.Marshal(created)
+	assert.NotContains(t, string(raw), *token, "no other part of the create request carries the token")
+	start := nixCIStartExec(t, client)
 	for _, req := range client.execCalls {
-		if req.Secrets["SMITHERS_CI_JOB_TOKEN"] != "" {
-			withToken++
-			assert.Equal(t, "https://api.example.test/internal", req.Secrets["SMITHERS_CI_API_URL"])
-			assert.Equal(t, "42", req.Secrets["SMITHERS_WORKFLOW_RUN_ID"])
-		}
+		assert.Empty(t, req.Secrets, "no exec carries a secret")
 		assert.NotContains(t, req.Command, *token, "the token never appears in a command")
 	}
-	assert.Equal(t, 1, withToken, "only the job's start exec carries the token")
+	assert.Contains(t, start.Command, `export SMITHERS_CI_JOB_TOKEN='\''SMITHERS_CI_JOB_TOKEN'\''`, "the guest holds only the placeholder")
+	assert.Contains(t, start.Command, `export SMITHERS_CI_API_URL='\''https://api.example.test/internal'\''`)
+	assert.Contains(t, start.Command, `export SMITHERS_WORKFLOW_RUN_ID='\''42'\''`)
 	assert.Equal(t, []string{"leak ********"}, nixCILogEntriesForStep(queries, 11), "the token is redacted from the log")
 	assert.Equal(t, []int64{42}, queries.markSuccessIDs)
 }
@@ -176,6 +208,169 @@ func TestNixCIRun_JobTokenFailureStillRunsTheJob(t *testing.T) {
 		}
 	}
 	assert.Contains(t, system, "[cache] unavailable")
+}
+
+// plue#621: the hosted provider refuses the exec-environment secret channel
+// (the mock does exactly what the Microsandbox worker does), so a plain job
+// with a job token and a per-run API token must reach its first command and
+// succeed with every credential on the egress proxy.
+func TestNixCIRun_HostedCredentialChannelStartsPlainJob(t *testing.T) {
+	queries := newSandboxSchedulerRunQuerier(77, 31)
+	guests := sandboxSchedulerGuests("0", "ok\n")
+	client := guests.client(t)
+	creds := &fakeCIJobCredentials{}
+	worker := newSandboxSchedulerNixCIWorker(queries, client,
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
+		WithWorkflowSandboxSchedulerCIJobCredentials(creds, "https://api.smithers.test/internal"),
+	)
+
+	require.NoError(t, worker.PollOnce(context.Background()))
+
+	assert.Equal(t, map[int64]string{1: "done"}, nixCITaskStatuses(queries))
+	assert.Equal(t, []int64{77}, queries.markSuccessIDs)
+	require.Len(t, client.createCalls, 1)
+	assert.Equal(t, []string{"SMITHERS_CI_JOB_TOKEN", "SMITHERS_JJHUB_TOKEN"}, client.createCalls[0].EgressProxy.SecretNames())
+	for _, req := range client.execCalls {
+		assert.Empty(t, req.Secrets)
+	}
+	assert.Equal(t, []int64{1}, creds.revoked, "the job token dies with the job")
+	assert.Equal(t, []string{"vm-1"}, client.deleteCalls)
+}
+
+// A control plane URL the proxy cannot bind (a dotless development host)
+// gets no job token: the refusal is typed and logged, nothing is minted, and
+// the job still runs without its cache.
+func TestNixCIRun_UnbindableInternalHostWithholdsTheJobToken(t *testing.T) {
+	queries := nixCIQuerier([]db.WorkflowTask{cachedNixCITaskRow()})
+	guests := &fakeNixCIGuests{polls: map[string]int{}}
+	client := guests.client(t)
+	token := jobTokenGuest(client)
+	creds := &fakeCIJobCredentials{}
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
+		WithWorkflowSandboxSchedulerCIJobCredentials(creds, "http://localhost:4000/internal"),
+	)
+	require.NoError(t, worker.PollOnce(context.Background()))
+
+	assert.Empty(t, creds.issued, "no token is minted that could not be delivered")
+	assert.Empty(t, *token)
+	assert.Equal(t, []int64{42}, queries.markSuccessIDs)
+	assert.Equal(t, []string{
+		`SMITHERS_CI_JOB_TOKEN cannot reach the NixOS CI guest: host "localhost" cannot be bound to the egress proxy`,
+		"[cache] unavailable",
+	}, nixCISystemLogs(queries))
+
+	_, _, err := worker.issueNixCIJobToken(context.Background(), nixCITask{ID: 1}, 100)
+	assert.ErrorIs(t, err, ErrCISecretChannelUnavailable)
+}
+
+// A guest request without an egress proxy has no channel for a bound
+// credential: the job fails before any guest boots, and its token is revoked.
+func TestNixCIRun_GuestWithoutEgressProxyRefusesBoundCredentials(t *testing.T) {
+	queries := nixCIQuerier([]db.WorkflowTask{cachedNixCITaskRow()})
+	client := &mockWorkflowSandboxVMClient{}
+	creds := &fakeCIJobCredentials{}
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
+		WithWorkflowSandboxSchedulerCIGuests(artifactCIGuests{req: sandbox.CreateRequest{Kind: "vm"}}),
+		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
+		WithWorkflowSandboxSchedulerCIJobCredentials(creds, "https://api.example.test/internal"),
+	)
+	require.NoError(t, worker.PollOnce(context.Background()))
+
+	assert.Empty(t, client.createCalls)
+	assert.Equal(t, map[int64]string{1: "failed"}, nixCITaskStatuses(queries))
+	assert.Equal(t, []int64{42}, queries.markFailureIDs)
+	assert.Equal(t, []int64{1}, creds.revoked)
+	assert.Equal(t, []string{"SMITHERS_CI_JOB_TOKEN cannot reach the NixOS CI guest: the guest has no egress proxy"}, nixCISystemLogs(queries))
+}
+
+// A task that stopped being runnable before its guest booted gets no token
+// and boots no guest with one.
+func TestNixCIRun_TokenForAnUnrunnableTaskIsNotBound(t *testing.T) {
+	queries := nixCIQuerier([]db.WorkflowTask{cachedNixCITaskRow()})
+	guests := &fakeNixCIGuests{polls: map[string]int{}}
+	client := guests.client(t)
+	token := jobTokenGuest(client)
+	creds := &fakeCIJobCredentials{issued0: true}
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
+		WithWorkflowSandboxSchedulerCIJobCredentials(creds, "https://api.example.test/internal"),
+	)
+	require.NoError(t, worker.PollOnce(context.Background()))
+	assert.Empty(t, *token)
+	assert.Empty(t, client.createCalls[0].EgressProxy.Secrets)
+	assert.Equal(t, []string{"[cache] unavailable"}, nixCISystemLogs(queries))
+}
+
+// Secrets the repository bound to hosts for its workspaces are on the CI
+// guest's egress proxy too; the job environment exports their placeholders.
+func TestNixCIRun_ExportsPlaceholdersForRepositoryBoundSecrets(t *testing.T) {
+	queries := nixCIQuerier([]db.WorkflowTask{cachedNixCITaskRow()})
+	client := &mockWorkflowSandboxVMClient{}
+	guests := artifactCIGuests{req: sandbox.CreateRequest{Kind: "vm", EgressProxy: &sandbox.EgressProxyPolicy{Enabled: true, Secrets: []sandbox.EgressProxySecret{
+		{Name: "NPM_TOKEN", Value: "npm-real-value", Hosts: []string{"registry.npmjs.org"}, MatchHeaders: []string{"authorization"}},
+	}}}}
+	client.execAwaitFn = func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+		ok := int32(0)
+		return sandbox.ExecResult{Stderr: nixCITaskExitMarker + "0", StatusCode: &ok}, nil
+	}
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
+		WithWorkflowSandboxSchedulerCIJobCredentials(&fakeCIJobCredentials{}, "https://api.example.test/internal"),
+	)
+	require.NoError(t, worker.PollOnce(context.Background()))
+	assert.Equal(t, []int64{42}, queries.markSuccessIDs)
+	require.Len(t, client.createCalls, 1)
+	assert.Equal(t, []string{"NPM_TOKEN", "SMITHERS_CI_JOB_TOKEN"}, client.createCalls[0].EgressProxy.SecretNames())
+	start := nixCIStartExec(t, client)
+	assert.Contains(t, start.Command, `export NPM_TOKEN='\''NPM_TOKEN'\''`)
+	assert.NotContains(t, start.Command, "npm-real-value")
+}
+
+// The job environment file must hand every value to the job verbatim, however
+// it is quoted, and no value can end its assignment early.
+func TestNixCIJobEnvFile_RoundTripsThroughBash(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	env := map[string]string{
+		"PLAIN":  "value",
+		"QUOTED": "it's \"quoted\" $HOME `id` \\",
+		"MULTI":  "line one\nexport PLAIN=hijacked\n'",
+		"EMPTY":  "",
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "job.env")
+	start := "set -euo pipefail\nprintf '%s' " + shellQuote(nixCIJobEnvFile(env)) + " > " + shellQuote(path)
+	out, err := exec.Command(bash, "-c", start).CombinedOutput()
+	require.NoError(t, err, string(out))
+	for name, want := range env {
+		got, err := exec.Command(bash, "-c", "set -euo pipefail; . "+shellQuote(path)+"; printf '%s' \"$"+name+"\"").Output()
+		require.NoError(t, err, name)
+		assert.Equal(t, want, string(got), name)
+	}
+	assert.Equal(t, "", nixCIJobEnvFile(nil))
+}
+
+func nixCISystemLogs(queries *mockWorkflowSandboxSchedulerQuerier) []string {
+	queries.mu.Lock()
+	defer queries.mu.Unlock()
+	var system []string
+	for _, insert := range queries.logInserts {
+		if insert.Stream == "system" {
+			system = append(system, insert.Entry)
+		}
+	}
+	return system
 }
 
 // The guest helper's restore must stay inside the checkout, whatever the

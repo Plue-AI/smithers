@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,6 +195,7 @@ func loadNixCITasks(ctx context.Context, q nixCITaskQuerier, runID, repositoryID
 func nixCITaskCommand(task nixCITask) (string, error) {
 	lines := []string{
 		"set -euo pipefail",
+		". " + shellQuote(nixCIJobEnvPath),
 		"export PATH=" + shellQuote(nixCIToolBinDir) + `:"$PATH"`,
 		"cd " + shellQuote(nixCITaskWorkdir),
 	}
@@ -230,11 +232,17 @@ func nixCITaskCommand(task nixCITask) (string, error) {
 // the exit status to a file only after the command exits makes that file's
 // existence the single completion signal — no process table scraping, which is
 // what made the Debian runner image need `ps` in the first place.
-func nixCIStartCommand(task nixCITask, script string) string {
+//
+// jobEnv is the job's plain environment, written to a file the job script
+// sources: the exec itself carries no environment, because the only exec
+// environment channel persists its values in the sandbox runtime. jobEnv
+// holds no secret value; secrets reach the guest as egress-proxy placeholders.
+func nixCIStartCommand(task nixCITask, script string, jobEnv map[string]string) string {
 	return strings.Join([]string{
 		"set -euo pipefail",
 		"mkdir -p " + shellQuote(nixCITaskLogDir) + " " + shellQuote(nixCIToolBinDir),
 		"rm -f " + shellQuote(nixCITaskLogPath) + " " + shellQuote(nixCITaskExitPath) + " " + shellQuote(nixCICacheState),
+		"printf '%s' " + shellQuote(nixCIJobEnvFile(jobEnv)) + " > " + shellQuote(nixCIJobEnvPath),
 		"cat > " + shellQuote(nixCIToolHelperPath) + " <<'SMITHERS_CI_HELPER_EOF'",
 		strings.TrimRight(nixCIGuestHelper, "\n"),
 		"SMITHERS_CI_HELPER_EOF",
@@ -452,21 +460,49 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCIRun(
 }
 
 // nixCIRunEnvironment carries the per-run values every task guest needs: the
-// repository identity, the workflow secrets, and the redaction table. Each
-// guest receives its own short-lived clone credential when it boots.
+// repository identity, its variables and secrets, the platform credentials
+// bound to the egress proxy, and the redaction table. Each guest receives its
+// own short-lived clone credential when it boots.
 type nixCIRunEnvironment struct {
-	// Execution names the claim executing the run. Guest create keys include
-	// it: each execution sends a fresh clone credential, so a task re-executed
-	// after a lost claim or a restart must not replay an earlier execution's
-	// keys, which the controller keeps for 24 hours with their request digest.
-	Execution      string
 	RepositoryID   int64
 	Owner          string
 	RepositoryName string
 	CloneUserID    int64
 	Revision       string
-	Secrets        map[string]string
-	RedactEnv      map[string]string
+	// Env holds plain values the job sees verbatim: repository and
+	// organization variables and service URLs.
+	Env map[string]string
+	// Secrets holds repository and organization secret values. They carry no
+	// host binding, so no supported channel reaches a NixOS CI guest and a
+	// job refuses to start while any is present.
+	Secrets map[string]string
+	// Bound are platform credentials delivered through the guest's egress
+	// proxy; the guest sees only their placeholders.
+	Bound     []sandbox.EgressProxySecret
+	RedactEnv map[string]string
+}
+
+// nixCIUnboundSecretsError refuses a job whose run carries secrets that have
+// no host binding.
+func nixCIUnboundSecretsError(secrets map[string]string) error {
+	if len(secrets) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(secrets))
+	for name := range secrets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return &CISecretChannelError{Names: names, Reason: "a NixOS CI guest receives secrets only through its egress proxy, and these have no host binding"}
+}
+
+// nixCIGuest is one booted CI task guest.
+type nixCIGuest struct {
+	ID         string
+	CloneToken string
+	// Placeholders names every secret the guest's egress proxy substitutes;
+	// the job environment exports each name as its own placeholder.
+	Placeholders []string
 }
 
 // executeNixCITask boots one guest, runs one job in it, streams its output, and
@@ -486,13 +522,55 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCITask(
 		return nixCITaskFailed
 	}
 
+	if err := nixCIUnboundSecretsError(env.Secrets); err != nil {
+		w.appendNixCILog(ctx, task, "system", err.Error())
+		w.finalizeNixCITask(ctx, task, nixCITaskFailed, err.Error())
+		return nixCITaskFailed
+	}
+
 	taskCtx, cancel := context.WithTimeout(ctx, w.nixCITaskTimeout())
 	defer cancel()
 
-	vmID, cloneToken, err := w.provisionNixCIGuest(taskCtx, task, env)
+	// The job token is minted before the guest boots so it can travel in the
+	// guest's egress policy, and is deleted when the job ends: after the task
+	// is terminal and before its guest is destroyed, or at once if no guest
+	// booted.
+	jobCredential, revoke, err := w.issueNixCIJobToken(ctx, task, env.RepositoryID)
+	revokeJobToken := sync.OnceFunc(revoke)
+	defer revokeJobToken()
+	if err != nil {
+		logger.Warn("failed to issue NixOS CI job token", "error", err)
+		if errors.Is(err, ErrCISecretChannelUnavailable) {
+			w.appendNixCILog(ctx, task, "system", err.Error())
+		}
+	}
+	bound := env.Bound
+	jobEnv := make(map[string]string, len(env.Env)+2)
+	for name, value := range env.Env {
+		jobEnv[name] = value
+	}
+	if jobCredential != nil {
+		bound = append(append([]sandbox.EgressProxySecret(nil), env.Bound...), jobCredential.Secret)
+		for name, value := range jobCredential.Env {
+			jobEnv[name] = value
+		}
+		redactEnv := make(map[string]string, len(env.RedactEnv)+1)
+		for name, value := range env.RedactEnv {
+			redactEnv[name] = value
+		}
+		redactEnv[nixCIJobTokenEnv] = jobCredential.Secret.Value
+		env.RedactEnv = redactEnv
+	} else if len(task.Cache) > 0 {
+		w.appendNixCILog(ctx, task, "system", "[cache] unavailable")
+	}
+
+	guest, err := w.provisionNixCIGuest(taskCtx, task, env, bound)
 	if err != nil {
 		message := "failed to provision NixOS CI guest"
 		logger.Error(message, "error", err)
+		if errors.Is(err, ErrCISecretChannelUnavailable) {
+			message = err.Error()
+		}
 		w.appendNixCILog(ctx, task, "system", message)
 		outcome := nixCITaskFailed
 		if ctx.Err() != nil {
@@ -501,21 +579,26 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCITask(
 		w.finalizeNixCITask(ctx, task, outcome, message)
 		return outcome
 	}
-	if cloneToken != "" {
+	vmID := guest.ID
+	if guest.CloneToken != "" {
 		redactEnv := make(map[string]string, len(env.RedactEnv)+1)
 		for name, value := range env.RedactEnv {
 			redactEnv[name] = value
 		}
-		redactEnv["SMITHERS_REPO_CLONE_TOKEN"] = cloneToken
+		redactEnv["SMITHERS_REPO_CLONE_TOKEN"] = guest.CloneToken
 		env.RedactEnv = redactEnv
 	}
 	defer func() {
+		revokeJobToken()
 		deleteCtx, deleteCancel := context.WithTimeout(context.WithoutCancel(ctx), nixCIGuestDeleteTimeout)
 		defer deleteCancel()
 		if err := w.sandbox.DeleteSandbox(deleteCtx, vmID); err != nil {
 			logger.Warn("failed to delete NixOS CI guest", "vm_id", vmID, "error", err)
 		}
 	}()
+	for _, name := range guest.Placeholders {
+		jobEnv[name] = sandbox.EgressProxyPlaceholder(name)
+	}
 
 	_, _ = w.queries.MarkWorkflowTaskVMRunning(ctx, db.MarkWorkflowTaskVMRunningParams{
 		VmID: pgtype.Text{String: vmID, Valid: true},
@@ -523,39 +606,10 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCITask(
 	})
 	_, _ = w.queries.UpdateWorkflowStepStatusRunning(ctx, task.StepID)
 
-	// The job token reaches only this guest, only through the job's exec
-	// environment, and is deleted when the job ends (the deferred revoke runs
-	// before the guest is destroyed and after the task is terminal).
-	jobEnv, revokeJobToken, err := w.issueNixCIJobToken(ctx, task, env.RepositoryID)
-	defer revokeJobToken()
-	if err != nil {
-		logger.Warn("failed to issue NixOS CI job token", "error", err)
-	}
-	if len(jobEnv) == 0 && len(task.Cache) > 0 {
-		w.appendNixCILog(ctx, task, "system", "[cache] unavailable")
-	}
-	if len(jobEnv) > 0 {
-		secrets := make(map[string]string, len(env.Secrets)+len(jobEnv))
-		for name, value := range env.Secrets {
-			secrets[name] = value
-		}
-		redactEnv := make(map[string]string, len(env.RedactEnv)+1)
-		for name, value := range env.RedactEnv {
-			redactEnv[name] = value
-		}
-		for name, value := range jobEnv {
-			secrets[name] = value
-		}
-		redactEnv["SMITHERS_CI_JOB_TOKEN"] = jobEnv["SMITHERS_CI_JOB_TOKEN"]
-		env.Secrets = secrets
-		env.RedactEnv = redactEnv
-	}
-
 	startTimeout := int64(nixCIPollTimeout / time.Millisecond)
 	if _, err := w.sandbox.Execute(taskCtx, vmID, sandbox.ExecRequest{
-		Command:   nixCIStartCommand(task, script),
+		Command:   nixCIStartCommand(task, script, jobEnv),
 		TimeoutMS: &startTimeout,
-		Secrets:   env.Secrets,
 	}); err != nil {
 		message := "failed to start job in NixOS CI guest"
 		logger.Error(message, "error", err)
@@ -584,54 +638,60 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCITask(
 }
 
 // provisionNixCIGuest boots one kind=vm guest with the repository checked out
-// at the run's trigger revision. Provisioning — and only provisioning — is
-// retried: a guest that never booted is infrastructure, while a command that
-// ran and failed is a real CI result.
+// at the run's trigger revision and bound bound to its egress proxy.
+// Provisioning — and only provisioning — is retried: a guest that never
+// booted is infrastructure, while a command that ran and failed is a real CI
+// result. A secret with no channel into the guest fails before any boot.
 func (w *WorkflowSandboxSchedulerWorker) provisionNixCIGuest(
 	ctx context.Context,
 	task nixCITask,
 	env nixCIRunEnvironment,
-) (string, string, error) {
+	bound []sandbox.EgressProxySecret,
+) (nixCIGuest, error) {
 	if w.ciGuests == nil {
-		return "", "", fmt.Errorf("NixOS CI guest provisioner is not wired")
+		return nixCIGuest{}, fmt.Errorf("NixOS CI guest provisioner is not wired")
 	}
 	cloneURL, cloneToken, revokeCloneToken, err := w.buildCloneURLWithToken(ctx, env.Owner, env.RepositoryName, env.CloneUserID, func() (temporaryRepoCloneToken, error) {
 		return issueTemporaryBoundRepoCloneToken(ctx, w.queries, env.CloneUserID, env.RepositoryID, "workflow-ci-guest-clone")
 	})
 	if err != nil {
-		return "", "", err
+		return nixCIGuest{}, err
 	}
 	defer revokeCloneToken()
 	req, err := w.ciGuests.CIGuestVMRequest(ctx, env.RepositoryID, []sandbox.GitRepositorySpec{
 		{Repo: cloneURL, Path: nixCITaskWorkdir, Rev: env.Revision},
 	})
 	if err != nil {
-		return "", "", err
+		return nixCIGuest{}, err
 	}
 	w.applyNixCISizing(&req)
+	placeholders, err := bindNixCIGuestSecrets(&req, bound)
+	if err != nil {
+		return nixCIGuest{}, err
+	}
 
 	var lastErr error
 	for attempt := 1; attempt <= defaultNixCIProvisionAttempts; attempt++ {
 		if ctx.Err() != nil {
-			return "", "", ctx.Err()
+			return nixCIGuest{}, ctx.Err()
 		}
-		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), env.Execution+"/attempt-"+strconv.Itoa(attempt))
+		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), "attempt-"+strconv.Itoa(attempt))
 		vm, err := createWorkspaceSandbox(createCtx, w.sandbox, req)
 		if err == nil {
-			return vm.ID, cloneToken, nil
+			return nixCIGuest{ID: vm.ID, CloneToken: cloneToken, Placeholders: placeholders}, nil
 		}
 		if vm.ID != "" {
 			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			deleteErr := w.sandbox.DeleteSandbox(deleteCtx, vm.ID)
 			cancelDelete()
 			if deleteErr != nil {
-				return "", "", errors.Join(err, fmt.Errorf("clean up failed CI guest %s: %w", vm.ID, deleteErr))
+				return nixCIGuest{}, errors.Join(err, fmt.Errorf("clean up failed CI guest %s: %w", vm.ID, deleteErr))
 			}
 		}
 		lastErr = err
 		w.logger.Warn("NixOS CI guest create failed", "task_id", task.ID, "attempt", attempt, "error", err)
 	}
-	return "", "", lastErr
+	return nixCIGuest{}, lastErr
 }
 
 // applyNixCISizing lets CI guests be sized independently of interactive

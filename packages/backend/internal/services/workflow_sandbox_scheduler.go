@@ -242,12 +242,6 @@ func (claim workflowSandboxRunClaim) failureParams() runtimeports.MarkWorkflowRu
 	}
 }
 
-// execution names this claim's execution of the run: a later claim of the
-// same run is a different execution.
-func (claim workflowSandboxRunClaim) execution() string {
-	return claim.Token + "/" + strconv.FormatInt(claim.Generation, 10)
-}
-
 func (claim workflowSandboxRunClaim) renewalParams() runtimeports.RenewWorkflowSandboxClaimParams {
 	return runtimeports.RenewWorkflowSandboxClaimParams{
 		ID: claim.Run.ID, ClaimToken: claim.Token, ClaimGeneration: claim.Generation,
@@ -501,15 +495,15 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 		return w.failRun(runCtx, claim, 0, "failed to resolve workflow repository owner")
 	}
 
-	// redactEnv collects every sensitive value injected into the guests (true
+	// redactEnv collects every sensitive value bound for the guests (true
 	// repository/org secrets plus per-run tokens, NOT plain variables) so run
 	// logs can be scrubbed before insertion and SSE broadcast.
 	redactEnv := map[string]string{}
 
+	plainEnv := map[string]string{}
 	secrets := map[string]string{}
 	if w.secretInjector != nil {
-		var repoSecrets map[string]string
-		secrets, repoSecrets, err = w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID, workflowRunOnTrustedMain(run, repository))
+		env, repoSecrets, err := w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID, workflowRunOnTrustedMain(run, repository))
 		if err != nil {
 			message := "failed to load repository secrets"
 			var apiErr *pkgerrors.APIError
@@ -519,21 +513,32 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 			}
 			return w.failRun(runCtx, claim, 0, message)
 		}
+		for name, value := range env {
+			if _, secret := repoSecrets[name]; !secret {
+				plainEnv[name] = value
+			}
+		}
 		for name, value := range repoSecrets {
+			secrets[name] = value
 			redactEnv[name] = value
 		}
 	}
 
 	// Mint a per-run scoped jjhub API token so the jobs can call the REST API
-	// as the owning user. Best-effort: a mint failure must not fail the run
-	// (the tools simply 401 if used). Org-owned repos have no user-scoped
-	// token (cloneUserID == 0), so skip them.
+	// as the owning user. It reaches the guests only through their egress
+	// proxies, bound to the API host's authorization header. Best-effort: a
+	// mint failure or an unbindable API host must not fail the run (the
+	// tools simply 401 if used). Org-owned repos have no user-scoped token
+	// (cloneUserID == 0), so skip them.
+	var bound []sandbox.EgressProxySecret
 	if repository.UserID.Valid && cloneUserID > 0 {
-		if apiToken, apiErr := issueTemporaryRepoAPIToken(runCtx, w.queries, cloneUserID, run.RepositoryID, fmt.Sprintf("sandbox-run-%d", run.ID)); apiErr != nil {
+		if host, bindErr := nixCIEgressHost("SMITHERS_JJHUB_TOKEN", w.apiBaseURL); bindErr != nil {
+			logger.Warn("per-run jjhub api token withheld", "error", bindErr)
+		} else if apiToken, apiErr := issueTemporaryRepoAPIToken(runCtx, w.queries, cloneUserID, run.RepositoryID, fmt.Sprintf("sandbox-run-%d", run.ID)); apiErr != nil {
 			logger.Warn("failed to mint per-run jjhub api token", "error", apiErr)
 		} else {
-			secrets["SMITHERS_JJHUB_TOKEN"] = apiToken.Plaintext
-			secrets["SMITHERS_JJHUB_API_URL"] = w.apiBaseURL
+			bound = append(bound, nixCIEgressSecret("SMITHERS_JJHUB_TOKEN", apiToken.Plaintext, host))
+			plainEnv["SMITHERS_JJHUB_API_URL"] = w.apiBaseURL
 			redactEnv["SMITHERS_JJHUB_TOKEN"] = apiToken.Plaintext
 			if persistErr := w.queries.UpdateWorkflowRunJJHubTokenID(runCtx, db.UpdateWorkflowRunJJHubTokenIDParams{
 				JjhubTokenID: pgtype.Int8{Int64: apiToken.ID, Valid: true},
@@ -551,13 +556,14 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 	}
 
 	return w.executeNixCIRun(runCtx, claim, nixCIRunEnvironment{
-		Execution:      claim.execution(),
 		RepositoryID:   run.RepositoryID,
 		Owner:          owner,
 		RepositoryName: repository.Name,
 		CloneUserID:    cloneUserID,
 		Revision:       resolveWorkflowTargetRevision(run),
+		Env:            plainEnv,
 		Secrets:        secrets,
+		Bound:          bound,
 		RedactEnv:      redactEnv,
 	})
 }

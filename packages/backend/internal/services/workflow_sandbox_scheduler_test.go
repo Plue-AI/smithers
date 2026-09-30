@@ -332,6 +332,11 @@ func (m *mockWorkflowSandboxVMClient) Execute(ctx context.Context, vmID string, 
 	m.mu.Lock()
 	m.execCalls = append(m.execCalls, req)
 	m.mu.Unlock()
+	// Like the Microsandbox worker, refuse the exec-environment secret
+	// channel before running anything: it persists plaintext (plue#621).
+	if len(req.Secrets) > 0 {
+		return sandbox.ExecResult{}, errors.New("secret_delivery_unavailable: operation-scoped secret delivery is unavailable")
+	}
 	if m.execAwaitFn != nil {
 		return m.execAwaitFn(ctx, vmID, req)
 	}
@@ -833,29 +838,25 @@ func TestWorkflowSandboxSchedulerWorker_ConcurrentCancelSkipsFailureFinalization
 	assertNoTerminalRunSideEffects(t, queries)
 }
 
-// TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs mirrors
-// RunnerService.StreamEvents_RedactsRepoSecretsBeforeInsert for the sandbox
-// path: repository secrets, the per-run jjhub API token, and the guest's clone
-// token must never reach workflow_run_logs (or the SSE notify payload)
-// verbatim, while non-sensitive repository variables are left readable.
+// TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs: the per-run
+// jjhub API token and the guest's clone token must never reach
+// workflow_run_logs (or the SSE notify payload) verbatim, while
+// non-sensitive repository variables are left readable. The jjhub token
+// reaches the guest only through its egress proxy: the job environment holds
+// its placeholder and the start exec carries no secret.
 func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 	t.Parallel()
 
 	queries := newSandboxSchedulerRunQuerier(99, 21)
 	injector := NewSecretInjector(&mockSecretInjectionQuerier{
-		listSecretValuesFn: func(_ context.Context, _ int64) ([]db.ListSecretValuesRow, error) {
-			return []db.ListSecretValuesRow{
-				{Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte("sk-ant-super-secret")},
-			}, nil
-		},
 		listVariablesFn: func(_ context.Context, _ int64) ([]db.RepositoryVariable, error) {
 			return []db.RepositoryVariable{{Name: "PUBLIC_VAR", Value: "public-variable-value"}}, nil
 		},
 	}, webhook.NoopSecretCodec{})
 
 	var mu sync.Mutex
-	var cloneToken string
-	var jobSecrets map[string]string
+	var cloneToken, jjhubToken string
+	var start sandbox.ExecRequest
 	polled := false
 	client := &mockWorkflowSandboxVMClient{}
 	client.createVMFn = func(_ context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
@@ -863,8 +864,16 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 		cloneURL, err := url.Parse(req.GitRepos[0].Repo)
 		require.NoError(t, err)
 		mu.Lock()
+		defer mu.Unlock()
 		cloneToken, _ = cloneURL.User.Password()
-		mu.Unlock()
+		require.NotNil(t, req.EgressProxy)
+		for _, secret := range req.EgressProxy.Secrets {
+			if secret.Name == "SMITHERS_JJHUB_TOKEN" {
+				jjhubToken = secret.Value
+				assert.Equal(t, []string{"api.smithers.test"}, secret.Hosts)
+				assert.Equal(t, []string{"authorization"}, secret.MatchHeaders)
+			}
+		}
 		return sandbox.CreateResult{ID: "vm-1"}, nil
 	}
 	client.execAwaitFn = func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
@@ -872,17 +881,16 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 		defer mu.Unlock()
 		ok := int32(0)
 		if strings.Contains(req.Command, "SMITHERS_CI_EOF") {
-			jobSecrets = req.Secrets
+			start = req
 			return sandbox.ExecResult{StatusCode: &ok}, nil
 		}
 		if polled {
 			return sandbox.ExecResult{Stderr: nixCITaskExitMarker + "0", StatusCode: &ok}, nil
 		}
 		polled = true
-		// The job echoes every credential it was handed.
+		// The job echoes every credential that exists for it.
 		return sandbox.ExecResult{
-			Stdout: "repo secret: sk-ant-super-secret\njjhub token: " + jobSecrets["SMITHERS_JJHUB_TOKEN"] +
-				"\nclone token: " + cloneToken + "\npublic: public-variable-value\n",
+			Stdout: "jjhub token: " + jjhubToken + "\nclone token: " + cloneToken + "\npublic: public-variable-value\n",
 			StatusCode: &ok,
 		}, nil
 	}
@@ -895,18 +903,19 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 	assert.Equal(t, []int64{99}, queries.markSuccessIDs)
 
 	require.NotEmpty(t, cloneToken, "the guest clones with a credential")
-	require.NotEmpty(t, jobSecrets["SMITHERS_JJHUB_TOKEN"], "the job receives the per-run jjhub token")
-	assert.Equal(t, "https://api.smithers.test/api", jobSecrets["SMITHERS_JJHUB_API_URL"])
+	require.NotEmpty(t, jjhubToken, "the guest's egress proxy carries the per-run jjhub token")
+	assert.Empty(t, start.Secrets, "the start exec carries no secret")
+	assert.NotContains(t, start.Command, jjhubToken)
+	assert.Contains(t, start.Command, "export SMITHERS_JJHUB_TOKEN='\\''SMITHERS_JJHUB_TOKEN'\\''", "the job sees only the placeholder")
+	assert.Contains(t, start.Command, "export SMITHERS_JJHUB_API_URL='\\''https://api.smithers.test/api'\\''")
+	assert.Contains(t, start.Command, "export PUBLIC_VAR='\\''public-variable-value'\\''")
 
 	require.NotEmpty(t, queries.logInserts)
-	var sawRedactedSecret, sawRedactedJJHub, sawRedactedClone, sawPublicVariable bool
+	var sawRedactedJJHub, sawRedactedClone, sawPublicVariable bool
 	for _, insert := range queries.logInserts {
-		assert.NotContains(t, insert.Entry, "sk-ant-super-secret")
-		assert.NotContains(t, insert.Entry, jobSecrets["SMITHERS_JJHUB_TOKEN"])
+		assert.NotContains(t, insert.Entry, jjhubToken)
 		assert.NotContains(t, insert.Entry, cloneToken)
 		switch {
-		case strings.HasPrefix(insert.Entry, "repo secret:"):
-			sawRedactedSecret = strings.Contains(insert.Entry, redactedSecretValue)
 		case strings.HasPrefix(insert.Entry, "jjhub token:"):
 			sawRedactedJJHub = strings.Contains(insert.Entry, redactedSecretValue)
 		case strings.HasPrefix(insert.Entry, "clone token:"):
@@ -915,14 +924,54 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 			sawPublicVariable = strings.Contains(insert.Entry, "public-variable-value")
 		}
 	}
-	assert.True(t, sawRedactedSecret, "repository secret value must be masked in run logs")
 	assert.True(t, sawRedactedJJHub, "per-run jjhub token must be masked in run logs")
 	assert.True(t, sawRedactedClone, "clone token must be masked in run logs")
 	assert.True(t, sawPublicVariable, "non-sensitive repository variables must remain readable")
 
 	for _, notify := range queries.logNotifies {
-		assert.NotContains(t, notify.Payload, "sk-ant-super-secret")
+		assert.NotContains(t, notify.Payload, jjhubToken)
 	}
+}
+
+// A repository secret has no host binding, so no supported channel reaches a
+// NixOS CI guest: the job fails before any guest boots, naming the secret and
+// never logging its value.
+func TestWorkflowSandboxSchedulerRefusesRepositorySecretsWithoutAChannel(t *testing.T) {
+	t.Parallel()
+	queries := newSandboxSchedulerRunQuerier(98, 22)
+	injector := NewSecretInjector(&mockSecretInjectionQuerier{
+		listSecretValuesFn: func(_ context.Context, _ int64) ([]db.ListSecretValuesRow, error) {
+			return []db.ListSecretValuesRow{{Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte("sk-ant-super-secret")}}, nil
+		},
+	}, webhook.NoopSecretCodec{})
+	guests := sandboxSchedulerGuests("0")
+	client := guests.client(t)
+	worker := newSandboxSchedulerNixCIWorker(queries, client,
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
+		WithWorkflowSandboxSchedulerSecretInjector(injector))
+
+	require.NoError(t, worker.PollOnce(context.Background()))
+
+	assert.Equal(t, []int64{98}, queries.markFailureIDs)
+	assert.Empty(t, client.createCalls, "no guest boots for a job whose secrets cannot reach it")
+	assert.Empty(t, client.execCalls)
+	var system []string
+	for _, insert := range queries.logInserts {
+		assert.NotContains(t, insert.Entry, "sk-ant-super-secret")
+		if insert.Stream == "system" {
+			system = append(system, insert.Entry)
+		}
+	}
+	require.Len(t, system, 1)
+	assert.True(t, strings.HasPrefix(system[0], "ANTHROPIC_AUTH_TOKEN cannot reach the NixOS CI guest: "), system[0])
+	err := nixCIUnboundSecretsError(map[string]string{"B": "value-of-b", "A": "value-of-a"})
+	assert.ErrorIs(t, err, ErrCISecretChannelUnavailable)
+	var typed *CISecretChannelError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, []string{"A", "B"}, typed.Names, "names are reported sorted, values never")
+	assert.NotContains(t, err.Error(), "value-of")
+	assert.NoError(t, nixCIUnboundSecretsError(nil))
 }
 
 // The whole-run backstop expiring mid-job fails the run, and the terminal
@@ -1046,14 +1095,17 @@ func TestWorkflowSandboxSchedulerWorker_OrgOwnedRepoClonesWithRepoBoundCredentia
 	assert.Equal(t, int64(5), minted[0].UserID)
 	scopes := strings.Split(minted[0].Scopes, ",")
 	assert.ElementsMatch(t, []string{"read:repository", middleware.RepositoryRestrictionScope(100)}, scopes)
-	assert.NotContains(t, nixCIStartExec(t, client).Secrets, "SMITHERS_JJHUB_TOKEN")
+	assert.Empty(t, created.EgressProxy.SecretNames(), "an org repository binds no per-run api token")
+	assert.NotContains(t, nixCIStartExec(t, client).Command, "SMITHERS_JJHUB_TOKEN")
 
 	assert.Contains(t, queries.deleteAccessTokenCalls, db.DeleteAccessTokenParams{ID: 901, UserID: 5},
 		"the clone credential is revoked once the guest has cloned")
 }
 
-// A main-only repository secret (D-24) reaches a sandbox run only when its
-// claimed trigger is a trusted one on exactly the default bookmark.
+// A main-only repository secret (D-24) is bound for a sandbox run only when
+// its claimed trigger is a trusted one on exactly the default bookmark. No
+// NixOS CI channel carries an unbound secret, so the refusal names exactly the
+// secrets the run was given.
 func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -1086,10 +1138,19 @@ func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t
 			WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
 			WithWorkflowSandboxSchedulerSecretInjector(injector))
 		require.NoError(t, worker.PollOnce(context.Background()))
-		env := nixCIStartExec(t, client).Secrets
-		assert.Equal(t, "lint", env["LINT_TOKEN"], "%s on %q", tc.event, tc.ref)
-		_, got := env["DEPLOY_TOKEN"]
-		assert.Equal(t, tc.trusted, got, "%s on %q", tc.event, tc.ref)
+		want := "LINT_TOKEN cannot reach the NixOS CI guest"
+		if tc.trusted {
+			want = "DEPLOY_TOKEN, LINT_TOKEN cannot reach the NixOS CI guest"
+		}
+		var system []string
+		for _, insert := range queries.logInserts {
+			if insert.Stream == "system" {
+				system = append(system, insert.Entry)
+			}
+		}
+		require.Len(t, system, 1, "%s on %q", tc.event, tc.ref)
+		assert.True(t, strings.HasPrefix(system[0], want+": "), "%s on %q: %s", tc.event, tc.ref, system[0])
+		assert.Empty(t, client.createCalls)
 	}
 }
 
