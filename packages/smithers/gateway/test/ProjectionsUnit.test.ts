@@ -18,6 +18,7 @@ import { GatewayError } from "../src/GatewayError.ts"
 import * as GatewayProjection from "../src/GatewayProjection.ts"
 import * as GatewaySchema from "../src/GatewaySchema.ts"
 import * as Projections from "../src/Projections.ts"
+import * as RunTrace from "../src/RunTrace.ts"
 
 const die = () => Effect.die("the suite does not use this operation")
 
@@ -2432,6 +2433,57 @@ describe("Projections window accounting", () => {
       expect(payload.lines[0]!.endsWith("…")).toBe(true)
       expect(new TextEncoder().encode(JSON.stringify(page.rows[0])).byteLength)
         .toBeLessThanOrEqual(Projections.maxEventBytes)
+    }))
+
+  it.effect("keeps a wide relevance reading's memory verdicts beside the truncation marker", () =>
+    Effect.gen(function*() {
+      const verdict = (kind: string, id: string, p: number) => ({ kind, id, digest: "d".repeat(64), p })
+      const flows = Array.from({ length: 160 }, (_, index) => verdict("flow", `flows/catalog-entry-${index}`, 0.2))
+      const payload = {
+        scope: "run-1/coding/draft-plan",
+        frame: 0,
+        source: "run",
+        withholdAt: 0.9,
+        latencyMs: 4,
+        kept: [...flows, null, "stray", verdict("memory", "coding-learning-a", 0.05)],
+        withheld: [verdict("memory", "coding-learning-b", 0.97)]
+      }
+      const projections = make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [run] }),
+        watch: () => Stream.succeed(event(1, "control.agent.relevance-settled", payload))
+      }))
+
+      const page = yield* projections.snapshot({ _tag: "run-events", runId: run.runId })
+      const row = page.rows[0] as ControlEvent
+      expect(new TextEncoder().encode(JSON.stringify(payload)).byteLength).toBeGreaterThan(Projections.maxEventBytes)
+      expect(row.payload).toMatchObject({
+        truncated: true,
+        kept: [verdict("memory", "coding-learning-a", 0.05)],
+        withheld: [verdict("memory", "coding-learning-b", 0.97)]
+      })
+      expect(RunTrace.runMemoryOf(page.rows as ReadonlyArray<ControlEvent>)).toEqual({
+        kept: [{ id: "coding-learning-a", kind: "memory", relevance: 0.95 }],
+        withheld: [{ id: "coding-learning-b", kind: "memory", relevance: expect.closeTo(0.03) }]
+      })
+      expect(new TextEncoder().encode(JSON.stringify(row)).byteLength).toBeLessThanOrEqual(Projections.maxEventBytes)
+    }))
+
+  it.effect("replaces a relevance reading whose memory verdicts alone are too wide", () =>
+    Effect.gen(function*() {
+      const memory = Array.from(
+        { length: 600 },
+        (_, index) => ({ kind: "memory", id: `note-${index}-${"x".repeat(24)}`, p: 0.1 })
+      )
+      const projections = make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [run] }),
+        watch: () => Stream.succeed(event(1, "control.agent.relevance-settled", { kept: memory }))
+      }))
+
+      const page = yield* projections.snapshot({ _tag: "run-events", runId: run.runId })
+      const row = page.rows[0] as ControlEvent
+      expect(row.payload).toEqual({ truncated: true, encodedBytes: expect.any(Number) })
+      // The run card then says nothing rather than claiming nothing was brought.
+      expect(RunTrace.runMemoryOf([row])).toBeUndefined()
     }))
 
   it.effect("replaces a payload whose size is in its shape instead of its text", () =>

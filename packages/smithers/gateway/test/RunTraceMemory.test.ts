@@ -50,18 +50,35 @@ describe("runMemoryOf", () => {
 
   test("equal relevance orders by id, and a later reading of the same id replaces the earlier one", () => {
     const memory = runMemoryOf([
-      reading(1, [["note-b", 0.2], ["note-a", 0.2]], []),
-      reading(2, [["note-b", 0.5]], [])
+      reading(1, [["note-c", 0.2], ["note-b", 0.2], ["note-a", 0.25]], []),
+      reading(2, [["note-a", 0.2]], [["note-y", 0.95], ["note-x", 0.95]])
     ])!
-    expect(memory.kept.map((item) => [item.id, item.relevance])).toEqual([["note-a", 0.8], ["note-b", 0.5]])
+    expect(memory.kept.map((item) => [item.id, item.relevance])).toEqual([
+      ["note-a", 0.8],
+      ["note-b", 0.8],
+      ["note-c", 0.8]
+    ])
+    expect(memory.withheld.map((item) => item.id)).toEqual(["note-x", "note-y"])
   })
 
-  test("malformed payloads and items are skipped rather than failing the fold", () => {
+  test("a row whose verdicts were not retained is no reading, never an empty selection", () => {
+    const truncated: JournalRecord = {
+      sequence: 1,
+      kind: "control.agent.relevance-settled",
+      payload: { truncated: true, encodedBytes: 20_163 }
+    }
+    expect(runMemoryOf([truncated])).toBeUndefined()
+    expect(runMemoryOf([{ sequence: 2, kind: "control.agent.relevance-settled" }])).toBeUndefined()
+    expect(runMemoryOf([truncated, reading(3, [["note-a", 0.1]], [])])!.kept.map((item) => item.id)).toEqual([
+      "note-a"
+    ])
+  })
+
+  test("malformed items are skipped rather than failing the fold", () => {
     const records: ReadonlyArray<JournalRecord> = [
-      { sequence: 1, kind: "control.agent.relevance-settled" },
-      { sequence: 2, kind: "control.agent.relevance-settled", payload: { kept: "none", withheld: null } },
+      { sequence: 1, kind: "control.agent.relevance-settled", payload: { kept: "none", withheld: [] } },
       {
-        sequence: 3,
+        sequence: 2,
         kind: "control.agent.relevance-settled",
         payload: { kept: [null, 7, { kind: "memory", id: 1, p: 0.1 }, { kind: "memory", id: "ok", p: "x" }] }
       }

@@ -2226,7 +2226,8 @@ const memoryItems = (value: unknown): ReadonlyArray<MemoryItem> =>
  * rows of its `run-events` projection: ids and probabilities, never text. A
  * reading also weighs flows, skills and instructions; only memory counts here.
  * An item any reading kept is in; one only ever withheld is withheld; both
- * most relevant first. Undefined when Jev never read for the run.
+ * most relevant first. A row whose verdicts were not retained is no reading.
+ * Undefined when Jev never read for the run.
  *
  * @category folds
  * @since 1.0.0
@@ -2237,10 +2238,11 @@ export const runMemoryOf = (records: ReadonlyArray<JournalRecord>): RunMemory | 
   let read = false
   for (const record of records) {
     if (record.kind !== "control.agent.relevance-settled") continue
-    read = true
     const payload = typeof record.payload === "object" && record.payload !== null
       ? record.payload as Record<string, unknown>
       : {}
+    if (!Array.isArray(payload.kept) && !Array.isArray(payload.withheld)) continue
+    read = true
     for (const item of memoryItems(payload.kept)) kept.set(item.id, item)
     for (const item of memoryItems(payload.withheld)) withheld.set(item.id, item)
   }

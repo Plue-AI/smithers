@@ -329,16 +329,38 @@ const clipDeep = (value: unknown): unknown => {
  *
  * A payload that is still over the budget after clipping is replaced outright.
  * That is a payload whose size is in its shape rather than in its text — tens
- * of thousands of keys — and no projection reads such a shape.
+ * of thousands of keys — and no projection reads such a shape. A relevance
+ * reading is the exception: a large catalog makes its flow and skill verdicts
+ * that wide, and the run card reads its memory verdicts
+ * (`RunTrace.runMemoryOf`), so those are retained beside the marker.
  */
 const retainedEvent = (event: ControlSchema.ControlEvent): ControlSchema.ControlEvent => {
   if (encodedSize(event) <= maxEventBytes) return event
   const clipped = { ...event, payload: clipDeep(event.payload) as ControlSchema.ControlEvent["payload"] }
   if (encodedSize(clipped) <= maxEventBytes) return clipped
-  return {
-    ...event,
-    payload: { truncated: true, encodedBytes: encodedSize(event.payload) }
+  const marker = { truncated: true, encodedBytes: encodedSize(event.payload) }
+  const payload = event.payload
+  if (
+    event.kind === "control.agent.relevance-settled" && typeof payload === "object" && payload !== null &&
+    !Array.isArray(payload)
+  ) {
+    const memory = (verdicts: unknown) =>
+      Array.isArray(verdicts)
+        ? verdicts.filter((verdict) =>
+          typeof verdict === "object" && verdict !== null && (verdict as { readonly kind?: unknown }).kind === "memory"
+        )
+        : []
+    const compact = {
+      ...event,
+      payload: {
+        ...marker,
+        kept: clipDeep(memory(payload.kept)),
+        withheld: clipDeep(memory(payload.withheld))
+      } as ControlSchema.ControlEvent["payload"]
+    }
+    if (encodedSize(compact) <= maxEventBytes) return compact
   }
+  return { ...event, payload: marker }
 }
 
 const decodeEvent = Schema.decodeUnknownSync(ControlSchema.ControlEvent)
