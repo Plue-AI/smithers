@@ -201,6 +201,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("invalid production config", "error", err)
 		return err
 	}
+	modelDailyCap, err := modelproxy.ParseDailySpendCap(os.Getenv(modelproxy.DailySpendCapEnv))
+	if err != nil {
+		return err
+	}
 	options.topology = topology{multitenant: config.IsMultitenant(cfg.Auth), duties: options.Duties}
 	if options.Workspace != nil {
 		switch isolation := options.Workspace.Isolation(); isolation {
@@ -1345,7 +1349,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.Commerce != nil {
 		modelLedger = options.Commerce.CreditLedger()
 	}
-	modelMeter := &modelproxy.Meter{Ledger: modelLedger}
+	modelMeter := &modelproxy.Meter{Ledger: modelLedger, DailyCapNanos: modelDailyCap}
 	var modelProxyHandler http.Handler
 	if len(modelSeats) > 0 {
 		callers := services.NewModelProxyCallers(queries, pool, webhookSecretCodec)

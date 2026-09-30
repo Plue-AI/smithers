@@ -18,6 +18,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 // The retired APNs flag must never wire a logging-only, non-delivering client.
@@ -133,6 +134,24 @@ func TestRunRefusesE2ETestRoutesInProduction(t *testing.T) {
 			require.ErrorContains(t, err, "SMITHERS_ENABLE_E2E_TEST_ROUTES")
 		})
 	}
+}
+
+func TestRunRefusesAnInvalidModelDailySpendCap(t *testing.T) {
+	preserveSlog(t)
+	t.Setenv("SMITHERS_DATABASE_URL", "postgres://x@127.0.0.1:1/x?sslmode=disable&connect_timeout=1")
+	t.Setenv("SMITHERS_AUTH_MODE", "selfhost")
+	t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "test-bootstrap-token")
+	t.Setenv("SMITHERS_AUTH_SESSION_SECRET", "test-session-secret")
+	t.Setenv("SMITHERS_LFS_SIGNING_SECRET", "test-lfs-signing-secret")
+	t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "test-webhook-key")
+	t.Setenv("SMITHERS_REPO_HOST_AUTH_TOKEN", "test-repo-token")
+	t.Setenv("SMITHERS_PUSH_HOOK_CALLBACK_TOKEN", "test-callback-token")
+	t.Setenv("SMITHERS_PUBLIC_URL", "http://127.0.0.1:4000")
+	t.Setenv("SMITHERS_BLOB_DATA_DIR", t.TempDir())
+	t.Setenv(modelproxy.DailySpendCapEnv, "0")
+
+	err := RunWithOptions(context.Background(), nil, io.Discard, io.Discard, Options{})
+	require.ErrorContains(t, err, modelproxy.DailySpendCapEnv)
 }
 
 func TestValidateProductionConfig(t *testing.T) {

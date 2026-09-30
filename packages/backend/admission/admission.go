@@ -27,6 +27,8 @@ type Policy interface {
 	services.BillingPolicy
 	services.BranchLockJoinAuthorizer
 	services.PrivateRepoCommitAuthorizer
+	services.RepoCreateAuthorizer
+	services.OrgCreateAuthorizer
 	services.StorageCommitAuthorizer
 	services.DynamicStorageCommitAuthorizer
 	services.RepositoryTransferCommitAuthorizer

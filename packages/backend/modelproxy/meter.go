@@ -71,6 +71,10 @@ type Result struct {
 // Meter reserves, settles and records platform-key model calls.
 type Meter struct {
 	Ledger credits.Ledger
+	// DailyCapNanos caps every owner's platform-key spend per UTC day
+	// (DailySpendCapEnv); 0 means no cap. Calls admitted together can pass
+	// it by at most their bounds.
+	DailyCapNanos int64
 }
 
 // Price resolves the price-table key and price for a model on a provider.
@@ -137,6 +141,16 @@ func (m Meter) Execute(ctx context.Context, caller Caller, call Call, spend func
 	bound, err := Bound(price, call.Maximum)
 	if err != nil || bound <= 0 {
 		return credits.Reservation{}, fmt.Errorf("modelproxy: invalid bound: %w", errors.Join(err, errors.New("bound must be positive")))
+	}
+	if m.DailyCapNanos > 0 {
+		spent, err := spentToday(ctx, m.Ledger.DB)
+		if err != nil {
+			return credits.Reservation{}, fmt.Errorf("modelproxy: read today's spend: %w", err)
+		}
+		if spent > m.DailyCapNanos-bound {
+			slog.Error(spendCapLog, "provider", call.Provider, "model", call.Model, "cap", DailySpendCapEnv)
+			return credits.Reservation{}, ErrSpendCapReached
+		}
 	}
 	accountID, err := m.Ledger.EnsureAccount(ctx, caller.OwnerType, caller.OwnerID)
 	if err != nil {

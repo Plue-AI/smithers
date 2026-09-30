@@ -131,6 +131,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, credits.ErrInsufficient), errors.Is(err, credits.ErrSealed):
 		WriteError(w, provider, http.StatusPaymentRequired, OutOfCredit, "Out of Smithers credit.")
+	case errors.Is(err, ErrSpendCapReached):
+		// The exhausted-quota shape parks the run; it retries hourly.
+		w.Header().Set("Retry-After", spendCapRetryAfter)
+		WriteError(w, provider, http.StatusTooManyRequests, "insufficient_quota", "Platform model quota exceeded for today.")
 	case errors.Is(err, ErrModelNotOffered):
 		WriteError(w, provider, http.StatusBadRequest, "invalid_request_error", "Model "+parsed.model+" is not offered on platform keys.")
 	default:
@@ -212,7 +216,7 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 			// every caller is refused until the cap is raised. The provider's
 			// body classifies it as an exhausted quota, so the run parks;
 			// Retry-After re-checks hourly instead of waiting for the reset.
-			slog.Error("model provider spend cap reached: platform model calls are parked", "provider", provider, "model", parsed.model)
+			slog.Error(spendCapLog, "provider", provider, "model", parsed.model)
 			w.Header().Set("Retry-After", spendCapRetryAfter)
 		}
 		w.WriteHeader(resp.StatusCode)
