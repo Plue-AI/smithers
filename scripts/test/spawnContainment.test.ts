@@ -115,6 +115,25 @@ describe("child-process containment conformance", () => {
       + "ledger or hard-kill recovery guarantee."
     ],
     [
+      "smithers/src/Agents.ts",
+      "`smthrs mcp` Codex registration runs the installed `codex mcp add` and "
+      + "`codex mcp list --json` from PATH to write and verify the Smithers entry: fixed "
+      + "arguments, no shell, a 15-second timeout, a 1 MiB output cap and an isolated "
+      + "HOME and CODEX_HOME, outside a durable flow. CodexMcpRegistration.test.ts drives "
+      + "a scripted codex and the installed one when present. No durable process ledger "
+      + "or hard-kill recovery guarantee."
+    ],
+    [
+      "smithers/src/ExecutionEnvironment.ts",
+      "`smthrs environment exec`: an interactive CLI hand-off outside a durable flow. It "
+      + "runs the operator's command locally or through `ssh` with inherited terminal I/O "
+      + "and awaits the direct child's exit status. A non-terminal local run starts its own "
+      + "process group, and cancellation sends that group SIGTERM, then SIGKILL after 500 ms "
+      + "and again on exit; a remote command has SSH's connection lifecycle. "
+      + "ExecutionEnvironment.test.ts and ExecutionEnvironmentSsh.integration.test.ts cover "
+      + "both. No durable process ledger or hard-kill recovery guarantee."
+    ],
+    [
       "smithers/src/Detached.ts",
       "`smithers up -d`, the one launcher whose child must OUTLIVE the process that "
       + "started it. Routing it through the host spawner would kill the engine on the "
