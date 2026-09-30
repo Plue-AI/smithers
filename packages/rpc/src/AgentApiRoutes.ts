@@ -275,7 +275,7 @@ export const ADMIN_GRANT_PATH = "/api/admin/grant"
  * @since 1.0.0
  * @category constants
  */
-export const ADMIN_HEALTH_PATH = "/api/admin/health"
+export const ADMIN_HEALTH_PATH = "/api/admin/system/health"
 /** The bounded client-error log: what actually broke in an alpha user's browser.
  * @since 1.0.0
  * @category constants

@@ -1035,12 +1035,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: { login: "ada", amountUsd: 25, phase: "failed", grantId: "grant-1", error: "the grant call failed (500)" }
   },
   "admin-health": {
-    minimal: { services: [], charges: null, checkedAt: "2026-09-05T09:00:00Z" },
-    full: {
-      services: [{ name: "gateway", status: "ok", detail: "200 in 12 ms" }],
-      charges: { chargeCount: 2, lifetimeChargedUsd: "1.00" },
-      checkedAt: "2026-09-05T09:00:00Z"
-    }
+    minimal: { services: [] },
+    full: { services: [{ name: "database", status: "ok", detail: "12ms" }] }
   },
   connect: {
     minimal: { github: { connected: false, login: null }, nativeAvailable: false },

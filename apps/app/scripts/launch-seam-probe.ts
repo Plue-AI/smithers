@@ -97,19 +97,11 @@ const gatewayHealth = await fetch(`${origin}/health`, { headers: { cookie } })
 const gatewayBody = await gatewayHealth.json() as { code?: string }
 check("static gateway proxy stays retired", gatewayHealth.status === 410 && gatewayBody.code === "gateway_proxy_removed", `HTTP ${gatewayHealth.status}`)
 
-// 6. Admin surface: a signed-in NON-admin probe is byte-identical to an
-// unknown route (404, never 403, never a 501).
-const adminProbe = await fetch(`${origin}/api/admin/health`, { headers: { cookie } })
-const unknownProbe = await fetch(`${origin}/api/definitely-not-a-route`, { headers: { cookie } })
-const adminBody = await adminProbe.text()
-const unknownBody = await unknownProbe.text()
-check(
-  "admin surface is non-enumerable for non-admins (404 byte-identical, no 501)",
-  // 404 is the whole assertion: it is neither the 403 that would confirm the
-  // route exists nor the 501 an unimplemented seam would answer.
-  adminProbe.status === 404 && adminBody === unknownBody,
-  `admin HTTP ${adminProbe.status} vs unknown HTTP ${unknownProbe.status}, byte-identical: ${adminBody === unknownBody}`
-)
+// 6. The shared backend refuses an authenticated ordinary account at the
+// canonical admin health endpoint. A missing route is not role enforcement.
+const adminProbe = await fetch(`${origin}/api/admin/system/health`, { headers: { cookie } })
+const adminBody = await adminProbe.json() as { code?: string }
+check("backend admin role enforcement", adminProbe.status === 403 && adminBody.code === "forbidden", `admin HTTP ${adminProbe.status}`)
 
 // 7. The SPA itself serves.
 const spa = await fetch(`${origin}/`)

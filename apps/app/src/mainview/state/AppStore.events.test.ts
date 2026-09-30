@@ -197,6 +197,47 @@ describe("the live store's authoritative event path", () => {
     expect((await restored.verifyState()).valid).toBe(true)
   })
 
+  test("a v28 health card drops retired billing fields while its evidence and Chat survive reopen", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "admin-health", kind: "admin-health", title: "Health", status: "error", createdAt: 1, ordinal: 1,
+      payload: { services: [{ name: "database", status: "failed", detail: "Offline" }] }
+    } }).isPersisted.promise
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "Preserved chat" }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const legacy = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(legacy)
+      if (value === null || typeof value !== "object") return value
+      const row = Object.fromEntries(Object.entries(value).map(([key, field]) => [key, legacy(field)]))
+      if (row.kind === "admin-health") row.payload = { ...(row.payload as object), charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-29T00:00:00Z" }
+      return row
+    }
+    const snapshot = legacy(structuredClone(old.checkpoint.snapshot)) as typeof old.checkpoint.snapshot
+    const stateHash = appProjectionHash(snapshot as unknown as Parameters<typeof appProjectionHash>[0])
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 28, snapshot, stateHash }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      for (const key of Object.keys(entries)) entries[key] = JSON.stringify(legacy(JSON.parse(entries[key]!)))
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 28, stateHash }], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    expect(JSON.stringify(envelopeRows(storage))).toContain("lifetimeChargedUsd")
+    const upgraded = await open(storage)
+    expect(upgraded.collections.cards.get("admin-health")?.payload).toEqual({ services: [{ name: "database", status: "failed", detail: "Offline" }] })
+    expect(upgraded.session().draft).toBe("Preserved chat")
+    expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await upgraded.eventHistory()).checkpoint.snapshot.cards).toContainEqual(expect.objectContaining({ id: "admin-health", payload: { services: [{ name: "database", status: "failed", detail: "Offline" }] } }))
+    expect((await upgraded.verifyState()).valid).toBe(true)
+    await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
+    const reopened = await open(storage)
+    expect(reopened.collections.cards.get("admin-health")?.payload).toEqual({ services: [{ name: "database", status: "failed", detail: "Offline" }] })
+    expect(reopened.session().draft).toBe("Preserved chat")
+    expect((await reopened.verifyState()).valid).toBe(true)
+  })
+
   test("a pre-v28 box inventory remains unknown across the projector upgrade and reload", async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
@@ -718,7 +759,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 28, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 29, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",

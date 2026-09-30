@@ -14,10 +14,19 @@ const actions = { onRunCommand: () => {} } as unknown as CardActions
 
 const health = (services: Extract<Card, { kind: "admin-health" }>["payload"]["services"]): Extract<Card, { kind: "admin-health" }> => ({
   ...base, id: "admin-health", kind: "admin-health",
-  payload: { services, charges: null, checkedAt: "2026-09-29T00:00:00Z" }
+  payload: { services }
 })
 
 describe("the health readout", () => {
+  test("an observed healthy component without latency has no invented detail or unread charges", () => {
+    const html = renderToStaticMarkup(adminCardFamily["admin-health"].render(health([
+      { name: "database", status: "ok", detail: "" }
+    ]), actions))
+    expect(html).toContain("<strong>database</strong>")
+    expect(html).not.toContain(" — ")
+    expect(html).not.toContain("Charges")
+    expect(html).not.toContain("Read at")
+  })
   test("a passing or unconfigured probe shows its diagnostic; a failing one says our sentence with the error behind Details", () => {
     const html = renderToStaticMarkup(adminCardFamily["admin-health"].render(health([
       { name: "billing", status: "ok", detail: "healthz ok." },

@@ -95,7 +95,7 @@ export const adminOperatorFlows = (actions: CommandActions): ReadonlyArray<FlowE
   }),
   flow({
     name: "admin.health",
-    summary: "What failed overnight? Service health and charges",
+    summary: "Service health",
     runtime: ["identity"],
     input: NoPayload,
     handler: () => actions.adminHealth()

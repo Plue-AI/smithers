@@ -902,14 +902,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           status: z.enum(["ok", "failed", "unconfigured"]),
           detail: z.string()
         })
-      ),
-      charges: z
-        .object({
-          chargeCount: z.number().int().nonnegative(),
-          lifetimeChargedUsd: z.string()
-        })
-        .nullable(),
-      checkedAt: z.string()
+      )
     })
   }),
   /* The connect surface as an embedded chat card (the agent's connect form; §2c″). */

@@ -1,10 +1,37 @@
 /**
- * Runtime-free mirror of @smthrs/control/Health.StatusRollup. Observations never grant authority.
+ * Wire contracts for control health observations and shared backend administrator probes. Observations never grant authority.
  *
  * @since 1.0.0
  */
 
 import { z } from "zod"
+
+const systemHealthComponent = z.object({
+  status: z.enum(["ok", "error"]),
+  latency: z.string().optional(),
+  error: z.string().optional()
+}).strict()
+
+/**
+ * The shared backend's GET /api/admin/system/health response. A degraded
+ * observation arrives with HTTP 503 and is still health evidence.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AdminSystemHealthSchema = z.object({
+  status: z.enum(["ok", "degraded"]),
+  database: systemHealthComponent,
+  components: z.record(z.string().min(1), systemHealthComponent).optional()
+}).strict()
+
+/**
+ * The decoded administrator health response from the shared backend.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type AdminSystemHealth = z.infer<typeof AdminSystemHealthSchema>
 
 const counter = z.number().int().nonnegative()
 /**

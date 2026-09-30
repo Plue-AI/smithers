@@ -110,7 +110,7 @@
   "postRebase": {
     "qualifiedSourceCommit": "1e80fae74d7723382f622ce367ba1c5ec6189b7b",
     "origin": "b27a7deb37e728e1c77762800b2a81e700450e08",
-    "incomingCommits": 35,
+    "incomingCommits": 36,
     "incomingPaths": 455,
     "sourceFilesUnchanged": true,
     "checks": [
@@ -138,6 +138,8 @@
       "smithers-burndown-20260930-checkpoint8-rebased-mcp.log": "cbb89ac6eaf780442b6e374d0f5b11f0652f135b35df6a272eb3101269c4017e",
       "smithers-burndown-20260930-checkpoint8-rebased-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "smithers-burndown-20260930-checkpoint8-upstream-files.txt": "1b3cfd2f293e488f91653545eccb760abcb9ba88eb10f8be226e17d7c59cad5a"
-    }
+    },
+    "publishedCandidate": "f1ed83d3fcb7168e2a21245a0980a2061a8bb993",
+    "sourceEquivalentAcrossReceiptAmend": true
   }
 }

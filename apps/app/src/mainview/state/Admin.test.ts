@@ -159,23 +159,20 @@ describe("the admin plugin (admin session)", () => {
     const store = await adminStore()
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/admin/health": json(200, {
-          services: [
-            { name: "billing", status: "ok", detail: "healthz ok — rateCardVersion: \"2026-08-08\"" },
-            { name: "identity", status: "ok", detail: "healthz ok." }
-          ],
-          charges: { chargeCount: 3, lifetimeChargedUsd: "0.16125" },
-          checkedAt: "2026-08-08T09:30:00.000Z"
+        "/api/admin/system/health": json(200, {
+          status: "ok",
+          database: { status: "ok", latency: "3ms" },
+          components: { queue: { status: "ok" } }
         })
       })
     })
     expect((await controller.commands.run("admin.health")).status).toBe("executed")
     const card = cardOf(store, "admin-health", "admin-health")
     expect(card.payload.services.map((s) => `${s.name}:${s.status}`)).toEqual([
-      "billing:ok",
-      "identity:ok"
+      "database:ok",
+      "queue:ok"
     ])
-    expect(card.payload.charges?.lifetimeChargedUsd).toBe("0.16125")
+    expect(card.payload).toEqual({ services: [{ name: "database", status: "ok", detail: "3ms" }, { name: "queue", status: "ok", detail: "" }] })
   })
 
   test("an admin route failure is an honest line, never a dead end", async () => {
@@ -186,7 +183,7 @@ describe("the admin plugin (admin session)", () => {
     }
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/admin/health": json(501, refused)
+        "/api/admin/system/health": json(501, refused)
       })
     })
     await controller.commands.run("admin.health")

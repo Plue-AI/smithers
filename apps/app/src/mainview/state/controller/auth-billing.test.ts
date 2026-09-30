@@ -14,6 +14,30 @@ import { ADMIN_GRANT_PATH, ADMIN_HEALTH_PATH } from "@smthrs/rpc/AgentApiRoutes"
 /** The lead an uncoded HTTP refusal of `status` carries once its raw body is withheld. */
 const uncodedLead = (status: number) => refusalLead(refusalOf({ body: null, status, message: "" }))
 
+test.each([
+  { status: 200, body: { status: "ok", database: { status: "ok", latency: "8ms" } },
+    services: [{ name: "database", status: "ok", detail: "8ms" }], cardStatus: "active" },
+  { status: 503, body: { status: "degraded", database: { status: "error", error: "database offline" },
+    components: { queue: { status: "error", error: "queue offline" } } },
+    services: [{ name: "database", status: "failed", detail: "database offline" }, { name: "queue", status: "failed", detail: "queue offline" }], cardStatus: "error" }
+])("canonical backend health $status preserves the actual component evidence", async ({ status, body, services, cardStatus }) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
+  const requests: string[] = []
+  const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
+    const path = new URL(String(input), "https://app.test").pathname
+    requests.push(path)
+    return path === "/api/admin/system/health" ? Response.json(body, { status }) : Response.json({}, { status: 404 })
+  } })
+  ctx.withToast = createFailureController(ctx).withToast
+  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  try {
+    await controller.adminHealth()
+    expect(requests).toEqual(["/api/admin/system/health"])
+    expect(store.collections.cards.get("admin-health")).toMatchObject({ kind: "admin-health", status: cardStatus, payload: { services } })
+  } finally { await ctx.dispose(); await store.dispose?.() }
+})
+
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
   return {
@@ -906,9 +930,9 @@ describe("account answers that outlive their account", () => {
     }
   }
   const admin = { login: "will", admin: true }
-  const health = { services: [{ name: "billing", status: "failed", detail: "down" }], checkedAt: "2026-09-23T00:00:00Z" }
+  const health = { status: "degraded", database: { status: "error", error: "down" } }
   const cases: ReadonlyArray<readonly [string, (controller: ReturnType<typeof createAuthBillingController>) => Promise<unknown>, string, () => Response]> = [
-    ["service health", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => Response.json(health)],
+    ["service health", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => Response.json(health, { status: 503 })],
     ["a refused service health read", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => new Response("down", { status: 500 })]
   ]
   for (const [name, act, path, response] of cases) {
@@ -1084,6 +1108,11 @@ test.each([
 
 test.each([
   { name: "malformed", answer: () => Response.json({ services: "not-a-list" }), message: "The health read answered in a shape I didn't understand." },
+  { name: "legacy", answer: () => Response.json({ services: [], charges: null, checkedAt: "2026-09-30" }), message: "The health read answered in a shape I didn't understand." },
+  { name: "malformed component", answer: () => Response.json({ status: "ok", database: { status: "ok" }, components: { queue: { status: "mystery" } } }), message: "The health read answered in a shape I didn't understand." },
+  { name: "unreadable JSON", answer: () => new Response("not JSON"), message: "The health read answered in a shape I didn't understand." },
+  { name: "200 degraded contradiction", answer: () => Response.json({ status: "degraded", database: { status: "error" } }), message: "The health read answered in a shape I didn't understand." },
+  { name: "503 healthy contradiction", answer: () => Response.json({ status: "ok", database: { status: "ok" } }, { status: 503 }), message: "The health read answered in a shape I didn't understand." },
   { name: "unreachable", answer: () => { throw Error("offline") }, message: "The health read didn't answer — the admin route is unreachable." }
 ])("$name health answer reports one refusal without inventing a service card", async ({ answer, message }) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -1104,7 +1133,7 @@ test.each([
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test("health reread filters invalid rows and replaces failed service evidence with the host's recovery", async () => {
+test("health reread replaces degraded database evidence with the backend's recovery", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
     admin: true, scopesPlain: null }).isPersisted.promise
@@ -1112,11 +1141,9 @@ test("health reread filters invalid rows and replaces failed service evidence wi
   const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
     if (!String(input).endsWith(ADMIN_HEALTH_PATH)) throw Error("Unexpected route")
     return Response.json(recovered
-      ? { services: [{ name: "billing", status: "ok", detail: "Recovered" }], charges: null,
-        checkedAt: "2026-09-24T00:00:00Z" }
-      : { services: [{ name: "billing", status: "failed", detail: "Unavailable" },
-        { name: "bad", status: "mystery", detail: "Ignore" }],
-      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-23T00:00:00Z" })
+      ? { status: "ok", database: { status: "ok", latency: "2ms" } }
+      : { status: "degraded", database: { status: "error", error: "Unavailable" } },
+      { status: recovered ? 200 : 503 })
   } })
   ctx.withToast = createFailureController(ctx).withToast
   const controller = createAuthBillingController(ctx, store.nextOrdinal)
@@ -1124,15 +1151,46 @@ test("health reread filters invalid rows and replaces failed service evidence wi
     await controller.adminHealth()
     const first = store.collections.cards.get("admin-health")!
     expect(first).toMatchObject({ kind: "admin-health", status: "error", payload: {
-      services: [{ name: "billing", status: "failed", detail: "Unavailable" }],
-      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-23T00:00:00Z" } })
+      services: [{ name: "database", status: "failed", detail: "Unavailable" }] } })
     recovered = true
     await controller.adminHealth()
     expect(store.collections.cards.get("admin-health")).toMatchObject({ status: "active", createdAt: first.createdAt,
-      payload: { services: [{ name: "billing", status: "ok", detail: "Recovered" }], charges: null,
-        checkedAt: "2026-09-24T00:00:00Z" } })
+      payload: { services: [{ name: "database", status: "ok", detail: "2ms" }] } })
     expect([...store.collections.cards.values()].filter(card => card.kind === "admin-health")).toHaveLength(1)
   } finally { await ctx.dispose(); await store.dispose?.() }
+})
+
+test("the health reader uses real HTTP, retains degraded evidence, and never treats a permission refusal as a health read", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
+  const requests: Array<{ path: string; method: string }> = []
+  let reply: () => Response = () => Response.json({ status: "ok", database: { status: "ok", latency: "1ms" } })
+  // The local HTTP fixture supplies the owning Go handler's wire shapes. It
+  // does not authenticate an administrator; Go router gates qualify roles
+  // separately, and deployed administrator execution remains unavailable.
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    requests.push({ path: new URL(request.url).pathname, method: request.method })
+    return reply()
+  } })
+  const ctx = createControllerContext(store, agent, { baseUrl: server.url.origin, fetchImpl: fetch, toastDebounceMs: 0, toastAutoDismissMs: 10_000 })
+  ctx.withToast = createFailureController(ctx).withToast
+  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  try {
+    await controller.adminHealth()
+    expect(store.collections.cards.get("admin-health")).toMatchObject({ status: "active", payload: { services: [{ name: "database", status: "ok", detail: "1ms" }] } })
+    reply = () => Response.json({ status: "degraded", database: { status: "error" }, components: { queue: { status: "ok" } } }, { status: 503 })
+    await controller.adminHealth()
+    const degraded = store.collections.cards.get("admin-health")!
+    expect(degraded).toMatchObject({ status: "error", payload: { services: [{ name: "database", status: "failed", detail: "" }, { name: "queue", status: "ok", detail: "" }] } })
+    for (const status of [401, 403, 404]) {
+      // Even an otherwise valid-looking body cannot bypass the HTTP gate.
+      reply = () => Response.json({ status: "ok", database: { status: "ok" } }, { status })
+      await controller.adminHealth()
+      expect(store.collections.cards.get("admin-health")).toEqual(degraded)
+      expect(store.collections.toasts.get("toast-admin.health")).toHaveProperty("status", "failed")
+    }
+    expect(requests).toEqual(Array.from({ length: 5 }, () => ({ path: "/api/admin/system/health", method: "GET" })))
+  } finally { await ctx.dispose(); await store.dispose?.(); server.stop(true) }
 })
 
 test.each([

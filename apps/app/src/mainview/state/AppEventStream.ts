@@ -40,7 +40,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 27: the closed-alpha gate retired: identity rows drop `allowlisted`/`accessRequested`/`accessError`, the
 // `identity.access.requested`/`identity.access.failed` transitions and the `request-queue` card retire (#2145).
 // 28: box inventory loads carry scoped readiness; old rows seed a fresh stream (#3200).
-export const APP_PROJECTOR_VERSION = 28
+// 29: retired health charges and timestamps leave persisted card payloads (#3189).
+export const APP_PROJECTOR_VERSION = 29
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

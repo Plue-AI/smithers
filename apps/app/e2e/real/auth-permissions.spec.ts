@@ -105,9 +105,9 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
   capabilities: ["identity"],
   coverage: [
     "action:admin.health", "host:production", "path:permission", "door:slash",
-    "dimension:anonymous-server-enforced-admin-denial", "evidence:canonical-concealed-404-body"
+    "dimension:anonymous-server-enforced-admin-denial", "evidence:canonical-backend-401-body"
   ],
-  description: "The deployed admin endpoint conceals itself from an anonymous browser with the canonical unknown-route response."
+  description: "The shared backend refuses an anonymous browser at the administrator health endpoint."
 }), async ({ page, request }) => {
   await openApp(page)
   expect(await readAuthenticatedSession(page)).toBeUndefined()
@@ -117,9 +117,9 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
   await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
   await input.press("Escape")
   await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toHaveCount(0)
-  const denied = await realApi(page, request, "GET", "/api/admin/health")
-  expect(denied.status()).toBe(404)
-  expect(await denied.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
+  const denied = await realApi(page, request, "GET", "/api/admin/system/health")
+  expect(denied.status()).toBe(401)
+  expect(await denied.json()).toMatchObject({ code: "unauthorized" })
 })
 
 test("GitHub sign-in advertises a callback on the initiating origin", scenario("auth.oauth-callback-origin", {
@@ -326,9 +326,9 @@ ordinaryTest("an ordinary account is denied by both the admin UI and server rout
   capabilities: ["identity"],
   coverage: [
     "action:admin.health", "host:production", "path:permission", "door:slash", "door:user-only",
-    "dimension:ordinary-non-admin-denial", "evidence:session-claim-menu-absence-and-concealed-404"
+    "dimension:ordinary-non-admin-denial", "evidence:session-claim-menu-absence-and-backend-403"
   ],
-  description: "A separately provisioned ordinary GitHub identity lacks the admin action in the UI and receives the server's concealed denial from the protected endpoint."
+  description: "A separately provisioned ordinary GitHub identity lacks the admin action in the UI and is forbidden by the protected backend endpoint."
 }), async ({ page, request }) => {
   requireProfileEnvironment("SMITHERS_E2E_ORDINARY_PROFILE")
   await openApp(page)
@@ -343,9 +343,9 @@ ordinaryTest("an ordinary account is denied by both the admin UI and server rout
   await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
   await input.press("Escape")
   await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toHaveCount(0)
-  const denied = await realApi(page, request, "GET", "/api/admin/health")
-  expect(denied.status()).toBe(404)
-  expect(await denied.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
+  const denied = await realApi(page, request, "GET", "/api/admin/system/health")
+  expect(denied.status()).toBe(403)
+  expect(await denied.json()).toMatchObject({ code: "forbidden" })
 })
 
 ordinaryTest("signing out one real user does not alter another user's live session", scenario("auth.cross-user-session-isolation", {

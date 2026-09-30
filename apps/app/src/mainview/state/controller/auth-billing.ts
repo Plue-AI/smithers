@@ -20,6 +20,7 @@ import { TOAST_SUPERSEDED } from "./failures"
 import type { ApplicationIdentityClient } from "../../runtime/ApplicationClient"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { presentAppFailure } from "./AppFailure"
+import { AdminSystemHealthSchema } from "@smthrs/rpc/Health"
 
 /* Sign-out failures with no tagged cause. Reloading cannot finish either, so neither says to. */
 const SIGN_OUT_UNCONFIRMED: UserFailureCopy = {
@@ -739,9 +740,9 @@ export const createAuthBillingController = (
 
   /*
    * The admin plugin's controller half. Every read and write goes through the
-   * product Worker's /api/admin/* routes, which re-validate the session and
-   * answer 404-never-403 to non-admins; a 404 here therefore means "not an
-   * admin (or not configured)" and is surfaced as an honest line.
+   * shared backend's /api/admin/* routes, which enforce the authenticated
+   * administrator role and token scope. An optional route that is not mounted
+   * is unavailable; an ordinary account's refusal never counts as a read.
    */
   const adminGrant = (amountUsd: number, login: string): string | void => {
     // Never post directly: the confirmation card states exactly what will happen first.
@@ -844,49 +845,29 @@ export const createAuthBillingController = (
   const adminHealthImpl = async (current: () => boolean): Promise<true | typeof TOAST_SUPERSEDED | string> => {
     try {
       const response = await http(`${baseUrl}${ADMIN_HEALTH_PATH}`)
-      if (!response.ok) return adminRefusal(current, await errorMessageOf(response, "The health read didn't answer."))
-      const body = (await response.json().catch(() => undefined)) as
-        | {
-          services?: Array<{ name?: unknown; status?: unknown; detail?: unknown }>
-          charges?: { chargeCount?: unknown; lifetimeChargedUsd?: unknown } | null
-          checkedAt?: unknown
-        }
-        | undefined
+      if (response.status !== 200 && response.status !== 503) return adminRefusal(current, await errorMessageOf(response, "The health read didn't answer."))
+      const parsed = AdminSystemHealthSchema.safeParse(await response.json().catch(() => undefined))
       if (!current()) return TOAST_SUPERSEDED
-      if (!Array.isArray(body?.services)) {
+      if (!parsed.success || parsed.data.status !== (response.status === 200 ? "ok" : "degraded")) {
         return adminRefusal(current, "The health read answered in a shape I didn't understand.")
       }
-      const services = body.services
-        .filter(
-          (service) =>
-            typeof service.name === "string" &&
-            (service.status === "ok" || service.status === "failed" || service.status === "unconfigured") &&
-            typeof service.detail === "string"
-        )
-        .map((service) => ({
-          name: service.name as string,
-          status: service.status as "ok" | "failed" | "unconfigured",
-          detail: service.detail as string
-        }))
-      const charges = body.charges !== null &&
-          body.charges !== undefined &&
-          typeof body.charges.chargeCount === "number" &&
-          typeof body.charges.lifetimeChargedUsd === "string"
-        ? { chargeCount: body.charges.chargeCount, lifetimeChargedUsd: body.charges.lifetimeChargedUsd }
-        : null
+      const body = parsed.data
+      const services = [{ name: "database", ...body.database },
+        ...Object.entries(body.components ?? {}).map(([name, component]) => ({ name, ...component }))
+      ].map(component => ({
+        name: component.name,
+        status: component.status === "ok" ? "ok" as const : "failed" as const,
+        detail: component.status === "error" ? component.error ?? "" : component.latency ?? ""
+      }))
       const existing = store.collections.cards.get("admin-health")
       const card: Card = {
         id: "admin-health",
         kind: "admin-health",
-        title: "What failed overnight?",
-        status: services.some((service) => service.status === "failed") ? "error" : "active",
+        title: "Health",
+        status: body.status === "degraded" || services.some((service) => service.status === "failed") ? "error" : "active",
         createdAt: existing?.createdAt ?? Date.now(),
         ordinal: nextTranscriptOrdinal(),
-        payload: {
-          services,
-          charges,
-          checkedAt: typeof body.checkedAt === "string" ? body.checkedAt : new Date().toISOString()
-        }
+        payload: { services }
       }
       store.dispatch({ type: "card.upsert", actor: "system", card })
     } catch {

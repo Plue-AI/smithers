@@ -7,7 +7,6 @@ import { StatusPill } from "@smthrs/ui"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { Card } from "../state/AppState"
-import { dateLabel } from "../Timestamps"
 import type { CardFamily } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 
@@ -25,13 +24,13 @@ type HealthStatus = keyof typeof HEALTH_FAILURES
 
 const HealthDetail = ({ name, status, detail }: { readonly name: string; readonly status: HealthStatus; readonly detail: string }) => {
   const copy = HEALTH_FAILURES[status]
-  return copy === null ? <> — {detail}</> : (
+  return copy === null ? (detail === "" ? null : <> — {detail}</>) : (
     <FailureNotice role="status" data-testid={`admin-health-${name}-failure`} failure={describedFailure(`AdminHealth.${status}`, copy, detail)} />
   )
 }
 
 const AdminHealthCardBody = ({ card }: { readonly card: Extract<Card, { kind: "admin-health" }> }) => {
-  const { services, charges, checkedAt } = card.payload
+  const { services } = card.payload
   return (
     <div className="admin-health">
       <ul className="admin-health-services">
@@ -45,13 +44,6 @@ const AdminHealthCardBody = ({ card }: { readonly card: Extract<Card, { kind: "a
           </li>
         ))}
       </ul>
-      <p className="smithers-card-note">
-        {charges === null
-          ? "Charges: unread."
-          : `Charges: $${charges.lifetimeChargedUsd} across ${charges.chargeCount} turn${
-            charges.chargeCount === 1 ? "" : "s"
-          }.`} Read at {dateLabel(checkedAt)}.
-      </p>
     </div>
   )
 }
