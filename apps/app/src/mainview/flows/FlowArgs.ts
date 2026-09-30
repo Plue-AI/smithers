@@ -68,6 +68,9 @@ export interface FlowInput {
   /** Carried as JSON: the form opens with these and asks for the value. */
   readonly "secrets.set": { readonly name?: string; readonly repo: string }
   readonly "secrets.delete": { readonly name: string; readonly repo: string }
+  readonly "secrets.scope": { readonly name: string; readonly scope: "main-only" | "all"; readonly repo: string }
+  /** Carried as JSON: the form opens with the name and asks for the hosts and headers. */
+  readonly "secrets.bind": { readonly name: string; readonly repo: string }
   readonly "history.parallel": { readonly value: number; readonly repo: string }
   readonly "history.retry": { readonly id: string; readonly repo: string }
   readonly "history.land": { readonly id: string; readonly head: string; readonly repo: string }
@@ -264,6 +267,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
   "secrets.set": payload => JSON.stringify(payload),
   "secrets.delete": payload => line(token(payload, "name"), token(payload, "repo")),
+  "secrets.scope": payload => line(token(payload, "name"), token(payload, "scope"), token(payload, "repo")),
+  "secrets.bind": payload => JSON.stringify(payload),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.fix": payload => line(token(payload, "number"), token(payload, "repo")),
   // The prompt is free text; the grammar reads the repository off the end.
