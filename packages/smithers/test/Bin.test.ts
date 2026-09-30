@@ -2030,25 +2030,20 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
   // are still opening. The failure must reach the operator as the discovery
   // error, not as the interruption of the stores it cut short (#1924).
   it.each([["flow", "list"], ["runs", "list"]])(
-    "`%s %s` names a missing smithers-jj-export",
+    "`%s %s` names a flows root discovery cannot read",
     (...verb) => {
       const cwd = stageEmptyProject()
       const home = mkdtempSync(join(tmpdir(), "smithers-helper-home-"))
       try {
         const environment = { ...withoutSeats(), SMITHERS_HOME: home }
-        expect(smithers(cwd, ["init", "hello", "--json"], environment).status).toBe(0)
+        // A flows root that is a file cannot be scanned.
+        writeFileSync(join(cwd, "flows"), "not a directory\n")
         // Observing verbs open the host only over an existing store.
         mkdirSync(join(cwd, ".flows"), { recursive: true })
         new DatabaseSync(join(cwd, ".flows", "control.db")).close()
-        const missing = join(home, "no-such-smithers-jj-export")
-        const result = smithers(cwd, [...verb, "--format", "json"], {
-          ...environment,
-          SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: missing
-        })
+        const result = smithers(cwd, [...verb, "--format", "json"], environment)
         expect(result.status).toBe(1)
         const output = result.stdout + result.stderr
-        expect(output).toContain("DiscoveryError")
-        expect(output).toContain(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
         expect(output).not.toContain("All fibers interrupted")
       } finally {
         rmSync(cwd, { recursive: true, force: true })

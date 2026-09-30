@@ -6,6 +6,7 @@
 
 import { Control as ControlService } from "@smthrs/control"
 import * as ResolveJj from "@smthrs/jj/node/resolveJjBinary"
+import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import type * as Registry from "@smthrs/registry/Registry"
 import * as RegistryError from "@smthrs/registry/RegistryError"
 import { Effect, type Layer } from "effect"
@@ -56,6 +57,29 @@ export const report = (
   })
 
 /**
+ * Resolves the filesystem helper as an operation would. Flow discovery reads
+ * through the host platform and never starts the helper, so a missing or
+ * unusable `smithers-jj-export` would otherwise pass as `registry: ok` and
+ * fail later, when a flow's module is first loaded. The failure text is a
+ * discovery error's, carrying the helper's own diagnosis and install hint.
+ */
+const checkHelper = (root: string): string | undefined => {
+  try {
+    AtomicFileSystem.resolveHelper()
+    return undefined
+  } catch (cause) {
+    return RegistryError.discoveryError({
+      code: "read_failed",
+      module: "AtomicFileSystem",
+      method: "resolveHelper",
+      path: root,
+      description: cause instanceof Error ? cause.message : String(cause),
+      cause
+    }).message
+  }
+}
+
+/**
  * Local diagnostics use the discovery snapshot without opening execution
  * databases. A registry that discovery cannot build, such as one whose
  * filesystem helper is missing, is a failed `registry` check rather than a
@@ -68,6 +92,8 @@ export const fromRegistry = (
   registry: (root: string) => Layer.Layer<Registry.Registry> = NodeControl.layerRegistry
 ): Effect.Effect<Doctor.Report> =>
   Effect.gen(function*() {
+    const helper = checkHelper(yield* Project.ProjectRoot)
+    if (helper !== undefined) return yield* report({ failure: helper }, globals)
     const catalog = yield* FlowCatalog.discovered.pipe(
       Effect.provide(registry(yield* Project.ProjectRoot)),
       Effect.catchDefect((defect): Effect.Effect<DiscoveryFailed> =>

@@ -153,4 +153,46 @@ describe("local diagnostics off the registry snapshot", () => {
     await run(root, [descriptor("review", "Review the working copy")], [])
     expect(existsSync(join(root, ".flows"))).toBe(false)
   })
+
+  // Discovery reads through the host platform, so a registry that discovers
+  // flows says nothing about the filesystem helper a flow's first module load
+  // needs. The doctor asks the helper itself.
+  describe("the filesystem helper", () => {
+    const withHelper = async <A>(binary: string | undefined, body: () => Promise<A>): Promise<A> => {
+      const saved = process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
+      if (binary === undefined) delete process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
+      else process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = binary
+      try {
+        return await body()
+      } finally {
+        if (saved === undefined) delete process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
+        else process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = saved
+      }
+    }
+
+    it("fails the registry check when the configured helper is missing, with its install hint", async () => {
+      const root = project()
+      const missing = join(root, "no-such-smithers-jj-export")
+      const report = await withHelper(
+        missing,
+        () => run(root, [descriptor("review", "Review the working copy")], [])
+      )
+      const registry = check(report, "registry")
+      expect(registry?.level).toBe("fail")
+      expect(registry?.detail).toContain(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
+      expect(registry?.detail).toContain("cargo build --locked --release -p smithers-ffi --bin smithers-jj-export")
+      // The rest of the report still runs, and no flow is claimed as discovered.
+      expect(check(report, "node")).toBeDefined()
+      expect(registry?.detail).not.toContain("flows discovered")
+    })
+
+    it("passes the registry check when the helper answers", async () => {
+      const root = project()
+      const report = await withHelper(
+        undefined,
+        () => run(root, [descriptor("review", "Review the working copy")], [])
+      )
+      expect(check(report, "registry")).toMatchObject({ level: "ok", detail: "1 flows discovered" })
+    })
+  })
 })

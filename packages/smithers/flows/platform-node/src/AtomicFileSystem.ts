@@ -272,18 +272,34 @@ const executeFramed = (options: Options, resolved: Settings | { readonly invalid
       }
       let executable: string
       try {
-        const configured = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
-        executable = options.executable !== undefined
-          ? Transport.usableExecutable(options.executable, request.boundaryRoot)
-          : configured === undefined
-          ? resolveDefaultExecutable(packageRoot, request.boundaryRoot, defaultExecutable)
-          : resolveConfiguredExecutable(configured, request.boundaryRoot)
+        executable = resolveExecutable(options, request.boundaryRoot)
       } catch (cause) {
         return Effect.fail(Protocol.failure(request, cause))
       }
       return Transport.spawnHelper<unknown>(request, executable, Protocol.encode(body, limits), resolved)
     }))
   })
+
+const resolveExecutable = (options: Pick<Options, "executable">, boundaryRoot: string | undefined): string => {
+  const configured = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
+  return options.executable !== undefined
+    ? Transport.usableExecutable(options.executable, boundaryRoot)
+    : configured === undefined
+    ? resolveDefaultExecutable(packageRoot, boundaryRoot, defaultExecutable)
+    : resolveConfiguredExecutable(configured, boundaryRoot)
+}
+
+/**
+ * The helper this process would start for an atomic operation, resolved exactly
+ * as an operation resolves it: `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, then the
+ * packaged and checkout locations. Nothing is spawned. Throws an `Error` whose
+ * message names what was searched and how to install the helper when none is
+ * usable, so a diagnostic can report it before any operation needs it.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const resolveHelper = (): string => resolveExecutable({}, undefined)
 
 const execute = (
   options: Options,
