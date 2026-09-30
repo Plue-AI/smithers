@@ -695,6 +695,62 @@ func (q *Queries) ListIssueEventsByIssue(ctx context.Context, arg ListIssueEvent
 	return items, nil
 }
 
+const listIssueLastComments = `-- name: ListIssueLastComments :many
+SELECT
+    c.issue_id,
+    c.commenter,
+    c.persona,
+    left(c.body, 200)::text AS excerpt,
+    c.idempotency_key,
+    c.created_at
+FROM unnest($1::bigint[]) AS listed(issue_id)
+CROSS JOIN LATERAL (
+    SELECT ic.issue_id, ic.commenter, ic.persona, ic.body, ic.idempotency_key, ic.created_at
+    FROM issue_comments ic
+    WHERE ic.issue_id = listed.issue_id
+    ORDER BY ic.id DESC
+    LIMIT 1
+) c
+`
+
+type ListIssueLastCommentsRow struct {
+	IssueID        int64           `json:"issue_id"`
+	Commenter      string          `json:"commenter"`
+	Persona        json.RawMessage `json:"persona"`
+	Excerpt        string          `json:"excerpt"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// The newest comment of each listed issue, in one lateral statement per page.
+// The excerpt is the first 200 characters of the body.
+func (q *Queries) ListIssueLastComments(ctx context.Context, issueIds []int64) ([]ListIssueLastCommentsRow, error) {
+	rows, err := q.db.Query(ctx, listIssueLastComments, issueIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIssueLastCommentsRow{}
+	for rows.Next() {
+		var i ListIssueLastCommentsRow
+		if err := rows.Scan(
+			&i.IssueID,
+			&i.Commenter,
+			&i.Persona,
+			&i.Excerpt,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssuesByRepoFiltered = `-- name: ListIssuesByRepoFiltered :many
 SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id, filed_by, text_source, owner_id, due_on, priority, parent_id
 FROM issues

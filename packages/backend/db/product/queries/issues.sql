@@ -316,6 +316,25 @@ WHERE issue_id = sqlc.arg(issue_id)
 ORDER BY id ASC
 LIMIT sqlc.arg(page_size);
 
+-- name: ListIssueLastComments :many
+-- The newest comment of each listed issue, in one lateral statement per page.
+-- The excerpt is the first 200 characters of the body.
+SELECT
+    c.issue_id,
+    c.commenter,
+    c.persona,
+    left(c.body, 200)::text AS excerpt,
+    c.idempotency_key,
+    c.created_at
+FROM unnest(sqlc.arg(issue_ids)::bigint[]) AS listed(issue_id)
+CROSS JOIN LATERAL (
+    SELECT ic.issue_id, ic.commenter, ic.persona, ic.body, ic.idempotency_key, ic.created_at
+    FROM issue_comments ic
+    WHERE ic.issue_id = listed.issue_id
+    ORDER BY ic.id DESC
+    LIMIT 1
+) c;
+
 -- name: SetIssueTextEditor :exec
 -- Names the person who writes issue titles and bodies in this transaction
 -- (record_issue_text_editor), or the agent source that writes them for no

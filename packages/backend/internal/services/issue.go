@@ -130,6 +130,7 @@ type IssueResponse struct {
 	Priority       *int16                `json:"priority"`
 	Parent         *IssueParentSummary   `json:"parent"`
 	LinkedChanges  []IssueLinkedChange   `json:"linked_changes"`
+	LastComment    *IssueLastComment     `json:"last_comment"`
 	CreatedAt      time.Time             `json:"created_at"`
 	UpdatedAt      time.Time             `json:"updated_at"`
 }
@@ -151,8 +152,36 @@ type IssueCommentResponse struct {
 	Commenter      string          `json:"commenter"`
 	Body           string          `json:"body"`
 	Type           string          `json:"type"`
+	Origin         string          `json:"origin"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+// IssueLastComment is the newest comment of an issue, shown on list rows.
+type IssueLastComment struct {
+	Commenter string          `json:"commenter"`
+	Persona   json.RawMessage `json:"persona,omitempty"`
+	Excerpt   string          `json:"excerpt"`
+	Origin    string          `json:"origin"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// Issue comment origins. A comment the chat-sync intake created carries the
+// message identity "<provider>:<message id>"; that prefix is reserved for the
+// intake, so every other comment was written in the app.
+const (
+	IssueCommentOriginApp      = "app"
+	IssueCommentOriginSlack    = "slack"
+	IssueCommentOriginTelegram = "telegram"
+)
+
+func issueCommentOrigin(idempotencyKey string) string {
+	for _, provider := range []string{IssueCommentOriginSlack, IssueCommentOriginTelegram} {
+		if strings.HasPrefix(idempotencyKey, provider+":") {
+			return provider
+		}
+	}
+	return IssueCommentOriginApp
 }
 
 type IssueQuerier interface {
@@ -168,6 +197,7 @@ type IssueQuerier interface {
 	GetIssueByNumber(ctx context.Context, arg db.GetIssueByNumberParams) (db.Issue, error)
 	GetIssueByID(ctx context.Context, id int64) (db.Issue, error)
 	ListIssuesByRepoFiltered(ctx context.Context, arg db.ListIssuesByRepoFilteredParams) ([]db.Issue, error)
+	ListIssueLastComments(ctx context.Context, issueIDs []int64) ([]db.ListIssueLastCommentsRow, error)
 	CountIssuesByRepoFiltered(ctx context.Context, arg db.CountIssuesByRepoFilteredParams) (int64, error)
 	UpdateIssue(ctx context.Context, arg db.UpdateIssueParams) (db.Issue, error)
 
@@ -306,9 +336,17 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 		return nil, "", 0, pkgerrors.Internal("failed to list issues").WithCause(err)
 	}
 
+	ids := make([]int64, 0, len(rows))
+	for _, issue := range rows {
+		ids = append(ids, issue.ID)
+	}
+	lastComments, err := s.lastComments(ctx, ids)
+	if err != nil {
+		return nil, "", 0, err
+	}
 	items := make([]IssueResponse, 0, len(rows))
 	for _, issue := range rows {
-		mapped, err := s.mapIssue(ctx, issue)
+		mapped, err := s.mapIssueWith(ctx, issue, lastComments[issue.ID])
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -841,6 +879,9 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 	if len(req.IdempotencyKey) > 128 {
 		return IssueCommentResponse{}, pkgerrors.BadRequest("message identity is too long")
 	}
+	if req.externalCommenter == "" && issueCommentOrigin(req.IdempotencyKey) != IssueCommentOriginApp {
+		return IssueCommentResponse{}, pkgerrors.BadRequest("message identity prefix is reserved for chat sync")
+	}
 	persona := []byte("{}")
 	if req.Persona != nil {
 		if issue.Kind != "chat" {
@@ -1114,7 +1155,38 @@ func (s *IssueService) getIssueByNumber(ctx context.Context, repositoryID, numbe
 	return issue, nil
 }
 
+// lastComments loads the newest comment of each issue in one statement.
+func (s *IssueService) lastComments(ctx context.Context, issueIDs []int64) (map[int64]*IssueLastComment, error) {
+	last := make(map[int64]*IssueLastComment, len(issueIDs))
+	if len(issueIDs) == 0 {
+		return last, nil
+	}
+	rows, err := s.queries.ListIssueLastComments(ctx, issueIDs)
+	if err != nil {
+		return nil, pkgerrors.Internal("failed to load last issue comments").WithCause(err)
+	}
+	for _, row := range rows {
+		last[row.IssueID] = &IssueLastComment{
+			Commenter: row.Commenter,
+			Persona:   row.Persona,
+			Excerpt:   row.Excerpt,
+			Origin:    issueCommentOrigin(row.IdempotencyKey),
+			CreatedAt: row.CreatedAt,
+		}
+	}
+	return last, nil
+}
+
 func (s *IssueService) mapIssue(ctx context.Context, issue db.Issue) (IssueResponse, error) {
+	last, err := s.lastComments(ctx, []int64{issue.ID})
+	if err != nil {
+		return IssueResponse{}, err
+	}
+	return s.mapIssueWith(ctx, issue, last[issue.ID])
+}
+
+// mapIssueWith maps an issue whose newest comment the caller already loaded.
+func (s *IssueService) mapIssueWith(ctx context.Context, issue db.Issue, lastComment *IssueLastComment) (IssueResponse, error) {
 	author, err := s.queries.GetUserByID(ctx, issue.AuthorID)
 	if err != nil {
 		return IssueResponse{}, pkgerrors.Internal("failed to load issue author").WithCause(err)
@@ -1233,6 +1305,7 @@ func (s *IssueService) mapIssue(ctx context.Context, issue db.Issue) (IssueRespo
 		Priority:       priority,
 		Parent:         parent,
 		LinkedChanges:  linkedChanges,
+		LastComment:    lastComment,
 		CreatedAt:      issue.CreatedAt,
 		UpdatedAt:      issue.UpdatedAt,
 	}, nil
@@ -1248,6 +1321,7 @@ func mapIssueComment(comment db.IssueComment) IssueCommentResponse {
 		Commenter:      comment.Commenter,
 		Body:           comment.Body,
 		Type:           comment.Type,
+		Origin:         issueCommentOrigin(comment.IdempotencyKey),
 		CreatedAt:      comment.CreatedAt,
 		UpdatedAt:      comment.UpdatedAt,
 	}

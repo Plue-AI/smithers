@@ -162,6 +162,10 @@ func (m *benchIssueQuerier) ListIssueCommentsByIssueKeyset(_ context.Context, _ 
 	return nil, nil
 }
 
+func (m *benchIssueQuerier) ListIssueLastComments(_ context.Context, _ []int64) ([]db.ListIssueLastCommentsRow, error) {
+	return nil, nil
+}
+
 func (m *benchIssueQuerier) CountIssueCommentsByIssue(_ context.Context, _ int64) (int64, error) {
 	return 0, nil
 }

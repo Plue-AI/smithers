@@ -99,6 +99,7 @@ type mockIssueQuerier struct {
 
 	createIssueCommentFn        func(ctx context.Context, arg db.CreateIssueCommentParams) (db.IssueComment, error)
 	listIssueCommentsFn         func(ctx context.Context, arg db.ListIssueCommentsParams) ([]db.IssueComment, error)
+	listIssueLastCommentsFn     func(context.Context, []int64) ([]db.ListIssueLastCommentsRow, error)
 	listIssueCommentsKeysetFn   func(ctx context.Context, arg db.ListIssueCommentsByIssueKeysetParams) ([]db.IssueComment, error)
 	countIssueCommentsByIssueFn func(ctx context.Context, issueID int64) (int64, error)
 	getIssueCommentByIDFn       func(ctx context.Context, id int64) (db.IssueComment, error)
@@ -331,6 +332,13 @@ func (m *mockIssueQuerier) ListIssueCommentsByIssueKeyset(ctx context.Context, a
 		return m.listIssueCommentsKeysetFn(ctx, arg)
 	}
 	return []db.IssueComment{{ID: 1, IssueID: arg.IssueID, UserID: pgtype.Int8{Int64: 1, Valid: true}, Commenter: "alice", Body: "hi", Type: "comment", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}}, nil
+}
+
+func (m *mockIssueQuerier) ListIssueLastComments(ctx context.Context, issueIDs []int64) ([]db.ListIssueLastCommentsRow, error) {
+	if m.listIssueLastCommentsFn != nil {
+		return m.listIssueLastCommentsFn(ctx, issueIDs)
+	}
+	return nil, nil
 }
 
 func (m *mockIssueQuerier) CountIssueCommentsByIssue(ctx context.Context, issueID int64) (int64, error) {
