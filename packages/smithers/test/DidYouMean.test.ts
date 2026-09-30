@@ -171,7 +171,7 @@ describe("the unknown verb the parser refuses", { timeout: 120_000 }, () => {
     expect(codes).toEqual([])
   })
 
-  it.each([["--json"], ["--format", "json"], ["--format=json"]])(
+  it.for([["--json"], ["--format", "json"], ["--format=json"]])(
     "retains a parseable parser refusal with %j",
     async (format) => {
       const { codes, stdout } = await invoke(["stauts", ...format])

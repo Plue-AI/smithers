@@ -1498,7 +1498,7 @@ export const make = (
   }
 
   const layerControlFromEngine = (
-    config: Application.Config & Pick<ExecutorOptions, "expectedSourceRevision" | "approvalChannel">,
+    config: Application.Config & Pick<ExecutorOptions, "expectedSourceRevision" | "approvalChannel" | "plansFlows">,
     registry: Layer.Layer<Registry.Registry>,
     engine: EngineDurable,
     modules?: ModuleRegistration
