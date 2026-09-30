@@ -30,7 +30,8 @@ const open = async (page: Page, signedIn = false) => {
   if (signedIn) await skipSignup(page)
 }
 const keyboardClick = async (page: Page, name: string) => {
-  const button = page.getByRole("button", { name, exact: true })
+  // A job button reads its state after the name ("Handle issues · Off").
+  const button = page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( · .+)?$`) })
   await expect(button).toBeEnabled()
   await button.focus()
   await expect(button).toBeFocused()

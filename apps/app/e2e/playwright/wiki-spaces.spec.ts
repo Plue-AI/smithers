@@ -240,7 +240,9 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   // The page reads rendered: the wikilink with its alias, the embedded image from its scoped route, the unresolved target marked, no raw markup, no chat card behind it.
   const view = pane.getByTestId("wiki-page")
   await expect(view.getByRole("link", { name: "start", exact: true })).toHaveAttribute("href", "#note/Guides%2FStart.md?h=Install")
-  await expect(view.getByTestId("wiki-embed").locator("img")).toHaveAttribute("src", `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)
+  // The image is fetched with the signed-in identity from its scoped route and shown from that blob.
+  await expect(view.getByTestId("wiki-embed").locator("img")).toHaveAttribute("src", /^blob:/)
+  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)).toBe(true)
   await expect(view.locator('a[href^="#unresolved/"]')).toHaveText("Nowhere")
   // A link borrows no color: it is the text, underlined, heavier under the pointer; an unresolved one is muted and dashed.
   const styles = await view.evaluate((node) => {
@@ -316,7 +318,7 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(tree.locator('[data-slot="file-tree-file"]')).toHaveCount(1)
   // The attachment: shown from its scoped content route.
   await tree.getByRole("button", { name: "logo.png", exact: true }).click()
-  await expect(pane.getByTestId("wiki-attachment").locator("img")).toHaveAttribute("src", `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)
+  await expect(pane.getByTestId("wiki-attachment").locator("img")).toHaveAttribute("src", /^blob:/)
   await tree.getByRole("searchbox", { name: "Search pages" }).fill("")
   // History: the card in the chat, one download per revision, renames included.
   await tree.getByRole("button", { name: "Home", exact: true }).click()
@@ -364,7 +366,7 @@ test("the Wiki card lists the space with its chip and offers a page's History", 
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
   await slash(page, `/repo.select ${repo}`)
   await slash(page, `/wiki.cloud ${repo} --space private`)
-  const card = page.getByTestId(`card-wiki-index-${repo}`)
+  const card = page.getByTestId(`card-wiki-index-${repo}-private`)
   await expect(card).toBeVisible()
   await expect(card.getByTestId("wiki-card-space")).toHaveText("private")
   await expect(card.getByTestId("wiki-card-tree").getByRole("button", { name: "#secret" })).toBeVisible()

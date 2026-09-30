@@ -1,18 +1,8 @@
 import { expect,test,type Page } from "./browserTest"
 import { identityRoute } from "./identity"
 
-/** Exercise the real failed-storage toast using only this browser profile. */
+/** Exercise a real failed toast (a refused repository read) using only this browser profile. */
 const boot = async (page: Page) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("smithers-mvp.persistenceBackend", "opfs")
-    window.Worker = class extends Worker {
-      constructor(url: string | URL, options?: WorkerOptions) {
-        super(url, options)
-        this.terminate()
-        throw new DOMException("Storage unavailable for notification layout test", "NotAllowedError")
-      }
-    }
-  })
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: { error: "Not part of the notification fixture" } }))
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
@@ -21,12 +11,14 @@ const boot = async (page: Page) => {
   await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "smithersai/smithers" }] } }))
   await page.route("**/api/repos/smithersai/smithers", route => route.fulfill({ json: { default_bookmark: "main" } }))
-  await page.route("**/api/repos/smithersai/smithers/contents/README.md", route => route.fulfill({ json: {
-    content: JSON.stringify({ blocks: [{ type: "text", text: "Repository home" }] }),
-  } }))
+  await page.route("**/api/repos/smithersai/smithers/contents/README.md", route => route.fulfill({ status: 500, json: { message: "Not part of the notification fixture" } }))
   await page.goto("/")
-  await expect(page.locator('.toast-stack .toast[data-toast-status="failed"]')).toContainText("This session will not be saved")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Chat", exact: true }).click()
+  await page.getByTestId("composer-input").fill("/files.read README.md smithersai/smithers")
+  await page.getByTestId("composer-send").click()
+  await expect(page.locator('.toast-stack .toast[data-toast-status="failed"]')).toBeVisible()
+  await page.keyboard.press("Escape")
 }
 
 const oneStack = async (page: Page) => {
@@ -141,7 +133,7 @@ test("the same stack follows any modal, including dialogs opened out of DOM orde
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#first-modal")!.close())
   await expect(page.locator("#second-modal .toast-stack")).toHaveCount(1)
   expect(await original!.evaluate(node => node === document.querySelector(".toast-stack"))).toBe(true)
-  await stack.getByRole("button", { name: "Dismiss: This session will not be saved", exact: true }).click()
+  await stack.getByRole("button", { name: "Dismiss: Loading repository…", exact: true }).click()
   await expect(stack).toHaveCount(0)
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#second-modal")!.close())
 })

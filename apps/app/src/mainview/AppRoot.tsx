@@ -40,16 +40,16 @@ export function AppContent({ children }: { readonly children: ReactNode }) {
   return children
 }
 
-/** The recovered-store gate wraps the entire interactive shell. */
+/** The recovered-store gate wraps the interactive content; the navigation strip stands down with it. */
 export function AppReady({ View, onMounted }: { readonly View: ComponentType; readonly onMounted: () => void }) {
   return <>
     <MountedSignal onMounted={onMounted} />
-    <AppContent>
-      <SessionShell navigation={<SessionNavigation />}>
-        <Suspense fallback={<ViewSkeleton />}><View /></Suspense>
-      </SessionShell>
-    </AppContent>
+    <AppContent><View /></AppContent>
   </>
+}
+
+function AppNavigation() {
+  return useController().store.savedStoreUnavailable ? null : <SessionNavigation />
 }
 
 export function AppRoot({
@@ -64,11 +64,14 @@ export function AppRoot({
   return (
     <StrictMode>
       <StartupErrorBoundary onError={watchdog.handleRenderFailure}>
-        <Suspense fallback={<SessionShell navigation={<SessionNavigationFallback />}><ViewSkeleton /></SessionShell>}>
-          <ControllerProvider boot={boot}>
-            <AppReady View={View} onMounted={watchdog.markMounted} />
-          </ControllerProvider>
-        </Suspense>
+        {/* One shell for the page's life: a late boot fills it in place instead of replacing it. */}
+        <SessionShell navigation={<Suspense fallback={<SessionNavigationFallback />}><ControllerProvider boot={boot}><AppNavigation /></ControllerProvider></Suspense>}>
+          <Suspense fallback={<ViewSkeleton />}>
+            <ControllerProvider boot={boot}>
+              <AppReady View={View} onMounted={watchdog.markMounted} />
+            </ControllerProvider>
+          </Suspense>
+        </SessionShell>
       </StartupErrorBoundary>
     </StrictMode>
   )

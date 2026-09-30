@@ -99,9 +99,9 @@ test("a launch refusal survives reload and its keyboard Retry reuses the request
   await expect(page.locator('[data-toast-status="running"]').filter({ hasText: "review-pr" })).toBeVisible()
   refusal.release()
   await expect(page.locator('[data-toast-status="failed"]').filter({ hasText: "review-pr" })).toBeVisible()
-  await expect(card.getByRole("alert")).toHaveText("Provider unavailable")
+  await expect(card.getByRole("alert")).toContainText("Smithers could not start this run. Not your fault.")
   await page.reload()
-  await expect(card.getByRole("alert")).toHaveText("Provider unavailable")
+  await expect(card.getByRole("alert")).toContainText("Smithers could not start this run. Not your fault.")
   expect(plans).toHaveLength(1)
   refuse = false
   const retry = card.getByRole("button", { name: "Retry", exact: true })

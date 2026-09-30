@@ -57,7 +57,7 @@ test("cloud session list survives reload and opens and stops rows by keyboard", 
   await expect(stop).toHaveAttribute("data-flow-args", `${ACTIVE} ${REPO}`)
   await stop.focus()
   await page.keyboard.press("Enter")
-  await expect(page.locator(".toast-stack")).toContainText("Try stopping again")
+  await expect(page.locator(".toast-stack")).toContainText("failed (503)")
   await expect(active).toBeVisible()
   await stop.focus()
   await page.keyboard.press("Enter")
