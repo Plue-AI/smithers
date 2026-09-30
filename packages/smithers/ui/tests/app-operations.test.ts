@@ -59,6 +59,8 @@ describe("wiki operations", () => {
     expect(() => Schema.decodeUnknownSync(named("wiki.space").input)({ space: "team" })).toThrow()
     expect(Schema.decodeUnknownSync(named("wiki.cloud").input)({ repo: "acme/app", page: 2 })).toEqual({ repo: "acme/app", page: 2 })
     expect(Schema.decodeUnknownSync(named("wiki.pane").input)({})).toEqual({})
+    expect(named("wiki.attach").args).toBe("[path] [owner/repo]")
+    expect(Schema.decodeUnknownSync(named("wiki.attach").input)({ path: "assets/diagram.png", repo: "acme/app" })).toEqual({ path: "assets/diagram.png", repo: "acme/app" })
   })
 })
 

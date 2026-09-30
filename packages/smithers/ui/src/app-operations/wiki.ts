@@ -226,9 +226,10 @@ export const wikiOperations = [
     summary: "Attach a file to the repository Wiki",
     userOnly: true,
     userOnlyReason: WIKI_ATTACH_USER_ONLY_REASON,
-    args: "<slug> [path] [owner/repo]",
+    args: "[path] [owner/repo]",
     requires: ["signed-in"],
-    input: Schema.Struct({ slug: Schema.String, path: Schema.optional(Schema.String), repo: Schema.optional(Schema.String) })
+    /* No slug: a new attachment's slug is derived from its path and bytes, an existing one is read from the index. */
+    input: Schema.Struct({ path: Schema.optional(Schema.String), repo: Schema.optional(Schema.String) })
   }),
   operation({
     /*
