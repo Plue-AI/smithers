@@ -417,32 +417,12 @@ export const restrictFindings = async <A extends Restrictable>(store: string, va
   const { fingerprints = [], findings: _findings, ...rest } = value
   return {
     ...rest,
-    ...("attempts" in rest ? { attempts: restrictAttempts(rest.attempts as Attempts) } : {}),
+    ...("attempts" in rest ? { attempts: LlmLint.publicAttempts(rest.attempts as Attempts) } : {}),
     findings: fingerprints.map((fingerprint) => LlmLint.publicSummary(records.get(fingerprint)!))
   }
 }
 
 type Attempts = ReadonlyArray<typeof LlmLint.ReviewAttempt.Type> | undefined
-
-/** Attempt receipts without their completion envelopes or messages, which can carry finding evidence. */
-const restrictAttempts = (attempts: Attempts) =>
-  attempts?.map(({ completion: _completion, message: _message, ...receipt }) => receipt)
-
-/**
- * A failed review's disclosable error: parse failures can quote model output,
- * so their text stays in the private run record.
- * @category execution
- * @since 1.0.0
- */
-export const restrictError = (error: LlmLint.LlmReviewError | LlmLint.ModelCliMissing) =>
-  error._tag === "smithers-build/ModelCliMissing" ? error : {
-    _tag: error._tag,
-    phase: error.phase,
-    message: error.phase === "parse"
-      ? "The review response could not be used; see the private run record"
-      : LlmLint.redactCredentials(error.message),
-    ...(error.attempts === undefined ? {} : { attempts: restrictAttempts(error.attempts) })
-  }
 
 /**
  * Runs pinned policy against pinned source with tool-free inference.
@@ -498,7 +478,7 @@ export const run = async (options: Options) => {
           status: "failed" as const,
           error: result.failure._tag === "smithers-build/FindingsError"
             ? await restricted(result.failure)
-            : restrictError(result.failure)
+            : LlmLint.publicError(result.failure)
         })
     })
   }

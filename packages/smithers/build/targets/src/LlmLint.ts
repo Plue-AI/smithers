@@ -999,6 +999,33 @@ class CredentialMask {
  */
 export const redactCredentials = (text: string): string => new CredentialMask().scan(undefined, text, false)
 
+/**
+ * Attempt receipts without their completion envelopes or messages, which can carry finding evidence.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const publicAttempts = (attempts: ReadonlyArray<typeof ReviewAttempt.Type> | undefined) =>
+  attempts?.map(({ completion: _completion, message: _message, ...receipt }) => receipt)
+
+/**
+ * A failed review's disclosable form, for every host that prints or returns it:
+ * parse failures can quote model output, so their text stays in the private run
+ * record; every other message is credential-masked.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const publicError = (error: LlmReviewError | ModelCliMissing) =>
+  error._tag === "smithers-build/ModelCliMissing" ? error : {
+    _tag: error._tag,
+    phase: error.phase,
+    message: error.phase === "parse"
+      ? "The review response could not be used; see the private run record"
+      : redactCredentials(error.message),
+    ...(error.attempts === undefined ? {} : { attempts: publicAttempts(error.attempts) })
+  }
+
 /** Spawns git in the workspace and model CLIs in an isolated home, never through a shell. */
 const spawnText = (
   cwd: string,

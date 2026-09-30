@@ -6,8 +6,8 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { renderReviewFindings } from "../src/internal/PackageRunner.ts"
-import { restrictError, restrictFindings } from "../src/TrustedReview.ts"
+import { renderReviewFindings, reviewFailureText } from "../src/internal/PackageRunner.ts"
+import { restrictFindings } from "../src/TrustedReview.ts"
 
 let root: string
 
@@ -121,12 +121,12 @@ describe("review finding output", () => {
       findings: [],
       attempts: [{ batch: 0, pass: 1, purpose: "review", engine: "claude", model: "m", attempt: 1, status: "failed" }]
     })
-    const parse = restrictError(
+    const parse = LlmLint.publicError(
       new LlmLint.LlmReviewError({ phase: "parse", message: attempt.message, attempts: [attempt] })
     )
     expect(JSON.stringify(parse)).not.toContain("private exploit detail")
     expect(parse).toMatchObject({ phase: "parse", attempts: [{ status: "failed" }] })
-    const review = restrictError(
+    const review = LlmLint.publicError(
       new LlmLint.LlmReviewError({ phase: "review", message: "Review requires ANTHROPIC_API_KEY" })
     )
     expect(review).toEqual({
@@ -135,11 +135,39 @@ describe("review finding output", () => {
       message: "Review requires ANTHROPIC_API_KEY"
     })
     const token = `ghp_${"S".repeat(36)}`
-    const read = restrictError(
+    const read = LlmLint.publicError(
       new LlmLint.LlmReviewError({ phase: "read", message: `unusable path "src/${token}\\n.ts"` })
     )
     expect(JSON.stringify(read)).not.toContain(token)
     const missing = new LlmLint.ModelCliMissing({ engine: "claude", executable: "claude", message: "missing" })
-    expect(restrictError(missing)).toBe(missing)
+    expect(LlmLint.publicError(missing)).toBe(missing)
+  })
+
+  it("prints a local review failure only as its public message", () => {
+    const token = `ghp_${"L".repeat(36)}`
+    const quoted = "the model response is not a findings array: exploit ../../etc/passwd via upload"
+    expect(reviewFailureText(new LlmLint.LlmReviewError({ phase: "parse", message: quoted })))
+      .toBe("The review response could not be used; see the private run record")
+    const review = reviewFailureText(
+      new LlmLint.LlmReviewError({ phase: "review", message: `Review provider rejected key ${token}` })
+    )
+    expect(review).toContain("Review provider rejected key")
+    expect(review).not.toContain(token)
+    // Plain decoded failures carry the same tags as the class instances.
+    expect(reviewFailureText({ _tag: "smithers-build/LlmReviewError", phase: "parse", message: quoted }))
+      .not.toContain("passwd")
+    expect(reviewFailureText({
+      _tag: "smithers-build/FindingsError",
+      failOn: "error",
+      findings: [{ file: "src/a.ts", line: 2, severity: "error", message: "unsafe", security }],
+      fingerprints: ["a".repeat(64)]
+    })).toBe(
+      `1 review finding(s); failing at error\n  error [general] high impact: restricted finding ${"a".repeat(64)}`
+    )
+    expect(reviewFailureText({ _tag: "smithers-build/FindingsError", failOn: "warning", findings: "none" }))
+      .toBe("0 review finding(s); failing at warning")
+    expect(reviewFailureText(new Error("other"))).toBeUndefined()
+    expect(reviewFailureText("text")).toBeUndefined()
+    expect(reviewFailureText(null)).toBeUndefined()
   })
 })

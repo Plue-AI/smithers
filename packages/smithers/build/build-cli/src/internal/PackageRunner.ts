@@ -14,6 +14,7 @@ import * as ExecSandbox from "@smthrs/targets/ExecSandbox"
 import * as GeneratedFile from "@smthrs/targets/GeneratedFile"
 import * as GithubTarget from "@smthrs/targets/GithubTarget"
 import * as Input from "@smthrs/targets/Input"
+import * as LlmLint from "@smthrs/targets/LlmLint"
 import type * as Reference from "@smthrs/targets/Reference"
 import type * as Secret from "@smthrs/targets/Secret"
 import * as Shell from "@smthrs/targets/Shell"
@@ -318,6 +319,26 @@ export const renderReviewFindings = ({ findings, fingerprints }: ReviewResult): 
         }`
     )
     .join("") + (findings.length > reviewFindingLimit ? `\n  (+${findings.length - reviewFindingLimit} more)` : "")
+
+/**
+ * The status text of a failed model review, or undefined for any other failure.
+ * Findings render as {@link renderReviewFindings} does; a review error renders
+ * only its {@link LlmLint.publicError} message, never quoted model output or an
+ * unmasked credential.
+ * @category rendering
+ * @since 1.0.0
+ */
+export const reviewFailureText = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null) return undefined
+  const tag = (value as { readonly _tag?: unknown })._tag
+  if (tag === "smithers-build/FindingsError") {
+    const result = reviewFindingsOf(value) ?? { findings: [] }
+    const failOn = (value as { readonly failOn?: unknown }).failOn
+    return `${result.findings.length} review finding(s); failing at ${String(failOn)}${renderReviewFindings(result)}`
+  }
+  if (tag !== "smithers-build/LlmReviewError") return undefined
+  return LlmLint.publicError(value as LlmLint.LlmReviewError).message
+}
 
 const sampleRows = (title: string, rows: ReadonlyArray<string>): string =>
   rows.length === 0
@@ -915,16 +936,8 @@ export const executeEffect = (
      */
     const outcomeOfTargetFailure = (label: string, cause: Cause.Cause<unknown>): Outcome => {
       const value: unknown = Cause.squash(cause)
-      if (
-        typeof value === "object" && value !== null &&
-        (value as { readonly _tag?: unknown })._tag === "smithers-build/FindingsError"
-      ) {
-        const result = reviewFindingsOf(value) ?? { findings: [] }
-        const failOn = (value as { readonly failOn?: unknown }).failOn
-        return fail(
-          `${result.findings.length} review finding(s); failing at ${String(failOn)}${renderReviewFindings(result)}`
-        )
-      }
+      const review = reviewFailureText(value)
+      if (review !== undefined) return fail(review)
       if (!engineCliMissing(value)) return fail(Executor.describeFailure(value))
       const notice = `the ${value.executable} CLI is not installed on this host, so the review did not run`
       log(`smthrs: skipped ${label}: ${notice}`)

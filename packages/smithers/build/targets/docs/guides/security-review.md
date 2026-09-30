@@ -180,7 +180,10 @@ show only `publicSummary` data and attempt receipts without their envelopes or
 messages: fingerprint, restricted reference, state,
 severity, owner, check and impact, plus the file once the fix is closed. Keep
 exploit details in private advisories and link public issues to the restricted
-reference.
+reference. Both `smithers-build review` and `smthrs review` report a failed
+review only through `publicError`: parse failures, which can quote model
+output, keep their text in the private run record, and every other message is
+credential-masked.
 
 ## Required reviews
 
