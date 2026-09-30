@@ -231,13 +231,13 @@ export function WorkerView(props: {
   readonly tone: string
   readonly width: number
   readonly expanded: boolean
+  readonly height?: number
   readonly onAction: (action: Tabs.ActionId) => void
   /** The transcript item the run timeline's playhead is on. */
   readonly jump?: string | undefined
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
   readonly viewportRef?: RefObject<ScrollBoxRenderable | null>
   /** Titles from the chat down to this worker's parent. */
-  readonly path: ReadonlyArray<string>
   readonly onBack: () => void
   /** Every tab, for this worker's own children. */
   readonly tabs: ReadonlyArray<Tab>
@@ -273,26 +273,17 @@ export function WorkerView(props: {
   )
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
-      <SubagentView.Crumb
-        title={tab.title}
-        tone={props.tone}
-        path={props.path}
-        onBack={props.onBack}
-        driving={tab.driver !== undefined}
-      />
-      <box
-        style={{ border: ["left"], paddingLeft: 1, marginBottom: 1, flexShrink: 0 }}
-        borderColor={props.tone}
-        customBorderChars={View.bar}
-      >
-        <text wrapMode="word">
-          <span fg={tone}>{glyph}</span> <strong fg={color.text}>{tab.title}</strong>
-        </text>
-        <text fg={color.faint} wrapMode="none">{facts}</text>
-        {tab.status === "failed"
-          ? <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} />
-          : null}
-        <box style={{ flexDirection: "row", marginTop: 1 }}>
+      <box style={{ height: 2, flexShrink: 0, paddingLeft: 1 }}>
+        <box style={{ flexDirection: "row", height: 1, justifyContent: "space-between" }}>
+          <text wrapMode="none" style={{ flexShrink: 1 }}>
+            <span fg={tone}>{glyph}</span> <strong fg={color.text}>{tab.title}</strong>
+          </text>
+          <text fg={color.brand} wrapMode="none" style={{ flexShrink: 0 }} onMouseDown={props.onBack}>
+            Back (ctrl+y)
+          </text>
+        </box>
+        <box style={{ flexDirection: "row", height: 1 }}>
+          <text fg={color.faint} wrapMode="none" style={{ flexShrink: 1 }}>{facts}</text>
           {Tabs.actions(tab).map((action) => (
             <Button
               key={action.id}
@@ -303,6 +294,19 @@ export function WorkerView(props: {
           ))}
         </box>
       </box>
+      {tab.status === "failed" ?
+        (
+          <scrollbox
+            style={{
+              maxHeight: Math.max(2, Math.floor((props.height ?? 20) / 3)),
+              flexShrink: 0,
+              scrollbarOptions: { visible: false }
+            }}
+          >
+            <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} />
+          </scrollbox>
+        ) :
+        null}
       <scrollbox
         ref={(box) => {
           scroll.current = box

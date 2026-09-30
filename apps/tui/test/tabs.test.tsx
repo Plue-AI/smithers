@@ -300,7 +300,6 @@ const settled = (end: (transcript: Transcript.Transcript) => Transcript.Transcri
 
 /** What WorkerView needs beyond its tab: the way back and its children's cards. */
 const chrome = {
-  path: ["chat"],
   onBack: () => {},
   earlierOpen: false,
   onEarlier: () => {},
@@ -367,7 +366,7 @@ describe("WorkerView", () => {
       } as never, 1_300)
   ].reduce((value, step) => step(value), Transcript.empty)
 
-  it("heads the transcript with status, model, elapsed and tokens, and renders cells as the chat does, program hidden", async () => {
+  it("heads the transcript with two rows and renders cells as the chat does, program hidden", async () => {
     const { captureCharFrame } = await mount(
       <WorkerView
         tab={tab("a", "running")}
@@ -388,7 +387,7 @@ describe("WorkerView", () => {
     expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
     expect(frame).toContain("GPT-6.1 Sol · 3.0s")
     expect(frame).toContain("3.0s")
-    expect(frame).toContain("↑18k ↓2.3k")
+    expect(frame.split("\n").findIndex((row) => row.includes("Audit the auth middleware."))).toBeLessThanOrEqual(4)
     expect(frame).toContain("Audit the auth middleware.")
     // A cell the model is still writing shows as work, its program behind ctrl+o.
     expect(frame).toContain("⠋ working")
@@ -398,7 +397,7 @@ describe("WorkerView", () => {
     expect(frame).not.toContain("r Resume")
   })
 
-  it("leads with the breadcrumb back to its parent, which a click follows", async () => {
+  it("keeps Back in the first header row and follows a click", async () => {
     const back: Array<string> = []
     const { captureCharFrame, mockMouse } = await mount(
       <WorkerView
@@ -412,7 +411,6 @@ describe("WorkerView", () => {
         expanded={false}
         onAction={() => {}}
         {...chrome}
-        path={["chat", "Review"]}
         onBack={() => back.push("back")}
       />,
       90,
@@ -420,9 +418,10 @@ describe("WorkerView", () => {
     )
     const frame = captureCharFrame()
     const lines = frame.split("\n")
-    expect(lines[0]).toContain("▌ Subagent · Worker a")
+    expect(lines[0]).toContain("Worker a")
     expect(lines[0]).toContain("Back (ctrl+y)")
-    expect(lines[1]).toContain("chat › Review › Worker a")
+    expect(lines[1]).toContain("GPT-6.1 Sol · 3.0s")
+    expect(lines.findIndex((row) => row.includes("Audit the auth middleware."))).toBeLessThanOrEqual(4)
     const crumb = find(frame, "Back (ctrl+y)")
     await mockMouse.click(crumb.x + 1, crumb.y)
     expect(back).toEqual(["back"])

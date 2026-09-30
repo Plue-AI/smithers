@@ -76,6 +76,7 @@
   "src/theme.ts",
   "src/timeline.ts",
   "src/toasts.ts",
+  "src/transcript-rail.tsx",
   "src/transcript-view.ts",
   "src/transcript.ts",
   "src/tree.ts",

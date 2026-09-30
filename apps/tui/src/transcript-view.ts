@@ -37,7 +37,6 @@ export const useTranscriptView = (options: {
   readonly worker: (id: string) => Transcript.Transcript
   readonly filter: Timeline.Filter
   readonly surface: string
-  readonly setSurface: (surface: string) => void
   /** The shown surface's panel; the chat shows none. */
   readonly panel: Panels.Panel | undefined
   readonly setPanelFocus: (focus: boolean) => void
@@ -45,7 +44,7 @@ export const useTranscriptView = (options: {
   /** The chat column's width, which lays out its card grids. */
   readonly width: number
 }) => {
-  const { renderer, transcript, tabs, worker, filter, surface, setSurface, panel, setPanelFocus, panelFocus } = options
+  const { renderer, transcript, tabs, worker, filter, surface, panel, setPanelFocus, panelFocus } = options
   /** The chat card `tab` focused, by its key; `enter` opens it. */
   const [cardFocus, setCardFocus] = useState<string | undefined>()
   const [earlierOpened, setEarlierOpened] = useState<ReadonlySet<string>>(() => new Set())
@@ -170,17 +169,16 @@ export const useTranscriptView = (options: {
     { id: chat, title: "Chat", activity: transcript.activity },
     ...tabs.map((tab) => ({ id: tab.id, title: tabTitle(tab), activity: worker(tab.id).activity }))
   ].filter((source): source is Source => source.activity !== undefined && source.activity.records.length > 0)
-  const latestActivity = [...activitySources].sort((a, b) =>
-    (b.activity.records.at(-1)?.occurredAt ?? 0) - (a.activity.records.at(-1)?.occurredAt ?? 0)
-  )
   // A new turn or restored session cannot inherit a cursor from an old turn.
   const pinnedActivity = activitySources.find((source) =>
     source.id === inspection?.source &&
     source.activity.records[0] === inspection.first
   )
-  const monitored = surface.startsWith("tab:")
-    ? activitySources.find((source) => source.id === surface.slice(4))
-    : pinnedActivity ?? latestActivity.find((source) => source.activity.status === "running") ?? latestActivity[0]
+  const monitored = surface === "chat" ?
+    activitySources.find((source) => source.id === chat)
+    : surface.startsWith("tab:") ?
+    activitySources.find((source) => source.id === surface.slice(4))
+    : undefined
   const showActivity = monitored !== undefined && (panel === undefined || surface.startsWith("tab:"))
   const activeInspection = showActivity && pinnedActivity === monitored ? inspection : undefined
   useLayoutEffect(() => {
@@ -211,17 +209,11 @@ export const useTranscriptView = (options: {
     setInspection(nextInspection)
     const id = Scrubber.target(transcriptOf(monitored.id), seq)
     if (id === undefined || !jumping) return
-    // A worker's step shows in its own tab, which scrolls to it.
-    if (monitored.id !== chat) {
-      inspectionSurface.current = `tab:${monitored.id}`
-      if (surface !== `tab:${monitored.id}`) setSurface(`tab:${monitored.id}`)
-      return
-    }
-    inspectionSurface.current = "chat"
-    if (surface !== "chat") setSurface("chat")
+    // The current run's transcript handles its own selection; inspection never changes views.
+    if (monitored.id !== chat) return
     const key = Timeline.key(id)
     reveal(key)
-    // A surface switch mounts the chat first; lay it out, then aim again.
+    // Layout may settle after the inspected row changes; aim again then.
     const timer = setTimeout(() => {
       if (pendingReveal.current?.timer !== timer) return
       pendingReveal.current = undefined
@@ -238,7 +230,6 @@ export const useTranscriptView = (options: {
     origin.current = undefined
     if (prior === undefined) return
     restore.current = prior
-    setSurface(prior.surface)
     setPanelFocus(prior.panelFocus)
   }
   const snapToLive = () => {

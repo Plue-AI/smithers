@@ -1,7 +1,7 @@
 /**
  * Subagent cards as the terminal draws them: a batch's header and equal-height
- * card grid in a parent transcript, the `◉ title done` row, a worker tab's
- * breadcrumb, and the Summary overview. What each says comes from
+ * card grid in a parent transcript, the `◉ title done` row, and the Summary
+ * overview. What each says comes from
  * `@smthrs/rpc/SubagentCard`, shared with the GUI; this file only colors it.
  */
 import type { ScrollBoxRenderable } from "@opentui/core"
@@ -16,6 +16,7 @@ import * as Subagents from "./subagents.ts"
 import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
 import { color } from "./theme.ts"
+import { TranscriptRail } from "./transcript-rail.tsx"
 import type * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
 import { bar } from "./view.tsx"
@@ -145,7 +146,7 @@ function CardView(props: {
   const actions = focused ? Tabs.actions(tab) : []
   const chips = fitting(actions, inner - stringWidth(card.footer.text) - 1)
   return (
-    <box
+    <TranscriptRail
       id={Subagents.cardKey(tab.id)}
       style={{ width: props.width, height: props.height, border: ["left"], flexShrink: 0 }}
       borderColor={cards.lane(tab.id)}
@@ -216,7 +217,7 @@ function CardView(props: {
           ? null
           : <text fg={color.faint} wrapMode="none" style={{ flexShrink: 0 }}>{card.footer.aside}</text>}
       </box>
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -362,38 +363,6 @@ export function Lines(props: {
           : <Finished key={line.key} tab={line.tab} tone={props.cards.lane(line.tab.id)} />
       )}
     </>
-  )
-}
-
-/** A worker tab's way back: `▌ Subagent · title` in its lane color, and `Back (ctrl+y)`. */
-export function Crumb(props: {
-  readonly title: string
-  readonly tone: string
-  /** The person drives this worker: `⇄ you drive`, and ctrl+y releases it. */
-  readonly driving?: boolean
-  /** Titles from the chat down to this worker's parent. */
-  readonly path: ReadonlyArray<string>
-  readonly onBack: () => void
-}) {
-  return (
-    <box style={{ flexShrink: 0, marginBottom: 1 }} onMouseDown={props.onBack}>
-      <box style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <text wrapMode="none" style={{ flexShrink: 1 }} bg={color.element}>
-          {" "}
-          <span fg={props.tone}>▌</span>
-          <span fg={color.text}>{" Subagent · "}{props.title}{" "}</span>
-          {props.driving === true ? <span fg={color.needs}>{"⇄ you drive "}</span> : null}
-        </text>
-        <text
-          wrapMode="none"
-          fg={props.driving === true ? color.needs : color.info}
-          style={{ flexShrink: 0, marginLeft: 1 }}
-        >
-          {props.driving === true ? "Release (ctrl+y)" : "Back (ctrl+y)"}
-        </text>
-      </box>
-      <text wrapMode="none" fg={color.faint}>{[...props.path, props.title].join(" › ")}</text>
-    </box>
   )
 }
 

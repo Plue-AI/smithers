@@ -13,93 +13,25 @@ const cells = transcript.items.filter((item): item is Extract<Transcript.Item, {
   item.kind === "cell"
 )
 
-describe("scrubber layout from a recorded session", () => {
-  test("phase segments tile the track in journal order and never overflow", () => {
-    for (const width of [160, 110, 80, 50, 30, 16]) {
-      const layout = Scrubber.layout(activity, width)
-      expect(layout.lead + layout.track + layout.tail).toBeLessThanOrEqual(width)
-      let column = 0
-      for (const segment of layout.segments) {
-        expect(segment.left).toBe(column)
-        expect(segment.width).toBeGreaterThan(0)
-        column += segment.width
-      }
-      expect(column).toBe(layout.track)
-      for (const tick of layout.ticks) {
-        expect(tick.column).toBeGreaterThanOrEqual(0)
-        expect(tick.column).toBeLessThan(layout.track)
-        expect(tick.left + tick.label.length).toBeLessThanOrEqual(layout.track)
-      }
-    }
+describe("timeline event labels", () => {
+  test("the live end names completion in product words", () => {
+    const event = Scrubber.event(activity)
+    expect(event.label).toBe("Done")
+    expect(event.index).toBe(event.total)
+    expect(event.total).toBeGreaterThan(0)
+    expect(event.label).not.toMatch(/completed|sufficiency|unmoved|claim/)
   })
 
-  test("wide segments carry the phase the shared fold named", () => {
-    const layout = Scrubber.layout(activity, 160)
-    expect(layout.segments.map((segment) => segment.phase)).toEqual(model.bands.map((band) => band.phase))
-    expect(layout.segments.map((segment) => segment.label).filter((label) => label !== "")).toEqual(
-      expect.arrayContaining(["Researching", "Stuck"])
-    )
+  test("the selected edit names the file and never leaks a later outcome", () => {
+    const edit = model.milestones[0]!
+    const event = Scrubber.event(activity, edit.seq)
+    expect(event.label).toContain("approvals.ts")
+    expect(event.label).not.toContain("Done")
+    expect(event.index).toBeLessThan(event.total)
   })
 
-  test("ticks are the fold's milestones, including the verdict", () => {
-    const layout = Scrubber.layout(activity, 160)
-    expect(layout.ticks.map((tick) => tick.label)).toEqual(["approvals.ts", "completed"])
-    expect(layout.ticks.map((tick) => tick.tone)).toEqual(["brand", "good"])
-  })
-
-  test("narrow widths drop words before they drop marks", () => {
-    const layout = Scrubber.layout(activity, 30)
-    expect(layout.ticks).toHaveLength(2)
-    expect(layout.ticks.every((tick) => tick.label === "")).toBe(true)
-    expect(layout.rows).toBe(0)
-    expect(layout.segments.every((segment) => segment.label === "" || segment.label.length + 1 <= segment.width)).toBe(
-      true
-    )
-  })
-
-  test("the knob follows the live end; a cursor moves it and dims what is ahead", () => {
-    const live = Scrubber.layout(activity, 120)
-    expect(live.knob).toBe(live.track - 1)
-    expect(live.segments.every((segment) => segment.reached)).toBe(true)
-    const first = model.bands[0]!.seq
-    const early = Scrubber.layout(activity, 120, first)
-    expect(early.knob).toBe(0)
-    expect(early.segments[0]!.reached).toBe(true)
-    expect(early.segments.at(-1)!.reached).toBe(false)
-    expect(early.phase).toBe("Researching")
-  })
-
-  test("the right block reads the phase at the playhead and its elapsed time", () => {
-    const done = Scrubber.layout(activity, 120)
-    expect(done.phase).toBe("Done")
-    expect(done.elapsed).toMatch(/^\d+:\d{2}$/)
-    const stuck = model.bands.find((band) => band.phase === "stuck")!
-    expect(Scrubber.layout(activity, 120, stuck.seq).phase).toBe("Stuck")
-    expect(Scrubber.clock(68_000)).toBe("1:08")
-    expect(Scrubber.clock(3_725_000)).toBe("1:02:05")
-  })
-
-  test("the phase comes from journal timestamps, never the render clock", () => {
-    const running: Activity.Activity = { ...activity, status: "running" }
-    const end = activity.records.at(-1)!.occurredAt!
-    for (const subject of [activity, running]) {
-      for (const cursor of [undefined, ...activity.records.map((record) => record.sequence!)]) {
-        const phases = [end, end + 60_000, end + 86_400_000].map((now) =>
-          Scrubber.layout(subject, 120, cursor, now).phase
-        )
-        expect(new Set(phases).size).toBe(1)
-      }
-    }
-    expect(Scrubber.layout(activity, 120, 204, end + 86_400_000).phase).toBe("Implementing")
-  })
-
-  test("a column resolves to the last record at or before it", () => {
-    const layout = Scrubber.layout(activity, 120)
-    expect(Scrubber.layout(activity, 120, Scrubber.seqAt(layout, 0)).knob).toBe(0)
-    expect(Scrubber.seqAt(layout, 1)).toBeGreaterThanOrEqual(Scrubber.seqAt(layout, 0))
-    expect(Scrubber.seqAt(layout, layout.track - 1)).toBe(activity.records.at(-1)!.sequence!)
-    const tick = layout.ticks[0]!
-    expect(Scrubber.seqAt(layout, tick.column)).toBeGreaterThanOrEqual(tick.seq)
+  test("empty activity has no invented event", () => {
+    expect(Scrubber.event(Activity.empty)).toEqual({ label: "", tone: "text", index: 0, total: 0 })
   })
 })
 

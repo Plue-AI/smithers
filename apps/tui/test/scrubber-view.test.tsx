@@ -11,7 +11,6 @@ import * as View from "../src/view.tsx"
 
 const fixture = new URL("./fixtures/timeline-worker.jsonl", import.meta.url).pathname
 const activity = Session.restore(Session.load(fixture)).transcript.activity!
-const model = Activity.model(activity)
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 afterEach(() => {
@@ -19,10 +18,7 @@ afterEach(() => {
   setup = undefined
 })
 
-/** The dock keeps one blank row above itself. */
-const top = 1
-
-const draw = async (width: number, cursor?: number, drawn: Activity.Activity = activity) => {
+const draw = async (width: number, cursor?: number, focused = true, drawn: Activity.Activity = activity) => {
   const selected: Array<number> = []
   const paused: Array<boolean> = []
   setup = await testRender(
@@ -33,10 +29,11 @@ const draw = async (width: number, cursor?: number, drawn: Activity.Activity = a
         now={Date.now()}
         title="Worker"
         cursor={cursor}
-        focused={cursor !== undefined}
+        focused={focused}
         onSelect={(seq) => selected.push(seq)}
         onPause={() => paused.push(true)}
       />
+      <text>Transcript stays here</text>
     </box>,
     { width, height: 8 }
   )
@@ -44,19 +41,15 @@ const draw = async (width: number, cursor?: number, drawn: Activity.Activity = a
   return { frame: setup.captureCharFrame(), selected, paused }
 }
 
-describe("the scrubber on screen", () => {
-  test("draws labelled phases, tick labels, the pause button, and phase with elapsed time", async () => {
-    const { frame } = await draw(120)
-    expect(frame).toContain("Researching")
-    expect(frame).toContain("approvals.ts")
-    expect(frame).toContain("completed")
-    expect(frame).toContain("Pause")
-    expect(frame).toContain("Done")
-    expect(frame).toMatch(/\d+:\d{2}/)
-    expect(frame).toContain("●")
+describe("timeline overlay", () => {
+  test("stays absent until focused", async () => {
+    const { frame } = await draw(80, undefined, false)
+    expect(frame.split("\n")[0]).toContain("Transcript stays here")
+    expect(frame).not.toContain("esc Back")
+    expect(frame).not.toContain("Pause")
   })
 
-  test("a person's stop pins `stopped` in the faint color, never the failure red", async () => {
+  test("a person's stop reads `Stopped` in the faint color, never the failure red", async () => {
     const running = {
       records: activity.records.filter((record) => record.kind?.startsWith("control.run.") !== true),
       status: "running" as const
@@ -65,7 +58,7 @@ describe("the scrubber on screen", () => {
     const stopped = Activity.finish(running, "cancelled", end, "Stopped")
     const failed = Activity.finish(running, "failed", end, "boom")
     const tone = async (drawn: Activity.Activity, label: string) => {
-      await draw(120, undefined, drawn)
+      await draw(80, undefined, true, drawn)
       const spans = setup!.captureSpans().lines.flatMap((line) => line.spans).filter((span) =>
         span.text.includes(label)
       )
@@ -74,42 +67,31 @@ describe("the scrubber on screen", () => {
       expect(spans.length).toBeGreaterThan(0)
       return spans.map((span) => rgbToHex(span.fg))
     }
-    for (const fg of await tone(stopped, "stopped")) expect(fg).toBe(color.faint)
-    for (const fg of await tone(failed, "failed")) expect(fg).toBe(color.danger)
+    for (const fg of await tone(stopped, "Stopped")) expect(fg).toBe(color.faint)
+    for (const fg of await tone(failed, "Failed")) expect(fg).toBe(color.danger)
   })
 
-  test("never draws wider than the terminal", async () => {
-    for (const width of [120, 60, 30]) {
-      const { frame } = await draw(width)
-      for (const line of frame.split("\n")) expect(line.trimEnd().length).toBeLessThanOrEqual(width)
-      setup?.renderer.destroy()
-      setup = undefined
-    }
+  test.each([110, 80, 40])("uses one row at width %s and retains navigation", async (width) => {
+    const { frame } = await draw(width)
+    const rows = frame.split("\n")
+    expect(rows[0]).toContain("Done")
+    expect(rows[0]).toContain("esc Back")
+    expect(rows[1]).toContain("Transcript stays here")
+    expect(frame).not.toContain("completed")
+    expect(frame).not.toContain("Researching")
+    expect(frame).not.toContain("Pause")
+    for (const line of rows) expect(line.trimEnd().length).toBeLessThanOrEqual(width)
   })
 
-  test("a click on a tick label jumps to its milestone", async () => {
-    const { selected } = await draw(120)
-    const layout = Scrubber.layout(activity, 120)
-    const tick = layout.ticks.find((each) => each.label === "approvals.ts")!
-    await setup!.mockMouse.click(layout.lead + tick.left + 1, top + tick.row)
-    expect(selected).toEqual([model.milestones[0]!.seq])
-  })
-
-  test("a click on the track jumps to the position under it, and Pause pauses", async () => {
-    const { selected, paused } = await draw(120)
-    const layout = Scrubber.layout(activity, 120)
-    const trackRow = top + layout.rows + 1
-    await setup!.mockMouse.click(layout.lead, trackRow)
-    expect(selected).toEqual([Scrubber.seqAt(layout, 0)])
-    await setup!.mockMouse.click(2, trackRow)
+  test("arrows inspect earlier and later frames while Back leaves inspection", async () => {
+    const cursor = Activity.openings(activity)[3]!
+    const { frame, selected, paused } = await draw(80, cursor)
+    const row = frame.split("\n")[0]!
+    await setup!.mockMouse.click(row.indexOf("◂"), 0)
+    await setup!.mockMouse.click(row.indexOf("▸"), 0)
+    await setup!.mockMouse.click(row.indexOf("esc Back") + 1, 0)
+    expect(selected).toEqual([Scrubber.key(activity, cursor, "left")!, Scrubber.key(activity, cursor, "right")!])
     expect(paused).toEqual([true])
-  })
-
-  test("a paused cursor moves the knob and names the phase there", async () => {
-    const stuck = model.bands.find((band) => band.phase === "stuck")!
-    const { frame } = await draw(120, stuck.seq)
-    expect(frame).toContain("Stuck")
-    expect(frame).toContain("Live")
   })
 })
 

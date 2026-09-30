@@ -12,12 +12,11 @@ import { useTranscriptView } from "../src/transcript-view.ts"
 import * as Transcript from "../src/transcript.ts"
 import type { Tab } from "../src/workspace.ts"
 
-type Input = Omit<Parameters<typeof useTranscriptView>[0], "renderer" | "setSurface" | "setPanelFocus">
+type Input = Omit<Parameters<typeof useTranscriptView>[0], "renderer" | "setPanelFocus">
 type Projection = ReturnType<typeof useTranscriptView>
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let projection: Projection | undefined
 let update: ((change: Partial<Input>) => void) | undefined
-const surfaces: string[] = []
 const panelFocus: boolean[] = []
 const current = (): Projection => {
   if (projection === undefined) throw new Error("The mounted projection is unavailable")
@@ -29,10 +28,6 @@ const Harness = ({ initial }: { readonly initial: Input }) => {
   projection = useTranscriptView({
     ...input,
     renderer: useRenderer(),
-    setSurface: (surface) => {
-      surfaces.push(surface)
-      setInput((before) => ({ ...before, surface }))
-    },
     setPanelFocus: (focused) => panelFocus.push(focused)
   })
   return (
@@ -89,7 +84,6 @@ afterEach(async () => {
   setup = undefined
   projection = undefined
   update = undefined
-  surfaces.length = 0
   panelFocus.length = 0
 })
 
@@ -152,7 +146,6 @@ test("empty projection has no focus or activity and accepts harmless navigation"
   })
   expect(current().focusedCard).toBeUndefined()
   expect(current().activeInspection).toBeUndefined()
-  expect(surfaces).toEqual([])
   expect(panelFocus).toEqual([])
 })
 
@@ -177,7 +170,6 @@ test("focus disappears when its worker is removed, without moving onto another w
   expect(current().focusedWorker).toBeUndefined()
   await action((view) => view.moveCard("next"))
   expect(current().focusedCard).toBeUndefined()
-  expect(surfaces).toEqual([])
 })
 
 test.each(["summary", "tab:w1"])("card navigation stays unavailable on %s", async (surface) => {
@@ -186,7 +178,6 @@ test.each(["summary", "tab:w1"])("card navigation stays unavailable on %s", asyn
   expect(current().cardKeys).toEqual([])
   expect(current().focusedCard).toBeUndefined()
   await action((view) => view.moveCard("next"))
-  expect(surfaces).toEqual([])
 })
 
 test("a panel hides chat cards and activity, while its worker tab retains worker activity", async () => {
@@ -199,7 +190,7 @@ test("a panel hides chat cards and activity, while its worker tab retains worker
   expect(current().monitored?.id).toBe("w2")
 })
 
-test("running activity wins over newer settled activity; stable ties retain source order", async () => {
+test("Chat keeps its own timeline while other runs execute", async () => {
   const chat = running(100)
   const completed = done(300)
   await mount({ transcript: chat, tabs, worker: () => completed })
@@ -207,7 +198,7 @@ test("running activity wins over newer settled activity; stable ties retain sour
   await change({ transcript: done(300) })
   expect(current().monitored?.id).toBe("chat")
   await change({ transcript: Transcript.empty })
-  expect(current().monitored?.id).toBe("w1")
+  expect(current().monitored).toBeUndefined()
 })
 
 test("inspection stays pinned against newer work and resets on a new turn's record identity", async () => {
@@ -226,17 +217,15 @@ test("inspection stays pinned against newer work and resets on a new turn's reco
   expect(current().monitored?.id).toBe("chat")
 })
 
-test("worker inspection opens its own tab and exposes only that worker's jump target", async () => {
+test("worker inspection retains its current tab and exposes only that worker's jump target", async () => {
   const worker = running(200)
-  await mount({ transcript: done(100), tabs: [tabs[0]!], worker: () => worker })
+  await mount({ transcript: done(100), tabs: [tabs[0]!], worker: () => worker, surface: "tab:w1" })
   await action((view) => view.inspectActivity(1))
-  expect(surfaces).toEqual(["tab:w1"])
   expect(panelFocus).toEqual([false])
   expect(current().workerJump("w1")).toBe("1")
   expect(current().workerJump("w2")).toBeUndefined()
   expect(current().jumpTarget).toBeUndefined()
   await action((view) => view.inspectActivity(1))
-  expect(surfaces).toEqual(["tab:w1"])
   await action((view) => view.clearInspection())
   expect(current().activeInspection).toBeUndefined()
   expect(current().workerJump("w1")).toBeUndefined()
@@ -260,22 +249,12 @@ test("reveal uses the mounted scroll box and ending inspection restores its orig
   expect(box.scrollTop).toBe(box.scrollHeight - box.viewport.height)
 })
 
-test("chat inspection switches surface, then reveals the row after its real delayed mount", async () => {
+test("Summary cannot switch views through timeline inspection", async () => {
   await mount({ transcript: running(100), surface: "summary" })
-  const box = current().scroll.current!
   await action((view) => view.inspectActivity(1))
-  // The immediate reveal ran while Summary had no chat children. Wait for the
-  // owned delayed callback's actual scroll effect, not an assumed wall time.
-  const deadline = Date.now() + 3000
-  while (box.scrollTop === 0 && Date.now() < deadline) {
-    await setImmediate()
-    await setup!.renderOnce()
-  }
-  expect(box.scrollTop).toBeGreaterThan(0)
-  expect(surfaces).toEqual(["chat"])
-  expect(panelFocus).toEqual([false])
-  expect(current().jumpTarget).toBe("chat:1")
-  expect(setup!.captureCharFrame()).toContain("chat:1")
+  expect(current().showActivity).toBe(false)
+  expect(current().activeInspection).toBeUndefined()
+  expect(current().jumpTarget).toBeUndefined()
 })
 
 test("a recorded opening without a produced cell can be inspected without inventing a jump", async () => {
@@ -290,12 +269,11 @@ test("a recorded opening without a produced cell can be inspected without invent
     }),
     100
   )
-  await mount({ transcript, surface: "summary" })
+  await mount({ transcript })
   await action((view) => view.inspectActivity(1))
   expect(current().showActivity).toBe(true)
   expect(current().activeInspection?.seq).toBe(1)
   expect(current().jumpTarget).toBeUndefined()
-  expect(surfaces).toEqual([])
   expect(panelFocus).toEqual([false])
 })
 
@@ -326,7 +304,6 @@ test("inspection begun in another worker replaces the stale return surface and f
   expect(current().inspectionInterrupted).toBe(false)
   await action((view) => view.followLive())
   await drainReveal()
-  expect(surfaces).toEqual(["tab:w2"])
   expect(panelFocus).toEqual([false, false, true])
   expect(current().activeInspection).toBeUndefined()
 })
@@ -345,12 +322,10 @@ test.each([Transcript.empty, Transcript.user(Transcript.empty, "Work", false, 20
     expect(current().inspectionInterrupted).toBe(true)
     await action((view) => view.followLive())
     await drainReveal()
-    expect(surfaces).toEqual([])
     expect(current().inspectionInterrupted).toBe(false)
     expect(setup!.captureCharFrame()).toContain("no activity")
     await action((view) => view.inspectActivity(1))
     expect(current().activeInspection).toBeUndefined()
-    expect(surfaces).toEqual([])
   }
 )
 
@@ -363,7 +338,6 @@ test("another manual navigation clears the interrupted dismissal without resurre
   await change({ surface: "tab:w3" })
   expect(current().inspectionInterrupted).toBe(false)
   await action((view) => view.followLive())
-  expect(surfaces).toEqual([])
 })
 
 test("manual navigation cancels a delayed reveal before it can move the destination viewport", async () => {
@@ -378,7 +352,6 @@ test("manual navigation cancels a delayed reveal before it can move the destinat
   await action((view) => view.followLive())
   await drainReveal()
   expect(box.scrollTop).toBe(0)
-  expect(surfaces).toEqual([])
 })
 
 test("a new activity identity captures the current return position instead of a stale inspection origin", async () => {

@@ -6,183 +6,37 @@
  * places them on a grid of columns and maps positions back to journal
  * sequences and transcript steps.
  */
-import {
-  type FrameLine,
-  type Milestone,
-  phaseBandGeometry,
-  phaseExtent,
-  type PhaseId,
-  type TraceNote
-} from "@smthrs/gateway/RunTrace"
+import type { FrameLine, TraceNote } from "@smthrs/gateway/RunTrace"
 import * as Activity from "./activity.ts"
 import type * as Transcript from "./transcript.ts"
 
 type Cell = Extract<Transcript.Item, { kind: "cell" }>
 
-export const phases: Record<PhaseId, string> = {
-  researching: "Researching",
-  implementing: "Implementing",
-  testing: "Testing",
-  stuck: "Stuck",
-  blocked: "Blocked",
-  unrecorded: ""
-}
-
-export interface Segment {
-  readonly phase: PhaseId
-  readonly seq: number
-  readonly left: number
-  readonly width: number
-  /** Empty when the segment is too narrow for its word. */
+/** The selected step, folded only through the inspected journal position. */
+export const event = (activity: Activity.Activity, cursor?: number): {
   readonly label: string
-  /** At or before the playhead. */
-  readonly reached: boolean
-  readonly current: boolean
-}
-
-export interface Tick {
-  readonly seq: number
-  readonly tone: Milestone["tone"]
-  /** The column the moment happened at. */
-  readonly column: number
-  /** Where its label starts, and which label row; the label is empty when there is no room. */
-  readonly left: number
-  readonly row: number
-  readonly label: string
-  readonly reached: boolean
-}
-
-export interface Layout {
-  /** Columns before the track (the pause button), in it, and after it (phase and clock). */
-  readonly lead: number
-  readonly track: number
-  readonly tail: number
-  /** Label rows above the mark row. */
-  readonly rows: number
-  readonly segments: ReadonlyArray<Segment>
-  readonly ticks: ReadonlyArray<Tick>
-  /** Every recorded sequence and its column, in journal order. */
-  readonly positions: ReadonlyArray<{ readonly seq: number; readonly column: number }>
-  readonly knob: number
-  readonly phase: string
-  readonly elapsed: string
-}
-
-const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
-
-/** `1:08`, `1:02:05`: the app's elapsed clock. */
-export const clock = (ms: number): string => {
-  const seconds = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const rest = String(seconds % 60).padStart(2, "0")
-  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`
-}
-
-const LABEL_ROWS = 2
-const LABEL_MAX = 18
-
-export const layout = (activity: Activity.Activity, width: number, cursor?: number, now = Date.now()): Layout => {
-  const model = Activity.model(activity)
-  const columns = Math.max(1, Math.floor(width))
-  const lead = columns >= 60 ? 10 : columns >= 24 ? 3 : 0
-  const tail = columns >= 50 ? 14 : 0
-  const track = Math.max(1, columns - lead - tail)
-  const extent = phaseExtent(model)
-  const axis = extent.end - extent.start
-  const records = activity.records
-  const columnAt = (at: number | undefined, index: number, count: number): number =>
-    axis <= 0 || at === undefined
-      ? Math.round((index / Math.max(count - 1, 1)) * (track - 1))
-      : clamp(Math.round(((at - extent.start) / axis) * (track - 1)), 0, track - 1)
-  const positions = records.map((record, index) => ({
-    seq: record.sequence!,
-    column: columnAt(record.occurredAt, index, records.length)
-  }))
-  const reached = (seq: number) => cursor === undefined || seq <= cursor
-  const owner = cursor === undefined ? undefined : Activity.owner(model, cursor)
-  const here = cursor === undefined
-    ? model.bands.at(-1)
-    : model.bands.find((band) => band.frames.includes(owner!)) ?? model.bands.findLast((band) => band.seq <= cursor)
-
-  // Every band keeps at least one column while there are columns to give.
-  const count = model.bands.length
-  const starts = model.bands.map((band, index) =>
-    Math.round((phaseBandGeometry(band, extent, index, count).left / 100) * track)
-  )
-  for (let index = 0; index < count; index++) {
-    const floor = index === 0 ? 0 : starts[index - 1]! + 1
-    starts[index] = clamp(Math.max(starts[index]!, floor), 0, Math.max(0, track - (count - index)))
-  }
-  const segments: Array<Segment> = []
-  model.bands.forEach((band, index) => {
-    const left = index === 0 ? 0 : starts[index]!
-    const right = index === count - 1 ? track : starts[index + 1]!
-    if (right <= left) return
-    const word = phases[band.phase]
-    segments.push({
-      phase: band.phase,
-      seq: band.seq,
-      left,
-      width: right - left,
-      label: word.length + 1 <= right - left ? word : "",
-      reached: reached(band.seq),
-      current: band === here
-    })
-  })
-
-  const labelled = track >= 40
-  const occupied: Array<Array<readonly [number, number]>> = Array.from({ length: LABEL_ROWS }, () => [])
-  let rows = 0
-  const ticks = [...model.milestones]
-    .filter((milestone) => milestone.label !== "")
-    .sort((a, b) => a.seq - b.seq)
-    .map((milestone): Tick => {
-      const column = columnAt(milestone.at, 0, 1)
-      const base = { seq: milestone.seq, tone: milestone.tone, column, reached: reached(milestone.seq) }
-      if (!labelled) return { ...base, left: column, row: 0, label: "" }
-      const word = milestone.label.length > LABEL_MAX ? `${milestone.label.slice(0, LABEL_MAX - 1)}…` : milestone.label
-      const left = clamp(column - Math.floor(word.length / 2), 0, Math.max(0, track - word.length))
-      const row = occupied.findIndex((spans) =>
-        spans.every(([start, end]) => left > end + 1 || left + word.length + 1 < start)
-      )
-      if (row < 0) return { ...base, left: column, row: 0, label: "" }
-      occupied[row]!.push([left, left + word.length])
-      rows = Math.max(rows, row + 1)
-      return { ...base, left, row, label: word }
-    })
-
-  const at = cursor === undefined ? undefined : positions.findLast((position) => position.seq <= cursor) ?? positions[0]
-  const knob = at === undefined ? track - 1 : at.column
-  const atMs = cursor === undefined
-    ? activity.status === "running" ? now : records.at(-1)?.occurredAt ?? extent.end
-    : records.findLast((record) => record.sequence! <= cursor)?.occurredAt ?? extent.start
-  const phase = cursor === undefined && activity.status !== "running"
-    ? activity.status === "completed" ? "Done" : activity.status === "cancelled" ? "Stopped" : "Failed"
-    : here === undefined || here.phase === "unrecorded"
-    ? cursor === undefined ? "Running" : "Working"
-    : phases[here.phase]
-  return {
-    lead,
-    track,
-    tail,
-    rows: labelled ? rows : 0,
-    segments,
-    ticks,
-    positions,
-    knob,
-    phase,
-    elapsed: clock(atMs - extent.start)
-  }
-}
-
-/** The last position recorded at or before a column; the earliest when the column precedes them all. */
-export const seqAt = (layout: Layout, column: number): number => {
-  let reached: { seq: number; column: number } | undefined
-  for (const position of layout.positions) {
-    if (position.column <= column && (reached === undefined || position.column >= reached.column)) reached = position
-  }
-  return (reached ?? layout.positions[0])?.seq ?? 0
+  /** A person's stop is faint and a failure is red, as the transcript draws them. */
+  readonly tone: "text" | "faint" | "danger"
+  readonly index: number
+  readonly total: number
+} => {
+  if (activity.records.length === 0) return { label: "", tone: "text", index: 0, total: 0 }
+  const seq = cursor ?? activity.records.at(-1)?.sequence ?? 0
+  const records = activity.records.filter((record) => record.sequence! <= seq)
+  const model = Activity.model({ ...activity, records })
+  const line = model.lines.at(-1)
+  const ended = records.at(-1)?.kind
+  const label = ended === "control.run.completed" ?
+    "Done"
+    : ended === "control.run.cancelled" ?
+    "Stopped"
+    : ended === "control.run.failed" ?
+    "Failed"
+    : line === undefined ?
+    "Working"
+    : [line.verb.toLowerCase(), line.subject, outcome(line)].filter(Boolean).join(" ")
+  const tone = ended === "control.run.cancelled" ? "faint" : ended === "control.run.failed" ? "danger" : "text"
+  return { label, tone, index: Activity.frameAt(activity, seq), total: Activity.openings(activity).length }
 }
 
 /**

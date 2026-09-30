@@ -21,7 +21,6 @@ import { basename } from "node:path"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import stringWidth from "string-width"
 import { ActivityView } from "./activity-view.tsx"
-import * as Activity from "./activity.ts"
 import * as Agents from "./agents.ts"
 import * as AppView from "./app-view.tsx"
 import { CompletionMenu, FlowFormView, PickerDialog, StatusLine } from "./app-view.tsx"
@@ -858,7 +857,6 @@ export function App(props: AppProps) {
     worker: workspace.transcript,
     filter,
     surface,
-    setSurface,
     panel,
     setPanelFocus,
     panelFocus,
@@ -2730,26 +2728,12 @@ export function App(props: AppProps) {
     ask: (id) => workspace.asks.fromPerson(id),
     ...(form !== undefined ? { answering: true } : soleAsk === undefined ? {} : { answers: soleAsk.from })
   }
-  /** Titles from the chat down to a worker's parent, for its breadcrumb. */
-  const path = (tab: Tab): ReadonlyArray<string> => {
-    const parent = snapshot.tabs.find((each) => each.id === tab.parent)
-    return parent === undefined ? ["chat"] : [...path(parent), tabTitle(parent)]
-  }
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
-  // The activity dock stays down to 20 rows; the rest of the chat compacts from 24.
-  const activityVisible = showActivity && monitored !== undefined &&
-    (chatHeight >= 20 || activeInspection !== undefined) &&
-    reviewTab === undefined
-  const activityModel = activityVisible ? Activity.model(monitored.activity) : undefined
-  const activityHeight =
-    activityModel !== undefined && (activityModel.bands.length > 0 || activityModel.milestones.length > 0)
-      ? Scrubber.layout(monitored!.activity, width, activeInspection?.seq, now).rows + 3
-      : 0
   const formHeight = Math.max(
     3,
-    chatHeight - (short ? 2 : 4) - activityHeight -
+    chatHeight - (short ? 2 : 4) -
       Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
       (shownQueue.length === 0 ? 0 : (short ? 3 : shownQueue.length + 2))
   )
@@ -2806,10 +2790,10 @@ export function App(props: AppProps) {
             flexDirection: "column",
             height: focusMain && !sideChat ? "55%" : "100%",
             width,
-            paddingTop: short ? 0 : 1
+            paddingTop: 0
           }}
         >
-          <box style={{ flexDirection: "row", flexShrink: 0, marginBottom: short ? 0 : 1, width }}>
+          <box style={{ flexDirection: "row", flexShrink: 0, marginBottom: 0, width }}>
             {focusMain ? <text fg={color.brand} style={{ flexShrink: 0 }}>Chat{"  "}</text> : null}
             {(() => {
               const note = Timeline.active(filter) && surface === "chat"
@@ -2825,177 +2809,180 @@ export function App(props: AppProps) {
               )
             })()}
           </box>
-          {reviewTab !== undefined ?
-            (
-              <ReviewView
-                title={tabTitle(reviewTab)}
-                changes={Undo.changes(Undo.run(workspace.transcript(reviewTab.id)))}
-                scrollRef={reviewScroll}
-              />
-            ) :
-            workerTab !== undefined && !focusMain ?
-            (
-              <WorkerView
-                tab={{ ...workerTab, title: tabTitle(workerTab) }}
-                transcript={workspace.transcript(workerTab.id)}
-                models={props.models}
-                now={now}
-                tick={tick}
-                tone={lane(workerTab.id)}
-                width={width}
-                expanded={expanded}
-                onAction={(action) => workerAction(workerTab, action)}
-                jump={workerJump(workerTab.id)}
-                scrollRef={panelScroll}
-                viewportRef={workerScroll}
-                path={path(workerTab)}
-                onBack={() =>
-                  clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
-                tabs={snapshot.tabs}
-                cards={{
-                  ...cards,
-                  focused: focusedCard === Subagents.earlierKey(workerTab.id) ? focusedCard : undefined
-                }}
-                earlierOpen={earlierOpen(workerTab.id)}
-                onEarlier={() =>
-                  showEarlier(workerTab.id)}
-              />
-            ) :
-            overviewShown && panel !== undefined ?
-            (
-              <SubagentView.Overview
-                sections={inbox}
-                tabs={snapshot.tabs}
-                asks={workspace.asks.list()}
-                {...(overviewGraph
-                  ? { graph: SubagentView.forest(overviewRow, Inbox.flat(inbox, true), snapshot.tabs, runs.nodes, now) }
-                  : {})}
-                {...(overview.peek === true && overviewRow !== undefined
-                  ? { peek: Inbox.peek(overviewRow, workspace.transcript) }
-                  : {})}
-                selected={overviewSelected}
-                failedOpen={overview.failedOpen === true}
-                pane={overviewPane}
-                width={width}
-                cards={{
-                  ...cards,
-                  focused: overviewPane === "cards" && overviewCard !== undefined
-                    ? Subagents.cardKey(overviewCard.id)
-                    : undefined
-                }}
-                onSelect={(id) => setOverview((current) => ({ ...current, selected: id, card: undefined }))}
-                review={
+          <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, overflow: "hidden" }}>
+            {reviewTab !== undefined ?
+              (
+                <ReviewView
+                  title={tabTitle(reviewTab)}
+                  changes={Undo.changes(Undo.run(workspace.transcript(reviewTab.id)))}
+                  scrollRef={reviewScroll}
+                />
+              ) :
+              workerTab !== undefined && !focusMain ?
+              (
+                <WorkerView
+                  tab={{ ...workerTab, title: tabTitle(workerTab) }}
+                  transcript={workspace.transcript(workerTab.id)}
+                  models={props.models}
+                  now={now}
+                  tick={tick}
+                  tone={lane(workerTab.id)}
+                  width={width}
+                  expanded={expanded}
+                  height={chatHeight - 4}
+                  onAction={(action) => workerAction(workerTab, action)}
+                  jump={workerJump(workerTab.id)}
+                  scrollRef={panelScroll}
+                  viewportRef={workerScroll}
+                  onBack={() =>
+                    clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
+                  tabs={snapshot.tabs}
+                  cards={{
+                    ...cards,
+                    focused: focusedCard === Subagents.earlierKey(workerTab.id) ? focusedCard : undefined
+                  }}
+                  earlierOpen={earlierOpen(workerTab.id)}
+                  onEarlier={() =>
+                    showEarlier(workerTab.id)}
+                />
+              ) :
+              overviewShown && panel !== undefined ?
+              (
+                <SubagentView.Overview
+                  sections={inbox}
+                  tabs={snapshot.tabs}
+                  asks={workspace.asks.list()}
+                  {...(overviewGraph
+                    ? {
+                      graph: SubagentView.forest(overviewRow, Inbox.flat(inbox, true), snapshot.tabs, runs.nodes, now)
+                    }
+                    : {})}
+                  {...(overview.peek === true && overviewRow !== undefined
+                    ? { peek: Inbox.peek(overviewRow, workspace.transcript) }
+                    : {})}
+                  selected={overviewSelected}
+                  failedOpen={overview.failedOpen === true}
+                  pane={overviewPane}
+                  width={width}
+                  cards={{
+                    ...cards,
+                    focused: overviewPane === "cards" && overviewCard !== undefined
+                      ? Subagents.cardKey(overviewCard.id)
+                      : undefined
+                  }}
+                  onSelect={(id) => setOverview((current) => ({ ...current, selected: id, card: undefined }))}
+                  review={
+                    <PanelView
+                      panel={panel}
+                      navigation={navigation}
+                      height={dimensions.height - 12}
+                      width={SubagentView.overviewWidths(width).grid}
+                      scrollRef={panelScroll}
+                    />
+                  }
+                  scrollRef={panelScroll}
+                />
+              ) :
+              panel !== undefined && !focusMain ?
+              (
+                <>
                   <PanelView
                     panel={panel}
                     navigation={navigation}
-                    height={dimensions.height - 12}
-                    width={SubagentView.overviewWidths(width).grid}
+                    height={dimensions.height - 10}
+                    width={width}
                     scrollRef={panelScroll}
+                    hideSummary={surface.startsWith("tab:") &&
+                      snapshot.tabs.some((tab) => tab.id === surface.slice(4) && tab.status === "failed")}
                   />
-                }
-                scrollRef={panelScroll}
-              />
-            ) :
-            panel !== undefined && !focusMain ?
-            (
-              <>
-                <PanelView
-                  panel={panel}
-                  navigation={navigation}
-                  height={dimensions.height - 10}
-                  width={width}
-                  scrollRef={panelScroll}
-                  hideSummary={surface.startsWith("tab:") &&
-                    snapshot.tabs.some((tab) => tab.id === surface.slice(4) && tab.status === "failed")}
-                />
-              </>
-            ) :
-            lines.length === 0 && !Timeline.active(filter)
-            ? form === undefined
-              ? (
-                <View.Home
-                  width={width}
-                  flows={catalog.filter((entry) => !entry.unloaded)}
-                  rows={chatHeight - 15}
-                  onRun={(name) =>
-                    command(`/flow ${name}`)}
-                />
-              )
-              : <box style={{ flexGrow: 1, minHeight: 0 }} />
-            : (
-              <scrollbox
-                ref={scroll}
-                stickyScroll
-                stickyStart="bottom"
-                style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, scrollbarOptions: { visible: false } }}
-              >
-                <SubagentView.Lines
-                  lines={lines}
-                  onEarlier={() => showEarlier()}
-                  width={width}
-                  cards={cards}
-                  row={({ row }) => {
-                    const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
-                    const started = row.item.kind === "run" ? row.item : undefined
-                    const step = row.item.kind === "cell" ? Scrubber.step(transcript, row.item) : undefined
-                    return (
-                      <box key={row.key} id={row.key}>
-                        {started !== undefined
-                          ? (
-                            <View.RunCard
-                              title={started.title}
-                              request={started.request}
-                              run={runCard(started.surface)}
-                              now={now}
-                              focused={row.key === focusedCard}
-                              onOpen={() => perform({ kind: "open", surface: started.surface })}
-                            />
-                          )
-                          : card !== undefined
-                          ? (
-                            <View.Card
-                              panel={card}
-                              status={cardStatus(card)}
-                              focused={row.key === focusedCard}
-                              onOpen={() => perform({ kind: "open", surface: `ui:${card.id}` })}
-                            />
-                          )
-                          : (
-                            <View.Entry
-                              item={row.item}
-                              now={View.ticking(row.item) ? now : 0}
-                              tick={View.ticking(row.item) ? tick : ""}
-                              expanded={expanded}
-                              selected={row.key === jumpTarget}
-                              {...(step === undefined ? {} : { step })}
-                            />
-                          )}
-                      </box>
-                    )
-                  }}
-                />
-                {working && transcript.thinking
-                  ? <text fg={color.muted} style={{ paddingLeft: 2 }}>{tick} thinking</text>
-                  : null}
-              </scrollbox>
-            )}
-          {!activityVisible ?
-            null :
-            (
-              <ActivityView
-                activity={monitored.activity}
-                width={width}
-                now={now}
-                title={monitored.title}
-                focused={activeInspection !== undefined}
-                cursor={activeInspection?.seq}
-                onSelect={inspectActivity}
-                onPause={() =>
-                  activeInspection !== undefined
-                    ? followLive()
-                    : inspectActivity(monitored.activity.records.at(-1)!.sequence!, false)}
-              />
-            )}
+                </>
+              ) :
+              lines.length === 0 && !Timeline.active(filter)
+              ? form === undefined
+                ? (
+                  <View.Home
+                    width={width}
+                    flows={catalog.filter((entry) => !entry.unloaded)}
+                    rows={chatHeight - 15}
+                    onRun={(name) =>
+                      command(`/flow ${name}`)}
+                  />
+                )
+                : <box style={{ flexGrow: 1, minHeight: 0 }} />
+              : (
+                <scrollbox
+                  ref={scroll}
+                  stickyScroll
+                  stickyStart="bottom"
+                  style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, scrollbarOptions: { visible: false } }}
+                >
+                  <SubagentView.Lines
+                    lines={lines}
+                    onEarlier={() => showEarlier()}
+                    width={width}
+                    cards={cards}
+                    row={({ row }) => {
+                      const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
+                      const started = row.item.kind === "run" ? row.item : undefined
+                      const step = row.item.kind === "cell" ? Scrubber.step(transcript, row.item) : undefined
+                      return (
+                        <box key={row.key} id={row.key}>
+                          {started !== undefined
+                            ? (
+                              <View.RunCard
+                                title={started.title}
+                                request={started.request}
+                                run={runCard(started.surface)}
+                                now={now}
+                                focused={row.key === focusedCard}
+                                onOpen={() => perform({ kind: "open", surface: started.surface })}
+                              />
+                            )
+                            : card !== undefined
+                            ? (
+                              <View.Card
+                                panel={card}
+                                status={cardStatus(card)}
+                                focused={row.key === focusedCard}
+                                onOpen={() => perform({ kind: "open", surface: `ui:${card.id}` })}
+                              />
+                            )
+                            : (
+                              <View.Entry
+                                item={row.item}
+                                now={View.ticking(row.item) ? now : 0}
+                                tick={View.ticking(row.item) ? tick : ""}
+                                expanded={expanded}
+                                selected={row.key === jumpTarget}
+                                {...(step === undefined ? {} : { step })}
+                              />
+                            )}
+                        </box>
+                      )
+                    }}
+                  />
+                  {working && transcript.thinking
+                    ? <text fg={color.muted} style={{ paddingLeft: 2 }}>{tick} thinking</text>
+                    : null}
+                </scrollbox>
+              )}
+            {activeInspection === undefined || monitored === undefined || reviewTab !== undefined ?
+              null :
+              (
+                <box style={{ position: "absolute", top: 0, left: 0, height: 1, width }}>
+                  <ActivityView
+                    activity={monitored.activity}
+                    width={width}
+                    now={now}
+                    title={monitored.title}
+                    focused
+                    cursor={activeInspection.seq}
+                    onSelect={inspectActivity}
+                    onPause={followLive}
+                  />
+                </box>
+              )}
+          </box>
           {shownQueue.length === 0 || reviewTab !== undefined ?
             null :
             (
@@ -3048,6 +3035,7 @@ export function App(props: AppProps) {
           {approvals[0] === undefined ? null : (
             <View.Approval
               width={width}
+              maxHeight={Math.max(2, Math.min(Math.floor(chatHeight / 2), chatHeight - 4))}
               request={approvals[0]}
               choices={offered}
               alt={workerTab !== undefined}
@@ -3067,12 +3055,12 @@ export function App(props: AppProps) {
           <box
             // Kept mounted under a form or a full-height diff, so a draft survives it.
             visible={form === undefined && reviewTab === undefined}
-            style={{ border: ["left"], marginTop: short ? 0 : 1, flexShrink: 0 }}
+            style={{ border: ["left"], flexShrink: 0 }}
             borderColor={accent}
             customBorderChars={View.bar}
           >
             <box
-              style={{ paddingLeft: 2, paddingRight: 2, paddingTop: short ? 0 : 1 }}
+              style={{ paddingLeft: 2, paddingRight: 2 }}
               backgroundColor={color.surface}
             >
               <textarea
@@ -3100,10 +3088,10 @@ export function App(props: AppProps) {
                   minHeight: 1,
                   maxHeight: short
                     ? Math.max(1, Math.floor(chatHeight / 4))
-                    : Math.max(6, Math.floor(chatHeight / 3))
+                    : Math.max(1, Math.floor(chatHeight / 3))
                 }}
               />
-              <text wrapMode="none" style={{ marginTop: short ? 0 : 1, marginBottom: short ? 0 : 1 }}>
+              <text wrapMode="none" style={{ height: 1, flexShrink: 0 }}>
                 {driven !== undefined
                   ? (
                     <>

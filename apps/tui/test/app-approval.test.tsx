@@ -444,3 +444,33 @@ test.each(
   },
   15000
 )
+
+test.each([[80, 24], [60, 18]])(
+  "oversized approval preserves decision keys, composer and footer at %sx%s",
+  async (width, height) => {
+    pending = [{
+      ...request,
+      requestId: "oversized",
+      subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FINAL_ARGUMENT"
+    }]
+    await act(async () => setup!.renderer.resize(width!, height!))
+    await waitFor(() => frame().includes("very-long-directory") && frame().includes("y Allow once"))
+    const screen = frame()
+    expect(screen).toContain("y Allow once  n Deny")
+    expect(screen).toContain("Steer, or alt+enter to queue")
+    expect(screen.split("\n")[height! - 2]).toContain("Replay")
+    expect(screen.split("\n")[height! - 1]).toContain("y Allow")
+    expect(screen).not.toContain("FINAL_ARGUMENT")
+    const subjectRow = screen.split("\n").findIndex((row) => row.includes("very-long-directory"))
+    await act(async () => {
+      for (let i = 0; i < 120; i++) await setup!.mockMouse.scroll(20, subjectRow + 1, "down")
+      await setTimeout(100)
+    })
+    await setup!.renderOnce()
+    expect(frame()).toContain("FINAL_ARGUMENT")
+    expect(frame()).toContain("y Allow once  n Deny")
+    await type("Still usable")
+    expect(frame()).toContain("Still usable")
+    expect(replies).toEqual([])
+  }
+)

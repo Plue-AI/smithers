@@ -56,19 +56,7 @@ const clickText = async (text: string) => {
   await act(() => setup!.mockMouse.click(x + 1, y))
 }
 
-describe("breadcrumb and card click ownership", () => {
-  it("renders ancestry and sends a breadcrumb click once to Back", async () => {
-    const backs: number[] = []
-    const mounted = await mount(
-      <View.Crumb title="Child 界" tone={color.info} path={["Chat", "Parent"]} onBack={() => backs.push(1)} />,
-      60,
-      3
-    )
-    expect(mounted.captureCharFrame()).toContain("Subagent · Child 界")
-    expect(mounted.captureCharFrame()).toContain("Chat › Parent › Child 界")
-    await clickText("Back (ctrl+y)")
-    expect(backs).toEqual([1])
-  })
+describe("card click ownership", () => {
   it("runs action chips with the original worker without opening its parent card", async () => {
     const worker = tab("active")
     const { cards, actions, opened, files } = recorder()

@@ -21,6 +21,7 @@ import { flowGlyph } from "./surfaces.ts"
 import type * as Tabs from "./tabs.ts"
 import { color, mix, syntax } from "./theme.ts"
 import type * as Toasts from "./toasts.ts"
+import { TranscriptRail } from "./transcript-rail.tsx"
 import * as Transcript from "./transcript.ts"
 import type { Tab } from "./workspace.ts"
 
@@ -258,7 +259,7 @@ function EntryView(props: EntryProps) {
       )
     case "error":
       return (
-        <box
+        <TranscriptRail
           style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
           borderColor={item.stopped === true ? color.faint : color.danger}
           customBorderChars={bar}
@@ -266,7 +267,7 @@ function EntryView(props: EntryProps) {
           {item.stopped === true
             ? <text fg={color.faint}>■ stopped</text>
             : <text fg={color.danger}>✗ {item.background === true ? "" : "failed: "}{item.text}</text>}
-        </box>
+        </TranscriptRail>
       )
     case "note":
       return item.text === ""
@@ -314,7 +315,7 @@ export function Card(
   const failed = props.status === "failed" || panel.rows.some((row) => row.status === "failed")
   const head = props.status === undefined ? undefined : rowGlyph(props.status)
   return (
-    <box
+    <TranscriptRail
       style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
       borderColor={props.focused === true ? color.text : failed ? color.danger : color.brand}
       {...(props.focused === true ? { backgroundColor: color.selected } : {})}
@@ -343,7 +344,7 @@ export function Card(
           {panel.rows.length > cardRows ? <span fg={color.faint}>{`   +${panel.rows.length - cardRows}`}</span> : null}
         </text>
       )}
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -434,7 +435,7 @@ function UserMessage(
   props: { readonly id?: string; readonly text: string; readonly queued: boolean; readonly tone: string }
 ) {
   return (
-    <box
+    <TranscriptRail
       style={{ border: ["left"], marginTop: 1, marginBottom: 1 }}
       borderColor={props.queued ? color.faint : props.tone}
       customBorderChars={bar}
@@ -448,7 +449,7 @@ function UserMessage(
         </text>
         {props.queued ? <text fg={color.faint} style={{ marginTop: 1 }}>steering</text> : null}
       </box>
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -470,7 +471,7 @@ function ShellView(props: { readonly item: ShellItem; readonly tick: string; rea
   const shown = lines.slice(hidden).join("\n")
   const result = item.result
   return (
-    <box
+    <TranscriptRail
       style={{ border: ["left"], marginBottom: 1 }}
       borderColor={item.excluded ? color.faint : color.success}
       customBorderChars={bar}
@@ -488,7 +489,7 @@ function ShellView(props: { readonly item: ShellItem; readonly tick: string; rea
           ? null
           : <text fg={color.faint}>Full output: {result.fullOutputPath}</text>}
       </box>
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -503,7 +504,7 @@ function Callout(props: { readonly note: Scrubber.Step["notes"][number]; readonl
   const { note } = props
   const tone = noteTone(note.tone)
   return (
-    <box style={{ border: ["left"], marginTop: 1 }} borderColor={tone} customBorderChars={bar}>
+    <TranscriptRail style={{ border: ["left"], marginTop: 1 }} borderColor={tone} customBorderChars={bar}>
       <box style={{ paddingLeft: 1, paddingRight: 1 }} backgroundColor={mix(tone, 10, color.page)}>
         <text fg={tone}>
           <strong>{note.tone === "good" ? "✓" : "△"} {note.title}</strong>
@@ -513,7 +514,7 @@ function Callout(props: { readonly note: Scrubber.Step["notes"][number]; readonl
           ? note.evidence?.map((line, index) => <text key={index} fg={color.muted} wrapMode="char">{line}</text>)
           : null}
       </box>
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -568,7 +569,11 @@ function CellView(props: {
     )
   }
   return (
-    <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }} borderColor={tone} customBorderChars={bar}>
+    <TranscriptRail
+      style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
+      borderColor={tone}
+      customBorderChars={bar}
+    >
       <box
         style={{ flexDirection: "row", justifyContent: "space-between" }}
         {...(props.selected ? { backgroundColor: color.selected } : {})}
@@ -645,7 +650,7 @@ function CellView(props: {
           />
         )}
       {notes.map((note) => <Callout key={note.seq} note={note} expanded={props.expanded} />)}
-    </box>
+    </TranscriptRail>
   )
 }
 
@@ -935,6 +940,8 @@ export function Approval(
     readonly width: number
     /** From `Approvals.choices`. */
     readonly choices: ReadonlyArray<Approvals.Offer>
+    /** Request viewport and decision row, bounded before the composer. */
+    readonly maxHeight?: number
     /** Keys show exactly when they answer; see `Approvals.ready`. */
     readonly armed: boolean
     /** Agent composers reserve plain letters for typing. */
@@ -956,6 +963,14 @@ export function Approval(
   const keys = props.choices.map((choice) => `${alt}${choice.key} ${choice.label}`).join("  ")
   // Keys beside the request only when both fit whole: a wrapped command reads as another one.
   const column = preview !== undefined || stringWidth(`${head}${more}  ${keys}`) > props.width - 2
+  const requestWidth = Math.max(1, props.width - 2 - (column || !props.armed ? 0 : stringWidth(keys) + 2))
+  const counts = preview === undefined ? "" : `  +${preview.added} −${preview.removed}`
+  const requestRows = Math.max(1, Math.ceil(stringWidth(`${head}${counts}${more}`) / requestWidth)) +
+    shown.length + (hidden > 0 ? 1 : 0)
+  const keyRows = column && props.armed ? Math.max(1, Math.ceil(stringWidth(keys) / Math.max(1, props.width - 2))) : 0
+  const height = props.maxHeight === undefined
+    ? requestRows
+    : Math.min(requestRows, Math.max(1, props.maxHeight - keyRows))
   return (
     <box
       style={{
@@ -966,24 +981,36 @@ export function Approval(
         flexShrink: 0
       }}
     >
-      {/* Wrapped, never clipped: `y` approves exactly the text shown. */}
-      <text wrapMode="char" style={{ flexShrink: 1 }} fg={color.warning}>
-        {head}
-        {preview === undefined ? null : <span fg={color.success}>{`  +${preview.added}`}</span>}
-        {preview === undefined ? null : <span fg={color.danger}>{` −${preview.removed}`}</span>}
-        {more}
-      </text>
-      {shown.map((line, index) => (
-        <text
-          key={index}
-          wrapMode="none"
-          style={{ paddingLeft: 1, flexShrink: 0 }}
-          fg={line.startsWith("+") ? color.success : color.danger}
-        >
-          {clip(`${line[0]} ${line.slice(1).replace(/\t/g, "  ")}`, props.width - 3)}
+      <scrollbox
+        scrollX={false}
+        scrollY
+        style={{
+          flexShrink: 1,
+          minHeight: 0,
+          height,
+          ...(column ? {} : { width: requestWidth }),
+          scrollbarOptions: { visible: false }
+        }}
+      >
+        {/* Wrapped, never clipped: `y` approves exactly the text shown. */}
+        <text wrapMode="char" fg={color.warning}>
+          {head}
+          {preview === undefined ? null : <span fg={color.success}>{`  +${preview.added}`}</span>}
+          {preview === undefined ? null : <span fg={color.danger}>{` −${preview.removed}`}</span>}
+          {more}
         </text>
-      ))}
-      {hidden > 0 ? <text fg={color.faint} style={{ paddingLeft: 1, flexShrink: 0 }}>…</text> : null}
+        {shown.map((line, index) => (
+          <text
+            key={index}
+            wrapMode="none"
+            style={{ paddingLeft: 1, flexShrink: 0 }}
+            fg={line.startsWith("+") ? color.success : color.danger}
+          >
+            {clip(`${line[0]} ${line.slice(1).replace(/\t/g, "  ")}`, props.width - 3)}
+          </text>
+        ))}
+        {hidden > 0 ? <text fg={color.faint} style={{ paddingLeft: 1, flexShrink: 0 }}>…</text> : null}
+      </scrollbox>
       {props.armed
         ? (
           <text wrapMode="word" style={{ flexShrink: 0, marginLeft: column ? 0 : 2 }}>
@@ -1046,7 +1073,7 @@ export function ToastStack(
       }}
     >
       {props.rows.map((row) => (
-        <box
+        <TranscriptRail
           key={row.id}
           style={{ border: ["left"], marginTop: props.compact ? 0 : 1, maxWidth: 60, flexShrink: 0 }}
           borderColor={row.tone === "info" ? color.brand : color[row.tone]}
@@ -1066,7 +1093,7 @@ export function ToastStack(
               </text>
             ))}
           </box>
-        </box>
+        </TranscriptRail>
       ))}
     </scrollbox>
   )
