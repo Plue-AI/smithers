@@ -88,6 +88,14 @@ describe("Output.make human rendering", () => {
     expect(render(Symbol("named"), "json").text).toBe("\"Symbol(named)\"")
   })
 
+  it("omits undefined object members like JSON while array positions and defined values stay", () => {
+    const value = { a: undefined, b: null, c: false, d: 0, e: "", f: [undefined, 1], g: { h: undefined } }
+    expect(render(value, "json").text).toBe(
+      "{\"b\":null,\"c\":false,\"d\":0,\"e\":\"\",\"f\":[\"[Undefined]\",1],\"g\":{}}"
+    )
+    expect(render(value, "human").text).not.toMatch(/"a"|"h"/)
+  })
+
   it("never invokes getters or proxy traps", () => {
     let getterReads = 0
     const withGetter: Record<string, unknown> = {}

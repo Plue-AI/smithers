@@ -323,11 +323,13 @@ workspaces["workspace exec"] = async (c, a, o) => {
         c.output(Buffer.from(result.stdout), Buffer.from(result.stderr))
         c.flushOutput()
         c.runtime.exit?.(Number(result.exit_code))
+        // A live run already streamed the child's output: the receipt omits it.
+        const { stdout, stderr, ...receiptResult } = result
         return {
           workspace_id: id,
           operation_id: receipt.operationId,
-          ...result,
-          ...(c.live ? { stdout: undefined, stderr: undefined } : {})
+          ...receiptResult,
+          ...(c.live ? {} : { stdout, stderr })
         }
       }
       if (["failed", "uncertain", "cancelled"].includes(str(run.state))) {

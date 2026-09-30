@@ -207,7 +207,10 @@ const snapshotObject = (
       return fail("unsupported", pathForKey, "object data must be enumerable")
     }
     boundedString(key, pathForKey)
-    output[key] = snapshot(dataDescriptor(descriptor, pathForKey), state, pathForKey, depth + 1)
+    const member = dataDescriptor(descriptor, pathForKey)
+    // JSON omits an absent member; only array positions and a lone top-level value stay visible.
+    if (member === undefined) continue
+    output[key] = snapshot(member, state, pathForKey, depth + 1)
   }
   return output
 }

@@ -94,6 +94,26 @@ describe("shared command presentation", () => {
     expect(host.progress).toEqual([])
     expect(result).toMatchObject({ data: undefined })
   })
+  it("omits undefined members from the human summary and keeps null, false, zero and empty values", async () => {
+    const host = fixture("human", true, true)
+    await Presentation.scope({ command: "workspace exec" }, host.runtime, async () => {
+      Presentation.finish({ ok }, {
+        exit_code: 0,
+        stdout: undefined,
+        stderr: undefined,
+        parent: null,
+        flag: false,
+        text: "",
+        nested: { gone: undefined, kept: 0 }
+      })
+    })
+    const text = host.output.join("")
+    expect(text).toContain("exit_code: 0")
+    expect(text).toContain("parent: null")
+    expect(text).toContain("flag: false")
+    expect(text).toContain("kept: 0")
+    expect(text).not.toMatch(/undefined|stdout|stderr|gone/)
+  })
   it("prints a supplied human body in place of the summary and keeps the next actions", async () => {
     const host = fixture("human", true, true)
     let result: unknown

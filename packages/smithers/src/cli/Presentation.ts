@@ -205,7 +205,7 @@ const linesOf = (value: unknown, indent = "", depth = 0): Array<string> => {
   if (depth >= 3) return [indent + (Array.isArray(value) ? `${value.length} items` : "Use --json for full details")]
   const entries = Array.isArray(value)
     ? value.map((entry, index) => [String(index + 1), entry] as const)
-    : Object.entries(value)
+    : Object.entries(value).filter(([, item]) => item !== undefined)
   const lines = entries.slice(0, 18).flatMap(([key, item]) => {
     if (Array.isArray(item) && item.length === 0) return [`${indent}${clean(key)}: none`]
     if (item !== null && typeof item === "object") {

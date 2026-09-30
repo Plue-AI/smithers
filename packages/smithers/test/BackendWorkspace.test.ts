@@ -165,6 +165,24 @@ describe("box remote execution", () => {
       environment: {}
     })
   })
+  it("omits streamed stdout and stderr from a live receipt and keeps them otherwise", async () => {
+    const result = { exit_code: 3, stdout: "out", stderr: "err", output_truncated: false }
+    const run = async (live: boolean) => {
+      const { c } = await fixture()
+      const client = new Client({ environment: { ...c.env, SMITHERS_API_ORIGIN: "https://api.example.test" } }, live)
+      vi.spyOn(client, "request").mockImplementation(async (method, path) => {
+        if (method === "POST" && path.endsWith("/command-runs")) return { operationId: "r" }
+        if (method === "GET" && path.endsWith("/command-runs/r")) return { operationId: "r", state: "completed", result }
+        throw new Error(`Unexpected ${method} ${path}`)
+      })
+      return workspaces["workspace exec"]!(client, { id: "box" }, { ...options, command: "x" })
+    }
+    const live = await run(true) as Record<string, unknown>
+    expect(Object.keys(live).sort()).toEqual(["exit_code", "operation_id", "output_truncated", "workspace_id"])
+    expect(Object.keys(await run(false) as object)).toEqual(
+      expect.arrayContaining(["stdout", "stderr", "exit_code"])
+    )
+  })
   it("passes command, environment, and directory as API data", async () => {
     const { c, request, exit } = await fixture()
     request.mockImplementation(async (method, path) => {
