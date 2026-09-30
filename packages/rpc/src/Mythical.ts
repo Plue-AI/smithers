@@ -23,6 +23,7 @@
  */
 
 import { z } from "zod"
+import { duration } from "./SubagentCard.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
@@ -263,7 +264,8 @@ export type MythicalIntegration = z.infer<typeof MythicalIntegrationSchema>
 
 /**
  * One check's receipt on the candidate's commit: the check id, its tier, how
- * it ended and, for an outage, whose fault it was.
+ * it ended and, for an outage, whose fault it was; the run that recorded it
+ * and how long the check ran, when the receipt names them.
  *
  * @since 1.0.0
  * @category schemas
@@ -273,7 +275,9 @@ export const MythicalReceiptSchema = z.object({
   tier: z.enum(["fast", "slow", "delivery"]),
   status: z.enum(["passed", "failed"]),
   fault: z.enum(["infra", "factory"]).optional(),
-  commit: z.string()
+  commit: z.string(),
+  runId: z.string().min(1).optional(),
+  durationMs: z.number().int().nonnegative().optional()
 })
 
 /**
@@ -283,6 +287,16 @@ export const MythicalReceiptSchema = z.object({
  * @category models
  */
 export type MythicalReceipt = z.infer<typeof MythicalReceiptSchema>
+
+/**
+ * How long a receipt's check ran as every surface shows it (`42s`,
+ * `1m 04s`); undefined when the receipt recorded no duration.
+ *
+ * @since 1.0.0
+ * @category projections
+ */
+export const mythicalReceiptDuration = (receipt: MythicalReceipt): string | undefined =>
+  receipt.durationMs === undefined ? undefined : duration(receipt.durationMs)
 
 /**
  * The required checks on the item's candidate. `failed` lists check ids;

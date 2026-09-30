@@ -7,6 +7,8 @@ import {
   MythicalItemSchema,
   MythicalLaneSchema,
   MythicalLaneSubmissionSchema,
+  type MythicalReceipt,
+  mythicalReceiptDuration,
   mythicalRoute,
   MythicalStackSchema,
   MythicalWikiSchema
@@ -185,10 +187,44 @@ describe("the mythical stack contract", () => {
     const item = { ...snapshot.items[0], checks }
     expect(MythicalItemSchema.parse(item).checks).toEqual(checks)
     const receipt = checks.receipts[0]!
-    for (const bad of [{ status: "superseded" }, { tier: "nightly" }, { fault: "user" }, { commit: undefined }]) {
+    for (
+      const bad of [
+        { status: "superseded" },
+        { tier: "nightly" },
+        { fault: "user" },
+        { commit: undefined },
+        { runId: "" },
+        { durationMs: -1 },
+        { durationMs: 1.5 },
+        { durationMs: "42" }
+      ]
+    ) {
       const refused = { ...item, checks: { ...checks, receipts: [{ ...receipt, ...bad }] } }
       expect(MythicalItemSchema.safeParse(refused).success).toBe(false)
     }
+  })
+
+  test("a receipt names its run and duration when the stack service has them, and reads without them", () => {
+    // mythical_receipts_test.go's view of a timed verification receipt.
+    const commit = "e".repeat(40)
+    const timed = {
+      check: "affected-test",
+      tier: "slow",
+      status: "failed",
+      commit,
+      runId: "run-verify-21",
+      durationMs: 42_500
+    }
+    const bare = { check: "affected-lint", tier: "fast", status: "passed", commit }
+    const checks = { state: "failed", failed: ["affected-test"], receipts: [bare, timed] }
+    const parsed = MythicalItemSchema.parse({ ...snapshot.items[0], checks }).checks!.receipts!
+    expect(parsed).toEqual([bare, timed])
+    expect(parsed.map(mythicalReceiptDuration)).toEqual([undefined, "42s"])
+    expect(
+      [0, 999, 59_999, 64_000, 3_600_000].map((durationMs) =>
+        mythicalReceiptDuration({ ...bare, durationMs } as MythicalReceipt)
+      )
+    ).toEqual(["0s", "0s", "59s", "1m 04s", "1h"])
   })
 
   test("a typed failure decodes as the stack service writes it, and an unknown kind or fault is refused", () => {
