@@ -323,10 +323,10 @@ ask, one past the root, and `to: "person"` go to the person: the worker shows
 included). **a** in the chat, while it is the only thing waiting, in the
 Summary overview or in the worker's tab opens its answer form: the whole
 question, then each option on its own line and `other…` for your own words,
-or free text; Up/Down choose, a number picks its option, other typing goes to
-`other…`, Enter answers, Esc goes back and leaves it open. For 400 ms after it
-opens, unless you move the cursor, Enter and numbers wait, and typing after
-the chat's **a** goes back to the chat, so a chat message never answers it.
+or free text; Up/Down or Tab select the answer, a number picks its option,
+Enter answers, Esc goes back and leaves it open. Until you select an answer,
+ordinary typing after the chat's **a** returns to Chat with the **a**. For
+400 ms after opening, Enter and numbers wait unless you move the cursor.
 A worker's `ctx.park` asks the person the same way and waits for the answer;
 a park no one can answer fails the worker instead of deciding for you. A child worker that fails
 on something a person can answer (a sign-in, a refusal, a plan that did not

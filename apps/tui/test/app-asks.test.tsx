@@ -189,7 +189,7 @@ test("a free-text ask shows its whole question and answers with what was typed",
   await render()
   await type("a")
   expect(frame().replace(/[\s┃]+/g, "")).toContain(`◆${question}`.replace(/\s+/g, ""))
-  await settle()
+  await key("TAB")
   await type("addAll")
   await key("RETURN")
   expect(await answered()).toMatchObject({ answer: "addAll" })
@@ -275,6 +275,34 @@ test.each([50, 90])(
     await waitFor(() => turns.length === 3)
     expect(turns[2]!.input.prompt).toContain("add a test for logout")
     await setImmediate()
+    expect(settled).toBe(false)
+    expect(frame()).toContain("Summary ◆1")
+  }
+)
+
+test.each([["choices", ["sum", "plus"]], ["free text", undefined]] as const)(
+  "a chat message after pausing 500 ms at a preserves every character (%s)",
+  async (_kind, options) => {
+    await delegate("add")
+    const answered = await ask(1, "New name?", options)
+    let settled = false
+    void answered().then(() => {
+      settled = true
+    })
+    await waitFor(() => frame().includes("Summary ◆1"))
+    await settle()
+    await type("a")
+    expect(frame()).toContain("enter Answer")
+    await act(async () => {
+      await setTimeout(500)
+    })
+    await act(async () => {
+      setup!.renderer.stdin.emit("data", Buffer.from("nd x\r"))
+      await setImmediate()
+    })
+    await waitFor(() => turns.length === 3)
+    expect(frame()).not.toContain("enter Answer")
+    expect(turns[2]!.input.prompt).toBe("and x")
     expect(settled).toBe(false)
     expect(frame()).toContain("Summary ◆1")
   }

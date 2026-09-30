@@ -1344,10 +1344,6 @@ test.each(
     }],
     ["a letter types under other…", askForm(0), "x", { choice: 2, answer: "x" }],
     ["typing adds to a kept answer", askForm(1, ["sum", "plus"], "to"), "t", { choice: 2, answer: "tot" }],
-    ["an armed form drops the chat key", askForm(0, ["sum"], undefined, { lead: "a" }), "n", {
-      choice: 1,
-      answer: "n"
-    }],
     [
       "a moved cursor drops the chat key",
       askForm(0, ["sum"], undefined, { armedAt: later(), moved: true, lead: "a" }),
@@ -1385,6 +1381,21 @@ test.each(
 test.each(
   [
     ["a letter on a choice", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "d"],
+    [
+      "a letter after the arming delay",
+      askForm(0, ["sum", "plus"], undefined, { armedAt: Date.now() - 500, lead: "a" }),
+      "n"
+    ],
+    [
+      "a number beyond the choices after the delay",
+      askForm(0, ["sum"], undefined, { armedAt: Date.now() - 500, lead: "a" }),
+      "2"
+    ],
+    [
+      "a letter on a free-text ask after the delay",
+      askForm(0, [], undefined, { armedAt: Date.now() - 500, lead: "a" }),
+      "n"
+    ],
     ["a number on a choice", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "2"],
     ["a space on a free-text ask", askForm(0, [], undefined, { armedAt: later(), lead: "a" }), " "],
     ["a letter under other…", askForm(2, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "d"]
@@ -1409,7 +1420,7 @@ test("while typing under other… the input takes letters and numbers", () => {
     const form of [
       askForm(2, ["sum", "plus"], "to"),
       askForm(0, [], "to"),
-      askForm(0, [], undefined, { lead: "a" }),
+      askForm(0, [], undefined, { moved: true, lead: "a" }),
       askForm(2, ["sum", "plus"], "to", { armedAt: later(), moved: true, lead: "a" })
     ]
   ) {
@@ -1440,10 +1451,25 @@ test("an ask form answers the chosen option, a typed other…, and nothing blank
   const { seen, act } = askAct()
   Dispatch.formKey(key("escape"), askForm(0), act)
   expect(seen).toEqual({ changed: [undefined], filled: [], chat: [] })
-  // A free-text ask has no cursor to move: arrows leave it as it is.
-  const free = askAct()
-  Dispatch.formKey(key("down"), askForm(0, []), free.act)
-  expect(free.seen).toEqual({ changed: [], filled: [], chat: [] })
   expect(Dispatch.choices(askForm(0).ask)).toEqual(["sum", "plus", "other…"])
   expect(Dispatch.choices(askForm(0, []).ask)).toEqual([])
+})
+
+test.each(["tab", "up", "down"])("%s explicitly selects a free-text answer opened from Chat", (name) => {
+  const { seen, act } = askAct()
+  Dispatch.formKey(key(name), askForm(0, [], undefined, { lead: "a", armedAt: later() }), act)
+  expect(seen.changed[0]?.ask).toMatchObject({ choice: 0, moved: true, lead: "a" })
+  const selected = seen.changed[0]!
+  const typed = key("n")
+  Dispatch.formKey(typed, selected, act)
+  expect(typed.defaultPrevented).toBe(false)
+  expect(seen.chat).toEqual([])
+  Dispatch.formKey(key("return"), { ...selected, draft: { answer: "new name" } }, act)
+  expect(seen.filled).toEqual([{ answer: "new name" }])
+})
+
+test("a valid number explicitly answers an armed form opened from Chat", () => {
+  const { seen, act } = askAct()
+  Dispatch.formKey(key("2"), askForm(0, ["sum", "plus"], undefined, { lead: "a" }), act)
+  expect(seen).toEqual({ changed: [undefined], filled: [{ answer: "plus" }], chat: [] })
 })
