@@ -1304,6 +1304,17 @@
     },
     {
       "name": "@smthrs/flow",
+      "subpath": "./Deadline",
+      "development": "./src/Deadline.ts",
+      "published": {
+        "types": "./dist/esm/Deadline.d.ts",
+        "import": "./dist/esm/Deadline.js",
+        "require": "./dist/cjs/Deadline.js"
+      },
+      "reason": "Documented host API for starting, inspecting and applying a run deadline from its durable first start, including inherited trampoline deadlines. Explicit development and publication entrypoints match the flow API and reference documentation; reviewed in #3275."
+    },
+    {
+      "name": "@smthrs/flow",
       "subpath": "./Fault",
       "development": "./src/Fault.ts",
       "published": {
