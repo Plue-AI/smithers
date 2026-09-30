@@ -319,8 +319,11 @@ The coordinate system. Import as `Frame` from the barrel, or from
 | `forkCreatedEventType` | `"flows.time-travel.fork-created"`, the journal event type marking a run as fork-created.      |
 | `ForkCreated`          | Schema and type: `{ parentRunId, forkJournalOffset, childRunId }`, the payload of that record. |
 
-`seq` counts journal records, so frame `n` means "after the first `n` records
-were durable", and `0` is the state before the run wrote anything. `attached`
+`seq` is the zero-based journal sequence of the last record a frame includes:
+frame `n` covers every record with `seq <= n`, so frame `0` is the state after
+the first record. On an empty history `replay` and `inspect` refuse every frame
+`not_found`, while `rewind` accepts frame `0` and has nothing to truncate. No
+frame addresses the state before a written first record. `attached`
 distinguishes a descendant that still depends on the history under a frame from
 one already cut loose.
 

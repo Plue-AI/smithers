@@ -24,12 +24,13 @@ const frame: Frame.Frame = { lineageId, seq: 17 }
 includes. Frame `n` covers every record with `seq <= n`, so frame `0` is the
 state after the first record, and frame `1` folds the first two.
 
-| History     | `replay` / `inspect` at frame `0` | `fork` at frame `0` | `rewind` to frame `0`         |
-| ----------- | --------------------------------- | ------------------- | ----------------------------- |
-| Empty       | `not_found`                       |                     | Accepted, nothing to truncate |
-| One or more | Folds record `0`                  | Copies record `0`   | Keeps record `0`              |
+| History     | `replay` / `inspect` at frame `0` | `rewind` to frame `0`         |
+| ----------- | --------------------------------- | ----------------------------- |
+| Empty       | `not_found`                       | Accepted, nothing to truncate |
+| One or more | Folds record `0`                  | Keeps record `0`              |
 
-No frame addresses the state before a written first record.
+A fork at frame `0` copies record `0`. No frame addresses the state before a
+written first record.
 
 The frame stores no state. Time travel derives everything else by folding the
 records the address covers, which is why history cannot drift from what was
