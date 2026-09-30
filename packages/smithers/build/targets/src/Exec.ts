@@ -1229,7 +1229,9 @@ const withSecretEnvironment = <A, E>(
 ): Effect.Effect<A, E | ExecError> => {
   if (payload.secrets.length === 0) return use({}, payload)
   const vault = SecretProxy.makeVault()
-  const minted: Record<string, string> = {}
+  // Null-prototype records keep every portable name, `__proto__` included, an
+  // own data property instead of feeding it to Object.prototype's setter.
+  const minted = Object.create(null) as Record<string, string>
   for (const binding of payload.secrets) minted[binding.secret.env] = vault.mint(binding)
   const proxyFailed = (what: string) => (cause: unknown) =>
     execError({
@@ -1261,7 +1263,7 @@ const withSecretEnvironment = <A, E>(
             const brokered = (value: string): string =>
               value.replace(Secret.secretOriginPattern, (_token, origin: string) => origins.get(origin)!)
             const [executable, ...args] = payload.argv
-            const env: Record<string, string> = {}
+            const env = Object.create(null) as Record<string, string>
             for (const [name, value] of Object.entries(payload.env)) env[name] = brokered(value)
             return { ...payload, argv: [brokered(executable), ...args.map(brokered)], env } satisfies Payload
           },
@@ -1485,7 +1487,7 @@ const confined = (
       NodeFs.mkdirSync(NodePath.join(confinement.tmp, "cache"), { recursive: true })
       for (const write of confinement.writes) NodeFs.mkdirSync(write, { recursive: true })
       const base = toolEnvironment(resolved.env, sensitiveEnv, secretEnv, options.environment)
-      const visible: Record<string, string> = {}
+      const visible = Object.create(null) as Record<string, string>
       for (const [name, value] of Object.entries(base)) if (typeof value === "string") visible[name] = value
       const wrapped = ExecSandbox.wrap(confinement, resolved.argv, visible)
       return {
