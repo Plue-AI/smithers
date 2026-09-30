@@ -130,9 +130,16 @@ Consequently the directory-only `**/` names directories below its own anchor
 but not that anchor: with `exclude: ["**/"]`, `**` keeps the root and its files
 while pruning every directory. Node empties the answer instead.
 
-**A dotted segment after a globstar matches dotfiles.** Node 22 matched nothing
-for `**/.hidden`; Node 24 and later match the dotfiles. This adapter matches the
-dotfiles on every version.
+**A dotted segment after a globstar matches dotfiles, but a globstar never
+spans a hidden directory.** Node 22 matched nothing for `**/.hidden`; Node 24
+and later match the dotfiles. This adapter matches the dotfiles on every
+version. Node 24 and later also walk into a hidden directory when the segment
+after `**` matches it, so with `.hidden/.secret` and `.hidden/.nested/.wanted`
+present, `**/.*` returns `.hidden`, `.hidden/.secret`, `.hidden/.nested` and
+`.hidden/.nested/.wanted`, and `**/.*/**` returns `.hidden` and
+`.hidden/.nested`. This adapter returns `.hidden` alone for both, because only a
+segment that names a hidden directory may enter it: `.hidden/.*` returns
+`.hidden/.nested` and `.hidden/.secret`.
 
 ## Keep the cost down
 

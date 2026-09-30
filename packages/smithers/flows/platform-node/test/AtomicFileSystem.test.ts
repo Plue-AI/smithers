@@ -974,7 +974,7 @@ describe("Node atomic filesystem", () => {
         })
       )
       expect(found.dotted).toEqual([".hidden"])
-      expect(found.sized).toEqual([])
+      expect(found.sized).toEqual([".hidden"])
       expect(found.spanned).toEqual([".hidden"])
       expect(found.named).toEqual([".hidden/.nested", ".hidden/.secret"])
     }), 30_000)
