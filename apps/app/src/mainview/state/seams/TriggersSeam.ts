@@ -374,6 +374,40 @@ const relayTo = async (
   return { ok: false, message: workspaceAnswerSentence(body) }
 }
 
+/** The most flow pages one walk reads: 50 pages of 100 flows. */
+const FLOW_PAGE_CAP = 50
+export const TOO_MANY_FLOWS = "The workspace lists more flows than Smithers reads."
+
+/**
+ * Every flow the workspace has discovered. The workspace answers 100 at a
+ * time (ControlSchema.defaultPageSize), so the registrar or the chosen flow
+ * may sit on any page: walk `nextCursor` until the workspace names none,
+ * repeats one, or answers an empty page; past FLOW_PAGE_CAP pages it refuses.
+ * The walk also stops early once `live` turns false; the caller re-checks the
+ * same predicate and discards the partial list.
+ */
+const workspaceFlows = async (
+  ctx: Pick<SeamContext, "http" | "baseUrl">,
+  repo: string,
+  workspaceId: string,
+  live: () => boolean
+): Promise<{ readonly ok: true; readonly items: ReadonlyArray<Record<string, unknown>> } | { readonly ok: false; readonly message: string }> => {
+  const items: Array<Record<string, unknown>> = []
+  const walked = new Set<string>()
+  let cursor: string | undefined
+  for (let pages = 0; ; pages++) {
+    if (pages === FLOW_PAGE_CAP) return { ok: false, message: TOO_MANY_FLOWS }
+    const listed = await relayTo(ctx, repo, "List", cursor === undefined ? { _tag: "flows" } : { _tag: "flows", cursor }, workspaceId)
+    if (!listed.ok) return listed
+    const page = (Array.isArray(listed.value.items) ? listed.value.items : []).filter(isRecord)
+    items.push(...page)
+    const next = listed.value.nextCursor
+    if (page.length === 0 || typeof next !== "string" || next === "" || walked.has(next) || !live()) return { ok: true, items }
+    walked.add(next)
+    cursor = next
+  }
+}
+
 /** One canonical repository-job action, with its typed refusal kept whole. */
 const jobCall = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,
@@ -621,11 +655,10 @@ export const prepareTriggerRegistration = async (
   const superseded = () => ({ code: "request_superseded", message: "This registration belongs to a previous session." })
   const call = (procedure: string, payload: unknown) => relayTo(ctx, repo, procedure, payload, workspaceId)
   if (!current()) return superseded()
-  const listed = await call("List", { _tag: "flows" })
+  const listed = await workspaceFlows(ctx, repo, workspaceId, current)
   if (!current()) return superseded()
   if (!listed.ok) return refuse(listed.message)
-  const items = (Array.isArray(listed.value.items) ? listed.value.items : []).filter(isRecord)
-  if (!items.some(item => item.flowId === REGISTRAR_FLOW)) return refuse(registerUnavailableSentence(repo))
+  if (!listed.items.some(item => item.flowId === REGISTRAR_FLOW)) return refuse(registerUnavailableSentence(repo))
   const input: unknown = JSON.parse(request.input)
   const planned = await call("Plan", { flowId: request.flow, input, idempotencyKey: `trigger:${request.requestId}:plan` })
   if (!current()) return superseded()
@@ -845,11 +878,11 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
         if (box === undefined || !bound()) return await fail(workspaceChanged)
         let receipt = request.receipt
         if (!receipt) {
-          const listed = await relayTo(ctx, repo, "List", { _tag: "flows" }, box)
+          const listed = await workspaceFlows(ctx, repo, box, () => current() && bound())
           if (!current()) return TOAST_SUPERSEDED
           if (!bound()) return await fail(workspaceChanged)
           if (!listed.ok) return await fail(listed.message)
-          const items = (Array.isArray(listed.value.items) ? listed.value.items : []).filter(isRecord)
+          const items = listed.items
           if (!items.some(item => item.flowId === REGISTRAR_FLOW)) return await fail(registerUnavailableSentence(repo))
           const target = items.find(item => item.flowId === request.draft.flow)
           if (!target) return await fail(`No flow "${request.draft.flow}" is registered on this workspace. The workspace has: ${items.map(item => String(item.flowId)).join(", ")}.`)

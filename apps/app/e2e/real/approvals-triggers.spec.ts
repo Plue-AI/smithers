@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
-import { bootProductionRepository, PRODUCTION_REPO } from "./repositories-github/production"
+import { bootProductionRepository, cloudRepoPath, PRODUCTION_REPO } from "./repositories-github/production"
 import { awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support"
 
 const transcript = (page: Page) => page.getByTestId("transcript")
@@ -92,7 +92,7 @@ authenticatedTest("production dispatcher and approvals are read from the authent
       const body = response.request().postDataJSON()
       if (body?.procedure === "Projection.Snapshot" && body?.payload?.selector?._tag === "approvals") approvalsRequest = body
     }
-    if (url.pathname.startsWith("/api/workflow/") || url.pathname.includes("/contents/.smithers/factory.json")) {
+    if (url.pathname.startsWith("/api/workflow/") || url.pathname.endsWith("/repository-jobs") || url.pathname.includes("/contents/.smithers/factory.json")) {
       reads.push({ method: response.request().method(), path: url.pathname, status: response.status() })
     }
   })
@@ -102,7 +102,7 @@ authenticatedTest("production dispatcher and approvals are read from the authent
   const triggers = page.locator('.smithers-card[data-kind="trigger-list"]').last()
   await expect(triggers).toBeVisible()
   await expect(triggers.getByTestId("trigger-register")).toBeVisible()
-  await expect.poll(() => reads.some(({ path }) => path === "/api/workflow/trigger-registrations")).toBe(true)
+  await expect.poll(() => reads.some(({ path }) => path === cloudRepoPath(PRODUCTION_REPO, "/repository-jobs"))).toBe(true)
 
   await command(page, `/approvals.list ${PRODUCTION_REPO}`)
   await closeComposer(page)
@@ -122,20 +122,26 @@ authenticatedTest("production dispatcher and approvals are read from the authent
   await expect(page.locator('.smithers-card[data-kind="approvals-inbox"]').last()).toBeVisible()
 })
 
-authenticatedTest("production trigger registration reports its unsupported boundary without writing", scenario("production.triggers-register-refusal", {
+authenticatedTest("production Register a rule opens the schedule form by keyboard and cancelling writes nothing", scenario("production.triggers-register-form", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:triggers.list", "action:triggers.register", "host:production", "path:error", "path:keyboard",
-    "door:slash", "door:button", "dimension:register-refusal", "dimension:keyboard", "dimension:no-write",
-    "evidence:workflow-request-and-refusal"
+    "action:triggers.list", "action:triggers.register", "host:production", "path:success", "path:keyboard",
+    "door:slash", "door:button", "dimension:register-form", "dimension:keyboard", "dimension:no-write",
+    "evidence:form-readback-and-network-observation"
   ],
-  description: "The authenticated production dispatcher exposes its real Register button; keyboard activation reaches the current honest unsupported response and produces no registration write."
+  description: "The authenticated production dispatcher's Register button opens the triggers.register form by keyboard; Schedule stays disabled until a flow is named, and Cancel sends no write."
 }), async ({ page }) => {
   await bootProductionRepository(page)
-  const writes: Array<{ method: string; path: string }> = []
+  /* Relayed reads are POSTs too; a write is anything else sent to the relay or the repository-job routes. */
+  const reads = new Set(["List", "Projection.Snapshot"])
+  const writes: Array<{ method: string; path: string; procedure?: string }> = []
   page.on("request", (request) => {
     const url = new URL(request.url())
-    if (url.pathname.startsWith("/api/workflow/")) writes.push({ method: request.method(), path: url.pathname })
+    if (request.method() === "GET") return
+    if (url.pathname === "/api/workflow/rpc") {
+      const procedure = (request.postDataJSON() as { procedure?: string } | null)?.procedure
+      if (procedure === undefined || !reads.has(procedure)) writes.push({ method: request.method(), path: url.pathname, ...(procedure === undefined ? {} : { procedure }) })
+    } else if (url.pathname.startsWith("/api/workflow/") || url.pathname.includes("/repository-jobs")) writes.push({ method: request.method(), path: url.pathname })
   })
   await command(page, `/triggers.list ${PRODUCTION_REPO}`)
   await closeComposer(page)
@@ -145,6 +151,14 @@ authenticatedTest("production trigger registration reports its unsupported bound
   await register.focus()
   await expect(register).toBeFocused()
   await register.press("Enter")
-  await expect(transcript(page)).toContainText(/A rule cannot be registered on .* from here yet/i)
-  expect(writes.filter(({ method }) => method !== "GET")).toEqual([])
+  const form = page.locator('form.flow-form[data-flow-name="triggers.register"]').last()
+  await expect(form).toBeVisible()
+  await expect(form.getByTestId("flow-form-flow")).toBeVisible()
+  await expect(form.getByTestId("flow-form-submit")).toHaveText("Schedule")
+  await expect(form.getByTestId("flow-form-submit")).toBeDisabled()
+  await form.getByTestId("flow-form-flow").fill("nightly-lint")
+  await expect(form.getByTestId("flow-form-submit")).toBeEnabled()
+  await form.getByTestId("flow-form-cancel").click()
+  await expect(form).toHaveCount(0)
+  expect(writes).toEqual([])
 })

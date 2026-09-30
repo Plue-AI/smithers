@@ -13,7 +13,7 @@ import { Schema } from "effect"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readFile } from "node:fs/promises"
 import { flowArgs } from "../../flows/FlowArgs"
-import { CRON_REFUSAL, LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
+import { CRON_REFUSAL, LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, TOO_MANY_FLOWS, unboundedFlowSentence } from "./TriggersSeam"
 import type { TriggerWrite } from "./TriggersSeam"
 import { GATEWAY_REFUSED } from "../controller/GatewayFailureCopy"
 
@@ -1287,6 +1287,108 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(await registrationResult(controller, REQUEST)).toBe(registerUnavailableSentence("will/flows"))
     expect(calls.map((call) => call.procedure)).toEqual(["List"])
     expect(lastAction(store)).toBeUndefined()
+  })
+
+  /* A workspace answers flows 100 at a time (ControlSchema.defaultPageSize); the registrar and the target may sit on any page. */
+  test("the registrar and the flow on a later page of the workspace's flows are found by walking its cursor", async () => {
+    const calls: Array<RelayCall> = []
+    const filler = Array.from({ length: 100 }, (_, index) => ({ flowId: `bundled/${index}` }))
+    const pages: Record<string, unknown> = {
+      "": { _tag: "flows", items: filler, nextCursor: "100" },
+      "100": { _tag: "flows", items: FLOW_ITEMS }
+    }
+    const { store, controller } = await readyToRegister(
+      watched(backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({ List: (payload) => okFrame(pages[String(payload.cursor ?? "")]) })),
+        [APPROVAL]: json(200, approvalReceipt("2026-09-30T09:00:00Z"))
+      }))
+    )
+    expect(typeof await registrationResult(controller, REQUEST)).toBe("object")
+    expect(calls.map((call) => call.procedure)).toEqual(["List", "List", "Plan"])
+    expect(calls.slice(0, 2).map((call) => call.payload)).toEqual([{ _tag: "flows" }, { _tag: "flows", cursor: "100" }])
+    const approved = await controller.commands.run("triggers.approve", lastAction(store)?.args ?? "{}")
+    expect(approved.status).toBe("executed")
+    await waitFor(() => calls.filter((call) => call.procedure === "Run").length === 1)
+    expect(calls.map((call) => call.procedure).filter((name) => name !== "Projection.Snapshot")).toEqual([
+      "List", "List", "Plan", "List", "List", "Plan", "Approval.Submit", "Plan", "Approval.Submit", "Run"
+    ])
+  })
+
+  test("a workspace that answers an empty page with a fresh cursor ends the walk", async () => {
+    const calls: Array<RelayCall> = []
+    const { controller } = await readyToRegister(
+      backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({ List: (payload) => okFrame({ _tag: "flows", items: [], nextCursor: `${Number(payload.cursor ?? 0) + 1}` }) }))
+      })
+    )
+    expect(await registrationResult(controller, REQUEST)).toBe(registerUnavailableSentence("will/flows"))
+    expect(calls.map((call) => call.procedure)).toEqual(["List"])
+  })
+
+  test("a workspace that never stops naming fresh cursors is refused after 50 pages", async () => {
+    const calls: Array<RelayCall> = []
+    const { controller } = await readyToRegister(
+      backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({ List: (payload) => okFrame({ _tag: "flows", items: [FLOW_ITEMS[0]], nextCursor: `${Number(payload.cursor ?? 0) + 1}` }) }))
+      })
+    )
+    expect(await registrationResult(controller, REQUEST)).toBe(TOO_MANY_FLOWS)
+    expect(calls.map((call) => call.procedure)).toEqual(Array.from({ length: 50 }, () => "List"))
+  })
+
+  test("a refusal on a later page fails the preparation with the workspace's words", async () => {
+    const calls: Array<RelayCall> = []
+    const { controller } = await readyToRegister(
+      backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({
+          List: (payload) => payload.cursor === undefined
+            ? okFrame({ _tag: "flows", items: [FLOW_ITEMS[0]], nextCursor: "1" })
+            : { status: "provisioning", message: "The workspace is resuming; ask again in a moment." }
+        }))
+      })
+    )
+    expect(await registrationResult(controller, REQUEST)).toBe("The workspace is still starting. Try again in a moment.")
+    expect(calls.map((call) => call.procedure)).toEqual(["List", "List"])
+  })
+
+  test("a box that changes while the first page is out stops the walk and asks to prepare again", async () => {
+    const held = Promise.withResolvers<void>()
+    const calls: Array<RelayCall> = []
+    const { store, controller } = await readyToRegister(
+      backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({
+          List: async (payload) => {
+            await held.promise
+            return okFrame(payload.cursor === undefined ? { _tag: "flows", items: [FLOW_ITEMS[0]], nextCursor: "1" } : { _tag: "flows", items: [FLOW_ITEMS[1]] })
+          }
+        }))
+      })
+    )
+    try {
+      const answer = registrationResult(controller, REQUEST)
+      await waitFor(() => calls.some((call) => call.procedure === "List"))
+      await jobSetUp(store, "will/flows", "5d1e0c3a-0000-4000-8000-000000000002")
+      held.resolve()
+      expect(await answer).toBe("The box changed. Prepare this schedule again.")
+      expect(calls.map((call) => call.procedure)).toEqual(["List"])
+    } finally { held.resolve() }
+  })
+
+  test("a workspace that repeats its flow cursor ends the walk instead of looping", async () => {
+    const calls: Array<RelayCall> = []
+    const { controller } = await readyToRegister(
+      backend({
+        [PROJECTION]: projectionDocument(DAY_ONE),
+        [RPC]: relayRoute(calls, workspaceAnswers({ List: () => okFrame({ _tag: "flows", items: [FLOW_ITEMS[0]], nextCursor: "0" }) }))
+      })
+    )
+    expect(await registrationResult(controller, REQUEST)).toBe(registerUnavailableSentence("will/flows"))
+    expect(calls.map((call) => call.procedure)).toEqual(["List", "List"])
   })
 
   test("the agent may prepare a registration and may never approve one", async () => {
