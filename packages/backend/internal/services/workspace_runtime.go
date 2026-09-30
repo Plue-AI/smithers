@@ -302,7 +302,6 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		s.meterWorkspaceUsage(ctx, row, "running")
 		s.notifyWorkspace(ctx, row.ID, "running")
 	}
-	row = s.ensureRuntimeWorkspaceHeadReporter(ctx, row, requesterID, observed)
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
 }
