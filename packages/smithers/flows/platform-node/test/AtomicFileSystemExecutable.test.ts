@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
   access,
@@ -45,6 +46,24 @@ const helper = async (path: string) => {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, "#!/bin/sh\nexit 0\n")
   await chmod(path, 0o755)
+}
+
+/**
+ * Leaves `base` writable but unlistable by this user, and returns the undo:
+ * POSIX drops the read bit; Windows denies the list-directory right (RD) to
+ * this user's SID on the directory alone, so new children inherit nothing.
+ */
+const refuseListing = async (base: string): Promise<() => Promise<void>> => {
+  if (process.platform !== "win32") {
+    await chmod(base, 0o300)
+    return () => chmod(base, 0o700)
+  }
+  const sid = /S-1-[\d-]+/.exec(execFileSync("whoami", ["/user"], { encoding: "utf8" }))?.[0]
+  if (sid === undefined) throw new Error("whoami reported no user SID")
+  execFileSync("icacls", [base, "/deny", `*${sid}:(RD)`])
+  return async () => {
+    execFileSync("icacls", [base, "/remove:d", `*${sid}`])
+  }
 }
 
 afterEach(async () => {
@@ -212,20 +231,34 @@ describe("default atomic helper resolution", () => {
     expect(await readdir(otherDirectory)).toEqual([])
   })
 
-  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  // Root reads any POSIX directory; Windows denies the list-directory right
+  // even to an elevated runner, so only root is skipped.
+  it.skipIf(process.getuid?.() === 0)(
     "stages in a base it may write but not list, leaving pruning for a later process",
     async () => {
       const { root } = await fixture()
       const source = join(root, "helper")
+      const later = join(root, "later-helper")
       const base = join(root, "stage")
       await helper(source)
-      await mkdir(base, { mode: 0o300 })
+      await writeFile(later, "#!/bin/sh\nexit 1\n")
+      await chmod(later, 0o755)
+      await mkdir(base)
+      const stale = join(base, ".smthrs-atomic-helper-stale")
+      await mkdir(stale)
+      const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+      await utimes(stale, old, old)
+      const allowListing = await refuseListing(base)
       try {
+        await expect(readdir(base)).rejects.toThrow()
         const selected = outsideWorkspace(source, undefined, [base])
         expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
       } finally {
-        await chmod(base, 0o700)
+        await allowListing()
       }
+      expect(await readdir(base)).toContain(basename(stale))
+      outsideWorkspace(later, undefined, [base])
+      expect(await readdir(base)).not.toContain(basename(stale))
     }
   )
 
