@@ -149,6 +149,8 @@ const mcpServersFromArguments = (
   return decoded.success.map((entry): McpClient.ConnectOptions => {
     if (!("bearerTokenEnv" in entry)) return entry
     const { bearerTokenEnv, ...http } = entry
+    // Without exactOptionalPropertyTypes (apps/tui compiles this file) the key may hold undefined.
+    if (bearerTokenEnv === undefined) return http
     const token = Environment_.read(environment, bearerTokenEnv)
     if (token === undefined) {
       throw new CliError.UsageError({
