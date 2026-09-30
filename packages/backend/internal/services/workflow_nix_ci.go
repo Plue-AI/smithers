@@ -823,87 +823,110 @@ func (w *WorkflowSandboxSchedulerWorker) appendNixCILines(ctx context.Context, t
 	}
 }
 
-// nixCILogLines turns a task's polled log bytes into redacted log lines. Polls
-// cut the log at arbitrary byte offsets, so it redacts only complete lines and
-// carries the unterminated tail into the next poll; redacting each poll's
-// fragment on its own would let a secret split across two polls escape
-// RedactSecretValues in both halves.
+// nixCILogLines turns polled log bytes into lines, retaining raw secret prefixes.
+// Mask spans survive forced flushes without exposing a secret's remaining bytes.
 type nixCILogLines struct {
-	redactEnv map[string]string
-	// longestSecret is the byte length of the longest value RedactSecretValues
-	// masks: a forced flush keeps at least longestSecret-1 bytes back.
+	secrets       []secretPattern
 	longestSecret int
 	pending       string
+	pendingMasks  []secretSpan
 }
 
 func newNixCILogLines(redactEnv map[string]string) *nixCILogLines {
-	longest := 0
+	values := make([]string, 0, len(redactEnv))
 	for _, value := range redactEnv {
-		longest = max(longest, len(strings.TrimSpace(value)))
+		values = append(values, strings.ReplaceAll(strings.TrimSpace(value), "\r\n", "\n"))
 	}
-	return &nixCILogLines{redactEnv: redactEnv, longestSecret: longest}
+	logs := &nixCILogLines{secrets: newSecretPatterns(values)}
+	for _, pattern := range logs.secrets {
+		logs.longestSecret = max(logs.longestSecret, len(pattern.value))
+	}
+	return logs
 }
 
-// push adds one poll's bytes and returns the lines they completed.
+// partialSuffix finds a proper secret prefix at the end in linear time.
+func (s secretPattern) partialSuffix(text string) int {
+	text = text[max(len(text)-len(s.value)+1, 0):]
+	matched := 0
+	for i := 0; i < len(text); i++ {
+		for matched > 0 && text[i] != s.value[matched] {
+			matched = s.prefix[matched-1]
+		}
+		if text[i] == s.value[matched] {
+			matched++
+		}
+	}
+	return matched
+}
+
+func (l *nixCILogLines) masks(text string) []secretSpan {
+	return mergeSecretSpans(append(findSecretSpans(l.secrets, text), l.pendingMasks...))
+}
+
+// push adds one poll's bytes and returns the lines safely completed.
 func (l *nixCILogLines) push(chunk string) []string {
-	// Normalize after joining so a CRLF split across polls still collapses.
-	text := strings.ReplaceAll(l.pending+chunk, "\r\n", "\n")
+	// Normalize incoming bytes once, including a CRLF split across polls.
+	// Re-normalizing pending bytes would collapse nested CRLF sequences twice.
+	pending := l.pending
+	if strings.HasSuffix(pending, "\r") && strings.HasPrefix(chunk, "\n") {
+		pending = strings.TrimSuffix(pending, "\r")
+	}
+	text := pending + strings.ReplaceAll(chunk, "\r\n", "\n")
+	masks := l.masks(text)
 	cut := strings.LastIndex(text, "\n") + 1
-	if tail := text[cut:]; len(tail) > nixCIMaxPendingLogBytes+l.longestSecret {
-		cut += l.safeCut(tail)
+	// Keep the ordinary prefix on the same line as its complete or partial mask.
+	prefixText := strings.TrimSuffix(text, "\r")
+	for _, secret := range l.secrets {
+		if matched := secret.partialSuffix(prefixText); matched > 0 {
+			start := len(prefixText) - matched
+			if start < cut {
+				cut = strings.LastIndex(text[:start], "\n") + 1
+			}
+		}
 	}
-	l.pending = text[cut:]
-	return l.redactLines(text[:cut])
-}
-
-// flush returns whatever is still held back, for when the log ends.
-func (l *nixCILogLines) flush() []string {
-	text := l.pending
-	l.pending = ""
-	return l.redactLines(text)
-}
-
-// safeCut picks where to break an oversized unterminated line: far enough
-// from its end that a secret still being written cannot straddle the break,
-// and never inside a secret or a UTF-8 sequence already in the line.
-func (l *nixCILogLines) safeCut(line string) int {
-	cut := len(line) - max(l.longestSecret-1, 0)
-	for moved := true; moved; {
-		moved = false
-		for cut > 0 && cut < len(line) && !utf8.RuneStart(line[cut]) {
+	for i := len(masks) - 1; i >= 0; i-- {
+		if masks[i].start < cut && cut < masks[i].end {
+			cut = strings.LastIndex(text[:masks[i].start], "\n") + 1
+		}
+	}
+	// A forced cut keeps every possible incomplete secret and a split CRLF.
+	// Complete masks may cross it; their retained span suppresses the remainder.
+	if len(text)-cut > max(nixCIMaxPendingLogBytes, l.longestSecret)+1 {
+		cut = len(text) - l.longestSecret
+		floor := max(cut-(utf8.UTFMax-1), 0)
+		for cut > floor && cut < len(text) && !utf8.RuneStart(text[cut]) {
 			cut--
-			moved = true
-		}
-		for _, value := range l.redactEnv {
-			secret := strings.TrimSpace(value)
-			if secret == "" {
-				continue
-			}
-			for start := max(cut-len(secret)+1, 0); start < cut; start++ {
-				if strings.HasPrefix(line[start:], secret) {
-					cut = start
-					moved = true
-					break
-				}
-			}
 		}
 	}
-	if cut == 0 {
-		// Back-to-back secrets fill the whole line; flushing it all still
-		// redacts every complete one.
-		return len(line)
-	}
-	return cut
-}
-
-func (l *nixCILogLines) redactLines(text string) []string {
-	redacted := RedactSecretValues(l.redactEnv, text)
-	lines := []string{}
-	for _, line := range strings.Split(redacted, "\n") {
-		if strings.TrimSpace(line) == "" {
+	redacted := redactSecretSpans(text[:cut], masks)
+	l.pending = text[cut:]
+	l.pendingMasks = nil
+	for _, mask := range masks {
+		if mask.end <= cut {
 			continue
 		}
-		lines = append(lines, line)
+		mask.rendered = mask.rendered || mask.start < cut
+		mask.start = max(mask.start-cut, 0)
+		mask.end -= cut
+		l.pendingMasks = append(l.pendingMasks, mask)
+	}
+	return nixCIRedactedLines(redacted)
+}
+
+func (l *nixCILogLines) flush() []string {
+	text := l.pending
+	redacted := redactSecretSpans(text, l.masks(text))
+	l.pending = ""
+	l.pendingMasks = nil
+	return nixCIRedactedLines(redacted)
+}
+
+func nixCIRedactedLines(redacted string) []string {
+	lines := []string{}
+	for _, line := range strings.Split(redacted, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
 	}
 	return lines
 }

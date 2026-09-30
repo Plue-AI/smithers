@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -650,4 +651,150 @@ func TestNixCIRun_EachGuestClonesWithItsOwnRepositoryBoundToken(t *testing.T) {
 	assert.Equal(t, []bool{true, true}, revokedBeforeJob,
 		"each clone token is revoked once its guest has cloned, before the job runs")
 	assert.Equal(t, []int64{42}, queries.markSuccessIDs)
+}
+
+func TestNixCIStream_RedactsMultilineSecretsAtEveryBytePartition(t *testing.T) {
+	for _, newline := range []string{"\n", "\r\n"} {
+		secret := "alpha-secret" + newline + "omega-secret"
+		text := "before " + secret + " after" + newline + "ordinary" + newline
+		want := []string{"before " + redactedSecretValue + " after", "ordinary"}
+		for cut := 0; cut <= len(text); cut++ {
+			assert.Equal(t, want, streamNixCIChunks(t, map[string]string{"TOKEN": secret}, text[:cut], text[cut:]), "newline=%q cut=%d", newline, cut)
+		}
+		chunks := make([]string, len(text))
+		for i := range text {
+			chunks[i] = text[i : i+1]
+		}
+		assert.Equal(t, want, streamNixCIChunks(t, map[string]string{"TOKEN": secret}, chunks...), "newline=%q single byte", newline)
+	}
+}
+func TestNixCIStream_RedactsMultilineSecretBeforeOrdinaryTail(t *testing.T) {
+	assert.Equal(t, []string{"before " + redactedSecretValue + " after done"}, streamNixCIChunks(t, map[string]string{"TOKEN": "alpha-secret\nomega-secret"}, "before alpha-secret\nomega-secret after", " done\n"))
+}
+func TestNixCIStream_FlushesMultilineSecretAtExit(t *testing.T) {
+	assert.Equal(t, []string{"before " + redactedSecretValue + " after"}, streamNixCIChunks(t, map[string]string{"TOKEN": "alpha-secret\nomega-secret"}, "before alpha-secret\n", "omega-secret after"))
+}
+func TestNixCIStream_RedactsMultilineSecretWithOversizedPartialLine(t *testing.T) {
+	second := strings.Repeat("s", nixCIMaxPendingLogBytes+17)
+	secret := "first-secret\n" + second
+	entries := streamNixCIChunks(t, map[string]string{"TOKEN": secret}, "before first-secret\n"+second[:len(second)-1], second[len(second)-1:]+" after\n")
+	assert.Equal(t, "before "+redactedSecretValue+" after", strings.Join(entries, ""))
+}
+func TestNixCIStream_ForcedFlushPreservesTrailingSecretPrefix(t *testing.T) {
+	secret := "alpha-secret\nomega-secret"
+	count := nixCIMaxPendingLogBytes/len(secret) + 2
+	assert.Equal(t, strings.Repeat(redactedSecretValue, count+1), strings.Join(streamNixCIChunks(t, map[string]string{"TOKEN": secret}, strings.Repeat(secret, count)+"alpha-secret\n", "omega-secret\n"), ""))
+}
+func TestNixCILogLines_EmitsBenignLinesWhileHoldingPartialMultilineSecret(t *testing.T) {
+	logs := newNixCILogLines(map[string]string{"TOKEN": "alpha-secret\nomega-secret"})
+	assert.Equal(t, []string{"ordinary"}, logs.push("ordinary\nalpha-secret\n"))
+	assert.Empty(t, logs.push("omega-"))
+	assert.Equal(t, []string{redactedSecretValue + " after", "next"}, logs.push("secret after\nnext\n"))
+	assert.Empty(t, logs.flush())
+}
+
+func TestNixCILogLines_BoundsPendingBeforeMultilinePrefix(t *testing.T) {
+	secret := "alpha-secret\nomega-secret"
+	logs := newNixCILogLines(map[string]string{"TOKEN": secret})
+	emitted := []string{}
+	filler := strings.Repeat("x", nixCIMaxPendingLogBytes*2)
+	for i := 0; i < 3; i++ {
+		emitted = append(emitted, logs.push(filler+"alpha-secret\n")...)
+		assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+len(secret)+1)
+		emitted = append(emitted, logs.push("omega-secret\n")...)
+	}
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, strings.Repeat(filler+redactedSecretValue, 3), strings.Join(emitted, ""))
+}
+
+func TestNixCILogLines_BoundsPendingWithSplitCRLFAfterMultilinePrefix(t *testing.T) {
+	secret := "alpha-secret\nomega-secret\nend-secret"
+	logs := newNixCILogLines(map[string]string{"TOKEN": secret})
+	filler := strings.Repeat("x", nixCIMaxPendingLogBytes*2)
+	emitted := logs.push(filler + "alpha-secret\nomega-secret\r")
+	assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+len(secret)+1)
+	emitted = append(emitted, logs.push("\nend-secret\n")...)
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, filler+redactedSecretValue, strings.Join(emitted, ""))
+}
+
+func TestNixCILogLines_HoldsSecretLongerThanPendingCap(t *testing.T) {
+	secret := strings.Repeat("s", 1<<20)
+	logs := newNixCILogLines(map[string]string{"TOKEN": secret})
+	assert.Empty(t, logs.push(secret[:len(secret)-1]))
+	assert.Equal(t, len(secret)-1, len(logs.pending))
+	assert.Equal(t, []string{redactedSecretValue}, logs.push("s\n"))
+	assert.Empty(t, logs.flush())
+}
+
+func TestNixCIStream_RedactsOverlappingMultilineSecretsAtEveryBytePartition(t *testing.T) {
+	for _, secret := range []string{"pw=hunter2\nTAIL-SECRET-LINE", "first-line\npw=hunter2\nTAIL-SECRET-LINE"} {
+		text := "before " + secret + " after\n"
+		secrets := map[string]string{"SHORT": "hunter2", "LONG": secret}
+		for cut := 0; cut <= len(text); cut++ {
+			assert.Equal(t, []string{"before " + redactedSecretValue + " after"}, streamNixCIChunks(t, secrets, text[:cut], text[cut:]), "secret=%q cut=%d", secret, cut)
+		}
+		chunks := make([]string, len(text))
+		for i := range text {
+			chunks[i] = text[i : i+1]
+		}
+		assert.Equal(t, []string{"before " + redactedSecretValue + " after"}, streamNixCIChunks(t, secrets, chunks...))
+	}
+}
+
+func TestNixCILogLines_BoundsOverlappingMaskChainAndTrailingMultilinePrefix(t *testing.T) {
+	long := "pw=hunter2\nTAIL-SECRET-LINE"
+	logs := newNixCILogLines(map[string]string{"FIRST": "ab", "SECOND": "ba", "SHORT": "hunter2", "LONG": long})
+	chain := strings.Repeat("ab", nixCIMaxPendingLogBytes)
+	emitted := logs.push(chain + "pw=hunter2\n")
+	assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+len(long)+1)
+	emitted = append(emitted, logs.push("TAIL-SECRET-LINE\n")...)
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, redactedSecretValue+redactedSecretValue, strings.Join(emitted, ""))
+}
+
+func TestNixCILogLines_ForcedCutPreservesUTF8AndCarriedMask(t *testing.T) {
+	secret := strings.Repeat("秘密", nixCIMaxPendingLogBytes/6) + "終"
+	logs := newNixCILogLines(map[string]string{"TOKEN": secret})
+	filler := strings.Repeat("界", nixCIMaxPendingLogBytes/3+3)
+	emitted := logs.push(filler + secret + "tail")
+	assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+len(secret)+3)
+	emitted = append(emitted, logs.push(" done\n")...)
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, filler+redactedSecretValue+"tail done", strings.Join(emitted, ""))
+	for _, entry := range emitted {
+		assert.True(t, utf8.ValidString(entry))
+	}
+}
+
+func TestNixCIStream_RedactsNestedCRLFSecretAtEveryBytePartition(t *testing.T) {
+	secret := "alpha\r\r\nbeta"
+	text := "before " + secret + " after\n"
+	for cut := 0; cut <= len(text); cut++ {
+		assert.Equal(t, []string{"before " + redactedSecretValue + " after"}, streamNixCIChunks(t, map[string]string{"TOKEN": secret}, text[:cut], text[cut:]), "cut=%d", cut)
+	}
+	chunks := make([]string, len(text))
+	for i := range text {
+		chunks[i] = text[i : i+1]
+	}
+	assert.Equal(t, []string{"before " + redactedSecretValue + " after"}, streamNixCIChunks(t, map[string]string{"TOKEN": secret}, chunks...))
+}
+
+func TestNixCILogLines_ForcedCutMasksSelfOverlappingOccurrences(t *testing.T) {
+	logs := newNixCILogLines(map[string]string{"TOKEN": "aba"})
+	text := strings.Repeat("ab", nixCIMaxPendingLogBytes) + "a ordinary"
+	emitted := logs.push(text)
+	assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+3+1)
+	emitted = append(emitted, logs.push(" done\n")...)
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, redactedSecretValue+" ordinary done", strings.Join(emitted, ""))
+}
+
+func TestNixCILogLines_BoundsInvalidUTF8ContinuationBytes(t *testing.T) {
+	logs := newNixCILogLines(map[string]string{"TOKEN": "secret-token"})
+	text := strings.Repeat(string([]byte{0x80}), nixCIMaxPendingLogBytes*2)
+	emitted := logs.push(text)
+	assert.LessOrEqual(t, len(logs.pending), nixCIMaxPendingLogBytes+len("secret-token")+utf8.UTFMax-1)
+	emitted = append(emitted, logs.flush()...)
+	assert.Equal(t, text, strings.Join(emitted, ""))
 }

@@ -386,15 +386,62 @@ const invokedFlowLogEntryLimit = 16 << 10
 
 // invokedFlowLogEntry renders one journal event as a log line: its kind and
 // payload.
-func invokedFlowLogEntry(event flowruntime.FlowRuntimeEvent) string {
+func invokedFlowLogEntry(event flowruntime.FlowRuntimeEvent, redactionPatterns []secretPattern) string {
 	entry := event.Kind
 	if payload := strings.TrimSpace(string(event.Payload)); payload != "" && payload != "null" && payload != "{}" {
 		entry += " " + payload
 	}
+	// Redact the complete event before a size limit can split a secret.
+	entry = redactInvokedFlowEntry(redactionPatterns, entry)
 	if len(entry) > invokedFlowLogEntryLimit {
 		entry = strings.ToValidUTF8(entry[:invokedFlowLogEntryLimit], "") + " …"
 	}
 	return entry
+}
+
+// redactInvokedFlowEntry masks original raw matches and decoded JSON values
+// together so masking one secret cannot hide another overlapping secret.
+func redactInvokedFlowEntry(patterns []secretPattern, entry string) string {
+	if len(patterns) == 0 {
+		return entry
+	}
+	return redactSecretSpans(entry, mergeSecretSpans(invokedFlowSecretSpans(patterns, entry, 0)))
+}
+
+func invokedFlowSecretSpans(patterns []secretPattern, entry string, depth int) []secretSpan {
+	spans := findSecretSpans(patterns, entry)
+	for start := 0; start < len(entry); start++ {
+		if entry[start] == '\\' {
+			start++
+			continue
+		}
+		if entry[start] != '"' {
+			continue
+		}
+		end := start + 1
+		for end < len(entry) {
+			if entry[end] == '\\' {
+				end += 2
+				continue
+			}
+			if entry[end] == '"' {
+				break
+			}
+			end++
+		}
+		if end >= len(entry) {
+			break
+		}
+		var decoded string
+		if json.Unmarshal([]byte(entry[start:end+1]), &decoded) != nil {
+			continue
+		}
+		// Fail closed on excessive nested JSON string encodings.
+		if depth >= 64 || len(invokedFlowSecretSpans(patterns, decoded, depth+1)) > 0 {
+			spans = append(spans, secretSpan{start: start + 1, end: end})
+		}
+	}
+	return spans
 }
 
 // invokedFlowSource is the system log line naming the source an invoked run
@@ -505,10 +552,11 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 			return fmt.Errorf("load invoked Flow log redaction: %w", err)
 		}
 	}
+	redactionPatterns := newSecretPatterns(secretValues(redact))
 	// A page is logged once: only when it continues the logged journal.
 	if len(update.Events) > 0 && update.EventsAfter == record.LogCursor && checkpoint.Cursor != record.LogCursor {
 		for _, event := range update.Events {
-			if err := appendLog("stdout", RedactSecretValues(redact, invokedFlowLogEntry(event))); err != nil {
+			if err := appendLog("stdout", invokedFlowLogEntry(event, redactionPatterns)); err != nil {
 				return fmt.Errorf("log invoked Flow event: %w", err)
 			}
 		}
@@ -540,7 +588,7 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 		}
 		changed = tag.RowsAffected() == 1
 		if changed && status == "failure" {
-			if err := appendLog("system", RedactSecretValues(redact, invokedFlowFailure(checkpoint))); err != nil {
+			if err := appendLog("system", redactInvokedFlowEntry(redactionPatterns, invokedFlowFailure(checkpoint))); err != nil {
 				return fmt.Errorf("log invoked Flow failure: %w", err)
 			}
 		}

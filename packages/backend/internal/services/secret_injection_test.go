@@ -263,3 +263,55 @@ func TestRedactSecretValues_RedactsDistinctSecrets(t *testing.T) {
 
 	assert.Equal(t, "token=******** agent=********", redacted)
 }
+
+func TestRedactSecretValues_RedactsMultilineNewlineVariants(t *testing.T) {
+	t.Parallel()
+	for _, secret := range []string{"first-secret\nsecond-secret", "first-secret\r\nsecond-secret"} {
+		for _, newline := range []string{"\n", "\r\n"} {
+			assert.Equal(t, "before "+redactedSecretValue+" after", RedactSecretValues(map[string]string{"TOKEN": secret}, "before first-secret"+newline+"second-secret after"), "secret=%q newline=%q", secret, newline)
+		}
+	}
+}
+
+func TestRedactSecretValues_HandlesOverlappingAndAdjacentValues(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		env        map[string]string
+		text, want string
+	}{
+		{"nil", nil, "ordinary", "ordinary"},
+		{"empty text", map[string]string{"TOKEN": "secret"}, "", ""},
+		{"blank values", map[string]string{"TOKEN": " \n\r\t"}, "ordinary", "ordinary"},
+		{"adjacent", map[string]string{"TOKEN": "abc"}, "abcabc", redactedSecretValue + redactedSecretValue},
+		{"contained", map[string]string{"SHORT": "hunter2", "LONG": "pw=hunter2\nTAIL"}, "pw=hunter2\nTAIL", redactedSecretValue},
+		{"partial overlap", map[string]string{"FIRST": "abc", "SECOND": "bcd"}, "abcd", redactedSecretValue},
+		{"newline dedup", map[string]string{"FIRST": "alpha\nbeta", "SECOND": "alpha\r\nbeta"}, "alpha\nbeta alpha\r\nbeta", redactedSecretValue + " " + redactedSecretValue},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, RedactSecretValues(tc.env, tc.text)) })
+	}
+}
+
+func TestRedactSecretValues_RedactsSelfOverlappingOccurrences(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, redactedSecretValue, RedactSecretValues(map[string]string{"TOKEN": "aba"}, "ababa"))
+}
+
+func TestRedactSecretValues_RedactsLongSelfOverlappingOccurrences(t *testing.T) {
+	t.Parallel()
+	secret := strings.Repeat("a", 64<<10)
+	assert.Equal(t, redactedSecretValue, RedactSecretValues(map[string]string{"TOKEN": secret}, secret+secret))
+}
+
+func TestRedactSecretValues_BoundsAllocationForLongerThanTextSecrets(t *testing.T) {
+	env := map[string]string{"TOKEN": strings.Repeat("s", 1<<20)}
+	result := testing.Benchmark(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if got := RedactSecretValues(env, "ordinary log"); got != "ordinary log" {
+				b.Fatalf("unexpected redaction: %q", got)
+			}
+		}
+	})
+	assert.Less(t, result.AllocedBytesPerOp(), int64(1<<20), "an unrelated short line must not compile megabytes of secret patterns")
+}

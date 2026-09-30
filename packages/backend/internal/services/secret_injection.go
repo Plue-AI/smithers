@@ -225,11 +225,14 @@ func (s *SecretInjector) InjectRepositoryEnvironment(
 	return result, nil
 }
 
-func RedactSecretValues(secretEnv map[string]string, text string) string {
-	if len(secretEnv) == 0 || text == "" {
-		return text
-	}
+// secretSpan marks raw bytes to hide. rendered tracks a mask already emitted
+// when a workflow log's bounded buffer splits a secret across stored entries.
+type secretSpan struct {
+	start, end int
+	rendered   bool
+}
 
+func secretValues(secretEnv map[string]string) []string {
 	values := make([]string, 0, len(secretEnv))
 	seen := make(map[string]struct{}, len(secretEnv))
 	for _, value := range secretEnv {
@@ -237,21 +240,121 @@ func RedactSecretValues(secretEnv map[string]string, text string) string {
 		if trimmed == "" {
 			continue
 		}
-		if _, ok := seen[trimmed]; ok {
+		normalized := strings.ReplaceAll(trimmed, "\r\n", "\n")
+		for _, candidate := range []string{trimmed, normalized, strings.ReplaceAll(normalized, "\n", "\r\n")} {
+			if _, ok := seen[candidate]; ok {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			values = append(values, candidate)
+		}
+	}
+	return values
+}
+
+type secretPattern struct {
+	value  string
+	prefix []int
+}
+
+func newSecretPatterns(values []string) []secretPattern {
+	patterns := []secretPattern{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
 			continue
 		}
-		seen[trimmed] = struct{}{}
-		values = append(values, trimmed)
+		seen[value] = true
+		pattern := secretPattern{value: value, prefix: make([]int, len(value))}
+		for i, matched := 1, 0; i < len(value); i++ {
+			for matched > 0 && value[i] != value[matched] {
+				matched = pattern.prefix[matched-1]
+			}
+			if value[i] == value[matched] {
+				matched++
+			}
+			pattern.prefix[i] = matched
+		}
+		patterns = append(patterns, pattern)
 	}
-	slices.SortFunc(values, func(a, b string) int {
-		return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b))
-	})
+	return patterns
+}
 
-	redacted := text
-	for _, value := range values {
-		redacted = strings.ReplaceAll(redacted, value, redactedSecretValue)
+func findSecretSpans(patterns []secretPattern, text string) []secretSpan {
+	spans := []secretSpan{}
+	for _, pattern := range patterns {
+		first := len(spans)
+		matched := 0
+		for i := 0; i < len(text); i++ {
+			for matched > 0 && text[i] != pattern.value[matched] {
+				matched = pattern.prefix[matched-1]
+			}
+			if text[i] == pattern.value[matched] {
+				matched++
+			}
+			if matched == len(pattern.value) {
+				span := secretSpan{start: i + 1 - matched, end: i + 1}
+				if len(spans) > first && span.start < spans[len(spans)-1].end {
+					spans[len(spans)-1].end = span.end
+				} else {
+					spans = append(spans, span)
+				}
+				matched = pattern.prefix[matched-1]
+			}
+		}
 	}
-	return redacted
+	return spans
+}
+
+func mergeSecretSpans(spans []secretSpan) []secretSpan {
+	slices.SortFunc(spans, func(a, b secretSpan) int { return cmp.Or(cmp.Compare(a.start, b.start), cmp.Compare(b.end, a.end)) })
+	merged := spans[:0]
+	for _, span := range spans {
+		if len(merged) > 0 && span.start < merged[len(merged)-1].end {
+			last := &merged[len(merged)-1]
+			last.end = max(last.end, span.end)
+			last.rendered = last.rendered || span.rendered
+		} else {
+			merged = append(merged, span)
+		}
+	}
+	return merged
+}
+
+func redactSecretSpans(text string, spans []secretSpan) string {
+	var redacted strings.Builder
+	cursor := 0
+	for _, span := range spans {
+		if span.start >= len(text) {
+			break
+		}
+		end := min(span.end, len(text))
+		redacted.WriteString(text[cursor:span.start])
+		if !span.rendered {
+			redacted.WriteString(redactedSecretValue)
+		}
+		cursor = end
+	}
+	redacted.WriteString(text[cursor:])
+	return redacted.String()
+}
+
+func RedactSecretValues(secretEnv map[string]string, text string) string {
+	if len(secretEnv) == 0 || text == "" {
+		return text
+	}
+	values := secretValues(secretEnv)
+	matching := values[:0]
+	for _, value := range values {
+		if len(value) <= len(text) {
+			matching = append(matching, value)
+		}
+	}
+	return redactCompiledSecretValues(newSecretPatterns(matching), text)
+}
+
+func redactCompiledSecretValues(patterns []secretPattern, text string) string {
+	return redactSecretSpans(text, mergeSecretSpans(findSecretSpans(patterns, text)))
 }
 
 func IsInjectedSecretName(name string) bool {
