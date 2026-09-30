@@ -109,14 +109,17 @@ A target that declares `approval: "required"`, such as `S.Docker.Push`, runs onl
 **Available now.**
 
 ```sh
+smthrs approvals list --targets
 smthrs approvals grant //images:push
 smthrs target //images:push
 ```
 
+`grant` also works against a remote host with `--remote`.
+
 </TabItem>
 <TabItem label="API">
 
-**Available now.** `Plan { flowId: "system/target", input: { label, digest }, idempotencyKey: "target:<label>:<digest>" }`, then `Approval.Submit` with the returned plan and `decision: "approve"`. `digest` is the target's `approval` in `smthrs target <label> --plan --json`.
+**Available now.** `Plan { flowId: "system/target", input: { label, digest }, idempotencyKey: "target:<label>:<digest>" }`, then `Approval.Submit` with the returned plan and `decision: "approve"`. `digest` is the target's `approval` in `smthrs target <label> --plan --json`. `List { _tag: "plans", filters: { flowId: "system/target", decision: "pending" } }` returns the revisions waiting; pass an item's `card.approval` to `Approval.Submit`.
 
 </TabItem>
 </Tabs>

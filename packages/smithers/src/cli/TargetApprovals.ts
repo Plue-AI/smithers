@@ -12,8 +12,9 @@
  */
 
 import type { TargetApprovalRequest, TargetApprovals } from "@smthrs/build-cli/PackageExec"
-import { Control, ControlRuntime } from "@smthrs/control"
-import { Effect } from "effect"
+import { Control, ControlRuntime, type ControlSchema } from "@smthrs/control"
+import { Effect, Schema } from "effect"
+import * as CliError from "../CliError.ts"
 import * as NodeControl from "../NodeControl.ts"
 
 /**
@@ -63,7 +64,7 @@ export const store: TargetApprovals = {
  * @category constructors
  * @since 1.0.0
  */
-export const grant = (request: TargetApprovalRequest) =>
+export const grant = (request: Pick<TargetApprovalRequest, "label" | "digest">) =>
   Effect.gen(function*() {
     const control = yield* Control.Control
     const card = yield* control.plan(planInput(request))
@@ -73,4 +74,84 @@ export const grant = (request: TargetApprovalRequest) =>
       idempotencyKey: `approve:${card.planId}`
     })
     return { label: request.label, revision: request.digest, planId: card.planId, receipt: receipt._tag }
+  })
+
+/**
+ * One target revision waiting for an operator: the target's label, the
+ * revision digest, and the exact payload `approvals approve` or
+ * `approvals deny` takes.
+ * @category models
+ * @since 1.0.0
+ */
+export interface PendingTarget {
+  readonly target: string
+  readonly revision: string
+  readonly approval: ControlSchema.ApprovalPayload
+}
+
+const TargetInput = Schema.Struct({ label: Schema.String, digest: Schema.String })
+const isTargetInput = Schema.is(TargetInput)
+
+/**
+ * Every target revision the control plane holds pending, oldest first, read
+ * through `Control.list` so a local store and a remote control plane answer
+ * alike.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const pending = Effect.gen(function*() {
+  const control = yield* Control.Control
+  const rows: Array<PendingTarget> = []
+  let cursor: string | undefined
+  do {
+    const page = yield* control.list({
+      _tag: "plans",
+      filters: { flowId, decision: "pending" },
+      ...(cursor === undefined ? {} : { cursor })
+    })
+    if (page._tag !== "plans") {
+      return yield* new CliError.Refused({
+        fault: "bug",
+        code: "unexpected_listing",
+        message: `A plan listing answered ${page._tag}`
+      })
+    }
+    for (const item of page.items) {
+      if (isTargetInput(item.input)) {
+        rows.push({ target: item.input.label, revision: item.input.digest, approval: item.card.approval })
+      }
+    }
+    cursor = page.nextCursor
+  } while (cursor !== undefined)
+  return rows
+})
+
+/**
+ * Approves a pending revision of `target` found through the control plane,
+ * without the workspace: how a remote operator grants what a remote build
+ * refused. `revision` picks one when several revisions of the target wait.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const grantPending = (target: string, revision?: string | undefined) =>
+  Effect.gen(function*() {
+    const label = target.startsWith("//") || target.startsWith("@") ? target : `//${target}`
+    const waiting = (yield* pending).filter((row) =>
+      row.target === label && (revision === undefined || row.revision === revision)
+    )
+    if (waiting.length === 0) {
+      return yield* new CliError.Refused({
+        fault: "user",
+        code: "approval_not_found",
+        message: `No pending approval for ${label}${revision === undefined ? "" : ` at ${revision}`}`
+      })
+    }
+    if (waiting.length > 1) {
+      return yield* new CliError.UsageError({
+        message: `${label} has ${waiting.length} pending revisions; pass --revision: ${
+          waiting.map((row) => row.revision).join(", ")
+        }`
+      })
+    }
+    return yield* grant({ label, digest: waiting[0]!.revision })
   })

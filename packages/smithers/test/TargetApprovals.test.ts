@@ -95,4 +95,69 @@ describe("build target approvals", { timeout: 60_000 }, () => {
       _tag: "/control/AlreadyResolved"
     })
   })
+
+  it("lists pending revisions oldest first and grants one by target without the workspace", async () => {
+    const root = project()
+    const older = request(root, "a".repeat(64))
+    const newer = request(root, "b".repeat(64))
+    const mirror = { root, label: "//images:mirror", digest: "c".repeat(64) }
+    for (const revision of [older, newer, mirror]) expect(await TargetApprovals.store.granted(revision)).toBe(false)
+
+    const listed = await withControl(root, TargetApprovals.pending)
+    expect(listed.map((row) => [row.target, row.revision])).toEqual([
+      ["//images:push", "a".repeat(64)],
+      ["//images:push", "b".repeat(64)],
+      ["//images:mirror", "c".repeat(64)]
+    ])
+    expect(listed[0]!.approval.target).toMatchObject({ _tag: "Plan" })
+
+    const ambiguous = await withControl(root, Effect.flip(TargetApprovals.grantPending("images:push")))
+    expect(ambiguous).toMatchObject({
+      _tag: "/cli/UsageError",
+      message: `//images:push has 2 pending revisions; pass --revision: ${"a".repeat(64)}, ${"b".repeat(64)}`
+    })
+    const missing = await withControl(root, Effect.flip(TargetApprovals.grantPending("//images:none")))
+    expect(missing).toMatchObject({ _tag: "/cli/Refused", code: "approval_not_found" })
+
+    expect(await withControl(root, TargetApprovals.grantPending("//images:push", "b".repeat(64)))).toMatchObject({
+      label: "//images:push",
+      revision: "b".repeat(64),
+      receipt: "Accepted"
+    })
+    expect(await withControl(root, TargetApprovals.grantPending("images:mirror"))).toMatchObject({
+      revision: "c".repeat(64)
+    })
+    expect(await TargetApprovals.store.granted(newer)).toBe(true)
+    expect(await TargetApprovals.store.granted(older)).toBe(false)
+    expect((await withControl(root, TargetApprovals.pending)).map((row) => row.revision)).toEqual(["a".repeat(64)])
+  })
+
+  it("pages past a full plan listing and skips plans that do not name a target", async () => {
+    const root = project()
+    await withControl(
+      root,
+      Effect.gen(function*() {
+        const control = yield* Control.Control
+        yield* control.plan({ flowId: TargetApprovals.flowId, input: { label: "//images:push" } })
+        for (let index = 0; index < 101; index++) {
+          yield* control.plan(TargetApprovals.planInput(request(root, index.toString(16).padStart(64, "0"))))
+        }
+      })
+    )
+
+    const listed = await withControl(root, TargetApprovals.pending)
+    expect(listed).toHaveLength(101)
+    expect(listed.at(-1)!.revision).toBe((100).toString(16).padStart(64, "0"))
+  })
+
+  it("refuses a control plane that answers a plan listing with another listing", async () => {
+    const other = Control.make({
+      ...({} as Control.Service),
+      list: () => Effect.succeed({ _tag: "runs", items: [] })
+    })
+    const refused = await Effect.runPromise(
+      Effect.flip(TargetApprovals.pending).pipe(Effect.provideService(Control.Control, other))
+    )
+    expect(refused).toMatchObject({ _tag: "/cli/Refused", code: "unexpected_listing" })
+  })
 })

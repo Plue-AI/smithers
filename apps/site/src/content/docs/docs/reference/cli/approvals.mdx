@@ -20,6 +20,8 @@ When the journal has no question, `question` uses the declared human-task
 prompt. An optional `waits` array carries each holding execution's `runId` and
 optional `flowId`, `name`, `attempt`, and `request`.
 
+`smthrs approvals list --targets` lists build target revisions waiting for approval instead. Each row carries `target`, `revision`, and the `approval` payload `approve` and `deny` take.
+
 Answer a `HumanTask` with a signal to the listed root, using the wait's name
 and an answer matching its request:
 
@@ -48,8 +50,10 @@ smthrs approvals grant //images:push
 smthrs target //images:push
 ```
 
-The approval covers that revision only: the declaration, its inputs, its tools, its dependencies and the `--input` values, which `grant` takes the same way. Any change needs a new grant. `--plan` shows the revision as `approval`. Grants are stored in the workspace, so `grant` refuses while `SMITHERS_REMOTE` is set.
+The approval covers that revision only: the declaration, its inputs, its tools, its dependencies and the `--input` values, which `grant` takes the same way. Any change needs a new grant. `--plan` shows the revision as `approval`.
 
-`list`, `approve` and `deny` accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
+With `--remote` or `SMITHERS_REMOTE`, `grant` approves the revision the host's build left pending, without a local workspace. When a target has several pending revisions, pass `--revision` with one from `list --targets`; `--revision` also works locally.
+
+`list`, `approve`, `deny` and `grant` accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
 
 For a parked execution, [Waiting for approval](/docs/troubleshooting/waiting-approval/) explains how to locate its request and resume after a decision.

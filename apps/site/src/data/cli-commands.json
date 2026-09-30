@@ -1693,12 +1693,20 @@
               "description": "Suppress progress messages",
               "type": "boolean"
             },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
             "input": {
               "description": "Payload input the target runs with, as name=value; repeatable",
               "type": "array",
               "items": {
                 "type": "string"
               }
+            },
+            "revision": {
+              "description": "The pending revision to approve, from approvals list --targets",
+              "type": "string"
             }
           },
           "required": [
@@ -1734,6 +1742,10 @@
             },
             "run": {
               "type": "string"
+            },
+            "targets": {
+              "description": "List pending build target revisions instead",
+              "type": "boolean"
             }
           },
           "required": [

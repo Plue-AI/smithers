@@ -766,18 +766,29 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
     .command("list", {
       description: "List pending in-run approvals with their exact authorization payloads",
       mcp: { annotations: { readOnlyHint: true } },
-      options: options.extend({ run: z.string().optional() }),
+      options: options.extend({
+        run: z.string().optional(),
+        targets: z.boolean().optional().describe("List pending build target revisions instead")
+      }),
       run: (c) =>
         guard(
           c,
-          () =>
-            observe(
-              "approvals list",
-              c.options,
-              runtime,
-              [],
-              () => Bridge.read(pendingApprovals(c.options.run), c.options, runtime)
-            ),
+          (): Promise<ReadonlyArray<unknown>> =>
+            c.options.targets === true
+              ? observe(
+                "approvals list",
+                c.options,
+                runtime,
+                [],
+                () => Bridge.read(TargetApprovals.pending, c.options, runtime)
+              )
+              : observe(
+                "approvals list",
+                c.options,
+                runtime,
+                [],
+                () => Bridge.read(pendingApprovals(c.options.run), c.options, runtime)
+              ),
           { next: afterDecision }
         )
     })
@@ -808,14 +819,16 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       description: "Approve the current revision of a build target that declares approval: \"required\"",
       mcp: false,
       args: z.object({ target: z.string() }),
-      options: options.pick({ root: true, quiet: true }).extend({
-        input: z.array(z.string()).optional().describe("Payload input the target runs with, as name=value; repeatable")
+      options: options.pick({ root: true, quiet: true, remote: true }).extend({
+        input: z.array(z.string()).optional().describe("Payload input the target runs with, as name=value; repeatable"),
+        revision: z.string().optional().describe("The pending revision to approve, from approvals list --targets")
       }),
       run: (c) =>
         guard(c, async () => {
-          // The build reads approvals from this workspace's own control database.
-          if (Bridge.isRemote(c.options, runtime)) {
-            throw new CliError.UsageError({ message: "Build target approvals are local; unset SMITHERS_REMOTE" })
+          // A remote control plane, or a named revision, grants a revision its
+          // build left pending; otherwise the workspace names the current one.
+          if (Bridge.isRemote(c.options, runtime) || c.options.revision !== undefined) {
+            return Bridge.query(TargetApprovals.grantPending(c.args.target, c.options.revision), c.options, runtime)
           }
           const request = await approvalRevision(c.args.target, {
             workspace: c.options.root ?? process.cwd(),

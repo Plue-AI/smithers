@@ -6,9 +6,11 @@ Arguments:
   target
 
 Options:
-  --root <string>  Project directory; defaults to the nearest Smithers project
-  --quiet          Suppress progress messages
-  --input <array>  Payload input the target runs with, as name=value; repeatable
+  --root <string>      Project directory; defaults to the nearest Smithers project
+  --quiet              Suppress progress messages
+  --remote <string>    Remote control plane URL; defaults to SMITHERS_REMOTE
+  --input <array>      Payload input the target runs with, as name=value; repeatable
+  --revision <string>  The pending revision to approve, from approvals list --targets
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
