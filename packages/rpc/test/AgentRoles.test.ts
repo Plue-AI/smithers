@@ -59,7 +59,7 @@ describe("the agent role registry", () => {
       model: { id: "kimi-for-coding/k3", provider: "kimi-for-coding" },
       harness: "opencode-kimi"
     })
-    expect(agentRole("implementation")).toMatchObject({ model: { id: "gpt-6-sol" }, harness: "codex" })
+    expect(agentRole("implementation")).toMatchObject({ model: { id: "gpt-6.1-sol" }, harness: "codex" })
     expect(agentRole("trivial-implementation")).toMatchObject({ model: { id: "gpt-6-luna" }, harness: "codex" })
     expect(agentRole("ui")).toMatchObject({ harness: "opencode-kimi", model: { id: "kimi-for-coding/k3" } })
     expect(agentRole("fast-ui")).toMatchObject({ harness: "opencode-cerebras", model: { id: "cerebras/qwen-3.8-27b" } })
@@ -80,10 +80,10 @@ describe("the agent role registry", () => {
 
 describe("known model names", () => {
   test("a model id a built-in or cloud role runs on has its display name; any other id has none", () => {
-    expect(knownModelLabel("gpt-6-sol")).toBe("GPT-6 Sol")
+    expect(knownModelLabel("gpt-6.1-sol")).toBe("GPT-6.1 Sol")
     expect(knownModelLabel("claude-fable-5")).toBe("Fable 5")
     expect(knownModelLabel("qwen-3.8-27b")).toBe("Cerebras Qwen 3.8 27B")
-    expect(knownModelLabel("gpt-6-astra")).toBeUndefined()
+    expect(knownModelLabel("gpt-6-sol")).toBeUndefined()
     expect(knownModelLabel("sol")).toBeUndefined()
     expect(knownModelLabel("")).toBeUndefined()
   })

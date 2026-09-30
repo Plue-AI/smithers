@@ -161,7 +161,7 @@ export const AGENT_ROLES: ReadonlyArray<AgentRole> = [
     id: "implementation",
     label: "Implementation",
     purpose: "Implements non-trivial changes end to end, with tests.",
-    model: { provider: "openai", id: "gpt-6-sol", label: "GPT-6 Sol" },
+    model: { provider: "openai", id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
     harness: "codex",
     delegates: false
   }),
@@ -332,8 +332,7 @@ export const cloudRoleModelId = (role: CloudRole, env: Readonly<Record<string, s
 export const agentRoleTitle = (role: AgentRole): string => `${role.label} · ${role.model.label}`
 
 /**
- * The display name the built-in tables give a model id ("gpt-6-sol" is
- * "GPT-6 Sol"), or undefined for an id no built-in or cloud role runs on: a
+ * The display name the built-in tables give a model id ("gpt-6.1-sol" is * "GPT-6.1 Sol"), or undefined for an id no built-in or cloud role runs on: a
  * repository flow's model shows this name when the id is a known one and the
  * id as written otherwise, never a name invented for it.
  * @since 1.0.0

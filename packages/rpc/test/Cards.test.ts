@@ -2430,7 +2430,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       statusRollup: statusRollup("session:pty-1", "exited", "idle"),
       harnessId: "codex",
-      displayName: "Reviewer · GPT-6 Astra",
+      displayName: "Reviewer · GPT-6.1 Sol",
       roleId: "implement",
       purpose: "Reviews diffs.",
       task: "review the rpc change",
