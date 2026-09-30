@@ -48,6 +48,8 @@ import type { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.t
  *   whose SDK speaks text encodes; the seam does not.
  * - A declared `kill` ends the command and everything it started, not only
  *   the shell that wrapped it.
+ * - A declared `fork` copies the tree, never a credential: a child starts
+ *   signed out of whatever the parent signed in to.
  *
  * `kill` and `ping` mean what they mean on the spawner-level provider, and are
  * optional for the same reason. `files` is an adapter's escape hatch: any
@@ -80,4 +82,10 @@ export interface Session {
   readonly ping?: Effect.Effect<void, ProviderError> | undefined
   /** Native overrides for operations `fileSystem` would otherwise probe. */
   readonly files?: Partial<FileSystem.FileSystem> | undefined
+  /**
+   * Starts a child machine from this machine's current tree under a new
+   * session key. The child holds none of this machine's credentials, and its
+   * lifetime is the acquiring scope. `fanOut` is the bounded way to call it.
+   */
+  readonly fork?: ((session: string) => Effect.Effect<Session, ProviderError, Scope>) | undefined
 }

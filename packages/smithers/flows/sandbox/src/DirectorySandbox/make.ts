@@ -8,6 +8,7 @@ import * as ChildProcessEnvironment from "@smthrs/kernel/ChildProcessEnvironment
 import * as ContainedSpawner from "@smthrs/kernel/ContainedSpawner"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
+import type { Scope } from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import type { ChildProcessHandle, ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -64,7 +65,8 @@ const failure = providerFailure
  * input — file transfer is the host filesystem, `kill` delegates to the
  * contained handle, and closing the scope stops its owned process group before
  * removing the directory. Acquisition refuses a spawner without a platform
- * lifecycle before creating a directory or starting a command.
+ * lifecycle before creating a directory or starting a command. `fork` copies
+ * the session's directory into a new session's directory.
  *
  * This is the trusted local backend — a workspace boundary, **not a security
  * boundary**. Nothing confines a spawned process to the directory; what the
@@ -84,108 +86,115 @@ export const make = (options: DirectorySandboxOptions): Provider => {
     ["cpus", "memoryMib", "timeoutSecs"],
     "commands run as host processes under no provider-owned ceiling"
   )
-  return {
-    acquire: (sessionKey) =>
-      Effect.gen(function*() {
-        if (!ContainedSpawner.isContained(options.spawner)) {
-          return yield* Effect.fail(
-            new ProviderError({
-              code: "unavailable",
-              message: "DirectorySandbox requires a contained ChildProcessSpawner with a platform lifecycle"
-            })
-          )
-        }
-        const workdir = `${options.root.replace(/\/+$/, "")}/${sessionSlug(sessionKey)}`
-        yield* Effect.acquireRelease(
-          options.fs.makeDirectory(workdir, { recursive: true }).pipe(
-            Effect.mapError(failure("unavailable", `the scratch workspace ${workdir} could not be created`))
-          ),
-          () => Effect.ignore(options.fs.remove(workdir, { recursive: true, force: true }))
+  // `seed` is the workdir a fork copies; a fresh session starts empty.
+  const open = (sessionKey: string, seed?: string): Effect.Effect<Session, ProviderError, Scope> =>
+    Effect.gen(function*() {
+      if (!ContainedSpawner.isContained(options.spawner)) {
+        return yield* Effect.fail(
+          new ProviderError({
+            code: "unavailable",
+            message: "DirectorySandbox requires a contained ChildProcessSpawner with a platform lifecycle"
+          })
         )
-        // A relative `cwd` is the workspace's, never the engine process's
-        // working directory.
-        const resolve = rootedAt(workdir)
-        const started = new WeakMap<RemoteProcess, ChildProcessHandle>()
-        // Only the injected lifecycle owns signal authority. A supervised
-        // handle's pid can name its owner, not the command's target process.
-        const deliver = (handle: ChildProcessHandle, signal: ChildProcess.Signal): Effect.Effect<void, ProviderError> =>
-          handle.kill({ killSignal: signal }).pipe(
-            Effect.mapError(failure("unknown", `the signal ${signal} could not be delivered`))
+      }
+      const workdir = `${options.root.replace(/\/+$/, "")}/${sessionSlug(sessionKey)}`
+      yield* Effect.acquireRelease(
+        options.fs.makeDirectory(workdir, { recursive: true }).pipe(
+          Effect.mapError(failure("unavailable", `the scratch workspace ${workdir} could not be created`))
+        ),
+        () => Effect.ignore(options.fs.remove(workdir, { recursive: true, force: true }))
+      )
+      if (seed !== undefined) {
+        // The copy is the tree alone: host credentials live outside it.
+        yield* options.fs.copy(seed, workdir, { overwrite: true }).pipe(
+          Effect.mapError(failure("unavailable", `the workspace ${seed} could not be forked`))
+        )
+      }
+      // A relative `cwd` is the workspace's, never the engine process's
+      // working directory.
+      const resolve = rootedAt(workdir)
+      const started = new WeakMap<RemoteProcess, ChildProcessHandle>()
+      // Only the injected lifecycle owns signal authority. A supervised
+      // handle's pid can name its owner, not the command's target process.
+      const deliver = (handle: ChildProcessHandle, signal: ChildProcess.Signal): Effect.Effect<void, ProviderError> =>
+        handle.kill({ killSignal: signal }).pipe(
+          Effect.mapError(failure("unknown", `the signal ${signal} could not be delivered`))
+        )
+      const session: Session = {
+        id: sessionKey,
+        remoteId: workdir,
+        workdir,
+        spawn: Effect.fnUntraced(function*(command, spawnOptions) {
+          yield* checkEnvironmentNames(spawnOptions.env)
+          const settings: ChildProcess.CommandOptions = {
+            // Sessions use POSIX command and probe syntax on every host.
+            shell: "sh",
+            cwd: resolve(spawnOptions.cwd ?? ""),
+            env: ChildProcessEnvironment.make(globalThis.process.env, spawnOptions.env),
+            extendEnv: false,
+            ...spawnOptions.stdin === undefined ? {} : { stdin: Stream.make(spawnOptions.stdin) }
+          }
+          const handle = yield* options.spawner.spawn(ChildProcess.make(command, settings)).pipe(
+            Effect.mapError(failure("spawn_error", `\`${command}\` could not start`))
           )
-        const session: Session = {
-          id: sessionKey,
-          remoteId: workdir,
-          workdir,
-          spawn: Effect.fnUntraced(function*(command, spawnOptions) {
-            yield* checkEnvironmentNames(spawnOptions.env)
-            const settings: ChildProcess.CommandOptions = {
-              // Sessions use POSIX command and probe syntax on every host.
-              shell: "sh",
-              cwd: resolve(spawnOptions.cwd ?? ""),
-              env: ChildProcessEnvironment.make(globalThis.process.env, spawnOptions.env),
-              extendEnv: false,
-              ...spawnOptions.stdin === undefined ? {} : { stdin: Stream.make(spawnOptions.stdin) }
-            }
-            const handle = yield* options.spawner.spawn(ChildProcess.make(command, settings)).pipe(
-              Effect.mapError(failure("spawn_error", `\`${command}\` could not start`))
+          const process = remoteProcessOf(handle, command)
+          // A target's exit is not proof that its children ended. Delegate
+          // every scope close, including an already observed exit, to the
+          // lifecycle's identity-aware, idempotent cleanup. A failed cleanup
+          // must fail release rather than be reported as a successful close.
+          yield* Effect.addFinalizer(() => deliver(handle, "SIGTERM").pipe(Effect.orDie))
+          started.set(process, handle)
+          return process
+        }),
+        readFile: (path) =>
+          options.fs.readFile(path).pipe(
+            Effect.mapError((error) =>
+              error.reason._tag === "NotFound"
+                ? new ProviderError({ code: "not_found", message: `the sandbox holds nothing at ${path}` })
+                : failure("unknown", `the sandbox could not read ${path}`)(error)
             )
-            const process = remoteProcessOf(handle, command)
-            // A target's exit is not proof that its children ended. Delegate
-            // every scope close, including an already observed exit, to the
-            // lifecycle's identity-aware, idempotent cleanup. A failed cleanup
-            // must fail release rather than be reported as a successful close.
-            yield* Effect.addFinalizer(() => deliver(handle, "SIGTERM").pipe(Effect.orDie))
-            started.set(process, handle)
-            return process
+          ),
+        writeFile: (path, content) =>
+          Effect.gen(function*() {
+            const separator = path.lastIndexOf("/")
+            /* v8 ignore next 3 -- session paths are absolute under an absolute root, so only a write to the filesystem root itself could skip parent creation */
+            if (separator > 0) {
+              yield* options.fs.makeDirectory(path.slice(0, separator), { recursive: true })
+            }
+            yield* options.fs.writeFile(path, content)
+          }).pipe(Effect.mapError(failure("unknown", `the sandbox could not write ${path}`))),
+        kill: (process, signal) =>
+          Effect.suspend(() => {
+            const handle = started.get(process)
+            /* v8 ignore next 3 -- `spawn` records every process it returns and a `RemoteProcess` has no other source, so the guard only discharges the optional a map read carries */
+            if (handle === undefined) {
+              return Effect.fail(new ProviderError({ code: "unknown", message: "unrecognized process" }))
+            }
+            return deliver(handle, signal)
           }),
-          readFile: (path) =>
-            options.fs.readFile(path).pipe(
-              Effect.mapError((error) =>
-                error.reason._tag === "NotFound"
-                  ? new ProviderError({ code: "not_found", message: `the sandbox holds nothing at ${path}` })
-                  : failure("unknown", `the sandbox could not read ${path}`)(error)
-              )
-            ),
-          writeFile: (path, content) =>
-            Effect.gen(function*() {
-              const separator = path.lastIndexOf("/")
-              /* v8 ignore next 3 -- session paths are absolute under an absolute root, so only a write to the filesystem root itself could skip parent creation */
-              if (separator > 0) {
-                yield* options.fs.makeDirectory(path.slice(0, separator), { recursive: true })
-              }
-              yield* options.fs.writeFile(path, content)
-            }).pipe(Effect.mapError(failure("unknown", `the sandbox could not write ${path}`))),
-          kill: (process, signal) =>
-            Effect.suspend(() => {
-              const handle = started.get(process)
-              /* v8 ignore next 3 -- `spawn` records every process it returns and a `RemoteProcess` has no other source, so the guard only discharges the optional a map read carries */
-              if (handle === undefined) {
-                return Effect.fail(new ProviderError({ code: "unknown", message: "unrecognized process" }))
-              }
-              return deliver(handle, signal)
-            }),
-          ping: Effect.void,
-          // Native overrides for the derived filesystem. They take the path
-          // they are handed: `Sandbox.fileSystem` installs an override THROUGH
-          // its workdir resolver, so the rooting rule lives in one place rather
-          // than being restated by every adapter that supplies overrides.
-          files: {
-            // Preserve write flags, modes and ownership through the native host.
-            writeFile: options.fs.writeFile,
-            writeFileString: options.fs.writeFileString,
-            chmod: options.fs.chmod,
-            chown: options.fs.chown,
-            exists: options.fs.exists,
-            stat: options.fs.stat,
-            readDirectory: options.fs.readDirectory,
-            makeDirectory: options.fs.makeDirectory,
-            remove: options.fs.remove,
-            rename: options.fs.rename,
-            realPath: options.fs.realPath,
-            readLink: options.fs.readLink
-          } satisfies Partial<FileSystem.FileSystem>
-        }
-        return session
-      })
-  }
+        ping: Effect.void,
+        // Native overrides for the derived filesystem. They take the path
+        // they are handed: `Sandbox.fileSystem` installs an override THROUGH
+        // its workdir resolver, so the rooting rule lives in one place rather
+        // than being restated by every adapter that supplies overrides.
+        files: {
+          // Preserve write flags, modes and ownership through the native host.
+          writeFile: options.fs.writeFile,
+          writeFileString: options.fs.writeFileString,
+          chmod: options.fs.chmod,
+          chown: options.fs.chown,
+          exists: options.fs.exists,
+          stat: options.fs.stat,
+          readDirectory: options.fs.readDirectory,
+          makeDirectory: options.fs.makeDirectory,
+          remove: options.fs.remove,
+          rename: options.fs.rename,
+          realPath: options.fs.realPath,
+          readLink: options.fs.readLink
+        } satisfies Partial<FileSystem.FileSystem>,
+        fork: (childKey) => open(childKey, workdir)
+      }
+      return session
+    })
+  return { acquire: (sessionKey) => open(sessionKey) }
 }

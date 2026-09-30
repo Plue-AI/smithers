@@ -38,8 +38,10 @@ describe("@smthrs/sandbox barrel", () => {
       "Provider",
       "TestSession",
       "commandProvider",
+      "fanOut",
       "fileSystem",
-      "layerHost"
+      "layerHost",
+      "maxFanOut"
     ])
   })
 

@@ -20,5 +20,10 @@ export interface TestSessionState {
   /** The standard input each spawned command received, by spawn order. */
   readonly inputs: Array<Uint8Array | undefined>
   readonly files: Map<string, Uint8Array>
+  /** Sessions released, forked children included. */
   released: number
+  /** Every forked child's session key, in fork order. */
+  readonly forked: Array<string>
+  /** The guest tree of each live forked child, by session key. */
+  readonly children: Map<string, Map<string, Uint8Array>>
 }

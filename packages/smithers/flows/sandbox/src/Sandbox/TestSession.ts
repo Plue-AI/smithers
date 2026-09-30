@@ -41,6 +41,10 @@ export interface TestSessionOptions {
   readonly acquireFailure?: ProviderError | undefined
   /** Gives every session a `ping`, backed by this effect. */
   readonly ping?: Effect.Effect<void, ProviderError> | undefined
+  /** Guest paths that are credentials: a fork leaves them behind. */
+  readonly credentials?: ReadonlyArray<string> | undefined
+  /** Fails every `fork` with this error. */
+  readonly forkFailure?: ProviderError | undefined
 }
 
 /**
@@ -60,14 +64,17 @@ const makeTestSession = (options: TestSessionOptions = {}): TestSessionProvider 
         typeof content === "string" ? encoder.encode(content) : content.slice()
       ])
     ),
-    released: 0
+    released: 0,
+    forked: [],
+    children: new Map()
   }
   const resolve = (command: string): TestScript =>
     options.scripts?.[command] ?? options.script?.(command) ??
       { stderr: `command not found: ${command}\n`, exitCode: 127 }
-  const session: Session = {
-    id: options.session ?? "test-session",
-    remoteId: options.remoteId ?? "test-remote",
+  const credentials = new Set(options.credentials ?? [])
+  const open = (id: string, remoteId: string, files: Map<string, Uint8Array>): Session => ({
+    id,
+    remoteId,
     workdir: options.workdir ?? "/sandbox",
     spawn: Effect.fnUntraced(function*(command: string, spawnOptions) {
       state.commands.push(command)
@@ -83,7 +90,7 @@ const makeTestSession = (options: TestSessionOptions = {}): TestSessionProvider 
     }),
     readFile: (path) =>
       Effect.suspend(() => {
-        const content = state.files.get(path)
+        const content = files.get(path)
         return content === undefined
           ? Effect.fail(
             new ProviderError({ code: "not_found", message: `the sandbox holds nothing at ${path}` })
@@ -92,10 +99,30 @@ const makeTestSession = (options: TestSessionOptions = {}): TestSessionProvider 
       }),
     writeFile: (path, content) =>
       Effect.sync(() => {
-        state.files.set(path, content.slice())
+        files.set(path, content.slice())
       }),
-    ...options.ping === undefined ? {} : { ping: options.ping }
-  }
+    ...options.ping === undefined ? {} : { ping: options.ping },
+    fork: (key) =>
+      options.forkFailure === undefined
+        ? Effect.acquireRelease(
+          Effect.sync(() => {
+            const tree = new Map(
+              Array.from(files, ([path, content]) => [path, content.slice()] as const)
+                .filter(([path]) => !credentials.has(path))
+            )
+            state.forked.push(key)
+            state.children.set(key, tree)
+            return open(key, `${remoteId}/${key}`, tree)
+          }),
+          () =>
+            Effect.sync(() => {
+              state.children.delete(key)
+              state.released += 1
+            })
+        )
+        : Effect.fail(options.forkFailure)
+  })
+  const session = open(options.session ?? "test-session", options.remoteId ?? "test-remote", state.files)
   return {
     state,
     acquire: (key) =>
@@ -117,7 +144,8 @@ const makeTestSession = (options: TestSessionOptions = {}): TestSessionProvider 
 /**
  * Deterministic scripted sandbox constructor for projection and consumer
  * tests: an in-memory guest tree, command lines answered from a script table
- * or resolver, and observable acquire and release counts.
+ * or resolver, observable acquire and release counts, and forks that copy the
+ * tree without the paths named as credentials.
  *
  * @category testing
  * @since 0.1.0

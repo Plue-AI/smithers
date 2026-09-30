@@ -13,6 +13,8 @@
  * - {@link fileSystem} serves Effect's `FileSystem` from a session: native
  *   reads and writes, everything else through strictly POSIX `sh` probes an
  *   adapter may override.
+ * - {@link fanOut} forks a bounded set of child machines from a session that
+ *   declares `fork`, each released with the scope that forked it.
  * - {@link layerHost} holds one machine for a layer's lifetime and provides
  *   `ChildProcessSpawner | FileSystem | Path` from it — the host surface a
  *   flow body or an agent's standard tools consume, placed on the machine.
@@ -26,6 +28,7 @@
  */
 
 export * from "./commandProvider.ts"
+export * from "./fanOut.ts"
 export * from "./fileSystem.ts"
 export * from "./layerHost.ts"
 export type { NetworkPolicy } from "./NetworkPolicy.ts"

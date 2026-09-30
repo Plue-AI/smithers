@@ -315,6 +315,55 @@ describe("DirectorySandbox", () => {
     }), budget)
 
   it.effect(
+    "forks a session into its own copied workspace and removes it with the scope",
+    () =>
+      Effect.gen(function*() {
+        const directory = yield* provider
+        const { fs } = yield* services
+        const outcome = yield* Effect.scoped(
+          Effect.gen(function*() {
+            const parent = yield* directory.acquire("fan/main")
+            yield* parent.writeFile(`${parent.workdir}/src/app.ts`, new TextEncoder().encode("parent"))
+            const [child] = yield* Sandbox.fanOut(parent, { count: 1 })
+            const copied = new TextDecoder().decode(yield* child!.readFile(`${child!.workdir}/src/app.ts`))
+            yield* child!.writeFile(`${child!.workdir}/src/app.ts`, new TextEncoder().encode("child"))
+            const parentAfter = new TextDecoder().decode(yield* parent.readFile(`${parent.workdir}/src/app.ts`))
+            const ran = yield* Effect.scoped(
+              Effect.flatMap(
+                child!.spawn("cat src/app.ts", {}),
+                (running) => Stream.mkString(Stream.decodeText(running.stdout))
+              )
+            )
+            return { copied, parentAfter, ran, child: child!, parent }
+          })
+        )
+        expect(outcome.child.id).toBe("fan/main/child-0")
+        expect(outcome.child.workdir).not.toBe(outcome.parent.workdir)
+        expect(outcome.copied).toBe("parent")
+        expect(outcome.parentAfter).toBe("parent")
+        expect(outcome.ran).toBe("child")
+        expect(yield* fs.exists(outcome.child.workdir)).toBe(false)
+        expect(yield* fs.exists(outcome.parent.workdir)).toBe(false)
+      }),
+    budget
+  )
+
+  it.effect("reports a fork whose source workspace is gone as unavailable", () =>
+    Effect.gen(function*() {
+      const directory = yield* provider
+      const { fs } = yield* services
+      const error = yield* Effect.scoped(
+        Effect.gen(function*() {
+          const parent = yield* directory.acquire("fan/vanished")
+          yield* fs.remove(parent.workdir, { recursive: true })
+          return yield* Effect.flip(parent.fork!("fan/vanished/child"))
+        })
+      )
+      expect(error.code).toBe("unavailable")
+      expect(error.message).toContain("could not be forked")
+    }), budget)
+
+  it.effect(
     "runs commands in the session workdir with the caller's environment and real signals",
     () =>
       Effect.gen(function*() {
