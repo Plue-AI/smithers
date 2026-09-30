@@ -281,6 +281,23 @@ budget:
 `smthrs flow start` replaces them for one run with `--budget-tokens`,
 `--budget-ms`, `--budget-usd` and `--on-exceeded`.
 
+## Bound a run by a deadline
+
+A deadline is wall-clock time, not spend: the run fails with
+`deadline_exceeded` once it passes, whether it is running or parked, and
+whatever `onExceeded` says. Declare it at the top level of frontmatter, as a
+duration or whole milliseconds:
+
+```yaml
+deadline: 30 minutes
+```
+
+It travels in the approved envelope as `budget.deadline`, and `smthrs flow start
+--deadline "2 hours"` replaces it for one run. The deadline counts from the run's
+acceptance, so a resume or a restart honors the original one. The run records
+when it passes as `deadlineAt`, which `smthrs runs show`, the app's run card and
+the TUI's flow panel show while the run is live.
+
 ## Cap a day across runs
 
 A per-run budget cannot see a loop that spawns runs. `Budget.make({ daily: { max } }, { ledger })`

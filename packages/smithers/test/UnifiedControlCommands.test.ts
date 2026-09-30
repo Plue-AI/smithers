@@ -430,7 +430,8 @@ describe("unified control dispatch", () => {
   })
 
   it("diagnoses the requested run using its entire finite transcript", async () => {
-    const run = row("run-1", "waiting-approval")
+    // The run's approved deadline is part of the row `runs show` prints.
+    const run = { ...row("run-1", "waiting-approval"), deadlineAt: 1_800_000 }
     ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [row("other"), run] }))
     ports.watch.mockReturnValue(Stream.fromIterable(approvalEvents))
     const result = await invoke(["runs", "show", "run-1", "--root", "/fixture", "--json"])
