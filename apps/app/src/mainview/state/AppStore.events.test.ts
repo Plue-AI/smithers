@@ -201,6 +201,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
       provider: "github", admin: true, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "message.appended", actor: "system", text: "KEPT CONVERSATION LINE" }).isPersisted.promise
     await store.compactEvents()
     const old = await store.eventHistory()
     await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
@@ -225,7 +226,9 @@ describe("the live store's authoritative event path", () => {
     const identity = upgraded.collections.identitySessions.get("identity")!
     expect(identity).toMatchObject({ state: "signed-in", login: "new-owner", admin: true })
     for (const retired of ["allowlisted", "accessRequested", "accessError"]) expect(identity).not.toHaveProperty(retired)
-    expect(upgraded.collections.cards.get("admin-requests")).toBeUndefined()
+    // The retired queue card keeps its identity as a retired row; the rest of the conversation survives.
+    expect(upgraded.collections.cards.get("admin-requests")).toMatchObject({ kind: "retired", payload: {} })
+    expect([...upgraded.collections.messages.values()].map(message => message.text)).toContain("KEPT CONVERSATION LINE")
     expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
     expect(JSON.stringify(envelopeRows(storage))).not.toContain("ACCESS REQUEST FAILED")
     expect(JSON.stringify(envelopeRows(storage))).not.toContain("QUEUED LOGIN")

@@ -3102,6 +3102,7 @@ describe("removed presentation compatibility", () => {
     }),
     saved("connector-setup", { connector: "linear" }),
     saved("sync-ops", { source: "linear" }),
+    saved("request-queue", { requests: [{ login: "ada", note: null, createdAt: "2026-09-05T09:00:00Z" }], approving: null }),
     ...[
       "repo.welcome",
       "repo.explore",
@@ -3150,7 +3151,12 @@ describe("removed presentation compatibility", () => {
       "stack.parallel",
       "stack.retry",
       "history.amend",
-      "history.fold"
+      "history.fold",
+      "auth.request-access",
+      "admin.allowlist.add",
+      "admin.allowlist.remove",
+      "admin.requests",
+      "admin.queue.approve"
     ].map((flow) => saved("flow-form", { flow, via: "user", submitting: true, draft: { secret: "obsolete" } }))
   ]
   test.each(retired)("retires $kind without losing the card identity", (row) => {

@@ -2954,7 +2954,13 @@ const retiredFlows = new Set([
   "stack.parallel",
   "stack.retry",
   "history.amend",
-  "history.fold"
+  "history.fold",
+  /* The closed-alpha gate retired (#2145): signup is public, so its request and allowlist doors are gone. */
+  "auth.request-access",
+  "admin.allowlist.add",
+  "admin.allowlist.remove",
+  "admin.requests",
+  "admin.queue.approve"
 ])
 /* `history` is the retired narrative History card: the stack card is the one history view (D-20). */
 /* `experimental` was the one kind for the flag-gated mocks over invented data; the mocks are gone (NO INVENTION). */
@@ -2965,7 +2971,9 @@ const retiredKinds = new Set([
   "agent-models",
   "agent-form",
   "history",
-  "experimental"
+  "experimental",
+  /* The closed-alpha request-access queue (#2145). */
+  "request-queue"
 ])
 /**
  * One persisted card, decoded by kind. The preprocessor retires a kind or a flow
