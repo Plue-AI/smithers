@@ -301,6 +301,28 @@ export const MythicalFaultSchema = z.object({
 export type MythicalFault = z.infer<typeof MythicalFaultSchema>
 
 /**
+ * Why an item stopped or retries, typed: the step that failed (`kind`) and
+ * whose fault it was (`fault`, the failure registry's class). The item's
+ * `reason` is then its sentence, the same on every surface and never an
+ * error's text.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalFailureSchema = z.object({
+  kind: z.enum(["provisioning", "runtime", "model", "checks", "plan", "landing", "review", "stopped"]),
+  fault: MythicalFaultSchema.shape.class
+})
+
+/**
+ * The decoded value accepted by {@link MythicalFailureSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalFailure = z.infer<typeof MythicalFailureSchema>
+
+/**
  * A TODO's progress: `replans` plans failed so far (it runs plan
  * `replans + 1` of 3), `veryHard` while it runs its one continuation after
  * the last replan, and the typed `fault` it retries after or stopped at.
@@ -408,6 +430,8 @@ export const MythicalItemSchema = z.object({
   humanEdited: z.boolean().optional(),
   /** Whether a proposed TODO waits on an unfinished review of its current head, which a person may retry. */
   reviewHeld: z.boolean().optional(),
+  /** Why the item stopped or retries; `reason` is its sentence. */
+  failure: MythicalFailureSchema.optional(),
   /** The settled platform-key model cost of the item's lanes, in USD nanos; pending and pooled subscription calls carry none. */
   costNanos: z.number().int().nonnegative().optional(),
   pullRequest: MythicalPullRequestSchema.optional(),

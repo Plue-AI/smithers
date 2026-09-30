@@ -104,6 +104,11 @@ const ITEM_REASONS: Readonly<Record<MythicalItemState, UserFailureCopy | "words"
 }
 
 const ItemReason = ({ item, reason }: { readonly item: MythicalItem; readonly reason: string }) => {
+  // A typed failure's sentence is the server's, the same on every surface.
+  if (item.failure !== undefined) {
+    return <FailureNotice role="status" className="world-card-path stack-reason" data-testid={`stack-item-${item.id}-reason`}
+      failure={{ tag: `stack.item.${item.failure.kind}`, fault: item.failure.fault, sentence: reason, actions: [], detail: "" }} />
+  }
   // Conflict paths are the stack's own structured words, never server prose.
   const conflict = item.state === "retrying" && (item.integration?.conflict?.paths ?? []).length > 0
   const kind = conflict ? "words" : ITEM_REASONS[item.state]

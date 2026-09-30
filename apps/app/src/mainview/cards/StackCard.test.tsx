@@ -229,6 +229,22 @@ describe("a row's reason line", () => {
     }
   })
 
+  test("a typed failure shows the server's sentence, its fault, and no Details", () => {
+    const failed = item("i1", "retrying", { reason: "The model provider did not answer", failure: { kind: "model", fault: "dependency" } })
+    const html = reasonOf(render({ snapshot: { stack: { ...STACK, changes: [], items: [failed] }, error: null } }), "i1")
+    expect(html).toMatch(/role="status"[^>]*data-fault="dependency"[^>]*data-failure="stack.item.model"/)
+    expect(html).toContain("<p>The model provider did not answer</p>")
+    expect(html).not.toContain("<details>")
+    expect(html).not.toContain('data-flow="history.retry"')
+  })
+
+  test("a TODO stopped at a typed failure says why and offers Retry", () => {
+    const stopped = item("i1", "blocked", { reason: "Smithers could not set up a lane after repeated tries", failure: { kind: "provisioning", fault: "infra" } })
+    const html = reasonOf(render({ snapshot: { stack: { ...STACK, changes: [], items: [stopped] }, error: null } }), "i1")
+    expect(html).toContain(">Smithers could not set up a lane after repeated tries<")
+    expect(html).toContain(`data-flow="history.retry" data-flow-args="i1 ${REPO}"`)
+  })
+
   test("a note on a moving change is only a collapsed Details under the state word", () => {
     const html = reasonOf(render({ snapshot: { stack: { ...STACK, changes: [], items: [item("i1", "queued", { reason: "HTTP 503 from lane" })] }, error: null } }), "i1")
     expect(html).toContain('data-state="queued">queued<')

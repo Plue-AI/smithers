@@ -171,6 +171,16 @@ describe("the mythical stack contract", () => {
     expect(MythicalItemSchema.safeParse({ ...snapshot.items[2], todo: { replans: -1 } }).success).toBe(false)
   })
 
+  test("a typed failure decodes as the stack service writes it, and an unknown kind or fault is refused", () => {
+    // The shape of mythical_failure_test.go's snapshot of a stopped TODO.
+    const failed = { ...snapshot.items[2], state: "blocked", reason: "Smithers could not set up a lane after repeated tries",
+      failure: { kind: "provisioning", fault: "infra" } }
+    expect(MythicalItemSchema.parse(failed).failure).toEqual(failed.failure)
+    for (const failure of [{ kind: "quota", fault: "infra" }, { kind: "model", fault: "provider" }, { kind: "model" }]) {
+      expect(MythicalItemSchema.safeParse({ ...failed, failure }).success).toBe(false)
+    }
+  })
+
   test("a TODO's metrics decode: its route, a person's take-over and its cost", () => {
     const measured = {
       ...snapshot.items[2],
