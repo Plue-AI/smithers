@@ -1019,13 +1019,28 @@ export const layer: Layer.Layer<
      * launched for the reader's own principal. A plan partition, an
      * engine-created run, and a run that does not exist are all invisible.
      */
-    const readerSees = (reader: Principal, runId: string): Effect.Effect<boolean, ControlError> =>
+    const readerSees = (reader: Principal, runId: string): Effect.Effect<boolean, PersistenceError> =>
       runId.startsWith("plan:")
         ? Effect.succeed(false)
         : runtime.getRun(runId).pipe(
           Effect.map((run) => launchedByMatches(run, reader)),
           Effect.catchTag("/control/RunNotFound", () => Effect.succeed(false))
         )
+
+    /**
+     * Confines a mutation to a run its reader may see, with the rule `List`
+     * and `Watch` use: another principal's run answers `RunNotFound` exactly
+     * as a missing one, before any idempotency replay can describe it.
+     */
+    const confined = <A, E, R>(
+      submitted: { readonly reader?: Principal | undefined; readonly runId: string },
+      mutation: Effect.Effect<A, E, R>
+    ): Effect.Effect<A, E | RunNotFound | PersistenceError, R> =>
+      submitted.reader === undefined ? mutation : Effect.flatMap(
+        readerSees(submitted.reader, submitted.runId),
+        (visible): Effect.Effect<A, E | RunNotFound, R> =>
+          visible ? mutation : Effect.fail(new RunNotFound({ runId: submitted.runId }))
+      )
 
     const list = (request: ListInput): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {
@@ -1712,281 +1727,290 @@ export const layer: Layer.Layer<
       approve: Effect.fn("Control.approve")((input) => decide("approved", input)),
       deny: Effect.fn("Control.deny")((input) => decide("denied", input)),
       steer: Effect.fn("Control.steer")((submitted: SteerInput) =>
-        Effect.flatMap(snapshotSteer(submitted), (input) =>
-          mutate(
-            "steer",
-            input.idempotencyKey,
-            input.message.principal,
-            fingerprint("steer", input.message.principal, input),
-            Effect.gen(function*() {
-              // Two run ids naming two runs is a caller mistake with a durable
-              // consequence: the notification is admitted to `input.runId` while
-              // the stored `SteerMessage.runId` names another run, so the message
-              // an operator later reads says it belongs somewhere it was never
-              // delivered.
-              if (input.message.runId !== input.runId) {
-                return yield* Effect.fail(
-                  invalid(
-                    `message.runId: must be ${JSON.stringify(input.runId)}, received ${
-                      JSON.stringify(input.message.runId)
-                    }`
-                  )
-                )
-              }
-              const run = yield* getRun(input.runId)
-              // A run that will never take another turn cannot be steered, and
-              // storing the steer anyway would leave an operator watching a
-              // message that has no boundary left to deliver it.
-              if (terminal(run.status)) return { _tag: "Terminal", runId: run.runId, status: run.status }
-              const item = steerItem(input.message)
-              const admission = yield* notifications.admit(input.runId, {
-                _tag: "human-steer",
-                id: input.message.messageId,
-                delivery: "steer",
-                targetLineageId: input.runId,
-                provenance: {
-                  sourceRunId: input.runId,
-                  sourceLineageId: input.runId,
-                  sourceTurn: 0,
-                  sourceActor: `${input.message.principal.kind}:${input.message.principal.id}`
-                },
-                payload: SteerPayload.encode(item)
-              }).pipe(
-                Effect.mapError((cause) =>
-                  cause instanceof NotificationQueue.NotificationError ? cause : new PersistenceError({
-                    operation: "control.steer.notification",
-                    message: "Failed to admit steering notification",
-                    cause
-                  })
-                )
-              )
-              if (admission.decision === "rejected-full") {
-                return yield* Effect.fail(
-                  new NotificationQueue.NotificationError({
-                    code: "notification_full",
-                    notificationId: input.message.messageId,
-                    message: "Steering queue is full; retry after pending notifications are delivered"
-                  })
-                )
-              }
-              // `createdAt` is the caller's own stated time, and the enqueue
-              // entry is the one place it is kept: `steerItem` strips the control
-              // envelope before the message reaches the queue, so a field the
-              // journal did not carry was a field nothing ever read.
-              yield* emit(input.runId, Steering.enqueuedEventType, {
-                runId: input.runId,
-                messageId: input.message.messageId,
-                kind: item.kind,
-                createdAt: input.message.createdAt
-              })
-              yield* wake(run, input.message.messageId)
-              return accepted(input.idempotencyKey, input.runId)
-            })
-          ))
-      ),
-      signal: Effect.fn("Control.signal")((submitted: SignalInput) =>
-        Effect.flatMap(snapshotSignal(submitted), (input) =>
-          Effect.gen(function*() {
-            const principal = yield* runtime.stampPrincipal(input.principal)
-            const key = fingerprint("signal", principal, input)
-            const durableKey = mutationKey("signal", input.idempotencyKey, principal)
-            // Admission, payload and receipt commit together before any engine
-            // operation. The writer is released before completing a deferred.
-            const receipt = yield* mutate(
-              "signal",
+        confined(
+          submitted,
+          Effect.flatMap(snapshotSteer(submitted), (input) =>
+            mutate(
+              "steer",
               input.idempotencyKey,
-              principal,
-              key,
+              input.message.principal,
+              fingerprint("steer", input.message.principal, input),
               Effect.gen(function*() {
-                const current = yield* getRun(input.runId)
-                if (terminal(current.status)) {
-                  return { _tag: "Terminal" as const, runId: current.runId, status: current.status }
-                }
-                // The admitting identity is stored with the command: whether the
-                // signal may answer a human wait is decided at delivery, which
-                // can be a replay after restart with no caller present.
-                yield* runtime.admitSignal(durableKey, input.runId, input.signal, principal)
-                yield* emit(input.runId, "control.signal.admitted", {
-                  commandId: durableKey,
-                  runId: input.runId,
-                  name: input.signal.name
-                })
-                return accepted(input.idempotencyKey, input.runId)
-              }),
-              true,
-              true
-            )
-            if (receipt._tag !== "Accepted" && receipt._tag !== "AlreadyApplied") return receipt
-            const command = yield* runtime.signalCommand(durableKey)
-            if (command === undefined || command.state === "delivered" || command.state === "terminal") return receipt
-            if (command.state === "rejected") {
-              return yield* new NoMatchingWait({ runId: input.runId, waitName: input.signal.name })
-            }
-            const delivery = Option.isNone(executor) ?
-              "unknown" as const
-              : yield* executor.value.deliverSignal({ ...command })
-            if (delivery === "no-match") {
-              yield* runtime.settleSignal(durableKey, "rejected")
-              return yield* new NoMatchingWait({ runId: input.runId, waitName: input.signal.name })
-            }
-            if (delivery === "refused") {
-              yield* runtime.settleSignal(durableKey, "rejected")
-              return yield* new Unauthorized({
-                message: `This caller has no authority to answer "${input.signal.name}" on run ${input.runId}`
-              })
-            }
-            if (delivery === "delivered") {
-              yield* runtime.settleSignal(durableKey, "delivered")
-            }
-            return receipt
-          }))
-      ),
-      cancel: Effect.fn("Control.cancel")((submitted) =>
-        Effect.flatMap(
-          snapshotReasonedMutation("cancel", submitted),
-          (input) =>
-            Effect.flatMap(runtime.stampPrincipal(input.principal), (principal) =>
-              mutate(
-                "cancel",
-                input.idempotencyKey,
-                principal,
-                fingerprint("cancel", principal, input),
-                Effect.gen(function*() {
-                  const current = yield* getRun(input.runId)
-                  // A run that has already settled cannot be cancelled, and a cancel
-                  // request journaled against it would be a request nothing can ever
-                  // act on. Answer with what actually happened to the run.
-                  if (terminal(current.status)) {
-                    yield* reconcileTerminal(input.runId, current.status)
-                    return { _tag: "Terminal", runId: current.runId, status: current.status }
-                  }
-                  // The durable half, and the only half that reaches a run another
-                  // process owns: fibers are process-local, so an interrupt can only
-                  // stop a run this process is driving. The executor writes
-                  // `cancel_requested_at_ms` on the engine row instead, and the
-                  // owner's cancel poll acts on it within a heartbeat.
-                  //
-                  // It runs INSIDE the mutation's transaction on purpose. An engine
-                  // that refuses the request rolls the whole cancel back — no
-                  // attribution event, no terminal control status — because a
-                  // control row that says `cancelled` while the engine row is still
-                  // running is the one state an operator can never recover from.
-                  //
-                  // It runs BEFORE the attribution event for the mirror-image
-                  // reason. The control row this plane read may be stale — the two
-                  // `flows_runs` tables are two files in the shipped CLI — and an
-                  // engine row that has already settled makes the cancel a request
-                  // nobody can act on. Attributing and transitioning it anyway is
-                  // exactly the terminal disagreement B-11 forbids, so the engine's
-                  // own status becomes the receipt and nothing else happens.
-                  const record = yield* executorRequestCancel(input.runId)
-                  if (typeof record !== "string") {
-                    // The engine finished the run before the request arrived. Nobody
-                    // cancelled anything, so no attribution is written; but leaving
-                    // the control row saying `running` for a run the engine settled
-                    // is permanent, because no verb converges it: `cancel` answers
-                    // `Terminal` without writing and `resume` refuses a settled run.
-                    // `ps` listed it live and `gc` skipped it forever. Writing the
-                    // ENGINE's own status is convergence, not the terminal
-                    // disagreement B-11 forbids, which is a control row reading
-                    // `cancelled` over an engine row reading `completed`.
-                    yield* reconcileTerminal(input.runId, record.status)
-                    return { _tag: "Terminal", runId: input.runId, status: record.status }
-                  }
-                  // Attribution is keyed on the request being NEWLY recorded. A
-                  // cancel that committed without it would be durable and anonymous,
-                  // and nothing afterwards could say who asked — but this mutation
-                  // runs with `replay: false`, so an operator asking a second time
-                  // re-executes it, and attributing every ask journaled one
-                  // `control.run.cancel-requested` per ask for one cancellation.
-                  // `already-requested` is the engine saying the column was set
-                  // before this call arrived, so the record already exists.
-                  //
-                  // It stays BEFORE the interrupt, and in the mutation's own
-                  // transaction.
-                  const prior = yield* runtime.lookupMutation(
-                    mutationKey("cancel", input.idempotencyKey, principal),
-                    fingerprint("cancel", principal, input)
+                // Two run ids naming two runs is a caller mistake with a durable
+                // consequence: the notification is admitted to `input.runId` while
+                // the stored `SteerMessage.runId` names another run, so the message
+                // an operator later reads says it belongs somewhere it was never
+                // delivered.
+                if (input.message.runId !== input.runId) {
+                  return yield* Effect.fail(
+                    invalid(
+                      `message.runId: must be ${JSON.stringify(input.runId)}, received ${
+                        JSON.stringify(input.message.runId)
+                      }`
+                    )
                   )
-                  // A retry after cleanup or settlement failed already committed
-                  // this request's attribution with its acceptance receipt.
-                  if (record !== "already-requested" && prior === undefined) {
-                    yield* emit(
-                      input.runId,
-                      Cancellation.requestedEventType,
-                      json({
-                        runId: input.runId,
-                        source: "control",
-                        principal,
-                        ...(input.reason === undefined ? {} : { reason: input.reason })
-                      })
-                    )
-                  }
-                  return accepted(input.idempotencyKey, input.runId)
-                }),
-                false
-              ).pipe(
-                Effect.flatMap((receipt) =>
-                  Effect.gen(function*() {
-                    if (receipt._tag !== "Accepted") return receipt
-                    // The request and receipt are committed before any finalizer runs.
-                    // Finalizers may use this same mutation permit or durable writer.
-                    const settle: NonNullable<Parameters<typeof runtime.interrupt>[1]> = (effect) =>
-                      transact(
-                        "cancel",
-                        Effect.gen(function*() {
-                          const run = yield* effect
-                          yield* emit(
-                            input.runId,
-                            `control.run.${run.status}`,
-                            {
-                              runId: input.runId,
-                              status: run.status,
-                              ...ControlFacts.runFact(run)
-                            } as ControlEvent["payload"]
-                          )
-                          return run
-                        })
-                      )
-                    const run = yield* runtime.interrupt(input.runId, settle).pipe(
-                      Effect.catchTag("/control/ClaimLost", () =>
-                        Effect.gen(function*() {
-                          const current = yield* getRun(input.runId)
-                          if (terminal(current.status)) return current
-                          // A live peer acts on the durable request. An unowned park
-                          // needs this caller to claim it and finish the cancellation.
-                          if (live(current.status) && current.ownerId !== undefined) return undefined
-                          return yield* runtime.resume(input.runId).pipe(
-                            Effect.andThen(runtime.interrupt(input.runId, settle)),
-                            Effect.catchTag("/control/ClaimLost", () => Effect.succeed(undefined))
-                          )
-                        }))
-                    )
-                    return run === undefined
-                      ? receipt
-                      : terminalOrAccepted(input.idempotencyKey, run)
-                  })
-                ),
-                // Both rows, before the process that asked goes away. The engine row
-                // carries the request the moment the mutation commits, but nothing
-                // drives a parked run, so the row stayed `suspended` until some
-                // later long-lived engine happened to sweep it: `gc` collected the
-                // run in `control.db` and skipped it in `engine.db` for fifteen
-                // seconds and six commands in the release validation.
-                Effect.tap(() =>
-                  Effect.gen(function*() {
-                    yield* executorSettleCancelledPark(input.runId)
-                    // The engine can finish between the request and local interrupt,
-                    // or while settling an unowned park. Its read overlay alone does
-                    // not persist the control row or deliver the terminal watch event.
-                    const current = yield* getRun(input.runId)
-                    if (terminal(current.status)) yield* reconcileTerminal(input.runId, current.status)
-                  })
+                }
+                const run = yield* getRun(input.runId)
+                // A run that will never take another turn cannot be steered, and
+                // storing the steer anyway would leave an operator watching a
+                // message that has no boundary left to deliver it.
+                if (terminal(run.status)) return { _tag: "Terminal", runId: run.runId, status: run.status }
+                const item = steerItem(input.message)
+                const admission = yield* notifications.admit(input.runId, {
+                  _tag: "human-steer",
+                  id: input.message.messageId,
+                  delivery: "steer",
+                  targetLineageId: input.runId,
+                  provenance: {
+                    sourceRunId: input.runId,
+                    sourceLineageId: input.runId,
+                    sourceTurn: 0,
+                    sourceActor: `${input.message.principal.kind}:${input.message.principal.id}`
+                  },
+                  payload: SteerPayload.encode(item)
+                }).pipe(
+                  Effect.mapError((cause) =>
+                    cause instanceof NotificationQueue.NotificationError ? cause : new PersistenceError({
+                      operation: "control.steer.notification",
+                      message: "Failed to admit steering notification",
+                      cause
+                    })
+                  )
                 )
-              ))
+                if (admission.decision === "rejected-full") {
+                  return yield* Effect.fail(
+                    new NotificationQueue.NotificationError({
+                      code: "notification_full",
+                      notificationId: input.message.messageId,
+                      message: "Steering queue is full; retry after pending notifications are delivered"
+                    })
+                  )
+                }
+                // `createdAt` is the caller's own stated time, and the enqueue
+                // entry is the one place it is kept: `steerItem` strips the control
+                // envelope before the message reaches the queue, so a field the
+                // journal did not carry was a field nothing ever read.
+                yield* emit(input.runId, Steering.enqueuedEventType, {
+                  runId: input.runId,
+                  messageId: input.message.messageId,
+                  kind: item.kind,
+                  createdAt: input.message.createdAt
+                })
+                yield* wake(run, input.message.messageId)
+                return accepted(input.idempotencyKey, input.runId)
+              })
+            ))
         )
       ),
-      resume: Effect.fn("Control.resume")((input) => runMutation(input)),
+      signal: Effect.fn("Control.signal")((submitted: SignalInput) =>
+        confined(
+          submitted,
+          Effect.flatMap(snapshotSignal(submitted), (input) =>
+            Effect.gen(function*() {
+              const principal = yield* runtime.stampPrincipal(input.principal)
+              const key = fingerprint("signal", principal, input)
+              const durableKey = mutationKey("signal", input.idempotencyKey, principal)
+              // Admission, payload and receipt commit together before any engine
+              // operation. The writer is released before completing a deferred.
+              const receipt = yield* mutate(
+                "signal",
+                input.idempotencyKey,
+                principal,
+                key,
+                Effect.gen(function*() {
+                  const current = yield* getRun(input.runId)
+                  if (terminal(current.status)) {
+                    return { _tag: "Terminal" as const, runId: current.runId, status: current.status }
+                  }
+                  // The admitting identity is stored with the command: whether the
+                  // signal may answer a human wait is decided at delivery, which
+                  // can be a replay after restart with no caller present.
+                  yield* runtime.admitSignal(durableKey, input.runId, input.signal, principal)
+                  yield* emit(input.runId, "control.signal.admitted", {
+                    commandId: durableKey,
+                    runId: input.runId,
+                    name: input.signal.name
+                  })
+                  return accepted(input.idempotencyKey, input.runId)
+                }),
+                true,
+                true
+              )
+              if (receipt._tag !== "Accepted" && receipt._tag !== "AlreadyApplied") return receipt
+              const command = yield* runtime.signalCommand(durableKey)
+              if (command === undefined || command.state === "delivered" || command.state === "terminal") return receipt
+              if (command.state === "rejected") {
+                return yield* new NoMatchingWait({ runId: input.runId, waitName: input.signal.name })
+              }
+              const delivery = Option.isNone(executor) ?
+                "unknown" as const
+                : yield* executor.value.deliverSignal({ ...command })
+              if (delivery === "no-match") {
+                yield* runtime.settleSignal(durableKey, "rejected")
+                return yield* new NoMatchingWait({ runId: input.runId, waitName: input.signal.name })
+              }
+              if (delivery === "refused") {
+                yield* runtime.settleSignal(durableKey, "rejected")
+                return yield* new Unauthorized({
+                  message: `This caller has no authority to answer "${input.signal.name}" on run ${input.runId}`
+                })
+              }
+              if (delivery === "delivered") {
+                yield* runtime.settleSignal(durableKey, "delivered")
+              }
+              return receipt
+            }))
+        )
+      ),
+      cancel: Effect.fn("Control.cancel")((submitted) =>
+        confined(
+          submitted,
+          Effect.flatMap(
+            snapshotReasonedMutation("cancel", submitted),
+            (input) =>
+              Effect.flatMap(runtime.stampPrincipal(input.principal), (principal) =>
+                mutate(
+                  "cancel",
+                  input.idempotencyKey,
+                  principal,
+                  fingerprint("cancel", principal, input),
+                  Effect.gen(function*() {
+                    const current = yield* getRun(input.runId)
+                    // A run that has already settled cannot be cancelled, and a cancel
+                    // request journaled against it would be a request nothing can ever
+                    // act on. Answer with what actually happened to the run.
+                    if (terminal(current.status)) {
+                      yield* reconcileTerminal(input.runId, current.status)
+                      return { _tag: "Terminal", runId: current.runId, status: current.status }
+                    }
+                    // The durable half, and the only half that reaches a run another
+                    // process owns: fibers are process-local, so an interrupt can only
+                    // stop a run this process is driving. The executor writes
+                    // `cancel_requested_at_ms` on the engine row instead, and the
+                    // owner's cancel poll acts on it within a heartbeat.
+                    //
+                    // It runs INSIDE the mutation's transaction on purpose. An engine
+                    // that refuses the request rolls the whole cancel back — no
+                    // attribution event, no terminal control status — because a
+                    // control row that says `cancelled` while the engine row is still
+                    // running is the one state an operator can never recover from.
+                    //
+                    // It runs BEFORE the attribution event for the mirror-image
+                    // reason. The control row this plane read may be stale — the two
+                    // `flows_runs` tables are two files in the shipped CLI — and an
+                    // engine row that has already settled makes the cancel a request
+                    // nobody can act on. Attributing and transitioning it anyway is
+                    // exactly the terminal disagreement B-11 forbids, so the engine's
+                    // own status becomes the receipt and nothing else happens.
+                    const record = yield* executorRequestCancel(input.runId)
+                    if (typeof record !== "string") {
+                      // The engine finished the run before the request arrived. Nobody
+                      // cancelled anything, so no attribution is written; but leaving
+                      // the control row saying `running` for a run the engine settled
+                      // is permanent, because no verb converges it: `cancel` answers
+                      // `Terminal` without writing and `resume` refuses a settled run.
+                      // `ps` listed it live and `gc` skipped it forever. Writing the
+                      // ENGINE's own status is convergence, not the terminal
+                      // disagreement B-11 forbids, which is a control row reading
+                      // `cancelled` over an engine row reading `completed`.
+                      yield* reconcileTerminal(input.runId, record.status)
+                      return { _tag: "Terminal", runId: input.runId, status: record.status }
+                    }
+                    // Attribution is keyed on the request being NEWLY recorded. A
+                    // cancel that committed without it would be durable and anonymous,
+                    // and nothing afterwards could say who asked — but this mutation
+                    // runs with `replay: false`, so an operator asking a second time
+                    // re-executes it, and attributing every ask journaled one
+                    // `control.run.cancel-requested` per ask for one cancellation.
+                    // `already-requested` is the engine saying the column was set
+                    // before this call arrived, so the record already exists.
+                    //
+                    // It stays BEFORE the interrupt, and in the mutation's own
+                    // transaction.
+                    const prior = yield* runtime.lookupMutation(
+                      mutationKey("cancel", input.idempotencyKey, principal),
+                      fingerprint("cancel", principal, input)
+                    )
+                    // A retry after cleanup or settlement failed already committed
+                    // this request's attribution with its acceptance receipt.
+                    if (record !== "already-requested" && prior === undefined) {
+                      yield* emit(
+                        input.runId,
+                        Cancellation.requestedEventType,
+                        json({
+                          runId: input.runId,
+                          source: "control",
+                          principal,
+                          ...(input.reason === undefined ? {} : { reason: input.reason })
+                        })
+                      )
+                    }
+                    return accepted(input.idempotencyKey, input.runId)
+                  }),
+                  false
+                ).pipe(
+                  Effect.flatMap((receipt) =>
+                    Effect.gen(function*() {
+                      if (receipt._tag !== "Accepted") return receipt
+                      // The request and receipt are committed before any finalizer runs.
+                      // Finalizers may use this same mutation permit or durable writer.
+                      const settle: NonNullable<Parameters<typeof runtime.interrupt>[1]> = (effect) =>
+                        transact(
+                          "cancel",
+                          Effect.gen(function*() {
+                            const run = yield* effect
+                            yield* emit(
+                              input.runId,
+                              `control.run.${run.status}`,
+                              {
+                                runId: input.runId,
+                                status: run.status,
+                                ...ControlFacts.runFact(run)
+                              } as ControlEvent["payload"]
+                            )
+                            return run
+                          })
+                        )
+                      const run = yield* runtime.interrupt(input.runId, settle).pipe(
+                        Effect.catchTag("/control/ClaimLost", () =>
+                          Effect.gen(function*() {
+                            const current = yield* getRun(input.runId)
+                            if (terminal(current.status)) return current
+                            // A live peer acts on the durable request. An unowned park
+                            // needs this caller to claim it and finish the cancellation.
+                            if (live(current.status) && current.ownerId !== undefined) return undefined
+                            return yield* runtime.resume(input.runId).pipe(
+                              Effect.andThen(runtime.interrupt(input.runId, settle)),
+                              Effect.catchTag("/control/ClaimLost", () => Effect.succeed(undefined))
+                            )
+                          }))
+                      )
+                      return run === undefined
+                        ? receipt
+                        : terminalOrAccepted(input.idempotencyKey, run)
+                    })
+                  ),
+                  // Both rows, before the process that asked goes away. The engine row
+                  // carries the request the moment the mutation commits, but nothing
+                  // drives a parked run, so the row stayed `suspended` until some
+                  // later long-lived engine happened to sweep it: `gc` collected the
+                  // run in `control.db` and skipped it in `engine.db` for fifteen
+                  // seconds and six commands in the release validation.
+                  Effect.tap(() =>
+                    Effect.gen(function*() {
+                      yield* executorSettleCancelledPark(input.runId)
+                      // The engine can finish between the request and local interrupt,
+                      // or while settling an unowned park. Its read overlay alone does
+                      // not persist the control row or deliver the terminal watch event.
+                      const current = yield* getRun(input.runId)
+                      if (terminal(current.status)) yield* reconcileTerminal(input.runId, current.status)
+                    })
+                  )
+                ))
+          )
+        )
+      ),
+      resume: Effect.fn("Control.resume")((input) => confined(input, runMutation(input))),
       list,
       watch
     }
