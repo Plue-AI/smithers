@@ -89,8 +89,9 @@ type Event struct {
 // in what it knows; unknown fields stay zero and never match.
 type Principal struct {
 	UserID int64
-	// OwnerUserID binds a shared desktop to its owner's account and repository
-	// access as well as its creator. Share changes still target UserID only.
+	// OwnerUserID binds a shared desktop to its owner's account, repository
+	// and organization access as well as its creator. Share changes still
+	// target UserID only.
 	OwnerUserID    int64
 	TokenHash      string
 	RepositoryID   int64
@@ -129,7 +130,7 @@ func (e Event) Affects(p Principal) bool {
 		}
 		return e.namesSandbox(p.SandboxID)
 	case KindOrgMemberRemoved:
-		if e.UserID != 0 && p.UserID == e.UserID && e.OrganizationID != 0 && p.OrganizationID == e.OrganizationID {
+		if e.UserID != 0 && (p.UserID == e.UserID || p.OwnerUserID == e.UserID) && e.OrganizationID != 0 && p.OrganizationID == e.OrganizationID {
 			return true
 		}
 		return e.namesSandbox(p.SandboxID)

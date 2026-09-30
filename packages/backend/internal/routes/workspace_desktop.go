@@ -219,10 +219,11 @@ func (h *WorkspaceDesktopHandler) Relay(w http.ResponseWriter, r *http.Request) 
 		Prefix: "/api/workspaces/" + workspaceID + "/desktop/" + token,
 		Token:  h.RelayToken,
 		Principal: revocation.Principal{
-			WorkspaceID:  target.WorkspaceID,
-			UserID:       target.UserID,
-			OwnerUserID:  target.OwnerUserID,
-			RepositoryID: target.RepositoryID,
+			WorkspaceID:    target.WorkspaceID,
+			UserID:         target.UserID,
+			OwnerUserID:    target.OwnerUserID,
+			RepositoryID:   target.RepositoryID,
+			OrganizationID: target.OrganizationID,
 		},
 		Reauthorize: func(ctx context.Context) error {
 			fresh, err := h.Service.AuthorizeDesktopRelay(ctx, workspaceID, token)

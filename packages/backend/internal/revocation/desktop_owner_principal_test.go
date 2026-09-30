@@ -29,3 +29,32 @@ func TestDesktopOwnerPrincipalAffectsOnlyOwnerAccountAndRepositoryRevocations(t 
 		})
 	}
 }
+
+func TestDesktopPrincipalAffectedByOwnerOrCreatorOrganizationRemoval(t *testing.T) {
+	principal := Principal{UserID: 2, OwnerUserID: 1, RepositoryID: 9, OrganizationID: 8, WorkspaceID: "ws-desktop"}
+	for _, tc := range []struct {
+		name  string
+		event Event
+		want  bool
+	}{
+		{name: "owner removed", event: Event{Kind: KindOrgMemberRemoved, UserID: 1, OrganizationID: 8}, want: true},
+		{name: "creator removed", event: Event{Kind: KindOrgMemberRemoved, UserID: 2, OrganizationID: 8}, want: true},
+		{name: "other member removed", event: Event{Kind: KindOrgMemberRemoved, UserID: 3, OrganizationID: 8}},
+		{name: "owner removed from another organization", event: Event{Kind: KindOrgMemberRemoved, UserID: 1, OrganizationID: 7}},
+		{name: "creator removed from another organization", event: Event{Kind: KindOrgMemberRemoved, UserID: 2, OrganizationID: 7}},
+		{name: "unscoped removal", event: Event{Kind: KindOrgMemberRemoved, UserID: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.event.Affects(principal); got != tc.want {
+				t.Fatalf("Affects(%+v) = %v, want %v", tc.event, got, tc.want)
+			}
+		})
+	}
+	// A user-owned repository's desktop carries no organization and is never
+	// matched by an organization removal.
+	userOwned := principal
+	userOwned.OrganizationID = 0
+	if (Event{Kind: KindOrgMemberRemoved, UserID: 1, OrganizationID: 8}).Affects(userOwned) {
+		t.Fatal("organization removal matched a desktop without an organization")
+	}
+}
