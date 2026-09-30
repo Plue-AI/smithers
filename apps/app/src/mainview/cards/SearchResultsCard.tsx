@@ -18,6 +18,23 @@ import { settledPill } from "./CardFamily"
 
 type SearchResultsCard = Extract<Card, { kind: "search-results" }>
 
+// Keep the rendered row IDs explicit so browser assertions can be checked
+// against the same kind vocabulary as the wire model.
+const searchItemTestId: Readonly<Record<SearchItemKind, (ref: string) => string>> = {
+  flow: (ref) => `search-item-flow-${ref}`,
+  file: (ref) => `search-item-file-${ref}`,
+  target: (ref) => `search-item-target-${ref}`,
+  wiki: (ref) => `search-item-wiki-${ref}`,
+  note: (ref) => `search-item-note-${ref}`,
+  history: (ref) => `search-item-history-${ref}`,
+  run: (ref) => `search-item-run-${ref}`,
+  change: (ref) => `search-item-change-${ref}`,
+  issue: (ref) => `search-item-issue-${ref}`,
+  box: (ref) => `search-item-box-${ref}`,
+  "secret-name": (ref) => `search-item-secret-name-${ref}`,
+  person: (ref) => `search-item-person-${ref}`
+}
+
 export interface SearchResultsCardActions {
   readonly onRunCommand: RunDynamicCommand
 }
@@ -84,7 +101,7 @@ export const SearchResultsCardBody = ({ card, onRunCommand }: { readonly card: S
             <h4 className="search-results-group-label">{GROUP_LABELS[group.kind]}</h4>
             <ol className="search-results-items">
               {group.items.map((item) => (
-                <li key={`${item.kind}:${item.ref}`} className="search-results-item" data-testid={`search-item-${item.kind}-${item.ref}`}>
+                <li key={`${item.kind}:${item.ref}`} className="search-results-item" data-testid={searchItemTestId[item.kind](item.ref)}>
                   <div className="world-card-row">
                     <span className="world-card-title">{item.title}</span>
                     {item.subtitle === undefined ? null : <span className="world-card-path">{item.subtitle}</span>}

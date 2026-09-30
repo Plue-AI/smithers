@@ -118,7 +118,9 @@ authenticatedTest("the Secrets card adds, rotates and deletes a secret through t
   const environmentPath = `${repoPath}/agent-environment`
   const secretName = "EDITOR_TOKEN"
   const secretPath = `${environmentPath}/secrets/${secretName}`
-  const values = [fixtureInputText(`editor-secret-${randomUUID()}`), fixtureInputText(`editor-rotated-${randomUUID()}`)]
+  const initialValue = fixtureInputText(`editor-secret-${randomUUID()}`)
+  const rotatedValue = fixtureInputText(`editor-rotated-${randomUUID()}`)
+  const values = [initialValue, rotatedValue]
   const host = fixtureInputText("api.example.test")
   let submitted = false, failure: unknown
   const cleanup: unknown[] = []

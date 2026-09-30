@@ -84,6 +84,12 @@ describe("the search-results card", () => {
     expect(calls[1]).toEqual(["history.show", undefined])
   })
 
+  test("note rows expose the kind and ref in their test ID", () => {
+    const note = { kind: "note" as const, ref: "note-123", title: "Meeting notes", actions: [] }
+    const { host } = render({ ...fixture, payload: { ...fixture.payload, items: [note] } })
+    expect(host.querySelector("[data-testid='search-item-note-note-123']")?.textContent).toContain("Meeting notes")
+  })
+
   test("the card re-runs its own flow with its own query", () => {
     const { host, calls } = render(fixture)
     const again = host.querySelector<HTMLButtonElement>("[data-testid='search-results-rerun']")
