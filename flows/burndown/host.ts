@@ -54,19 +54,6 @@ const agentHoursByAccount = (inFlight: ReadonlyArray<InFlight>, since: number, n
   return hours
 }
 
-/** Pacing sees a window no further away than the burn horizon. */
-const horizonReading = (reading: Reading, now: number): Reading =>
-  reading.usage === null ? reading : {
-    ...reading,
-    usage: {
-      ...reading.usage,
-      windows: reading.usage.windows.map((w) => ({
-        ...w,
-        resetsAt: Math.min(w.resetsAt, now + horizonHours * 3_600_000)
-      }))
-    }
-  }
-
 const observe = (state: RoundState) =>
   Effect.gen(function*() {
     const now = Date.now()
@@ -158,11 +145,11 @@ const observe = (state: RoundState) =>
       account: reading.account.id,
       tool: reading.account.tool,
       email: reading.account.email,
-      slots: slots(horizonReading(reading, now), now, rates[reading.account.id], inFlightBy[reading.account.id] ?? 0),
+      slots: slots(reading, now, rates[reading.account.id], inFlightBy[reading.account.id] ?? 0, horizonHours),
       inFlight: inFlightBy[reading.account.id] ?? 0,
       hardStop: (reading.error !== null && reading.error._tag !== "UsageUnavailable") ||
-        reading.usage?.limitReached === true ||
-        (reading.usage?.windows ?? []).some((w) => w.used >= 97),
+        (reading.error === null && (reading.usage?.limitReached === true ||
+          (reading.usage?.windows ?? []).some((w) => w.resetsAt !== null && w.resetsAt > now && w.used >= 97))),
       windows: (reading.usage?.windows ?? []).map((w) => ({ name: w.name, used: w.used, resetsAt: w.resetsAt })),
       problem: reading.error === null
         ? null
@@ -199,7 +186,7 @@ const observe = (state: RoundState) =>
       inFlight: still,
       finished,
       capacity,
-      exhausted: exhausted(readings.map((r) => horizonReading(r, now)), now, rates, inFlightBy),
+      exhausted: exhausted(readings, now, rates, inFlightBy, horizonHours),
       earliestReset: earliestReset(readings, now),
       pending: selected.pending,
       readings: { at: now, readings },
@@ -536,7 +523,7 @@ const settle = (
   })
 
 export const layer = Layer.mergeAll(
-  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v5" }),
+  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v6" }),
   Launch.toLayer(({ observation, plan, state }) => launch(state, observation, plan.launches), {
     implementationVersion: "burndown/launch/v3"
   }),

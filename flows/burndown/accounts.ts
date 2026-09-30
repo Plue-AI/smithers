@@ -18,7 +18,7 @@ export const Usage = Schema.Struct({
   windows: Schema.Array(Schema.Struct({
     name: Schema.Literals(["five_hour", "seven_day", "primary"]),
     used: Schema.Number,
-    resetsAt: Schema.Number,
+    resetsAt: Schema.NullOr(Schema.Number),
     durationHours: Schema.Number
   })),
   limitReached: Schema.Boolean
@@ -154,7 +154,11 @@ export async function readUsage(account: Account, options: UsageOptions = {}): P
       ["five_hour", "seven_day"].map((name) => ({
         name: name as "five_hour" | "seven_day",
         used: body[name]?.utilization,
-        resetsAt: Date.parse(body[name]?.resets_at),
+        resetsAt: body[name]?.utilization === 0 && body[name]?.resets_at === null
+          ? null
+          : typeof body[name]?.resets_at === "string"
+          ? Date.parse(body[name].resets_at)
+          : Number.NaN,
         durationHours: name === "five_hour" ? 5 : 168
       })) :
       [{
@@ -166,7 +170,8 @@ export async function readUsage(account: Account, options: UsageOptions = {}): P
     if (
       windows.some((window) =>
         !Number.isFinite(window.used) || window.used < 0 || window.used > 100 ||
-        !Number.isFinite(window.resetsAt) || !Number.isFinite(window.durationHours) || window.durationHours <= 0
+        (window.resetsAt !== null && !Number.isFinite(window.resetsAt)) || !Number.isFinite(window.durationHours) ||
+        window.durationHours <= 0
       )
     ) {
       throw failure(account, "UsageUnavailable", "Invalid usage response")

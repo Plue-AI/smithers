@@ -12,7 +12,7 @@ import { InFlight, LandReport, Observation, PacePlan, RoundState, Settlement } f
 
 /** Reads issues, claims, worker results and live account usage. */
 export const Observe = Action.make("burndown/observe", {
-  implementationVersion: "burndown/observe/v5",
+  implementationVersion: "burndown/observe/v6",
   payload: { state: RoundState },
   success: Observation,
   error: Schema.String,
@@ -58,7 +58,7 @@ export const canLaunch = (observation: Observation): boolean =>
   observation.capacity.some((c) => !c.hardStop && c.problem === null && c.slots > 0)
 
 /** Bump when the round topology or a captured callback changes meaning. */
-const identity = "burndown/round/v7"
+const identity = "burndown/round/v8"
 
 export const RoundError = Schema.Union([Schema.String, AgentAction.AgentFailure, Sleep.SleepRequestInvalid])
 

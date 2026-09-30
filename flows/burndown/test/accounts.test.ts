@@ -361,3 +361,99 @@ test("selected-account discovery leaves unrelated login directories unread", asy
   assert.deepEqual(found.skipped, [])
   assert.deepEqual((await discoverAccounts({ ...f, onlyIds: [] })).accounts, [])
 })
+
+test("Claude explicit idle windows stay healthy without fabricated reset timestamps", async (t) => {
+  const f = await fixture(t)
+  const account = await f.login("claude-1", "idle@test")
+  for (const idleName of ["five_hour", "seven_day", "both"]) {
+    const idle = { utilization: 0, resets_at: null }
+    const active = { utilization: 20, resets_at: "2026-10-01T00:00:00Z" }
+    const r = await readUsage(account, {
+      platform: "linux",
+      fetch: async () =>
+        Response.json({
+          five_hour: idleName === "seven_day" ? active : idle,
+          seven_day: idleName === "five_hour" ? active : idle
+        })
+    })
+    assert.equal(r.error, null, idleName)
+    assert.equal(r.usage!.limitReached, false)
+    assert.deepEqual(r.usage!.windows.map((w) => [w.name, w.used, w.resetsAt, w.durationHours]), [
+      [
+        "five_hour",
+        idleName === "seven_day" ? 20 : 0,
+        idleName === "seven_day" ? Date.parse(active.resets_at) : null,
+        5
+      ],
+      [
+        "seven_day",
+        idleName === "five_hour" ? 20 : 0,
+        idleName === "five_hour" ? Date.parse(active.resets_at) : null,
+        168
+      ]
+    ])
+    Schema.decodeUnknownSync(Usage)(r.usage)
+    Schema.decodeUnknownSync(Reading)(r)
+  }
+})
+
+test("Claude nonzero null resets and malformed idle windows remain unavailable", async (t) => {
+  const f = await fixture(t)
+  const account = await f.login("claude-1", "idle@test")
+  for (
+    const invalid of [
+      { utilization: 1, resets_at: null },
+      { utilization: 100, resets_at: null },
+      { utilization: "0", resets_at: null },
+      { utilization: -1, resets_at: null },
+      { utilization: 101, resets_at: null },
+      { utilization: 0 },
+      { utilization: 0, resets_at: "invalid" },
+      { resets_at: null }
+    ]
+  ) {
+    for (const name of ["five_hour", "seven_day"]) {
+      const r = await readUsage(account, {
+        platform: "linux",
+        fetch: async () =>
+          Response.json({
+            five_hour: { utilization: 0, resets_at: null },
+            seven_day: { utilization: 0, resets_at: null },
+            [name]: invalid
+          })
+      })
+      assert.equal(r.error?._tag, "UsageUnavailable", JSON.stringify({ name, invalid }))
+      assert.equal(r.usage, null)
+    }
+  }
+})
+
+test("Claude polling replaces a stale capped reading with healthy idle usage", async (t) => {
+  const f = await fixture(t)
+  const account = await f.login("claude-1", "reset@test")
+  let polls = 0
+  const fetcher = async () => {
+    polls++
+    return Response.json(
+      polls === 1 ?
+        {
+          five_hour: { utilization: 100, resets_at: "2026-09-29T00:00:00Z" },
+          seven_day: { utilization: 30, resets_at: "2026-10-01T00:00:00Z" }
+        } :
+        {
+          five_hour: { utilization: 0, resets_at: null },
+          seven_day: { utilization: 30, resets_at: "2026-10-01T00:00:00Z" }
+        }
+    )
+  }
+  const capped = await readUsage(account, { platform: "linux", fetch: fetcher })
+  const reset = await readUsage(account, { platform: "linux", fetch: fetcher })
+  assert.equal(polls, 2)
+  assert.equal(capped.error, null)
+  assert.equal(capped.usage!.windows[0]!.used, 100)
+  assert.equal(reset.error, null)
+  assert.equal(reset.usage!.limitReached, false)
+  assert.deepEqual(reset.usage!.windows[0], { name: "five_hour", used: 0, resetsAt: null, durationHours: 5 })
+  assert.deepEqual(reset.usage!.windows[1], capped.usage!.windows[1])
+  assert.equal(capped.usage!.windows[0]!.used, 100, "polling leaves the previous reading intact")
+})

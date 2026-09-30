@@ -6,6 +6,7 @@ import * as filesystem from "node:fs/promises"
 import { hostname } from "node:os"
 import { mock, test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { readUsage as providerUsage } from "../burndown/accounts.ts"
 
 if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   test("burndown action behavior in an isolated host", () => {
@@ -857,6 +858,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
           state: { ...initial(), readings: { at: now - 1000, readings: [prior] } }
         }) as typeof Observe.successSchema.Type
         assert.equal(observed.capacity[0]!.slots, 0)
+        assert.equal(observed.capacity[0]!.hardStop, false)
         assert.match(observed.capacity[0]!.problem!, /UsageUnavailable/)
         assert.equal(observed.exhausted, false)
         const retained = observed
@@ -876,6 +878,52 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       }
     })
   }
+
+  test("Observe replaces stale full Claude usage with injected healthy idle evidence", async () => {
+    const now = Date.now()
+    const account = {
+      id: "claude-fixture",
+      tool: "claude" as const,
+      email: "fixture@example.test",
+      directory: "fixture",
+      aliases: []
+    }
+    const fresh = await providerUsage(account, {
+      now: () => now,
+      platform: "darwin",
+      execFile: async () => ({ stdout: JSON.stringify({ claudeAiOauth: { accessToken: "fixture" } }) }),
+      fetch: async () =>
+        Response.json({
+          five_hour: { utilization: 0, resets_at: null },
+          seven_day: { utilization: 25, resets_at: new Date(now + 24 * 3_600_000).toISOString() }
+        })
+    })
+    assert.equal(fresh.error, null)
+    const prior = {
+      ...fresh,
+      observedAt: now - 1000,
+      usage: {
+        limitReached: false,
+        windows: [{ name: "five_hour", used: 100, resetsAt: now + 3_600_000, durationHours: 5 }]
+      }
+    }
+    accountReadings = [fresh]
+    try {
+      const observed = await invoke(Observe.name, {
+        state: { ...initial(), readings: { at: now - 1000, readings: [prior] } }
+      }) as typeof Observe.successSchema.Type
+      assert.deepEqual(Schema.decodeUnknownSync(Observe.successSchema)(JSON.parse(JSON.stringify(observed))), observed)
+      assert.equal(observed.capacity[0]!.problem, null)
+      assert.equal(observed.capacity[0]!.hardStop, false)
+      assert.equal(observed.capacity[0]!.slots, 3)
+      assert.equal(observed.capacity[0]!.windows[0]!.resetsAt, null)
+      assert.equal(observed.exhausted, false)
+      assert.equal(observed.earliestReset, now + 24 * 3_600_000)
+      assert.deepEqual((observed.readings as { readings: unknown[] }).readings, [fresh])
+    } finally {
+      accountReadings = []
+    }
+  })
 
   test("failed worker receipts never release claims held on another host", async () => {
     ownership = { mine: true, holder: { host: "another-host" } }
