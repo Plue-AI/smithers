@@ -1,6 +1,7 @@
 import { testRender } from "@opentui/react/test-utils"
+import type { AgentEvent } from "@smthrs/harness/AgentEvent"
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate, setTimeout } from "node:timers/promises"
@@ -48,6 +49,17 @@ const settle = async () => {
     await setTimeout(450)
   })
   await render()
+}
+/** Feed recorded host events through the App boundary so the real activity dock is rendered. */
+const showActivity = async () => {
+  const events = readFileSync(new URL("./fixtures/fix-add.jsonl", import.meta.url), "utf8").trim().split("\n")
+    .slice(0, 20).map((line) => (JSON.parse(line) as { event: AgentEvent }).event)
+  await act(async () => {
+    for (const event of events) turns[0]!.input.onEvent(event)
+    await setImmediate()
+  })
+  await render()
+  expect(frame()).toContain("Pause")
 }
 /** The chat delegates `ids`; each worker's turn is `turns[n]`. */
 const delegate = async (...ids: ReadonlyArray<string>) => {
@@ -319,6 +331,7 @@ test("an 18-line question keeps the focused answer and footer visible at 80 by 2
     await setImmediate()
   })
   await render()
+  await showActivity()
   await delegate("add")
   const answered = await ask(1, Array.from({ length: 18 }, (_, index) => `Question line ${index + 1}`).join("\n"), ["sum", "plus"])
   await waitFor(() => frame().includes("Summary ◆1"))
@@ -357,3 +370,29 @@ test.each([
   await waitFor(() => answer !== undefined)
   expect(answer).toBe(expected)
 })
+
+test.each(["New name?", Array.from({ length: 18 }, (_, index) => `Question line ${index + 1}`).join("\n")])(
+  "keeps the answer and footer visible at 110 by 32 for question %s",
+  async (question) => {
+    await act(async () => {
+      setup!.renderer.resize(110, 32)
+      await setImmediate()
+    })
+    await render()
+    await showActivity()
+    await delegate("add")
+    const answered = await ask(1, question, ["sum", "plus"])
+    await waitFor(() => frame().includes("Summary ◆1"))
+    await settle()
+    await type("a")
+    expect(frame()).toContain("> sum")
+    expect(frame()).toContain("enter Answer  esc Back")
+    await key("ARROW_DOWN")
+    await key("ARROW_DOWN")
+    await type("total")
+    expect(frame()).toContain("> total")
+    expect(frame()).toContain("enter Answer  esc Back")
+    await key("RETURN")
+    expect(await answered()).toMatchObject({ answer: "total" })
+  }
+)

@@ -21,6 +21,7 @@ import { basename } from "node:path"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import stringWidth from "string-width"
 import { ActivityView } from "./activity-view.tsx"
+import * as Activity from "./activity.ts"
 import * as Agents from "./agents.ts"
 import * as AppView from "./app-view.tsx"
 import { CompletionMenu, FlowFormView, PickerDialog, StatusLine } from "./app-view.tsx"
@@ -2572,9 +2573,15 @@ export function App(props: AppProps) {
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
+  const activityVisible = showActivity && monitored !== undefined && (!short || activeInspection !== undefined) &&
+    reviewTab === undefined
+  const activityModel = activityVisible ? Activity.model(monitored.activity) : undefined
+  const activityHeight = activityModel !== undefined && (activityModel.bands.length > 0 || activityModel.milestones.length > 0)
+    ? Scrubber.layout(monitored!.activity, width, activeInspection?.seq, now).rows + 3
+    : 0
   const formHeight = Math.max(
     3,
-    chatHeight - (short ? 2 : 4) -
+    chatHeight - (short ? 2 : 4) - activityHeight -
       Math.min(toastLimit, toastRows.length * (short ? 1 : 2)) -
       (followUps.length === 0 ? 0 : (short ? 3 : followUps.length + 2))
   )
@@ -2803,8 +2810,7 @@ export function App(props: AppProps) {
                   : null}
               </scrollbox>
             )}
-          {!showActivity || monitored === undefined || (short && activeInspection === undefined) ||
-              reviewTab !== undefined ?
+          {!activityVisible ?
             null :
             (
               <ActivityView

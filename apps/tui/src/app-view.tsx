@@ -182,6 +182,7 @@ function AskFormView(props: {
   readonly form: FlowForm
   readonly ask: Dispatch.AskChoices
   readonly height: number
+  readonly width?: number
   readonly compact: boolean
   readonly onField: (name: string, text: string) => void
 }) {
@@ -212,6 +213,11 @@ function AskFormView(props: {
   const available = Math.max(2, props.height - (props.compact ? 0 : 4))
   const rows = Math.min(Math.max(1, lines.length), available - 1)
   const questionHeight = Math.max(1, available - rows)
+  const questionColumns = Math.max(1, (props.width ?? 80) - 5)
+  const questionRows = `◆ ${ask.question}`.split("\n").reduce(
+    (count, line) => count + Math.max(1, Math.ceil(stringWidth(line) / questionColumns)),
+    0
+  )
   const start = Math.min(Math.max(0, ask.choice - Math.floor(rows / 2)), Math.max(0, lines.length - rows))
   return (
     <box
@@ -228,7 +234,7 @@ function AskFormView(props: {
         }}
         backgroundColor={color.element}
       >
-        <scrollbox scrollX={false} style={{ maxHeight: questionHeight, flexShrink: 0, scrollbarOptions: { visible: false } }}>
+        <scrollbox scrollX={false} style={{ height: Math.min(questionHeight, questionRows), flexShrink: 0, scrollbarOptions: { visible: false } }}>
           <text fg={color.text} wrapMode="word">
             <span fg={color.needs}>{"◆ "}</span>
             {ask.question}
