@@ -225,3 +225,380 @@ fn base_ignores(
         backend.git_repo_path().join("info/exclude"),
     )?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jj_lib::backend::CopyId;
+    use jj_lib::merged_tree::MergedTree;
+    use jj_lib::object_id::ObjectId;
+    use jj_lib::repo::Repo;
+    use jj_lib::repo_path::RepoPathBuf;
+    use jj_lib::tree_builder::TreeBuilder;
+
+    fn fixture(tracked: &[&str]) -> (tempfile::TempDir, String) {
+        let temp = tempfile::TempDir::new().unwrap();
+        let settings = create_settings(&UserConfig::default());
+        let (_, repo) = Workspace::init_internal_git(&settings, temp.path(), gix::hash::Kind::Sha1)
+            .block_on()
+            .unwrap();
+        // Override global excludes without mutating process-wide Git or home settings.
+        std::fs::write(temp.path().join(".jj/test-excludes"), "").unwrap();
+        let config_path = temp.path().join(".jj/repo/store/git/config");
+        let mut config = std::fs::read_to_string(&config_path).unwrap();
+        config.push_str("\n[core]\n\texcludesFile = .jj/test-excludes\n");
+        std::fs::write(config_path, config).unwrap();
+        let store = repo.store();
+        let mut builder = TreeBuilder::new(store.clone(), store.empty_tree_id().clone());
+        for name in tracked {
+            let path = RepoPathBuf::from_internal_string(*name).unwrap();
+            let id = store
+                .write_file(&path, &mut "tracked".as_bytes())
+                .block_on()
+                .unwrap();
+            builder.set(
+                path,
+                TreeValue::File {
+                    id,
+                    executable: false,
+                    copy_id: CopyId::placeholder(),
+                },
+            );
+        }
+        let tree = MergedTree::resolved(store.clone(), builder.write_tree().block_on().unwrap());
+        let mut tx = repo.start_transaction();
+        let commit = tx
+            .repo_mut()
+            .new_commit(vec![store.root_commit_id().clone()], tree)
+            .write()
+            .block_on()
+            .unwrap();
+        // No transaction commit is needed: check reads the store by immutable commit ID.
+        (temp, commit.id().hex())
+    }
+
+    fn input(commit: &str, path: &str) -> Input {
+        Input {
+            commit_id: commit.into(),
+            path: path.into(),
+            byte_length: 1,
+            auto_track: "all()".into(),
+            max_new_file_size: "1MiB".into(),
+            fileset_aliases: String::new(),
+        }
+    }
+
+    fn refusal(root: &Path, input: Input, expected: &str) {
+        let result = check(root, input).unwrap();
+        assert!(!result.eligible);
+        assert_eq!(result.reason, Some(expected));
+    }
+
+    fn error(root: &Path, input: Input, expected: &str) {
+        let result = check(root, input).err().expect("expected failure");
+        assert_eq!(result.to_string(), expected);
+    }
+
+    #[test]
+    fn input_decode_requires_every_field_and_rejects_unknown_fields() {
+        let valid = serde_json::json!({"commitId":"abc", "path":"file", "byteLength":0,
+            "autoTrack":"all()", "maxNewFileSize":"0", "filesetAliases":""});
+        assert!(serde_json::from_value::<Input>(valid.clone()).is_ok());
+        for field in [
+            "commitId",
+            "path",
+            "byteLength",
+            "autoTrack",
+            "maxNewFileSize",
+            "filesetAliases",
+        ] {
+            let mut value = valid.clone();
+            value.as_object_mut().unwrap().remove(field);
+            assert_eq!(
+                serde_json::from_value::<Input>(value)
+                    .err()
+                    .unwrap()
+                    .to_string(),
+                format!("missing field `{field}`")
+            );
+        }
+        let mut value = valid;
+        value["extra"] = serde_json::json!(true);
+        assert_eq!(serde_json::from_value::<Input>(value).err().unwrap().to_string(),
+            "unknown field `extra`, expected one of `commitId`, `path`, `byteLength`, `autoTrack`, `maxNewFileSize`, `filesetAliases`");
+    }
+
+    #[test]
+    fn paths_are_bounded_normalized_and_protect_metadata() {
+        let (temp, commit) = fixture(&[]);
+        for path in ["", "a\0b"] {
+            error(
+                temp.path(),
+                input(&commit, path),
+                "expected a bounded repository-relative file path",
+            );
+        }
+        error(
+            temp.path(),
+            input(&commit, &"a".repeat(4097)),
+            "expected a bounded repository-relative file path",
+        );
+        for path in ["a/./b", "a/../b", "a\\b"] {
+            error(
+                temp.path(),
+                input(&commit, path),
+                "expected a normalized repository-relative file path",
+            );
+        }
+        for path in ["/file", "file/", "a//b"] {
+            error(
+                temp.path(),
+                input(&commit, path),
+                "invalid repository-relative path",
+            );
+        }
+        for path in [".jj/config", "nested/.GiT/config", "nested/.JJ/file"] {
+            refusal(temp.path(), input(&commit, path), "repository_metadata");
+        }
+    }
+
+    #[test]
+    fn real_new_files_size_boundaries_and_tracked_overrides() {
+        let (temp, commit) = fixture(&["tracked", ".gitignore"]);
+        std::fs::write(temp.path().join("new"), "new").unwrap();
+        std::fs::write(temp.path().join(".gitignore"), "tracked\n").unwrap();
+        for (size, limit, allowed) in [
+            (0, "1", true),
+            (1, "1", true),
+            (2, "1", false),
+            (u64::MAX, "0", true),
+        ] {
+            let mut candidate = input(&commit, "new");
+            candidate.byte_length = size;
+            candidate.max_new_file_size = limit.into();
+            let result = check(temp.path(), candidate).unwrap();
+            assert_eq!(result.eligible, allowed);
+            assert_eq!(
+                result.reason,
+                if allowed {
+                    None
+                } else {
+                    Some("new_file_too_large")
+                }
+            );
+        }
+        for path in ["tracked", ".gitignore"] {
+            let mut candidate = input(&commit, path);
+            candidate.auto_track = "invalid(".into();
+            candidate.max_new_file_size = "invalid".into();
+            candidate.fileset_aliases = "invalid [".into();
+            assert!(check(temp.path(), candidate).unwrap().eligible);
+        }
+        refusal(
+            temp.path(),
+            input(&commit, "sub/.GitIgnore"),
+            "untracked_ignore_file",
+        );
+    }
+
+    #[test]
+    fn ignores_respect_directory_pruning_and_nested_negation() {
+        let (temp, commit) = fixture(&[]);
+        std::fs::create_dir(temp.path().join("nested")).unwrap();
+        std::fs::create_dir(temp.path().join("blocked")).unwrap();
+        std::fs::write(temp.path().join(".gitignore"), "*.log\nblocked/\n").unwrap();
+        std::fs::write(temp.path().join("nested/.gitignore"), "!keep.log\n").unwrap();
+        std::fs::write(temp.path().join("blocked/.gitignore"), "!keep.log\n").unwrap();
+        refusal(temp.path(), input(&commit, "other.log"), "ignored_path");
+        refusal(
+            temp.path(),
+            input(&commit, "nested/other.log"),
+            "ignored_path",
+        );
+        assert!(
+            check(temp.path(), input(&commit, "nested/keep.log"))
+                .unwrap()
+                .eligible
+        );
+        refusal(
+            temp.path(),
+            input(&commit, "blocked/keep.log"),
+            "ignored_directory",
+        );
+    }
+
+    #[test]
+    fn base_ignores_load_core_excludes_file() {
+        let (temp, commit) = fixture(&[]);
+        std::fs::write(
+            temp.path().join(".jj/test-excludes"),
+            "*.log\n!keep.log\nblocked/\n",
+        )
+        .unwrap();
+        refusal(temp.path(), input(&commit, "other.log"), "ignored_path");
+        refusal(
+            temp.path(),
+            input(&commit, "blocked/file"),
+            "ignored_directory",
+        );
+        for path in ["keep.log", "new"] {
+            let result = check(temp.path(), input(&commit, path)).unwrap();
+            assert!(result.eligible, "{path}");
+            assert_eq!(result.reason, None);
+        }
+    }
+
+    #[test]
+    fn base_ignores_info_exclude_overrides_core_excludes_with_negation() {
+        let (temp, commit) = fixture(&[]);
+        std::fs::write(temp.path().join(".jj/test-excludes"), "*.log\n!deny.log\n").unwrap();
+        let exclude = temp.path().join(".jj/repo/store/git/info/exclude");
+        std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+        std::fs::write(exclude, "!keep.log\ndeny.log\ninfo-only.txt\n").unwrap();
+        for path in ["other.log", "deny.log", "info-only.txt"] {
+            refusal(temp.path(), input(&commit, path), "ignored_path");
+        }
+        let result = check(temp.path(), input(&commit, "keep.log")).unwrap();
+        assert!(result.eligible);
+        assert_eq!(result.reason, None);
+    }
+
+    #[test]
+    fn native_filesets_aliases_and_invalid_configuration() {
+        let (temp, commit) = fixture(&[]);
+        let mut candidate = input(&commit, "src/main.rs");
+        candidate.fileset_aliases = "[fileset-aliases]\n'code()' = 'glob:\"**/*.rs\"'\n".into();
+        candidate.auto_track = "code()".into();
+        assert!(check(temp.path(), candidate).unwrap().eligible);
+        let mut candidate = input(&commit, "src/main.txt");
+        candidate.fileset_aliases = "[fileset-aliases]\n'code()' = 'glob:\"**/*.rs\"'\n".into();
+        candidate.auto_track = "code()".into();
+        refusal(temp.path(), candidate, "not_auto_tracked");
+        let mut candidate = input(&commit, "other");
+        candidate.auto_track = "none()".into();
+        refusal(temp.path(), candidate, "not_auto_tracked");
+        for (field, value, expected) in [
+            (0, "invalid(", "unsupported native auto-track expression"),
+            (1, "invalid [", "unsupported native fileset aliases"),
+            (
+                1,
+                "[fileset-aliases]\n'code()' = 1",
+                "fileset alias must be a string",
+            ),
+            (2, "invalid", "unsupported native snapshot size limit"),
+        ] {
+            let mut candidate = input(&commit, "new");
+            match field {
+                0 => candidate.auto_track = value.into(),
+                1 => candidate.fileset_aliases = value.into(),
+                _ => candidate.max_new_file_size = value.into(),
+            }
+            error(temp.path(), candidate, expected);
+        }
+    }
+
+    #[test]
+    fn commit_ids_require_full_lowercase_hex() {
+        let (temp, commit) = fixture(&[]);
+        for id in [
+            "abc".to_owned(),
+            "z".repeat(commit.len()),
+            "A".repeat(commit.len()),
+        ] {
+            error(
+                temp.path(),
+                input(&id, "new"),
+                "expected a full lowercase immutable commit ID",
+            );
+        }
+        let unknown = "1".repeat(commit.len());
+        let failure = check(temp.path(), input(&unknown, "new"))
+            .err()
+            .expect("unknown commit must fail");
+        let backend_error = failure
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<jj_lib::backend::BackendError>())
+            .expect("error chain must retain the backend failure");
+        match backend_error {
+            jj_lib::backend::BackendError::ObjectNotFound {
+                object_type, hash, ..
+            } => {
+                assert_eq!(object_type, "commit");
+                assert_eq!(hash, &unknown);
+                assert_eq!(
+                    backend_error.to_string(),
+                    format!("Object {unknown} of type commit not found")
+                );
+            }
+            other => panic!("expected missing commit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sparse_prefixes_include_descendants_but_not_sibling_names() {
+        let (temp, commit) = fixture(&["outside"]);
+        let settings = create_settings(&UserConfig::default());
+        let mut workspace = Workspace::load(
+            &settings,
+            temp.path(),
+            &default_backend_factories(),
+            &default_working_copy_factories(),
+        )
+        .unwrap();
+        let repo = workspace.repo_loader().load_at_head().block_on().unwrap();
+        let mut locked = workspace.start_working_copy_mutation().block_on().unwrap();
+        locked
+            .locked_wc()
+            .set_sparse_patterns(vec![RepoPathBuf::from_internal_string("src").unwrap()])
+            .block_on()
+            .unwrap();
+        locked.finish(repo.op_id().clone()).block_on().unwrap();
+        assert!(
+            check(temp.path(), input(&commit, "src/new"))
+                .unwrap()
+                .eligible
+        );
+        assert!(
+            check(temp.path(), input(&commit, "src/nested/new"))
+                .unwrap()
+                .eligible
+        );
+        for path in ["src-other/new", "outside"] {
+            refusal(temp.path(), input(&commit, path), "outside_sparse_snapshot");
+        }
+    }
+
+    #[test]
+    fn tracked_directory_without_disk_entry_is_unsupported() {
+        let (temp, commit) = fixture(&["directory/child"]);
+        assert!(!temp.path().join("directory").exists());
+        refusal(
+            temp.path(),
+            input(&commit, "directory"),
+            "unsupported_tree_entry",
+        );
+        let result = check(temp.path(), input(&commit, "directory/child")).unwrap();
+        assert!(result.eligible);
+        assert_eq!(result.reason, None);
+    }
+
+    #[test]
+    fn directories_and_file_ancestors_are_nonregular() {
+        let (temp, commit) = fixture(&[]);
+        std::fs::create_dir(temp.path().join("directory")).unwrap();
+        std::fs::write(temp.path().join("file"), "content").unwrap();
+        for path in ["directory", "file/child"] {
+            refusal(temp.path(), input(&commit, path), "nonregular_path");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_leaf_and_ancestor_are_refused() {
+        let (temp, commit) = fixture(&[]);
+        std::os::unix::fs::symlink("missing", temp.path().join("link")).unwrap();
+        for path in ["link", "link/child"] {
+            refusal(temp.path(), input(&commit, path), "symlink_path");
+        }
+    }
+}
