@@ -57,11 +57,12 @@ export interface WorkflowController {
   readonly listWorkspaceWorkflows: ViewAction<[repo?: string, sourceCard?: string]>
   /** The Flows pane: the surface switch, and the same listing that fills it. */
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
+  readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** `change.request`: coding/request on the prompt, continuing into coding/vibe once it validates. */
-  readonly requestChange: (prompt: string, repo?: string, from?: string) => Promise<string | void | { readonly value: string }>
+  readonly requestChange: (prompt: string, repo?: string, from?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** What a flow WOULD run: the plan card, filled in the background. */
-  readonly planFlow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, against?: string) => Promise<string | void | { readonly value: string }>
+  readonly planFlow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, against?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly chooseWorkflowRepo: (fullName: string) => Promise<string | void | { readonly value: string }>
   readonly forwardApprovalDecision: (
     card: Extract<Card, { kind: "approval" }>,
@@ -837,6 +838,13 @@ export const createWorkflowController = (
     return binding.error
   }
 
+  const requireBox: WorkflowController["requireBox"] = (repo, act, title) => {
+    const guard = workflowIdentityGuard()
+    if (guard !== undefined) return guard
+    const binding = gatewayBindingFor(store, repo)
+    return "error" in binding ? boxPrerequisite(repo, binding, act, title) : undefined
+  }
+
   let flowsOpening = false
   let flowsOpeningGeneration = 0
 
@@ -933,12 +941,18 @@ export const createWorkflowController = (
    * workspace's preparation, the run and the hand-over to vibe continue in
    * the background under the shared toast, and each stage has its own card.
    */
-  const requestChange = async (prompt: string, repoArg?: string, from?: string): Promise<string | void | { readonly value: string }> => {
+  const requestChange = async (prompt: string, repoArg?: string, from?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
     const what = prompt.trim()
     if (what === "") return "change.request needs what to change"
     if (what.length > 32_768) return "The change request exceeds the coding request limit of 32,768 characters."
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
+    if (humanDoor) {
+      const selected = workflowTargetRepo(repoArg)
+      if ("error" in selected) return selected.error
+      const prerequisite = requireBox(selected.repo, { flow: "change.request", args: flowArgs("change.request", { prompt: what, repo: selected.repo, from }) }, `Open a box to change ${selected.repo}`)
+      if (prerequisite !== undefined) return prerequisite
+    }
     const target = workflowScope(repoArg)
     if ("error" in target) return target.error
     const { repo, binding } = target
@@ -955,9 +969,15 @@ export const createWorkflowController = (
    * see a graph. The card is the claim surface; the toast carries the
    * progress; the answer fills the card when it lands.
    */
-  const planFlow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, against?: string): Promise<string | void | { readonly value: string }> => {
+  const planFlow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, against?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
+    if (humanDoor && sourceCard === undefined) {
+      const selected = workflowTargetRepo(repoArg)
+      if ("error" in selected) return selected.error
+      const prerequisite = requireBox(selected.repo, { flow: "flow.plan", args: flowArgs("flow.plan", { name, repo: selected.repo, input: inputArg, against }) }, `Open a box to plan ${name} in ${selected.repo}`)
+      if (prerequisite !== undefined) return prerequisite
+    }
     const target = workflowScope(repoArg, sourceCard)
     if ("error" in target) return target.error
     const { repo, binding } = target
@@ -1230,6 +1250,7 @@ export const createWorkflowController = (
     createWorkflow,
     listWorkspaceWorkflows,
     showFlows,
+    requireBox,
     runWorkflow,
     requestChange,
     planFlow,

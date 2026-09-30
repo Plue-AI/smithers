@@ -104,7 +104,7 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     args: "<number> [owner/repo]",
     form: { submitLabel: "Review", fields: { number: { label: "PR", optionsFrom: "pull-requests", kind: "number" }, repo: { hidden: true } } },
     input: NumberedTarget,
-    handler: ({ number, repo }) => actions.triagePullRequest(number, repo)
+    handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({
     name: "prs.review",

@@ -12,6 +12,7 @@ test("cloud implementation binds the real issue to coding/request and refuses mi
   const calls: unknown[] = []
   let lists = 0
   const flows = createIssueFlowsController(ctx, {
+    requireBox: () => undefined,
     listWorkspaceWorkflows: async () => {
       lists++
       throw Error("Catalog read must not block the launch")

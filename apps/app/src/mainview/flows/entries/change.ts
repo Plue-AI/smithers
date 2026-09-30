@@ -40,7 +40,7 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     args: "<what to change…> [from:<pushed ref>] [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ prompt: Schema.String, from: Schema.optional(Schema.String), repo: Schema.optional(Schema.String) }),
-    handler: ({ prompt, from, repo }) => actions.requestChange(prompt, repo, from)
+    handler: ({ prompt, from, repo }) => actions.requestChange(prompt, repo, from, true)
   }),
   /*
    * Lane change (ADR 0003): the change is the unit. `change.view` renders

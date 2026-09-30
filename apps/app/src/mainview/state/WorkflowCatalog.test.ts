@@ -98,6 +98,133 @@ test("an agent flow.run with no box keeps the refusal and cannot render a human 
   } finally { await controller.dispose() }
 })
 
+test("explicit plan and change doors offer a box form while direct background calls keep refusals", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
+    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
+    expect((await controller.commands.run("change.request", `Fix the flaky check ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
+    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
+    expect(await controller.planFlow("checks/fast", repo)).toContain("Open a box")
+    expect(await controller.requestChange("Fix the flaky check", repo)).toContain("Open a box")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("agent planning refuses a missing box and change.request waits for human confirmation without a form", async () => {
+  const { controller, store } = await fixture({ boxStatus: "none" })
+  try {
+    const plan = await controller.commands.runForAgent("flow.plan", `checks/fast ${repo}`)
+    expect(plan.status).toBe("failed")
+    if (plan.status === "failed") expect(plan.error).toContain("Open a box")
+    const change = await controller.commands.runForAgent("change.request", `Fix the flaky check ${repo}`)
+    expect(change).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+  } finally { await controller.dispose() }
+})
+
+test("Review a PR asks for a box before reading its context, and its agent request only asks for confirmation", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
+    const agent = await controller.commands.runForAgent("prs.triage", `4 ${repo}`)
+    expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("Review a PR carries its act through the several-box chooser without reading the PR", async () => {
+  const { controller, store, calls } = await fixture()
+  try {
+    await loadBox(store, repo, "0b0c0d0e-0000-4000-8000-000000000002")
+    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "prs.triage", args: `4 ${repo}` } } })
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("explicit issue flow inspection and launch offer the existing box form", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
+      payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
+    for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"] as const) {
+      expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("executed")
+      expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+      await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
+    }
+    const agent = await controller.commands.runForAgent("issue.repro", `9 ${repo}`)
+    expect(agent.status).toBe("failed")
+    if (agent.status === "failed") expect(agent.error).toContain("Open a box")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("direct issue controller calls keep no-box refusal semantics and create no human form", async () => {
+  const { controller, store } = await fixture({ boxStatus: "none" })
+  try {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
+      payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
+    for (const result of [
+      await controller.inspectIssueFlows(9, repo),
+      await controller.runIssueFlow("repro", 9, repo),
+      await controller.runIssueImplementation(9, repo)
+    ]) expect(result).toContain("Open a box")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+  } finally { await controller.dispose() }
+})
+
+test("Fix an issue app asks for a box before fetching an issue when no issue card is open", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    expect((await controller.commands.run("issue.implement", `9 ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("issue flow chooser retains the issue command, while an agent gets no human form", async () => {
+  const { controller, store, calls } = await fixture()
+  const second = "0b0c0d0e-0000-4000-8000-000000000002"
+  try {
+    await loadBox(store, repo, second)
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
+      payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
+    for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"] as const) {
+      expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("executed")
+      expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: name, args: `9 ${repo}` } } })
+      await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.select" }).isPersisted.promise
+    }
+    for (const name of ["issue.flows", "issue.repro"] as const) {
+      const agent = await controller.commands.runForAgent(name, `9 ${repo}`)
+      expect(agent.status).toBe("failed")
+      if (agent.status === "failed") expect(agent.error).toContain("Select a box")
+    }
+    expect(store.collections.cards.get("form-box.select")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("plan and change keep their original act in the several-box chooser", async () => {
+  const { controller, store, calls } = await fixture()
+  const second = "0b0c0d0e-0000-4000-8000-000000000002"
+  try {
+    await loadBox(store, repo, second)
+    expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "flow.plan", args: `checks/fast ${repo}` } } })
+    expect((await controller.commands.run("change.request", `Fix the flaky check from:topic ${repo}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "change.request", args: `Fix the flaky check from:topic ${repo}` } } })
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
 test("Flows offers the existing box chooser when several boxes could answer", async () => {
   const { controller, store, calls } = await fixture()
   const second = "0b0c0d0e-0000-4000-8000-000000000002"

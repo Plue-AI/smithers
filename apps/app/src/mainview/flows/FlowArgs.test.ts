@@ -23,6 +23,15 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
+  test("change.request carries its pushed source ref through a box chooser continuation", () => {
+    roundTrip("change.request", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" },
+      "Fix the flaky check from:topic owner/repo", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" })
+  })
+  test("flow.plan keeps input and comparison target through a box chooser continuation", () => {
+    roundTrip("flow.plan", { name: "checks/fast", repo: "owner/repo", input: { branch: "topic" }, against: "older-plan" },
+      'against=older-plan checks/fast owner/repo {"branch":"topic"}',
+      { name: "checks/fast", repo: "owner/repo", input: { branch: "topic" }, against: "older-plan" })
+  })
   test("cloud session controls carry the session and its repository", () => {
     for (const name of ["agent.session.view", "agent.session.stop"] as const) {
       roundTrip(name, { sessionId: "session-1", repo: "will/other" }, "session-1 will/other", { sessionId: "session-1", repo: "will/other" })

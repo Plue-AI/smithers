@@ -3,7 +3,7 @@ import { createAppStore } from "../AppStore"
 import { createIssueFlowsController } from "./issueFlows"
 import { createIssuesSeam } from "../seams/IssuesSeam"
 import type { SeamContext } from "../seams/SeamContext"
-import { repositoryHttpFixture } from "../TestFixtures"
+import { loadBox, repositoryHttpFixture, TEST_BOX } from "../TestFixtures"
 const REPO = "owner/repo"
 async function setup() {
   const data = new Map<string, string>()
@@ -38,6 +38,7 @@ test("a Cloud issue launches its workspace flow without waiting for a background
   await store.dispatch({type:"card.upsert",actor:"user",card:{ id:"issue-live",kind:"issue",title:issue.title,status:"active",createdAt:1,ordinal:1,payload:issue }}).isPersisted.promise
   const calls: unknown[] = []
   const flows = createIssueFlowsController(ctx, {
+    requireBox: () => undefined,
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return {value:"launched"} }
   })
@@ -57,16 +58,21 @@ test("a Cloud issue launches its workspace flow without waiting for a background
 test("the Fix an issue app implements an issue picked on the home, read without a card, and the Review a PR app carries the pull request's context", async () => {
   const { store, ctx } = await setup()
   const calls: unknown[] = []
+  const readRepos: Array<string | undefined> = []
   const workspaceId = "11111111-1111-4111-8111-111111111111"
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: REPO, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO + "#workspace:" + workspaceId }).isPersisted.promise
   const flows = createIssueFlowsController(ctx, {
+    requireBox: () => undefined,
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
   }, {
-    readLandingContext: async (number, repo) => number === 4
-      ? { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] }
-      : `Pull request #${number} on ${repo} couldn't be read.`
+    readLandingContext: async (number, repo) => {
+      readRepos.push(repo)
+      return number === 4
+        ? { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] }
+        : `Pull request #${number} on ${repo} couldn't be read.`
+    }
   })
   // No issue card is open: the issue is read from the tracker and the run card is what follows.
   expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
@@ -81,6 +87,7 @@ test("the Fix an issue app implements an issue picked on the home, read without 
   expect(calls).toHaveLength(1)
   // Review a PR: the flow's args are the pull request as data.
   expect(await flows.triagePullRequest(4)).toEqual({ value: "launched" })
+  expect(readRepos).toEqual([REPO])
   const [flow, target, triage] = calls[1] as [string, string, { args: string }]
   expect([flow, target]).toEqual(["pr-triage", REPO])
   expect(JSON.parse(triage.args)).toEqual({ kind: "pr", repo: REPO, number: 4, title: "Review", body: "Changes", state: "open", author: "ada",
@@ -92,8 +99,10 @@ test("the Fix an issue app implements an issue picked on the home, read without 
 
 test("a GitHub pull's source and diff reach the Cloud repository's pr-triage flow", async () => {
   const { store, ctx } = await setup()
+  await loadBox(store, REPO, TEST_BOX)
   const calls: unknown[] = []
   const flows = createIssueFlowsController(ctx, {
+    requireBox: () => undefined,
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
   }, {
@@ -111,5 +120,25 @@ test("a GitHub pull's source and diff reach the Cloud repository's pr-triage flo
     title: "Upstream PR", body: "Change summary", state: "open", author: "writer",
     diff: "diff --git a/a.ts b/a.ts\n+new line\n"
   })
+  await store.dispose?.()
+})
+
+test("Review a PR retains its original command while asking for a box", async () => {
+  const { store, ctx } = await setup()
+  const offers: unknown[] = []
+  let reads = 0
+  const flows = createIssueFlowsController(ctx, {
+    requireBox: (repo, act, title) => { offers.push({ repo, act, title }); return { value: "Choose a box" } },
+    listWorkspaceWorkflows: async () => { throw Error("No catalog read before box selection") },
+    runWorkflow: async () => { throw Error("No launch before box selection") }
+  }, {
+    readLandingContext: async (number, repo) => { reads++; return { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [] } }
+  })
+  expect(await flows.triagePullRequest(4, REPO)).toContain("Open a box")
+  expect(offers).toEqual([])
+  expect(reads).toBe(1)
+  expect(await flows.triagePullRequest(4, REPO, true)).toEqual({ value: "Choose a box" })
+  expect(reads).toBe(1)
+  expect(offers).toEqual([{ repo: REPO, act: { flow: "prs.triage", args: `4 ${REPO}` }, title: "Open a box to review pull request #4" }])
   await store.dispose?.()
 })

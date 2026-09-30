@@ -163,7 +163,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       against: Schema.optional(Schema.String),
       input: Schema.optional(Schema.Record(Schema.String, Schema.Json))
     }),
-    handler: ({ name, repo, input, sourceCard, against }) => actions.planFlow(name, repo, input, sourceCard, against)
+    handler: ({ name, repo, input, sourceCard, against }) => actions.planFlow(name, repo, input, sourceCard, against, true)
   })
 ]
 

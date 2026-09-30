@@ -235,7 +235,7 @@ test("change.request starts from the caller's pushed ref: pinned once as coding/
   }
 })
 
-test("change.request without a selected Cloud workspace names the door instead of launching", async () => {
+test("change.request without a selected Cloud workspace opens the box form instead of launching", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
@@ -243,7 +243,8 @@ test("change.request without a selected Cloud workspace names the door instead o
   const controller = createAppController(store, chat.agent, { fetchImpl: async () => json(404, {}) })
   try {
     const result = await controller.commands.run("change.request", `Fix the README typo ${repo}`)
-    expect(JSON.stringify(result)).toContain("/box.open")
+    expect(result.status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
     expect([...store.collections.cards.values()].filter(card => card.kind === "run-trace")).toHaveLength(0)
   } finally { await controller.dispose(); await store.dispose?.() }
 })
