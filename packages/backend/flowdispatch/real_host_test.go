@@ -82,9 +82,29 @@ export default Flow.make("echo", {
 type codingHostProcess struct {
 	command  *exec.Cmd
 	done     chan error
-	logs     *bytes.Buffer
+	logs     *processLog
 	stopOnce sync.Once
 	stopped  chan struct{}
+}
+
+// processLog collects a running child's combined output. os/exec copies
+// stdout and stderr into it from its own goroutines while the test reads it
+// for readiness failures and assertions, so every access is serialized.
+type processLog struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (log *processLog) Write(data []byte) (int, error) {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return log.buffer.Write(data)
+}
+
+func (log *processLog) String() string {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return log.buffer.String()
 }
 
 type observedAcceptanceRuntime struct {
@@ -106,7 +126,7 @@ type realHostFixture struct {
 
 func startCodingHost(t *testing.T, fixture realHostFixture, port int, generation int64) (*codingHostProcess, *runtimebridge.Client) {
 	t.Helper()
-	logs := &bytes.Buffer{}
+	logs := &processLog{}
 	command := exec.Command(fixture.node, fixture.artifact, "serve", "--root", fixture.root, "--state-dir", fixture.stateDir,
 		"--host", "127.0.0.1", "--port", strconv.Itoa(port), "--listen")
 	command.Dir = fixture.root
@@ -226,7 +246,7 @@ func startScriptedProvider(t *testing.T, node, repositoryRoot string) string {
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
 	require.NoError(t, listener.Close())
-	logs := &bytes.Buffer{}
+	logs := &processLog{}
 	command := exec.Command(node, filepath.Join(repositoryRoot, "distribution", "fake-coding-provider.mjs"))
 	command.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "HOST=127.0.0.1")
 	command.Stdout = logs
@@ -309,6 +329,33 @@ func realHostFixtureFor(t *testing.T) realHostFixture {
 // the box's packaged coding host (#2194): shared Go admission, canonical
 // Control receipts/journal, PostgreSQL reconnect, owner replacement, terminal
 // projection, and durable cancellation. It never downloads a runtime artifact.
+// The acceptance tests read a live child's log while os/exec is still copying
+// its output; under -race that read must be synchronized with the copy.
+func TestProcessLogIsReadableWhileChildWrites(t *testing.T) {
+	logs := &processLog{}
+	command := exec.Command("sh", "-c", `i=0; while [ $i -lt 2000 ]; do echo "out $i"; echo "err $i" >&2; i=$((i+1)); done`)
+	command.Stdout = logs
+	command.Stderr = logs
+	require.NoError(t, command.Start())
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	reads := 0
+	for waiting := true; waiting; reads++ {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			waiting = false
+		default:
+			_ = logs.String()
+		}
+	}
+	require.Positive(t, reads)
+	output := logs.String()
+	require.Contains(t, output, "out 1999\n")
+	require.Contains(t, output, "err 1999\n")
+	require.Equal(t, 4000, strings.Count(output, "\n"))
+}
+
 func TestRealBundledHostAdmissionReconnectCompletionAndCancellation(t *testing.T) {
 	if os.Getenv("SMITHERS_FLOWDISPATCH_REAL_HOST") != "1" {
 		t.Skip("set SMITHERS_FLOWDISPATCH_REAL_HOST=1 to build and execute the bundled coding host")
