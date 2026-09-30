@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,8 +23,8 @@ func (b *agentDispatchCovBilling) AuthorizePrivateRepo(context.Context, string, 
 	return nil
 }
 
-func (b *agentDispatchCovBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (b *agentDispatchCovBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 
 func (b *agentDispatchCovBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {

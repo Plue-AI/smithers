@@ -153,17 +153,35 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, ro
 // so an isolated runtime can boot the matching prepared environment. The
 // source is a hint for environment selection only; checkout authority stays
 // in ensureRuntimeWorkspaceRepository.
-func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) workspaceapi.WorkspaceSpec {
+//
+// A vm or desktop workspace created with a closure (a factory lane placed on
+// the repository's NixOS image) boots exactly that image: the runtime must
+// boot environment images and the image must still be registered, or the
+// create fails. Nothing stands in for it.
+func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) (workspaceapi.WorkspaceSpec, error) {
 	spec := workspaceapi.WorkspaceSpec{ID: row.ID}
+	if kind := sandboxKindForWorkspace(row.Kind); kind != "container" && strings.TrimSpace(row.EnvironmentClosureHash) != "" {
+		if !s.runtime.Capabilities().EnvironmentImages {
+			return spec, pkgerrors.EnvironmentImageUnavailable("this workspace runtime cannot boot a NixOS environment image")
+		}
+		if s.environmentImages == nil {
+			return spec, pkgerrors.EnvironmentImageUnavailable("this deployment has no NixOS environment image registry")
+		}
+		image, err := s.environmentImages.Pinned(ctx, row.RepositoryID, kind, strings.TrimSpace(row.EnvironmentClosureHash))
+		if err != nil {
+			return spec, err
+		}
+		spec.Environment = &workspaceapi.WorkspaceEnvironmentImage{Kind: kind, Image: image.Image, ClosureHash: image.ClosureHash}
+	}
 	if row.RepositoryID <= 0 {
-		return spec
+		return spec, nil
 	}
 	slug, err := s.workspaceRepoSlug(ctx, row.RepositoryID)
 	if err != nil {
-		return spec
+		return spec, nil
 	}
 	spec.Source = &workspaceapi.WorkspaceSource{Repository: slug, Revision: targetWorkspaceBookmark(row.TargetBookmark)}
-	return spec
+	return spec, nil
 }
 
 func (s *WorkspaceService) currentRuntimeWorkspaceLocked(ctx context.Context, expected db.Workspace) (db.Workspace, error) {
@@ -238,7 +256,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
 			return row, err
 		}
-		observed, err = s.runtime.CreateWorkspace(createCtx, s.runtimeWorkspaceSpec(ctx, row))
+		spec, specErr := s.runtimeWorkspaceSpec(ctx, row)
+		if specErr != nil {
+			return row, specErr
+		}
+		observed, err = s.runtime.CreateWorkspace(createCtx, spec)
 	} else {
 		observed, err = s.runtime.InspectWorkspace(operationCtx, row.ID)
 	}

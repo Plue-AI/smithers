@@ -42,6 +42,10 @@ type agentEnvironmentWorkspaceSandbox struct {
 	cleanupStatus  int32
 	setupResponse  sandbox.ExecResult
 	setupCallCount int
+	// bootstrapFailed makes the toolchain bootstrap wait report this exit
+	// status, with bootstrapLog as that attempt's log.
+	bootstrapFailed string
+	bootstrapLog    string
 }
 
 func (s *agentEnvironmentWorkspaceSandbox) WriteFile(_ context.Context, _ string, path string, req sandbox.WriteFileRequest) error {
@@ -55,7 +59,13 @@ func (s *agentEnvironmentWorkspaceSandbox) WriteFile(_ context.Context, _ string
 func (s *agentEnvironmentWorkspaceSandbox) Execute(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 	s.commands = append(s.commands, req.Command)
 	if strings.HasPrefix(strings.TrimPrefix(req.Command, workspaceArtifactGuestPath), "if ! test -L ") {
+		if s.bootstrapFailed != "" {
+			return sandbox.ExecResult{StatusCode: new(int32), Stdout: "failed:" + s.bootstrapFailed}, nil
+		}
 		return sandbox.ExecResult{StatusCode: new(int32), Stdout: "done"}, nil
+	}
+	if strings.HasPrefix(strings.TrimPrefix(req.Command, workspaceArtifactGuestPath), "tail -c ") {
+		return sandbox.ExecResult{StatusCode: new(int32), Stdout: s.bootstrapLog}, nil
 	}
 	if strings.Contains(req.Command, "mkdir -p") {
 		return sandbox.ExecResult{StatusCode: &s.prepareStatus}, nil
@@ -89,7 +99,7 @@ func TestWorkspaceAgentEnvironment_SetupSecretsAreStrippedBeforeSuccess(t *testi
 
 	err := service.runWorkspaceAgentEnvironmentSetup(context.Background(), sampleDBWorkspace("ws-env"), "vm-env")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"environment_setup", "ready"}, queries.stages)
+	assert.Equal(t, []string{"toolchain_bootstrap", "environment_setup", "ready"}, queries.stages)
 	assert.Equal(t, 1, sandbox.setupCallCount)
 	assert.Contains(t, sandbox.files[workspaceAgentEnvironmentProfilePath], "NODE_ENV")
 	assert.NotContains(t, sandbox.files[workspaceAgentEnvironmentProfilePath], "setup-only-value")
@@ -124,9 +134,37 @@ func TestWorkspaceAgentEnvironment_SetupFailureIsSanitizedAndStaged(t *testing.T
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "setup-only-value")
 	assert.NotContains(t, err.Error(), "echoed")
-	assert.Equal(t, []string{"environment_setup", "environment_setup_failed"}, queries.stages)
+	assert.Equal(t, []string{"toolchain_bootstrap", "environment_setup", "environment_setup_failed"}, queries.stages)
 	_, wrapperExists := sandbox.files[workspaceAgentEnvironmentWrapperPath]
 	assert.False(t, wrapperExists)
+}
+
+func TestWorkspaceAgentEnvironment_ToolchainFailureIsItsOwnStageWithRedactedLog(t *testing.T) {
+	t.Parallel()
+	queries := &agentEnvironmentStageQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
+	sandbox := &agentEnvironmentWorkspaceSandbox{
+		mockWorkspaceSandboxVMClient: &mockWorkspaceSandboxVMClient{},
+		bootstrapFailed:              "7",
+		bootstrapLog:                 "fetching toolchain\nNPM_TOKEN=npm_abcdefghijklmnopqrstuvwxyz0123456789\nnpm ERR! 404 Not Found - GET https://registry.example/@smthrs%2fcli\n",
+	}
+	service := &WorkspaceService{
+		q:       queries,
+		sandbox: sandbox,
+		agentEnvironment: staticAgentEnvironmentProvider{config: AgentEnvironmentProvisioningConfig{
+			SetupScript: "true",
+			Secrets:     map[string]string{"SETUP_TOKEN": "setup-only-value"},
+		}},
+	}
+
+	err := service.runWorkspaceAgentEnvironmentSetup(context.Background(), sampleDBWorkspace("ws-toolchain-fail"), "vm-env")
+	require.Error(t, err)
+	assert.Equal(t, []string{"toolchain_bootstrap", "toolchain_bootstrap_failed"}, queries.stages)
+	assert.Contains(t, err.Error(), "workspace bootstrap failed (exit 7)")
+	assert.Contains(t, err.Error(), "npm ERR! 404 Not Found")
+	assert.NotContains(t, err.Error(), "npm_abcdefghijklmnopqrstuvwxyz0123456789")
+	assert.Equal(t, 0, sandbox.setupCallCount, "the repository setup script never runs on a failed toolchain")
+	_, secretStaged := sandbox.files[workspaceAgentEnvironmentWrapperPath]
+	assert.False(t, secretStaged)
 }
 
 func TestWorkspaceAgentEnvironment_CleanupMustBeConfirmedBeforeReady(t *testing.T) {
@@ -147,7 +185,7 @@ func TestWorkspaceAgentEnvironment_CleanupMustBeConfirmedBeforeReady(t *testing.
 
 	err := service.runWorkspaceAgentEnvironmentSetup(context.Background(), sampleDBWorkspace("ws-env-cleanup-fail"), "vm-env")
 	require.Error(t, err)
-	assert.Equal(t, []string{"environment_setup", "environment_setup_failed"}, queries.stages)
+	assert.Equal(t, []string{"toolchain_bootstrap", "environment_setup", "environment_setup_failed"}, queries.stages)
 	assert.NotContains(t, err.Error(), "setup-only-value")
 }
 
@@ -168,7 +206,7 @@ func TestWorkspaceAgentEnvironment_BoundSecretsReachTheGuestOnlyAsPlaceholders(t
 
 	err := service.runWorkspaceAgentEnvironmentSetup(context.Background(), sampleDBWorkspace("ws-bound"), "vm-bound")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"environment_setup", "ready"}, queries.stages)
+	assert.Equal(t, []string{"toolchain_bootstrap", "environment_setup", "ready"}, queries.stages)
 
 	profile := sandbox.files[workspaceAgentEnvironmentProfilePath]
 	assert.Contains(t, profile, "export NODE_ENV='development'")
@@ -189,7 +227,7 @@ func TestWorkspaceAgentEnvironment_PlaceholdersOnlyProfileIsWrittenWithoutASetup
 		agentEnvironment: staticAgentEnvironmentProvider{config: AgentEnvironmentProvisioningConfig{ProxyBound: []string{"API_KEY"}}},
 	}
 	require.NoError(t, service.runWorkspaceAgentEnvironmentSetup(context.Background(), sampleDBWorkspace("ws-ph"), "vm-ph"))
-	assert.Equal(t, []string{"environment_setup", "ready"}, queries.stages)
+	assert.Equal(t, []string{"toolchain_bootstrap", "environment_setup", "ready"}, queries.stages)
 	assert.Contains(t, sandbox.files[workspaceAgentEnvironmentProfilePath], "export API_KEY='API_KEY'")
 	assert.Equal(t, 0, sandbox.setupCallCount)
 }

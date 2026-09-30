@@ -32,8 +32,13 @@ type recordingFlowInvoker struct {
 	launches []InvokedFlowLaunch
 }
 
-func (r *recordingFlowInvoker) Invoke(_ context.Context, launch InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error) {
-	r.launches = append(r.launches, launch)
+func (r *recordingFlowInvoker) Invoke(ctx context.Context, launch InvokedFlowLaunch, admit WorkflowRunAdmission) (db.WorkflowRun, db.WorkflowDefinition, error) {
+	if err := admit(ctx, func(context.Context, pgx.Tx) error {
+		r.launches = append(r.launches, launch)
+		return nil
+	}); err != nil {
+		return db.WorkflowRun{}, db.WorkflowDefinition{}, err
+	}
 	return db.WorkflowRun{ID: 42, RepositoryID: launch.RepositoryID, Status: "queued", ExecutionPlane: WorkflowRunPlaneFlow},
 		db.WorkflowDefinition{ID: 11, Name: launch.FlowID, Path: invokedFlowPath(launch.FlowID)}, nil
 }
@@ -65,7 +70,7 @@ func TestInvokeWorkflowBillingDeniedLaunchesNothing(t *testing.T) {
 	invoker := &recordingFlowInvoker{}
 	svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIBillingPolicy(policy), WithWorkflowAPIFlowInvoker(invoker))
 	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, UserID: 3, Identifier: "echo"})
-	require.Error(t, err)
+	assert.Equal(t, 402, httpStatus(err))
 	assert.Equal(t, 1, policy.dispatchCalls)
 	assert.Empty(t, invoker.launches, "billing refusal must precede the launch")
 }

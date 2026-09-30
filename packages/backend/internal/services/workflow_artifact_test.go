@@ -465,8 +465,8 @@ type confirmCommitTrackingBilling struct {
 func (b *confirmCommitTrackingBilling) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (b *confirmCommitTrackingBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (b *confirmCommitTrackingBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (b *confirmCommitTrackingBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

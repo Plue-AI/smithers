@@ -40,12 +40,7 @@ func BeginWorkflowQueryTx(ctx context.Context, queries any) (pgx.Tx, WorkflowRun
 	if !canStart {
 		return nil, nil, false, nil
 	}
-	var bind func(pgx.Tx) WorkflowRunQuerier
-	if factory, ok := queries.(WorkflowRunQueryRebinder); ok {
-		bind = factory.RebindWorkflowRunQueries
-	} else if product, ok := queries.(*db.Queries); ok {
-		bind = func(tx pgx.Tx) WorkflowRunQuerier { return product.WithTx(tx) }
-	} else {
+	if !canBindWorkflowQueryTx(queries) {
 		// A composite that starts transactions but cannot retain its capabilities
 		// must not silently execute a multi-statement workflow outside a transaction.
 		return nil, nil, true, fmt.Errorf("workflow query store does not support transaction rebinding")
@@ -54,12 +49,38 @@ func BeginWorkflowQueryTx(ctx context.Context, queries any) (pgx.Tx, WorkflowRun
 	if err != nil {
 		return nil, nil, true, err
 	}
-	rebound := bind(tx)
-	if rebound == nil {
+	rebound, err := BindWorkflowQueryTx(queries, tx)
+	if err != nil {
 		_ = tx.Rollback(context.Background())
-		return nil, nil, true, fmt.Errorf("workflow transaction rebinding returned no store")
+		return nil, nil, true, err
 	}
 	return tx, rebound, true, nil
+}
+
+func canBindWorkflowQueryTx(queries any) bool {
+	switch queries.(type) {
+	case WorkflowRunQueryRebinder, *db.Queries:
+		return true
+	}
+	return false
+}
+
+// BindWorkflowQueryTx binds the workflow store to a transaction the caller
+// owns, keeping deployment extensions such as alert claim binding.
+func BindWorkflowQueryTx(queries any, tx pgx.Tx) (WorkflowRunQuerier, error) {
+	var rebound WorkflowRunQuerier
+	switch store := queries.(type) {
+	case WorkflowRunQueryRebinder:
+		rebound = store.RebindWorkflowRunQueries(tx)
+	case *db.Queries:
+		rebound = store.WithTx(tx)
+	default:
+		return nil, fmt.Errorf("workflow query store does not support transaction rebinding")
+	}
+	if rebound == nil {
+		return nil, fmt.Errorf("workflow transaction rebinding returned no store")
+	}
+	return rebound, nil
 }
 
 func LockWorkflowRun(ctx context.Context, tx pgx.Tx, runID int64) error {
@@ -542,17 +563,6 @@ func (s *workflowRunService) createRunForDefinition(
 ) (WorkflowRunResult, error) {
 	result := WorkflowRunResult{WorkflowDefinitionID: def.ID}
 
-	// Billing gate: every non-agent run creation funnels through here (manual
-	// dispatch, push/release/schedule triggers, targeted and broadcast event
-	// dispatch), so enforce the owner's CI-minute cap before inserting the run.
-	// Agent runs are created by agent_dispatch.go, which applies its own
-	// AuthorizeAgentRunCommitted gate.
-	if s.billing != nil {
-		if err := s.billing.AuthorizeWorkflowDispatch(ctx, input.RepositoryID); err != nil {
-			return WorkflowRunResult{}, err
-		}
-	}
-
 	repository, err := s.resolveRunRepository(ctx, input.RepositoryID)
 	if err != nil {
 		return WorkflowRunResult{}, err
@@ -619,29 +629,26 @@ func (s *workflowRunService) createRunForDefinition(
 		dispatchInputs, _ = json.Marshal(input.Event.Inputs)
 	}
 
-	tx, txQueries, transactional, err := BeginWorkflowQueryTx(ctx, s.queries)
-	if err != nil {
-		return WorkflowRunResult{}, pkgerrors.Internal("failed to begin workflow run transaction").WithCause(err)
-	}
-
 	var run db.WorkflowRun
-	if transactional {
-		defer func() { _ = tx.Rollback(context.Background()) }()
-		result, run, err = createWorkflowRunRows(ctx, txQueries, def, input, repository, repoOwner, triggerRef, resolvedBookmark, dispatchInputs, preparedJobs, s.commitStatusWriter != nil)
-		if err != nil {
-			return WorkflowRunResult{}, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return WorkflowRunResult{}, pkgerrors.Internal("failed to commit workflow run").WithCause(err)
-		}
+	insert := func(ctx context.Context, admission pgx.Tx) error {
+		var err error
+		result, run, err = s.insertWorkflowRun(ctx, admission, func(ctx context.Context, queries WorkflowRunQuerier) (WorkflowRunResult, db.WorkflowRun, error) {
+			return createWorkflowRunRows(ctx, queries, def, input, repository, repoOwner, triggerRef, resolvedBookmark, dispatchInputs, preparedJobs, s.commitStatusWriter != nil)
+		})
+		return err
+	}
+	// Billing gate: every non-agent run creation funnels through here (manual
+	// dispatch, push/release/schedule triggers, targeted and broadcast event
+	// dispatch), so the owner's CI-minute admission and the run insert commit
+	// together. Agent runs are created by agent_dispatch.go, which applies its
+	// own AuthorizeAgentRunCommitted gate.
+	if s.billing != nil {
+		err = s.billing.AuthorizeWorkflowDispatchCommitted(ctx, input.RepositoryID, insert)
 	} else {
-		result, run, err = createWorkflowRunRows(ctx, s.queries, def, input, repository, repoOwner, triggerRef, resolvedBookmark, dispatchInputs, preparedJobs, s.commitStatusWriter != nil)
-		if err != nil {
-			if result.WorkflowRunID > 0 {
-				abortWorkflowRunDispatch(ctx, s.queries, result.WorkflowRunID)
-			}
-			return WorkflowRunResult{}, err
-		}
+		err = insert(ctx, nil)
+	}
+	if err != nil {
+		return WorkflowRunResult{}, err
 	}
 
 	// A newer push to a ref replaces the older pushes to it. Reap those runs
@@ -989,6 +996,43 @@ func createWorkflowRunRows(
 		result.pendingCommitStatus = &status
 	}
 
+	return result, run, nil
+}
+
+// insertWorkflowRun writes one run's rows inside the billing admission
+// transaction when one is supplied, and otherwise in the workflow store's own
+// transaction (or, for a store without transactions, with abort on failure).
+func (s *workflowRunService) insertWorkflowRun(
+	ctx context.Context,
+	admission pgx.Tx,
+	write func(context.Context, WorkflowRunQuerier) (WorkflowRunResult, db.WorkflowRun, error),
+) (WorkflowRunResult, db.WorkflowRun, error) {
+	if admission != nil {
+		queries, err := BindWorkflowQueryTx(s.queries, admission)
+		if err != nil {
+			return WorkflowRunResult{}, db.WorkflowRun{}, pkgerrors.Internal("failed to bind workflow run admission transaction").WithCause(err)
+		}
+		return write(ctx, queries)
+	}
+	tx, txQueries, transactional, err := BeginWorkflowQueryTx(ctx, s.queries)
+	if err != nil {
+		return WorkflowRunResult{}, db.WorkflowRun{}, pkgerrors.Internal("failed to begin workflow run transaction").WithCause(err)
+	}
+	if !transactional {
+		result, run, err := write(ctx, s.queries)
+		if err != nil && result.WorkflowRunID > 0 {
+			abortWorkflowRunDispatch(ctx, s.queries, result.WorkflowRunID)
+		}
+		return result, run, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	result, run, err := write(ctx, txQueries)
+	if err != nil {
+		return WorkflowRunResult{}, db.WorkflowRun{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return WorkflowRunResult{}, db.WorkflowRun{}, pkgerrors.Internal("failed to commit workflow run").WithCause(err)
+	}
 	return result, run, nil
 }
 

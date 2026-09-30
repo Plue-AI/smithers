@@ -21,6 +21,11 @@ func (r *failingEnvironmentImageResolver) Resolve(_ context.Context, _ int64, ki
 	return runtimeports.SandboxEnvironmentImage{}, nil
 }
 
+func (r *failingEnvironmentImageResolver) Pinned(_ context.Context, _ int64, kind, _ string) (runtimeports.SandboxEnvironmentImage, error) {
+	r.t.Fatalf("environment image resolver must not be consulted for kind %q", kind)
+	return runtimeports.SandboxEnvironmentImage{}, nil
+}
+
 func TestAgentWorkspaceKindNeverResolvesANixImage(t *testing.T) {
 	t.Parallel()
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(&failingEnvironmentImageResolver{t: t}))

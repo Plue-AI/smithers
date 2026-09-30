@@ -356,6 +356,14 @@ func (s *WorkspaceService) notifyWorkspaceSession(ctx context.Context, sessionID
 }
 
 func (s *WorkspaceService) notifyWorkspace(ctx context.Context, workspaceID, status string, failures ...workspaceFailureDetails) {
+	s.publishWorkspaceStatus(ctx, workspaceID, status, failures...)
+	// Every status change funnels here, so a parent that leaves running
+	// takes its child workspaces with it (#2802).
+	s.cascadeWorkspaceChildren(ctx, workspaceID, status)
+}
+
+// publishWorkspaceStatus tells status subscribers about one change.
+func (s *WorkspaceService) publishWorkspaceStatus(ctx context.Context, workspaceID, status string, failures ...workspaceFailureDetails) {
 	if s.q == nil || strings.TrimSpace(workspaceID) == "" {
 		return
 	}

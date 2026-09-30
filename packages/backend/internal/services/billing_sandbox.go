@@ -42,7 +42,9 @@ func (s *BillingService) SandboxEntitlement(ctx context.Context, userID int64) (
 		PlanKey:           plan.Key, ConcurrentSandboxes: plan.Limits.ConcurrentSandboxes,
 		ConcurrentInUse: int64(live) + agents, IdleTimeoutSecs: plan.Limits.SandboxIdleTimeoutSecs,
 		HoursPerDay: sandboxJSONQuantity(plan.Limits.SandboxHoursPerDay), SecondsUsedToday: seconds,
-		DayResetsAt: midnight.AddDate(0, 0, 1),
+		DayResetsAt:        midnight.AddDate(0, 0, 1),
+		ConcurrentChildren: workspaceChildPlanLimits[plan.Key].concurrent,
+		ChildMaxTTLSecs:    workspaceChildPlanLimits[plan.Key].maxTTLSecs,
 	}, nil
 }
 

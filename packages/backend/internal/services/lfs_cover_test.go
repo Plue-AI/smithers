@@ -28,8 +28,8 @@ type lfsCovBillingPolicy struct {
 func (p *lfsCovBillingPolicy) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (p *lfsCovBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (p *lfsCovBillingPolicy) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (p *lfsCovBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

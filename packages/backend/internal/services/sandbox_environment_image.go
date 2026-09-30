@@ -237,6 +237,33 @@ func (s *SandboxEnvironmentImageService) Resolve(ctx context.Context, repository
 	return runtimeports.SandboxEnvironmentImage{}, pkgerrors.EnvironmentImageUnavailable("no NixOS environment image is registered for kind " + kind + "; build one with scripts/build-nix-environment.ts")
 }
 
+// Pinned returns the ready image of kind whose NixOS toplevel is
+// closureHash: the image a workspace was placed on, registered for the
+// repository or as the platform base. A retired or unregistered image is
+// unavailable; no other image stands in for it.
+func (s *SandboxEnvironmentImageService) Pinned(ctx context.Context, repositoryID int64, kind, closureHash string) (runtimeports.SandboxEnvironmentImage, error) {
+	if s == nil || s.q == nil {
+		return runtimeports.SandboxEnvironmentImage{}, pkgerrors.Internal("environment image store unavailable")
+	}
+	kind = sandboxKindForWorkspace(kind)
+	candidates := []int64{0}
+	if repositoryID > 0 {
+		candidates = []int64{repositoryID, 0}
+	}
+	for _, candidate := range candidates {
+		rows, err := s.q.ListSandboxEnvironmentImages(ctx, repositoryIDArg(candidate))
+		if err != nil {
+			return runtimeports.SandboxEnvironmentImage{}, pkgerrors.Internal("list environment images: " + err.Error())
+		}
+		for _, row := range rows {
+			if row.Kind == kind && row.ClosureHash == closureHash && row.Status == "ready" {
+				return row, nil
+			}
+		}
+	}
+	return runtimeports.SandboxEnvironmentImage{}, pkgerrors.EnvironmentImageUnavailable("the NixOS image this workspace was placed on (closure " + closureHash + ") is no longer registered")
+}
+
 func (s *SandboxEnvironmentImageService) toResponse(ctx context.Context, row runtimeports.SandboxEnvironmentImage) SandboxEnvironmentImageResponse {
 	resp := SandboxEnvironmentImageResponse{
 		ID:             row.ID,

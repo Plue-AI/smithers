@@ -273,7 +273,7 @@ func TestBilling_Cov_OrgCheckoutOverviewAndRepoAuthorizations(t *testing.T) {
 	_, err = svc.RefreshOrgBilling(ctx, actor, "acme")
 	require.NoError(t, err)
 
-	require.NoError(t, svc.AuthorizeWorkflowDispatch(ctx, 1))
+	require.NoError(t, svc.authorizeWorkflowDispatchAdmission(ctx, 1))
 	require.NoError(t, svc.authorizeAgentRunAdmission(ctx, 2))
 	require.NoError(t, svc.AuthorizeStorageIncrease(ctx, 1, 0))
 	require.NoError(t, svc.AuthorizeStorageIncrease(ctx, 1, 50))

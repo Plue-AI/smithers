@@ -52,6 +52,7 @@ type billingQuerierMock struct {
 	sumWorkflowMinutesByOwnerFn         func(context.Context, db.SumWorkflowMinutesByOwnerParams) (int64, error)
 	countAgentRunsByOwnerFn             func(context.Context, db.CountAgentRunsByOwnerParams) (int64, error)
 	countAgentRunAdmissionsByOwnerFn    func(context.Context, db.CountAgentRunAdmissionsByOwnerParams) (int64, error)
+	sumWorkflowAdmissionMinutesFn       func(context.Context, db.SumWorkflowAdmissionMinutesByOwnerParams) (int64, error)
 	countOrgMembersFn                   func(context.Context, int64) (int64, error)
 	getLatestSubscriptionFn             func(context.Context, int64) (db.BillingSubscription, error)
 	getLatestLiveSubscriptionFn         func(context.Context, int64) (db.BillingSubscription, error)
@@ -342,6 +343,13 @@ func (m *billingQuerierMock) CountAgentRunsByOwner(ctx context.Context, arg db.C
 func (m *billingQuerierMock) CountAgentRunAdmissionsByOwner(ctx context.Context, arg db.CountAgentRunAdmissionsByOwnerParams) (int64, error) {
 	if m.countAgentRunAdmissionsByOwnerFn != nil {
 		return m.countAgentRunAdmissionsByOwnerFn(ctx, arg)
+	}
+	return 0, nil
+}
+
+func (m *billingQuerierMock) SumWorkflowAdmissionMinutesByOwner(ctx context.Context, arg db.SumWorkflowAdmissionMinutesByOwnerParams) (int64, error) {
+	if m.sumWorkflowAdmissionMinutesFn != nil {
+		return m.sumWorkflowAdmissionMinutesFn(ctx, arg)
 	}
 	return 0, nil
 }

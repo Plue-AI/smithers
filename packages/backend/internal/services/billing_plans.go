@@ -17,6 +17,19 @@ type SandboxEntitlement struct {
 	HoursPerDay         int64     `json:"hours_per_day"`
 	SecondsUsedToday    int64     `json:"seconds_used_today"`
 	DayResetsAt         time.Time `json:"day_resets_at"`
+	ConcurrentChildren  int64     `json:"concurrent_children"`
+	ChildMaxTTLSecs     int64     `json:"child_max_ttl_secs"`
+}
+
+// workspaceChildPlanLimits are each plan's child workspace limits (#2802):
+// how many live children a user may hold and how long one may live. Plans not
+// listed include no children. MaxWorkspaceChildren caps every plan.
+var workspaceChildPlanLimits = map[string]struct{ concurrent, maxTTLSecs int64 }{
+	BillingPlanPro:        {concurrent: 16, maxTTLSecs: 4 * 3600},
+	BillingPlanTeam:       {concurrent: 16, maxTTLSecs: 4 * 3600},
+	BillingPlanEnterprise: {concurrent: 16, maxTTLSecs: 4 * 3600},
+	BillingPlanCustom:     {concurrent: 16, maxTTLSecs: 4 * 3600},
+	BillingPlanMax:        {concurrent: 16, maxTTLSecs: 8 * 3600},
 }
 
 type BillingPlanSummary struct {

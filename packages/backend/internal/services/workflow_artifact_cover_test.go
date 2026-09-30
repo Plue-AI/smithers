@@ -29,8 +29,8 @@ func (b *workflowArtifactCovBilling) AuthorizePrivateRepo(context.Context, strin
 	return nil
 }
 
-func (b *workflowArtifactCovBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (b *workflowArtifactCovBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 
 func (b *workflowArtifactCovBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {

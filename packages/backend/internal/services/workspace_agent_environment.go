@@ -65,12 +65,17 @@ func (s *WorkspaceService) runWorkspaceAgentEnvironmentSetup(ctx context.Context
 		return pkgerrors.Internal("agent environment VM setup unavailable")
 	}
 
-	if err := s.setWorkspaceProvisioningStage(ctx, workspace.ID, "environment_setup"); err != nil {
+	// The toolchain bootstrap is its own stage: its failure is not the
+	// repository's setup script failing, and its message carries the log tail.
+	if err := s.setWorkspaceProvisioningStage(ctx, workspace.ID, "toolchain_bootstrap"); err != nil {
 		return err
 	}
 	if err := waitForWorkspaceArtifactBootstrap(ctx, client, vmID); err != nil {
-		s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, "environment_setup_failed")
-		return pkgerrors.Internal("workspace bootstrap failed before environment setup").WithCause(err)
+		s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, "toolchain_bootstrap_failed")
+		return pkgerrors.Internal(err.Error()).WithCause(err)
+	}
+	if err := s.setWorkspaceProvisioningStage(ctx, workspace.ID, "environment_setup"); err != nil {
+		return err
 	}
 	profile, err := renderWorkspaceAgentEnvironmentProfile(config.Env, config.ProxyBound)
 	if err != nil {

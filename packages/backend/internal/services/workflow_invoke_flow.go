@@ -124,23 +124,50 @@ func (s *InvokedFlowService) flowSourceCommit(ctx context.Context, launch Invoke
 
 // Invoke creates the queued flow-plane run and admits its Flow launch in one
 // transaction. It returns before any host is resolved or contacted.
-func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error) {
+func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunch, admit WorkflowRunAdmission) (db.WorkflowRun, db.WorkflowDefinition, error) {
 	if s == nil || s.pool == nil || s.dispatcher == nil || s.repositoryJobs == nil || s.sources == nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
+	}
+	if admit == nil {
+		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("workflow run admission is required")
 	}
 	triggerCommit, err := s.flowSourceCommit(ctx, launch)
 	if err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, err
 	}
+	var run db.WorkflowRun
+	var def db.WorkflowDefinition
+	err = admit(ctx, func(ctx context.Context, admission pgx.Tx) error {
+		if admission != nil {
+			run, def, err = s.insertInvocation(ctx, admission, launch, triggerCommit)
+			return err
+		}
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return pkgerrors.Internal("failed to begin workflow run transaction").WithCause(err)
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		if run, def, err = s.insertInvocation(ctx, tx, launch, triggerCommit); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return pkgerrors.Internal("failed to commit workflow run transaction").WithCause(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return db.WorkflowRun{}, db.WorkflowDefinition{}, err
+	}
+	return run, def, nil
+}
+
+// insertInvocation writes the run, its one step, the Flow launch and the
+// invocation record in the caller's transaction.
+func (s *InvokedFlowService) insertInvocation(ctx context.Context, tx pgx.Tx, launch InvokedFlowLaunch, triggerCommit string) (db.WorkflowRun, db.WorkflowDefinition, error) {
 	input := launch.Input
 	if len(input) == 0 {
 		input = json.RawMessage(`{}`)
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to begin workflow run transaction").WithCause(err)
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.New(tx)
 	// Flow files are not synced definitions; the run references its flow
 	// by an inactive definition row, as dispatch does for referenced files.
@@ -182,9 +209,6 @@ func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunc
 	if _, err := tx.Exec(ctx, `INSERT INTO workflow_run_flow_invocations(workflow_run_id,user_id,flow_id,operation_id,workflow_step_id,trigger_commit) VALUES($1,$2,$3,$4,$5,$6)`,
 		run.ID, launch.UserID, launch.FlowID, receipt.OperationID, step.ID, triggerCommit); err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to record the invocation").WithCause(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to commit workflow run transaction").WithCause(err)
 	}
 	return run, def, nil
 }

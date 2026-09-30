@@ -158,8 +158,8 @@ type artifactAdmissionBilling struct {
 func (*artifactAdmissionBilling) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (*artifactAdmissionBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (*artifactAdmissionBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (*artifactAdmissionBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

@@ -452,6 +452,9 @@ func (s *WorkspaceService) ensureExistingWorkspaceRunning(ctx context.Context, w
 	if err := s.refuseRebuildRequired(workspace); err != nil {
 		return workspace, err
 	}
+	if err := s.refuseWorkspaceChildResume(ctx, workspace); err != nil {
+		return workspace, err
+	}
 	if s.runtime != nil {
 		return s.ensureRuntimeWorkspaceRunning(ctx, workspace, workspace.UserID)
 	}

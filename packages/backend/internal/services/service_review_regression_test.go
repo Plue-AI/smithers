@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -99,8 +100,8 @@ type releaseReservationBilling struct {
 func (*releaseReservationBilling) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (*releaseReservationBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (*releaseReservationBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (*releaseReservationBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

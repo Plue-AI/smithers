@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +39,15 @@ const (
 	// placementMachineTooSmall: the declared vCPUs or memory exceed the
 	// machine this deployment boots lanes on.
 	placementMachineTooSmall = "machine_too_small"
+	// placementEnvironmentUnsupported: the repository declares a NixOS
+	// environment and this deployment's lanes cannot boot one.
+	placementEnvironmentUnsupported = "environment_unsupported"
+	// placementEnvironmentStale: the registered image was built from another
+	// .smithers/environment.nix than the one declared.
+	placementEnvironmentStale = "environment_stale"
+	// placementToolsMissing: the booted machine lacks a declared tool
+	// (WorkspaceService.PrepareBoxHost); the run's failure code.
+	placementToolsMissing = "environment_tools_missing"
 )
 
 // Declaration bounds: generous for any real machine, small enough to keep a
@@ -56,11 +67,12 @@ type MythicalMachine struct {
 	// Revision is the commit the declaration was read at.
 	Revision string `json:"revision,omitempty"`
 	// Environment is the declared NixOS environment's path, or "" when the
-	// commit carries none.
-	Environment string   `json:"environment,omitempty"`
-	VCPUs       int32    `json:"vcpus,omitempty"`
-	MemoryMiB   int32    `json:"memoryMiB,omitempty"`
-	Tools       []string `json:"tools,omitempty"`
+	// commit carries none, and EnvironmentDigest the SHA-256 of its content.
+	Environment       string   `json:"environment,omitempty"`
+	EnvironmentDigest string   `json:"environmentDigest,omitempty"`
+	VCPUs             int32    `json:"vcpus,omitempty"`
+	MemoryMiB         int32    `json:"memoryMiB,omitempty"`
+	Tools             []string `json:"tools,omitempty"`
 }
 
 // factoryMachineInvalid is a committed machine block the factory refuses to
@@ -140,12 +152,37 @@ func readRepositoryMachine(ctx context.Context, host repositoryPolicyHost, owner
 		return MythicalMachine{}, err
 	}
 	machine.Revision = commit
-	if _, declared, err := readCommittedText(ctx, host, owner, repo, commit, defaultWorkspaceEnvironmentSource); err != nil {
+	if content, declared, err := readCommittedText(ctx, host, owner, repo, commit, defaultWorkspaceEnvironmentSource); err != nil {
 		return MythicalMachine{}, err
 	} else if declared {
-		machine.Environment = defaultWorkspaceEnvironmentSource
+		machine.Environment, machine.EnvironmentDigest = defaultWorkspaceEnvironmentSource, environmentDigest(content)
 	}
 	return machine, nil
+}
+
+// environmentDigest identifies one .smithers/environment.nix by content.
+func environmentDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+// imageEnvironmentDigest is the digest of the .smithers/environment.nix an
+// image was built from: the file at the commit its registrar recorded, or ""
+// when that revision is no commit or carries no such file. It is the
+// declaration's own digest when the image was built at the declared commit.
+func imageEnvironmentDigest(ctx context.Context, host repositoryPolicyHost, owner, repo string, declared MythicalMachine, image runtimeports.SandboxEnvironmentImage) (string, error) {
+	revision := strings.TrimSpace(image.SourceRevision)
+	if revision == declared.Revision {
+		return declared.EnvironmentDigest, nil
+	}
+	if !isImmutableGitObjectID(revision) {
+		return "", nil
+	}
+	content, found, err := readCommittedText(ctx, host, owner, repo, revision, defaultWorkspaceEnvironmentSource)
+	if err != nil || !found {
+		return "", err
+	}
+	return environmentDigest(content), nil
 }
 
 // readCommittedText is one text file at a commit, and whether it exists.
@@ -167,10 +204,14 @@ func readCommittedText(ctx context.Context, host repositoryPolicyHost, owner, re
 type mythicalMachineOffer struct {
 	VCPUs     int32
 	MemoryMiB int32
+	// NixOS is whether lanes here boot a registered NixOS image exactly.
+	NixOS bool
 	// Image is the repository's own ready NixOS image, or nil when none is
 	// registered; the platform base image never stands in for a declared
-	// environment.
-	Image *runtimeports.SandboxEnvironmentImage
+	// environment. ImageDigest is the digest of the environment.nix it was
+	// built from, "" when unknown.
+	Image       *runtimeports.SandboxEnvironmentImage
+	ImageDigest string
 }
 
 // MythicalPlacement is the placement receipt recorded on the item for its
@@ -182,6 +223,7 @@ type MythicalPlacement struct {
 	Kind          string `json:"kind,omitempty"`
 	VCPUs         int32  `json:"vcpus,omitempty"`
 	MemoryMiB     int32  `json:"memoryMiB,omitempty"`
+	ImageID       string `json:"imageId,omitempty"`
 	Image         string `json:"image,omitempty"`
 	ClosureHash   string `json:"closureHash,omitempty"`
 	ImageRevision string `json:"imageRevision,omitempty"`
@@ -202,8 +244,13 @@ func placeMythicalLane(declared MythicalMachine, offer mythicalMachineOffer) Myt
 	case declared.Environment == "" && len(declared.Tools) > 0:
 		return refuse(placementToolsWithoutEnvironment, "it needs "+strings.Join(declared.Tools, ", ")+
 			" and the repository declares no "+defaultWorkspaceEnvironmentSource+" to provide them")
+	case declared.Environment != "" && !offer.NixOS:
+		return refuse(placementEnvironmentUnsupported, "lane machines here cannot boot a NixOS environment")
 	case declared.Environment != "" && offer.Image == nil:
 		return refuse(placementEnvironmentUnbuilt, "no machine is built from "+declared.Environment+" yet; register its NixOS image")
+	case declared.Environment != "" && offer.ImageDigest != declared.EnvironmentDigest:
+		return refuse(placementEnvironmentStale, "the registered NixOS image was built from another "+declared.Environment+
+			"; register one built at "+shortRevision(declared.Revision))
 	case declared.VCPUs > offer.VCPUs:
 		return refuse(placementMachineTooSmall, fmt.Sprintf("it needs %d vCPUs and lane machines here have %d", declared.VCPUs, offer.VCPUs))
 	case declared.MemoryMiB > offer.MemoryMiB:
@@ -212,9 +259,18 @@ func placeMythicalLane(declared MythicalMachine, offer mythicalMachineOffer) Myt
 	placement.Kind, placement.VCPUs, placement.MemoryMiB = "container", offer.VCPUs, offer.MemoryMiB
 	if declared.Environment != "" {
 		placement.Kind = "vm"
-		placement.Image, placement.ClosureHash, placement.ImageRevision = offer.Image.Image, offer.Image.ClosureHash, offer.Image.SourceRevision
+		placement.ImageID, placement.Image, placement.ClosureHash, placement.ImageRevision =
+			offer.Image.ID, offer.Image.Image, offer.Image.ClosureHash, offer.Image.SourceRevision
 	}
 	return placement
+}
+
+// shortRevision is a commit id as people read it.
+func shortRevision(revision string) string {
+	if len(revision) > 12 {
+		return revision[:12]
+	}
+	return revision
 }
 
 // place chooses the machine for an item's next lane. It answers the item to
@@ -238,6 +294,11 @@ func (st *mythicalItemStep) place(ctx context.Context, item db.MythicalItem) (My
 	if err != nil {
 		return MythicalPlacement{}, mythicalInfraOutage(item, "launch", "the lane machines could not be read", st.now)
 	}
+	if declared.Environment != "" && offer.Image != nil {
+		if offer.ImageDigest, err = imageEnvironmentDigest(ctx, s.policy, owner, repository.Name, declared, *offer.Image); err != nil {
+			return MythicalPlacement{}, mythicalInfraOutage(item, "launch", "the image's environment could not be read", st.now)
+		}
+	}
 	placement := placeMythicalLane(declared, offer)
 	if placement.Refusal != "" {
 		return mythicalPlaced(item, placement)
@@ -255,15 +316,18 @@ func mythicalPlaced(item db.MythicalItem, placement MythicalPlacement) (Mythical
 	return placement, stopped
 }
 
-// Offer is the machine a lane boots on here: the workspace size, and the
-// repository's own ready NixOS image when one is registered.
+// Offer is the machine a lane boots on here: the workspace size, whether
+// the workspace runtime (where every lane's run executes) boots NixOS images,
+// and the repository's own ready NixOS image when it does and one is
+// registered.
 func (l *workspaceMythicalLanes) Offer(ctx context.Context, repositoryID int64) (mythicalMachineOffer, error) {
 	if l == nil || l.workspaces == nil {
 		return mythicalMachineOffer{}, pkgerrors.Internal("workspaces are unavailable")
 	}
 	memory, vcpus := l.workspaces.workspaceSizeForKind("vm")
 	offer := mythicalMachineOffer{VCPUs: *vcpus, MemoryMiB: *memory}
-	if l.workspaces.environmentImages == nil {
+	offer.NixOS = l.workspaces.runtime != nil && l.workspaces.runtime.Capabilities().EnvironmentImages
+	if !offer.NixOS || l.workspaces.environmentImages == nil {
 		return offer, nil
 	}
 	image, err := l.workspaces.environmentImages.Resolve(ctx, repositoryID, "vm")
@@ -304,4 +368,33 @@ func (l *workspaceMythicalLanes) Placed(ctx context.Context, workspaceID string,
 	kind := normalizeWorkspaceKind(placement.Kind)
 	return !workspace.DeletedAt.Valid && normalizeWorkspaceKind(workspace.Kind) == kind &&
 		(kind != "vm" || workspace.EnvironmentClosureHash == placement.ClosureHash), nil
+}
+
+// LaneTools is what a stack lane's box must have on PATH before its run
+// starts: the tools its item's placement declares. A workspace that is no
+// live lane, or whose item was not placed on a machine, needs none.
+func (s *MythicalService) LaneTools(ctx context.Context, workspaceID string) ([]string, error) {
+	q := s.queries()
+	lane, err := q.GetMythicalLane(ctx, workspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if lane.RetiredAt.Valid {
+		return nil, nil
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	placement := mythicalChecksOf(item).Placement
+	if placement == nil || placement.Kind == "" {
+		return nil, nil
+	}
+	return placement.Declared.Tools, nil
 }

@@ -12,10 +12,17 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
+
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -24,6 +31,22 @@ const workspaceArtifactCurrent = workspaceArtifactRoot + "/current"
 const workspaceArtifactOwnerPath = workspaceArtifactRoot + "/owner"
 const workspaceArtifactManifest = "bundle.sha256"
 const workspaceArtifactGuestPath = "PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+const workspaceArtifactLock = workspaceArtifactRoot + "/bootstrap.lock"
+const workspaceArtifactBootstrapLog = workspaceArtifactCurrent + "/bootstrap.log"
+
+// workspaceArtifactLockBusy is the exit status of a publication that could
+// not take the bootstrap lock within workspaceArtifactPublishLockWait. The
+// caller retries until its own deadline, because an earlier install may hold
+// the lock for many minutes.
+const workspaceArtifactLockBusy = 75
+
+// Variables so guest tests can shorten the waits they exercise.
+var (
+	workspaceArtifactPublishLockWait = 30 * time.Second
+	// A staged attempt untouched this long is an orphan. Every transferred
+	// chunk creates a file in its directory, so a live transfer keeps it fresh.
+	workspaceArtifactOrphanAge = 30 * time.Minute
+)
 
 func workspaceArtifactOwner(workspaceID string) string {
 	if workspaceID == "" {
@@ -144,16 +167,74 @@ func workspaceArtifactKey(ctx context.Context, scriptDigest string, sources []wo
 			_ = file.Close()
 			continue
 		}
-		content := sha256.New()
-		_, copyErr := io.CopyBuffer(content, &workspaceArtifactReader{ctx: ctx, reader: file}, make([]byte, 32<<10))
+		digest, err := workspaceArtifactDigest(ctx, sources[i].source, file, info)
 		closeErr := file.Close()
-		if err := errors.Join(copyErr, closeErr); err != nil {
+		if err := errors.Join(err, closeErr); err != nil {
 			return "", err
 		}
-		sources[i].digest = hex.EncodeToString(content.Sum(nil))
+		sources[i].digest = digest
 		_, _ = io.WriteString(key, sources[i].digest+"\n")
 	}
 	return hex.EncodeToString(key.Sum(nil)), nil
+}
+
+// workspaceArtifactDigests remembers each source's content digest by file
+// identity, so a fork or resume does not rehash an unchanged release archive.
+// An entry is reused only for the same file (device and inode), size and
+// modification time; any rewrite misses. The streamed transfer still verifies
+// every byte against the digest before a bundle can be published.
+var (
+	workspaceArtifactDigests       sync.Map // source path -> workspaceArtifactDigestEntry
+	workspaceArtifactDigestFlights singleflight.Group
+)
+
+type workspaceArtifactDigestEntry struct {
+	info   os.FileInfo
+	digest string
+}
+
+func workspaceArtifactDigest(ctx context.Context, source string, file *os.File, info os.FileInfo) (string, error) {
+	if cached, ok := workspaceArtifactDigests.Load(source); ok {
+		entry := cached.(workspaceArtifactDigestEntry)
+		if os.SameFile(entry.info, info) && entry.info.Size() == info.Size() && entry.info.ModTime().Equal(info.ModTime()) {
+			return entry.digest, nil
+		}
+	}
+	hash := func() (any, error) {
+		content := sha256.New()
+		if _, err := io.CopyBuffer(content, &workspaceArtifactReader{ctx: ctx, reader: file}, make([]byte, 32<<10)); err != nil {
+			return "", err
+		}
+		sum := hex.EncodeToString(content.Sum(nil))
+		// A write during hashing changes the modification time; that digest
+		// describes no single version of the file and is not remembered.
+		if after, err := file.Stat(); err == nil && after.ModTime().Equal(info.ModTime()) && after.Size() == info.Size() {
+			workspaceArtifactDigests.Store(source, workspaceArtifactDigestEntry{info: info, digest: sum})
+		}
+		return sum, nil
+	}
+	// Concurrent starts of one unchanged archive share a single read.
+	flight := fmt.Sprintf("%s\x00%d\x00%d", source, info.Size(), info.ModTime().UnixNano())
+	digest, err, shared := workspaceArtifactDigestFlights.Do(flight, hash)
+	if err != nil && shared && ctx.Err() == nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		// The caller that led the shared read gave up; this one has not.
+		digest, err = hash()
+	}
+	if err != nil {
+		return "", err
+	}
+	return digest.(string), nil
+}
+
+// workspaceArtifactOrphanSweep removes staged attempts that nothing will
+// publish: every directory (or leftover publication link) under an owner that
+// is not the current bundle and has not been touched for
+// workspaceArtifactOrphanAge. It runs under the bootstrap lock, where no
+// publication can be swapping current, so an active transfer (fresh) and the
+// published winner (current, even after a lost publish response) both stay.
+func workspaceArtifactOrphanSweep() string {
+	minutes := max(1, int(workspaceArtifactOrphanAge/time.Minute))
+	return "cur=$(readlink " + shellQuote(workspaceArtifactCurrent) + " || true); for o in " + shellQuote(workspaceArtifactRoot) + "/*; do test -L \"$o\" && continue; test -d \"$o\" || continue; for d in \"$o\"/*; do test -e \"$d\" || test -L \"$d\" || continue; test \"$d\" = \"$cur\" && continue; test -n \"$(find \"$d\" -maxdepth 0 -mmin +" + fmt.Sprint(minutes) + " 2>/dev/null)\" || continue; rm -rf -- \"$d\"; done; rmdir -- \"$o\" 2>/dev/null || true; done; "
 }
 
 func finishWorkspaceArtifacts(ctx context.Context, provider any, id, script string) error {
@@ -203,8 +284,10 @@ func finishWorkspaceArtifacts(ctx context.Context, provider any, id, script stri
 		defer func() {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
-			// Preserve the winner, including an ambiguous publish whose response was lost.
-			_, _ = artifactCommand(cleanup, client, id, "if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then exec 9>"+shellQuote(workspaceArtifactRoot+"/bootstrap.lock")+"; flock -w 2 9 || exit 1; if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then rm -rf -- "+shellQuote(directory)+" "+shellQuote(directory+".publish")+"; rmdir -- "+shellQuote(path.Dir(directory))+" 2>/dev/null || true; fi; fi")
+			// Preserve the winner, including an ambiguous publish whose response
+			// was lost. A long install can hold the lock past this bounded wait;
+			// the orphan sweep in every later bootstrap then reclaims the attempt.
+			_, _ = artifactCommand(cleanup, client, id, "if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then exec 9>"+shellQuote(workspaceArtifactLock)+"; flock -w 2 9 || exit 1; if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then rm -rf -- "+shellQuote(directory)+" "+shellQuote(directory+".publish")+"; rmdir -- "+shellQuote(path.Dir(directory))+" 2>/dev/null || true; fi; fi")
 		}()
 		for _, artifact := range sources {
 			if err := streamWorkspaceArtifactChecked(ctx, client, id, artifact.source, directory+"/"+artifact.target, artifact.digest); err != nil {
@@ -217,19 +300,30 @@ func finishWorkspaceArtifacts(ctx context.Context, provider any, id, script stri
 		if err := client.WriteFile(ctx, id, directory+"/"+workspaceArtifactManifest, sandbox.WriteFileRequest{Content: key}); err != nil {
 			return fmt.Errorf("stage workspace artifact manifest: %w", err)
 		}
-		// Ensure even an installation with no optional artifacts has a directory.
 		// Publication and bootstrap share a lock. One complete attempt wins for
 		// this workspace; inherited snapshot data can only be replaced while no
-		// bootstrap is reading it. Atomic rename never exposes a partial bundle.
-		publish := "mkdir -p -- " + shellQuote(directory) + " || exit 1; exec 9>" + shellQuote(workspaceArtifactRoot+"/bootstrap.lock") + "; flock -w 30 9 || exit 1; old=$(readlink " + shellQuote(workspaceArtifactCurrent) + " || true); if test \"$(cat " + shellQuote(workspaceArtifactCurrent+"/"+workspaceArtifactManifest) + " 2>/dev/null)\" != " + shellQuote(key) + "; then ln -sT -- " + shellQuote(directory) + " " + shellQuote(directory+".publish") + " && mv -Tf -- " + shellQuote(directory+".publish") + " " + shellQuote(workspaceArtifactCurrent) + " || exit 1; case \"$old\" in " + shellQuote(workspaceArtifactRoot) + "/*/*) if test \"$old\" != " + shellQuote(directory) + "; then rm -rf -- \"$old\"; rmdir -- \"${old%/*}\" 2>/dev/null || true; fi;; esac; fi"
-		if _, err := artifactCommand(ctx, client, id, publish); err != nil {
-			return err
+		// bootstrap is reading it. Atomic rename never exposes a partial bundle,
+		// and only a directory still holding this attempt's manifest is linked,
+		// so a cleanup that removed it can never be undone into an empty bundle.
+		publish := "exec 9>" + shellQuote(workspaceArtifactLock) + "; flock -w " + fmt.Sprint(max(1, int(workspaceArtifactPublishLockWait/time.Second))) + " 9 || exit " + fmt.Sprint(workspaceArtifactLockBusy) + "; test \"$(cat " + shellQuote(directory+"/"+workspaceArtifactManifest) + " 2>/dev/null)\" = " + shellQuote(key) + " || exit 1; old=$(readlink " + shellQuote(workspaceArtifactCurrent) + " || true); if test \"$(cat " + shellQuote(workspaceArtifactCurrent+"/"+workspaceArtifactManifest) + " 2>/dev/null)\" != " + shellQuote(key) + "; then ln -sT -- " + shellQuote(directory) + " " + shellQuote(directory+".publish") + " && mv -Tf -- " + shellQuote(directory+".publish") + " " + shellQuote(workspaceArtifactCurrent) + " || exit 1; case \"$old\" in " + shellQuote(workspaceArtifactRoot) + "/*/*) if test \"$old\" != " + shellQuote(directory) + "; then rm -rf -- \"$old\"; rmdir -- \"${old%/*}\" 2>/dev/null || true; fi;; esac; fi"
+		for {
+			result, err := artifactCommand(ctx, client, id, publish)
+			if err == nil {
+				break
+			}
+			// An earlier install still holds the lock: keep waiting within the
+			// caller's deadline rather than failing after one bounded wait.
+			if result.StatusCode == nil || *result.StatusCode != workspaceArtifactLockBusy || ctx.Err() != nil {
+				return err
+			}
 		}
 	}
 	// flock lives in the guest, so an old detached bootstrap and a recovered
 	// provisioner serialize too. Completed bootstrap is never launched twice.
 	token := uuid.NewString()
-	bootstrap := "exec 9>" + shellQuote(workspaceArtifactRoot+"/bootstrap.lock") + "; flock -w 120 9 || exit 1; test ! -f " + shellQuote(workspaceArtifactCurrent+"/bootstrap.done") + " || exit 0; rm -f -- " + shellQuote(workspaceArtifactCurrent+"/bootstrap.failed") + "; if /bin/bash " + shellQuote(workspaceArtifactCurrent+"/bootstrap.sh") + " 9>&- && touch " + shellQuote(workspaceArtifactCurrent+"/bootstrap.done") + "; then exit 0; else status=$?; printf '%s:%s\\n' " + shellQuote(token) + " \"$status\" >" + shellQuote(workspaceArtifactCurrent+"/bootstrap.failed") + "; exit \"$status\"; fi"
+	// The attempt's own output replaces the previous attempt's log beside the
+	// bundle, where a failed wait reads its tail.
+	bootstrap := "exec 9>" + shellQuote(workspaceArtifactLock) + "; flock -w 120 9 || exit 1; " + workspaceArtifactOrphanSweep() + "test ! -f " + shellQuote(workspaceArtifactCurrent+"/bootstrap.done") + " || exit 0; rm -f -- " + shellQuote(workspaceArtifactCurrent+"/bootstrap.failed") + "; if /bin/bash " + shellQuote(workspaceArtifactCurrent+"/bootstrap.sh") + " 9>&- >" + shellQuote(workspaceArtifactBootstrapLog) + " 2>&1 && touch " + shellQuote(workspaceArtifactCurrent+"/bootstrap.done") + "; then exit 0; else status=$?; printf '%s:%s\\n' " + shellQuote(token) + " \"$status\" >" + shellQuote(workspaceArtifactCurrent+"/bootstrap.failed") + "; exit \"$status\"; fi"
 	command := "mkdir -p -- " + shellQuote(workspaceArtifactRoot) + " || exit 1; command -v flock >/dev/null || exit 1; command -v setsid >/dev/null || exit 1; printf '%s\\n' " + shellQuote(token) + " >" + shellQuote(workspaceArtifactCurrent+"/bootstrap.pending") + "; setsid /bin/sh -c " + shellQuote(bootstrap) + " >>/tmp/smithers-workspace-bootstrap.log 2>&1 </dev/null &"
 	_, err = artifactCommand(ctx, client, id, command)
 	return err
@@ -256,11 +350,88 @@ func waitForWorkspaceArtifactBootstrap(ctx context.Context, client workspaceArti
 		case "pending":
 		default:
 			if status, ok := strings.CutPrefix(strings.TrimSpace(result.Stdout), "failed:"); ok {
-				return fmt.Errorf("workspace bootstrap failed (exit %s)", status)
+				return workspaceBootstrapFailure(ctx, client, id, status)
 			}
 			return fmt.Errorf("invalid workspace bootstrap status: %q", strings.TrimSpace(result.Stdout))
 		}
 	}
+}
+
+// workspaceBootstrapFailure reports a failed toolchain bootstrap with the
+// tail of that attempt's log, redacted, so the failure is actionable without
+// a shell in the guest. A log that cannot be read leaves the exit code alone.
+func workspaceBootstrapFailure(ctx context.Context, client workspaceArtifactClient, id, status string) error {
+	failure := fmt.Sprintf("workspace bootstrap failed (exit %s)", status)
+	result, err := artifactCommand(ctx, client, id, "tail -c 4096 "+shellQuote(workspaceArtifactBootstrapLog)+" 2>/dev/null || true", 10_000)
+	if err != nil {
+		return errors.New(failure)
+	}
+	if diagnostic := workspaceBootstrapDiagnostic(result.Stdout); diagnostic != "" {
+		return errors.New(failure + ": " + diagnostic)
+	}
+	return errors.New(failure)
+}
+
+const (
+	workspaceBootstrapDiagnosticLines = 6
+	workspaceBootstrapDiagnosticBytes = 600
+)
+
+var workspaceBootstrapSecretPatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	// URL credentials: scheme://user:secret@host.
+	{regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@`), "${1}[redacted]@"},
+	// Authorization headers and bare bearer credentials.
+	{regexp.MustCompile(`(?i)\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{8,}`), "${1} [redacted]"},
+	// NAME=value / NAME: value for any secret-looking name.
+	{regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:token|secret|passw(?:or)?d|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)[A-Za-z0-9_.-]*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)`), "${1}[redacted]"},
+	// Well-known credential prefixes and long opaque strings.
+	{regexp.MustCompile(`\b(?:gh[pousr]_|github_pat_|glpat-|sk-|xox[abprs]-|AKIA)[A-Za-z0-9_-]{6,}`), "[redacted]"},
+	{regexp.MustCompile(`[A-Za-z0-9_+/=-]{32,}`), "[redacted]"},
+}
+
+// workspaceBootstrapDiagnostic keeps the last few non-empty lines of a
+// bootstrap log, printable only, with anything credential-shaped replaced.
+// The toolchain bootstrap runs before any repository setup secret is written,
+// and these rules are a second line against a tool echoing one anyway.
+func workspaceBootstrapDiagnostic(log string) string {
+	lines := strings.Split(strings.ToValidUTF8(log, ""), "\n")
+	kept := make([]string, 0, workspaceBootstrapDiagnosticLines)
+	for i := len(lines) - 1; i >= 0 && len(kept) < workspaceBootstrapDiagnosticLines; i-- {
+		line := strings.Map(func(r rune) rune {
+			if r == '\t' {
+				return ' '
+			}
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}, lines[i])
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+	}
+	slices.Reverse(kept)
+	text := strings.Join(kept, " | ")
+	if subscriptiontoken.Holds("", text) {
+		text = subscriptiontoken.Redact(text)
+		if text == "" {
+			return "[log withheld: it holds a credential]"
+		}
+	}
+	for _, rule := range workspaceBootstrapSecretPatterns {
+		text = rule.pattern.ReplaceAllString(text, rule.replacement)
+	}
+	if len(text) > workspaceBootstrapDiagnosticBytes {
+		cut := len(text) - workspaceBootstrapDiagnosticBytes
+		for cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut++
+		}
+		text = "…" + text[cut:]
+	}
+	return text
 }
 
 // streamWorkspaceArtifact compresses and encodes incrementally, with the

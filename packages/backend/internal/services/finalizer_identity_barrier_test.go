@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +26,8 @@ type finalizerBarrierBilling struct {
 func (*finalizerBarrierBilling) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (*finalizerBarrierBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (*finalizerBarrierBilling) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (*finalizerBarrierBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

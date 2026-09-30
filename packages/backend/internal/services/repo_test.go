@@ -2548,7 +2548,9 @@ func (s *stubBillingPolicy) AuthorizePrivateRepo(ctx context.Context, ownerType 
 	return nil
 }
 
-func (s *stubBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error { return nil }
+func (s *stubBillingPolicy) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
+}
 func (s *stubBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)
 }

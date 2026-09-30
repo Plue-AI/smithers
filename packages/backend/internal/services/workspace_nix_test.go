@@ -33,6 +33,17 @@ func (s *stubEnvironmentImageResolver) Resolve(_ context.Context, repositoryID i
 	return s.image, nil
 }
 
+func (s *stubEnvironmentImageResolver) Pinned(_ context.Context, _ int64, kind, closureHash string) (runtimeports.SandboxEnvironmentImage, error) {
+	s.calls = append(s.calls, "pinned "+kind)
+	if s.err != nil {
+		return runtimeports.SandboxEnvironmentImage{}, s.err
+	}
+	if s.image.ClosureHash != closureHash {
+		return runtimeports.SandboxEnvironmentImage{}, pkgerrors.EnvironmentImageUnavailable("gone")
+	}
+	return s.image, nil
+}
+
 func nixTestImage(kind string) runtimeports.SandboxEnvironmentImage {
 	return runtimeports.SandboxEnvironmentImage{
 		ID:             "img-1",
@@ -483,6 +494,7 @@ func TestCreateDesktopSessionRejectsWrongKindAndState(t *testing.T) {
 type fakeEnvironmentImageQuerier struct {
 	rows     []runtimeports.SandboxEnvironmentImage
 	upserted []runtimeports.UpsertSandboxEnvironmentImageParams
+	listErr  error
 }
 
 func (f *fakeEnvironmentImageQuerier) UpsertSandboxEnvironmentImage(_ context.Context, arg runtimeports.UpsertSandboxEnvironmentImageParams) (runtimeports.SandboxEnvironmentImage, error) {
@@ -509,6 +521,9 @@ func (f *fakeEnvironmentImageQuerier) GetLatestReadySandboxEnvironmentImage(_ co
 }
 
 func (f *fakeEnvironmentImageQuerier) ListSandboxEnvironmentImages(_ context.Context, repositoryID pgtype.Int8) ([]runtimeports.SandboxEnvironmentImage, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	var out []runtimeports.SandboxEnvironmentImage
 	for _, row := range f.rows {
 		if row.RepositoryID == repositoryID {
@@ -547,6 +562,47 @@ func TestSandboxEnvironmentImageResolveFallsBackToBase(t *testing.T) {
 	assertAPIStatus(t, err, 409)
 	_, err = svc.Resolve(context.Background(), 8, "container")
 	assertAPIStatus(t, err, 400)
+}
+
+// Pinned answers exactly the placed image, the repository's or the platform
+// base's, and never another one when that image is gone.
+func TestSandboxEnvironmentImagePinned(t *testing.T) {
+	ctx := context.Background()
+	repo := pgtype.Int8{Int64: 7, Valid: true}
+	q := &fakeEnvironmentImageQuerier{rows: []runtimeports.SandboxEnvironmentImage{
+		{ID: "base-vm", Kind: "vm", ClosureHash: "b", Status: "ready"},
+		{ID: "repo-new", RepositoryID: repo, Kind: "vm", ClosureHash: "n", Status: "ready"},
+		{ID: "repo-old", RepositoryID: repo, Kind: "vm", ClosureHash: "o", Status: "ready"},
+		{ID: "repo-retired", RepositoryID: repo, Kind: "vm", ClosureHash: "r", Status: "retired"},
+		{ID: "repo-desktop", RepositoryID: repo, Kind: "desktop", ClosureHash: "d", Status: "ready"},
+	}}
+	svc := NewSandboxEnvironmentImageService(q)
+	for closure, want := range map[string]string{"o": "repo-old", "n": "repo-new", "b": "base-vm"} {
+		row, err := svc.Pinned(ctx, 7, "vm", closure)
+		require.NoError(t, err)
+		assert.Equal(t, want, row.ID, "closure %s", closure)
+	}
+	row, err := svc.Pinned(ctx, 0, "vm", "b")
+	require.NoError(t, err)
+	assert.Equal(t, "base-vm", row.ID, "a repository-less workspace pins the base")
+	for name, pin := range map[string][2]string{
+		"retired":                  {"vm", "r"},
+		"unregistered":             {"vm", "x"},
+		"another kind":             {"vm", "d"},
+		"the base of another kind": {"desktop", "b"},
+		"container":                {"agent", "o"},
+	} {
+		_, err := svc.Pinned(ctx, 7, pin[0], pin[1])
+		assertAPIStatus(t, err, 409)
+		var api *pkgerrors.APIError
+		require.ErrorAs(t, err, &api, name)
+		assert.Equal(t, pkgerrors.CodeEnvironmentImageUnavailable, api.Code, name)
+	}
+	q.listErr = errors.New("down")
+	_, err = svc.Pinned(ctx, 7, "vm", "o")
+	assertAPIStatus(t, err, 500)
+	_, err = (*SandboxEnvironmentImageService)(nil).Pinned(ctx, 7, "vm", "o")
+	assertAPIStatus(t, err, 500)
 }
 
 func TestSandboxEnvironmentImageRegisterValidatesInput(t *testing.T) {

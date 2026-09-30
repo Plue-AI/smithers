@@ -181,11 +181,39 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 		PusherCredential: credential.kind,
 		AllowedPaths:     credential.allowedPaths,
 		WorkspaceID:      credential.workspaceID,
+		VerifyLocked:     RepositoryStillAt(s.queries, repository.ID, owner, repo),
 	}
 	if err := s.repoHost.ProxyReceivePack(ctx, owner, repo, stdin, stdout, meta); err != nil {
+		if stdErrors.Is(err, repohost.ErrRepositoryReplaced) {
+			// Deleted, transferred or renamed away while the push waited for
+			// the lock. A retry authorizes against whatever owner/repo names now.
+			return errors.Conflict("repository was replaced during the push; retry the push")
+		}
 		return gitProxyFailure(ctx, "receive-pack", owner, repo, err)
 	}
 	return nil
+}
+
+// RepositoryStillAt is a push's ReceivePackMetadata.VerifyLocked: owner/repo
+// must still name repositoryID once repo-host holds the repository lock, or
+// the push is refused with repohost.ErrRepositoryReplaced. It reads the same
+// row the producer authorized the push against.
+func RepositoryStillAt(
+	q interface {
+		GetRepoByOwnerAndLowerName(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
+	},
+	repositoryID int64,
+	owner, repo string,
+) func(context.Context) error {
+	return func(ctx context.Context) error {
+		current, err := q.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{
+			Owner: strings.ToLower(owner), LowerName: strings.ToLower(repo),
+		})
+		if stdErrors.Is(err, pgx.ErrNoRows) || (err == nil && current.ID != repositoryID) {
+			return repohost.ErrRepositoryReplaced
+		}
+		return err
+	}
 }
 
 // rejectProtectedBookmarkPush fails a receive-pack request when any of its

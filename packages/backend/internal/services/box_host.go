@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // boxHostLandingTokenName names the landing credential of one box coding
@@ -88,6 +90,9 @@ var _ boxHostQuerier = (*db.Queries)(nil)
 // answers none. A box with write shares gets no credential: a guest with the
 // owner's UID could read it.
 func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error) {
+	if err := s.verifyBoxTools(ctx, hostID, workspaceID, repositoryID, userID); err != nil {
+		return nil, err
+	}
 	environment, err := s.boxHostAgentEnvironment(ctx, repositoryID)
 	if err != nil {
 		return nil, err
@@ -251,3 +256,67 @@ func workspaceGatewaySharingConflict(err error) bool {
 	var constraint *pgconn.PgError
 	return errors.As(err, &constraint) && constraint.Code == "23514" && constraint.ConstraintName == "workspace_gateway_private_execution"
 }
+
+// WithWorkspaceBoxTools names the tools a box's placement declares
+// (MythicalService.LaneTools), so every coding host start first verifies the
+// booted box has them.
+func WithWorkspaceBoxTools(tools func(ctx context.Context, workspaceID string) ([]string, error)) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.boxTools = tools }
+}
+
+// boxToolsProbe prints each argument that is not a command on the login
+// shell's PATH, one per line.
+const boxToolsProbe = `for tool do command -v "$tool" >/dev/null 2>&1 || printf '%s\n' "$tool"; done`
+
+// verifyBoxTools runs no host on a box that lacks a tool its placement
+// declares: the start fails with a typed refusal the run cannot retry past.
+func (s *WorkspaceService) verifyBoxTools(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) error {
+	if s.boxTools == nil {
+		return nil
+	}
+	tools, err := s.boxTools(ctx, workspaceID)
+	if err != nil || len(tools) == 0 {
+		return err
+	}
+	if !s.hasWorkspaceRuntime() || !s.runtime.Capabilities().Execution {
+		return boxToolsMissing{tools: tools}
+	}
+	row, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
+	if err != nil {
+		return err
+	}
+	// The box runs before its host starts; a box that is not running yet
+	// fails the probe as it would fail the start, and the start is retried.
+	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, workspaceLifecycleOperation(row, "box-tools:"+hostID))
+	if err != nil {
+		return err
+	}
+	result, err := s.runtime.ExecuteCommand(operationCtx, row.ID, workspaceapi.Command{
+		Args: append([]string{"/bin/sh", "-lc", boxToolsProbe, "sh"}, tools...),
+	})
+	if err != nil {
+		return runtimeOperationError("verify the box's tools", err)
+	}
+	if result.ExitCode != 0 || result.OutputTruncated {
+		return pkgerrors.Internal(fmt.Sprintf("verify the box's tools: the probe exited %d", result.ExitCode))
+	}
+	var missing []string
+	for _, tool := range strings.Fields(result.Stdout) {
+		if slices.Contains(tools, tool) && !slices.Contains(missing, tool) {
+			missing = append(missing, tool)
+		}
+	}
+	if len(missing) > 0 {
+		return boxToolsMissing{tools: missing}
+	}
+	return nil
+}
+
+// boxToolsMissing refuses a host start on a box without its declared tools.
+type boxToolsMissing struct{ tools []string }
+
+func (e boxToolsMissing) Error() string {
+	return "the box lacks the declared tools " + strings.Join(e.tools, ", ")
+}
+func (boxToolsMissing) FlowRuntimeCode() string    { return placementToolsMissing }
+func (boxToolsMissing) FlowRuntimeRetryable() bool { return false }

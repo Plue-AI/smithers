@@ -613,6 +613,9 @@ type WorkspaceService struct {
 	// environmentImages resolves the NixOS closure image kind=vm/desktop
 	// workspaces boot (nil → those kinds cannot be created).
 	environmentImages WorkspaceEnvironmentImageResolver
+	// boxTools names the tools a box's placement declares, verified on the
+	// booted box before its coding host starts (WithWorkspaceBoxTools).
+	boxTools func(ctx context.Context, workspaceID string) ([]string, error)
 	// Workspace, agent and desktop kinds have independent resource settings.
 	workspaceMemoryMB  int32
 	workspaceVCPUCount int32

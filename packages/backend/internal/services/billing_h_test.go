@@ -223,16 +223,16 @@ func TestBilling_H_PublicEntryGuardsAndPolicyErrors(t *testing.T) {
 
 	authQueries := billingHNewQuerier()
 	authSvc := billingHService(authQueries, nil)
-	err = authSvc.AuthorizeWorkflowDispatch(ctx, 404)
+	err = authSvc.authorizeWorkflowDispatchAdmission(ctx, 404)
 	assert.Equal(t, 404, httpStatus(err))
 	err = authSvc.authorizeAgentRunAdmission(ctx, 404)
 	assert.Equal(t, 404, httpStatus(err))
 
 	billingHSeedUserRepo(authQueries, 10, 42)
-	authQueries.countPrivateReposByOwnerFn = func(context.Context, db.CountPrivateReposByOwnerParams) (int64, error) {
-		return 0, errors.New("usage failed")
+	authQueries.sumWorkflowAdmissionMinutesFn = func(context.Context, db.SumWorkflowAdmissionMinutesByOwnerParams) (int64, error) {
+		return 0, errors.New("admission minutes failed")
 	}
-	err = authSvc.AuthorizeWorkflowDispatch(ctx, 10)
+	err = authSvc.authorizeWorkflowDispatchAdmission(ctx, 10)
 	assert.Equal(t, 500, httpStatus(err))
 	authQueries.countAgentRunAdmissionsByOwnerFn = func(context.Context, db.CountAgentRunAdmissionsByOwnerParams) (int64, error) {
 		return 0, errors.New("admission count failed")

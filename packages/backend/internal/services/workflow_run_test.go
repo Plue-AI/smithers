@@ -646,16 +646,16 @@ func TestWorkflowRunService_AlertRemediationBindingFailureAbortsRowCreation(t *t
 	assert.Empty(t, mock.createTaskCalls, "binding failure must stop before any runnable task exists")
 }
 
-// denyWorkflowDispatchBillingPolicy denies AuthorizeWorkflowDispatch (the
-// CI-minute cap) while allowing everything else.
+// denyWorkflowDispatchBillingPolicy denies AuthorizeWorkflowDispatchCommitted
+// (the CI-minute cap) without running its insert, while allowing everything else.
 type denyWorkflowDispatchBillingPolicy struct {
 	stubBillingPolicy
 	dispatchCalls int
 }
 
-func (p *denyWorkflowDispatchBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error {
+func (p *denyWorkflowDispatchBillingPolicy) AuthorizeWorkflowDispatchCommitted(context.Context, int64, func(context.Context, pgx.Tx) error) error {
 	p.dispatchCalls++
-	return pkgerrors.Forbidden("CI minutes quota exceeded for the current billing plan")
+	return pkgerrors.New(pkgerrors.CodePlanLimitExceeded, "CI minutes quota exceeded for the current billing plan")
 }
 
 // Issue #126 regression: every non-agent workflow run creation must be gated
@@ -676,7 +676,7 @@ func TestWorkflowRunService_DispatchForEvent_BillingDenied_CreatesNoRun(t *testi
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: "abc123"},
 	})
-	assert.Equal(t, 403, workflowRunAPIStatus(t, err))
+	assert.Equal(t, 402, workflowRunAPIStatus(t, err))
 	assert.Equal(t, 1, policy.dispatchCalls)
 	assert.Empty(t, mock.createRunCalls)
 	assert.Empty(t, mock.createStepCalls)

@@ -26,6 +26,8 @@ import (
 // SandboxEnvironmentImageService implements it.
 type WorkspaceEnvironmentImageResolver interface {
 	Resolve(ctx context.Context, repositoryID int64, kind string) (runtimeports.SandboxEnvironmentImage, error)
+	// Pinned is the ready image with exactly this closure, or unavailable.
+	Pinned(ctx context.Context, repositoryID int64, kind, closureHash string) (runtimeports.SandboxEnvironmentImage, error)
 }
 
 // WithWorkspaceEnvironmentImages wires the NixOS environment image registry.

@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -56,8 +58,13 @@ func invokeFlowID(identifier string) (string, bool) {
 // InvokedFlowInvoker admits an invoked run on the canonical Flow runtime
 // (InvokedFlowService).
 type InvokedFlowInvoker interface {
-	Invoke(context.Context, InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error)
+	Invoke(context.Context, InvokedFlowLaunch, WorkflowRunAdmission) (db.WorkflowRun, db.WorkflowDefinition, error)
 }
+
+// WorkflowRunAdmission runs a run's insert inside the owner's billing
+// admission transaction. A nil transaction means the policy admits without
+// one, and the insert opens its own.
+type WorkflowRunAdmission func(ctx context.Context, insert func(context.Context, pgx.Tx) error) error
 
 // InvokeWorkflow creates one queued flow-plane run and admits its Flow
 // launch in the same transaction. The Flow worker resolves the host later,
@@ -91,15 +98,16 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 		dispatchInputs = encoded
 	}
 
-	if s.billing != nil {
-		if err := s.billing.AuthorizeWorkflowDispatch(ctx, input.RepositoryID); err != nil {
-			return nil, err
+	admit := func(ctx context.Context, insert func(context.Context, pgx.Tx) error) error {
+		if s.billing == nil {
+			return insert(ctx, nil)
 		}
+		return s.billing.AuthorizeWorkflowDispatchCommitted(ctx, input.RepositoryID, insert)
 	}
 	run, def, err := s.invoker.Invoke(ctx, InvokedFlowLaunch{
 		RepositoryID: input.RepositoryID, UserID: input.UserID, FlowID: flowID,
 		Input: dispatchInputs, TriggerRef: triggerRef,
-	})
+	}, admit)
 	if err != nil {
 		return nil, err
 	}

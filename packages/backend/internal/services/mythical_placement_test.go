@@ -6,14 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
 )
 
@@ -60,11 +63,22 @@ func TestParseFactoryMachine(t *testing.T) {
 }
 
 func TestPlaceMythicalLane(t *testing.T) {
-	image := &runtimeports.SandboxEnvironmentImage{RepositoryID: pgtype.Int8{Int64: 7, Valid: true}, Kind: "vm",
+	image := &runtimeports.SandboxEnvironmentImage{ID: "img-7", RepositoryID: pgtype.Int8{Int64: 7, Valid: true}, Kind: "vm",
 		SourceRevision: "rev-1", ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
-	offer := mythicalMachineOffer{VCPUs: 4, MemoryMiB: 8192}
+	offer := mythicalMachineOffer{VCPUs: 4, MemoryMiB: 8192, NixOS: true}
 	built := offer
-	built.Image = image
+	built.Image, built.ImageDigest = image, "d1"
+	stale := built
+	stale.ImageDigest = "d0"
+	unknown := built
+	unknown.ImageDigest = ""
+	noNixOS := built
+	noNixOS.NixOS = false
+	env := MythicalMachine{Revision: strings.Repeat("a", 40), Environment: ".smithers/environment.nix", EnvironmentDigest: "d1"}
+	withTools := env
+	withTools.Tools = []string{"go"}
+	large := env
+	large.VCPUs = 64
 	for _, tc := range []struct {
 		name     string
 		declared MythicalMachine
@@ -75,14 +89,24 @@ func TestPlaceMythicalLane(t *testing.T) {
 			want: MythicalPlacement{Kind: "container", VCPUs: 4, MemoryMiB: 8192}},
 		{name: "nothing declared ignores a registered image", offer: built,
 			want: MythicalPlacement{Kind: "container", VCPUs: 4, MemoryMiB: 8192}},
-		{name: "a declared environment boots its image", declared: MythicalMachine{Environment: ".smithers/environment.nix", Tools: []string{"go"}}, offer: built,
-			want: MythicalPlacement{Declared: MythicalMachine{Environment: ".smithers/environment.nix", Tools: []string{"go"}}, Kind: "vm", VCPUs: 4, MemoryMiB: 8192,
-				Image: image.Image, ClosureHash: image.ClosureHash, ImageRevision: "rev-1"}},
+		{name: "a declared environment boots its image", declared: withTools, offer: built,
+			want: MythicalPlacement{Declared: withTools, Kind: "vm", VCPUs: 4, MemoryMiB: 8192,
+				ImageID: "img-7", Image: image.Image, ClosureHash: image.ClosureHash, ImageRevision: "rev-1"}},
 		{name: "needs equal to the machine fit", declared: MythicalMachine{VCPUs: 4, MemoryMiB: 8192}, offer: offer,
 			want: MythicalPlacement{Declared: MythicalMachine{VCPUs: 4, MemoryMiB: 8192}, Kind: "container", VCPUs: 4, MemoryMiB: 8192}},
-		{name: "an unbuilt environment is refused", declared: MythicalMachine{Environment: ".smithers/environment.nix"}, offer: offer,
-			want: MythicalPlacement{Declared: MythicalMachine{Environment: ".smithers/environment.nix"}, Refusal: placementEnvironmentUnbuilt,
+		{name: "an unbuilt environment is refused", declared: env, offer: offer,
+			want: MythicalPlacement{Declared: env, Refusal: placementEnvironmentUnbuilt,
 				Reason: "no machine is built from .smithers/environment.nix yet; register its NixOS image"}},
+		{name: "an image built from an older environment is refused", declared: env, offer: stale,
+			want: MythicalPlacement{Declared: env, Refusal: placementEnvironmentStale,
+				Reason: "the registered NixOS image was built from another .smithers/environment.nix; register one built at aaaaaaaaaaaa"}},
+		{name: "an image of unknown origin is refused", declared: env, offer: unknown,
+			want: MythicalPlacement{Declared: env, Refusal: placementEnvironmentStale,
+				Reason: "the registered NixOS image was built from another .smithers/environment.nix; register one built at aaaaaaaaaaaa"}},
+		{name: "lanes that cannot boot NixOS are refused", declared: env, offer: noNixOS,
+			want: MythicalPlacement{Declared: env, Refusal: placementEnvironmentUnsupported, Reason: "lane machines here cannot boot a NixOS environment"}},
+		{name: "nothing declared needs no NixOS", offer: noNixOS,
+			want: MythicalPlacement{Kind: "container", VCPUs: 4, MemoryMiB: 8192}},
 		{name: "tools need an environment", declared: MythicalMachine{Tools: []string{"go", "pnpm"}}, offer: built,
 			want: MythicalPlacement{Declared: MythicalMachine{Tools: []string{"go", "pnpm"}}, Refusal: placementToolsWithoutEnvironment,
 				Reason: "it needs go, pnpm and the repository declares no .smithers/environment.nix to provide them"}},
@@ -91,9 +115,12 @@ func TestPlaceMythicalLane(t *testing.T) {
 		{name: "one MiB too many", declared: MythicalMachine{MemoryMiB: 8193}, offer: offer,
 			want: MythicalPlacement{Declared: MythicalMachine{MemoryMiB: 8193}, Refusal: placementMachineTooSmall,
 				Reason: "it needs 8193 MiB of memory and lane machines here have 8192 MiB"}},
-		{name: "a missing environment is reported before size", declared: MythicalMachine{Environment: ".smithers/environment.nix", VCPUs: 64}, offer: offer,
-			want: MythicalPlacement{Declared: MythicalMachine{Environment: ".smithers/environment.nix", VCPUs: 64}, Refusal: placementEnvironmentUnbuilt,
+		{name: "a missing environment is reported before size", declared: large, offer: offer,
+			want: MythicalPlacement{Declared: large, Refusal: placementEnvironmentUnbuilt,
 				Reason: "no machine is built from .smithers/environment.nix yet; register its NixOS image"}},
+		{name: "a stale environment is reported before size", declared: large, offer: stale,
+			want: MythicalPlacement{Declared: large, Refusal: placementEnvironmentStale,
+				Reason: "the registered NixOS image was built from another .smithers/environment.nix; register one built at aaaaaaaaaaaa"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, placeMythicalLane(tc.declared, tc.offer))
@@ -107,10 +134,15 @@ type machineHost struct {
 	bookmarks   []repohost.Bookmark
 	projection  *string
 	environment bool
-	// fail fails reads of this path (or the bookmark listing for "bookmarks").
-	fail    string
-	binary  string
-	commits []string
+	// environments overrides the environment.nix content at a commit ("" is
+	// no file there).
+	environments map[string]string
+	// fail fails reads of this path (or the bookmark listing for "bookmarks"),
+	// failCommit every read at that commit.
+	fail       string
+	failCommit string
+	binary     string
+	commits    []string
 }
 
 func (h *machineHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
@@ -123,17 +155,24 @@ func (h *machineHost) ListBookmarks(context.Context, string, string, string, int
 func (h *machineHost) GetFileAtChange(_ context.Context, _, _, commit, path string) (repohost.FileContent, error) {
 	h.commits = append(h.commits, commit)
 	switch {
-	case path == h.fail:
+	case path == h.fail || commit == h.failCommit:
 		return repohost.FileContent{}, errors.New("repo host unavailable")
 	case path == h.binary:
 		return repohost.FileContent{Encoding: "base64"}, nil
 	case path == factoryProjectionPath && h.projection != nil:
 		return repohost.FileContent{Content: *h.projection}, nil
+	case path == defaultWorkspaceEnvironmentSource && h.environments != nil && h.environments[commit] != "":
+		return repohost.FileContent{Content: h.environments[commit]}, nil
+	case path == defaultWorkspaceEnvironmentSource && h.environments != nil:
+		return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
 	case path == defaultWorkspaceEnvironmentSource && h.environment:
-		return repohost.FileContent{Content: "{ pkgs, ... }: {}"}, nil
+		return repohost.FileContent{Content: testEnvironmentNix}, nil
 	}
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
 }
+
+// testEnvironmentNix is the .smithers/environment.nix machineHost serves.
+const testEnvironmentNix = "{ pkgs, ... }: {}"
 
 func TestReadRepositoryMachine(t *testing.T) {
 	ctx := context.Background()
@@ -143,7 +182,9 @@ func TestReadRepositoryMachine(t *testing.T) {
 
 	got, err := readRepositoryMachine(ctx, &machineHost{bookmarks: main, projection: &projection, environment: true}, "o", "r", "main")
 	require.NoError(t, err)
-	assert.Equal(t, MythicalMachine{Revision: "c1", Environment: ".smithers/environment.nix", VCPUs: 2, Tools: []string{"go"}}, got)
+	assert.Equal(t, MythicalMachine{Revision: "c1", Environment: ".smithers/environment.nix", EnvironmentDigest: environmentDigest(testEnvironmentNix),
+		VCPUs: 2, Tools: []string{"go"}}, got)
+	assert.Equal(t, "a001f654c81bb7f4b237cdcbd01f0ca32837b19c93184d779f2d76dbec11847a", got.EnvironmentDigest, "the SHA-256 of the file's content")
 
 	host := &machineHost{bookmarks: main}
 	got, err = readRepositoryMachine(ctx, host, "o", "r", "main")
@@ -172,6 +213,38 @@ func TestReadRepositoryMachine(t *testing.T) {
 	require.EqualError(t, err, "repository policy reader unavailable")
 }
 
+// An image's environment is identified by the environment.nix content at
+// the commit its registrar recorded.
+func TestImageEnvironmentDigest(t *testing.T) {
+	ctx := context.Background()
+	declaredAt, builtAt, bare := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("e", 40)
+	declared := MythicalMachine{Revision: declaredAt, Environment: defaultWorkspaceEnvironmentSource, EnvironmentDigest: environmentDigest("new")}
+	host := &machineHost{environments: map[string]string{declaredAt: "new", builtAt: "old", strings.Repeat("c", 40): "new"}}
+	for _, tc := range []struct {
+		name, revision, want string
+	}{
+		{name: "built at the declared commit", revision: declaredAt, want: environmentDigest("new")},
+		{name: "built from the same file earlier", revision: strings.Repeat("c", 40), want: environmentDigest("new")},
+		{name: "built from an older file", revision: builtAt, want: environmentDigest("old")},
+		{name: "built where no file was", revision: bare},
+		{name: "a revision that is no commit", revision: "rev-1"},
+		{name: "no revision"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host.commits = nil
+			got, err := imageEnvironmentDigest(ctx, host, "o", "r", declared, runtimeports.SandboxEnvironmentImage{SourceRevision: tc.revision})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			if tc.revision == declaredAt || !isImmutableGitObjectID(tc.revision) {
+				assert.Empty(t, host.commits, "nothing is read")
+			}
+		})
+	}
+	_, err := imageEnvironmentDigest(ctx, &machineHost{failCommit: builtAt}, "o", "r", declared, runtimeports.SandboxEnvironmentImage{SourceRevision: builtAt})
+	require.Error(t, err)
+}
+
+// fixedEnvironmentImages is a registry with one image.
 type fixedEnvironmentImages struct {
 	image runtimeports.SandboxEnvironmentImage
 	err   error
@@ -183,6 +256,11 @@ func (f *fixedEnvironmentImages) Resolve(_ context.Context, _ int64, kind string
 	return f.image, f.err
 }
 
+func (f *fixedEnvironmentImages) Pinned(_ context.Context, _ int64, kind, _ string) (runtimeports.SandboxEnvironmentImage, error) {
+	f.kinds = append(f.kinds, "pinned "+kind)
+	return f.image, f.err
+}
+
 func TestWorkspaceMythicalLanesOffer(t *testing.T) {
 	ctx := context.Background()
 	own := runtimeports.SandboxEnvironmentImage{RepositoryID: pgtype.Int8{Int64: 7, Valid: true}, Image: "registry/env:x", ClosureHash: "x"}
@@ -190,15 +268,27 @@ func TestWorkspaceMythicalLanesOffer(t *testing.T) {
 	other := runtimeports.SandboxEnvironmentImage{RepositoryID: pgtype.Int8{Int64: 8, Valid: true}, Image: "registry/env:z"}
 	workspaces := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceResources(6144, 3))
 
+	images := &fixedEnvironmentImages{image: own}
+	workspaces.environmentImages = images
 	offer, err := NewWorkspaceMythicalLanes(workspaces).Offer(ctx, 7)
 	require.NoError(t, err)
-	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144}, offer, "no image registry offers the sized default guest")
+	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144}, offer, "no workspace runtime boots no NixOS image")
+	workspaces.runtime = &pinRuntime{}
+	offer, err = NewWorkspaceMythicalLanes(workspaces).Offer(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144}, offer, "a runtime without environment images offers the sized default guest")
+	assert.Empty(t, images.kinds, "the registry is not consulted for lanes that cannot boot it")
 
-	images := &fixedEnvironmentImages{image: own}
+	workspaces.runtime = &pinRuntime{images: true}
+	workspaces.environmentImages = nil
+	offer, err = NewWorkspaceMythicalLanes(workspaces).Offer(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144, NixOS: true}, offer, "no image registry offers no image")
+
 	workspaces.environmentImages = images
 	offer, err = NewWorkspaceMythicalLanes(workspaces).Offer(ctx, 7)
 	require.NoError(t, err)
-	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144, Image: &own}, offer)
+	assert.Equal(t, mythicalMachineOffer{VCPUs: 3, MemoryMiB: 6144, NixOS: true, Image: &own}, offer)
 	assert.Equal(t, []string{"vm"}, images.kinds)
 
 	for name, image := range map[string]runtimeports.SandboxEnvironmentImage{"platform base": base, "another repository's": other} {
@@ -264,16 +354,16 @@ func TestMythicalTodoRunsOnTheDeclaredMachine(t *testing.T) {
 	projection := placementPolicy(`{"vcpus":2,"memoryMiB":4096,"tools":["go"]}`)
 	o.service.SetPolicyReader(&machineHost{bookmarks: []repohost.Bookmark{{Name: "main", TargetCommitID: strings.Repeat("a", 40)}},
 		projection: &projection, environment: true})
-	image := runtimeports.SandboxEnvironmentImage{RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
-		SourceRevision: "rev-1", ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
-	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, Image: &image}
+	image := runtimeports.SandboxEnvironmentImage{ID: "img-1", RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
+		SourceRevision: strings.Repeat("b", 40), ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
+	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &image}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 70, Title: "Placed", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(70, "placed.md")
 
 	want := MythicalPlacement{Declared: MythicalMachine{Revision: strings.Repeat("a", 40), Environment: ".smithers/environment.nix",
-		VCPUs: 2, MemoryMiB: 4096, Tools: []string{"go"}}, Kind: "vm", VCPUs: 2, MemoryMiB: 4096,
-		Image: image.Image, ClosureHash: image.ClosureHash, ImageRevision: "rev-1"}
+		EnvironmentDigest: environmentDigest(testEnvironmentNix), VCPUs: 2, MemoryMiB: 4096, Tools: []string{"go"}}, Kind: "vm", VCPUs: 2, MemoryMiB: 4096,
+		ImageID: "img-1", Image: image.Image, ClosureHash: image.ClosureHash, ImageRevision: strings.Repeat("b", 40)}
 	require.GreaterOrEqual(t, len(o.lanes.placements), 2, "the request lane and the review lane")
 	for _, placement := range o.lanes.placements {
 		assert.Equal(t, want, placement)
@@ -327,7 +417,11 @@ func TestMythicalTodoRefusesTheWrongMachine(t *testing.T) {
 // Each typed refusal stops the TODO; an unreadable declaration or offer is
 // an outage Smithers retries, never the owner's fault.
 func TestMythicalTodoPlacementFailures(t *testing.T) {
-	main := []repohost.Bookmark{{Name: "main", TargetCommitID: strings.Repeat("a", 40)}}
+	declaredAt, builtAt := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	main := []repohost.Bookmark{{Name: "main", TargetCommitID: declaredAt}}
+	built := &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &runtimeports.SandboxEnvironmentImage{ID: "img-1", Kind: "vm",
+		SourceRevision: builtAt, ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}}
+	edited := map[string]string{declaredAt: "{ pkgs, ... }: { environment.systemPackages = [ pkgs.go ]; }", builtAt: testEnvironmentNix}
 	for _, tc := range []struct {
 		name    string
 		host    *machineHost
@@ -336,7 +430,14 @@ func TestMythicalTodoPlacementFailures(t *testing.T) {
 		refusal string
 		outage  string
 	}{
-		{name: "unbuilt environment", host: &machineHost{bookmarks: main, environment: true}, refusal: placementEnvironmentUnbuilt},
+		{name: "unbuilt environment", host: &machineHost{bookmarks: main, environment: true}, offer: &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true},
+			refusal: placementEnvironmentUnbuilt},
+		{name: "unsupported environment", host: &machineHost{bookmarks: main, environment: true}, refusal: placementEnvironmentUnsupported},
+		{name: "stale image", host: &machineHost{bookmarks: main, environments: edited}, offer: built, refusal: placementEnvironmentStale},
+		{name: "image built where no environment was", host: &machineHost{bookmarks: main, environments: map[string]string{declaredAt: testEnvironmentNix}},
+			offer: built, refusal: placementEnvironmentStale},
+		{name: "unreadable image environment", host: &machineHost{bookmarks: main, environment: true, failCommit: builtAt}, offer: built,
+			outage: "the image's environment could not be read"},
 		{name: "tools without environment", host: &machineHost{bookmarks: main}, refusal: placementToolsWithoutEnvironment},
 		{name: "invalid machine block", host: &machineHost{bookmarks: main}, refusal: placementMachineInvalid},
 		{name: "unreadable environment", host: &machineHost{bookmarks: main, fail: defaultWorkspaceEnvironmentSource},
@@ -439,9 +540,9 @@ func TestMythicalTodoRecoversOnlyALaneOnItsMachine(t *testing.T) {
 
 	// The owner declares a NixOS environment before the retry.
 	host.environment = true
-	image := runtimeports.SandboxEnvironmentImage{RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
-		SourceRevision: "rev-1", ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
-	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, Image: &image}
+	image := runtimeports.SandboxEnvironmentImage{ID: "img-1", RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
+		SourceRevision: strings.Repeat("b", 40), ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
+	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &image}
 	o.wake()
 	item := o.item(73)
 	require.Equal(t, "running", item.State, item.Reason)
@@ -451,4 +552,50 @@ func TestMythicalTodoRecoversOnlyALaneOnItsMachine(t *testing.T) {
 	assert.Equal(t, o.lanes.created[1], item.WorkspaceID)
 	assert.Equal(t, "vm", mythicalChecksOf(item).Placement.Kind)
 	require.Len(t, o.launcher.requests, 1)
+}
+
+// A lane whose box lacks a tool the repository declares stops its TODO with
+// the placement refusal, once, and is not retried onto the same machine.
+func TestMythicalTodoStopsOnABoxWithoutItsTools(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	declaredAt := strings.Repeat("a", 40)
+	projection := placementPolicy(`{"tools":["go","pnpm"]}`)
+	o.service.SetPolicyReader(&machineHost{bookmarks: []repohost.Bookmark{{Name: "main", TargetCommitID: declaredAt}},
+		projection: &projection, environment: true})
+	image := runtimeports.SandboxEnvironmentImage{ID: "img-1", RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
+		SourceRevision: declaredAt, ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
+	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &image}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 74, Title: "Tools", State: "open",
+		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	item := o.item(74)
+	require.Equal(t, "running", item.State, item.Reason)
+
+	tools, err := o.service.LaneTools(ctx, item.WorkspaceID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"go", "pnpm"}, tools, "the lane's box must have what its placement declares")
+	tools, err = o.service.LaneTools(ctx, uuid.NewString())
+	require.NoError(t, err)
+	assert.Empty(t, tools, "a workspace that is no lane needs nothing")
+
+	request := o.launcher.last("coding/request")
+	require.NoError(t, o.service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateFailed,
+		Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, FailureCode: placementToolsMissing}}))
+	o.wake()
+	item = o.item(74)
+	require.Equal(t, "blocked", item.State, item.Reason)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "placement", Kind: mythicalFailStopped}, mythicalChecksOf(item).Fault)
+	o.wake()
+	assert.Len(t, o.launcher.requests, 1, "no retry on the same machine")
+	assert.Equal(t, []string{"#74 Smithers stopped this TODO. No machine matches what this repository declares."}, o.github.comments)
+}
+
+// Every other launch failure code stays an outage Smithers retries.
+func TestMythicalRunOutcomeStopsOnlyAtMissingTools(t *testing.T) {
+	failed := func(code string) flowdispatch.ProjectionUpdate {
+		return flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{FailureCode: code}}
+	}
+	assert.Equal(t, "stopped: policy: placement", mythicalRunOutcome("request", failed("environment_tools_missing")))
+	assert.Equal(t, "outage: infra: environment_image_unavailable", mythicalRunOutcome("request", failed("environment_image_unavailable")))
 }

@@ -25,8 +25,8 @@ type workflowCacheHBillingPolicy struct {
 func (p workflowCacheHBillingPolicy) AuthorizePrivateRepo(context.Context, string, int64) error {
 	return nil
 }
-func (p workflowCacheHBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error {
-	return nil
+func (p workflowCacheHBillingPolicy) AuthorizeWorkflowDispatchCommitted(ctx context.Context, _ int64, commit func(context.Context, pgx.Tx) error) error {
+	return commit(ctx, nil)
 }
 func (p workflowCacheHBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
 	return commit(ctx, nil)

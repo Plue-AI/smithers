@@ -780,7 +780,11 @@ const mythicalStopped = "stopped: "
 // refused, and a failure no registered error names are outages that spend
 // none; user, policy and bug faults stop the item for a person.
 func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
-	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code != "" {
+	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code == placementToolsMissing {
+		// The lane's box lacks a tool the repository declares: no machine
+		// here matches it until the owner fixes the environment.
+		return mythicalStopped + "policy: placement"
+	} else if code != "" {
 		return mythicalOutage + "infra: " + code
 	}
 	run := update.Checkpoint.Run
