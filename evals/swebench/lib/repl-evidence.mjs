@@ -108,7 +108,7 @@
  */
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { journalRows } from "./journal-rows.mjs"
 
 /**
  * Names a cell may use that no earlier cell bound.
@@ -517,15 +517,9 @@ const canonical = (value) => {
  * @since 0.1.0
  */
 export const readRun = (databasePath) => {
-  const database = new DatabaseSync(databasePath, { readOnly: true })
-  let rows
-  try {
-    rows = database.prepare(
-      "select seq, event_type, payload_json from flows_journal_events where event_type like 'control.agent.%' order by seq"
-    ).all()
-  } finally {
-    database.close()
-  }
+  // `control.db` beside the archived `engine.db` holds the `control.*` rows
+  // of a current run; `journalRows` reads both (see lib/journal-rows.mjs).
+  const rows = journalRows(databasePath, "event_type like 'control.agent.%'")
 
   const cells = []
   const prints = []

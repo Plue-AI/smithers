@@ -56,10 +56,10 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { readTokensFile } from "./codex-tokens.mjs"
 import { readRows } from "./fullbench-manifest.mjs"
+import { journalRows } from "./journal-rows.mjs"
 import { readCost } from "./run-cost.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -120,16 +120,9 @@ const number = (value) => (typeof value === "number" ? value.toLocaleString("en-
  * @since 0.1.0
  */
 export const readFrames = (databasePath) => {
-  const database = new DatabaseSync(databasePath, { readOnly: true })
-  let rows
-  try {
-    rows = database.prepare(
-      "select seq, emitted_at_ms, event_type, payload_json from flows_journal_events"
-        + " where event_type like 'control.agent.%' order by seq"
-    ).all()
-  } finally {
-    database.close()
-  }
+  // `control.db` beside the archived `engine.db` holds the `control.*` rows
+  // of a current run; `journalRows` reads both (see lib/journal-rows.mjs).
+  const rows = journalRows(databasePath, "event_type like 'control.agent.%'")
 
   const frames = []
   const started = []
@@ -493,8 +486,9 @@ export const bundle = (id, options) => {
   // ---- our side -----------------------------------------------------------
   const ourRow = lastRow(join(fb, "manifest.jsonl"), id) ?? {}
   const journal = join(fb, "journals", id, "engine.db")
-  const cost = existsSync(journal) ? readCost(journal) : undefined
-  const ourFrames = existsSync(journal) ? readFrames(journal) : { frames: [], resolvedText: undefined }
+  const archived = existsSync(journal)
+  const cost = archived ? readCost(journal) : undefined
+  const ourFrames = archived ? readFrames(journal) : { frames: [], resolvedText: undefined }
   const ourTimings = readJson(join(fb, "timings", `${id}.json`))
   const ourPatch = patchShape(join(fb, "patches", `${id}.patch`))
   const ourCalls = ourFrames.frames.reduce((total, frame) => total + frame.calls.length, 0)
@@ -613,8 +607,10 @@ export const bundle = (id, options) => {
       + " it dropped."
   )
   out.push("")
-  if (ourFrames.frames.length === 0) {
+  if (!archived) {
     out.push("_no journal was archived for this run_")
+  } else if (ourFrames.frames.length === 0) {
+    out.push("_the archived journal records no frames_")
   } else {
     out.push(renderFrames(ourFrames.frames, options))
     if (ourFrames.resolvedText !== undefined) {

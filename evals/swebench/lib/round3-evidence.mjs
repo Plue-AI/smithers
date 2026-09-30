@@ -59,7 +59,7 @@
  */
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { journalRows } from "./journal-rows.mjs"
 
 /**
  * The declared rung count of the production ladder, so a ladder that stopped
@@ -145,16 +145,9 @@ const failing = (payload) => {
  * @since 0.1.0
  */
 export const readJournal = (databasePath) => {
-  const database = new DatabaseSync(databasePath, { readOnly: true })
-  let rows
-  try {
-    rows = database.prepare(
-      "select seq, emitted_at_ms, event_type, payload_json from flows_journal_events"
-        + " where event_type like 'control.agent.%' order by seq"
-    ).all()
-  } finally {
-    database.close()
-  }
+  // `control.db` beside the archived `engine.db` holds the `control.*` rows
+  // of a current run; `journalRows` reads both (see lib/journal-rows.mjs).
+  const rows = journalRows(databasePath, "event_type like 'control.agent.%'")
 
   const counts = {
     frames: 0,
