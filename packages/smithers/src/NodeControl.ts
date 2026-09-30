@@ -516,6 +516,22 @@ export const layerControl = (
   )
 }
 
+/**
+ * Provides a Control service that observes runs and changes nothing.
+ *
+ * A local project's existing stores open read-only: no file, migration,
+ * schema object, sweeper, recovery or reaper, and every read is a snapshot a
+ * peer holding the writer does not block. A remote configuration reads the
+ * control plane it names, which owns its own stores.
+ *
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerObserve = (applicationConfig: Application.Config): Layer.Layer<Control.Control> =>
+  applicationConfig.remote === undefined
+    ? native.layerObserve(applicationConfig, layerRegistry(applicationConfig.root ?? process.cwd()))
+    : layerControl({ ...applicationConfig, startsRuns: false })
+
 const output = Output.make()
 
 /**

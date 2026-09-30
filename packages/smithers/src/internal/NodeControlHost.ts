@@ -105,6 +105,7 @@ export const platform: NativeControl.Platform = {
   host: Layer.provideMerge(ControlFileSystem.layer(), NodeServices.layer),
   crypto: NodeCrypto.layer,
   database: (file) => ControlDatabase.layer(file).pipe(Layer.orDie),
+  observe: (file) => ControlDatabase.observe(file).pipe(Layer.orDie),
   runtime: NodeFlowsRuntime.layer,
   jj: NodeJj.layerAt,
   httpClient: layerEgressHttpClient,

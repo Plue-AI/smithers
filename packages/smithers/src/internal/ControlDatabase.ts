@@ -15,3 +15,9 @@ export const layer = (file: string) =>
   NativeControlDatabase.make((filename) => NodeDatabase.layer({ filename }))(file).pipe(
     Layer.provide(NodeServices.layer)
   )
+
+/** Opens existing control or engine state read-only with the Node database adapter.
+ * @category layers
+ * @since 1.0.0
+ */
+export const observe = NativeControlDatabase.observe((filename) => NodeDatabase.layer({ filename, readOnly: true }))

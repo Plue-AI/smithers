@@ -27,7 +27,7 @@ const sqliteOwned = (filename: string): boolean =>
  * @since 1.0.0
  * @private
  */
-export const layer = (filename: string): Layer.Layer<SqlClient> | undefined => {
+export const layer = (filename: string, readOnly = false): Layer.Layer<SqlClient> | undefined => {
   const explicit = isUrl(filename)
   const backend = process.env.SMITHERS_BACKEND
   if (!explicit && (backend === "sqlite" || sqliteOwned(filename))) return undefined
@@ -52,7 +52,7 @@ export const layer = (filename: string): Layer.Layer<SqlClient> | undefined => {
   parsed.searchParams.delete("schema")
   return Layer.unwrap(
     Effect.promise(() => import("../postgres/PostgresDatabase.ts")).pipe(
-      Effect.map((database) => database.layer({ url: parsed.toString(), schema }))
+      Effect.map((database) => database.layer({ url: parsed.toString(), schema, readOnly }))
     )
   )
 }

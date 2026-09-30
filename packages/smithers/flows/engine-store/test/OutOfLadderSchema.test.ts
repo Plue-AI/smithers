@@ -13,10 +13,14 @@
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStateSchema from "../src/internal/EngineStateSchema.ts"
 import * as Migrations from "../src/Migrations.ts"
@@ -74,4 +78,31 @@ describe("out-of-ladder engine-store schema (issue #92)", () => {
       )
       expect(created).toEqual([])
     }))
+
+  it("installs nothing over a read-only client", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engine-state-readonly-"))
+    const filename = join(root, "engine.db")
+    const database = (readOnly: boolean) =>
+      Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename, readOnly }))
+    try {
+      // A migrated store written before the out-of-ladder index existed.
+      await Effect.runPromise(withCrypto(
+        Effect.gen(function*() {
+          yield* DurableEngineState.make
+          const sql = yield* SqlClient.SqlClient
+          for (const statement of EngineStateSchema.statements) yield* sql.unsafe(`DROP INDEX ${statement.name}`)
+        }).pipe(Effect.provide(Layer.provideMerge(Migrations.layer, database(false))))
+      ))
+      const created = await Effect.runPromise(withCrypto(
+        Effect.gen(function*() {
+          const before = yield* schemaObjects
+          yield* DurableEngineState.make
+          return [...(yield* schemaObjects)].filter((name) => !before.has(name))
+        }).pipe(Effect.provide(database(true)))
+      ))
+      expect(created).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

@@ -5,6 +5,7 @@
 import { Effect } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import type { Fragment } from "effect/unstable/sql/Statement"
+import * as ReadOnly from "./internal/ReadOnly.ts"
 
 /**
  * Is postgres.
@@ -13,6 +14,14 @@ import type { Fragment } from "effect/unstable/sql/Statement"
  * @since 1.0.0
  */
 export const isPostgres = (sql: SqlClient): boolean => sql.onDialectOrElse({ pg: () => true, orElse: () => false })
+/**
+ * Whether the driver opened this client read-only. Schema installers skip on
+ * such a client: an observer reads the schema it finds and changes nothing.
+ *
+ * @category guards
+ * @since 1.0.0
+ */
+export const isReadOnly = (sql: SqlClient): boolean => ReadOnly.has(sql)
 /** Numeric preserves rejected fractional writes instead of PostgreSQL bigint's rounding.
  * @category fragments
  * @since 1.0.0

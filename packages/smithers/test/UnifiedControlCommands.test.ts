@@ -14,6 +14,7 @@ import * as Presentation from "../src/cli/Presentation.ts"
 const ports = vi.hoisted(() => ({
   invoke: vi.fn(),
   query: vi.fn(),
+  read: vi.fn(),
   local: vi.fn(),
   events: vi.fn(),
   hasRecords: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../src/cli/ControlBridge.ts", async (load) => ({
   ...await load<typeof import("../src/cli/ControlBridge.ts")>(),
   invoke: ports.invoke,
   query: ports.query,
+  read: ports.read,
   local: ports.local,
   events: ports.events,
   hasRecords: ports.hasRecords
@@ -57,7 +59,7 @@ afterEach(async () => {
 beforeEach(() => {
   for (const port of Object.values(ports)) port.mockReset()
   ports.invoke.mockImplementation(async (args: Array<string>) => ({ receipt: args.join(" ") }))
-  ports.query.mockImplementation((effect: Effect.Effect<unknown, unknown, Control.Control>) =>
+  const control = (effect: Effect.Effect<unknown, unknown, Control.Control>) =>
     Effect.runPromise(
       Effect.gen(function*() {
         const base = yield* Control.Control
@@ -69,7 +71,9 @@ beforeEach(() => {
         }))
       }).pipe(Effect.provide(Control.layerNoop))
     )
-  )
+
+  ports.query.mockImplementation(control)
+  ports.read.mockImplementation(control)
   ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [] }))
   ports.cancel.mockImplementation(({ runId }) =>
     Effect.succeed({ _tag: "Accepted", receiptId: `cli:cancel:${runId}`, runId })
@@ -302,7 +306,7 @@ describe("unified control dispatch", () => {
     expect(shown.stdout).toContain("Unknown run absent")
     expect(JSON.parse(shown.stdout)).toMatchObject({ code: "run_not_found" })
     expect(JSON.parse((await invoke(["runs", "logs", "absent", ...at])).stdout)).toEqual([])
-    for (const port of [ports.invoke, ports.query, ports.events, ports.reconcile]) {
+    for (const port of [ports.invoke, ports.query, ports.read, ports.events, ports.reconcile]) {
       expect(port).not.toHaveBeenCalled()
     }
   })
@@ -312,9 +316,9 @@ describe("unified control dispatch", () => {
     ports.reconcile.mockImplementation(() => {
       order.push("reconcile")
     })
-    ports.invoke.mockImplementation(async () => {
+    ports.list.mockImplementation(() => {
       order.push("query")
-      return []
+      return Effect.succeed({ _tag: "runs", items: [] })
     })
     await invoke([
       "runs",
@@ -347,31 +351,26 @@ describe("unified control dispatch", () => {
     ])
     expect(order).toEqual(["reconcile", "query"])
     expect(ports.reconcile).toHaveBeenCalledExactlyOnceWith("/fixture")
-    expect(ports.invoke.mock.calls[0]![0]).toEqual([
-      "ps",
-      ...(filtered
-        ? [
-          "--flow",
-          "demo/ship",
-          "--status",
-          "waiting-approval",
-          "--since",
-          "2026-09-01",
-          "--until",
-          "1790000000000",
-          "--sort",
-          "oldest",
-          "--parent",
-          "run-root",
-          "--trigger",
-          "nightly",
-          "--limit",
-          "2",
-          "--cursor",
-          "page-2"
-        ]
-        : [])
-    ])
+    expect(ports.invoke).not.toHaveBeenCalled()
+    expect(ports.read).toHaveBeenCalledTimes(1)
+    expect(ports.list.mock.calls).toEqual([[
+      filtered
+        ? {
+          _tag: "runs",
+          filters: {
+            flowId: "demo/ship",
+            status: "waiting-approval",
+            parentRunId: "run-root",
+            since: Date.parse("2026-09-01"),
+            until: 1790000000000,
+            triggerId: "nightly"
+          },
+          order: "oldest",
+          limit: 2,
+          cursor: "page-2"
+        }
+        : { _tag: "runs", filters: {} }
+    ]])
   })
 
   it("counts runs with the list's filters after reconciling local history", async () => {

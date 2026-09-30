@@ -11,13 +11,15 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 /**
  * Installs the generation table idempotently. Both the SQL journal and time
  * travel initialize it, including databases whose migration ladder already
- * passed the journal's reserved block.
+ * passed the journal's reserved block. A read-only client installs nothing.
  *
  * @category migrations
  * @since 1.0.0-rc.0
  */
 export const initialize = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
+  // A read-only observer reads the schema it finds and installs nothing.
+  if (Dialect.isReadOnly(sql)) return
   yield* sql`
     CREATE TABLE IF NOT EXISTS flows_journal_generations (
       run_id TEXT PRIMARY KEY NOT NULL CHECK (length(run_id) > 0),

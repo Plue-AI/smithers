@@ -65,7 +65,7 @@ const readStorage = (root: string) =>
     Layer.provideMerge(
       DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({
         filename: requireDatabase(root),
-        sqlite: { readonly: true, disableWAL: true }
+        readOnly: true
       })))
     )
   )
@@ -325,7 +325,7 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
     return workspace
   })
 
-const readOnly = (filename: string) => NodeDatabase.layer({ filename, sqlite: { readonly: true, disableWAL: true } })
+const readOnly = (filename: string) => NodeDatabase.layer({ filename, readOnly: true })
 
 /** Both stores opened read-only, for a scan that must not write. */
 const readClients = (root: string) =>

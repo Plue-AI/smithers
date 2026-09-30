@@ -6,7 +6,9 @@
  */
 
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
-import { Effect } from "effect"
+import { Ownership } from "@smthrs/run-store"
+import { Effect, Schema } from "effect"
+import { hostname } from "node:os"
 import * as CliError from "../CliError.ts"
 
 /**
@@ -120,3 +122,64 @@ export const count = (listing: Request) =>
     } while (cursor !== undefined)
     return total
   })
+
+/**
+ * The window a driven launch may sit at `accepted` before it claims the run.
+ *
+ * An ordinary driven launch commits an accepted summary before its executor
+ * begins work, so the listing waits out this handoff before probing the owner.
+ */
+const executorHandoffWindowMillis = 5_000
+
+/**
+ * Whether a listing should say a run is waiting for an executor.
+ *
+ * This is a rendering heuristic over the listing's own fields, not a durable
+ * verdict: the durable one is the `control.run.pending` event the status card
+ * reads from the run's journal. For a same-host owner it uses the same
+ * fail-closed PID probe as run recovery. A foreign-host owner cannot be
+ * inspected and is never declared absent here.
+ */
+const statusObserver: Ownership.OwnerId = Object.freeze({
+  hostId: hostname(),
+  pid: process.pid,
+  nonce: "cli-status-observer"
+})
+
+const unclaimed = (run: ControlSchema.RunSummary, now: number): Effect.Effect<boolean> => {
+  if (run.status !== "accepted" || run.waitingReason !== undefined) return Effect.succeed(false)
+  if (now - run.updatedAt < executorHandoffWindowMillis) return Effect.succeed(false)
+  if (run.ownerId === undefined) return Effect.succeed(true)
+  try {
+    const owner = Schema.decodeUnknownSync(Ownership.OwnerId)(JSON.parse(run.ownerId))
+    if (owner.hostId !== statusObserver.hostId) return Effect.succeed(false)
+    return Ownership.sameHostPidProbe(owner, {
+      claimant: statusObserver,
+      heartbeatAtMs: null,
+      nowMs: now
+    }).pipe(Effect.map((alive) => !alive))
+  } catch {
+    return Effect.succeed(false)
+  }
+}
+
+/**
+ * Names what an unclaimed run waits for, in the field that already carries it.
+ *
+ * `RunSummary.waitingReason` is "what a parked run is holding on". This one
+ * holds on an executor, and before the label a listing showed it as an
+ * ordinary `accepted` run, indistinguishable from one a live peer owns.
+ *
+ * @category combinators
+ * @since 1.0.0
+ */
+export const label = (listed: ControlSchema.ListResponse, now: number): Effect.Effect<ControlSchema.ListResponse> =>
+  listed._tag === "runs"
+    ? Effect.map(
+      Effect.forEach(
+        listed.items,
+        (run) => Effect.map(unclaimed(run, now), (missing) => missing ? { ...run, waitingReason: "executor" } : run)
+      ),
+      (items) => ({ ...listed, items })
+    )
+    : Effect.succeed(listed)

@@ -18,6 +18,7 @@ import * as Ui from "../src/Ui.ts"
 const ports = vi.hoisted(() => ({
   runWith: vi.fn(),
   control: vi.fn(),
+  observe: vi.fn(),
   prepare: vi.fn(),
   project: vi.fn(),
   registry: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../src/NodeControl.ts", async (load) => {
   return {
     ...actual,
     layer: ports.control,
+    layerObserve: ports.observe,
     layerRegistry: ports.registry,
     layerOutput: Layer.effectDiscard(Effect.sync(() => ports.readOnly("output")))
   }
@@ -82,7 +84,7 @@ beforeEach(async () => {
     receivedArguments = args
     return handler
   })
-  ports.control.mockImplementation(() =>
+  const control = () =>
     Layer.effect(
       Control.Control,
       Effect.acquireRelease(
@@ -96,7 +98,8 @@ beforeEach(async () => {
           })
       )
     )
-  )
+  ports.control.mockImplementation(control)
+  ports.observe.mockImplementation(control)
   ports.project.mockImplementation(() => Layer.effectDiscard(Effect.sync(() => ports.readOnly("project"))))
   ports.registry.mockImplementation(() => Layer.effectDiscard(Effect.sync(() => ports.readOnly("registry"))))
   ports.prepare.mockReturnValue({ executionRoot: "/bridge-snapshot", migrationRoot: "/bridge-legacy" })
@@ -585,6 +588,21 @@ describe("control bridge transport scope", () => {
       expect(lifecycle).toEqual(["control:open", "control:close"])
     }
   )
+
+  it("reads through the observing host alone, and events do too", async () => {
+    service = { ...service, watch: () => Stream.empty }
+    const value = await Bridge.read(
+      Effect.map(Control.Control, (control) => control === service),
+      local,
+      runtime
+    )
+    expect(value).toBe(true)
+    for await (const _ of Bridge.events("r", false, local, runtime)) break
+    expect(ports.control).not.toHaveBeenCalled()
+    expect(ports.observe).toHaveBeenCalledTimes(2)
+    expect(ports.observe.mock.calls[0]![0]).toMatchObject({ root: directory })
+    expect(lifecycle).toEqual(["control:open", "control:close", "control:open", "control:close"])
+  })
 
   it("preserves query failure identity and releases its transport", async () => {
     const failure = { _tag: "query-failure", code: 17 }

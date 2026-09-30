@@ -37,3 +37,11 @@ export const make = (database: (filename: string) => Layer.Layer<SqlClient>) => 
     )
   )
 }
+
+/** Opens an existing store with the supplied read-only SQL adapter: no directory,
+ * migration or permission change.
+ * @since 1.0.0
+ * @private
+ */
+export const observe = (database: (filename: string) => Layer.Layer<SqlClient>) => (file: string) =>
+  Layer.provideMerge(DurableWriter.layer(), database(file))

@@ -37,6 +37,7 @@ vi.mock("bun:sqlite", async () => {
 vi.mock("../src/internal/BunSqliteClient.ts", () => import("@effect/sql-sqlite-node/SqliteClient"))
 
 import * as BunDatabase from "../src/bun/BunDatabase.ts"
+import * as Dialect from "../src/Dialect.ts"
 
 const read = (filename: string) =>
   Effect.runPromiseExit(
@@ -98,6 +99,28 @@ describe("Bun database adapter", () => {
       expect(exit).toEqual(Exit.succeed([0o600, 0o600, 0o600]))
     } finally {
       process.umask(previousMask)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("observes an existing store read-only", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flows-bun-observe-"))
+    const filename = join(root, "store.sqlite")
+    try {
+      const db = new DatabaseSync(filename)
+      db.exec("CREATE TABLE flows_migrations (id INTEGER)")
+      db.close()
+      const exit = await Effect.runPromiseExit(
+        Effect.scoped(
+          Effect.gen(function*() {
+            const sql = yield* SqlClient.SqlClient
+            const write = yield* Effect.exit(sql`INSERT INTO flows_migrations VALUES (1)`)
+            return { readOnly: Dialect.isReadOnly(sql), written: Exit.isSuccess(write) }
+          }).pipe(Effect.provide(BunDatabase.layer({ filename, readOnly: true })))
+        )
+      )
+      expect(exit).toEqual(Exit.succeed({ readOnly: true, written: false }))
+    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })

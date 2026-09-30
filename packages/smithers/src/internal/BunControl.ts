@@ -27,6 +27,8 @@ export const platform: NativeControl.Platform = {
       Layer.provide(BunServices.layer),
       Layer.orDie
     ),
+  observe: (file) =>
+    NativeControlDatabase.observe((filename) => Database.layer({ filename, readOnly: true }))(file).pipe(Layer.orDie),
   runtime: Runtime.layer,
   jj: Jj.layerAt,
   // Bun's fetch client exposes no replaceable dispatcher. The existing fixed

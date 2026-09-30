@@ -88,11 +88,6 @@ const runFilters = options.extend({
   trigger: z.string().optional().describe("Only runs this trigger started")
 })
 
-const filterArgs = (filters: RunListing.Filters) =>
-  (["flow", "status", "since", "until", "sort", "parent", "trigger"] as const).flatMap((key) =>
-    filters[key] === undefined ? [] : [`--${key}`, filters[key]]
-  )
-
 const guard = Presentation.guard
 const runsList = { command: "runs list", description: "List the current durable run records" }
 const afterDecision = Presentation.runs({
@@ -305,13 +300,15 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
         guard(c, () =>
           observe<unknown>(c.options, runtime, { _tag: "runs", items: [] }, async () => {
             await reconcileHistory(c.options, runtime)
-            return Bridge.invoke(
-              [
-                "ps",
-                ...filterArgs(c.options),
-                ...(c.options.limit === undefined ? [] : ["--limit", String(c.options.limit)]),
-                ...(c.options.cursor ? ["--cursor", c.options.cursor] : [])
-              ],
+            return Bridge.read(
+              Effect.gen(function*() {
+                const listing = yield* RunListing.request(c.options, {
+                  limit: c.options.limit,
+                  cursor: c.options.cursor
+                })
+                const listed = yield* (yield* Control.Control).list(listing)
+                return yield* RunListing.label(listed, yield* Clock.currentTimeMillis)
+              }),
               c.options,
               runtime
             )
@@ -325,7 +322,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
         guard(c, () =>
           observe(c.options, runtime, { count: 0 }, async () => {
             await reconcileHistory(c.options, runtime)
-            return Bridge.query(
+            return Bridge.read(
               Effect.map(Effect.flatMap(RunListing.request(c.options), RunListing.count), (count) => ({ count })),
               c.options,
               runtime

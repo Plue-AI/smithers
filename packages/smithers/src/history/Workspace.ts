@@ -17,7 +17,7 @@ const routing = (root: string) =>
     const engine = Context.get(
       yield* Layer.build(NodeDatabase.layer({
         filename: executionDatabasePath(root),
-        sqlite: { readonly: true, disableWAL: true }
+        readOnly: true
       })),
       SqlClient
     )
@@ -25,7 +25,7 @@ const routing = (root: string) =>
       ? Context.get(
         yield* Layer.build(NodeDatabase.layer({
           filename: databasePath(root),
-          sqlite: { readonly: true, disableWAL: true }
+          readOnly: true
         })),
         SqlClient
       )

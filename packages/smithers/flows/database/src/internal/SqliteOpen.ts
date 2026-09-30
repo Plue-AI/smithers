@@ -6,6 +6,7 @@ import { Cause, Context, Duration, Effect, Exit, Layer, Schedule, Schema, Scope 
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlConnection from "effect/unstable/sql/SqlConnection"
 import { closeSync, openSync } from "node:fs"
+import * as ReadOnly from "./ReadOnly.ts"
 import * as ReleasePolicy from "./ReleasePolicy.ts"
 
 /**
@@ -331,7 +332,8 @@ const retryLockedOpen = <A>(self: Layer.Layer<A>): Layer.Layer<A> =>
 // rollback itself fails. Keep upstream's nesting, serialization and tracing.
 const recoverFailedCommit = <A>(
   self: Layer.Layer<SqlClient.SqlClient | A>,
-  spanAttributes: Readonly<Record<string, unknown>>
+  spanAttributes: Readonly<Record<string, unknown>>,
+  readOnly: boolean
 ): Layer.Layer<SqlClient.SqlClient | A> =>
   Layer.fromBuild((memoMap, scope) => {
     const driverScope = Scope.forkUnsafe(scope)
@@ -349,7 +351,9 @@ const recoverFailedCommit = <A>(
             Effect.onExit((exit) => Exit.isFailure(exit) ? Scope.close(reservation, exit) : Effect.void),
             Effect.map((conn) => [reservation, conn] as const)
           )),
-        begin: (conn) => conn.executeUnprepared("BEGIN IMMEDIATE", [], undefined),
+        // A read-only connection takes no write lock: its transaction is one
+        // snapshot that a peer holding the writer never blocks.
+        begin: (conn) => conn.executeUnprepared(readOnly ? "BEGIN" : "BEGIN IMMEDIATE", [], undefined),
         savepoint: (conn, id) => conn.executeUnprepared(`SAVEPOINT effect_sql_${id}`, [], undefined),
         commit: (conn) =>
           conn.executeUnprepared("COMMIT", [], undefined).pipe(
@@ -368,6 +372,7 @@ const recoverFailedCommit = <A>(
         rollbackSavepoint: (conn, id) => conn.executeUnprepared(`ROLLBACK TO SAVEPOINT effect_sql_${id}`, [], undefined)
       })
       Object.assign(sql, { withTransaction })
+      if (readOnly) ReadOnly.mark(sql)
       return context
     })
   })
@@ -380,6 +385,9 @@ export const layer = <A>(
   filename: string,
   inspect: InspectTables,
   client: Layer.Layer<SqlClient.SqlClient | A>,
-  spanAttributes: Readonly<Record<string, unknown>> = {}
+  spanAttributes: Readonly<Record<string, unknown>> = {},
+  readOnly = false
 ): Layer.Layer<SqlClient.SqlClient | A> =>
-  Layer.unwrap(Effect.as(guardOpen(filename, inspect), recoverFailedCommit(retryLockedOpen(client), spanAttributes)))
+  Layer.unwrap(
+    Effect.as(guardOpen(filename, inspect), recoverFailedCommit(retryLockedOpen(client), spanAttributes, readOnly))
+  )

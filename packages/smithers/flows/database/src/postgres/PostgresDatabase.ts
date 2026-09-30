@@ -8,6 +8,7 @@ import { Effect, Layer, Redacted, Result, Scope } from "effect"
 import * as Reactivity from "effect/unstable/reactivity/Reactivity"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { Compiler } from "effect/unstable/sql/Statement"
+import * as ReadOnly from "../internal/ReadOnly.ts"
 
 /**
  * PostgreSQL connection and schema configuration.
@@ -19,6 +20,11 @@ export interface PostgresDatabaseOptions {
   readonly url: string
   readonly schema?: string | undefined
   readonly postgres?: Omit<PgClient.PgPoolConfig, "url" | "types"> | undefined
+  /**
+   * Reads an existing schema only: no schema creation, no writer lock, and
+   * every session and transaction is `READ ONLY`.
+   */
+  readonly readOnly?: boolean | undefined
 }
 
 /** Provides PostgreSQL with serialized transactions and exact safe-number reads.
@@ -31,6 +37,7 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
   if (schema.length === 0 || schema.includes("\0") || new TextEncoder().encode(schema).length > 63) {
     throw new Error("PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL")
   }
+  const readOnly = options.readOnly === true
   const types = PgTypes.makeRegistry()
   for (const oid of [PgTypes.OID.int8, PgTypes.OID.numeric]) {
     types.register(oid, {
@@ -49,10 +56,12 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
     SqlClient.SqlClient,
     Effect.gen(function*() {
       const pg = yield* PgClient.make({ ...options.postgres, url: Redacted.make(options.url), types })
-      yield* pg.withTransaction(Effect.gen(function*() {
-        yield* pg`SELECT pg_advisory_xact_lock(hashtextextended(${schema}, 2099))`
-        yield* pg`CREATE SCHEMA IF NOT EXISTS ${pg(schema)}`
-      }))
+      if (!readOnly) {
+        yield* pg.withTransaction(Effect.gen(function*() {
+          yield* pg`SELECT pg_advisory_xact_lock(hashtextextended(${schema}, 2099))`
+          yield* pg`CREATE SCHEMA IF NOT EXISTS ${pg(schema)}`
+        }))
+      }
       const baseCompiler = PgClient.makeCompiler()
       const compiler: Compiler = {
         dialect: "pg",
@@ -78,6 +87,12 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
             `SET search_path TO "${schema.replaceAll("\"", "\"\"")}"`,
             [],
             undefined
+          ).pipe(
+            Effect.andThen(
+              readOnly
+                ? conn.executeUnprepared("SET default_transaction_read_only = on", [], undefined)
+                : Effect.void
+            )
           )
         )),
         compiler,
@@ -95,15 +110,19 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
           )
           return [reservation, conn] as const
         }),
+        // A reader needs one snapshot and no writer lock.
         begin: (conn) =>
-          conn.executeUnprepared("BEGIN ISOLATION LEVEL READ COMMITTED", [], undefined).pipe(
-            Effect.andThen(conn.executeUnprepared(
-              "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(), 2099))",
-              [],
-              undefined
-            )),
-            Effect.onError(() => conn.executeUnprepared("ROLLBACK", [], undefined).pipe(Effect.orDie))
-          ),
+          (readOnly
+            ? conn.executeUnprepared("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY", [], undefined)
+            : conn.executeUnprepared("BEGIN ISOLATION LEVEL READ COMMITTED", [], undefined).pipe(
+              Effect.andThen(conn.executeUnprepared(
+                "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(), 2099))",
+                [],
+                undefined
+              ))
+            )).pipe(
+              Effect.onError(() => conn.executeUnprepared("ROLLBACK", [], undefined).pipe(Effect.orDie))
+            ),
         savepoint: (conn, id) => conn.executeUnprepared(`SAVEPOINT effect_sql_${id}`, [], undefined),
         commit: (conn) =>
           conn.executeUnprepared("COMMIT", [], undefined).pipe(
@@ -113,6 +132,7 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
         rollbackSavepoint: (conn, id) => conn.executeUnprepared(`ROLLBACK TO SAVEPOINT effect_sql_${id}`, [], undefined)
       })
       Object.assign(sql, { withTransaction })
+      if (readOnly) ReadOnly.mark(sql)
       return sql
     })
   ).pipe(Layer.provide(Reactivity.layer), Layer.orDie)

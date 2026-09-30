@@ -14,12 +14,10 @@ import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
-import { Ownership } from "@smthrs/run-store"
 import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
 import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
-import { hostname } from "node:os"
 import { resolve } from "node:path"
 import { text } from "node:stream/consumers"
 import * as CliError from "./CliError.ts"
@@ -754,73 +752,18 @@ const ps = Command.make("ps", {
     }, { limit: Option.getOrUndefined(config.limit), cursor: Option.getOrUndefined(config.cursor) })
     const control = yield* ControlService.Control
     const now = yield* Clock.currentTimeMillis
-    yield* render(yield* labelled(yield* control.list(listing), now))
+    yield* render(yield* RunListing.label(yield* control.list(listing), now))
   })).pipe(Command.withDescription(Verb.find("ps")!.help))
-
-/**
- * The window a driven launch may sit at `accepted` before it claims the run.
- *
- * An ordinary driven launch commits an accepted summary before its executor
- * begins work, so the listing waits out this handoff before probing the owner.
- */
-const executorHandoffWindowMillis = 5_000
-
-/**
- * Whether a listing should say a run is waiting for an executor.
- *
- * This is a rendering heuristic over the listing's own fields, not a durable
- * verdict: the durable one is the `control.run.pending` event the status card
- * reads from the run's journal. For a same-host owner it uses the same
- * fail-closed PID probe as run recovery. A foreign-host owner cannot be
- * inspected and is never declared absent here.
- */
-const statusObserver: Ownership.OwnerId = Object.freeze({
-  hostId: hostname(),
-  pid: process.pid,
-  nonce: "cli-status-observer"
-})
-
-const unclaimed = (run: ControlSchema.RunSummary, now: number): Effect.Effect<boolean> => {
-  if (run.status !== "accepted" || run.waitingReason !== undefined) return Effect.succeed(false)
-  if (now - run.updatedAt < executorHandoffWindowMillis) return Effect.succeed(false)
-  if (run.ownerId === undefined) return Effect.succeed(true)
-  try {
-    const owner = Schema.decodeUnknownSync(Ownership.OwnerId)(JSON.parse(run.ownerId))
-    if (owner.hostId !== statusObserver.hostId) return Effect.succeed(false)
-    return Ownership.sameHostPidProbe(owner, {
-      claimant: statusObserver,
-      heartbeatAtMs: null,
-      nowMs: now
-    }).pipe(Effect.map((alive) => !alive))
-  } catch {
-    return Effect.succeed(false)
-  }
-}
-
-/**
- * Names what an unclaimed run waits for, in the field that already carries it.
- *
- * `RunSummary.waitingReason` is "what a parked run is holding on". This one
- * holds on an executor, and before the label a listing showed it as an
- * ordinary `accepted` run, indistinguishable from one a live peer owns.
- */
-const labelled = (listed: ControlSchema.ListResponse, now: number): Effect.Effect<ControlSchema.ListResponse> =>
-  listed._tag === "runs"
-    ? Effect.map(
-      Effect.forEach(
-        listed.items,
-        (run) => Effect.map(unclaimed(run, now), (missing) => missing ? { ...run, waitingReason: "executor" } : run)
-      ),
-      (items) => ({ ...listed, items })
-    )
-    : Effect.succeed(listed)
 
 const statusOf = (runId: Option.Option<string>) =>
   Effect.gen(function*() {
     yield* guardGlobals
     const control = yield* ControlService.Control
     const filters = Option.isSome(runId) ? { runId: runId.value } : undefined
-    const listed = yield* labelled(yield* control.list({ _tag: "runs", filters }), yield* Clock.currentTimeMillis)
+    const listed = yield* RunListing.label(
+      yield* control.list({ _tag: "runs", filters }),
+      yield* Clock.currentTimeMillis
+    )
     const root = yield* rootCommand
     // `--json` keeps the stable listing shape untouched; a human reader with a
     // run id gets the diagnosis card computed from that run's own events.

@@ -291,6 +291,30 @@ export const query = async <A, E>(
   )
 
 /**
+ * Runs a read-only verb over the project's existing stores.
+ *
+ * Nothing is created, migrated, recovered or reaped, and the reads answer
+ * while another process holds the writer. Only a verb that changes nothing
+ * belongs here; one that cancels, signals or decides goes through
+ * {@link query} or {@link invoke}.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const read = async <A, E>(
+  operation: Effect.Effect<A, E, Control.Control | Ui.Ui>,
+  options: ConnectionOptions,
+  runtime: Runtime = {}
+): Promise<A> =>
+  settle(
+    provideServices(
+      operation.pipe(Effect.provide(NodeControl.layerObserve(configuration(options, runtime)))),
+      options,
+      runtime
+    ),
+    runtime
+  )
+
+/**
  * Runs a typed verb on the project alone, without opening the control host or
  * building the flow registry. The project references are the host's.
  * @category constructors
@@ -339,7 +363,7 @@ export const local = <A, E>(
 /**
  * A scoped stream closes its transports when the consumer stops following.
  *
- * Reading events drives nothing, so this host needs no completion judge either.
+ * Reading events changes nothing, so it observes the stores as {@link read} does.
  * @category constructors
  * @since 1.0.0
  */
@@ -355,7 +379,7 @@ export const events = (
       runId,
       follow,
       ...(afterSequence === undefined ? {} : { afterSequence })
-    }))).pipe(Stream.provide(NodeControl.layer({ ...configuration(options, runtime), startsRuns: false })))
+    }))).pipe(Stream.provide(NodeControl.layerObserve(configuration(options, runtime))))
   const signal = runtime.signal
   if (signal === undefined) return Stream.toAsyncIterable(stream)
   const interrupted = Effect.callback<void>((resume) => {

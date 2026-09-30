@@ -24,6 +24,12 @@ export interface NodeDatabaseOptions {
   /** Synchronous lock wait. Defaults to zero; overrides sqlite.busyTimeout when supplied. */
   readonly busyTimeout?: Duration.Input | undefined
   readonly sqlite?: Omit<SqliteClient.SqliteClientConfig, "filename"> | undefined
+  /**
+   * Opens an existing store for reading only: SQLite read-only without WAL
+   * conversion, PostgreSQL read-only transactions without schema creation.
+   * Nothing is created, migrated or locked for writing.
+   */
+  readonly readOnly?: boolean | undefined
 }
 
 const readTableNames = (filename: string): ReadonlyArray<string> | undefined => {
@@ -71,12 +77,14 @@ export const layer = (options: NodeDatabaseOptions): Layer.Layer<SqlClient.SqlCl
           `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js ${ReleasePolicy.nodeFloor}`
       })
     }
-    const postgres = PostgresSelection.layer(options.filename)
+    const readOnly = options.readOnly === true
+    const postgres = PostgresSelection.layer(options.filename, readOnly)
     if (postgres !== undefined) return postgres
     return SqliteOpen.layer(
       options.filename,
       readTableNames,
-      client(options),
-      options.sqlite?.spanAttributes
+      client(readOnly ? { ...options, sqlite: { ...options.sqlite, readonly: true, disableWAL: true } } : options),
+      options.sqlite?.spanAttributes,
+      readOnly
     )
   }))

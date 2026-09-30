@@ -17,6 +17,7 @@
  * @since 0.1.0
  */
 
+import { isReadOnly } from "@smthrs/database/Dialect"
 import type { Service as WriterService } from "@smthrs/database/DurableWriter"
 import * as Effect from "effect/Effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -76,13 +77,15 @@ export const statements: ReadonlyArray<Statement> = [
  * Creates the engine-store-owned objects, idempotently, in inventory order.
  *
  * `flows_runs` must already exist — every query in this service assumes a
- * migrated database, so `make` composes over one by construction.
+ * migrated database, so `make` composes over one by construction. A read-only
+ * client installs nothing.
  *
  * @since 0.1.0
  * @category constructors
  */
 export const apply = (sql: SqlClient.SqlClient, writer: WriterService): Effect.Effect<void> =>
-  Effect.forEach(
+  // A read-only observer reads the schema it finds and installs nothing.
+  isReadOnly(sql) ? Effect.void : Effect.forEach(
     statements,
     (statement) => writer.write(sql.unsafe(statement.ddl)).pipe(Effect.orDie),
     { discard: true }
