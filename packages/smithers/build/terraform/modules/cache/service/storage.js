@@ -220,20 +220,24 @@ const storageQueries = (sql) => {
      * Returns the published document verbatim.
      *
      * The read is also the access record, in one statement, so tracking cannot
-     * drift from the reads it is supposed to describe. `candidate` decides both
-     * halves from one index scan: the outer select answers from it, and the
-     * update fires only when the record it read is older than the grace window.
+     * drift from the reads it is supposed to describe. `candidate` finds the
+     * row the outer select answers from, and the update fires only when the
+     * row it is about to write is older than the grace window.
      *
-     * The answer never comes from the update's own `RETURNING`. Two concurrent
-     * readers of one stale row both pass the predicate against the statement
-     * snapshot, the loser's re-check under READ COMMITTED sees the winner's
-     * fresh row and updates nothing, and reading the answer from there would
-     * report a present entry as a miss.
+     * The staleness test reads the target row, not `candidate`. Rival readers
+     * of one stale row queue on its lock; under READ COMMITTED each loser
+     * re-checks the target's newest version, sees the winner's refresh, and
+     * writes nothing, so a burst pays one refresh. `candidate` keeps the
+     * snapshot copy, which would stay stale and let every loser rewrite it.
+     *
+     * The answer never comes from the update's own `RETURNING`: a loser's
+     * update touches nothing, and reading the answer from there would report a
+     * present entry as a miss.
      */
     get: async (keyDigest) => {
       const rows = await sql`
         WITH candidate AS (
-          SELECT key_digest, last_accessed_at
+          SELECT key_digest
           FROM smithers_build_cache_entry
           WHERE key_digest = ${keyDigest}
         ), touched AS (
@@ -245,7 +249,7 @@ const storageQueries = (sql) => {
               END
           FROM candidate
           WHERE entry.key_digest = candidate.key_digest
-            AND candidate.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
+            AND entry.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
           RETURNING entry.key_digest
         )
         SELECT entry.body
@@ -359,7 +363,7 @@ const storageQueries = (sql) => {
     has: async (digest) => {
       const rows = await sql`
         WITH candidate AS (
-          SELECT digest, last_accessed_at
+          SELECT digest
           FROM smithers_build_artifact
           WHERE digest = ${digest}
         ), touched AS (
@@ -371,7 +375,7 @@ const storageQueries = (sql) => {
               END
           FROM candidate
           WHERE artifact.digest = candidate.digest
-            AND candidate.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
+            AND artifact.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
           RETURNING artifact.digest
         )
         SELECT octet_length(artifact.content) = artifact.size_bytes AS valid
@@ -394,13 +398,13 @@ const storageQueries = (sql) => {
      * reports one present. Re-hashing here would spend a SHA-256 over up to
      * 16 MiB per download to re-derive what no write can have violated.
      *
-     * `candidate` carries the key and the access record only, so the blob is
-     * never copied into a CTE tuplestore on its way to the client.
+     * `candidate` carries the key only, so the blob is never copied into a CTE
+     * tuplestore on its way to the client.
      */
     get: async (digest) => {
       const rows = await sql`
         WITH candidate AS (
-          SELECT digest, last_accessed_at
+          SELECT digest
           FROM smithers_build_artifact
           WHERE digest = ${digest}
         ), touched AS (
@@ -412,7 +416,7 @@ const storageQueries = (sql) => {
               END
           FROM candidate
           WHERE artifact.digest = candidate.digest
-            AND candidate.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
+            AND artifact.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
           RETURNING artifact.digest
         )
         SELECT artifact.content, artifact.size_bytes,
@@ -466,7 +470,7 @@ const storageQueries = (sql) => {
     presentDigests: async (digests) => {
       const rows = await sql`
         WITH candidate AS (
-          SELECT digest, last_accessed_at
+          SELECT digest
           FROM smithers_build_artifact
           WHERE digest = ANY(${digestArray(digests)}::char(64)[])
         ), touched AS (
@@ -478,7 +482,7 @@ const storageQueries = (sql) => {
               END
           FROM candidate
           WHERE artifact.digest = candidate.digest
-            AND candidate.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
+            AND artifact.last_accessed_at < now() - ${lruTouchGraceSeconds}::double precision * interval '1 second'
           RETURNING artifact.digest
         )
         SELECT artifact.digest, octet_length(artifact.content) = artifact.size_bytes AS valid

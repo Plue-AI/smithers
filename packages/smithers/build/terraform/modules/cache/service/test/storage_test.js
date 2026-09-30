@@ -263,11 +263,13 @@ describe("action cache reads", () => {
     const { sql, calls } = fakeSql([[{ body: publication.body }]])
     await createStorage(sql).actionCache.get("key")
     // last_accessed_at is indexed, so an unconditional touch makes every read a
-    // non-HOT write. The update is gated on the record it read being stale, and
+    // non-HOT write. The update is gated on the row it writes being stale, so a
+    // reader queued behind a rival's refresh re-checks that refresh (#2666), and
     // the answer comes from the read so a lost update is never reported a miss.
     expect(calls[0].text).toContain(
-      "candidate.last_accessed_at < now() - ?::double precision * interval '1 second'"
+      "entry.last_accessed_at < now() - ?::double precision * interval '1 second'"
     )
+    expect(calls[0].text).not.toContain("candidate.last_accessed_at")
     expect(calls[0].text).toContain("JOIN candidate ON candidate.key_digest = entry.key_digest")
     expect(calls[0].values[1]).toBe(300)
   })

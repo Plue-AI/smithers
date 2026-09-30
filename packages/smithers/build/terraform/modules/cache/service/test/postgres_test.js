@@ -226,6 +226,76 @@ describe.skipIf(databaseUrl.length === 0)("storage on a real Postgres", () => {
     expect(probes.filter((present) => present.has(blob))).toHaveLength(8)
   })
 
+  /*
+   * The throttle has to hold under contention too (#2666). Readers queued
+   * behind a lock on one stale row must re-check the row they are about to
+   * write, not the stale copy their statement first read, so only the first
+   * of them refreshes it and every one still answers.
+   */
+  const contended = async (table, column, key, read) => {
+    await sql`UPDATE ${sql(table)} SET access_count = 0, last_accessed_at = now() - interval '1 hour'
+      WHERE ${sql(column)} = ${key}`
+    let answers
+    await sql.begin(async (holder) => {
+      await holder`SELECT 1 FROM ${sql(table)} WHERE ${sql(column)} = ${key} FOR UPDATE`
+      const pending = Promise.all(Array.from({ length: 4 }, read))
+      for (let waiting = 0; waiting < 4;) {
+        await Bun.sleep(10)
+        const rows = await sql`SELECT count(*)::int AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`
+        waiting = rows[0].waiting
+      }
+      answers = pending
+    })
+    const results = await answers
+    const rows = await sql`SELECT access_count FROM ${sql(table)} WHERE ${sql(column)} = ${key}`
+    return { results, refreshes: Number(rows[0].access_count) }
+  }
+
+  test("refreshes a contended stale row once, answering every queued reader, on all four read paths", async () => {
+    await clear()
+    await storeBlob()
+    await storage.actionCache.put("key", publicationOf(`{"a":1}`))
+    const entry = (read) => contended("smithers_build_cache_entry", "key_digest", "key", read)
+    const artifact = (read) => contended("smithers_build_artifact", "digest", blob, read)
+
+    const get = await entry(() => storage.actionCache.get("key"))
+    expect(get.results.every((body) => body === `{"result":{"a":1}}`)).toBe(true)
+    expect(get.refreshes).toBe(1)
+
+    const has = await artifact(() => storage.contentStore.has(blob))
+    expect(has.results).toEqual([true, true, true, true])
+    expect(has.refreshes).toBe(1)
+
+    const download = await artifact(() => storage.contentStore.get(blob))
+    expect(download.results.map(({ body }) => new TextDecoder().decode(body))).toEqual(
+      Array(4).fill("artifact bytes")
+    )
+    expect(download.refreshes).toBe(1)
+
+    const probe = await artifact(() => storage.contentStore.presentDigests([blob]))
+    expect(probe.results.map((present) => [...present])).toEqual(Array(4).fill([blob]))
+    expect(probe.refreshes).toBe(1)
+  })
+
+  test("leaves a fresh row's access record alone under concurrent reads", async () => {
+    await clear()
+    await storeBlob()
+    await storage.actionCache.put("key", publicationOf(`{"a":1}`))
+    await sql`UPDATE smithers_build_cache_entry SET access_count = 0, last_accessed_at = now()`
+    await sql`UPDATE smithers_build_artifact SET access_count = 0, last_accessed_at = now()`
+    await Promise.all([
+      ...Array.from({ length: 4 }, () => storage.actionCache.get("key")),
+      ...Array.from({ length: 4 }, () => storage.contentStore.has(blob)),
+      ...Array.from({ length: 4 }, () => storage.contentStore.get(blob)),
+      ...Array.from({ length: 4 }, () => storage.contentStore.presentDigests([blob]))
+    ])
+    const entries = await sql`SELECT access_count FROM smithers_build_cache_entry`
+    const artifacts = await sql`SELECT access_count FROM smithers_build_artifact`
+    expect(Number(entries[0].access_count)).toBe(0)
+    expect(Number(artifacts[0].access_count)).toBe(0)
+  })
+
   test("classifies a publication, a re-publication, and a divergent result", async () => {
     await clear()
     await storeBlob()
