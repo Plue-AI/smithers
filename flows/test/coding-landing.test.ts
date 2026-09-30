@@ -460,6 +460,81 @@ test("a pull repository refuses a pull that stays pending", async () => {
   )
   await assert.rejects(pinned(service.pinMain), /GitHub main pull is still pending/)
 })
+test("actual HTTP base pin waits for a missed GitHub push, refuses pull failure and leaves non-GitHub main alone", async (t) => {
+  let mode = "pull", main = oldMain, observations = 0
+  const calls: string[] = []
+  const server = createServer((request, response) => {
+    const path = new URL(request.url!, "http://localhost").pathname
+    calls.push(`${request.method} ${path.replace("/api/repos/owner/repo", "")}`)
+    let value: unknown, status = 200
+    if (path.endsWith("/contents/.smithers/factory.json")) {
+      value = mode === "local" ?
+        { code: "not_found" } :
+        { content: JSON.stringify({ github: { mirror: "pull" } }), encoding: "utf-8" }
+      if (mode === "local") status = 404
+    } else if (path.endsWith("/github/main-pull")) {
+      if (request.method === "POST") {
+        observations = 0
+        status = 202
+        value = pullStatus({ pending: true })
+      } else if (mode === "failure") {
+        value = pullStatus({
+          state: "failed",
+          pending: true,
+          fresh: false,
+          last_error: "GitHub authentication failed",
+          last_checked_at: "2026-09-26T10:05:00Z"
+        })
+      } else if (++observations === 1) {
+        value = pullStatus({ state: "running", pending: true })
+      } else {
+        main = newMain
+        value = pullStatus({ smithers_head: main, github_head: main, last_checked_at: "2026-09-26T10:05:00Z" })
+      }
+    } else if (path.endsWith("/bookmarks")) {
+      value = {
+        items: [{ name: "main", target_change_id: "native", target_commit_id: main, is_tracking_remote: false }],
+        next_cursor: ""
+      }
+    } else {
+      status = 404
+      value = { code: "not_found" }
+    }
+    response.writeHead(status, { "content-type": "application/json" })
+    response.end(JSON.stringify(value))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() =>
+    new Promise<void>((resolve) => {
+      server.closeAllConnections()
+      server.close(() => resolve())
+    })
+  )
+  const address = server.address()
+  assert.ok(address && typeof address === "object")
+  const platform = "Bun" in globalThis ?
+    (await import("@effect/platform-bun/BunHttpClient")).layer :
+    (await import("@effect/platform-node/NodeHttpClient")).layerUndici
+  const runtime = ManagedRuntime.make(platform)
+  t.after(() => runtime.dispose())
+  const service = await runtime.runPromise(make({ ...options, apiBaseUrl: `http://127.0.0.1:${address.port}/api` }))
+  assert.equal(await runtime.runPromise(service.pinMain), newMain)
+  assert.deepEqual(calls, [
+    "GET /contents/.smithers/factory.json",
+    "POST /github/main-pull",
+    "GET /github/main-pull",
+    "GET /github/main-pull",
+    "GET /bookmarks"
+  ])
+  calls.length = 0
+  mode = "failure"
+  await assert.rejects(runtime.runPromise(service.pinMain), /GitHub authentication failed/)
+  assert.ok(!calls.includes("GET /bookmarks"), "failed pulls cannot pin even an existing local main")
+  calls.length = 0
+  mode = "local"
+  assert.equal(await runtime.runPromise(service.pinMain), newMain)
+  assert.deepEqual(calls, ["GET /contents/.smithers/factory.json", "GET /bookmarks"])
+})
 const tip = preparation.source_commit_id
 const pull = {
   landing_number: 7,
