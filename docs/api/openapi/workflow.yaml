@@ -40,6 +40,15 @@ paths:
   /api/workflow/rpc:
     post:
       summary: POST /api/workflow/rpc
+      description: |-
+        Relays one procedure to the named box's flow host. `Registration.Report`
+        is answered by the backend instead: with `{"repo": "owner/name"}` as
+        the payload it returns `{"ok": true, "payload": {"report": ...}}`, the
+        finished registration report another account recorded for that public
+        GitHub repository at its current commit (`repo`, `commit`, `report`,
+        `recordedAt`), or `null`. Private repositories never have one.
+        The backend records a report itself when it relays the journal of a
+        completed `register-repository` run of a public repository.
       operationId: post_api_workflow_rpc
       tags:
         - Workflow

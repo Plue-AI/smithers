@@ -2302,6 +2302,15 @@ type RepositoryJobTrial struct {
 	CreatedAt    time.Time   `json:"created_at"`
 }
 
+type RepositoryRegistrationReport struct {
+	Host       string          `json:"host"`
+	Owner      string          `json:"owner"`
+	Name       string          `json:"name"`
+	CommitSha  string          `json:"commit_sha"`
+	Report     json.RawMessage `json:"report"`
+	RecordedAt time.Time       `json:"recorded_at"`
+}
+
 type RepositorySecret struct {
 	ID                         int64              `json:"id"`
 	RepositoryID               int64              `json:"repository_id"`
@@ -2681,6 +2690,7 @@ type WikiPageRevision struct {
 	CrdtState       []byte      `json:"crdt_state"`
 	CrdtVector      []byte      `json:"crdt_vector"`
 	TitleSource     string      `json:"title_source"`
+	SourceCommit    string      `json:"source_commit"`
 }
 
 type WikiSpace struct {

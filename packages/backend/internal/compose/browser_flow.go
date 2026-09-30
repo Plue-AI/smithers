@@ -36,6 +36,7 @@ var browserFlowProcedures = map[string]bool{
 	"Plan": true, "Run": true, "Cancel": true, "Resume": true,
 	"Steer": true, "Signal": true, "List": true,
 	"Projection.Snapshot": true, "Approval.Submit": true,
+	"Registration.Report": true,
 }
 
 type browserFlowAPI struct {
@@ -56,6 +57,10 @@ type browserFlowAPI struct {
 	// limit is the account-wide API budget. Reads a run's progress polls
 	// (Projection.Snapshot, List) stay out of it, as the box relay always did.
 	limit func(http.Handler) http.Handler
+	// reports shares registration reports of public repositories across
+	// accounts (#2158); observed dedupes what a relayed journal asks it to record.
+	reports  registrationReports
+	observed registrationObserved
 }
 
 // browserFlowDispatcher is the box's flow seam (flowdispatch.Service).
@@ -287,7 +292,13 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { api.relay(w, r, request, target, workspace) })
+	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if request.Procedure == "Registration.Report" {
+			api.registrationReport(w, r, request.Payload)
+			return
+		}
+		api.relay(w, r, request, target, workspace)
+	})
 	if api.limit == nil || request.Procedure == "Projection.Snapshot" || request.Procedure == "List" {
 		serve(w, r)
 		return
@@ -326,6 +337,9 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		browserFlowUnavailable(w, err, request.Procedure)
 		return
 	}
+	if snapshot {
+		api.observeRegistration(answer)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(answer)
 }
@@ -333,6 +347,9 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 // mountBrowserFlow serves the browser's flow and repository-setup seams. The
 // OpenAPI conformance test walks the same mounts.
 func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI, setup *repositorySetupAPI) {
+	if browser.reports == nil && browser.registrationPool != nil {
+		browser.reports = services.NewRegistrationReports(browser.registrationPool)
+	}
 	access := func(limited bool) []func(http.Handler) http.Handler {
 		chain := []func(http.Handler) http.Handler{
 			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
