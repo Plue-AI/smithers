@@ -65,7 +65,7 @@ ENGINEERING: TDD vertical tracer bullet: write a failing behavior test through t
 ${
     execution === "cloud"
       ? "SCRATCH: use supplied TMPDIR and GOCACHE; keep work and test evidence in this workspace. The launcher retains committed-tree artifacts and review receipts before deleting the workspace."
-      : `SCRATCH: use supplied TMPDIR and GOCACHE for disposable output. Keep patches, source, logs and review receipts in the workspace or ~/Smithers-Ops/dispatch/receipts. Do not override those paths with per-issue /tmp directories.`
+      : `SCRATCH: use supplied TMPDIR and GOCACHE for disposable output; TMPDIR is deleted when you exit. Keep patches, source, rsync backups, logs and review receipts in the workspace or ~/Smithers-Ops/dispatch/receipts. Do not override those paths with per-issue /tmp directories.`
   }
 ${
     execution === "cloud"
