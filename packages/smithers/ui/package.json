@@ -74,6 +74,16 @@
       "import": "./src/flow-arguments.ts",
       "default": "./src/flow-arguments.ts"
     },
+    "./app-operations": {
+      "types": "./src/app-operations/index.ts",
+      "import": "./src/app-operations/index.ts",
+      "default": "./src/app-operations/index.ts"
+    },
+    "./app-operations/wiki": {
+      "types": "./src/app-operations/wiki.ts",
+      "import": "./src/app-operations/wiki.ts",
+      "default": "./src/app-operations/wiki.ts"
+    },
     "./command-line": {
       "types": "./src/command-line.ts",
       "import": "./src/command-line.ts",

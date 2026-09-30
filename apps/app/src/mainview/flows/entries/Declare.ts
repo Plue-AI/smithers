@@ -9,7 +9,8 @@ import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Schema } from "effect"
 import { FlowCancellation } from "../FlowCancellation"
 import { FlowGesture, type CommandGesture } from "../CommandGesture"
-import type { RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
+import type { AppBootstrap, RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
+import { NoInput, type Operation, type OperationPayload } from "@smthrs/ui/app-operations"
 import type { AppController } from "../../state/AppController"
 import { lostActRefusal } from "../../state/BrowserWriteFailure"
 import type { CommandState, FlowEntry, FlowMetadata } from "../registry"
@@ -107,31 +108,22 @@ const act = (
     )
   })
 
-/**
- * The payload schemas a flow may declare: anything that decodes from unknown
- * without asking the host for a service, which is the contract `FlowBinding`
- * needs in order to decode a call's input on its own.
- */
-type Payload = Schema.Top & Schema.ConstraintDecoder<unknown, never>
+/** A shared operation as this app registers it: its host services and host kinds are the bootstrap's. */
+export type AppOperation<I extends OperationPayload = OperationPayload> = Operation<I, RuntimeCapability, AppBootstrap["host"]>
 
-/** Everything one registered flow declares, in one literal. */
-export interface Declaration<I extends Payload> extends FlowMetadata {
-  readonly name: string
-  readonly input: I
+/** What the GUI runs for one operation. */
+export type Handler<I extends OperationPayload> = (payload: I["Type"], signal: AbortSignal, call: Cell.Call, gesture?: CommandGesture) => CommandResult | Promise<CommandResult>
+
+/**
+ * Everything one registered flow declares, in one literal: the shared
+ * operation (`@smthrs/ui/app-operations`) plus the GUI's handler. Every
+ * `userOnly` flow states its `userOnlyReason`; flows/agent-parity.test.ts
+ * enumerates them.
+ */
+export interface Declaration<I extends OperationPayload> extends AppOperation<I>, FlowMetadata {
   /** The call identity is available for destination-side idempotency. */
   readonly prepare?: (payload: I["Type"]) => void | Promise<void>
-  readonly handler: (payload: I["Type"], signal: AbortSignal, call: Cell.Call, gesture?: CommandGesture) => CommandResult | Promise<CommandResult>
-  /**
-   * The human's alone: never disclosed to, or callable by, the model. An
-   * enumerated exception under the three-door law (AGENTS.md) for a gesture
-   * that is physically the human's or an answer only they may give — never
-   * for an act that is merely consequential (that is `confirm`). Every
-   * `userOnly` flow states its `userOnlyReason`; flows/agent-parity.test.ts
-   * enumerates them.
-   */
-  readonly userOnly?: boolean
-  /** Bootstrap capabilities required for this flow to exist in the registry. */
-  readonly runtime?: ReadonlyArray<RuntimeCapability>
+  readonly handler: Handler<I>
 }
 
 /**
@@ -140,7 +132,7 @@ export interface Declaration<I extends Payload> extends FlowMetadata {
  * The declaration's description is the catalog line the MODEL reads, so it
  * carries the argument hint; `metadata.summary` stays the human's catalog copy.
  */
-export const flow = <I extends Payload>(declaration: Declaration<I>): FlowEntry => {
+export const flow = <I extends OperationPayload>(declaration: Declaration<I>): FlowEntry => {
   const { name, input, handler, prepare, userOnly, ...metadata } = declaration
   const described = metadata.args === undefined ? metadata.summary : `${metadata.summary} (args: ${metadata.args})`
   let binding: FlowEntry["binding"] | undefined
@@ -183,8 +175,34 @@ export const flow = <I extends Payload>(declaration: Declaration<I>): FlowEntry 
   }
 }
 
+/**
+ * The GUI handler for each shared operation, keyed by name. The map is
+ * exhaustive: an operation without a handler does not compile.
+ */
+export type Handlers<Ops extends ReadonlyArray<AppOperation>> = {
+  readonly [O in Ops[number] as O["name"]]: Handler<O["input"]>
+}
+
+/** `H` with no key beyond `Allowed`: a handler left for a removed operation does not compile. */
+type Exact<H, Allowed> = H & { readonly [K in Exclude<keyof H, keyof Allowed>]: never }
+
+/**
+ * Binds each shared operation to its GUI handler, in the operations' order.
+ * A list widened past its literal names escapes the compile-time check, so a
+ * missing handler also throws when the registry is built.
+ */
+export const bind = <const Ops extends ReadonlyArray<AppOperation>, H extends Handlers<Ops>>(
+  operations: Ops,
+  handlers: Exact<H, Handlers<Ops>>
+): ReadonlyArray<FlowEntry> =>
+  operations.map((declared) => {
+    const handler = (handlers as Readonly<Record<string, Handler<OperationPayload> | undefined>>)[declared.name]
+    if (handler === undefined) throw new Error(`No GUI handler for the ${declared.name} operation.`)
+    return flow({ ...declared, handler })
+  })
+
 /** The payload of a flow that takes nothing. */
-export const NoPayload = Schema.Struct({})
+export const NoPayload = NoInput
 /** An optional trailing `owner/repo` target. */
 export const RepoTarget = Schema.Struct({ repo: Schema.optional(Schema.String) })
 /** A card id, the handle every id-scoped card act takes. */

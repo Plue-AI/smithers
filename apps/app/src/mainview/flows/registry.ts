@@ -73,107 +73,21 @@ import * as toast from "./entries/toast"
 import * as wiki from "./entries/wiki"
 import * as box from "./entries/box"
 import * as workspace from "./entries/workspace"
-import type { FormHints } from "@smthrs/ui/flow-form"
+import type { OperationMetadata } from "@smthrs/ui/app-operations"
 
 /**
- * The UI-catalog concerns wrapped around one registered flow.
+ * The UI-catalog concerns wrapped around one registered flow: the shared
+ * operation rules (`@smthrs/ui/app-operations`) in this app's host
+ * vocabulary.
  *
  * This is the `metadata` half of a registry entry. It carries no flow-identity
  * decision: capabilities and effect tiers live on the declaration, and the
- * user-only axis is the descriptor's `modelInvocable` flag.
+ * user-only axis is the descriptor's `modelInvocable` flag. Requirement ids
+ * come from `flowRequirements`; flows/agent-parity.test.ts enumerates every
+ * `userOnlyReason`; `workflow` is what the app home reads a tile's last
+ * result by (cards/RepositoryHomeCard.tsx).
  */
-export interface FlowMetadata {
-  readonly summary: string
-  /** Not listed in the slash menu (id-scoped button actions); still invocable. */
-  readonly hidden?: boolean
-  /** Teach a hidden control to the model without adding it to the human menu. */
-  readonly discloseToAgent?: boolean
-  /**
-   * The slash argument hint, e.g. `<number> [owner/repo]`. Its presence is
-   * what makes `/name <text>` parse as an invocation rather than a prompt;
-   * the text itself is catalog copy for the human and the model.
-   */
-  readonly args?: string
-  /*
-   * The requirement axis: requirement ids (from `flowRequirements`) that must
-   * be satisfied before this flow executes. A user-invoked flow with an unmet
-   * requirement DEFERS — the run path parks the invocation and dispatches the
-   * requirement's fulfilling flow instead; the deferred flow resumes when the
-   * requirement's state predicate flips true. Agent-invoked flows never
-   * defer: an unmet requirement is an honest failure carrying the reason,
-   * because a model must not enqueue work that fires after its turn ends.
-   */
-  readonly requires?: ReadonlyArray<string>
-  /** Host services this flow needs; unavailable flows do not register. */
-  readonly runtime?: ReadonlyArray<RuntimeCapability>
-  /**
-   * Host services of which at least ONE must be present. A flow that serves
-   * two hosts (a Cloud repository via Smithers Cloud, or a repository opened in the
-   * local app) names both; `runtime` alone cannot say "either".
-   */
-  readonly runtimeAny?: ReadonlyArray<FlowCapability>
-  /**
-   * The bootstrap hosts this flow exists on; absent means every host. A flow
-   * about one host itself (the web app's download door) names it here, so the
-   * other host never registers a flow that reads wrong there. Unlike
-   * `runtime`, a missing bootstrap satisfies nothing: no host, no flow.
-   */
-  readonly hosts?: ReadonlyArray<AppBootstrap["host"]>
-  /**
-   * The repository flow this door launches (`issue.implement` runs
-   * `coding/request`; a repository leaf names itself). The app home reads a tile's
-   * last result by it (cards/RepositoryHomeCard.tsx); the first-run card uses
-   * it to match featured projection rows to executable repository leaves.
-   */
-  readonly workflow?: string
-  /**
-   * A consequential act the MODEL may ask for but never perform: an
-   * agent invocation does not run the handler — it posts a confirmation
-   * message whose action button runs the flow as the user. The string is
-   * the human-readable label of the act ("land pull request #12").
-   * User invocations are unaffected.
-   *
-   * The function form decides per decoded payload: the label when THIS
-   * invocation needs the human's confirmation, undefined when the handler
-   * may run for the agent as it stands.
-   */
-  readonly confirm?: string | ((payload: Record<string, unknown>) => string | undefined)
-  /**
-   * The sentence the confirmation asks, when "Smithers wants to <label>" is
-   * not what happened: an act whose own door asks (the human's button and
-   * slash reach a door that posts this confirmation) states the question
-   * itself. Absent keeps the model's sentence.
-   */
-  readonly confirmQuestion?: string
-  /**
-   * The slash line the confirmation carries, when the raw one the agent typed
-   * would not name the act.
-   *
-   * A confirmation waits for a human, and the world moves while it waits. A
-   * flow whose bare form resolves an implicit target — "the active
-   * repository" — would otherwise be re-parsed at confirm time and run
-   * against whatever is active THEN, not what the label promised. Such a flow
-   * resolves its target at ASK time and returns it here, so the button runs
-   * the act the message described. Undefined keeps the raw line, which is
-   * right for every flow whose payload already names its target.
-   */
-  readonly confirmArgs?: (payload: Record<string, unknown>) => string | undefined
-  /**
-   * Why a user-only flow is the human's alone (the three-door law,
-   * apps/app/AGENTS.md): the gesture is physically theirs, or the answer is
-   * theirs to give. The agent's refusal quotes it, and
-   * flows/agent-parity.test.ts enumerates every one — a user-only flow
-   * without a reason fails that gate.
-   */
-  readonly userOnlyReason?: string
-  /**
-   * THE FORM LAW (apps/app/AGENTS.md): what the flow says about the form a
-   * missing-input invocation renders — labels, placeholders, the seam a
-   * field's options come from, and the grammar inverses when the positional
-   * default is wrong. The fields themselves derive from the input schema
-   * (flows/FlowForms.ts); a flow with no hints still gets a derived form.
-   */
-  readonly form?: FormHints
+export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBootstrap["host"]> {
   /**
    * The slash grammar of a flow declared at RUNTIME (a repository's flow
    * leaf, entries/flow.ts `repositoryFlowLeaves`). SlashPayload's table names

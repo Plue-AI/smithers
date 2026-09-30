@@ -654,6 +654,28 @@ batches. `scheduleSettle` replaces the yield
 (`requestIdleCallback`, falling back to `setTimeout`) and `loadPhysics`
 replaces the lazy `d3-force` import; a rejecting loader renders the hub list.
 
+## App operations
+
+`@smthrs/ui/app-operations` declares Smithers acts apart from any host that
+runs them. It is not on the root barrel.
+
+An `Operation` is a name, an Effect Schema `input`, and the rules every host
+applies: `summary`, `args`, `requires`, `confirm`, `userOnly` with its
+`userOnlyReason`, `runtime`, `hosts`, and `form` hints. It has no handler.
+`operation(declaration)` returns the declaration with its literal type, so a
+host binding reads the exact input schema. `NoInput` is the input of an
+operation that takes nothing.
+
+A host binds its own implementation to each operation. The app binds
+controller calls with an exhaustive handler map, so an operation without a
+handler does not compile. A user-only operation is never offered to a model
+or a robot; a consequential one sets `confirm` instead, so a model may ask and
+the human confirms.
+
+`@smthrs/ui/app-operations/wiki` exports `wikiSurfaceOperations` and
+`wikiOperations`, the Wiki acts in registration order, with
+`WIKI_DISPLAY_NAME` and the user-only reasons they quote.
+
 ## Related
 
 - [Failure codes and limits](./reference/contracts.md): the codes and bounds

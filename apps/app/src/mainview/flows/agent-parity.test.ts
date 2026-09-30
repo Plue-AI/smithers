@@ -27,7 +27,7 @@ import { SUBAGENTS_USER_ONLY_REASON } from "./entries/agent"
 import { HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { PLUGINS_USER_ONLY_REASON } from "./entries/plugins"
-import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "./entries/wiki"
+import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
 
 /**
  * Every user-only flow, with the reason the registry states. A flow user-only

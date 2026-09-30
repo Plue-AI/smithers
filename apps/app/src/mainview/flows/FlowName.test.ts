@@ -11,8 +11,9 @@ import { FLOW_NAMES } from "./FlowName"
  *
  * The registry is read as TEXT (the same technique parity.test.ts uses), so a
  * declared flow counts without building the registry. A declaration names
- * itself in one of two places: most are `flow({ name: "x.y" })` rows inside an
- * entries module, and a few — the storage-recovery pair — are `Flow.make({
+ * itself in one of three places: most are `flow({ name: "x.y" })` rows inside an
+ * entries module or `operation({ name: "x.y" })` rows in a shared operation
+ * module (`@smthrs/ui/app-operations`), and a few — the storage-recovery pair — are `Flow.make({
  * name: CONSTANT })` declarations in their own flows module that an entries
  * module registers. Both are read, and a constant is resolved against the
  * `export const NAME = "x.y"` declarations in the mainview tree.
@@ -45,6 +46,10 @@ const declaredNames = (): ReadonlyArray<string> => {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue
     const source = readFileSync(`${entries}${file}`, "utf8")
     for (const match of source.matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
+  }
+  const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
+  for (const file of readdirSync(shared).sort()) {
+    for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
   }
   const constants = stringConstants()
   for (const file of readdirSync(flows).sort()) {

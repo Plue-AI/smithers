@@ -627,12 +627,13 @@ export const ToastSchema = z.object({
 export type Toast = z.infer<typeof ToastSchema>
 
 /*
- * The Wiki's display name, centralized. Will renamed World to Wiki on
- * 2026-09-07: every user-visible label and flow summary reads this constant,
- * while `world` stays the persisted surface id, the card kind, the store
- * event prefix and the CSS class prefix, so no session migration is needed.
+ * The Wiki's display name, owned by the shared wiki operations. Will renamed
+ * World to Wiki on 2026-09-07: every user-visible label and flow summary reads
+ * this constant, while `world` stays the persisted surface id, the card kind,
+ * the store event prefix and the CSS class prefix, so no session migration is
+ * needed.
  */
-export const WIKI_DISPLAY_NAME = "Wiki"
+export { WIKI_DISPLAY_NAME } from "@smthrs/ui/app-operations/wiki"
 
 /*
  * The graph's unfocused scope, named by the design session (spec 07 §2): a

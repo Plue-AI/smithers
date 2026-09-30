@@ -171,12 +171,18 @@ const STATES: ReadonlyArray<CommandState> = (["chat", "world", "connectors", "fl
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
 
 /**
- * The registry source: the Flows.ts aggregator plus every namespace module
- * under ./entries, read together so a flow declared in any module counts.
+ * The registry source: the Flows.ts aggregator, every namespace module under
+ * ./entries and every shared operation module (`@smthrs/ui/app-operations`),
+ * read together so a flow declared in any module counts.
  */
 const registrySources = (): string => {
   const entries = fileURLToPath(new URL("./entries/", import.meta.url))
-  return [read("./Flows.ts"), ...readdirSync(entries).sort().map((file) => read(`./entries/${file}`))].join("\n")
+  const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
+  return [
+    read("./Flows.ts"),
+    ...readdirSync(entries).sort().map((file) => read(`./entries/${file}`)),
+    ...readdirSync(shared).sort().map((file) => readFileSync(`${shared}${file}`, "utf8"))
+  ].join("\n")
 }
 
 /** Source with block and line comments removed, so a documented example path is not mistaken for a call. */
