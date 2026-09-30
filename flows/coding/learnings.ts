@@ -44,6 +44,18 @@ export const recordLearning = (plan: Plan, executionId: string, round: number, r
     )
   })
 
+/** The bank label the notes carry in a run's opening memory: the CLI's `--namespace` spelling. */
+export const bank = `${namespace.kind}:${namespace.id}`
+
+/**
+ * Accepted notes as opening memory rows, keyed by note id. They reach a
+ * planning step only as its opening memory, so a judged step's relevance
+ * reading withholds the ones Jev is confident the request does not need and
+ * journals which it kept (`memory notes get <id>` shows one).
+ */
+export const learningRows = (learnings: ReadonlyArray<Learning>) =>
+  learnings.map((learning) => ({ origin: "recall" as const, bank, key: learning.id, text: learning.text }))
+
 /** The newest accepted, unsuperseded notes, oldest first. */
 export const acceptedLearnings = Effect.gen(function*() {
   const store = yield* MemoryStore.MemoryStore

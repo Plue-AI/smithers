@@ -25,7 +25,7 @@ import {
   readmePaths,
   staleSources
 } from "../coding/planning-sources.ts"
-import { PlanningContext, planningPrompt, ReviewRequest } from "../coding/planning.ts"
+import { PlanningContext, planningMemory, planningPrompt, ReviewRequest } from "../coding/planning.ts"
 import { CodingError } from "../coding/schema.ts"
 import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
@@ -338,7 +338,14 @@ test("gather plans with accepted coding learnings only, and they change the memo
   assert.equal("learnings" in none.success, false)
   assert.deepEqual(some.success.learnings, [{ id: "accepted", text: "lesson accepted" }])
   assert.notEqual(some.success.memoryRevision, none.success.memoryRevision)
-  assert.ok(planningPrompt({ context: some.success }).includes("lesson accepted"))
+  // Learnings reach the planner only as opening memory, through the step's
+  // relevance reading; the prompt never carries them past that gate.
+  assert.equal(planningPrompt({ context: some.success }).includes("lesson accepted"), false)
+  assert.equal(planningPrompt({ context: some.success }).includes("\"learnings\""), false)
+  assert.deepEqual(planningMemory({ context: some.success }), [
+    { origin: "recall", bank: "flow:coding", key: "accepted", text: "lesson accepted" }
+  ])
+  assert.deepEqual(planningMemory({ context: none.success }), [])
 })
 
 test("gather keeps the newest accepted learnings within the memory budget", async (t) => {
