@@ -85,12 +85,7 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ],
   ["step-cache/src/RemoteCacheStore.ts", 1, "unreachable namespace escape (KeyDigest excludes separators); a defect"],
   ["sync/src/SyncClient.ts", 1, "an invalid restored cursor; its catch returns a tagged SyncError"],
-  ["sync/src/test/TestSocket.ts", 1, testSupport],
-  [
-    "time-travel/src/internal/MigrationStep.ts",
-    1,
-    "names the SQL object; SqlTimeTravelStore wraps it as a tagged TimeTravelError"
-  ]
+  ["sync/src/test/TestSocket.ts", 1, testSupport]
 ]
 
 const packages = readdirSync(root, { withFileTypes: true })

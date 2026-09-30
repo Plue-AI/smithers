@@ -50,6 +50,19 @@ describe("SqlTimeTravelStore migration failures", () => {
             message: "time-travel schema migration failed"
           })
           expect(messages(found.success).join(" ")).toContain("flows_time_travel_audits")
+          // The step that named the SQL object is itself a tagged error with a code.
+          const causes: Array<unknown> = []
+          for (let current: unknown = found.success; typeof current === "object" && current !== null;) {
+            causes.push(current)
+            current = (current as { readonly cause?: unknown }).cause
+          }
+          expect(causes).toContainEqual(
+            expect.objectContaining({
+              _tag: "@smthrs/time-travel/TimeTravelError",
+              code: "unknown",
+              message: expect.stringContaining("time-travel migration failed creating")
+            })
+          )
         }
       }
     }))

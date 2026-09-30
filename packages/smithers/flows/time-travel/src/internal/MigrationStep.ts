@@ -5,6 +5,7 @@
  */
 
 import * as Effect from "effect/Effect"
+import { error } from "../TimeTravelError.ts"
 
 /**
  * Names the SQL object while retaining the driver failure.
@@ -14,5 +15,5 @@ import * as Effect from "effect/Effect"
  */
 export const step = <A, E, R>(object: string, statement: Effect.Effect<A, E, R>) =>
   statement.pipe(
-    Effect.mapError((cause) => new Error(`time-travel migration failed creating ${object}`, { cause }))
+    Effect.mapError((cause) => error("unknown", `time-travel migration failed creating ${object}`, cause))
   )
