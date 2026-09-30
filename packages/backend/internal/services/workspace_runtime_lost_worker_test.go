@@ -41,6 +41,12 @@ type snapshotLostWorkerRuntime struct {
 	stopped  int
 }
 
+// Isolation is read on every repository readiness path (354eeaab05); the
+// sandboxed runtime without a compute provider stages its own artifacts.
+func (*snapshotLostWorkerRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+
 func (*snapshotLostWorkerRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{PersistentFiles: true, Execution: true, FileOperations: true, ColdSnapshots: true, Terminal: true}
 }
