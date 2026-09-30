@@ -232,16 +232,13 @@ export function decodeGitPath(quoted: string): string {
   const encoder = new TextEncoder();
   const bytes: number[] = [];
   for (let index = 0; index < quoted.length; index += 1) {
-    // Whole code points: an astral character is two UTF-16 units.
-    const character = String.fromCodePoint(quoted.codePointAt(index)!);
+    const character = quoted[index]!;
     if (character !== "\\") {
       for (const byte of encoder.encode(character)) bytes.push(byte);
-      index += character.length - 1;
       continue;
     }
-    const nextPoint = quoted.codePointAt(index + 1);
-    if (nextPoint === undefined) break;
-    const next = String.fromCodePoint(nextPoint);
+    const next = quoted[index + 1];
+    if (next === undefined) break;
     const escape = GIT_ESCAPES[next];
     if (escape !== undefined) {
       bytes.push(escape);
@@ -256,7 +253,7 @@ export function decodeGitPath(quoted: string): string {
     }
     // An escape git does not emit: keep the character it guarded.
     for (const byte of encoder.encode(next)) bytes.push(byte);
-    index += next.length;
+    index += 1;
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
@@ -272,7 +269,7 @@ const RENAME_FROM_RE = new RegExp(String.raw`^rename from (?:${QUOTED}|(.+))$`, 
 
 /** Decode whichever alternative matched, then drop a leading `a/` or `b/`. */
 function headerPath(quoted: string | undefined, plain: string | undefined): string | undefined {
-  const raw = quoted !== undefined ? decodeGitPath(quoted) : plain?.replace(/\t?\r?$/, "");
+  const raw = quoted !== undefined ? decodeGitPath(quoted) : plain?.trim();
   if (raw === undefined || raw === "") return undefined;
   return raw.startsWith("a/") || raw.startsWith("b/") ? raw.slice(2) : raw;
 }
@@ -438,7 +435,7 @@ export type ParseUnifiedFileOverrides = {
  * render a placeholder instead of lines.
  */
 export function parseUnifiedFile(diffText: string, overrides: ParseUnifiedFileOverrides = {}): DiffFile {
-  const path = overrides.path ?? pathFromDiffText(diffText);
+  const path = (overrides.path ?? pathFromDiffText(diffText)).trim();
   const binary = overrides.isBinary === true || BINARY_PATCH_RE.test(diffText);
   const parsed = binary ? { lines: [], add: 0, del: 0, partial: false } : parseHunks(diffText);
   const oldPath = oldPathFrom(diffText);

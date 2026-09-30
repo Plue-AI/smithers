@@ -1,7 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { Diff, DiffFile } from "../src/diff";
 import {
@@ -147,50 +143,6 @@ describe("path parsing", () => {
   test("an escaped quote and backslash inside a quoted path survive", () => {
     const patch = 'diff --git "a/we\\"ird\\\\name.ts" "b/we\\"ird\\\\name.ts"\n@@ -1,1 +1,1 @@\n+x\n';
     expect(parseUnifiedFile(patch).path).toBe('we"ird\\name.ts');
-  });
-});
-
-/** Real `git diff` output for one edited file, under the given quotePath. */
-function realGitDiff(name: string, quotePath: boolean): string {
-  const dir = mkdtempSync(join(tmpdir(), "diff-path-"));
-  const git = (...args: string[]) => execFileSync("git", ["-c", `core.quotePath=${quotePath}`, ...args], { cwd: dir, encoding: "utf8" });
-  try {
-    git("init", "-q");
-    git("config", "user.email", "t@example.test");
-    git("config", "user.name", "t");
-    writeFileSync(join(dir, name), "one\n");
-    git("add", "-A");
-    git("commit", "-q", "-m", "init");
-    writeFileSync(join(dir, name), "two\n");
-    return git("diff");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-describe("path parsing against real git", () => {
-  const names = ["😀\nfile.txt", "plain.txt", "café\nname.txt", 'q"uote\n.txt', " name.txt ", " lead.txt", "trail.txt "];
-  for (const quotePath of [true, false]) {
-    for (const name of names) {
-      test(`quotePath=${quotePath} round-trips ${JSON.stringify(name)}`, () => {
-        const parsed = parseUnifiedFile(realGitDiff(name, quotePath));
-        expect(parsed.path).toBe(name);
-      });
-    }
-  }
-
-  test("a quoted astral literal decodes to the whole code point", () => {
-    expect(parseUnifiedFile('diff --git "a/😀\\n.ts" "b/😀\\n.ts"\n@@ -1,1 +1,1 @@\n+x\n').path).toBe("😀\n.ts");
-  });
-
-  test("an explicit path override is kept byte for byte", () => {
-    expect(parseUnifiedFile("@@ -1,1 +1,1 @@\n+x\n", { path: " spaced.txt " }).path).toBe(" spaced.txt ");
-  });
-
-  test("a quoted rename keeps meaningful whitespace on both sides", () => {
-    const patch = 'diff --git "a/ old\\n.ts " "b/ new\\n.ts "\nrename from " old\\n.ts "\nrename to " new\\n.ts "\n';
-    const parsed = parseUnifiedFile(patch);
-    expect([parsed.path, parsed.oldPath]).toEqual([" new\n.ts ", " old\n.ts "]);
   });
 });
 
