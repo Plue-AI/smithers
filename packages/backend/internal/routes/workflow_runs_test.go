@@ -7,17 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
 // ---- mock service ----
@@ -145,182 +148,163 @@ func TestWorkflowRunLogsStream_InvalidLastEventID_IgnoredGracefully(t *testing.T
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// workflowLogStreamStore is an in-memory run whose log rows can be appended
+// while a stream is open.
+type workflowLogStreamStore struct {
+	mu        sync.Mutex
+	logs      []db.WorkflowLog
+	afterIDs  []int64
+	stepIDs   []int64
+	runExists bool
+}
+
+func (s *workflowLogStreamStore) append(rows ...db.WorkflowLog) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logs = append(s.logs, rows...)
+}
+
+func (s *workflowLogStreamStore) GetWorkflowLogStreamHead(context.Context, int64) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var head int64
+	for _, row := range s.logs {
+		head = max(head, row.ID)
+	}
+	return head, nil
+}
+
+func (s *workflowLogStreamStore) GetWorkflowRun(_ context.Context, repoID, runID int64) (db.WorkflowRun, error) {
+	if !s.runExists {
+		return db.WorkflowRun{}, pkgerrors.NotFound("run not found")
+	}
+	return db.WorkflowRun{ID: runID, RepositoryID: repoID}, nil
+}
+
+func (s *workflowLogStreamStore) ListWorkflowSteps(context.Context, int64) ([]db.WorkflowStep, error) {
+	steps := make([]db.WorkflowStep, 0, len(s.stepIDs))
+	for _, id := range s.stepIDs {
+		steps = append(steps, db.WorkflowStep{ID: id})
+	}
+	return steps, nil
+}
+
+func (s *workflowLogStreamStore) ListWorkflowLogsSince(_ context.Context, runID, afterID int64, limit int32) ([]db.WorkflowLog, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.afterIDs = append(s.afterIDs, afterID)
+	var page []db.WorkflowLog
+	for _, row := range s.logs {
+		if row.WorkflowRunID == runID && row.ID > afterID && len(page) < int(limit) {
+			page = append(page, row)
+		}
+	}
+	return page, nil
+}
+
+// openWorkflowLogStream serves the production WorkflowRunLogsStream handler
+// behind a broker on a real PostgreSQL LISTEN/NOTIFY connection and opens a
+// client stream for run 42.
+func openWorkflowLogStream(t *testing.T, store *workflowLogStreamStore, lastEventID string) (*pgxpool.Pool, *bufio.Reader, *http.Response) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	pool, err := pgxpool.New(ctx, testdb.New(t).URL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	broker := sse.NewBroker(pool)
+	require.NoError(t, broker.Start(ctx))
+	t.Cleanup(broker.Stop)
+
+	h := &WorkflowRunHandler{Service: store, Broker: broker}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = withRouteParams(r, map[string]string{"id": "42"})
+		r = withRepoInContext(r, &db.Repository{ID: 1, Name: "repo"})
+		h.WorkflowRunLogsStream(w, withAuth(r, 7, "alice"))
+	}))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
+	resp, err := server.Client().Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return pool, bufio.NewReader(resp.Body), resp
+}
+
+// readSSEFrame returns the lines of the next SSE frame, without the blank
+// terminator.
+func readSSEFrame(t *testing.T, reader *bufio.Reader) []string {
+	t.Helper()
+	var lines []string
+	for {
+		line, err := reader.ReadString('\n')
+		require.NoError(t, err)
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			return lines
+		}
+		lines = append(lines, line)
+	}
+}
+
+func requireWorkflowLogFrame(t *testing.T, frame []string, id int64, content string) {
+	t.Helper()
+	require.Len(t, frame, 3, "frame: %v", frame)
+	assert.Equal(t, fmt.Sprintf("id: %d", id), frame[0])
+	assert.Equal(t, "event: log", frame[1])
+	require.True(t, strings.HasPrefix(frame[2], "data: "), frame[2])
+	var data map[string]any
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(frame[2], "data: ")), &data))
+	assert.Equal(t, float64(id), data["log_id"])
+	assert.Equal(t, content, data["content"])
+	assert.Equal(t, content, data["entry"])
+}
+
 func TestWorkflowRunLogsStream_SendsSSEFormat(t *testing.T) {
 	t.Parallel()
 
-	// Build a tiny streaming server that emits SSE events.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("test server writer is not a flusher")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
-
-		// Emit a log event.
-		fmt.Fprintf(w, "id: 1\nevent: log\ndata: {\"step\":\"build\",\"line\":1,\"content\":\"hello\"}\n\n")
-		flusher.Flush()
-	}))
-	defer srv.Close()
-
-	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
-	require.NoError(t, reqErr)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	store := &workflowLogStreamStore{runExists: true, stepIDs: []int64{5}}
+	pool, reader, resp := openWorkflowLogStream(t, store, "")
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
 	assert.Equal(t, "no-cache", resp.Header.Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", resp.Header.Get("Connection"))
+	require.Equal(t, []string{": connected"}, readSSEFrame(t, reader))
 
-	// Read the event.
-	scanner := bufio.NewScanner(resp.Body)
-	var lines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		lines = append(lines, line)
-		if line == "" && len(lines) >= 3 {
-			break
-		}
-	}
+	// A row appended after connect reaches the open stream on its NOTIFY.
+	store.append(db.WorkflowLog{ID: 1, WorkflowRunID: 42, WorkflowStepID: 5, Sequence: 1, Stream: "stdout", Entry: "hello"})
+	_, err := pool.Exec(context.Background(), `SELECT pg_notify('workflow_step_logs_5', '{"log_id":1}')`)
+	require.NoError(t, err)
 
-	require.GreaterOrEqual(t, len(lines), 3, "expected id, event, data lines; got: %v", lines)
-	assert.Equal(t, "id: 1", lines[0], "first line must be id: 1")
-	assert.Equal(t, "event: log", lines[1], "second line must be event: log")
-	assert.True(t, strings.HasPrefix(lines[2], "data: "), "third line must start with data:")
+	requireWorkflowLogFrame(t, readSSEFrame(t, reader), 1, "hello")
 }
 
 func TestWorkflowRunLogsStream_ReplaysMissedLogsOnReconnect(t *testing.T) {
 	t.Parallel()
 
-	logs := []db.WorkflowLog{
-		{ID: 11, WorkflowRunID: 1, WorkflowStepID: 1, Sequence: 1, Stream: "stdout", Entry: "missed log 1"},
-		{ID: 12, WorkflowRunID: 1, WorkflowStepID: 1, Sequence: 2, Stream: "stdout", Entry: "missed log 2"},
-	}
-
-	var capturedRunID, capturedAfterID atomic.Int64
-	var capturedLimit atomic.Int32
-	svc := &mockWorkflowRunRouteService{
-		getWorkflowRunFn: func(_ context.Context, _, _ int64) (db.WorkflowRun, error) {
-			return db.WorkflowRun{ID: 1, RepositoryID: 1}, nil
-		},
-		listWorkflowLogsSinceFn: func(_ context.Context, runID, afterID int64, limit int32) ([]db.WorkflowLog, error) {
-			capturedRunID.Store(runID)
-			capturedAfterID.Store(afterID)
-			capturedLimit.Store(limit)
-			return logs, nil
-		},
-	}
-
-	// Build a streaming server that simulates replay behavior.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("test server writer is not a flusher")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
-
-		// Simulate replay behavior.
-		lastEventIDStr := r.Header.Get("Last-Event-ID")
-		if lastEventIDStr != "" {
-			lastEventID, parseErr := strconv.ParseInt(lastEventIDStr, 10, 64)
-			if parseErr == nil {
-				missed, _ := svc.ListWorkflowLogsSince(r.Context(), 1, lastEventID, 1000)
-				for _, log := range missed {
-					payload, _ := json.Marshal(map[string]any{
-						"step":    "build",
-						"line":    log.Sequence,
-						"content": log.Entry,
-					})
-					fmt.Fprintf(w, "id: %d\nevent: log\ndata: %s\n\n", log.ID, payload)
-					flusher.Flush()
-				}
-			}
-		}
-	}))
-	defer srv.Close()
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
-	req.Header.Set("Last-Event-ID", "10")
-	resp, err := http.DefaultClient.Do(req) //nolint:bodyclose
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	store := &workflowLogStreamStore{runExists: true, stepIDs: []int64{5}}
+	store.append(
+		db.WorkflowLog{ID: 10, WorkflowRunID: 42, WorkflowStepID: 5, Sequence: 1, Stream: "stdout", Entry: "already seen"},
+		db.WorkflowLog{ID: 11, WorkflowRunID: 42, WorkflowStepID: 5, Sequence: 2, Stream: "stdout", Entry: "missed log 1"},
+		db.WorkflowLog{ID: 12, WorkflowRunID: 42, WorkflowStepID: 5, Sequence: 3, Stream: "stdout", Entry: "missed log 2"},
+		db.WorkflowLog{ID: 13, WorkflowRunID: 99, WorkflowStepID: 8, Sequence: 1, Stream: "stdout", Entry: "other run"},
+	)
+	_, reader, resp := openWorkflowLogStream(t, store, "10")
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, []string{": connected"}, readSSEFrame(t, reader))
+	requireWorkflowLogFrame(t, readSSEFrame(t, reader), 11, "missed log 1")
+	requireWorkflowLogFrame(t, readSSEFrame(t, reader), 12, "missed log 2")
 
-	// Read and verify the replayed events.
-	scanner := bufio.NewScanner(resp.Body)
-	var allLines []string
-	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
-	}
-	require.NoError(t, scanner.Err())
-
-	// Reading through EOF synchronizes with the server handler: an HTTP client
-	// may receive the flushed response headers before replay has started.
-	assert.Equal(t, int64(1), capturedRunID.Load())
-	assert.Equal(t, int64(10), capturedAfterID.Load())
-	assert.Equal(t, int32(1000), capturedLimit.Load())
-
-	// Should contain two events with id fields.
-	output := strings.Join(allLines, "\n")
-	assert.Contains(t, output, "id: 11")
-	assert.Contains(t, output, "id: 12")
-	assert.Contains(t, output, "missed log 1")
-	assert.Contains(t, output, "missed log 2")
-}
-
-func TestWorkflowRunLogsStream_KeepAliveComment(t *testing.T) {
-	t.Parallel()
-
-	// Build a streaming server that emits keep-alive.
-	events := make(chan struct{})
-	defer close(events)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("test server writer is not a flusher")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
-
-		// Send keep-alive comment.
-		fmt.Fprintf(w, ": keep-alive\n\n")
-		flusher.Flush()
-	}))
-	defer srv.Close()
-
-	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
-	require.NoError(t, reqErr)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// Read the keep-alive.
-	scanner := bufio.NewScanner(resp.Body)
-	var lines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		lines = append(lines, line)
-		if line == "" {
-			break
-		}
-	}
-
-	require.GreaterOrEqual(t, len(lines), 1)
-	assert.Equal(t, ": keep-alive", lines[0])
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	require.NotEmpty(t, store.afterIDs)
+	assert.Equal(t, int64(10), store.afterIDs[0], "replay must resume strictly after Last-Event-ID")
 }
 
 // ---- Helper Functions ----

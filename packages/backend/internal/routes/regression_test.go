@@ -10,12 +10,10 @@
 //     log redaction via RedactSecretValues works correctly
 //  5. SSE longevity        — SSE handler is NOT cancelled by the 30 s
 //     JSON timeout (verifying route-level timeout exemption)
-//  6. Webhook delivery     — DispatchEvent enqueues a CreateWebhookDelivery
-//     call (end-to-end from dispatcher → store)
-//  7. Git streaming        — large packfile response is streamed without
-//     buffering the full body in memory (covered in repohostserver package;
-//     this test confirms the route-layer handler sets correct Content-Type
-//     without waiting for EOF)
+//  6. Webhook delivery     — DispatchEvent persists a pending delivery in the
+//     product schema and the worker POSTs it and persists the result
+//  7. Git streaming        — upload-pack streams the packfile to the client
+//     before the proxy returns (the repohostserver package covers repo-host)
 //  8. Migration parity     — product and private tables have models in their
 //     respective generated packages
 
@@ -23,17 +21,23 @@ package routes
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,6 +45,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
 // ---------------------------------------------------------------------------
@@ -490,145 +497,232 @@ func TestRegression_SSELongevity_NormalRouteIsTimedOut(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Webhook delivery — DispatchEvent calls CreateWebhookDelivery end-to-end
+// 6. Webhook delivery — dispatcher → product store → worker → endpoint
 // ---------------------------------------------------------------------------
 
-// TestRegression_WebhookDelivery_DispatchEventCallsCreateDelivery verifies
-// that DispatchEvent does not silently swallow the event — it must call
-// CreateWebhookDelivery on the store for each matching active webhook.
-//
-// Background: a refactor removed the call to store.CreateWebhookDelivery in
-// one code path, causing events to be enqueued (logged) but never persisted.
-func TestRegression_WebhookDelivery_DispatchEventCallsCreateDelivery(t *testing.T) {
-	t.Parallel()
-
-	// Use the local stub types via the webhooks sub-package interface directly.
-	// We replicate the dispatcher logic here because this package does not import
-	// internal/webhooks — we test the same invariant at the service layer.
-
-	createCalls := 0
-	type fakeWebhook struct {
-		id       int64
-		isActive bool
-		events   []string
-		url      string
-	}
-
-	webhooks := []fakeWebhook{
-		{id: 1, isActive: true, events: []string{"push"}, url: "https://endpoint.example/hook"},
-		{id: 2, isActive: false, events: []string{"push"}, url: "https://inactive.example/hook"},
-		{id: 3, isActive: true, events: []string{"issues"}, url: "https://other.example/hook"},
-	}
-
-	// Simulate dispatcher.DispatchEvent logic: for each active, subscribed webhook,
-	// call CreateWebhookDelivery. Verify exactly one delivery is created for the
-	// "push" event (only webhook 1 matches: active + subscribed to "push").
-	for _, hook := range webhooks {
-		if !hook.isActive {
-			continue
-		}
-		subscribed := false
-		for _, ev := range hook.events {
-			if strings.EqualFold(ev, "push") || ev == "*" || ev == "all" {
-				subscribed = true
-				break
-			}
-		}
-		if subscribed {
-			createCalls++
-		}
-	}
-
-	assert.Equal(t, 1, createCalls,
-		"exactly one delivery must be created: webhook 1 (active, subscribed to push); "+
-			"webhook 2 (inactive) and webhook 3 (wrong event) must be skipped")
+// seedWebhookRegressionRepo creates a user and repository in a product-schema
+// database and returns the repository ID.
+func seedWebhookRegressionRepo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queries *db.Queries, name string) int64 {
+	t.Helper()
+	user, err := queries.CreateUser(ctx, db.CreateUserParams{
+		Username:      name,
+		LowerUsername: name,
+		Email:         pgtype.Text{String: name + "@example.test", Valid: true},
+		LowerEmail:    pgtype.Text{String: name + "@example.test", Valid: true},
+		DisplayName:   name,
+	})
+	require.NoError(t, err)
+	var repoID int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO repositories (user_id, name, lower_name, description, is_public, default_bookmark)
+		 VALUES ($1, 'hooks', 'hooks', '', TRUE, 'main') RETURNING id`, user.ID).Scan(&repoID))
+	return repoID
 }
 
-// TestRegression_WebhookDelivery_WorkerDeliversToHTTPEndpoint verifies the
-// end-to-end path: after a delivery row is enqueued, the Worker sends an HTTP
-// POST to the target URL and records the outcome.
-//
-// This is a focused integration that does not require a database — it uses the
-// Worker with a mock store and a real httptest.Server as the webhook target.
-func TestRegression_WebhookDelivery_WorkerDeliversToHTTPEndpoint(t *testing.T) {
-	t.Parallel()
+func createRegressionWebhook(t *testing.T, ctx context.Context, queries *db.Queries, repoID int64, url, secret string, active bool, events ...string) db.Webhook {
+	t.Helper()
+	hook, err := queries.CreateWebhook(ctx, db.CreateWebhookParams{
+		RepositoryID: repoID, Url: url, Secret: secret, Events: events, IsActive: active,
+	})
+	require.NoError(t, err)
+	return hook
+}
 
-	received := make(chan struct{}, 1)
+type regressionDeliveryRow struct {
+	WebhookID      int64
+	EventType      string
+	Payload        string
+	Status         string
+	ResponseStatus pgtype.Int4
+	ResponseBody   string
+	Attempts       int32
+	Delivered      bool
+}
+
+func listRegressionDeliveries(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []regressionDeliveryRow {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT webhook_id, event_type, payload::text, status, response_status,
+		response_body, attempts, delivered_at IS NOT NULL FROM webhook_deliveries ORDER BY webhook_id, id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var out []regressionDeliveryRow
+	for rows.Next() {
+		var row regressionDeliveryRow
+		require.NoError(t, rows.Scan(&row.WebhookID, &row.EventType, &row.Payload, &row.Status,
+			&row.ResponseStatus, &row.ResponseBody, &row.Attempts, &row.Delivered))
+		out = append(out, row)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// TestRegression_WebhookDelivery_DispatchEventPersistsDeliveries drives the
+// production dispatcher against the product schema: a domain event must
+// persist one pending delivery per active, subscribed webhook of that
+// repository and nothing else.
+//
+// Background: a refactor removed the CreateWebhookDelivery call from one code
+// path, so events were logged but never persisted.
+func TestRegression_WebhookDelivery_DispatchEventPersistsDeliveries(t *testing.T) {
+	t.Parallel()
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	queries := db.New(pool)
+	ctx := context.Background()
+
+	repoID := seedWebhookRegressionRepo(t, ctx, pool, queries, "hook-dispatch-owner")
+	otherRepoID := seedWebhookRegressionRepo(t, ctx, pool, queries, "hook-dispatch-other")
+	push := createRegressionWebhook(t, ctx, queries, repoID, "https://push.example/hook", "", true, "push")
+	createRegressionWebhook(t, ctx, queries, repoID, "https://inactive.example/hook", "", false, "push")
+	createRegressionWebhook(t, ctx, queries, repoID, "https://issues.example/hook", "", true, "issues")
+	wildcard := createRegressionWebhook(t, ctx, queries, repoID, "https://all.example/hook", "", true, "*")
+	createRegressionWebhook(t, ctx, queries, otherRepoID, "https://other-repo.example/hook", "", true, "push")
+
+	dispatcher := webhooks.NewDispatcher(queries)
+	require.NoError(t, dispatcher.DispatchEvent(ctx, repoID, webhooks.EventTypePush, map[string]string{"ref": "refs/heads/main"}))
+
+	deliveries := listRegressionDeliveries(t, ctx, pool)
+	require.Len(t, deliveries, 2, "only the active push and wildcard hooks of this repository receive a delivery")
+	for i, want := range []int64{push.ID, wildcard.ID} {
+		assert.Equal(t, want, deliveries[i].WebhookID)
+		assert.Equal(t, "push", deliveries[i].EventType)
+		assert.Equal(t, "pending", deliveries[i].Status)
+		assert.JSONEq(t, `{"ref":"refs/heads/main"}`, deliveries[i].Payload)
+		assert.Zero(t, deliveries[i].Attempts)
+	}
+
+	require.Error(t, dispatcher.DispatchEvent(ctx, 0, webhooks.EventTypePush, nil), "an invalid repository must be rejected")
+	assert.Len(t, listRegressionDeliveries(t, ctx, pool), 2)
+}
+
+// TestRegression_WebhookDelivery_WorkerDeliversDispatchedDelivery follows a
+// dispatched delivery through the production worker: it must POST the signed
+// payload to the endpoint once and persist the endpoint's result.
+func TestRegression_WebhookDelivery_WorkerDeliversDispatchedDelivery(t *testing.T) {
+	t.Parallel()
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	queries := db.New(pool)
+	ctx := context.Background()
+
+	type received struct {
+		method, event, delivery, signature, contentType string
+		body                                            []byte
+	}
+	var mu sync.Mutex
+	var requests []received
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "push", r.Header.Get("X-Smithers-Event"))
-		w.WriteHeader(http.StatusOK)
-		received <- struct{}{}
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		mu.Lock()
+		requests = append(requests, received{
+			method: r.Method, event: r.Header.Get("X-Smithers-Event"), delivery: r.Header.Get("X-Smithers-Delivery"),
+			signature: r.Header.Get("X-Smithers-Signature-256"), contentType: r.Header.Get("Content-Type"), body: body,
+		})
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, "accepted")
 	}))
 	defer target.Close()
 
-	// Build a minimal delivery row pointing at the test server.
-	delivery := db.WebhookDelivery{
-		ID:        1,
-		WebhookID: 10,
-		EventType: "push",
-		Payload:   []byte(`{"ref":"refs/heads/main"}`),
-		Status:    "pending",
-	}
-	hook := db.Webhook{
-		ID:       10,
-		Url:      target.URL + "/hook",
-		Secret:   "",
-		IsActive: true,
-		Events:   []string{"push"},
-	}
+	repoID := seedWebhookRegressionRepo(t, ctx, pool, queries, "hook-worker-owner")
+	hook := createRegressionWebhook(t, ctx, queries, repoID, target.URL+"/hook", "s3cret", true, "push")
+	require.NoError(t, webhooks.NewDispatcher(queries).DispatchEvent(ctx, repoID, webhooks.EventTypePush, map[string]string{"ref": "refs/heads/main"}))
+	var deliveryID int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM webhook_deliveries WHERE webhook_id = $1`, hook.ID).Scan(&deliveryID))
 
-	// Use a real http.Client so the POST actually goes to the test server.
-	req, err := http.NewRequest(http.MethodPost, hook.Url, strings.NewReader(string(delivery.Payload)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Smithers-Event", delivery.EventType)
-	req.Header.Set("X-Smithers-Delivery", fmt.Sprintf("%d", delivery.ID))
+	worker := webhook.NewWorker(queries, target.Client(), webhook.NoopSecretCodec{})
+	require.NoError(t, worker.PollOnce(ctx))
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	_ = resp.Body.Close()
+	mu.Lock()
+	require.Len(t, requests, 1, "the endpoint must receive the dispatched delivery exactly once")
+	got := requests[0]
+	mu.Unlock()
+	assert.Equal(t, http.MethodPost, got.method)
+	assert.Equal(t, "push", got.event)
+	assert.Equal(t, strconv.FormatInt(deliveryID, 10), got.delivery)
+	assert.Equal(t, "application/json", got.contentType)
+	assert.JSONEq(t, `{"ref":"refs/heads/main"}`, string(got.body))
+	assert.True(t, webhook.VerifyPayloadSignature("s3cret", got.body, got.signature), "the payload must carry the hook's HMAC signature")
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"webhook target must have returned 200")
+	deliveries := listRegressionDeliveries(t, ctx, pool)
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, "success", deliveries[0].Status)
+	assert.Equal(t, pgtype.Int4{Int32: http.StatusAccepted, Valid: true}, deliveries[0].ResponseStatus)
+	assert.Equal(t, "accepted", deliveries[0].ResponseBody)
+	assert.Equal(t, int32(1), deliveries[0].Attempts)
+	assert.True(t, deliveries[0].Delivered)
 
-	select {
-	case <-received:
-	case <-time.After(2 * time.Second):
-		t.Fatal("webhook target did not receive the HTTP POST within 2 seconds")
-	}
+	// A completed delivery is never claimed again.
+	require.NoError(t, worker.PollOnce(ctx))
+	mu.Lock()
+	assert.Len(t, requests, 1)
+	mu.Unlock()
 }
 
 // ---------------------------------------------------------------------------
-// 7. Git streaming — git handler streams without buffering entire body
+// 7. Git streaming — upload-pack streams without buffering the whole response
 // ---------------------------------------------------------------------------
 
-// TestRegression_GitStreaming_LargePackfileStreamsWithoutBuffering verifies
-// that the streamGitRPC function in the repohostserver package does not buffer
-// a 15 MB packfile before forwarding it to the client.
-//
-// This test installs a fake git binary that writes 15 MB to stdout, runs
-// streamGitRPC and confirms the bytes are forwarded intact.
-//
-// NOTE: This test is located in the repohostserver package. What we test here
-// in the routes package is that the upload-pack HTTP handler sets the correct
-// Content-Type header and returns 200, not a buffering-induced error.
-func TestRegression_GitStreaming_UploadPackHandlerSetsContentType(t *testing.T) {
+// TestRegression_GitStreaming_UploadPackStreamsBeforeServiceReturns serves
+// GitSmartHandler.UploadPack over HTTP and holds the proxy open after it has
+// written the first part of a packfile. The client must receive the git
+// Content-Type and that first part while the proxy is still running; a handler
+// that buffered the whole packfile would deliver nothing until the proxy
+// returned. (The repohostserver package covers the repo-host side.)
+func TestRegression_GitStreaming_UploadPackStreamsBeforeServiceReturns(t *testing.T) {
 	t.Parallel()
 
-	// Minimal test: a mock git RPC handler sets the correct Content-Type for
-	// upload-pack responses so downstream clients know to treat the body as a
-	// git packfile stream, not a JSON error body.
-	const expectedContentType = "application/x-git-upload-pack-result"
+	firstPart := bytes.Repeat([]byte("PACK"), 64*1024) // 256 KiB
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	handler := &GitSmartHandler{Service: &mockGitSmartRouteService{
+		proxyUploadPackFn: func(ctx context.Context, owner, repo, token string, stdin io.Reader, stdout io.Writer) error {
+			defer close(finished)
+			assert.Equal(t, "alice", owner)
+			assert.Equal(t, "demo", repo)
+			body, err := io.ReadAll(stdin)
+			assert.NoError(t, err)
+			assert.Equal(t, "0032want deadbeef\n0000", string(body))
+			if _, err := stdout.Write(firstPart); err != nil {
+				return err
+			}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			_, err = io.WriteString(stdout, "0000")
+			return err
+		},
+	}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.UploadPack(w, withRouteParams(r, map[string]string{"owner": "alice", "repo": "demo.git"}))
+	}))
+	defer server.Close()
 
-	// Simulate the response writer check — a routes-level assertion that the
-	// streaming handler correctly sets Content-Type before writing the body.
-	w := httptest.NewRecorder()
-	w.Header().Set("Content-Type", expectedContentType)
-	w.WriteHeader(http.StatusOK)
-	w.Body.WriteString("PACK-data-placeholder")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/alice/demo.git/git-upload-pack",
+		strings.NewReader("0032want deadbeef\n0000"))
+	require.NoError(t, err)
+	req.SetBasicAuth("alice", "smithers_deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	resp, err := server.Client().Do(req)
+	require.NoError(t, err, "response headers must arrive while the proxy is still streaming")
+	defer resp.Body.Close()
 
-	assert.Equal(t, expectedContentType, w.Header().Get("Content-Type"),
-		"upload-pack handler must set git-specific Content-Type before streaming")
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "application/x-git-upload-pack-result", resp.Header.Get("Content-Type"))
+	got := make([]byte, len(firstPart))
+	_, err = io.ReadFull(resp.Body, got)
+	require.NoError(t, err, "the first packfile part must arrive before the proxy returns")
+	assert.Equal(t, firstPart, got)
+	select {
+	case <-finished:
+		t.Fatal("the proxy returned before it was released")
+	default:
+	}
+
+	close(release)
+	rest, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "0000", string(rest))
 }
