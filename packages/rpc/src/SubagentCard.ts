@@ -524,6 +524,31 @@ export const headerLine = (value: Header): string =>
   [value.glyph, value.text, value.count, value.mark].filter((part) => part !== "").join(" ")
 
 /**
+ * How many of a transcript's newest subagent batches show in full; older
+ * batches fold into one row that expands on activation.
+ * @since 1.0.0
+ * @category constants
+ */
+export const shownBatches = 10
+
+/**
+ * The batches that fold into the earlier row: every batch before the newest
+ * `shownBatches`, oldest first. Empty while `open` or when none are older.
+ * @since 1.0.0
+ * @category header
+ */
+export const earlierBatches = <A>(batches: ReadonlyArray<A>, open = false): ReadonlyArray<A> =>
+  open ? [] : batches.slice(0, Math.max(0, batches.length - shownBatches))
+
+/**
+ * The folded row's words: `3 earlier subagent batches`.
+ * @since 1.0.0
+ * @category header
+ */
+export const earlierLine = (count: number): string =>
+  `${count} earlier subagent ${count === 1 ? "batch" : "batches"}`
+
+/**
  * The inline parent row when a background subagent settles: `◉ {title} finished`.
  * @since 1.0.0
  * @category cards

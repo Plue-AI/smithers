@@ -365,3 +365,23 @@ describe("display-column clipping", () => {
       .toBe("└ 界界…")
   })
 })
+
+describe("earlier batches", () => {
+  const batches = (count: number) => Array.from({ length: count }, (_, index) => `b${index}`)
+  test("ten batches show in full and nothing folds", () => {
+    expect(SubagentCard.shownBatches).toBe(10)
+    expect(SubagentCard.earlierBatches(batches(0))).toEqual([])
+    expect(SubagentCard.earlierBatches(batches(10))).toEqual([])
+  })
+  test("an eleventh batch folds the oldest, oldest first", () => {
+    expect(SubagentCard.earlierBatches(batches(11))).toEqual(["b0"])
+    expect(SubagentCard.earlierBatches(batches(13))).toEqual(["b0", "b1", "b2"])
+  })
+  test("an open row folds nothing", () => {
+    expect(SubagentCard.earlierBatches(batches(13), true)).toEqual([])
+  })
+  test("the row counts its batches", () => {
+    expect(SubagentCard.earlierLine(1)).toBe("1 earlier subagent batch")
+    expect(SubagentCard.earlierLine(3)).toBe("3 earlier subagent batches")
+  })
+})

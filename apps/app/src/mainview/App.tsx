@@ -16,7 +16,7 @@ SuggestionGroup
 import { useLiveQuery } from "@tanstack/react-db"
 import { Sparkles } from "lucide-react"
 import type { PointerEvent as ReactPointerEvent } from "react"
-import { useMemo,useRef } from "react"
+import { useMemo,useRef,useState } from "react"
 import { cardActions } from "./cards/CardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { FirstRunActions } from "./cards/FirstRunActions"
@@ -48,8 +48,8 @@ import { ConfirmDialog } from "./SurfaceChrome"
 import { TabBodies } from "./tabs/TabBodies"
 import { ToastStack } from "./ToastStack"
 import { TranscriptMessage } from "./TranscriptMessage"
-import { agentDoors, SubagentBatch, SubagentFinished, SubagentOverview } from "./SubagentGrid"
-import { all as allChat, entryId, merge as mergeTimeline, subagentsFromCards } from "./state/ChatTimeline"
+import { agentDoors, SubagentBatch, SubagentEarlier, SubagentFinished, SubagentOverview } from "./SubagentGrid"
+import { all as allChat, entryId, fold as foldTimeline, merge as mergeTimeline, subagentsFromCards } from "./state/ChatTimeline"
 import { ChatRunTimeline } from "./ChatRunTimeline"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
@@ -410,7 +410,10 @@ function AppContent() {
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
   const subagents = subagentsFromCards(conversationCards)
-  const entries = mergeTimeline(mainEntries, subagents, session.chatFilter ?? allChat)
+  // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
+  const [earlierOpenFor, setEarlierOpenFor] = useState<string | undefined>(undefined)
+  const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
+  const entries = foldTimeline(mergeTimeline(mainEntries, subagents, session.chatFilter ?? allChat), earlierOpenFor === transcriptKey)
 
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
@@ -564,7 +567,7 @@ function AppContent() {
           <div className="sui-chat-transcript smithers-transcript" data-slot="chat-transcript"
             data-repository-missing={repositoryNotice || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
-          <MessageScrollerProvider key={`${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`} scrollAnchor="bottom"
+          <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
             readAnchor={{ messageId: latestReadId ?? "",
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
@@ -587,6 +590,7 @@ function AppContent() {
               {entry.kind === "subagents" ?
                 <SubagentBatch onRunCommand={controller.runCommand} items={entry.subagents.map(each => ({ id: each.id, color: each.color, subagent: each.subagent, ...agentDoors(each.card) }))} /> :
               entry.kind === "finished" ? <SubagentFinished subagent={entry.subagent.subagent} color={entry.subagent.color} /> :
+              entry.kind === "earlier" ? <SubagentEarlier batches={entry.batches} onOpen={() => setEarlierOpenFor(transcriptKey)} /> :
               entry.kind === "card" ?
                 (
                   <CardView

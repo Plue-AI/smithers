@@ -346,3 +346,44 @@ test("subagents are one card grid in the transcript, opened, filtered and left b
   await settle(3)
   expect(store.session().chatFilterMenuOpen).toBe(false)
 })
+
+test("subagent batches beyond the newest ten fold into one native button row that opens on activation (#3033)", async () => {
+  const batches = async (count: number) => {
+    const { store, controller } = await harness()
+    for (let index = 0; index < count; index++) {
+      await store.dispatch({ type: "message.appended", actor: "user", text: `ask ${index}` }).isPersisted.promise
+      const ordinal = Math.max(...[...store.collections.messages.values()].map(message => message.ordinal)) + 1
+      await store.dispatch({ type: "card.upsert", actor: "system", card: {
+        id: `agent-batch-${index}`, kind: "agent", title: `Batch ${index}`, status: "active", createdAt: 1000 + index, ordinal,
+        payload: { cloud: true, displayName: `Batch ${index}`, sessionId: `agent-batch-${index}`, repo: "owner/repo",
+          provider: "codex", workspaceId: null, state: "completed", transcript: [] }
+      } }).isPersisted.promise
+    }
+    return mount(controller)
+  }
+  const ids = (view: Mount) => [...view.host.querySelectorAll("[data-testid^=subagent-agent-batch-]")]
+    .map(card => card.getAttribute("data-testid"))
+
+  const ten = await batches(10)
+  expect(ten.host.querySelectorAll(".subagent-batch")).toHaveLength(10)
+  expect(ten.host.querySelector(".subagent-earlier-batches")).toBeNull()
+  mounted.pop()?.()
+
+  const view = await batches(11)
+  expect(view.host.querySelectorAll(".subagent-batch")).toHaveLength(10)
+  expect(ids(view)[0]).toBe("subagent-agent-batch-1")
+  expect(view.host.querySelectorAll(".subagent-finished")).toHaveLength(10)
+  const row = view.host.querySelector<HTMLButtonElement>(".subagent-earlier-batches")!
+  expect(row.textContent).toBe("1 earlier subagent batch")
+  expect(row.getAttribute("aria-expanded")).toBe("false")
+  // Messages between batches never fold.
+  expect(view.host.textContent).toContain("ask 0")
+  expect(row.tagName).toBe("BUTTON")
+  await view.act(() => row.focus())
+  expect(document.activeElement).toBe(row)
+  await view.act(() => row.click())
+  expect(view.host.querySelector(".subagent-earlier-batches")).toBeNull()
+  expect(view.host.querySelectorAll(".subagent-batch")).toHaveLength(11)
+  expect(ids(view)[0]).toBe("subagent-agent-batch-0")
+  expect(view.host.querySelectorAll(".subagent-finished")).toHaveLength(11)
+})

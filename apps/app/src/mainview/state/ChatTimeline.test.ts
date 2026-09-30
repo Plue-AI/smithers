@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { active, all, entryId, merge, subagentsFromCards, text, toggle, type MainEntry } from "./ChatTimeline"
+import { active, all, EARLIER_ID, entryId, fold, merge, subagentsFromCards, text, toggle, type MainEntry } from "./ChatTimeline"
 import type { Card } from "./AppState"
 import { initMessage } from "../Onboarding"
 
@@ -95,5 +95,46 @@ describe("chat timeline", () => {
     const before = structuredClone(cards)
     expect(subagentsFromCards(cards).map(each => [each.id, each.color])).toEqual([["a", 0], ["b", 1], ["c", 2], ["d", 3], ["e", 4], ["f", 5], ["g", 0]])
     expect(cards).toEqual(before)
+  })
+})
+
+describe("folding earlier subagent batches (#3033)", () => {
+  /** `count` batches, each after its own message; every other one settled so it has a finished row. */
+  const transcript = (count: number) => {
+    const main: Array<MainEntry> = []
+    const agents: Array<CloudCard> = []
+    for (let index = 0; index < count; index++) {
+      const agent = cloud(`a${index}`, index * 10 + 5, index % 2 === 0 ? "completed" : "active")
+      agents.push(agent)
+      main.push(message(`m${index}`, index * 10), card(agent))
+    }
+    return merge(main, subagentsFromCards(agents))
+  }
+
+  test("ten batches show in full", () => {
+    const rows = transcript(10)
+    expect(fold(rows, false)).toBe(rows)
+  })
+
+  test("the eleventh folds the oldest batch and its finished row into one row where it stood", () => {
+    const rows = transcript(11)
+    const folded = fold(rows, false)
+    expect(keys(folded).slice(0, 4)).toEqual(["m0", EARLIER_ID, "m1", "subagents:a1"])
+    expect(folded[1]).toEqual({ kind: "earlier", id: EARLIER_ID, batches: 1 })
+    expect(keys(folded)).not.toContain("finished:a0")
+    expect(keys(folded)).toContain("finished:a2")
+    expect(folded.filter(entry => entry.kind === "subagents")).toHaveLength(10)
+    expect(text(folded[1]!)).toBe("")
+  })
+
+  test("several folded batches become one row counting them, messages between them kept", () => {
+    const folded = fold(transcript(13), false)
+    expect(folded.filter(entry => entry.kind === "earlier")).toEqual([{ kind: "earlier", id: EARLIER_ID, batches: 3 }])
+    expect(keys(folded).slice(0, 5)).toEqual(["m0", EARLIER_ID, "m1", "m2", "m3"])
+  })
+
+  test("an open row shows every batch where it stood", () => {
+    const rows = transcript(13)
+    expect(fold(rows, true)).toBe(rows)
   })
 })

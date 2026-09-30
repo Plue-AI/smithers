@@ -1,4 +1,4 @@
-import type { Subagent } from "@smthrs/rpc/SubagentCard"
+import { earlierBatches, type Subagent } from "@smthrs/rpc/SubagentCard"
 import { live } from "@smthrs/rpc/WorkerControls"
 import type { Card, Message } from "./AppState"
 import type { InitMessage } from "../Onboarding"
@@ -41,6 +41,8 @@ export type TimelineEntry =
   | { readonly kind: "subagents"; readonly id: string; readonly subagents: ReadonlyArray<ChatSubagent> }
   /** `◉ {title} finished`, under the grid the subagent settled in. */
   | { readonly kind: "finished"; readonly id: string; readonly subagent: ChatSubagent }
+  /** The batches before the newest ten, folded into one row where the oldest stood. */
+  | { readonly kind: "earlier"; readonly id: string; readonly batches: number }
 
 /** Lane colors in creation order, so the first six subagents never share one. */
 export const LANE_COLORS = 6
@@ -56,12 +58,13 @@ const subagentText = (subagent: Subagent): string =>
 
 export const text = (entry: TimelineEntry): string =>
   entry.kind === "subagents" ? entry.subagents.map(each => subagentText(each.subagent)).join("\n")
+    : entry.kind === "earlier" ? ""
     : entry.kind === "finished" ? entry.subagent.subagent.title
     : entry.kind === "card" ? `${entry.card.title}\n${entry.card.body ?? ""}` : entry.message.text ?? ""
 
 /** The id a transcript row scrolls and reads by. */
 export const entryId = (entry: TimelineEntry): string =>
-  entry.kind === "subagents" || entry.kind === "finished" ? entry.id : entry.kind === "card" ? entry.card.id : entry.message.id
+  entry.kind === "subagents" || entry.kind === "finished" || entry.kind === "earlier" ? entry.id : entry.kind === "card" ? entry.card.id : entry.message.id
 
 /**
  * The transcript in order, with each run of adjacent subagent cards folded
@@ -92,4 +95,20 @@ export const merge = (main: ReadonlyArray<MainEntry>, subagents: ReadonlyArray<C
   }
   flush()
   return out
+}
+
+/** The folded row's id. */
+export const EARLIER_ID = "subagents:earlier"
+
+/**
+ * The transcript with every subagent batch before the newest ten folded into
+ * one row at the oldest one's place, their finished rows with them. `open`
+ * shows every batch where it stood.
+ */
+export const fold = (entries: ReadonlyArray<TimelineEntry>, open: boolean): ReadonlyArray<TimelineEntry> => {
+  const folded = earlierBatches(entries.filter(entry => entry.kind === "subagents"), open)
+  if (folded.length === 0) return entries
+  const hidden = new Set(folded.flatMap(batch => [batch.id, ...batch.subagents.map(each => `finished:${each.id}`)]))
+  const row: TimelineEntry = { kind: "earlier", id: EARLIER_ID, batches: folded.length }
+  return entries.flatMap(entry => entry === folded[0] ? [row] : hidden.has(entryId(entry)) ? [] : [entry])
 }

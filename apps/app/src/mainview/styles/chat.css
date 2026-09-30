@@ -77,6 +77,8 @@
 .subagent-card:is(:hover, :focus-within) .subagent-stop { display: block; }
 :is(.subagent-stop, .subagent-files, .subagent-back):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .subagent-finished { margin: 8px 0; }
+.subagent-earlier-batches { margin: 14px 0 8px; padding: 0; border: 0; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
+.subagent-earlier-batches:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .subagent-crumb { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 16px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-small); }
 .subagent-crumb-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-crumb-rail { color: var(--lane-color); font-weight: 700; }
