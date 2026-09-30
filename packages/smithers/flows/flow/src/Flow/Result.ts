@@ -186,6 +186,27 @@ export class Suspended extends Schema.Class<Suspended>(
 }
 
 /**
+ * The deadline a trampoline lineage's rounds share: the journaled first start
+ * of its originating round and the bound in milliseconds, so every round
+ * expires at `startedAtMs + deadlineMs`.
+ *
+ * @category results
+ * @since 1.0.0
+ */
+export const LineageDeadline = Schema.Struct({
+  startedAtMs: Schema.Number,
+  deadlineMs: Schema.Number
+})
+
+/**
+ * The deadline a trampoline lineage's rounds share.
+ *
+ * @category results
+ * @since 1.0.0
+ */
+export type LineageDeadline = typeof LineageDeadline.Type
+
+/**
  * Represents a flow round that ended by handing off to the next round of its
  * trampoline lineage.
  *
@@ -215,7 +236,12 @@ export class Handoff extends Schema.Class<Handoff>(
   _tag: Schema.tag("Handoff"),
   flow: Schema.NonEmptyString,
   capabilityCeilings: Schema.optionalKey(Schema.Array(Schema.Array(CapabilityPattern))),
-  payload: Schema.Unknown
+  payload: Schema.Unknown,
+  /**
+   * The lineage deadline the next round runs under, stamped by the round
+   * that handed off when its lineage is bounded (`Deadline.bound`).
+   */
+  deadline: Schema.optionalKey(LineageDeadline)
 }) {
   /**
    * Marks this value as a flow result for runtime guards.

@@ -16,6 +16,7 @@ export * as Action from "./Action/index.ts"
  *
  * @since 0.1.0
  */
+export * as Deadline from "./Deadline.ts"
 export * as DurableClock from "./DurableClock.ts"
 
 /**

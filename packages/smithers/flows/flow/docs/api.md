@@ -153,6 +153,7 @@ Sealed idempotency identity has two forms. A string is namespaced by the action 
 | `DurableDeferred` | `make`, `await`, `into`, `raceAll`, branded token parsing and creation, and `done`, `succeed`, `fail`, `failCause` completion |
 | `DurableClock`    | `make({ name, duration })` and `sleep({ name, duration, inMemoryThreshold? })`                                                |
 | `DurableQueue`    | `make`, `process`, `makeWorker`, and `worker` over Effect's `PersistedQueue`                                                  |
+| `Deadline`        | `start`, `within`, and `bound`: the run deadline `Flow.make` applies, for a host that bounds a run by an approved deadline    |
 
 A deferred token encodes the flow name, the execution id, and the deferred name, so another process can complete the correct durable address. `TokenInvalid` is the typed failure every completion surface returns for a token that does not parse or that names a different deferred than the one it was submitted through. Completing a deferred is first-writer-wins: the first recorded exit is the one every later read replays.
 

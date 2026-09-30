@@ -24,15 +24,16 @@ The `exports` map declares these subpaths:
 | `@smthrs/flow/StepIdentity`     | `src/Action/StepIdentity.ts`     | any      |
 | `@smthrs/flow/<Module>`         | `src/<Module>.ts`                | any      |
 
-`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
+`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `Deadline`, `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
 
 ## Namespaces
 
-The package index re-exports sixteen namespaces:
+The package index re-exports seventeen namespaces:
 
 | Namespace         | Summary                                                              |
 | ----------------- | -------------------------------------------------------------------- |
 | `Action`          | Durable action definitions and combinators.                          |
+| `Deadline`        | The wall-clock bound one run settles by, shared across its rounds.   |
 | `DurableClock`    | Durable clock and timer services.                                    |
 | `DurableDeferred` | Durable deferred values.                                             |
 | `DurableQueue`    | Durable queues.                                                      |
@@ -317,6 +318,36 @@ Derives an invocation key from engine-generated input.
 - **Since:** `0.1.0`
 
 A directory output captured and replayed as one tree artifact.
+
+## Deadline
+
+### `Deadline.start`
+
+- **Signature:** `start(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): Effect.Effect<LineageDeadline | undefined, never, FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+Starts the current execution's deadline: the lineage deadline the round inherited from a handoff, or `deadline` counted from the execution's journaled first start (or from `startedAtMs`, when the host holds a durable start of its own), with a durable clock armed at it. Answers `undefined` when neither applies. Dies with a `RangeError` when `deadline` is not a positive finite duration. Start at most one deadline per execution.
+
+### `Deadline.remainingMs`
+
+- **Signature:** `remainingMs(deadline: LineageDeadline): Effect.Effect<number>`
+- **Since:** `1.0.0`
+
+The whole milliseconds left before the deadline passes; zero or less once it has.
+
+### `Deadline.within`
+
+- **Signature:** `within(deadline: LineageDeadline | undefined, flowName: string): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowInstance>`
+- **Since:** `1.0.0`
+
+Races `body` against a started deadline and settles it with `Flow.DeadlineExceeded` at the deadline, at once when it has already passed. A round that hands off stamps the deadline on its `Flow.Handoff`. `undefined` runs `body` unbounded.
+
+### `Deadline.bound`
+
+- **Signature:** `bound(options: { readonly flowName: string; readonly deadline?: Duration.Input | undefined; readonly startedAtMs?: number | undefined }): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | FlowRuntime | FlowInstance | Crypto.Crypto>`
+- **Since:** `1.0.0`
+
+`start`, then `within`. The engine applies it to every execution of a flow that declares `deadline`.
 
 ## DurableClock
 
@@ -820,10 +851,17 @@ A flow execution that parked on a durable wait. The optional `cause` carries wha
 
 ### `Flow.Handoff`
 
-- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, and `payload: Unknown`
+- **Type:** `Schema.Class` keyed `"@smthrs/flow/Flow/Handoff"` with fields `_tag: "Handoff"`, `flow: NonEmptyString`, optional `capabilityCeilings`, `payload: Unknown`, and optional `deadline: LineageDeadline`
 - **Since:** `0.1.0`
 
-A round that ended by handing off to the next round of its trampoline lineage.
+A round that ended by handing off to the next round of its trampoline lineage. `deadline` is the lineage deadline the next round runs under, stamped by a bounded round.
+
+### `Flow.LineageDeadline`
+
+- **Type:** `Schema.Struct({ startedAtMs: Number, deadlineMs: Number })`
+- **Since:** `1.0.0`
+
+The deadline a trampoline lineage's rounds share: the originating round's journaled first start and its bound, so every round expires at `startedAtMs + deadlineMs`.
 
 ### `Flow.intoResult`
 
@@ -902,7 +940,7 @@ Executing a flow would close a cycle in the persisted parent-execution chain. `p
 - **Type:** `Context.Service` keyed `"@smthrs/flow/FlowRuntime/FlowInstance"`
 - **Since:** `0.1.0`
 
-One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
+One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only when the flow completes, the mutable `suspended`, `interrupted`, `waiting`, `handoff`, and `cause` fields, the optional `lineageDeadline` a round after a handoff inherited, and `actionState`. This package declares the contract; a runtime constructs the value. A completion wakes a parked run through `FlowRuntime.resume`.
 
 ### `FlowRuntime.DeferredDoneIfWaitingOutcome`
 

@@ -108,6 +108,13 @@ export interface Encoded {
         readonly previousExecutionId?: string | undefined
       }
       /**
+       * The lineage deadline a round after a handoff runs under: the one the
+       * handing-off round stamped on its `Flow.Handoff`. Memory adapters give
+       * it to the round's `FlowInstance`; durable adapters persist it with
+       * the round they open at the handoff and ignore it here.
+       */
+      readonly lineageDeadline?: Flow.LineageDeadline | undefined
+      /**
        * Follows a round scheduled by admission, handoff, wake, or an elapsed
        * poll's `resume`. The implementation must still admit or verify the
        * round, including on this caller's first dispatch after a handoff.

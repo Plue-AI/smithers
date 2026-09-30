@@ -10,11 +10,8 @@
  * @since 0.1.0
  */
 
-import { Action, DurableClock, type DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
-import * as Clock from "effect/Clock"
+import { Deadline, type DurableClock, type DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import * as Context from "effect/Context"
-import type * as Crypto from "effect/Crypto"
-import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
@@ -25,61 +22,6 @@ import { makeActionExecute, resetActionContext } from "./Dispatch.ts"
 import type { Encoded } from "./Encoded.ts"
 import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
-
-/**
- * The execution's first start, journaled once.
- *
- * A sealed action's result is recorded with its attempt and replayed on every
- * later drive, so the origin a deadline counts from is the time the execution
- * first ran, on this engine or on the one that resumes it after a restart.
- */
-const deadlineOrigin = Action.make({
-  name: "@smthrs/engine/deadline-origin",
-  tier: "sealed",
-  success: Schema.Number,
-  execute: Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
-})
-
-/**
- * Bounds one execution of a flow that declares a `deadline`.
- *
- * Two things enforce the one bound. A durable clock due at the deadline wakes
- * a parked execution so it is driven again, and a drive that starts at or past
- * the deadline settles at once. A drive that starts before it races the body
- * against the time remaining in this fiber, so a running execution is stopped
- * too. Both settle with the same `DeadlineExceeded` defect. The race is
- * `raceFirst`: a body that parks exits first, so parking still parks.
- */
-const withDeadline = <A, E, R>(
-  flow: Flow.Any,
-  body: Effect.Effect<A, E, R>
-): Effect.Effect<A, E, R | FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance | Crypto.Crypto> => {
-  const deadline = flow.deadline
-  if (deadline === undefined) return body
-  return Effect.gen(function*() {
-    const instance = yield* FlowRuntime.FlowInstance
-    const startedAtMs = yield* deadlineOrigin
-    const deadlineMs = Duration.toMillis(deadline)
-    const expired = new Flow.DeadlineExceeded({
-      flowName: flow._tag,
-      executionId: instance.executionId,
-      deadlineMs,
-      startedAtMs,
-      message: `${flow._tag} execution ${instance.executionId} ran past its ${deadlineMs} ms deadline, ` +
-        `counted from its start at ${new Date(startedAtMs).toISOString()}`
-    })
-    // Whole milliseconds, as the durable clock row stores its due time.
-    const remaining = Math.ceil(startedAtMs + deadlineMs - (yield* Clock.currentTimeMillis))
-    if (remaining <= 0) return yield* Effect.die(expired)
-    // The clock keeps the due time it was first armed with, so re-arming it
-    // on every drive is idempotent.
-    yield* (yield* FlowRuntime.FlowRuntime).scheduleClock(flow, {
-      executionId: instance.executionId,
-      clock: DurableClock.make({ name: "@smthrs/engine/deadline", duration: remaining })
-    })
-    return yield* Effect.raceFirst(body, Effect.andThen(Effect.sleep(remaining), Effect.die(expired)))
-  })
-}
 
 /**
  * Builds a typed `FlowRuntime` service from a low-level encoded
@@ -120,10 +62,11 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
           if (entries.length === 0) declarations.delete(flow._tag)
         })
       )
+      const bounded = Deadline.bound({ flowName: flow._tag, deadline: flow.deadline })
       yield* options.register(
         flow,
         (payload, executionId) =>
-          Effect.matchEffect(Effect.suspend(() => withDeadline(flow, execute(payload, executionId))), {
+          Effect.matchEffect(Effect.suspend(() => bounded(execute(payload, executionId))), {
             onFailure: (error) =>
               Effect.matchEffect(flow.errorSchema.makeEffect(error), {
                 // A body failure outside the flow's declared error schema is a

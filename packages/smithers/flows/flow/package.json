@@ -47,6 +47,7 @@
     "./StepIdentity": "./src/Action/StepIdentity.ts",
     "./internal/*": null,
     "./*/index": null,
+    "./Deadline": "./src/Deadline.ts",
     "./DurableClock": "./src/DurableClock.ts",
     "./DurableDeferred": "./src/DurableDeferred.ts",
     "./DurableQueue": "./src/DurableQueue.ts",
@@ -164,6 +165,16 @@
       },
       "./internal/*": null,
       "./*/index": null,
+      "./Deadline": {
+        "import": {
+          "types": "./dist/esm/Deadline.d.ts",
+          "default": "./dist/esm/Deadline.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Deadline.d.ts",
+          "default": "./dist/cjs/Deadline.js"
+        }
+      },
       "./DurableClock": {
         "import": {
           "types": "./dist/esm/DurableClock.d.ts",

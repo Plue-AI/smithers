@@ -96,6 +96,13 @@ export class FlowInstance extends Context.Service<
     handoff: Flow.Handoff | undefined
 
     /**
+     * The lineage deadline this round inherited from the round that handed
+     * off to it, when its lineage is bounded. `Deadline.bound` runs the round
+     * under it instead of starting a deadline of its own.
+     */
+    readonly lineageDeadline?: Flow.LineageDeadline | undefined
+
+    /**
      * When SuspendOnFailure is triggered, the cause of the failure is stored
      * here.
      */

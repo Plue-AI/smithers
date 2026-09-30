@@ -26,7 +26,8 @@ import * as Lineage from "./Lineage.ts"
  */
 export const makeInstance = (
   flow: Flow.Any,
-  executionId: string
+  executionId: string,
+  lineageDeadline?: Flow.LineageDeadline | undefined
 ): FlowRuntime.FlowInstance["Service"] & { readonly lineageId: Lineage.JournalLineageId } => {
   // Ordinals are counted per allocation scope, not per run: the engine
   // scopes action dispatches by declaration identity and an optional
@@ -41,6 +42,7 @@ export const makeInstance = (
     // journal, so nesting is a lineage EDGE rather than a longer id here.
     lineageId: Lineage.root(executionId),
     flow,
+    ...(lineageDeadline === undefined ? {} : { lineageDeadline }),
     scope: Scope.makeUnsafe(),
     suspended: false,
     interrupted: false,

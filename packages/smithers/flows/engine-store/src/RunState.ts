@@ -14,6 +14,7 @@
  */
 
 import { CapabilityPattern } from "@smthrs/capability/Capability"
+import { Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
 /** @private */
@@ -69,6 +70,9 @@ export const RunState = Schema.Struct({
   parentExecutionId: Schema.optionalKey(Schema.NonEmptyString),
   onParentExit: Schema.optionalKey(OnParentExit),
   maxRounds: Schema.optionalKey(PositiveSafeInt),
+  // The lineage deadline a round after a handoff runs under, copied from the
+  // `Flow.Handoff` that opened it.
+  deadline: Schema.optionalKey(Flow.LineageDeadline),
   result: Schema.optionalKey(Schema.Unknown),
   cancellation: Schema.optionalKey(Schema.Struct({
     interruptedAtMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))

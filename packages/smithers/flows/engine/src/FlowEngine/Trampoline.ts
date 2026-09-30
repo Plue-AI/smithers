@@ -86,6 +86,8 @@ interface LineageRound {
   readonly executionId: string
   readonly payload: object
   readonly round: Round.Round
+  /** The lineage deadline the previous round stamped on its handoff. */
+  readonly deadline?: Flow.LineageDeadline | undefined
 }
 
 /**
@@ -181,6 +183,7 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         round: previousExecutionId === undefined
           ? step.round
           : { ...step.round, previousExecutionId },
+        ...(step.deadline === undefined ? {} : { lineageDeadline: step.deadline }),
         ...(follow ? { follow } : {})
       }).pipe(CapabilitySet.attenuateGroups(capabilityCeilings)) as Effect.Effect<
         Flow.Result<Success["Type"], Error["Type"]>
@@ -248,7 +251,8 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
             flow: target,
             executionId: advanced.executionId,
             payload: decoded,
-            round: advanced.round
+            round: advanced.round,
+            ...(wrapped.deadline === undefined ? {} : { deadline: wrapped.deadline })
           }
           // Durable handoff already admitted and scheduled the successor. Join
           // its drive so a successor that parked before this follower arrived
