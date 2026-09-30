@@ -5,14 +5,29 @@
  */
 import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import { Effect } from "effect"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as NodeControl from "../src/NodeControl.ts"
 import * as Providers from "../src/Providers.ts"
 
-const session = JSON.stringify({ tokens: { access_token: "a", refresh_token: "r", account_id: "acct" } })
+/**
+ * A PATH holding only a fake `codex` whose `login status` answers as given, so
+ * the seat scan never runs the host's real binary or reads its login.
+ */
+const fakeCodex = (status: "signed-in" | "signed-out"): string => {
+  const directory = mkdtempSync(join(tmpdir(), "seat-catalog-codex-"))
+  const file = join(directory, "codex")
+  writeFileSync(
+    file,
+    status === "signed-in"
+      ? "#!/bin/sh\necho 'Logged in using ChatGPT'\n"
+      : "#!/bin/sh\necho 'Not logged in' >&2\nexit 1\n"
+  )
+  chmodSync(file, 0o755)
+  return directory
+}
 
 const ids = (
   environment: Readonly<Record<string, string | undefined>>,
@@ -42,13 +57,14 @@ describe("NodeControl.seatCandidates", () => {
   })
 
   it("offers the OpenAI aliases for the Codex subscription the resolver signs with", async () => {
-    const auth = join("/codex", "auth.json")
-    expect(await ids({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([
-      "luna",
-      "sol"
-    ])
+    const signedIn = { PATH: fakeCodex("signed-in"), CODEX_HOME: "/codex" }
+    expect(await ids({ ...signedIn, SMITHERS_OPENAI_AUTH: "chatgpt" })).toEqual(["luna", "sol"])
     // Without the mode the resolver signs `openai:` seats with OPENAI_API_KEY.
-    expect(await ids({ CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([])
+    expect(await ids(signedIn)).toEqual([])
+    // A Codex that reports no ChatGPT login, or no Codex at all, offers nothing.
+    expect(await ids({ PATH: fakeCodex("signed-out"), CODEX_HOME: "/codex", SMITHERS_OPENAI_AUTH: "chatgpt" }))
+      .toEqual([])
+    expect(await ids({ PATH: "", CODEX_HOME: "/codex", SMITHERS_OPENAI_AUTH: "chatgpt" })).toEqual([])
   })
 
   it("offers a provider's aliases through an account pool configured for its route, only with the pool credential", async () => {
@@ -108,13 +124,17 @@ describe("NodeControl.layerSeatCatalog", () => {
       }).pipe(Effect.provide(NodeControl.layerSeatCatalog(environment)))
     )
 
-  it("reads the Codex session from the file system, with the default variants", async () => {
+  it("reads the Codex login status, with the default variants", async () => {
     const home = mkdtempSync(join(tmpdir(), "seat-catalog-"))
-    const missing = await read({ SMITHERS_OPENAI_AUTH: "api-key", CODEX_HOME: home, ANTHROPIC_API_KEY: "a" })
+    const missing = await read({
+      SMITHERS_OPENAI_AUTH: "api-key",
+      CODEX_HOME: home,
+      ANTHROPIC_API_KEY: "a",
+      PATH: fakeCodex("signed-out")
+    })
     expect(missing.candidates).toEqual(["opus", "fable", "sonnet"])
     expect(missing.variants).toBe(SeatRouter.defaultVariants)
-    writeFileSync(join(home, "auth.json"), session)
-    const signed = await read({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: home })
+    const signed = await read({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: home, PATH: fakeCodex("signed-in") })
     expect(signed.candidates).toEqual(["luna", "sol"])
   })
 })
