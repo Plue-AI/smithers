@@ -20,7 +20,7 @@
  */
 
 import * as AgentSession from "@smthrs/agent/AgentSession"
-import { ControlSchema } from "@smthrs/control"
+import { ControlFacts, ControlSchema } from "@smthrs/control"
 import {
   asNumber,
   asRecord,
@@ -35,6 +35,7 @@ import {
   usd
 } from "@smthrs/gateway/Diagnosis"
 import { type RunMemory, runMemoryOf } from "@smthrs/gateway/RunTrace"
+import * as Schema from "effect/Schema"
 import { causeLine, terminalSafe } from "./internal/Failure.ts"
 
 /**
@@ -91,6 +92,12 @@ export interface Digest {
   readonly parkedQuestion: string | undefined
   /** The serialized approval payload that unblocks a parked run. */
   readonly parkedApproval: string | undefined
+  /**
+   * The facts a runaway guard parked the run on (`RunawayGuard.incident`),
+   * while its request is undecided: approving it is Continue, cancelling the
+   * run is Stop.
+   */
+  readonly parkedIncident?: typeof ControlFacts.GuardIncident.Type | undefined
   readonly startedAt: number | undefined
   readonly endedAt: number | undefined
   /**
@@ -110,6 +117,8 @@ export interface Digest {
  * carry, so this fold keeps it and nothing else.
  */
 const cardStatuses: ReadonlySet<string> = new Set([...ControlSchema.RunStatus.literals, "pending"])
+
+const isIncident = Schema.is(ControlFacts.GuardIncident)
 
 const compact = (value: unknown, width: number): string => {
   const rendered = typeof value === "string" ? value : JSON.stringify(value) ?? String(value)
@@ -147,6 +156,9 @@ export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?
   let status: string | undefined
   let duplicateCalls = 0
   let parkedApproval: string | undefined
+  let parkedIncident:
+    | { readonly requestId: unknown; readonly facts: typeof ControlFacts.GuardIncident.Type }
+    | undefined
   const flowCounts = new Map<string, number>()
   const seen = new Map<string, number>()
 
@@ -164,6 +176,17 @@ export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?
     if (event.kind === "control.approval.requested") {
       const approval = payload.payload
       parkedApproval = approval === undefined ? undefined : JSON.stringify(approval)
+      parkedIncident = isIncident(payload.incident)
+        ? { requestId: payload.requestId, facts: payload.incident }
+        : undefined
+      continue
+    }
+    if (event.kind === "control.approval.approved" || event.kind === "control.approval.denied") {
+      // A decided request no longer holds the run: its incident is settled.
+      const target = asRecord(payload.approvalTarget)
+      if (parkedIncident !== undefined && [payload.tokenId, target.requestId].includes(parkedIncident.requestId)) {
+        parkedIncident = undefined
+      }
       continue
     }
     if (!event.kind.startsWith("control.run.")) continue
@@ -178,6 +201,7 @@ export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?
     duplicateCalls,
     flows: [...flowCounts.entries()].sort((left, right) => right[1] - left[1]),
     parkedApproval,
+    ...(parkedIncident === undefined ? {} : { parkedIncident: parkedIncident.facts }),
     ...(memory === undefined ? {} : { memory })
   }
 }
@@ -316,7 +340,27 @@ export const renderDiagnosis = (
       : `resume needs ${shellCommand("smthrs", "runs", "resume", runId, "--allow-code-drift")}`
     lines.push(`${label("Drift")}${changes.join(", ")}    # ${next}`)
   }
-  if (d.parkedApproval !== undefined) {
+  const incident = d.parkedIncident
+  if (incident !== undefined) {
+    // The guard's own facts, then its two ways out: Continue answers the
+    // request with the recorded allowance, Stop ends the run.
+    const facts = (["used", "reserved", "max", "next", "allowance"] as const).flatMap((key) =>
+      incident[key] === undefined ? [] : [`${key} ${incident[key]}`]
+    )
+    lines.push(
+      `${label(incident.classification)}${
+        [incident.source, ...facts, clip(terminalSafe(firstLine(incident.message)), 120)].join(" · ")
+      }`
+    )
+    if (d.parkedApproval !== undefined) {
+      lines.push(
+        `${label("Continue")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${
+          shellCommand("smthrs", "runs", "resume", runId)
+        }`
+      )
+    }
+    lines.push(`${label("Stop")}${shellCommand("smthrs", "runs", "cancel", runId)}`)
+  } else if (d.parkedApproval !== undefined) {
     lines.push(
       `${label("Unblock")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${
         shellCommand("smthrs", "runs", "resume", runId)

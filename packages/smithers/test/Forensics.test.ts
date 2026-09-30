@@ -959,3 +959,107 @@ describe("Forensics.digest foreign run verdicts", () => {
     expect(d.status).toBe("failed")
   })
 })
+
+describe("Forensics runaway incidents", () => {
+  const runaway = {
+    classification: "Runaway",
+    source: "usd",
+    message: "The run would spend past its $1.00 budget",
+    used: 0.9,
+    reserved: 0.1,
+    max: 1,
+    next: 0.25,
+    allowance: 2
+  }
+  const parked = (incident: unknown, requestId = "req-1") =>
+    event("control.approval.requested", { requestId, question: "Raise the budget?", payload: { k: 1 }, incident }, 1)
+  const waiting = event("control.run.waiting-approval", { runId: "run-1", status: "waiting-approval" }, 2)
+  const line = (card: string, name: string): string => {
+    const found = card.split("\n").find((each) => each.startsWith(name.padEnd(10)))
+    if (found === undefined) throw new Error(`the card has no ${name} line:\n${card}`)
+    return found.slice(10)
+  }
+
+  it("keeps the guard's facts while its request is undecided, and drops them once it is decided", () => {
+    expect(Forensics.digest([parked(runaway), waiting], "run-1").parkedIncident).toEqual(runaway)
+    for (const decided of ["control.approval.approved", "control.approval.denied"]) {
+      expect(Forensics.digest([parked(runaway), event(decided, { tokenId: "req-1" }, 3)]).parkedIncident)
+        .toBeUndefined()
+      expect(
+        Forensics.digest([parked(runaway), event(decided, { approvalTarget: { requestId: "req-1" } }, 3)])
+          .parkedIncident
+      ).toBeUndefined()
+    }
+    // A decision on another request leaves this incident open; a later park replaces it.
+    expect(
+      Forensics.digest([parked(runaway), event("control.approval.approved", { tokenId: "other" }, 3)]).parkedIncident
+    )
+      .toEqual(runaway)
+    const stuck = { classification: "Stuck", source: "tool-call", message: "coding/PreparePlan ran past 60000ms" }
+    expect(Forensics.digest([parked(runaway), parked(stuck, "req-2")]).parkedIncident).toEqual(stuck)
+    // A park no guard made, or malformed facts, carries no incident.
+    expect(Forensics.digest([parked(runaway), parked(undefined, "req-2")]).parkedIncident).toBeUndefined()
+    expect(Forensics.digest([parked({ ...runaway, classification: "Other" })]).parkedIncident).toBeUndefined()
+    expect(Forensics.digest([parked({ ...runaway, used: "lots" })]).parkedIncident).toBeUndefined()
+  })
+
+  it("prints the incident's facts and the Continue and Stop commands in place of Unblock", () => {
+    const card = Forensics.renderDiagnosis({ runId: "run-1" }, Forensics.digest([parked(runaway), waiting], "run-1"))
+    expect(line(card, "Runaway")).toBe(
+      "usd · used 0.9 · reserved 0.1 · max 1 · next 0.25 · allowance 2 · The run would spend past its $1.00 budget"
+    )
+    expect(line(card, "Continue")).toBe(
+      `smthrs approvals approve '{"k":1}' --scope run && smthrs runs resume run-1`
+    )
+    expect(line(card, "Stop")).toBe("smthrs runs cancel run-1")
+    expect(card).not.toContain("Unblock")
+    const stuck = Forensics.renderDiagnosis(
+      { runId: "run-1" },
+      Forensics.digest([
+        parked({ classification: "Stuck", source: "cell", message: "a cell ran\npast its limit", subject: "c1" }),
+        waiting
+      ])
+    )
+    expect(line(stuck, "Stuck")).toBe("cell · a cell ran")
+    // Without a payload to approve there is no Continue, only Stop.
+    const unanswerable = Forensics.renderDiagnosis({ runId: "run-1" }, {
+      ...Forensics.digest([]),
+      parkedIncident: runaway as Forensics.Digest["parkedIncident"]
+    })
+    expect(unanswerable).not.toContain("Continue")
+    expect(line(unanswerable, "Stop")).toBe("smthrs runs cancel run-1")
+    // Once decided, the card falls back to what the run is doing now.
+    const decided = Forensics.renderDiagnosis(
+      { runId: "run-1" },
+      Forensics.digest([parked(runaway), waiting, event("control.approval.approved", { tokenId: "req-1" }, 3)])
+    )
+    expect(decided).not.toContain("Runaway")
+    expect(decided).not.toContain("Stop      ")
+  })
+
+  it("runs Continue and Stop as the exact argv of real commands, however hostile the run id", () => {
+    const runId = "run-'id\n$(printf changed)\n`printf changed`"
+    const d: Forensics.Digest = {
+      ...Forensics.digest([]),
+      status: "waiting-approval",
+      parkedApproval: "{\"k\":\"it's\"}",
+      parkedIncident: runaway as Forensics.Digest["parkedIncident"]
+    }
+    const card = Forensics.renderDiagnosis({ runId }, d)
+    // Each line ends where the next label starts; the id's own newlines are inside its quotes.
+    const between = (name: string, next: string) =>
+      card.slice(card.indexOf(name.padEnd(10)) + 10, card.indexOf(`\n${next.padEnd(10)}`))
+    expect(recordArguments(between("Continue", "Stop"))).toEqual([
+      ["approvals", "approve", "{\"k\":\"it's\"}", "--scope", "run"],
+      ["runs", "resume", runId]
+    ])
+    expect(recordArguments(between("Stop", "Next"))).toEqual([["runs", "cancel", runId]])
+    // Both verbs are commands the CLI registers.
+    const registered = new Set(
+      (JSON.parse(readFileSync(join(import.meta.dirname, "../../../apps/site/src/data/cli-commands.json"), "utf8")) as {
+        commands: ReadonlyArray<{ name: string }>
+      }).commands.map((command) => command.name)
+    )
+    for (const verb of ["approvals approve", "runs resume", "runs cancel"]) expect(registered.has(verb)).toBe(true)
+  })
+})
