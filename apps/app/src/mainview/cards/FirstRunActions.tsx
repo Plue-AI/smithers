@@ -6,7 +6,7 @@ import { repositoryFlowName } from "../flows/entries/flow"
 import { unmetRequirements,visible,type CatalogItem,type CommandState } from "../flows/registry"
 import { accountOwnerOf } from "../state/AccountOwner"
 import { activeCatalogRepositoryId, activeRepositoryId } from "../state/RepoContext"
-import { repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
 import type { RepositoryFlow } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import "./FirstRunActions.css"
@@ -61,12 +61,13 @@ const JobPicture = ({ flow }: { flow: string }) => {
   return picture === undefined ? null : <svg className="first-run-picture" viewBox="0 0 100 60" aria-hidden="true" dangerouslySetInnerHTML={{ __html: picture }} />
 }
 
-export function FirstRunActionsCard({ commands, state, repo, featuredFlows = [], jobStates, onRunCommand: dispatchFlow, onDismiss }: {
+export function FirstRunActionsCard({ commands, state, repo, featuredFlows = [], jobStates, completedJobs, onRunCommand: dispatchFlow, onDismiss }: {
   commands: readonly CatalogItem[]
   state: CommandState
   repo?: string
   featuredFlows?: ReadonlyArray<RepositoryFlow>
   jobStates?: Partial<Record<RepositoryJob, string>>
+  completedJobs?: ReadonlySet<RepositoryJob>
   onRunCommand: RunDynamicCommand
   onDismiss: () => void
 }) {
@@ -75,12 +76,13 @@ export function FirstRunActionsCard({ commands, state, repo, featuredFlows = [],
     if (flow === "app.first-run.dismiss") return onDismiss()
     dispatchFlow(flow, args)
   }
-  // A job with a recorded state is one the person has set up: it checks off (Will, 2026-09-20).
+  // Only a verified registration checks off a job; an inspected but inactive
+  // setup can display "Off" without claiming the person has completed it.
   return <section className="first-run-actions" data-testid="first-run-actions" aria-label="Learn how to">
     <header><h2>Learn how to</h2><button type="button" aria-label="Dismiss" {...flowAction(onRunCommand, "app.first-run.dismiss")}>×</button></header>
     {firstRunGroups(commands, state, featuredFlows).map(group => <section key={group.namespace} aria-label={group.label}>
       {group.flows.map(flow => <button type="button" key={flow.name}
-        data-done={group.namespace === "repository" && jobState(jobStates, flow.name) !== null || undefined}
+        data-done={group.namespace === "repository" && completedJobs?.has(repositoryJobOf(flow.name)!) === true || undefined}
         {...dynamicFlowAction(onRunCommand, flow.name, repo)}>
         <JobPicture flow={flow.name} />{flow.summary}{group.namespace === "repository" ? jobState(jobStates, flow.name) : null}</button>)}
     </section>)}
@@ -108,7 +110,8 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
   const featuredFlows = repo === undefined ? [] : repositoryCatalogs.find(row => row.id === repo)?.flows ?? []
   return <FirstRunActionsCard commands={commands ?? controller.commands.all()}
     featuredFlows={featuredFlows}
-    repo={repo} jobStates={repo === undefined ? undefined : repositoryJobStates(cards, repo, owner)} state={{
+    repo={repo} jobStates={repo === undefined ? undefined : repositoryJobStates(cards, repo, owner)}
+    completedJobs={registeredRepositoryJobs(cards, repo, owner)} state={{
     surface: session?.surface ?? "chat", typing: session?.phase === "responding", plugins: session?.plugins,
     signedOut: identity?.state === "signed-out", admin: identity?.admin === true,
     hasConnectors: identity?.state === "signed-in" || connectors.length > 0,

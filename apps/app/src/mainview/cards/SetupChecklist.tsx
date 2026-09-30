@@ -1,10 +1,10 @@
-import { storedSetupCandidate, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
+import type { RepositoryJob } from "@smthrs/rpc/RepositorySetup"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useController } from "../ControllerContext"
 import { dynamicFlowAction } from "../flows/FlowAction"
 import { visible, type CatalogItem } from "../flows/registry"
 import { activeRepositoryId } from "../state/RepoContext"
-import { repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
 import type { Card } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import { FIRST_RUN_JOBS } from "./FirstRunActions"
@@ -74,13 +74,7 @@ export function resolveJobs(commands: readonly CatalogItem[], states: Partial<Re
 
 /** A host-confirmed registration for this account and repository, including paused jobs. */
 export function hasRegisteredSetup(cards: Iterable<Card>, repo: string | undefined, owner: string | null): boolean {
-  if (repo === undefined || owner === null) return false
-  return [...cards].some(card => {
-    if (card.kind !== "repository-setup" || card.payload.repo !== repo || card.payload.owner !== owner) return false
-    const { active } = card.payload
-    if (!active || active.owned === false || !active.registrationId || !active.sourceRevision || active.revision > card.payload.revision) return false
-    return storedSetupCandidate({ ...card.payload, revision: active.revision, draft: active.draft ?? card.payload.draft }, active.digest)
-  })
+  return registeredRepositoryJobs(cards, repo, owner).size > 0
 }
 
 export function SetupChecklistCard({ steps, jobs = [], onRunCommand }: {

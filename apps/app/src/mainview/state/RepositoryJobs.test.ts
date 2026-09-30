@@ -2,7 +2,7 @@ import { initialSetup, setupCandidate } from "@smthrs/rpc/RepositorySetup"
 import type { RepositoryJob, RepositorySetup } from "@smthrs/rpc/RepositorySetup"
 import { expect, test } from "bun:test"
 import type { Card } from "./AppState"
-import { repositoryJobState, repositoryJobStates } from "./RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobState, repositoryJobStates } from "./RepositoryJobs"
 
 /*
  * The canary's own census, verbatim (.artifacts/mvp-canary-walk-20260917/
@@ -73,4 +73,15 @@ test("a registration nothing has answered for yet is still not a state", () => {
   const pending = { ...fresh, recovery: { id: "rec-3", baseRevision: fresh.revision, baseDigest: setupCandidate(fresh), state: "requested" as const, registrationState: "unknown" as const } }
   expect(repositoryJobState(pending)).toBeUndefined()
   expect(repositoryJobStates([card("review", pending)], REPO, OWNER)).toEqual({})
+})
+
+test("only verified registrations count as completed repository jobs", () => {
+  const failed = initialSetup(REPO, "review", OWNER)
+  const inspectFailed = { ...failed, request: { id: "inspect", operation: "inspect" as const, revision: failed.revision,
+    digest: setupCandidate(failed), state: "failed" as const, error: "invalid_receipt" } }
+  const base = initialSetup(REPO, "issues", OWNER)
+  const registered = { ...base, active: { revision: base.revision, digest: setupCandidate(base), registrationId: "reg-issues",
+    sourceRevision: "c9785dea", enabled: false, owned: true } }
+  expect([...registeredRepositoryJobs([card("review", inspectFailed), card("issues", registered)], REPO, OWNER)]).toEqual(["issues"])
+  expect(registeredRepositoryJobs([card("issues", registered)], "other/repo", OWNER).size).toBe(0)
 })

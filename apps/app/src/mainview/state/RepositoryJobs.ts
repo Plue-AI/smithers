@@ -1,4 +1,4 @@
-import { RepositoryJobSchema, type RepositoryJob, type RepositorySetup } from "@smthrs/rpc/RepositorySetup"
+import { RepositoryJobSchema, storedSetupCandidate, type RepositoryJob, type RepositorySetup } from "@smthrs/rpc/RepositorySetup"
 import type { Card } from "./AppState"
 
 /** A saved draft is not an enabled repository responsibility. */
@@ -56,6 +56,19 @@ export const repositoryJobStates = (cards: Iterable<Card>, repo: string, owner: 
     if (state !== undefined) states[card.payload.job] = state
   }
   return states
+}
+
+/** Jobs with a current, owned registration whose candidate still matches the saved setup. */
+export const registeredRepositoryJobs = (cards: Iterable<Card>, repo: string | undefined, owner: string | null): ReadonlySet<RepositoryJob> => {
+  const jobs = new Set<RepositoryJob>()
+  if (repo === undefined || owner === null) return jobs
+  for (const card of cards) {
+    if (card.kind !== "repository-setup" || card.payload.repo !== repo || card.payload.owner !== owner) continue
+    const { active } = card.payload
+    if (!active || active.owned === false || !active.registrationId || !active.sourceRevision || active.revision > card.payload.revision) continue
+    if (storedSetupCandidate({ ...card.payload, revision: active.revision, draft: active.draft ?? card.payload.draft }, active.digest)) jobs.add(card.payload.job)
+  }
+  return jobs
 }
 
 /** The job a `<job>.setup` flow configures. */

@@ -232,7 +232,9 @@ const configuredHome = async (calls: Array<[string, string | undefined]>) => {
   const card = (job: "issues" | "review", enabled?: boolean) => {
     const payload = initialSetup("will/demo", job, "will")
     return { id: `setup:will:will%2Fdemo:${job}`, kind: "repository-setup" as const, title: job, status: "active" as const, createdAt: 1, ordinal: 1,
-      payload: enabled === undefined ? payload : { ...payload, active: { revision: payload.revision, digest: setupCandidate(payload), registrationId: "reg", sourceRevision: "f4d4814e", enabled } } }
+      payload: enabled === undefined ? { ...payload, request: { id: "failed-inspection", operation: "inspect" as const, revision: payload.revision,
+        digest: setupCandidate(payload), state: "failed" as const, error: "invalid_receipt" } }
+        : { ...payload, active: { revision: payload.revision, digest: setupCandidate(payload), registrationId: "reg", sourceRevision: "f4d4814e", enabled } } }
   }
   store.dispatch({ type: "card.upsert", actor: "system", card: card("issues") })
   store.dispatch({ type: "card.upsert", actor: "system", card: card("review", false) })
@@ -266,10 +268,11 @@ test("every job stays one button away after the first job exists; only the dismi
   } finally { await home.dispose() }
 })
 
-test("a configured job's button reads the state its card reads", async () => {
+test("failed inspection reads Off without claiming setup completion; registered paused job checks off", async () => {
   const home = await configuredHome([])
   try {
     expect(home.jobs().map(button => button.textContent)).toEqual(["Handle issues · Off", "Review PRs · Paused", "Set up CI", "Build a feature", "Automate a chore"])
+    expect(home.jobs().map(button => button.dataset.done)).toEqual([undefined, "true", undefined, undefined, undefined])
   } finally { await home.dispose() }
 })
 
