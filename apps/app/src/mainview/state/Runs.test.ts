@@ -954,7 +954,7 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
       flow: "runs.trace.view", via: "agent", draft: { runId: "run-8" }, given: { runId: "run-8" }
     })
     expect(form?.kind === "flow-form" && form.payload.fields.find((field) => field.name === "view")?.options?.map((option) => option.value))
-      .toEqual(["turns", "timeline", "graph", "steps"])
+      .toEqual(["turns", "timeline", "graph", "steps", "devtools"])
   })
 
   test("runs.open builds the run-trace card under the flow-run id, on live tail, and the pump keeps its journal current", async () => {
