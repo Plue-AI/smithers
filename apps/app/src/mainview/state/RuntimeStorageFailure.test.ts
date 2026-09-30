@@ -60,8 +60,9 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
     expect(outcomes.every(outcome => outcome.status === "failed")).toBe(true)
     expect(failures).toHaveLength(1)
     expect(failures[0]?.message).toBe("Changes could not be saved.")
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(diagnostics).toEqual([["Smithers: local write failed", {
-      fault: "storage-unavailable", worker: "other", stage: "event"
+      fault: "storage-unavailable", worker: "other", stage: "event", sqlite: "other", handle: "unknown"
     }]])
     expect(diagnosticSinkThrew).toBe(count === 12)
     expect(JSON.stringify(diagnostics)).not.toContain("PRIVATE WORKER FAILURE")
@@ -111,8 +112,9 @@ test("a failed checkpoint names only its stage and still closes the SQLite write
     store.onStorageFailure(error => { failures.push(error) })
     fail = true
     await expect(store.compactEvents()).rejects.toThrow("PRIVATE CHECKPOINT SQL")
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(diagnostics).toEqual([["Smithers: local write failed", {
-      fault: "storage-unavailable", worker: "other", stage: "checkpoint"
+      fault: "storage-unavailable", worker: "other", stage: "checkpoint", sqlite: "other", handle: "unknown"
     }]])
     expect(JSON.stringify(diagnostics)).not.toContain("PRIVATE CHECKPOINT SQL")
     expect(failures.map(error => error.message)).toEqual(["Changes could not be saved."])

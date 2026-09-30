@@ -1,3 +1,5 @@
+import { sqliteFault, type OpfsHandleContention, type SqliteFault } from "./OpfsFaultDetail"
+
 /** Fixed vocabulary only: worker errors can contain SQL or local row data. */
 export type StorageOpenFault = "timeout" | "worker-unavailable" | "worker-invalid-config" | "worker-internal" | "permission" | "invalid-state" | "other"
 
@@ -6,6 +8,8 @@ export interface StorageOpenDiagnostic {
   readonly fault: StorageOpenFault
   readonly attempts: number
   readonly budgetMs: number
+  readonly sqlite: SqliteFault
+  readonly handle: OpfsHandleContention
 }
 
 export class OpfsOpenTimeout extends Error {
@@ -27,6 +31,8 @@ export const storageOpenFault = (error: unknown): StorageOpenFault => {
   return fault
 }
 
-export const storageOpenDiagnostic = (error: unknown, attempts: number, budgetMs: number): StorageOpenDiagnostic => ({
-  code: "opfs_open_failed", fault: storageOpenFault(error), attempts, budgetMs
+export const storageOpenDiagnostic = (
+  error: unknown, attempts: number, budgetMs: number, handle: OpfsHandleContention
+): StorageOpenDiagnostic => ({
+  code: "opfs_open_failed", fault: storageOpenFault(error), attempts, budgetMs, sqlite: sqliteFault(error), handle
 })

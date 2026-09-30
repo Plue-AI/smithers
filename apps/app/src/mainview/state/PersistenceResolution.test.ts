@@ -247,7 +247,7 @@ describe("the browser's persistence resolver", () => {
         ])
         expect(errorLog.mock.calls).toEqual([[
           expect.any(String),
-          { code: "opfs_open_failed", fault: "other", attempts: 5, budgetMs: 4000 }
+          { code: "opfs_open_failed", fault: "other", attempts: 5, budgetMs: 4000, sqlite: "other", handle: "unknown" }
         ]])
         expect(JSON.stringify(errorLog.mock.calls)).not.toContain("private SQL row contents")
       } finally {

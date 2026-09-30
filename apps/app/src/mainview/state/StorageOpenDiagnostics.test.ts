@@ -20,8 +20,18 @@ test("OPFS open diagnostics classify fixed failure kinds without exposing worker
     [new Error(secret), "other"]
   ]
   for (const [error, fault] of cases) {
-    const diagnostic = storageOpenDiagnostic(error, 5, 4000)
-    expect(diagnostic).toEqual({ code: "opfs_open_failed", fault, attempts: 5, budgetMs: 4000 })
+    const diagnostic = storageOpenDiagnostic(error, 5, 4000, "unknown")
+    expect(diagnostic).toEqual({ code: "opfs_open_failed", fault, attempts: 5, budgetMs: 4000, sqlite: "other", handle: "unknown" })
     expect(JSON.stringify(diagnostic)).not.toContain(secret)
   }
+})
+
+test("an open that another context blocks names the handle holders and the SQLite result", () => {
+  expect(storageOpenDiagnostic(new OpfsOpenTimeout(4000), 5, 4000, { held: 1, waiting: 1 })).toEqual({
+    code: "opfs_open_failed", fault: "timeout", attempts: 5, budgetMs: 4000, sqlite: "other", handle: { held: 1, waiting: 1 }
+  })
+  const cantOpen = { name: "OPFSWorkerRequestError", code: "INTERNAL", message: "unable to open database file" }
+  expect(storageOpenDiagnostic(cantOpen, 5, 4000, { held: 0, waiting: 0 })).toEqual({
+    code: "opfs_open_failed", fault: "worker-internal", attempts: 5, budgetMs: 4000, sqlite: "cantopen", handle: { held: 0, waiting: 0 }
+  })
 })

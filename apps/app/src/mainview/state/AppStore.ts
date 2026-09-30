@@ -111,6 +111,7 @@ import { PALETTE_MIRROR_KEY,THEME_MIRROR_KEY,rememberAppearance } from "./Appear
 import { consumeWriterTakeover, reportWriterMoved } from "./WriterOwnership"
 import { reportStorageFailure, type StoreFailure } from "./StorageFailure"
 import { storageWriteDiagnostic } from "./StorageWriteDiagnostics"
+import { opfsHandleContention } from "./OpfsFaultDetail"
 import { isCurrentApprovalAnswer,type ApprovalAnswerInput } from "./ApprovalAnswerState"
 import { captureBrowserStorageRecovery,recoveryStorage } from "./BrowserStorageRecovery"
 import { CommandIntentSchema } from "./CommandIntent"
@@ -597,7 +598,7 @@ export const resolvePersistence = async (host: BrowserPersistenceHost = {
       if (retirement?.phase === "pending") throw new PrivacyStorageUnavailable()
       console.error(
         "Smithers: OPFS SQLite could not be opened. Saved data, if present, was not overwritten; reload to retry.",
-        storageOpenDiagnostic(error, OPFS_OPEN_ATTEMPTS, OPFS_OPEN_BUDGET_MS)
+        storageOpenDiagnostic(error, OPFS_OPEN_ATTEMPTS, OPFS_OPEN_BUDGET_MS, await opfsHandleContention())
       )
       return { backend: { kind: "localStorage", storage: memoryStorage() }, mode: "memory", degraded: true, savedStoreUnavailable: true, privacy }
     }
@@ -1419,10 +1420,11 @@ const initializeAppStore = async (
         // the host before rollback wakes them. Never replay the refused act.
         // Worker messages can contain SQL and row data. Report only this fixed
         // classification, not the exception or its message.
-        try {
-          console.warn("Smithers: local write failed", storageWriteDiagnostic(error,
-            write.checkpoint !== undefined ? "checkpoint" : "event"))
-        } catch { /* Diagnostics cannot prevent the failed writer from closing. */ }
+        // The handle-lock snapshot is asynchronous; the writer closes first.
+        const stage = write.checkpoint !== undefined ? "checkpoint" : "event"
+        void opfsHandleContention().then(handle => {
+          console.warn("Smithers: local write failed", storageWriteDiagnostic(error, stage, handle))
+        }).catch(() => { /* Diagnostics cannot prevent the failed writer from closing. */ })
         rejectStorage(new StorageWriteFailedError())
       }
       if (acceptedGeneration === generation) {

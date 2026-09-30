@@ -1,4 +1,5 @@
 import { browserWriteFault, type BrowserWriteFault } from "./BrowserWriteFailure"
+import { sqliteFault, type OpfsHandleContention, type SqliteFault } from "./OpfsFaultDetail"
 
 /** Fixed vocabulary only. Worker errors can contain SQL and local row data in their messages. */
 export type StorageWriteStage = "event" | "checkpoint"
@@ -7,6 +8,8 @@ export interface StorageWriteDiagnostic {
   readonly fault: BrowserWriteFault
   readonly worker: StorageWriteWorkerFault
   readonly stage: StorageWriteStage
+  readonly sqlite: SqliteFault
+  readonly handle: OpfsHandleContention
 }
 
 const workerFault = (error: unknown): StorageWriteWorkerFault => {
@@ -20,6 +23,8 @@ const workerFault = (error: unknown): StorageWriteWorkerFault => {
   return "other"
 }
 
-export const storageWriteDiagnostic = (error: unknown, stage: StorageWriteStage): StorageWriteDiagnostic => ({
-  fault: browserWriteFault(error), worker: workerFault(error), stage
+export const storageWriteDiagnostic = (
+  error: unknown, stage: StorageWriteStage, handle: OpfsHandleContention
+): StorageWriteDiagnostic => ({
+  fault: browserWriteFault(error), worker: workerFault(error), stage, sqlite: sqliteFault(error), handle
 })
