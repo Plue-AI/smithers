@@ -326,9 +326,10 @@ func (h *ProviderPoolHandler) sendPooled(ctx context.Context, provider string, r
 	copyProviderPoolHeaders(out, in)
 	if route.pool == services.ProviderConnectionProviderClaude {
 		// A claude connection is an Anthropic API key (#2777).
+		// Anthropic reads every anthropic-beta header a client repeats.
 		for _, name := range []string{"Anthropic-Version", "Anthropic-Beta"} {
-			if value := in.Get(name); value != "" {
-				out.Set(name, value)
+			if values := in.Values(name); len(values) > 0 {
+				out[name] = slices.Clone(values)
 			}
 		}
 		out.Set("X-Api-Key", conn.AccessToken)

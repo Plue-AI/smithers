@@ -103,6 +103,7 @@ func (s fakeScopes) Scope(ctx context.Context, bearer string) (int64, int64, boo
 
 type providerCall struct {
 	auth, account, path, apiKey, version string
+	betas                                []string
 	body                                 map[string]any
 }
 
@@ -114,7 +115,7 @@ func accountUpstream(t *testing.T, calls *[]providerCall, answers map[string]fun
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		call := providerCall{auth: r.Header.Get("Authorization"), account: r.Header.Get("Chatgpt-Account-Id"), path: r.URL.Path,
-			apiKey: r.Header.Get("X-Api-Key"), version: r.Header.Get("Anthropic-Version")}
+			apiKey: r.Header.Get("X-Api-Key"), version: r.Header.Get("Anthropic-Version"), betas: r.Header.Values("Anthropic-Beta")}
 		_ = json.Unmarshal(raw, &call.body)
 		mu.Lock()
 		*calls = append(*calls, call)
@@ -307,6 +308,8 @@ func TestProviderPool_AnthropicAPIKeys(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Api-Key", "smithers_pooltoken")
 	req.Header.Set("Anthropic-Version", "2023-06-01")
+	req.Header.Add("Anthropic-Beta", "context-1m-2025-08-07")
+	req.Header.Add("Anthropic-Beta", "fine-grained-tool-streaming-2025-05-14")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -319,6 +322,7 @@ func TestProviderPool_AnthropicAPIKeys(t *testing.T) {
 		assert.Empty(t, calls[i].auth, "no bearer reaches Anthropic")
 		assert.Empty(t, calls[i].account)
 		assert.Equal(t, "2023-06-01", calls[i].version)
+		assert.Equal(t, []string{"context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"}, calls[i].betas, "every repeated beta header reaches Anthropic")
 		assert.Equal(t, "claude-sonnet-4-6", calls[i].body["model"])
 	}
 	assert.WithinDuration(t, time.Now().Add(2*time.Minute), pool.limited["a"], 10*time.Second)
