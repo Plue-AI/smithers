@@ -119,13 +119,16 @@ type MythicalChecksView struct {
 	Receipts []MythicalReceiptView `json:"receipts,omitempty"`
 }
 
-// MythicalReceiptView is one check's receipt on the candidate's commit.
+// MythicalReceiptView is one check's receipt on the candidate's commit: the
+// run that recorded it and how long the check ran, when the receipt names them.
 type MythicalReceiptView struct {
-	Check  string `json:"check"`
-	Tier   string `json:"tier"`
-	Status string `json:"status"`
-	Fault  string `json:"fault,omitempty"`
-	Commit string `json:"commit"`
+	Check      string `json:"check"`
+	Tier       string `json:"tier"`
+	Status     string `json:"status"`
+	Fault      string `json:"fault,omitempty"`
+	Commit     string `json:"commit"`
+	RunID      string `json:"runId,omitempty"`
+	DurationMs *int64 `json:"durationMs,omitempty"`
 }
 
 // mythicalChecksView reads the candidate's verification from the item's
@@ -156,7 +159,8 @@ func mythicalReceiptsView(item db.MythicalItem) []MythicalReceiptView {
 	}
 	views := make([]MythicalReceiptView, 0, len(stored.Checks))
 	for _, receipt := range stored.Checks {
-		views = append(views, MythicalReceiptView(receipt))
+		views = append(views, MythicalReceiptView{Check: receipt.Check, Tier: receipt.Tier, Status: receipt.Status,
+			Fault: receipt.Fault, Commit: receipt.Commit, RunID: stored.Run, DurationMs: receipt.DurationMs})
 	}
 	return views
 }

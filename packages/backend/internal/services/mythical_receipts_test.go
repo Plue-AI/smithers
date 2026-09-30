@@ -51,6 +51,27 @@ func TestMythicalRunReceiptsReadsRequestAndVerifyResults(t *testing.T) {
 		{Check: "affected-test", Tier: "slow", Status: "failed", Fault: "infra", Commit: "c1"},
 	}}, mythicalRunReceipts("verify", "run-2", receiptUpdate(verify)))
 
+	// A receipt that recorded its start and finish keeps how long it ran; one
+	// missing either, or finishing before it started, keeps no duration.
+	timed := func(check, times string) string {
+		return strings.Replace(flowReceipt(check, "fast", "passed", "c1"), `"status"`, times+`"status"`, 1)
+	}
+	durations := `{"receipts":[` + strings.Join([]string{
+		timed("ran", `"startedAt":1000,"finishedAt":3500,`),
+		timed("instant", `"startedAt":1000,"finishedAt":1000,`),
+		timed("unfinished", `"startedAt":1000,`),
+		timed("unstarted", `"finishedAt":1000,`),
+		timed("backwards", `"startedAt":3500,"finishedAt":1000,`),
+	}, ",") + `]}`
+	ran, instant := int64(2500), int64(0)
+	assert.Equal(t, &mythicalReceipts{Run: "run-4", Checks: []mythicalReceipt{
+		{Check: "ran", Tier: "fast", Status: "passed", Commit: "c1", DurationMs: &ran},
+		{Check: "instant", Tier: "fast", Status: "passed", Commit: "c1", DurationMs: &instant},
+		{Check: "unfinished", Tier: "fast", Status: "passed", Commit: "c1"},
+		{Check: "unstarted", Tier: "fast", Status: "passed", Commit: "c1"},
+		{Check: "backwards", Tier: "fast", Status: "passed", Commit: "c1"},
+	}}, mythicalRunReceipts("verify", "run-4", receiptUpdate(durations)))
+
 	// Nothing to keep: no run, no output, an unreadable or receipt-less
 	// result, a blocked request, another phase, or only malformed receipts.
 	assert.Nil(t, mythicalRunReceipts("verify", "", receiptUpdate(verify)))
@@ -90,14 +111,15 @@ func TestMythicalRunReceiptsReadsRequestAndVerifyResults(t *testing.T) {
 }
 
 func TestMythicalReceiptsViewShowsOnlyTheCandidatesEvidence(t *testing.T) {
+	took := int64(1250)
 	stored := func(commit string) []byte {
 		raw, _ := json.Marshal(mythicalChecks{Receipts: &mythicalReceipts{Run: "run", Checks: []mythicalReceipt{
 			{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: "parent"},
-			{Check: "affected-test", Tier: "slow", Status: "passed", Commit: commit}}}})
+			{Check: "affected-test", Tier: "slow", Status: "passed", Commit: commit, DurationMs: &took}}}})
 		return raw
 	}
-	receipts := []MythicalReceiptView{{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: "parent"},
-		{Check: "affected-test", Tier: "slow", Status: "passed", Commit: "head"}}
+	receipts := []MythicalReceiptView{{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: "parent", RunID: "run"},
+		{Check: "affected-test", Tier: "slow", Status: "passed", Commit: "head", RunID: "run", DurationMs: &took}}
 	for _, tc := range []struct {
 		name string
 		item db.MythicalItem
@@ -125,6 +147,18 @@ func TestMythicalReceiptsViewShowsOnlyTheCandidatesEvidence(t *testing.T) {
 			assert.Equal(t, tc.want, mythicalChecksView(tc.item))
 		})
 	}
+
+	// The wire names the run and the duration only when the receipt has them.
+	wire, err := json.Marshal(mythicalChecksView(db.MythicalItem{State: "proposing", CandidateVerified: true,
+		CandidateHead: "head", Checks: stored("head")}).Receipts)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"check":"affected-lint","tier":"fast","status":"passed","commit":"parent","runId":"run"},`+
+		`{"check":"affected-test","tier":"slow","status":"passed","commit":"head","runId":"run","durationMs":1250}]`, string(wire))
+	legacy := []byte(`{"receipts":{"run":"","checks":[{"check":"affected-test","tier":"slow","status":"passed","commit":"head"}]}}`)
+	wire, err = json.Marshal(mythicalChecksView(db.MythicalItem{State: "proposing", CandidateVerified: true,
+		CandidateHead: "head", Checks: legacy}).Receipts)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"check":"affected-test","tier":"slow","status":"passed","commit":"head"}]`, string(wire))
 }
 
 func TestMythicalKeepReceiptsNeverDropsTheCandidatesEvidence(t *testing.T) {
@@ -209,14 +243,14 @@ func TestMythicalVerifyChecksTheRebasedPathsAndRecordsItsReceipts(t *testing.T) 
 	o.wake()
 	require.Equal(t, "proposing", o.item(22).State, o.item(22).Reason)
 	assert.Equal(t, &MythicalChecksView{State: "passed", Failed: []string{}, Receipts: []MythicalReceiptView{
-		{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: onTip},
-		{Check: "affected-test", Tier: "slow", Status: "passed", Commit: onTip},
+		{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: onTip, RunID: "run-22"},
+		{Check: "affected-test", Tier: "slow", Status: "passed", Commit: onTip, RunID: "run-22"},
 	}}, itemView(22).Checks)
 	// Its delivery ends after handing the result over; the cleanup's own
 	// rechecks of the candidate replace the request's.
 	o.project(launched("coding/vibe", 22), jobs.StateCompleted, "run-vibe-22",
 		`{"cleanup":{"result":{"changes":[{"receipts":[`+flowReceipt("affected-test", "slow", "passed", onTip)+`]}]}},"lane":{"itemId":"x"}}`)
-	assert.Equal(t, []MythicalReceiptView{{Check: "affected-test", Tier: "slow", Status: "passed", Commit: onTip}},
+	assert.Equal(t, []MythicalReceiptView{{Check: "affected-test", Tier: "slow", Status: "passed", Commit: onTip, RunID: "run-vibe-22"}},
 		itemView(22).Checks.Receipts)
 
 	// #21 built on the old tip, which main then moves past.
@@ -243,20 +277,24 @@ func TestMythicalVerifyChecksTheRebasedPathsAndRecordsItsReceipts(t *testing.T) 
 
 	// The verification fails its slow check on the rebased commit.
 	rebased := item.CandidateHead
+	timedFailure := strings.Replace(flowReceipt("affected-test", "slow", "failed", rebased), `"status"`,
+		`"startedAt":1700000000000,"finishedAt":1700000042500,"status"`, 1)
 	o.project(verify, jobs.StateCompleted, "run-verify-21", `{"status":"failed","failed":["affected-test"],"receipts":[`+
-		flowReceipt("affected-lint", "fast", "passed", rebased)+`,`+flowReceipt("affected-test", "slow", "failed", rebased)+`]}`)
+		flowReceipt("affected-lint", "fast", "passed", rebased)+`,`+timedFailure+`]}`)
 	item = o.item(21)
 	assert.Equal(t, "failed: affected-test", item.VerifyOutcome)
 	checks := itemView(21).Checks
+	took := int64(42500)
 	assert.Equal(t, &MythicalChecksView{State: "failed", Failed: []string{"affected-test"}, Receipts: []MythicalReceiptView{
-		{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: rebased},
-		{Check: "affected-test", Tier: "slow", Status: "failed", Commit: rebased},
+		{Check: "affected-lint", Tier: "fast", Status: "passed", Commit: rebased, RunID: "run-verify-21"},
+		{Check: "affected-test", Tier: "slow", Status: "failed", Commit: rebased, RunID: "run-verify-21", DurationMs: &took},
 	}}, checks)
 	encoded, err := json.Marshal(checks)
 	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`{"state":"failed","failed":["affected-test"],"receipts":[`+
-		`{"check":"affected-lint","tier":"fast","status":"passed","commit":%q},`+
-		`{"check":"affected-test","tier":"slow","status":"failed","commit":%q}]}`, rebased, rebased), string(encoded))
+		`{"check":"affected-lint","tier":"fast","status":"passed","commit":%q,"runId":"run-verify-21"},`+
+		`{"check":"affected-test","tier":"slow","status":"failed","commit":%q,"runId":"run-verify-21","durationMs":42500}]}`,
+		rebased, rebased), string(encoded))
 	// A repeated projection of the same run changes nothing.
 	before := o.item(21)
 	o.project(verify, jobs.StateCompleted, "run-verify-21", `{"status":"passed","failed":[],"receipts":[]}`)

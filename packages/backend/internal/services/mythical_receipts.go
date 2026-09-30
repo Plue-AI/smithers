@@ -20,21 +20,35 @@ type mythicalReceipts struct {
 }
 
 // mythicalReceipt is one check's receipt, as the coding flows recorded it
-// (flows/coding/schema.ts Receipt), without its evidence.
+// (flows/coding/schema.ts Receipt), without its evidence. DurationMs is how
+// long the check's process ran, when the receipt recorded its start and finish.
 type mythicalReceipt struct {
-	Check  string `json:"check"`
-	Tier   string `json:"tier"`
-	Status string `json:"status"`
-	Fault  string `json:"fault,omitempty"`
-	Commit string `json:"commit"`
+	Check      string `json:"check"`
+	Tier       string `json:"tier"`
+	Status     string `json:"status"`
+	Fault      string `json:"fault,omitempty"`
+	Commit     string `json:"commit"`
+	DurationMs *int64 `json:"durationMs,omitempty"`
 }
 
 type mythicalFlowReceipt struct {
-	CheckID  string `json:"checkId"`
-	Tier     string `json:"tier"`
-	Status   string `json:"status"`
-	Fault    string `json:"fault"`
-	CommitID string `json:"commitId"`
+	CheckID    string `json:"checkId"`
+	Tier       string `json:"tier"`
+	Status     string `json:"status"`
+	Fault      string `json:"fault"`
+	CommitID   string `json:"commitId"`
+	StartedAt  *int64 `json:"startedAt"`
+	FinishedAt *int64 `json:"finishedAt"`
+}
+
+// duration is how long the receipt's check ran; nil unless it recorded both
+// its start and a finish no earlier than it.
+func (r mythicalFlowReceipt) duration() *int64 {
+	if r.StartedAt == nil || r.FinishedAt == nil || *r.FinishedAt < *r.StartedAt {
+		return nil
+	}
+	duration := *r.FinishedAt - *r.StartedAt
+	return &duration
 }
 
 // mythicalReceiptTiers and mythicalReceiptStatuses are the values a kept
@@ -99,7 +113,7 @@ func mythicalRunReceipts(phase, runID string, update flowdispatch.ProjectionUpda
 			continue
 		}
 		kept = append(kept, mythicalReceipt{Check: receipt.CheckID, Tier: receipt.Tier, Status: receipt.Status,
-			Fault: receipt.Fault, Commit: receipt.CommitID})
+			Fault: receipt.Fault, Commit: receipt.CommitID, DurationMs: receipt.duration()})
 	}
 	if len(kept) == 0 {
 		return nil
