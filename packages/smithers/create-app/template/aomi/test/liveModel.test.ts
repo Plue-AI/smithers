@@ -36,17 +36,20 @@ const request = ModelRequest.ModelRequest.make({
 
 describe("liveModel", () => {
   it("routes an openai seat to the codex ChatGPT session under SMITHERS_OPENAI_AUTH=chatgpt", async () => {
-    // An empty CODEX_HOME: the ChatGPT route fails reading its auth file,
-    // before any request leaves the process, and names the file it read.
+    // The ChatGPT session is the vendor's signed-in Codex CLI. With no `codex`
+    // on PATH the route refuses before any request leaves the process, and
+    // names the sign-in that fixes it rather than the API key left unset.
     const home = mkdtempSync(join(tmpdir(), "smthrs-codex-home-"))
     homes.push(home)
     vi.stubEnv("SMITHERS_OPENAI_AUTH", "chatgpt")
     vi.stubEnv("OPENAI_API_KEY", undefined)
     vi.stubEnv("CODEX_HOME", home)
+    vi.stubEnv("PATH", home)
 
     const model = liveModel("openai:gpt-5")
     const failure = await Effect.runPromise(Effect.flip(Stream.runCollect(model.stream(request))))
 
-    expect(failure.message).toContain(`No ChatGPT credentials at ${join(home, "auth.json")}`)
+    expect(failure.message).toContain("install Codex, then run `codex login --device-auth`")
+    expect(failure.message).not.toContain("OPENAI_API_KEY")
   })
 })

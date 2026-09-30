@@ -64,6 +64,10 @@ export default defineConfig({
       // parent, `core`, `kernel`, and `plan` are under `flows`, and `std` is
       // under `agent` — and one capture group cannot say that.
       { find: /^@smthrs\/cli$/, replacement: here("../src/index.ts") },
+      // The manifest is the one `@smthrs/cli` export that is not a source
+      // module: `Version.ts` reads it, and `test/support/liveModel.ts` reaches
+      // `Version.ts` through `@smthrs/cli/NodeControl`.
+      { find: /^@smthrs\/cli\/package\.json$/, replacement: here("../package.json") },
       { find: /^@smthrs\/cli\/(.*)$/, replacement: here("../src/$1.ts") },
       { find: /^@smthrs\/(core|kernel|plan)$/, replacement: here("../flows/$1/src/index.ts") },
       { find: /^@smthrs\/(core|kernel|plan)\/(.*)$/, replacement: here("../flows/$1/src/$2.ts") },
