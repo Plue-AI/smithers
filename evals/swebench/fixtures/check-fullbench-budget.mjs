@@ -34,13 +34,16 @@ const reader = driver.slice(
 )
 const loopStart = driver.indexOf("for ID in $QUEUE; do")
 const gate = driver.slice(loopStart, driver.indexOf("  # The subject was pinned once", loopStart))
-const gateDecision = () =>
+// `wait` stands in for the driver's slot wait: a worker reaped there may record
+// the spend that crosses the budget, so the gate must read the ledger after it.
+const gateDecision = (wait = ":") =>
   spawnSync("bash", [
     "-c",
     [
       reader,
       "pause_now() { printf \"paused\\n\"; }",
       "sleep() { :; }",
+      `wait_for_slot() { ${wait}; }`,
       "STOPPING=0; SESSION_LIMIT=\"\"; SCHEDULED=0; QUEUE=a__a-1; BUDGET_CENTS=6000",
       gate,
       "printf \"launched\\n\"",
@@ -91,6 +94,15 @@ try {
   writeLedger([instance("ran", { cost: { usd: 0 } }), instance("graded"), instance("cleaned")])
   assert.equal(spend().stdout.trim(), "0", "a proven zero is numeric")
   assert.equal(gateDecision().stdout.trim(), "launched")
+  // A worker that finishes while the next launch waits for its slot records the
+  // bill that crosses the budget: the gate reads it after the wait and pauses.
+  const finishing = JSON.stringify(instance("ran", { cost: { usd: 61 } }))
+  const crossed = gateDecision(`printf '%s\\n' '${finishing}' >> "$MANIFEST"`)
+  assert.equal(crossed.status, 0, crossed.stderr)
+  assert.equal(crossed.stdout.trim(), "paused", "spend recorded during the slot wait must stop the launch")
+  writeLedger([instance("ran", { cost: { usd: 0 } }), instance("graded"), instance("cleaned")])
+  const below = JSON.stringify(instance("ran", { cost: { usd: 1 } }))
+  assert.equal(gateDecision(`printf '%s\\n' '${below}' >> "$MANIFEST"`).stdout.trim(), "launched")
   writeLedger([instance("pulled")])
   assert.equal(spend().stdout.trim(), "0", "an in-flight worker has not recorded a cost yet")
 

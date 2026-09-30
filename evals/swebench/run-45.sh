@@ -360,6 +360,11 @@ for ID in $QUEUE; do
     break
   fi
 
+  # Wait for a slot before reading spend: the worker reaped while waiting may
+  # have recorded the cost that crosses the budget.
+  wait_for_slot
+  if [ "$STOPPING" = "1" ]; then break; fi
+
   SPENT_CENTS="$(spend_cents)"
   if [ -z "$SPENT_CENTS" ]; then sleep 2; SPENT_CENTS="$(spend_cents)"; fi
   case "${SPENT_CENTS:-x}" in
@@ -377,9 +382,6 @@ for ID in $QUEUE; do
     STOPPING=1
     break
   fi
-
-  wait_for_slot
-  if [ "$STOPPING" = "1" ]; then break; fi
 
   log "scheduling $ID"
   ( ${SWB_RERUN_INSTANCE_CMD:-"$S/lib/fullbench-instance.sh"} "$ID"

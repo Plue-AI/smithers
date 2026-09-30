@@ -541,6 +541,12 @@ for ID in $QUEUE; do
     break
   fi
 
+  # Wait for a slot first: a worker reaped here may have just recorded the
+  # spend that crosses the budget, so the gate below must read the ledger after
+  # the wait, immediately before admission.
+  wait_for_slot
+  if [ "$STOPPING" = "1" ]; then break; fi
+
   # The budget, checked before every launch rather than at a checkpoint: 25
   # instances of overshoot at a few dollars each is real money.
   #
@@ -570,9 +576,6 @@ for ID in $QUEUE; do
     log "HEAD moved $HEAD_AT_START -> $HEAD_NOW; the subject pin is unchanged and is not re-pinned"
     HEAD_AT_START="$HEAD_NOW"
   fi
-
-  wait_for_slot
-  if [ "$STOPPING" = "1" ]; then break; fi
 
   log "scheduling $ID"
   ( "$S/lib/fullbench-instance.sh" "$ID"; echo $? > "$FB/workers/$ID.done" ) &

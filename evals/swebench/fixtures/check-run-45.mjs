@@ -258,11 +258,30 @@ try {
   const budget = drive(broke, [], { SWB_RERUN_JOBS: "1", SWB_RERUN_BUDGET_USD: "0.06", SWB_STUB_USD: "0.05" })
   assert.equal(budget.status, 0, budget.stderr)
   const brokeLedger = read(join(broke, "manifest.jsonl"))
-  assert.ok(brokeLedger.states.size < 5, "the budget gate let the whole population run")
+  // Two launches: the first at $0, the second at $0.05. The third waits for the
+  // second's slot, then reads $0.10 and pauses.
+  assert.equal(brokeLedger.states.size, 2, "the budget gate let an instance start past the budget")
   assert.ok(
     brokeLedger.notes.some((note) => note.note === "paused" && /budget/.test(note.reason)),
     "the ledger does not record why the driver stopped"
   )
+
+  // A worker that crosses the budget while the next launch waits for its slot:
+  // the next launch reads the ledger after the wait and never starts. The $1
+  // control, with the same per-instance cost, runs the whole population.
+  for (const [lane, budgetUsd, expected] of [["fb-cross", "0.01", 1], ["fb-cross-control", "1", 5]]) {
+    writeFileSync(trace, "")
+    const crossed = join(temporary, lane)
+    const result = drive(crossed, [], { SWB_RERUN_JOBS: "1", SWB_RERUN_BUDGET_USD: budgetUsd, SWB_STUB_USD: "0.02" })
+    assert.equal(result.status, 0, result.stderr)
+    const started = readFileSync(trace, "utf8").trim().split("\n").filter((line) => line.startsWith("start "))
+    assert.equal(
+      started.length,
+      expected,
+      `a $${budgetUsd} budget started ${started.length} instances\n${result.stdout}`
+    )
+    assert.equal(/PAUSED: cumulative API cost reached/.test(result.stdout), expected < 5)
+  }
 
   // -----------------------------------------------------------------------
   // --stop halts a live driver after its in-flight instances finish, and the
