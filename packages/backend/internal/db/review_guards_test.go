@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
@@ -91,9 +92,13 @@ func TestUserAccessChangesPublishInTheirTransaction(t *testing.T) {
 	_, err = q.SetUserSuspended(t.Context(), SetUserSuspendedParams{UserID: user, Suspended: false})
 	require.NoError(t, err)
 	require.NoError(t, q.SuspendUser(t.Context(), user))
-	// A soft-deleted account remains disabled even if its flags are toggled.
+	// A soft-deleted account cannot be restored by toggling suspension (#2832).
 	_, err = q.SetUserSuspended(t.Context(), SetUserSuspendedParams{UserID: user, Suspended: false})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	deleted, err := q.GetUserByID(t.Context(), user)
 	require.NoError(t, err)
+	require.False(t, deleted.IsActive)
+	require.True(t, deleted.ProhibitLogin)
 	events, err := q.ListRevocationEventsAfter(t.Context(), ListRevocationEventsAfterParams{AfterID: after, LimitCount: 100})
 	require.NoError(t, err)
 	var kinds []string

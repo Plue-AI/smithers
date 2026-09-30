@@ -32,7 +32,7 @@ func TestPairSessionsSQL_H_SessionMemberInviteAndLinkRoundTrip(t *testing.T) {
 	_, err = q.SetPairSessionStatus(ctx, SetPairSessionStatusParams{ID: session.ID, Status: "provisioning"})
 	require.NoError(t, err)
 
-	forkWorkspaceID := mustCreateWorkspace(t, pool, ownerID, repoID)
+	forkWorkspaceID := mustCreateForkWorkspace(t, pool, ownerID, repoID, session.SourceWorkspaceID)
 	bound, err := q.SetPairSessionForkBound(ctx, SetPairSessionForkBoundParams{
 		ID:          session.ID,
 		WorkspaceID: pgtype.UUID{Bytes: uuid.MustParse(forkWorkspaceID), Valid: true},

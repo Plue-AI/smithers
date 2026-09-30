@@ -385,12 +385,27 @@ func mustExpectQueryError(t *testing.T, db DBTX, fn func(spQ *Queries) error) er
 	})
 }
 
+// mustCreateWorkspace creates a root workspace with a unique name, since
+// uq_workspaces_active allows one live root workspace per name (#2924).
 func mustCreateWorkspace(t *testing.T, pool DBTX, userID, repoID int64) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO workspaces (repository_id, user_id) VALUES ($1, $2) RETURNING id`,
-		repoID, userID,
+		`INSERT INTO workspaces (repository_id, user_id, name) VALUES ($1, $2, $3) RETURNING id`,
+		repoID, userID, "ws-"+randSlug(t),
+	).Scan(&id)
+	require.NoError(t, err)
+	return id
+}
+
+// mustCreateForkWorkspace creates an explicit fork of parentID, which is
+// independent of the parent's named identity.
+func mustCreateForkWorkspace(t *testing.T, pool DBTX, userID, repoID int64, parentID string) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO workspaces (repository_id, user_id, is_fork, parent_workspace_id) VALUES ($1, $2, TRUE, $3) RETURNING id`,
+		repoID, userID, parentID,
 	).Scan(&id)
 	require.NoError(t, err)
 	return id
