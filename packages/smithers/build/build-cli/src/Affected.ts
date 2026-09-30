@@ -9,6 +9,7 @@ import { Minimatch } from "minimatch"
 import * as Path from "node:path"
 import * as ContainedProcess from "./internal/ContainedProcess.ts"
 import { inputPackage } from "./internal/InputPackage.ts"
+import * as RulePolicy from "./internal/RulePolicy.ts"
 import type { PackageIndex } from "./PackageIndex.ts"
 import { productionSourceRoots } from "./Planner.ts"
 
@@ -127,6 +128,7 @@ const compileInput = (
 }
 
 /** Selects roots, among the union of the patterns, whose declarations, package inputs or dependencies may have changed.
+ * Every uncacheable target, and each target depending on one, is selected by any change.
  * @category querying
  * @since 0.1.0
  */
@@ -212,11 +214,15 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
       const metadata = value.metadata
       const views = metadata.kinds.map((kind) => metadata.forKind(kind))
       const viewInputs = views.flatMap((view) => view.inputs)
-      const ambient = value.ambient || viewInputs.some(ambientInput)
+      // An uncacheable target makes no promise that its inputs are complete: it may import
+      // undeclared packages or read files it never declared. Only running it is sound.
+      const everyChange = value.ambient || viewInputs.some(ambientInput) ||
+        RulePolicy.of(metadata.target).cache === undefined &&
+          (!metadata.cacheable || views.some((view) => !view.cacheable))
       const inputs = viewInputs
         .map((input) => compileInput(input, inputPackage(metadata, value.packagePath), glob))
       direct.set(target, (path) =>
-        ambient || value.ownsPath(path) || inputs.some((input) => input(path)) ||
+        everyChange || value.ownsPath(path) || inputs.some((input) => input(path)) ||
         metadata.inputs.length === 0 && metadata.dependencies.length === 0)
       const dependencies = new Set([
         ...metadata.dependencies,

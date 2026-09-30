@@ -448,7 +448,9 @@ cache. `targets` lists the available target surface and defaults to `//...`.
 It compares `--base` (default `HEAD`) with `--head`, or with the working tree
 and untracked files when `--head` is absent. Repeatable `--files` bypasses Git
 discovery, and `--list` explains the selection without executing it. Unknown
-or ambient inputs conservatively select the graph.
+or ambient inputs conservatively select the graph. Any change selects every
+uncacheable target and its dependents, because only a cache key declares
+complete inputs.
 
 Each Git invocation has a 60-second deadline and a 16 MiB limit on each output
 stream. Cancellation interrupts discovery as well as target execution. A Git

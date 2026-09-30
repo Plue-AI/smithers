@@ -20,16 +20,18 @@ afterEach(() => vi.restoreAllMocks())
 const target = (
   inputs: ReadonlyArray<Input.Declared> = [],
   dependencies: ReadonlyArray<Target.AnyTarget> = [],
-  view?: Partial<Target.KindView>
+  view?: Partial<Target.KindView>,
+  cacheable = true
 ): Target.AnyTarget =>
   ({
     inputs,
     dependencies,
     dependencySelectors: [],
+    cacheable,
     kinds: view === undefined ? [] : ["build"],
     forKind: () => {
       calls.views++
-      return { inputs: [], dependencies: [], dependencySelectors: [], ...view }
+      return { inputs: [], dependencies: [], dependencySelectors: [], cacheable: true, ...view }
     }
   }) as unknown as Target.AnyTarget
 
@@ -199,6 +201,31 @@ it.each([Input.gitDiff(), Input.pnpmWorkspace("//pnpm-workspace.yaml")])(
     })
   }
 )
+
+it("selects uncacheable targets and their dependents for every change, since their inputs are incomplete", () => {
+  const { add, index } = fixture()
+  add("lib", "src", target([Input.glob("src/**/*.ts")]))
+  const check = add("app", "check", target([Input.file("local.txt")], [], undefined, false))
+  add("app", "bundle", target([Input.file("entry.ts")], [check]))
+  add("tools", "test", target([Input.file("local.txt")], [], { cacheable: false }))
+  add("other", "build", target([Input.file("local.txt")]))
+  // A native rule that adds its own cache key keeps declared-input narrowing.
+  add(
+    "go",
+    "test",
+    { ...target([Input.file("local.txt")], [], undefined, false), target: "Go.Test" } as Target.AnyTarget
+  )
+  const paths = ["lib/src/a.ts"]
+  expect(Affected.select(index, ["//..."], paths)).toEqual({
+    pattern: "//...",
+    files: paths,
+    conservative: false,
+    globalInputs: [],
+    targets: ["//lib:src", "//app:check", "//app:bundle", "//tools:test"].map((label) => ({ label, reasons: paths }))
+  })
+  expect(Affected.select(index, ["//other:build"], paths).targets).toEqual([])
+  expect(Affected.select(index, ["//..."], []).targets).toEqual([])
+})
 
 it("propagates through shared private, verb, selector and cyclic dependencies", () => {
   const { add, index, owners, resolve } = fixture()
