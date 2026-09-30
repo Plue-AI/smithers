@@ -142,6 +142,7 @@ func TestServerRouter_GitHubUserRepoRoutesRejectRestrictedPATBeforeService(t *te
 		"/api/user/github-repos/smithersai/smithers",
 		"/api/user/github-repos/smithersai/smithers/issues?state=open&per_page=100&page=1",
 		"/api/user/github-repos/smithersai/smithers/pulls?state=open&per_page=100&page=1",
+		"/api/user/github-repos/smithersai/smithers/pulls/7",
 		"/api/user/github-repos/smithersai/smithers/issues/7/comments?per_page=100",
 		"/api/user/github-repos/smithersai/smithers/pulls/7/diff",
 		"/api/user/github-app/installations",
