@@ -36,6 +36,11 @@ export * as EngineTrace from "./EngineTrace.ts"
 /**
  * @since 1.0.0 @category projections
  */
+export * as RunDevTools from "./RunDevTools.ts"
+
+/**
+ * @since 1.0.0 @category projections
+ */
 export * as GatewayProjection from "./GatewayProjection.ts"
 
 /**

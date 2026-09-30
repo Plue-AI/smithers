@@ -50,6 +50,7 @@
     "./bun/BunGateway": "./src/bun/BunGateway.ts",
     "./RunTrace": "./src/RunTrace.ts",
     "./EngineTrace": "./src/EngineTrace.ts",
+    "./RunDevTools": "./src/RunDevTools.ts",
     "./SuperviseRuntime": null,
     "./test/TestSuperviseRuntime": null
   },
@@ -210,6 +211,16 @@
         "require": {
           "types": "./dist/cjs/EngineTrace.d.ts",
           "default": "./dist/cjs/EngineTrace.js"
+        }
+      },
+      "./RunDevTools": {
+        "import": {
+          "types": "./dist/esm/RunDevTools.d.ts",
+          "default": "./dist/esm/RunDevTools.js"
+        },
+        "require": {
+          "types": "./dist/cjs/RunDevTools.d.ts",
+          "default": "./dist/cjs/RunDevTools.js"
         }
       },
       "./SuperviseRuntime": null,

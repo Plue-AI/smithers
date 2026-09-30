@@ -471,6 +471,21 @@ evidence do not acquire invented phases, successful checks, or file changes.
   projection. `TraceBuilder` is the mutable draft used while folding, never a
   persisted graph or a second execution model.
 
+## `RunDevTools`
+
+`@smthrs/gateway/RunDevTools` is the DevTools projection: a run inspected
+like a component tree, as a view over the `RunTrace` model the run card, the
+terminal and `smthrs runs devtools` already fold. `devTools(model)` is the tree
+(`DevToolsModel`: one `DevToolsNode` per span with its measured timing, the
+run's counts and wall time); `inspect(model, id?, options?)` is one node's
+`DevToolsInspection` (recorded input, output, script, printed text, failure,
+seat, tokens, child run, opening event, remaining fields, and the newest
+`DevToolsFrame` records written while it was open, bounded by
+`DevToolsOptions.frames`, `defaultFrameLimit` by default); `framesOf(model,
+span)` is that frame rule alone; `lines(model, selected?, options?)` renders
+the tree and the inspection as text for a terminal. Pure: no server, no
+filesystem, no clock.
+
 ## `EngineTrace`
 
 `@smthrs/gateway/EngineTrace` decodes native journal envelopes through the
