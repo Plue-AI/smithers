@@ -19,9 +19,9 @@
 
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
-import { callScope, openCallIndex } from "./Diagnosis.js"
-import { engineTraceFromJournal } from "./EngineTrace.js"
-import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.js"
+import { callScope, openCallIndex } from "./Diagnosis.ts"
+import { engineTraceFromJournal } from "./EngineTrace.ts"
+import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
 
 /** One control journal record, as the run card stores it (the run-events projection's row shape).
  *

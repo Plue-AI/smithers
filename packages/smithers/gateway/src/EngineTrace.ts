@@ -9,7 +9,7 @@ import { ResultEncoded } from "@smthrs/flow/Flow"
 import * as EngineEvent from "@smthrs/journal/EngineEvent"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import { Option, Schema } from "effect"
-import type { JournalRecord, SpanDetail, TraceBuilder } from "./RunTrace.js"
+import type { JournalRecord, SpanDetail, TraceBuilder } from "./RunTrace.ts"
 
 // This is the private control bridge's envelope, not another engine contract.
 const Envelope = Schema.Struct({
