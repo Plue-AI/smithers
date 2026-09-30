@@ -69,7 +69,7 @@ func (h *ProtectedBookmarkHandler) ListProtectedBookmarks(w http.ResponseWriter,
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

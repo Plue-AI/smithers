@@ -186,7 +186,7 @@ func (h *OrgHandler) GetOrgRepos(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -218,7 +218,7 @@ func (h *OrgHandler) GetOrgMembers(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -285,7 +285,7 @@ func (h *OrgHandler) GetOrgTeams(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -459,7 +459,7 @@ func (h *OrgHandler) GetOrgTeamMembers(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -550,7 +550,7 @@ func (h *OrgHandler) GetOrgTeamRepos(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

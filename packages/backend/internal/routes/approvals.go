@@ -67,7 +67,7 @@ func (h *ApprovalsHandler) ListApprovals(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

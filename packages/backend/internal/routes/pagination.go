@@ -24,6 +24,25 @@ func parsePagination(r *http.Request) (cursor string, limit int, err error) {
 	return parsePaginationWithLimits(r, 30, 100, "invalid limit value", false)
 }
 
+// Offset-backed endpoints accept decimal offsets, never an opaque host cursor.
+func parseOffsetPagination(r *http.Request) (string, int, error) {
+	return parseOffsetPaginationWithLimits(r, 30, 100, "invalid limit value", false)
+}
+
+func parseOffsetPaginationWithLimits(r *http.Request, defaultLimit, maxLimit int, errMsg string, capOversizedLegacy bool) (string, int, error) {
+	cursor, limit, err := parsePaginationWithLimits(r, defaultLimit, maxLimit, errMsg, capOversizedLegacy)
+	if err != nil {
+		return "", 0, err
+	}
+	if cursor != "" {
+		offset, parseErr := strconv.ParseInt(cursor, 10, 64)
+		if parseErr != nil || offset < 0 {
+			return "", 0, errors.BadRequest("invalid cursor")
+		}
+	}
+	return cursor, limit, nil
+}
+
 // parsePaginationWithLimits is the shared implementation for all route-level pagination
 // parsers. defaultLimit and maxLimit allow callers to customize bounds; errMsg is the
 // error message used when the limit value is invalid.
@@ -135,7 +154,22 @@ func parseKeysetPagination(r *http.Request) (afterID int64, limit int, err error
 	if err != nil {
 		return 0, 0, err
 	}
+	if cursor != "" && !validIDCursor(cursor) {
+		return 0, 0, errors.BadRequest("invalid cursor")
+	}
 	return decodeIDCursor(cursor), limit, nil
+}
+
+func validIDCursor(cursor string) bool {
+	if id, err := strconv.ParseInt(cursor, 10, 64); err == nil && id >= 0 {
+		return true
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return false
+	}
+	id, err := strconv.ParseInt(string(decoded), 10, 64)
+	return err == nil && id >= 0
 }
 
 // cursorToOffset converts an opaque cursor to a numeric offset for services

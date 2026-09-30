@@ -42,7 +42,7 @@ func decodeStrictJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool 
 	r.Body = http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	err := decoder.Decode(dst)
+	err := decodeSingleJSONDocument(decoder, dst)
 	if err == nil {
 		return true
 	}
@@ -56,7 +56,7 @@ func decodeStrictJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool 
 
 func decodeJSONBodyError(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize)
-	return json.NewDecoder(r.Body).Decode(dst)
+	return decodeSingleJSONDocument(json.NewDecoder(r.Body), dst)
 }
 
 func writeJSONDecodeError(w http.ResponseWriter, invalidMessage string, err error) {
@@ -65,4 +65,19 @@ func writeJSONDecodeError(w http.ResponseWriter, invalidMessage string, err erro
 		return
 	}
 	pkgerrors.WriteError(w, pkgerrors.BadRequest(invalidMessage))
+}
+
+// A request contains one JSON document. Reading only its prefix can acknowledge
+// a write while silently dropping trailing documents or malformed bytes.
+func decodeSingleJSONDocument(decoder *json.Decoder, dst any) error {
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return stderrors.New("request body contains trailing JSON")
+	}
+	return nil
 }

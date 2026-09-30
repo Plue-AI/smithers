@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -68,8 +67,7 @@ func (h *SecretHandler) SetSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req setSecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid request body"))
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -115,7 +113,10 @@ func (h *SecretHandler) SetSecretScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req setSecretScopeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MainOnly == nil {
+	if !decodeJSONBodyWithMessage(w, r, &req, "main_only is required") {
+		return
+	}
+	if req.MainOnly == nil {
 		errors.WriteError(w, errors.BadRequest("main_only is required"))
 		return
 	}
@@ -185,8 +186,7 @@ func (h *SecretHandler) SetOrgSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req setSecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid request body"))
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if apiErr := validateSecretVariableName(req.Name, "Secret"); apiErr != nil {

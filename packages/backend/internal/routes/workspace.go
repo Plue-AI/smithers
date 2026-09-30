@@ -472,9 +472,7 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var request writeWorkspaceFileRequest
-	decoder := json.NewDecoder(r.Body)
-	if decodeErr := decoder.Decode(&request); decodeErr != nil {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
+	if !decodeJSONBody(w, r, &request) {
 		return
 	}
 	content, svcErr := h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, r.URL.Query().Get("path"), request.Content)
@@ -561,7 +559,7 @@ func (h *WorkspaceHandler) ListWorkspaces(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
@@ -871,7 +869,7 @@ func (h *WorkspaceHandler) ListWorkspaceSnapshots(w http.ResponseWriter, r *http
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
@@ -999,7 +997,7 @@ func (h *WorkspaceHandler) ListSessions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

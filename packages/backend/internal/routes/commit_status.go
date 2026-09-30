@@ -120,7 +120,7 @@ func (h *CommitStatusHandler) GetCommitStatuses(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

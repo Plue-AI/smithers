@@ -78,7 +78,7 @@ func (h *WikiHandler) ListWikiPages(w http.ResponseWriter, r *http.Request) {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
@@ -249,7 +249,7 @@ func (h *WikiHandler) SearchWikiPages(w http.ResponseWriter, r *http.Request) {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("search query is required"))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
@@ -286,7 +286,7 @@ func (h *WikiHandler) ListWikiRevisions(w http.ResponseWriter, r *http.Request) 
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

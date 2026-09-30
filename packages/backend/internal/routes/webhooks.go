@@ -248,7 +248,7 @@ func (h *WebhookHandler) RedeliverWebhookDelivery(w http.ResponseWriter, r *http
 // parseWebhookDeliveryPagination extracts cursor/limit from the query string
 // with defaults (limit=30, max limit=30).
 func parseWebhookDeliveryPagination(r *http.Request) (cursor string, limit int) {
-	cursor, limit, err := parsePaginationWithLimits(r, 30, 30, "invalid limit value", true)
+	cursor, limit, err := parseOffsetPaginationWithLimits(r, 30, 30, "invalid limit value", true)
 	if err != nil {
 		return strings.TrimSpace(r.URL.Query().Get("cursor")), 30
 	}

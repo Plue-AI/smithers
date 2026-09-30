@@ -188,7 +188,7 @@ func TestParseSearchPagination_LimitMatrix(t *testing.T) {
 		limit := limit
 		t.Run(fmt.Sprintf("limit_%d", limit), func(t *testing.T) {
 			caseCount++
-			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/search?cursor=abc&limit=%d", limit), nil)
+			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/search?cursor=30&limit=%d", limit), nil)
 			cursor, gotLimit, err := parseSearchPagination(req)
 			if limit <= 0 {
 				requireAPIError(t, err, 400)
@@ -198,7 +198,7 @@ func TestParseSearchPagination_LimitMatrix(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, "abc", cursor)
+			assert.Equal(t, "30", cursor)
 			if limit > 100 {
 				assert.Equal(t, 100, gotLimit)
 			} else {
@@ -251,9 +251,9 @@ func TestParseWebhookDeliveryPagination_LimitMatrix(t *testing.T) {
 		limit := limit
 		t.Run(fmt.Sprintf("limit_%d", limit), func(t *testing.T) {
 			caseCount++
-			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/hooks?cursor=abc&limit=%d", limit), nil)
+			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/hooks?cursor=30&limit=%d", limit), nil)
 			cursor, gotLimit := parseWebhookDeliveryPagination(req)
-			assert.Equal(t, "abc", cursor)
+			assert.Equal(t, "30", cursor)
 			switch {
 			case limit <= 0:
 				assert.Equal(t, 30, gotLimit)

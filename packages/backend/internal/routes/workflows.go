@@ -147,7 +147,7 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -223,7 +223,7 @@ func (h *WorkflowHandler) ListWorkflowRuns(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, limit, pagErr := parsePagination(r)
+	cursor, limit, pagErr := parseOffsetPagination(r)
 	if pagErr != nil {
 		errors.WriteError(w, pagErr.(*errors.APIError))
 		return
@@ -257,7 +257,7 @@ func (h *WorkflowHandler) ListAllWorkflowRuns(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

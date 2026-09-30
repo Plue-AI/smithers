@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -81,8 +80,7 @@ func (h *VariableHandler) SetVariable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req setVariableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid request body"))
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -163,8 +161,7 @@ func (h *VariableHandler) SetOrgVariable(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req setVariableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid request body"))
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if apiErr := validateSecretVariableName(req.Name, "Variable"); apiErr != nil {

@@ -52,12 +52,11 @@ func (h *NotificationHandler) ListNotifications(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	beforeID, limit, err := parseKeysetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
 	}
-	beforeID := decodeIDCursor(cursor)
 
 	items, nextCursor, total, svcErr := h.Service.ListNotifications(r.Context(), user.ID, beforeID, limit)
 	if svcErr != nil {

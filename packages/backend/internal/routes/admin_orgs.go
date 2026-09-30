@@ -20,7 +20,7 @@ type AdminOrgHandler struct {
 
 // ListOrgs handles GET /api/admin/orgs.
 func (h *AdminOrgHandler) ListOrgs(w http.ResponseWriter, r *http.Request) {
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

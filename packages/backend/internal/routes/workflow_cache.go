@@ -251,7 +251,7 @@ func (h *WorkflowCacheHandler) ListCaches(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cursor, perPage, err := parsePagination(r)
+	cursor, perPage, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

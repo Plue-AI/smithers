@@ -156,7 +156,7 @@ func (h *LFSHandler) GetObjects(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

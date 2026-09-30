@@ -34,7 +34,7 @@ func (h *IssueEventHandler) ListIssueEvents(w http.ResponseWriter, r *http.Reque
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

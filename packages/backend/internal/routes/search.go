@@ -119,5 +119,5 @@ func (h *SearchHandler) SearchCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseSearchPagination(r *http.Request) (cursor string, limit int, err error) {
-	return parsePaginationWithLimits(r, 30, 100, "invalid limit value", false)
+	return parseOffsetPaginationWithLimits(r, 30, 100, "invalid limit value", false)
 }

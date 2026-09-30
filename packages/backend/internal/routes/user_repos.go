@@ -43,7 +43,7 @@ func (h *UserReposHandler) ListUserRepos(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

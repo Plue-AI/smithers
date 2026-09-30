@@ -252,7 +252,7 @@ func TestParseUserPagination_LimitMatrix(t *testing.T) {
 	for limit := -20; limit <= 120; limit++ {
 		caseCount++
 
-		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/users/alice/repos?cursor=abc&limit=%d", limit), nil)
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/users/alice/repos?cursor=30&limit=%d", limit), nil)
 		cursor, gotLimit, err := parseUserPagination(req)
 
 		if limit <= 0 {
@@ -263,7 +263,7 @@ func TestParseUserPagination_LimitMatrix(t *testing.T) {
 		}
 
 		require.NoErrorf(t, err, "limit=%d", limit)
-		assert.Equalf(t, "abc", cursor, "limit=%d", limit)
+		assert.Equalf(t, "30", cursor, "limit=%d", limit)
 		if limit > services.UserMaxPerPage {
 			assert.Equalf(t, services.UserMaxPerPage, gotLimit, "limit=%d", limit)
 		} else {
@@ -271,10 +271,10 @@ func TestParseUserPagination_LimitMatrix(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/users/alice/repos?cursor=%20abc%20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/users/alice/repos?cursor=%2030%20", nil)
 	cursor, limit, err := parseUserPagination(req)
 	require.NoError(t, err)
-	assert.Equal(t, "abc", cursor)
+	assert.Equal(t, "30", cursor)
 	assert.Equal(t, services.UserDefaultPerPage, limit)
 
 	req = httptest.NewRequest(http.MethodGet, "/api/users/alice/repos", nil)

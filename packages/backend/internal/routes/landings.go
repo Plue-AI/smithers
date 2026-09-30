@@ -434,7 +434,7 @@ func (h *LandingHandler) ListLandingReviews(w http.ResponseWriter, r *http.Reque
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -548,7 +548,7 @@ func (h *LandingHandler) ListLandingComments(w http.ResponseWriter, r *http.Requ
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
@@ -658,7 +658,7 @@ func (h *LandingHandler) ListLandingChanges(w http.ResponseWriter, r *http.Reque
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return

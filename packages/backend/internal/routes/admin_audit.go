@@ -57,7 +57,7 @@ func (h *AdminAuditHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	cursor, limit, parseErr := parsePaginationWithLimits(r, 50, 100, "invalid limit value", false)
+	cursor, limit, parseErr := parseOffsetPaginationWithLimits(r, 50, 100, "invalid limit value", false)
 	if parseErr != nil {
 		pkgerrors.WriteError(w, parseErr.(*pkgerrors.APIError))
 		return

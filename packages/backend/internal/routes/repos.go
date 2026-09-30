@@ -181,7 +181,7 @@ func (h *RepoHandler) CreateRepo(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	errors.WriteJSON(w, http.StatusCreated, mapRepoResponse(user.Username, repo, h.SSHHost))
+	errors.WriteJSON(w, http.StatusCreated, mapWritableRepoResponse(user.Username, repo, h.SSHHost))
 }
 
 // CreateOrgRepo handles POST /api/orgs/{org}/repos.
@@ -222,7 +222,7 @@ func (h *RepoHandler) CreateOrgRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errors.WriteJSON(w, http.StatusCreated, mapRepoResponse(orgName, repo, h.SSHHost))
+	errors.WriteJSON(w, http.StatusCreated, mapWritableRepoResponse(orgName, repo, h.SSHHost))
 }
 
 // GetRepo handles GET /api/repos/{owner}/{repo}.
@@ -297,7 +297,7 @@ func (h *RepoHandler) PatchRepo(w http.ResponseWriter, r *http.Request) {
 					IPAddress:  r.RemoteAddr,
 				})
 			}
-			errors.WriteJSON(w, http.StatusOK, mapRepoResponse(owner, updated, h.SSHHost))
+			errors.WriteJSON(w, http.StatusOK, mapWritableRepoResponse(owner, updated, h.SSHHost))
 			return
 		}
 		// archived=false → unarchive
@@ -318,7 +318,7 @@ func (h *RepoHandler) PatchRepo(w http.ResponseWriter, r *http.Request) {
 				IPAddress:  r.RemoteAddr,
 			})
 		}
-		errors.WriteJSON(w, http.StatusOK, mapRepoResponse(owner, updated, h.SSHHost))
+		errors.WriteJSON(w, http.StatusOK, mapWritableRepoResponse(owner, updated, h.SSHHost))
 		return
 	}
 
@@ -336,7 +336,7 @@ func (h *RepoHandler) PatchRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errors.WriteJSON(w, http.StatusOK, mapRepoResponse(owner, updated, h.SSHHost))
+	errors.WriteJSON(w, http.StatusOK, mapWritableRepoResponse(owner, updated, h.SSHHost))
 }
 
 // DeleteRepo handles DELETE /api/repos/{owner}/{repo}.
@@ -666,7 +666,7 @@ func (h *RepoHandler) ArchiveRepo(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	errors.WriteJSON(w, http.StatusOK, mapRepoResponse(owner, updated, h.SSHHost))
+	errors.WriteJSON(w, http.StatusOK, mapWritableRepoResponse(owner, updated, h.SSHHost))
 }
 
 // UnarchiveRepo handles POST /api/repos/{owner}/{repo}/unarchive.
@@ -701,7 +701,7 @@ func (h *RepoHandler) UnarchiveRepo(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	errors.WriteJSON(w, http.StatusOK, mapRepoResponse(owner, updated, h.SSHHost))
+	errors.WriteJSON(w, http.StatusOK, mapWritableRepoResponse(owner, updated, h.SSHHost))
 }
 
 // TransferRepo handles POST /api/repos/{owner}/{repo}/transfer.
@@ -805,6 +805,14 @@ func (h *RepoHandler) ForkRepo(w http.ResponseWriter, r *http.Request) {
 	forkOf := fmt.Sprintf("%s/%s", owner, repoName)
 	resp.ForkOf = &forkOf
 	errors.WriteJSON(w, status, resp)
+}
+
+// mapWritableRepoResponse follows a successful write authorized by the service.
+// Transfers use their separate response because the actor may lose write access.
+func mapWritableRepoResponse(owner string, repo db.Repository, sshHost string) RepoResponse {
+	response := mapRepoResponse(owner, repo, sshHost)
+	response.CanWrite = true
+	return response
 }
 
 func mapRepoResponse(owner string, repo db.Repository, sshHost string) RepoResponse {

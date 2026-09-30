@@ -47,7 +47,7 @@ func adminUserAuditContext(r *http.Request) context.Context {
 }
 
 func (h *AdminUserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

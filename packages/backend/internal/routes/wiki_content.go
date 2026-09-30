@@ -134,7 +134,7 @@ func (h *WikiContentHandler) History(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid page ID"))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

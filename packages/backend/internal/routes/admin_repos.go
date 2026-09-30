@@ -20,7 +20,7 @@ type AdminRepoHandler struct {
 
 // ListRepos handles GET /api/admin/repos.
 func (h *AdminRepoHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

@@ -153,7 +153,7 @@ func (h *AgentSessionHandler) ListSessions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return
@@ -417,7 +417,7 @@ func (h *AgentSessionHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, limit, err := parsePagination(r)
+	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
 		return

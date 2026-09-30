@@ -655,7 +655,7 @@ func (h *UserHandler) DeleteConnectedAccount(w http.ResponseWriter, r *http.Requ
 // --- Pagination helpers ---
 
 func parseUserPagination(r *http.Request) (string, int, error) {
-	return parsePaginationWithLimits(r, services.UserDefaultPerPage, services.UserMaxPerPage, "invalid limit", true)
+	return parseOffsetPaginationWithLimits(r, services.UserDefaultPerPage, services.UserMaxPerPage, "invalid limit", true)
 }
 
 func writeUserPaginationHeaders(w http.ResponseWriter, r *http.Request, limit int, nextCursor string) {
