@@ -11,6 +11,14 @@ const model = (records: ReadonlyArray<ReturnType<typeof event>>, status = "runni
   traceFromJournal({ runId: "run-1", flowId: "coding/request", status }, records)
 
 describe("traceSteps", () => {
+  test("reads a stored Astra model turn", () => {
+    const steps = traceSteps(model([
+      event(1, "agent.turn-opened", { seat: "openai:gpt-6-astra" }),
+      event(2, "agent.model-settled", { text: "Historical answer" })
+    ]))
+    expect(steps[0]?.description).toBe("Model turn · openai:gpt-6-astra")
+  })
+
   test("a run reads as steps: time · type · description · duration · tokens, in journal order", () => {
     const steps = traceSteps(model([
       event(1, "agent.turn-opened", { seat: "openai:gpt-6.1-sol" }),

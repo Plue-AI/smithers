@@ -33,11 +33,12 @@ beforeAll(async () => { provider = await launchModelProvider({ key: KEY, slowMs:
 afterAll(async () => { await provider.close() })
 
 const executor = Layer.provide(RequestExecutor.layer, FetchHttpClient.layer)
-const chatRoute = (key: string) => Route.openaiChatCompatible({ id: "loopback-chat", baseUrl: provider.origin, apiKey: Redacted.make(key) })
+const chatRoute = (key: string) => Route.openaiChatCompatible({ id: "loopback-chat", providerName: "openai", baseUrl: provider.origin, apiKey: Redacted.make(key) })
 const anthropicRoute = (key: string) =>
   Result.map(Endpoint.make({ url: provider.origin, path: PROVIDER_PATHS.anthropic }), (endpoint) =>
     Route.make({
       id: "loopback-anthropic",
+      providerName: "anthropic",
       protocol: AnthropicMessages.protocol,
       endpoint,
       auth: Auth.apiKeyHeader("x-api-key", Redacted.make(key)),

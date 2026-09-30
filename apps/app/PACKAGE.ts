@@ -121,6 +121,9 @@ const check = Smithers.Typecheck({
 const unitTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.testSuite(["src", "e2e/contracts", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"]),
+  // 6,740 tests across 520 files took 813s on a clean 2026-09-29 checkout;
+  // the shared 600s default killed CI while Bun was still running tests.
+  timeout: "20m",
   srcs: [
     sources,
     componentSources,

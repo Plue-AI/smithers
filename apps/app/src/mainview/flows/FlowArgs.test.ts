@@ -277,6 +277,7 @@ test("card configuration args round-trip through their production grammars", () 
     ["box.facet", { workspaceId: "w1", facet: "files" }],
     ["secrets.move", { id: "conn-1", direction: "down" }],
     ["box.open", { repo: "owner/repo", kind: "desktop" }],
+    ["box.open", { repo: "owner/repo" }],
     ["box.delete", { workspaceId: "w1", confirmName: "My workspace" }],
     ["box.egress", { workspaceId: "w1", cursor: "next" }],
     ["box.session.destroy", { workspaceId: "w1", sessionId: "s1" }],

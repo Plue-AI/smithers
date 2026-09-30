@@ -77,6 +77,20 @@ test("a repository flow uses the same box prerequisite instead of a transient re
   } finally { await controller.dispose() }
 })
 
+test("an explicit unlisted repository stays the box form's repository, not its bookmark", async () => {
+  const { controller, store, calls } = await fixture()
+  try {
+    const other = "someone/else"
+    expect((await controller.commands.run("flow.run", `review ${other}`)).status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
+      flow: "box.open", via: "user", draft: { repo: other }
+    } })
+    const form = store.collections.cards.get("form-box.open")
+    if (form?.kind === "flow-form") expect(form.payload.draft).not.toHaveProperty("bookmark")
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
 test("background registration launch keeps its refusal and never creates a human box form", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {

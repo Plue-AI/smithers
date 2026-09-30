@@ -3311,6 +3311,85 @@ test("an admin inbox with an unread registration box keeps the readable reviews 
   expect(toast.detail).toBe("1 box not checked")
 })
 
+test("an admin inbox preserves a previous review when its registration box becomes unread", async () => {
+  const store = await webStore()
+  const double = relay()
+  const foreignBox = "88888888-1111-4111-8111-111111111111"
+  const question = approvalRow("foreign-run", "register-repository/review#1", "Register other/repo?")
+  const originalFetch = double.services.fetchImpl!
+  let unread = false
+  let reads = 0
+  const held = Promise.withResolvers<void>()
+  const controller = createAppController(store, silentAgent, { ...double.services, toastAutoDismissMs: 60_000, fetchImpl: async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    if (body?.procedure === "Registration.Reviews") {
+      reads += 1
+      if (unread) await held.promise
+      return json(200, { ok: true, payload: { inboxes: [{
+        repo: "other/repo", workspaceId: foreignBox, rows: unread ? [] : [question],
+        ...(unread ? { error: "Registration reviews unavailable. Retry." } : {})
+      }], next: "" } })
+    }
+    return originalFetch(input, init)
+  } })
+  await signIn(store)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+  try {
+    await listInbox(controller, store)
+    const previous = [...store.collections.cards.values()].find(card => card.kind === "approvals-inbox" && card.payload.workspaceId === foreignBox)!
+    expect(previous.kind === "approvals-inbox" && previous.payload.approvals.map(row => row.runId)).toEqual(["foreign-run"])
+    unread = true
+    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    await waitFor(() => reads === 2 && [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status === "running"))
+    expect(inboxRequests(store)).toHaveLength(1)
+    expect(store.collections.cards.get(previous.id)).toEqual(previous)
+    held.resolve()
+    await waitFor(() => inboxRequests(store).length === 0)
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status === "ok"))
+    await store.settled?.()
+    expect(store.collections.cards.get(previous.id)).toEqual(previous)
+    expect([...store.collections.runtimeApprovals.values()].find(row => row.scope.workspaceId === foreignBox)?.row.status).toBe("pending")
+    expect(inboxCard(store)?.payload.approvals).toEqual([])
+    const toast = [...store.collections.toasts.values()].find(entry => entry.key.startsWith("approvals.list."))!
+    expect(toast.detail).toBe("1 box not checked")
+  } finally { held.resolve() }
+})
+
+test.each([1, 2])("an admin inbox with only %i unread registration boxes reports unchecked boxes instead of no approvals", async unread => {
+  const store = await webStore()
+  const double = relay()
+  const originalFetch = double.services.fetchImpl!
+  const held = Promise.withResolvers<void>()
+  const controller = createAppController(store, silentAgent, { ...double.services, toastAutoDismissMs: 60_000, fetchImpl: async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    if (body?.procedure === "Registration.Reviews") {
+      await held.promise
+      return json(200, { ok: true, payload: { inboxes: Array.from({ length: unread }, (_, index) => ({
+        repo: `unread/repo-${index}`, workspaceId: `88888888-1111-4111-8111-11111111111${index}`,
+        rows: [], error: "Registration reviews unavailable. Retry."
+      })), next: "" } })
+    }
+    return originalFetch(input, init)
+  } })
+  await signIn(store)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+  try {
+    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status === "running"))
+    expect(inboxRequests(store)).toHaveLength(1)
+    expect(inboxCard(store)).toBeUndefined()
+    held.resolve()
+    await waitFor(() => inboxRequests(store).length === 0)
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status === "ok"))
+    await store.settled?.()
+    expect(inboxCard(store)?.payload.approvals).toEqual([])
+    expect([...store.collections.cards.values()].filter(card => card.kind === "approvals-inbox")).toHaveLength(1)
+    const toast = [...store.collections.toasts.values()].find(entry => entry.key.startsWith("approvals.list."))!
+    expect(toast.detail).toBe(`${unread} box${unread === 1 ? "" : "es"} not checked`)
+    expect([...store.collections.messages.values()].some(message => /No approvals are pending/.test(message.text))).toBe(false)
+  } finally { held.resolve() }
+})
+
 describe("run read failures speak a sentence, never a raw message", () => {
   const RAW = "TypeError: cannot read properties of undefined (reading 'rows') at pump.ts:12"
   const throwingOn = (store: Awaited<ReturnType<typeof webStore>>, type: string, error: () => unknown) =>

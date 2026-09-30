@@ -24,14 +24,6 @@ import { settledPill } from "./CardFamily"
 import { timeLabel, durationLabel } from "../Timestamps"
 import { shortId } from "../state/ids"
 import { flowArgs } from "../flows/FlowArgs"
-import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
-import { describedFailure, FailureNotice } from "../FailureNotice"
-
-/* A change or diff card's recorded failure; its raw text stays behind Details. */
-export const CHANGE_FAILURES: Readonly<Record<"change" | "diff", UserFailureCopy>> = {
-  change: { fault: "infra", sentence: "Smithers could not finish that on this change. Not your fault.", actions: [] },
-  diff: { fault: "infra", sentence: "Smithers could not load this diff. Not your fault.", actions: [] }
-}
 
 export interface ChangeCardActions {
   readonly onRunCommand: RunCommand
@@ -1027,7 +1019,7 @@ export const ChangeCardBody = ({
         ) :
         null}
       {payload.error !== undefined ?
-        <FailureNotice className="sui-approval-error" data-testid="change-failure" failure={describedFailure("ChangeFailed", CHANGE_FAILURES.change, payload.error)} /> :
+        <p className="sui-approval-error" role="alert">{payload.error}</p> :
         null}
       <div className="world-card-row" role="tablist" aria-label="Change facets">
         {facets.map(([name, label]) => (
@@ -1121,7 +1113,7 @@ export const DiffCardBody = ({
         </> : null}
       </p>
       {payload.error !== undefined ?
-        <FailureNotice className="sui-approval-error" data-testid="diff-failure" failure={describedFailure("DiffFailed", CHANGE_FAILURES.diff, payload.error)} /> :
+        <p className="sui-approval-error" role="alert">{payload.error}</p> :
         null}
       {payload.files.length === 0 ?
         <p className="world-card-empty">No files in this diff.</p> :

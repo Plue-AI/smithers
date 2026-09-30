@@ -38,7 +38,7 @@ describe("the projected .smithers/factory.json of this repository", () => {
       "issue-triage",
       "release-notes"
     ])
-    expect(projection.on.map((rule) => rule.event)).toContain("issue.opened")
+    expect(projection.on.map((rule) => rule.event)).toContain("issue.labeled:todo")
     expect(projection.github?.mirror).toBeDefined()
   })
 })
