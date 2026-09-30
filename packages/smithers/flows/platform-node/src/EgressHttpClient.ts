@@ -69,6 +69,10 @@ const loopback = ["localhost", "127.0.0.1", "::1"] as const
 const exclusions = (declared: string): string =>
   declared === "*" ? declared : [declared, ...loopback].filter((entry) => entry !== "").join(",")
 
+// Split ESM bundles expose CommonJS Undici through default, without synthetic
+// named exports. Node and Bun also expose its constructors through default.
+const loadUndici = Effect.promise(async () => (await import("undici/index.js")).default)
+
 /**
  * An Undici dispatcher that routes through the egress proxy the supplied
  * environment names, or a direct one when it names none.
@@ -104,7 +108,7 @@ export const dispatcher = (
     // package entry also avoids Bun's incomplete built-in "undici" substitute.
     return Effect.acquireRelease(
       Effect.map(
-        Effect.promise(() => import("undici/index.js")),
+        loadUndici,
         (undici) => new undici.EnvHttpProxyAgent({ httpProxy, httpsProxy, noProxy })
       ),
       (dispatcher) => Effect.promise(() => dispatcher.destroy())
@@ -175,7 +179,7 @@ export const layer = (
               })
             )
           }
-          const undici = yield* Effect.promise(() => import("undici/index.js"))
+          const undici = yield* loadUndici
           const addresses = destination.addresses.map((address) => ({ address, family: isIP(address) }))
           const pinned = new undici.EnvHttpProxyAgent({
             httpProxy: environment.http_proxy ?? environment.HTTP_PROXY ?? "",
