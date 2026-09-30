@@ -803,14 +803,14 @@ The credential boundary. Only a `CredentialRef` crosses it. See
 | `makeNoop`      | function          | `() => Credential`. Every operation fails `Unavailable`.                                                                                 |
 | `layerNoop`     | layer             | `Layer<Credential>`                                                                                                                      |
 
-| Operation | Signature                                                                                                                          |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `list`    | `() => Effect<ReadonlyArray<CredentialRef>, Unavailable \| Unauthorized>`                                                          |
-| `get`     | `(id: string) => Effect<CredentialRef, Unavailable \| Unauthorized>`                                                               |
-| `create`  | `({ id, name, secret: Redacted<string> }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>`             |
-| `resolve` | `(reference: CredentialRef) => Effect<Redacted<string>, Unavailable \| Unauthorized \| PersistenceError>`                          |
-| `rotate`  | `(reference: CredentialRef, secret: Redacted<string>) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>` |
-| `revoke`  | `(reference: CredentialRef) => Effect<void, Unavailable \| Unauthorized>`                                                          |
+| Operation | Signature                                                                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list`    | `() => Effect<ReadonlyArray<CredentialRef>, Unavailable \| Unauthorized>`                                                                                                       |
+| `get`     | `(id: string) => Effect<CredentialRef, Unavailable \| Unauthorized>`                                                                                                            |
+| `create`  | `({ id, name, secret: Redacted<string> }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>`                                                          |
+| `resolve` | `(reference: CredentialRef) => Effect<Redacted<string>, Unavailable \| Unauthorized \| PersistenceError>`                                                                       |
+| `rotate`  | `(reference: CredentialRef, secret: Redacted<string>, options?: { expected? }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict \| PersistenceError>` |
+| `revoke`  | `(reference: CredentialRef) => Effect<void, Unavailable \| Unauthorized>`                                                                                                       |
 
 `authorize` defaults to allowing every operation, which is correct for a
 single-principal local process. A reference is authenticated on every

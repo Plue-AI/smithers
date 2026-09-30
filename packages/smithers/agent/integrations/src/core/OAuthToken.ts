@@ -16,12 +16,14 @@
  * - **Rotation.** A provider may answer a refresh with a new refresh token and
  *   retire the old one. The new one is persisted with a compare-and-set against
  *   the value this source exchanged: through the control-plane `Credential`
- *   boundary with {@link credentialStore}, whose `rotate` refuses a concurrent
- *   write with `CredentialConflict`. When another refresher already replaced
- *   the stored value, the earlier write wins and this source keeps it. The
- *   compare reads the stored value, then `rotate` re-reads it, so a writer in
- *   another process that commits between those two reads is not detected; run
- *   one refresher per credential.
+ *   boundary with {@link credentialStore}, whose `rotate` compares the stored
+ *   secret and writes over the version it compared in one step, so a writer in
+ *   any process that commits first wins and this source keeps its token.
+ * - **Recovery.** Independent sources sharing one credential can both present
+ *   the same refresh token, and a rotating provider refuses the second with
+ *   `invalid_grant`. The loser reloads the stored token and, only when it
+ *   changed since the refused exchange, retries with it, a bounded number of
+ *   times. An unchanged token after `invalid_grant` is a genuine refusal.
  * - **Classification.** No stored refresh token or no credential storage is
  *   `credentials-missing`; `invalid_grant` (revoked, expired, or reused grant)
  *   and a refused credential are `permission-denied`; a rejected client id or
@@ -64,6 +66,14 @@ export const DEFAULT_SKEW: Duration.Duration = Duration.seconds(60)
 export const DEFAULT_REQUEST_TIMEOUT: Duration.Duration = Duration.seconds(30)
 
 const DEFAULT_MAX_RETRIES = 2
+/** How many times one refresh follows a stored token another source rotated. */
+const MAX_ROTATION_RECOVERIES = 3
+/**
+ * When a refused refresh re-reads the stored token, in milliseconds after the
+ * refusal. The source that won the exchange may still be persisting its
+ * rotation when the loser's refusal arrives.
+ */
+const ROTATION_SETTLE_MS: ReadonlyArray<number> = [0, 100, 250, 500]
 const MAX_RETRY_AFTER_MS = 60_000
 
 /**
@@ -127,9 +137,9 @@ const credentialFailure = (reference: CredentialRef) => (error: { readonly _tag:
  *
  * The credential's secret is the refresh token itself. `load` resolves it, so
  * the host's `authorize` policy decides whether the calling principal may use
- * it; `replace` re-reads it, gives up when it no longer matches `previous`,
- * and otherwise calls `rotate`, whose version compare-and-set answers a
- * concurrent write with `CredentialConflict`, reported here as `false`.
+ * it; `replace` is `rotate` with `expected: previous`, which compares the
+ * stored secret and writes over the version it compared, answering any other
+ * writer's earlier commit with `CredentialConflict`, reported here as `false`.
  *
  * @category constructors
  * @since 1.0.0
@@ -139,15 +149,11 @@ export const credentialStore = (credential: Credential, reference: CredentialRef
   return {
     load,
     replace: (previous, next) =>
-      Effect.gen(function*() {
-        const stored = yield* load
-        if (Redacted.value(stored) !== Redacted.value(previous)) return false
-        return yield* credential.rotate(reference, next).pipe(
-          Effect.as(true),
-          Effect.catchTag("/control/CredentialConflict", () => Effect.succeed(false)),
-          Effect.mapError(credentialFailure(reference))
-        )
-      })
+      credential.rotate(reference, next, { expected: previous }).pipe(
+        Effect.as(true),
+        Effect.catchTag("/control/CredentialConflict", () => Effect.succeed(false)),
+        Effect.mapError(credentialFailure(reference))
+      )
   }
 }
 
@@ -549,11 +555,50 @@ export const make = (options: Options): AccessTokenSource => {
     return Option.filter(yield* Ref.get(cache), (entry) => now < entry.staleAtMs)
   })
 
-  const refresh = Effect.gen(function*() {
-    const current = yield* options.refreshToken.load
+  const exchange = (current: Redacted.Redacted<string>) => {
     const form: Record<string, string> = { grant_type: "refresh_token", refresh_token: Redacted.value(current) }
     if (scope !== undefined) form["scope"] = scope
-    const grant = yield* requestGrant(endpoint, form, [current], true)
+    return requestGrant(endpoint, form, [current], true).pipe(Effect.map((grant) => ({ current, grant })))
+  }
+
+  /** The stored token once it differs from `current`, re-read a bounded number of times. */
+  const rotatedFrom = (current: Redacted.Redacted<string>): Effect.Effect<
+    Option.Option<Redacted.Redacted<string>>,
+    IntegrationError
+  > =>
+    Effect.gen(function*() {
+      let waited = 0
+      for (const at of ROTATION_SETTLE_MS) {
+        yield* Effect.sleep(Duration.millis(at - waited))
+        waited = at
+        const stored = yield* options.refreshToken.load
+        if (Redacted.value(stored) !== Redacted.value(current)) return Option.some(stored)
+      }
+      return Option.none()
+    })
+
+  // `invalid_grant` for a token another source has since rotated is not a
+  // revocation: follow the stored token, but only while it keeps changing.
+  const exchangeFollowingRotation = (
+    current: Redacted.Redacted<string>,
+    recoveries: number
+  ): Effect.Effect<{ readonly current: Redacted.Redacted<string>; readonly grant: Grant }, IntegrationError> =>
+    exchange(current).pipe(
+      Effect.catchIf(
+        (error) => recoveries > 0 && error.details?.["oauthError"] === "invalid_grant",
+        (error) =>
+          Effect.flatMap(rotatedFrom(current), (stored) =>
+            Option.isNone(stored)
+              ? Effect.fail(error)
+              : exchangeFollowingRotation(stored.value, recoveries - 1))
+      )
+    )
+
+  const refresh = Effect.gen(function*() {
+    const { current, grant } = yield* exchangeFollowingRotation(
+      yield* options.refreshToken.load,
+      MAX_ROTATION_RECOVERIES
+    )
     const now = yield* Clock.currentTimeMillis
     if (grant.refreshToken !== null && Redacted.value(grant.refreshToken) !== Redacted.value(current)) {
       const replaced = yield* options.refreshToken.replace(current, grant.refreshToken)

@@ -224,6 +224,50 @@ describe("Credential", () => {
     expect(error.actualVersion).toBe(2)
   })
 
+  it("rotates over an expected secret only while it is still the stored one", async () => {
+    const outcome = await Effect.runPromise(Effect.gen(function*() {
+      const { credentials, store } = yield* boundary()
+      const reference = yield* created(credentials, "rt-0")
+      yield* credentials.rotate(reference, Redacted.make("rt-1"), { expected: Redacted.make("rt-0") })
+      const refused = yield* Effect.flip(
+        credentials.rotate(reference, Redacted.make("rt-stale"), { expected: Redacted.make("rt-0") })
+      )
+      const secret = yield* credentials.resolve(reference)
+      return { refused, secret: Redacted.value(secret), version: Option.getOrThrow(yield* store.read("exa")).version }
+    }))
+
+    expect(outcome.refused._tag).toBe("/control/CredentialConflict")
+    expect(outcome.refused).toMatchObject({ id: "exa", expectedVersion: 2, actualVersion: 2 })
+    expect(String(outcome.refused)).not.toContain("rt-")
+    expect(outcome.secret).toBe("rt-1")
+    expect(outcome.version).toBe(2)
+  })
+
+  it("refuses an expected-secret rotation when a writer commits between its compare and its write", async () => {
+    const error = await failureOf(Effect.gen(function*() {
+      const cipher = yield* WebCryptoCipher.make({ key: hostKey }).pipe(Effect.orDie)
+      const credentials = Credential.make({ store: racingStore(), cipher })
+      const reference = yield* created(credentials, "rt-0")
+      return yield* credentials.rotate(reference, Redacted.make("late"), { expected: Redacted.make("rt-0") })
+    }))
+
+    expect(error._tag).toBe("/control/CredentialConflict")
+    expect(error.expectedVersion).toBe(1)
+    expect(error.actualVersion).toBe(2)
+  })
+
+  it("refuses an expected-secret rotation over a record that does not open, without writing", async () => {
+    const { credentials, store } = await Effect.runPromise(boundary())
+    const reference = await Effect.runPromise(created(credentials, "rt-0"))
+    const first = Option.getOrThrow(await Effect.runPromise(store.read("exa")))
+    await Effect.runPromise(store.write({ ...first, nonce: btoa("not the nonce"), version: 2 }))
+
+    expectOpenRefused(
+      await failureOf(credentials.rotate(reference, Redacted.make("rt-1"), { expected: Redacted.make("rt-0") }))
+    )
+    expect(Option.getOrThrow(await Effect.runPromise(store.read("exa"))).version).toBe(2)
+  })
+
   it("revokes a credential and refuses to resolve it afterwards", async () => {
     expectUnauthorized(
       await failureOf(Effect.gen(function*() {

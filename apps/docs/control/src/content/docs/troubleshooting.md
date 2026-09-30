@@ -121,6 +121,9 @@ integration behind it, stable enough to group reports by.
 Two rotations raced, and this one read the older version. The failure carries
 `expectedVersion` and `actualVersion`. Re-read the record and rotate again.
 
+A `rotate` with `expected` also fails this way, with both versions equal, when
+the stored secret is no longer `expected`: another writer already replaced it.
+
 ### `LaunchFailed` (`launch_failed`)
 
 The executor refused or could not start the run. The plane settles the run row

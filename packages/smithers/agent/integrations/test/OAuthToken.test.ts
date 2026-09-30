@@ -398,6 +398,44 @@ const withCredentials = <A, E>(
     }).pipe(Effect.provide(TestDatabase.layer), Effect.scoped, Effect.orDie)
   )
 
+/**
+ * A provider that retires each refresh token the moment it is exchanged, and
+ * refuses a retired one with `invalid_grant`. The first `holdFirst` requests
+ * are held until all of them arrived, so their callers present the same token.
+ */
+const strictRotatingProvider = (options: { readonly holdFirst: number }) => {
+  let current: string | null = REFRESH
+  let minted = 0
+  const held: Array<() => void> = []
+  return {
+    revoke: () => {
+      current = null
+    },
+    handle: async (request: Recorded, response: Parameters<Parameters<typeof startFixture>[0]>[1]) => {
+      if (held.length < options.holdFirst) {
+        await new Promise<void>((release) => {
+          held.push(release)
+          if (held.length === options.holdFirst) held.forEach((resume) => resume())
+        })
+      }
+      const presented = form(request).get("refresh_token")
+      if (presented !== current) {
+        return json(response, 400, { error: "invalid_grant", error_description: `Token ${presented} was already used.` })
+      }
+      minted += 1
+      current = `rt-${minted}`
+      json(response, 200, { access_token: `at-${minted}`, expires_in: 3600, refresh_token: current })
+    }
+  }
+}
+
+/** Persists every write late, so a refused loser can see the old token first. */
+const slowWrites = (durable: CredentialStore.Service): CredentialStore.Service =>
+  CredentialStore.make({
+    ...durable,
+    write: (record) => Effect.andThen(Effect.sleep("150 millis"), durable.write(record))
+  })
+
 describe("OAuthToken credential store", () => {
   it("persists a rotated refresh token through the credential boundary", async () => {
     let calls = 0
@@ -452,7 +490,7 @@ describe("OAuthToken credential store", () => {
         Effect.gen(function*() {
           yield* credentials.create({ ...REFERENCE, secret: Redacted.make(REFRESH) })
           const store = OAuthToken.credentialStore(credentials, REFERENCE)
-          // A competing rotation lands between `rotate`'s read and its write.
+          // A competing rotation lands between `rotate`'s compare and its write.
           interleave = () =>
             Effect.runPromise(credentials.rotate(REFERENCE, Redacted.make("rotated-elsewhere"))).then(() => undefined)
           const outcome = yield* store.replace(Redacted.make(REFRESH), Redacted.make("rotated-mine"))
@@ -467,9 +505,9 @@ describe("OAuthToken credential store", () => {
               durable.read(id).pipe(Effect.tap(() =>
                 Effect.promise(async () => {
                   armed += 1
-                  // The second read is `rotate`'s own authentication read,
-                  // after `replace` resolved the stored value once.
-                  if (armed === 2 && interleave !== undefined) {
+                  // The first read is `rotate`'s own: the secret it compares
+                  // and the version it writes over both come from it.
+                  if (armed === 1 && interleave !== undefined) {
                     const run = interleave
                     interleave = undefined
                     await run()
@@ -481,6 +519,87 @@ describe("OAuthToken credential store", () => {
       }
     )
     expect(replaced).toEqual([false, "rotated-elsewhere"])
+  })
+
+  it("converges independent sources that both present the same refresh token to a rotating provider", async () => {
+    const provider = strictRotatingProvider({ holdFirst: 2 })
+    fixture = await startFixture(provider.handle)
+    const outcome = await withCredentials(
+      (credentials, store) =>
+        Effect.gen(function*() {
+          yield* credentials.create({ ...REFERENCE, secret: Redacted.make(REFRESH) })
+          // A second process: its own credential boundary over the same rows.
+          const cipher = yield* WebCryptoCipher.make({ key: HOST_KEY }).pipe(Effect.orDie)
+          const elsewhere = Credential.make({ store, cipher })
+          const first = OAuthToken.make(endpoint({ refreshToken: OAuthToken.credentialStore(credentials, REFERENCE) }))
+          const second = OAuthToken.make(endpoint({ refreshToken: OAuthToken.credentialStore(elsewhere, REFERENCE) }))
+          const tokens = yield* Effect.all([first.token, second.token], { concurrency: "unbounded" })
+          const stored = value(yield* credentials.resolve(REFERENCE))
+          const later = OAuthToken.make(endpoint({ refreshToken: OAuthToken.credentialStore(credentials, REFERENCE) }))
+          return { tokens: tokens.map(value).sort(), stored, later: value(yield* later.token) }
+        }),
+      { wrap: slowWrites }
+    )
+    expect(outcome.tokens).toEqual(["at-1", "at-2"])
+    expect(outcome.stored).toBe("rt-2")
+    expect(outcome.later).toBe("at-3")
+    expect(tokenRequests().map((request) => form(request).get("refresh_token"))).toEqual([
+      REFRESH,
+      REFRESH,
+      "rt-1",
+      "rt-2"
+    ])
+  })
+
+  it("keeps an invalid grant a refusal when the stored refresh token never changed", async () => {
+    const provider = strictRotatingProvider({ holdFirst: 0 })
+    provider.revoke()
+    fixture = await startFixture(provider.handle)
+    const outcome = await withCredentials((credentials) =>
+      Effect.gen(function*() {
+        yield* credentials.create({ ...REFERENCE, secret: Redacted.make(REFRESH) })
+        const source = OAuthToken.make(endpoint({ refreshToken: OAuthToken.credentialStore(credentials, REFERENCE) }))
+        const error = yield* Effect.flip(source.token)
+        return { error, stored: value(yield* credentials.resolve(REFERENCE)) }
+      })
+    )
+    expect(outcome.error.reason).toBe("permission-denied")
+    expect(outcome.error.details?.["oauthError"]).toBe("invalid_grant")
+    expect(outcome.stored).toBe(REFRESH)
+    expect(tokenRequests()).toHaveLength(1)
+    expect(JSON.stringify({ message: outcome.error.message, details: outcome.error.details })).not.toContain(REFRESH)
+  })
+
+  it("stops following a stored token that keeps rotating under refused grants", async () => {
+    let rotations = 0
+    const outcome = await withCredentials((credentials) =>
+      Effect.gen(function*() {
+        yield* credentials.create({ ...REFERENCE, secret: Redacted.make(REFRESH) })
+        // Every exchange is refused, and each time another writer has already
+        // rotated the stored token again.
+        fixture = yield* Effect.promise(() =>
+          startFixture(async (request, response) => {
+            rotations += 1
+            await Effect.runPromise(credentials.rotate(REFERENCE, Redacted.make(`elsewhere-${rotations}`)))
+            json(response, 400, {
+              error: "invalid_grant",
+              error_description: `Token ${form(request).get("refresh_token")} was already used.`
+            })
+          })
+        )
+        const source = OAuthToken.make(endpoint({ refreshToken: OAuthToken.credentialStore(credentials, REFERENCE) }))
+        return yield* Effect.flip(source.token)
+      })
+    )
+    expect(outcome.reason).toBe("permission-denied")
+    expect(tokenRequests().map((request) => form(request).get("refresh_token"))).toEqual([
+      REFRESH,
+      "elsewhere-1",
+      "elsewhere-2",
+      "elsewhere-3"
+    ])
+    const text = JSON.stringify({ message: outcome.message, details: outcome.details })
+    for (const token of [REFRESH, "elsewhere-3", "elsewhere-4"]) expect(text).not.toContain(token)
   })
 
   it("refuses a caller the credential policy denies as permission-denied", async () => {

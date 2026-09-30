@@ -11,6 +11,9 @@
  *
  * - {@link CredentialStore} persists an opaque sealed record and enforces
  *   compare-and-set on writes, so concurrent rotations cannot interleave.
+ *   `rotate` with `expected` extends that compare to the secret itself: the
+ *   secret it checks and the version it writes over come from one read, so a
+ *   writer that commits in between, in any process, is refused.
  * - {@link CredentialCipher} seals and opens the secret under host-managed
  *   keys. `WebCryptoCipher` is the browser and Node adapter; a host with no
  *   secure key material fails with the typed `Unavailable`.
@@ -25,13 +28,7 @@
  */
 
 import { Context, Effect, Layer, Option, Redacted } from "effect"
-import {
-  type CredentialConflict,
-  InvalidInput,
-  type PersistenceError,
-  Unauthorized,
-  Unavailable
-} from "./ControlError.ts"
+import { CredentialConflict, InvalidInput, type PersistenceError, Unauthorized, Unavailable } from "./ControlError.ts"
 import * as CredentialCipher from "./CredentialCipher.ts"
 import * as CredentialStore from "./CredentialStore.ts"
 
@@ -70,6 +67,17 @@ export interface CredentialRef {
 export type Operation = "list" | "get" | "create" | "resolve" | "rotate" | "revoke"
 
 /**
+ * How {@link Credential.rotate} compares before it writes.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface RotateOptions {
+  /** The secret the caller last saw; the rotation commits only over it. */
+  readonly expected?: Redacted.Redacted<string> | undefined
+}
+
+/**
  * Adapter-bound credential resolution. References are safe to list and
  * persist; only `resolve` crosses into a secret-bearing adapter boundary.
  *
@@ -85,10 +93,19 @@ export interface Credential {
   readonly resolve: (
     reference: CredentialRef
   ) => Effect.Effect<Redacted.Redacted<string>, Unavailable | Unauthorized | PersistenceError>
+  /**
+   * Replaces the secret. With `expected`, replaces it only while the stored
+   * secret still equals `expected`, and otherwise fails `CredentialConflict`
+   * at the stored version without writing.
+   */
   readonly rotate: (
     reference: CredentialRef,
-    secret: Redacted.Redacted<string>
-  ) => Effect.Effect<CredentialRef, Unavailable | Unauthorized | CredentialConflict | InvalidInput>
+    secret: Redacted.Redacted<string>,
+    options?: RotateOptions | undefined
+  ) => Effect.Effect<
+    CredentialRef,
+    Unavailable | Unauthorized | CredentialConflict | InvalidInput | PersistenceError
+  >
   readonly revoke: (reference: CredentialRef) => Effect.Effect<void, Unavailable | Unauthorized>
 }
 
@@ -248,8 +265,22 @@ export const make = (options: Options): Credential => {
         cipherContextOf(record)
       )
     }),
-    rotate: Effect.fn("Credential.rotate")(function*(reference, secret) {
+    rotate: Effect.fn("Credential.rotate")(function*(reference, secret, options) {
+      const expected = options?.expected
       const record = yield* authenticate("rotate", reference)
+      if (expected !== undefined) {
+        const stored = yield* cipher.open(
+          { ciphertext: record.ciphertext, nonce: record.nonce },
+          cipherContextOf(record)
+        )
+        if (Redacted.value(stored) !== Redacted.value(expected)) {
+          return yield* Effect.fail(
+            new CredentialConflict({ id: record.id, expectedVersion: record.version, actualVersion: record.version })
+          )
+        }
+      }
+      // `put` writes over exactly the version read above, so the secret just
+      // compared is still the stored one when the write commits.
       return yield* put({ ...record, version: record.version + 1 }, secret)
     }),
     revoke: Effect.fn("Credential.revoke")(function*(reference) {
