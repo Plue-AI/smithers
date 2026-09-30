@@ -25,8 +25,9 @@ const bounded = async (waiting: Promise<void>): Promise<void> => {
     clearTimeout(timer)
   }
 }
-const pushResult = (summary: { readonly results: ReadonlyArray<{ readonly label: string; readonly error?: string | undefined }> }) =>
-  summary.results.find((result) => result.label === "//:push")
+const pushResult = (
+  summary: { readonly results: ReadonlyArray<{ readonly label: string; readonly error?: string | undefined }> }
+) => summary.results.find((result) => result.label === "//:push")
 afterAll(async () => {
   await Promise.all(directories.map((directory) => Fs.rm(directory, { recursive: true, force: true })))
 })

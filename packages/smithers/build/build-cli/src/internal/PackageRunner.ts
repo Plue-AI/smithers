@@ -55,6 +55,7 @@ import * as ServiceSupervisor from "../ServiceSupervisor.ts"
 import * as StampExec from "../StampExec.ts"
 import { runTarget } from "../TargetExecution.ts"
 import * as Workspace from "../Workspace.ts"
+import * as ApprovalBridge from "./ApprovalBridge.ts"
 import type { ExecuteOptions, PackageNode, PackagePlan, TestOperandPlan } from "./PackageOptions.ts"
 import type { StoredResolve } from "./PackagePlanner.ts"
 import {
@@ -64,6 +65,7 @@ import {
   decodeStoredResolve,
   keyMaterialWithGraph,
   managerFilesOf,
+  plan,
   staticPrefixOf,
   takesExclusiveTreePermit,
   workspaceRootToken
@@ -2260,13 +2262,15 @@ export const executeEffect = (
                   `${node.label}  sandbox: outer child CLI runs unconfined so the child can enforce its own target sandboxes`
                 )
               }
-              yield* joined((signal) =>
+              // The child build CLI asks this process's approval store.
+              const child = (signal: AbortSignal) => (environment: Readonly<Record<string, string>>) =>
                 RepoResolution.execute(repoResolutions, lane.resolution, {
                   write: options.write,
                   signal,
-                  output: (stream, text) => reporter.toolOutput(node.label, stream, text)
+                  output: (stream, text) => reporter.toolOutput(node.label, stream, text),
+                  environment
                 })
-              )
+              yield* joined((signal) => ApprovalBridge.withBridge(options.approvals, child(signal)))
               yield* cachePut(node, {
                 kind: "repo-target",
                 repo: lane.resolution.repoName,
@@ -3133,6 +3137,41 @@ export const executeEffect = (
         ))
       })
 
+    /**
+     * Plans an approval-required target again immediately before it runs and
+     * returns why it must not, if anything. The plan-time check can be minutes
+     * old by now: its declared inputs, pinned stamps or grant may have moved
+     * while its dependencies ran.
+     */
+    const approvalRecheck = (node: PackageNode & { readonly approval: string }) =>
+      Effect.gen(function*() {
+        const replanned = yield* Effect.exit(joined((signal) =>
+          plan({
+            ...options,
+            verb: options.verb === "ci" ? "auto" : options.verb,
+            patterns: [node.label],
+            rootLabels: undefined,
+            plan: false,
+            readCache: false,
+            reporter: undefined,
+            log: () => {},
+            signal
+          })
+        ))
+        const prefix = `approval required: ${node.label}`
+        if (Exit.isFailure(replanned)) {
+          const reason = Diagnostic.describe(Cause.squash(replanned.cause))
+          return `${prefix} could not be checked again before it ran: ${reason}`
+        }
+        const current = replanned.value.nodes.get(node.label)
+        if (current?.approval !== node.approval) {
+          const now = current?.approval?.slice(0, 12) ?? "unplanned"
+          return `${prefix} changed after planning: approved revision ${node.approval.slice(0, 12)} is now ${now}; ` +
+            `approve it with: smthrs approvals grant ${node.label}`
+        }
+        return current.refusal
+      })
+
     /** Settles one node: gate and dependency checks, refusal, then dispatch. */
     const settle = (node: PackageNode): Effect.Effect<Outcome, unknown> =>
       Effect.gen(function*() {
@@ -3153,6 +3192,10 @@ export const executeEffect = (
           }
         }
         if (node.refusal !== undefined) return fail(node.refusal)
+        if (node.approval !== undefined) {
+          const stale = yield* approvalRecheck({ ...node, approval: node.approval })
+          if (stale !== undefined) return fail(stale)
+        }
         if (node.serviceDeps.length > 0) return yield* underServices(node, dispatch(node))
         return yield* dispatch(node)
       })

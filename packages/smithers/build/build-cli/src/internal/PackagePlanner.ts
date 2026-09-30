@@ -53,9 +53,11 @@ import * as Planner from "../Planner.ts"
 import * as RepoResolution from "../RepoResolution.ts"
 import * as Reporter from "../Reporter.ts"
 import * as Resolver from "../Resolver.ts"
+import * as StampExec from "../StampExec.ts"
 import * as TargetIndex from "../TargetIndex.ts"
 import * as Workspace from "../Workspace.ts"
 import * as WorkspaceToolchain from "../WorkspaceToolchain.ts"
+import * as ApprovalBridge from "./ApprovalBridge.ts"
 import { collectTargets } from "./Attrs.ts"
 import * as CoreRuleSelection from "./CoreRuleSelection.ts"
 import { gitPathspecBatches } from "./GitPathspecBatches.ts"
@@ -1485,13 +1487,19 @@ const visit = async (
       }
       if (context.childPlan && refusal === undefined) {
         const childLabel = `@${repositoryResolution.repoName}${repositoryResolution.label}`
+        const resolution = repositoryResolution
         try {
-          await RepoResolution.execute(context.repoResolutions, repositoryResolution, {
-            plan: true,
-            write: context.write,
-            signal: context.signal,
-            output: (stream, text) => context.reporter.toolOutput(childLabel, stream, text)
-          })
+          await ApprovalBridge.withBridge(
+            context.approvals,
+            (environment) =>
+              RepoResolution.execute(context.repoResolutions, resolution, {
+                plan: true,
+                write: context.write,
+                signal: context.signal,
+                output: (stream, text) => context.reporter.toolOutput(childLabel, stream, text),
+                environment
+              })
+          )
         } catch (cause) {
           noteRefusal(`child repository @${repositoryResolution.repoName} plan refused: ${Diagnostic.describe(cause)}`)
         }
@@ -2670,12 +2678,58 @@ const visit = async (
       }
     }
   }
+  // An approval names the values its target runs with, so stamps resolve
+  // here, into the revision and the planned commands, instead of just before
+  // spawn: moving HEAD after a grant is a new revision, and execution runs
+  // exactly the approved values. buildTime differs on every run, so no
+  // grant could ever match it.
+  const approvalRequired = attrMember(attrs, "approval") === "required"
+  let stamps: Record<string, string> | undefined
+  if (approvalRequired) {
+    const lane = selection?.lane
+    const planned = [
+      ...(argv ?? []),
+      ...Object.values(env),
+      ...(lane?.kind === "docker-push" ? lane.commands.flat() : [])
+    ]
+    const tokens = StampExec.tokensIn(planned)
+    if (tokens.some((token) => StampExec.nameOf(token) === "buildTime")) {
+      noteRefusal(
+        `approval required: ${label} stamps buildTime, which changes on every run, so no approval can name it; ` +
+          "use a stable stamp such as commit or version"
+      )
+    } else if (tokens.length > 0) {
+      const resolved = await Effect.runPromise(
+        Effect.exit(Effect.tryPromise(() => StampExec.resolveTokens(context.root, tokens)))
+      )
+      if (Exit.isFailure(resolved)) {
+        noteRefusal(
+          `approval required: ${label} stamps could not be resolved: ${
+            Diagnostic.describe(Cause.squash(resolved.cause))
+          }`
+        )
+      } else {
+        const values = resolved.value
+        const pin = (text: string) => StampExec.substitute(text, values)
+        argv = argv?.map(pin)
+        env = Object.fromEntries(Object.entries(env).map(([name, value]) => [name, pin(value)]))
+        if (selection !== undefined && lane?.kind === "docker-push") {
+          selection = {
+            ...selection,
+            lane: { kind: "docker-push", commands: lane.commands.map((command) => command.map(pin)) }
+          } as typeof selection
+        }
+        stamps = Object.fromEntries(tokens.map((token) => [token, values.get(token)!]))
+      }
+    }
+  }
   // The approval binds to this exact revision: the label, the rule, the
   // effective attrs with each dependency's content key substituted, the
-  // declared inputs, the dependency keys, the resolved tools and the
-  // invocation's `--input` values. Any edit, rebuilt image or moved
-  // input is a new revision that needs its own approval.
-  const approval = attrMember(attrs, "approval") === "required"
+  // declared inputs, the dependency keys, the resolved tools, the
+  // invocation's `--input` values and the pinned stamp values. Any edit,
+  // rebuilt image, moved input or moved HEAD is a new revision that needs its
+  // own approval.
+  const approval = approvalRequired
     ? Planner.keyOf({
       body: { approval: label, target: rule },
       inputs: {
@@ -2683,7 +2737,8 @@ const visit = async (
         declared: declaredInputs,
         dependencies: dependencyRows,
         toolchain,
-        invocation: context.inputs
+        invocation: context.inputs,
+        ...(stamps === undefined ? {} : { stamps })
       },
       layers: [],
       capabilities: []

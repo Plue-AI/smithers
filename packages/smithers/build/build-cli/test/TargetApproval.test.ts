@@ -5,6 +5,7 @@
  * fake on PATH; the store is the `RuntimeConfig.approvals` seam the unified
  * CLI fills with its control database.
  */
+import { spawnSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
@@ -24,10 +25,10 @@ interface Fixture {
   readonly config: string
   readonly calls: () => Promise<ReadonlyArray<string>>
   readonly environment: Record<string, string | undefined>
-  readonly setTags: (tags: ReadonlyArray<string>) => Promise<void>
+  readonly setTags: (tags: ReadonlyArray<string> | string) => Promise<void>
 }
 
-const packageSource = (tags: ReadonlyArray<string>, secrets = "[]") =>
+const packageSource = (tags: ReadonlyArray<string> | string, secrets = "[]") =>
   `import { Smithers as S } from "@smthrs/targets"
 
 const image = S.Docker.Build({ dockerfile: S.file("Dockerfile"), context: ".", data: [S.file("hello.txt")] })
@@ -35,7 +36,7 @@ const push = S.Docker.Push({
   image,
   registry: "127.0.0.1:5999",
   name: "fixture",
-  tags: ${JSON.stringify(tags)},
+  tags: ${typeof tags === "string" ? tags : JSON.stringify(tags)},
   secrets: ${secrets},
   sandbox: "none",
   approval: "required"
@@ -46,8 +47,13 @@ export const Package = S.Package({ targets: { image, push } })
 
 /** A workspace whose fake Docker records every call and fails `push` for the tags in `failing`. */
 const fixture = async (
-  tags: ReadonlyArray<string>,
-  options: { readonly failing?: ReadonlyArray<string>; readonly secrets?: string } = {}
+  tags: ReadonlyArray<string> | string,
+  options: {
+    readonly failing?: ReadonlyArray<string>
+    readonly secrets?: string
+    /** Shell run by the fake `docker buildx build`, after it writes the archive. */
+    readonly duringBuild?: string
+  } = {}
 ): Promise<Fixture> => {
   const root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-target-approval-")))
   directories.push(root)
@@ -91,6 +97,7 @@ buildx)
     for arg in "$@"; do
       case "$arg" in type=oci,dest=*) dest="\${arg#type=oci,dest=}"; mkdir -p "$(dirname "$dest")"; cp '${archive}' "$dest";; esac
     done
+    ${options.duringBuild ?? ""}
   fi
   if [ "$2" = "imagetools" ]; then echo '{"config":{"digest":"${built!.config}"}}'; exit 0; fi
   echo 'fixture engine';;
@@ -297,6 +304,145 @@ describe("approval: \"required\" through the public CLI", { timeout: 60_000 }, (
     expect(result.exitCode).toBe(1)
     expect(`${result.output}${result.logs}`).toContain("FIXTURE_REGISTRY_TOKEN")
     expect(pushes(await workspace.calls())).toEqual([])
+  })
+
+  const git = (root: string, args: ReadonlyArray<string>) => {
+    const result = spawnSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_NAME: "fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.invalid"
+      }
+    })
+    expect(result.status, result.stderr).toBe(0)
+    return result.stdout.trim()
+  }
+  const commit = (root: string, message: string) => {
+    git(root, ["add", "-A"])
+    git(root, ["commit", "-q", "--allow-empty", "-m", message])
+    return git(root, ["rev-parse", "HEAD"])
+  }
+
+  it("pins a stamped tag into the approved revision and pushes the approved value", async () => {
+    const workspace = await fixture("[S.Stamp.commit]")
+    git(workspace.root, ["init", "-q"])
+    const approvedHead = commit(workspace.root, "first")
+    const memory = memoryStore()
+    const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    memory.approve(revision.label, revision.digest)
+    const planned = await serve(workspace.root, ["//:push", "--plan"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(planned.output).toContain(`127.0.0.1:5999/fixture:${approvedHead}`)
+    expect(planned.output).not.toContain("{smthrs:stamp:")
+
+    // Moving HEAD after the grant is a new revision, refused before any effect.
+    commit(workspace.root, "second")
+    const moved = await serve(workspace.root, ["//:push"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(moved.exitCode).toBe(1)
+    expect(`${moved.output}${moved.logs}`).toContain("is not approved")
+    expect(pushes(await workspace.calls())).toEqual([])
+    expect(
+      (await approvalRevision("//:push", { workspace: workspace.root }, { environment: workspace.environment }))
+        .digest
+    ).not.toBe(revision.digest)
+
+    git(workspace.root, ["reset", "-q", "--hard", approvedHead])
+    const ran = await serve(workspace.root, ["//:push"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(ran.exitCode, `${ran.output}${ran.logs}`).toBe(0)
+    expect(pushes(await workspace.calls())).toEqual([`push 127.0.0.1:5999/fixture:${approvedHead}`])
+    expect(await workspace.calls()).toContain(`tag ${workspace.config} 127.0.0.1:5999/fixture:${approvedHead}`)
+  })
+
+  it("refuses a buildTime stamp, which no approval can name", async () => {
+    const workspace = await fixture("[S.Stamp.buildTime]")
+    const memory = memoryStore()
+    const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    memory.approve(revision.label, revision.digest)
+    const result = await serve(workspace.root, ["//:push"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(result.exitCode).toBe(1)
+    expect(`${result.output}${result.logs}`).toContain("stamps buildTime")
+    expect(await workspace.calls()).not.toContainEqual(expect.stringMatching(/^(push|buildx build)/))
+  })
+
+  it("checks the revision again before the push: an input edited while the build ran refuses it", async () => {
+    const workspace = await fixture(["one"], { duringBuild: "echo edited-during-build > hello.txt" })
+    const memory = memoryStore()
+    const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    memory.approve(revision.label, revision.digest)
+    const result = await serve(workspace.root, ["//:push"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(result.exitCode).toBe(1)
+    expect(`${result.output}${result.logs}`).toContain(
+      `changed after planning: approved revision ${revision.digest.slice(0, 12)}`
+    )
+    expect(await workspace.calls()).toContainEqual(expect.stringMatching(/^buildx build/))
+    expect(pushes(await workspace.calls())).toEqual([])
+  })
+
+  it("checks the grant again before the push: a grant revoked while the build ran refuses it", async () => {
+    const workspace = await fixture(["one"])
+    const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    const asked: Array<string> = []
+    const store: PackageExec.TargetApprovals = {
+      granted: async (request) => {
+        asked.push(request.digest)
+        return asked.length === 1 && request.digest === revision.digest
+      }
+    }
+    const result = await serve(workspace.root, ["//:push"], { environment: workspace.environment, approvals: store })
+    expect(asked).toEqual([revision.digest, revision.digest])
+    expect(result.exitCode).toBe(1)
+    expect(`${result.output}${result.logs}`).toContain("is not approved")
+    expect(pushes(await workspace.calls())).toEqual([])
+  })
+
+  it("hands the parent's store to a watch cycle's fresh build CLI", async () => {
+    const workspace = await fixture(["one"])
+    const memory = memoryStore()
+    const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    const refused = await serve(workspace.root, ["watch", "run", "//:push", "--once"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(refused.exitCode).toBe(1)
+    expect(pushes(await workspace.calls())).toEqual([])
+
+    memory.approve(revision.label, revision.digest)
+    const ran = await serve(workspace.root, ["watch", "run", "//:push", "--once"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+    expect(ran.exitCode, `${ran.output}${ran.logs}`).toBe(0)
+    expect(pushes(await workspace.calls())).toEqual(["push 127.0.0.1:5999/fixture:one"])
+    // The child asked this process's store, for this exact revision.
+    expect(memory.asked).toContainEqual(revision)
   })
 
   it("refuses to name a revision for a target that needs no approval", async () => {

@@ -27,6 +27,7 @@ import * as Diagnostic from "./Diagnostic.ts"
 import * as Executor from "./Executor.ts"
 import * as GitHooks from "./GitHooks.ts"
 import * as GraphOutput from "./GraphOutput.ts"
+import * as ApprovalBridge from "./internal/ApprovalBridge.ts"
 import * as KnownRed from "./KnownRed.ts"
 import * as Label from "./Label.ts"
 import * as Owners from "./Owners.ts"
@@ -1395,27 +1396,31 @@ const makeCommands = (config: RuntimeConfig) =>
             ...(context.options.cacheDir === undefined ? [] : ["--cache-dir", context.options.cacheDir])
           ]
           const streams = terminalsOf(config)
-          const result = await Watch.run({
-            root: index.root,
-            args,
-            ignored,
-            signal: config.signal,
-            environment: {
-              ...environmentOf(config),
-              ...(config.cacheUrl === undefined ? {} : { SMITHERS_CACHE_URL: config.cacheUrl }),
-              ...(config.cacheToken === undefined ? {} : { SMITHERS_CACHE_TOKEN: config.cacheToken })
-            },
-            debounceMs: context.options.debounceMs,
-            once: context.options.once,
-            stdout: (text) => {
-              if (context.options.plan && policyFor(context, config).audience === "human") reporter.note(text)
-            },
-            stderr: (text) => streams.stderr.write(text),
-            cycleCompleted: (cycle) => {
-              if (cycle.exitCode === 0) reporter.note(`Watch cycle ${cycle.number} complete`)
-              else reporter.warn(`Watch cycle ${cycle.number} failed (exit ${cycle.exitCode})\n${cycle.output.trim()}`)
-            }
-          })
+          // Every cycle is a fresh build CLI; it asks this process's approval store.
+          const result = await ApprovalBridge.withBridge(config.approvals, (approvals) =>
+            Watch.run({
+              root: index.root,
+              args,
+              ignored,
+              signal: config.signal,
+              environment: {
+                ...environmentOf(config),
+                ...(config.cacheUrl === undefined ? {} : { SMITHERS_CACHE_URL: config.cacheUrl }),
+                ...(config.cacheToken === undefined ? {} : { SMITHERS_CACHE_TOKEN: config.cacheToken }),
+                ...approvals
+              },
+              debounceMs: context.options.debounceMs,
+              once: context.options.once,
+              stdout: (text) => {
+                if (context.options.plan && policyFor(context, config).audience === "human") reporter.note(text)
+              },
+              stderr: (text) => streams.stderr.write(text),
+              cycleCompleted: (cycle) => {
+                const failed = `Watch cycle ${cycle.number} failed (exit ${cycle.exitCode})\n${cycle.output.trim()}`
+                if (cycle.exitCode === 0) reporter.note(`Watch cycle ${cycle.number} complete`)
+                else reporter.warn(failed)
+              }
+            }))
           if (context.options.once && result.exitCode !== 0) {
             return context.error({
               code: "watch_cycle_failed",

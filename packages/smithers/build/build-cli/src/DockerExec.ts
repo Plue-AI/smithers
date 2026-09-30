@@ -15,6 +15,7 @@
 import type * as Docker from "@smthrs/targets/Docker"
 import * as Input from "@smthrs/targets/Input"
 import * as Stamp from "@smthrs/targets/Stamp"
+import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
@@ -148,6 +149,16 @@ export interface ArchiveImage {
   readonly end: number
 }
 
+/**
+ * A build archive a push cannot read its image from.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+class ImageArchiveError extends Data.TaggedError("smithers-build/ImageArchiveError")<{
+  readonly message: string
+}> {}
+
 interface TarEntry {
   readonly offset: number
   readonly size: number
@@ -194,7 +205,7 @@ const tarIndex = async (
     }
     offset = data + Math.ceil(size / block) * block
   }
-  throw new Error("the image archive is not a complete tar archive")
+  throw new ImageArchiveError({ message: "the image archive is not a complete tar archive" })
 }
 
 const readEntry = async (handle: Fs.FileHandle, entry: TarEntry): Promise<Buffer> => {
@@ -242,7 +253,7 @@ export const readImageArchive = async (path: string): Promise<ArchiveImage | { r
     const { files, end } = await tarIndex(handle)
     const json = async (name: string): Promise<unknown> => {
       const entry = files.get(name)
-      if (entry === undefined) throw new Error(`the image archive has no ${name}`)
+      if (entry === undefined) throw new ImageArchiveError({ message: `the image archive has no ${name}` })
       return JSON.parse((await readEntry(handle, entry)).toString("utf8"))
     }
     const blob = (digest: string) => `blobs/sha256/${digest.slice("sha256:".length)}`
@@ -251,7 +262,7 @@ export const readImageArchive = async (path: string): Promise<ArchiveImage | { r
       for (const descriptor of list) {
         const digest = descriptor.digest
         if (typeof digest !== "string" || !digestPattern.test(digest)) {
-          throw new Error("the image archive has a malformed digest")
+          throw new ImageArchiveError({ message: "the image archive has a malformed digest" })
         }
         const mediaType = String(descriptor.mediaType)
         // Content addressing rules out cycles: an index cannot name its own digest.

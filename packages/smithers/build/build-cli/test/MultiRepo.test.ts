@@ -10,9 +10,10 @@ import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
-import { openPackageIndex } from "../src/Cli.ts"
+import { approvalRevision, openPackageIndex } from "../src/Cli.ts"
 import * as PackageDiscovery from "../src/PackageDiscovery.ts"
 import { isPackageError } from "../src/PackageError.ts"
+import type * as PackageExec from "../src/PackageExec.ts"
 import * as PackageLoader from "../src/PackageLoader.ts"
 import * as RepoResolution from "../src/RepoResolution.ts"
 import { serve } from "./helpers/ServeCli.ts"
@@ -314,5 +315,54 @@ describe("opaque local repositories", () => {
     // The parent query starts healthy and broken child CLIs, then execution
     // starts the broken child again. The old 30 s budget expired in isolation
     // on a contended host, like the three-launch metadata case above.
+  }, 240_000)
+
+  it("runs an approval-required child target against the parent's approval store", async () => {
+    const root = await workspace()
+    const child = NodePath.join(root, "child")
+    await Fs.writeFile(
+      NodePath.join(child, "PACKAGE.ts"),
+      `import { Smithers as S } from "@smthrs/targets"
+
+export const Package = S.Package({
+  targets: {
+    deploy: S.Shell.Run({
+      bin: S.Runtime.bin,
+      args: ["-e", "console.log('child deployed')"],
+      approval: "required",
+      sandbox: "none"
+    })
+  }
+})
+`
+    )
+    await Fs.writeFile(
+      NodePath.join(root, "PACKAGE.ts"),
+      `import { Smithers as S } from "@smthrs/targets"
+
+export const Package = S.Package({ targets: { childDeploy: S.Repo.Target("child", "//:deploy") } })
+`
+    )
+    const revision = await approvalRevision("//:deploy", { workspace: child }, {})
+    const asked: Array<PackageExec.TargetApprovalRequest> = []
+    const approved = new Set<string>()
+    const approvals: PackageExec.TargetApprovals = {
+      granted: async (request) => {
+        asked.push(request)
+        return approved.has(request.digest)
+      }
+    }
+    const refused = await serve(root, ["run", "//:childDeploy"], { approvals })
+    expect(refused.exitCode).toBe(1)
+    expect(`${refused.output}${refused.logs}`).toContain("is not approved")
+    expect(`${refused.output}${refused.logs}`).not.toContain("child deployed")
+    // The child asked the parent's store, for its own root and revision.
+    expect(asked).toContainEqual(revision)
+
+    approved.add(revision.digest)
+    const ran = await serve(root, ["run", "//:childDeploy"], { approvals })
+    expect(ran.exitCode, `${ran.output}${ran.logs}`).toBe(0)
+    expect(`${ran.output}${ran.logs}`).toContain("child deployed")
+    // Two cold child CLIs per run (query, then execution).
   }, 240_000)
 })

@@ -93,3 +93,31 @@ describe("resolveArgv", () => {
     await expect(StampExec.resolveArgv(root, [token])).rejects.toThrow(/only public stamps and literals/)
   })
 })
+
+describe("pinning stamps for an approved revision", () => {
+  it("finds each distinct token once, in first-seen order", () => {
+    const commit = StampExec.token("commit", Stamp.commit)
+    const version = StampExec.token("version", Stamp.version)
+    expect(StampExec.tokensIn([`a:${commit}`, `${version}-${commit}`, "plain"])).toEqual([commit, version])
+    expect(StampExec.tokensIn(["plain", ""])).toEqual([])
+  })
+
+  it("names the public stamp a token carries, and nothing for literals or corrupt tokens", () => {
+    expect(StampExec.nameOf(StampExec.token("docker-tag", Stamp.buildTime))).toBe("buildTime")
+    expect(StampExec.nameOf(StampExec.token("commit", Stamp.commit))).toBe("commit")
+    expect(StampExec.nameOf(StampExec.token("literal", "1.2.3"))).toBeUndefined()
+    expect(StampExec.nameOf("{smthrs:stamp:not-base64-json}")).toBeUndefined()
+    expect(StampExec.nameOf(`{smthrs:stamp:${Buffer.from("null").toString("base64url")}}`)).toBeUndefined()
+  })
+
+  it("resolves tokens now and substitutes them, leaving unknown tokens alone", async () => {
+    const commit = StampExec.token("commit", Stamp.commit)
+    const other = StampExec.token("version", Stamp.version)
+    const values = await StampExec.resolveTokens(root, [commit])
+    const head = ChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+    expect([...values]).toEqual([[commit, head]])
+    expect(StampExec.substitute(`reg/app:${commit}`, values)).toBe(`reg/app:${head}`)
+    expect(StampExec.substitute(`${other}`, values)).toBe(other)
+    expect(StampExec.substitute(`$&${commit}`, new Map([[commit, "$1"]]))).toBe("$&$1")
+  })
+})

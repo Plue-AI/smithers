@@ -32,9 +32,18 @@ build archive rather than publish part of it.
 
 A target declaring `approval: "required"`, which `Docker.Push` must, runs only
 once its current revision is approved: `smthrs approvals grant <target>`. The
-revision covers the target's attrs, declared inputs, tools, dependency keys and
-`--input` values, so any change needs a new grant. `--plan` reports it as `approval`. Without a grant, or
-on a host with no approval store, the target refuses before any effect.
+revision covers the target's attrs, declared inputs, tools, dependency keys,
+`--input` values and stamp values, so any change needs a new grant. `--plan`
+reports it as `approval`. Without a grant, or on a host with no approval store,
+the target refuses before any effect.
+
+Stamps such as `S.Stamp.commit` resolve when the target is planned, and it runs
+with those values: moving `HEAD` after a grant is a new revision.
+`S.Stamp.buildTime` changes on every run, so an approval-required target
+refuses it. Just before the target runs, after its dependencies, the executor
+plans it again and refuses when the revision changed or the grant is gone.
+`smthrs watch` cycles and `Repo.Target` child builds ask the approval store of
+the command that started them.
 
 ## Generated outputs
 

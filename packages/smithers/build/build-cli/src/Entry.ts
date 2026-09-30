@@ -13,6 +13,7 @@
 import * as Audience from "./Audience.ts"
 import { makeCli, normalizeArgv } from "./Cli.ts"
 import * as Environment from "./Environment.ts"
+import * as ApprovalBridge from "./internal/ApprovalBridge.ts"
 import type * as Reporter from "./Reporter.ts"
 
 /**
@@ -68,6 +69,9 @@ export const main = async (host: Host): Promise<void> => {
   const cacheToken = host.env["SMITHERS_CACHE_TOKEN"]
   delete host.env["SMITHERS_CACHE_URL"]
   delete host.env["SMITHERS_CACHE_TOKEN"]
+  // A parent CLI (watch, a repository target) serves its approval store here.
+  const approvals = ApprovalBridge.client(host.env[ApprovalBridge.environmentName])
+  delete host.env[ApprovalBridge.environmentName]
 
   const controller = new AbortController()
   let interrupted = false
@@ -99,7 +103,8 @@ export const main = async (host: Host): Promise<void> => {
       stdout: host.stdout,
       stderr: host.stderr,
       presentation,
-      exit
+      exit,
+      approvals
     }).serve(Audience.incurArguments(normalizeArgv(host.argv), presentation), {
       exit,
       stdout: (text) => host.stdout.write(text)

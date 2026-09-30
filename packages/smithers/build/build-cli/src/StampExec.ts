@@ -95,3 +95,54 @@ export const resolveArgv = async (root: string, argv: ReadonlyArray<string>): Pr
   }
   return resolved
 }
+
+/**
+ * Every distinct stamp token in `texts`, in first-seen order.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const tokensIn = (texts: ReadonlyArray<string>): Array<string> => [
+  ...new Set(texts.flatMap((text) => [...text.matchAll(expression)].map((match) => match[0])))
+]
+
+/**
+ * The public stamp name a token carries, or `undefined` for a literal or a
+ * corrupt token.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const nameOf = (token: string): string | undefined => {
+  try {
+    const payload = JSON.parse(Buffer.from(token.slice("{smthrs:stamp:".length, -1), "base64url").toString("utf8"))
+    const name = (payload as { readonly value?: { readonly name?: unknown } } | null)?.value?.name
+    return typeof name === "string" ? name : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Resolves each token now and returns token to value. Pinning a stamp this
+ * way (for an approved revision) replaces the late resolution at spawn.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const resolveTokens = async (
+  root: string,
+  tokens: ReadonlyArray<string>
+): Promise<ReadonlyMap<string, string>> => {
+  const values = await resolveArgv(root, tokens)
+  return new Map(tokens.map((token, index) => [token, values[index]!]))
+}
+
+/**
+ * Substitutes resolved token values into `text`; unknown tokens stay.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const substitute = (text: string, values: ReadonlyMap<string, string>): string =>
+  text.replace(expression, (token) => values.get(token) ?? token)

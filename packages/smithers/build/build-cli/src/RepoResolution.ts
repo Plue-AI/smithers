@@ -375,6 +375,8 @@ export const execute = (
     readonly plan?: boolean | undefined
     readonly signal?: AbortSignal | undefined
     readonly output?: ((stream: "stdout" | "stderr", chunk: string) => void) | undefined
+    /** Extra child environment, such as the parent's approval bridge. */
+    readonly environment?: Readonly<Record<string, string>> | undefined
   } = {}
 ): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -390,7 +392,7 @@ export const execute = (
     const child = spawn(process.execPath, args, {
       cwd: resolution.absolutePath,
       detached: true,
-      env: { ...resolver.environment, SMTHRS_REPO_CHILD: "1" },
+      env: { ...resolver.environment, ...options.environment, SMTHRS_REPO_CHILD: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     })
     let stderrTail = ""
