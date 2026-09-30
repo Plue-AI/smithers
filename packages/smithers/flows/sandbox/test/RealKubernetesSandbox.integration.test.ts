@@ -6,12 +6,11 @@ import { spawnSync } from "node:child_process"
 import { afterAll, beforeAll } from "vitest"
 import * as KubernetesSandbox from "../src/KubernetesSandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { discover } from "./helpers/discover.ts"
 
 const context = "orbstack"
 const namespace = `smthrs-sandbox-it-${process.pid}`
-const clusterAvailable = spawnSync("kubectl", ["--context", context, "cluster-info"], {
-  stdio: "ignore"
-}).status === 0
+const clusterAvailable = discover("kubectl", ["--context", context, "cluster-info"]).status === 0
 const missingCluster = clusterAvailable
   ? undefined
   : `no Kubernetes cluster answers \`kubectl --context ${context} cluster-info\``

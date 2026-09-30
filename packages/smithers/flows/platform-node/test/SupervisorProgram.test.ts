@@ -247,6 +247,123 @@ describe("supervisor stop policy", () => {
   })
 })
 
+describe("supervisor descendant observation", () => {
+  const stat = (pid: number, comm: string, state: string, parent: number, group: number, start: number) =>
+    `${pid} (${comm}) ${state} ${parent} ${group} ${Array(16).fill(0).join(" ")} ${start} 0 0\n`
+  const gone = (code: string) => Object.assign(new Error(code), { code })
+  const stopped = (helper: ReturnType<typeof program>) =>
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+  const faults = (helper: ReturnType<typeof program>) =>
+    helper.statusFrames.filter((frame) => (frame as { type: string }).type === "cleanup_error")
+
+  it("captures and signals an escaped descendant from /proc on Linux without running ps", () => {
+    const helper = program("SIGKILL")
+    stopped(helper)
+    expect(helper.observations).toEqual([])
+    expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"]])
+    helper.timers[0]!.run()
+    expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"], [4103, "SIGKILL"]])
+    expect(faults(helper)).toEqual([])
+  })
+
+  it("stops a Linux target with no escaped descendant and no ps", () => {
+    const helper = program("SIGKILL", false)
+    stopped(helper)
+    helper.target.emit("exit", null, "SIGTERM")
+    expect(helper.observations).toEqual([])
+    expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
+    expect(faults(helper)).toEqual([])
+  })
+
+  for (const platform of ["darwin", "freebsd"]) {
+    it(`asks the system ps on ${platform}`, () => {
+      const helper = program("SIGKILL", true, platform)
+      stopped(helper)
+      expect(helper.observations.map((call) => (call as ReadonlyArray<unknown>).slice(0, 2))).toEqual([
+        ["/bin/ps", ["-A", "-o", "pid=,ppid=,pgid=,stat=,lstart="]],
+        ["/bin/ps", ["-A", "-o", "pid=,ppid=,pgid=,stat=,lstart="]]
+      ])
+      expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"]])
+    })
+  }
+
+  it("reads fields after the last parenthesis of a command name with spaces and parentheses", () => {
+    const helper = program("SIGKILL")
+    helper.proc.set("4103", stat(4103, "a) S 1 1 (b", "S", 4102, 4103, 7000))
+    stopped(helper)
+    expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"]])
+    expect(faults(helper)).toEqual([])
+  })
+
+  for (const code of ["ENOENT", "ESRCH"]) {
+    it(`skips a process that ended between listing and reading (${code})`, () => {
+      const helper = program("SIGKILL")
+      helper.proc.set("4999", gone(code))
+      stopped(helper)
+      expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"]])
+      expect(faults(helper)).toEqual([])
+    })
+  }
+
+  it("ignores a descendant that is already a zombie", () => {
+    const helper = program("SIGKILL")
+    helper.proc.set("4103", stat(4103, "node", "Z", 4102, 4103, 7000))
+    stopped(helper)
+    expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
+  })
+
+  const failures: ReadonlyArray<readonly [string, (helper: ReturnType<typeof program>) => void, string]> = [
+    ["an unlistable table", (helper) => {
+      helper.listing.error = gone("EACCES")
+    }, "Descendant observation unavailable"],
+    ["an unreadable stat file", (helper) => {
+      helper.proc.set("4103", gone("EACCES"))
+    }, "Descendant observation unavailable"],
+    ["a stat line without a command name", (helper) => {
+      helper.proc.set("4103", "4103 S 4102 4103\n")
+    }, "Invalid descendant observation"],
+    ["a stat line for another pid", (helper) => {
+      helper.proc.set("4103", stat(4104, "node", "S", 4102, 4103, 7000))
+    }, "Invalid descendant observation"],
+    ["a truncated stat line", (helper) => {
+      helper.proc.set("4103", "4103 (node) S 4102 4103 0\n")
+    }, "Invalid descendant observation"],
+    ["a non-numeric identity", (helper) => {
+      helper.proc.set("4103", stat(4103, "node", "S", 4102, 4103, 7000).replace(" 7000 ", " soon "))
+    }, "Invalid descendant identity"]
+  ]
+  for (const [label, corrupt, message] of failures) {
+    it(`reports ${label} as a cleanup fault instead of claiming the stop verified`, () => {
+      const helper = program("SIGKILL")
+      corrupt(helper)
+      stopped(helper)
+      expect(faults(helper)).toContainEqual({ type: "cleanup_error", message })
+      expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
+    })
+  }
+
+  it("refuses to signal a pid whose /proc start time changed after capture", () => {
+    const helper = program("SIGKILL")
+    stopped(helper)
+    helper.proc.set("4103", stat(4103, "node", "S", 4102, 4103, 7001))
+    helper.timers[0]!.run()
+    expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+    expect(faults(helper)).toContainEqual({
+      type: "cleanup_error",
+      message: "Escaped descendant identity changed before signalling"
+    })
+  })
+
+  it("settles an escaped descendant once /proc no longer lists it", () => {
+    const helper = program("SIGKILL")
+    stopped(helper)
+    helper.proc.delete("4103")
+    helper.timers[0]!.run()
+    expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+    expect(faults(helper)).toEqual([])
+  })
+})
+
 describe.skipIf(process.platform === "win32")("real supervisor stop policy", () => {
   for (const schedule of schedules) {
     it(`preserves explicit grace after ${schedule} with a SIGKILL default`, async () => {

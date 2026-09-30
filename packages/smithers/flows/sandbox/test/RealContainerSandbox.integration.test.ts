@@ -10,11 +10,12 @@ import * as ContainerSandbox from "../src/ContainerSandbox/index.ts"
 import { sessionSlug } from "../src/internal/sessionSlug.ts"
 import * as Sandbox from "../src/Sandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { discover } from "./helpers/discover.ts"
 
 // The suite drives a real container engine and records an explicit skip when
 // none is running. A laptop without Docker or a CI shard without a daemon
 // does not claim a real-engine conformance result.
-const engineAvailable = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0
+const engineAvailable = discover("docker", ["info"]).status === 0
 const missingEngine = engineAvailable
   ? undefined
   : "no container engine answers `docker info` on this host"

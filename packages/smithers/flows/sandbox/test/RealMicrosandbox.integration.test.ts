@@ -2,7 +2,6 @@ import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Edit, Write } from "@smthrs/std"
 import { Cause, Effect, Fiber, FileSystem, Path, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
-import { spawnSync } from "node:child_process"
 import { accessSync, constants } from "node:fs"
 import { elapsed } from "../src/internal/deadline.ts"
 import * as MicrosandboxSandbox from "../src/MicrosandboxSandbox/index.ts"
@@ -10,6 +9,7 @@ import type { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderErr
 import { fileSystem } from "../src/Sandbox/fileSystem.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { discover } from "./helpers/discover.ts"
 
 const session = `real-microsandbox-${process.pid}-${Date.now()}`
 const budget = 900_000
@@ -60,7 +60,7 @@ const machine = (options: Partial<MicrosandboxSandbox.MicrosandboxSandboxOptions
 const probeBudget = 300_000
 
 const unbootable = async (): Promise<string | undefined> => {
-  if (spawnSync("microsandbox", ["--version"], { stdio: "ignore" }).status !== 0) {
+  if (discover("microsandbox", ["--version"]).status !== 0) {
     return "the microsandbox platform binary does not run here"
   }
   if (process.platform === "linux") {
@@ -71,7 +71,7 @@ const unbootable = async (): Promise<string | undefined> => {
     }
   } else if (process.platform === "darwin") {
     const sysctl = (name: string): string | undefined => {
-      const read = spawnSync("sysctl", ["-n", name], { encoding: "utf8" })
+      const read = discover("sysctl", ["-n", name])
       return read.status === 0 ? read.stdout.trim() : undefined
     }
     if (sysctl("kern.hv_support") !== "1") {

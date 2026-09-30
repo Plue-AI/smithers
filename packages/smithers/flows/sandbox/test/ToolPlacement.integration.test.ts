@@ -18,12 +18,12 @@ import { CommandSandbox, ContainerSandbox, DirectorySandbox, Sandbox } from "@sm
 import { Bash, Edit, Read, Write } from "@smthrs/std"
 import { Effect, FileSystem, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { platform } from "./helpers/containedPlatform.ts"
+import { discover } from "./helpers/discover.ts"
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "smthrs-sandbox-tool-placement-")))
 afterAll(() => {
@@ -157,7 +157,7 @@ describe("standard tool placement on DirectorySandbox", () => {
   }, 30_000)
 })
 
-const dockerAvailable = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0
+const dockerAvailable = discover("docker", ["info"]).status === 0
 const missingEngine = dockerAvailable
   ? undefined
   : "no container engine answers `docker info` on this host"
@@ -228,8 +228,7 @@ describe.skipIf(!linuxHost)("standard tool placement on CommandSandbox", () => {
 // `ssh localhost` stands in for a Cloud workspace: the prefix joins the guest
 // argv into one remote command line, which is the quoting a real box needs.
 const sshReachable = linuxHost &&
-  spawnSync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "localhost", "true"], { stdio: "ignore" })
-      .status === 0
+  discover("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "localhost", "true"]).status === 0
 describe.skipIf(sshReachable)("standard tool placement on CommandSandbox over ssh", () => {
   it("is skipped because this host is not Linux or `ssh -o BatchMode=yes localhost true` fails", () => {
     expect(sshReachable).toBe(false)
