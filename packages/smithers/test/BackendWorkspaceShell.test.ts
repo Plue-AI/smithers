@@ -18,10 +18,7 @@ const fixture = async (failSeed = false) => {
   dirs.push(home)
   const bin = join(home, "bin"), guest = join(home, "guest")
   await mkdir(bin)
-  await mkdir(join(home, ".codex"))
-  const auth = JSON.stringify({ tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh" } })
-  const key = "sk-ant-api03-synthetic'credential"
-  await writeFile(join(home, ".codex", "auth.json"), auth)
+  const key = "sk-ant-api03-synthetic.credential-value"
   // No remote backend or guest is available. Replace their network boundaries
   // and guest paths; retain the production SSH transport, stdin and spawner.
   await writeFile(
@@ -101,40 +98,48 @@ case "$3" in "$TEST_GUEST"/*) exit 0 ;; *) exit 1 ;; esac
     }
     throw new Error(`Unexpected ${method} ${path}`)
   })
-  return { c, guest, log, request, auth, key, shell }
+  return { c, guest, log, request, key, shell }
 }
 
 describe("workspace shell execution (#1865)", () => {
-  it.each(["codex", "claude"])("seeds %s through Bash under a POSIX login shell", async (provider) => {
-    const { c, guest, log, auth, key, shell } = await fixture()
+  it("seeds a Claude API key through Bash under a POSIX login shell", async () => {
+    const { c, guest, log, key, shell } = await fixture()
     if (shell.endsWith("dash")) {
       expect(spawnSync(shell, ["-c", "set -o pipefail"], { encoding: "utf8" }).status).not.toBe(0)
     }
     const response = await workspaces["workspace exec"]!(c, { id: "box" }, {
       repo: "owner/repo",
-      seedAgentAuth: provider,
+      seedAgentAuth: "claude",
       command: "set -euo pipefail\nvalues=(first 'second line')\nprintf '%s\\n' \"${values[@]}\""
     })
     expect(response).toMatchObject({ exit_code: 0, stdout: "first\nsecond line\n", stderr: "" })
     expect(await readFile(log, "utf8")).toBe("{\"command\":\"bash -s\"}\nbash\n")
-    const file = join(guest, provider === "codex" ? ".codex/auth.json" : ".smithers/claude-env.sh")
+    const file = join(guest, ".smithers/claude-env.sh")
     expect((await stat(file)).mode & 0o777).toBe(0o600)
-    if (provider === "codex") expect(await readFile(file, "utf8")).toBe(auth)
-    else {
-      const sourced = spawnSync("/bin/bash", ["-c", ". \"$1\"; printf %s \"$ANTHROPIC_API_KEY\"", "bash", file], {
-        encoding: "utf8"
-      })
-      expect(sourced.status).toBe(0)
-      expect(sourced.stdout).toBe(key)
-      expect(sourced.stderr).toBe("")
-    }
+    const sourced = spawnSync("/bin/bash", ["-c", ". \"$1\"; printf %s \"$ANTHROPIC_API_KEY\"", "bash", file], {
+      encoding: "utf8"
+    })
+    expect(sourced.status).toBe(0)
+    expect(sourced.stdout).toBe(key)
+    expect(sourced.stderr).toBe("")
+  })
+
+  it("never seeds a Codex subscription into the workspace", async () => {
+    const { c, request, guest } = await fixture()
+    await expect(workspaces["workspace exec"]!(c, { id: "box" }, {
+      repo: "owner/repo",
+      seedAgentAuth: "codex",
+      command: "printf should-not-run"
+    })).rejects.toMatchObject({ code: "not_signed_in" })
+    expect(request).not.toHaveBeenCalled()
+    expect(existsSync(guest)).toBe(false)
   })
 
   it("refuses command admission when credential seeding exits unsuccessfully", async () => {
     const { c, request, guest } = await fixture(true)
     await expect(workspaces["workspace exec"]!(c, { id: "box" }, {
       repo: "owner/repo",
-      seedAgentAuth: "codex",
+      seedAgentAuth: "claude",
       command: "printf should-not-run"
     })).rejects.toThrow("Agent credential seeding failed")
     expect(request.mock.calls.some(([method]) => method === "POST")).toBe(false)
