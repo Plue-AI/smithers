@@ -48,6 +48,39 @@ test("context selection distinguishes explicit files and local module edges from
   assert.deepEqual(sourceImports("README.md", "import x from './example.ts'"), [])
 })
 
+test("escaped specifiers and long named import clauses remain module edges", () => {
+  const names = Array.from({ length: 51 }, (_, index) => `n${index}`)
+  assert.deepEqual(sourceImports("src/long.ts", `import { ${names.join(", ")} } from './helper.ts'`), ["./helper.ts"])
+  assert.deepEqual(
+    sourceImports(
+      "src/long.ts",
+      `export {\n  ${names.map((name) => `${name} as "x-${name}"`).join(",\n  ")}\n} from "./re.ts"`
+    ),
+    ["./re.ts"]
+  )
+  assert.deepEqual(
+    sourceImports(
+      "src/escaped.ts",
+      String.raw`import { n0 } from './h\u0065lper.ts'; import "./\x61.ts"; import d, * as ns from "./\u{62}.ts";
+      export * from './c\
+.ts'; const lazy = import('./\u0064.js')`
+    ),
+    ["./helper.ts", "./a.ts", "./b.ts", "./c.ts", "./d.js"]
+  )
+  // An escape that is not valid in module code keeps its written form, so it
+  // resolves to a required gap rather than disappearing.
+  assert.deepEqual(sourceImports("src/bad.ts", String.raw`import x from './\u{zz}.ts'`), [String.raw`./\u{zz}.ts`])
+  // Declarations and expressions that merely mention a string are not edges.
+  assert.deepEqual(
+    sourceImports(
+      "src/plain.ts",
+      "export default \"{\"; export const from = 'x'; export class A { m() { return from } }\n" +
+        "const t = import(`./${name}.ts`); export default { from: './object.ts' }"
+    ),
+    []
+  )
+})
+
 test("supporting reads retain missing, oversized, refused and unresolved inputs without reading held-out aliases", async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "check-context-")))
   const outside = await realpath(await mkdtemp(join(tmpdir(), "check-context-outside-")))
@@ -115,6 +148,57 @@ test("supporting reads retain missing, oversized, refused and unresolved inputs 
     "error",
     "a favorable model answer cannot override absent evidence"
   )
+})
+
+test("escaped and long named imports require their real local helper", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "check-context-spelling-")))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(join(root, "src"))
+  const names = Array.from({ length: 51 }, (_, index) => `n${index}`)
+  const handlers = {
+    "src/ordinary.ts": "import { n0 } from './helper.ts'; export const value = n0",
+    "src/long.ts": `import { ${names.join(", ")} } from './helper.ts'; export const value = n50`,
+    "src/escaped.ts": String.raw`import { n0 } from './h\u0065lper.ts'; export const value = n0`
+  }
+  for (const [name, text] of Object.entries(handlers)) await writeFile(join(root, name), text)
+  const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(NodeServices.layer)))
+  const assess = async (path: string) => {
+    const context = await Effect.runPromise(
+      captureCheckContext({ repositoryPath: root, fs }, root, {
+        check,
+        source: revision,
+        paths: [path],
+        deadlineAt: Date.now() + 10_000
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+    const comparison: typeof Comparison.Type = {
+      base: "b".repeat(40),
+      candidate: revision,
+      paths: [path],
+      diff: "",
+      files: context.files.filter((file) => file.path === path),
+      changes: []
+    }
+    const verdict = { verdict: "pass" as const, summary: "Looks fine", examinedPaths: [path], findings: [] }
+    return { context, status: assessSemantic(comparison, verdict, context).status }
+  }
+  await writeFile(join(root, "src", "helper.ts"), `${names.map((name) => `export const ${name} = 1`).join("\n")}\n`)
+  for (const path of Object.keys(handlers)) {
+    const { context, status } = await assess(path)
+    assert(context.files.some((file) => file.path === "src/helper.ts"), `${path} captures its helper`)
+    assert.equal(contextFailure(context, revision, check.id, [path]), undefined)
+    assert.equal(status, "passed", path)
+  }
+  await rm(join(root, "src", "helper.ts"))
+  for (const path of Object.keys(handlers)) {
+    const { context, status } = await assess(path)
+    assert(
+      context.reads.some((read) => read.path === "src/helper.ts" && read.status === "unresolved" && read.required),
+      `${path} retains the missing helper`
+    )
+    assert.match(contextFailure(context, revision, check.id, [path])!, /src\/helper\.ts: unresolved/)
+    assert.equal(status, "error", `${path} cannot pass without its helper`)
+  }
 })
 
 test("an internal alias resolves supporting imports beside its canonical source", async (t) => {

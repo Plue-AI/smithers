@@ -45,13 +45,49 @@ export const rulePaths = (rule: string): Array<string> => {
   return [...new Set(paths)]
 }
 
+/** The cooked value of a single- or double-quoted JavaScript string body, or
+ * undefined when an escape is not valid in module (strict) code. */
+const cooked = (body: string): string | undefined => {
+  let value = ""
+  for (let index = 0; index < body.length;) {
+    const character = body[index++]!
+    if (character !== "\\") {
+      value += character
+      continue
+    }
+    const escape = body[index++]
+    if (escape === undefined) return undefined
+    const simple: Record<string, string> = { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v" }
+    if (escape in simple) value += simple[escape]
+    else if (escape === "0" && !/[0-9]/.test(body[index] ?? "")) value += "\0"
+    else if (/[0-9]/.test(escape)) return undefined
+    else if (escape === "x") {
+      const hex = /^[0-9a-fA-F]{2}/.exec(body.slice(index))?.[0]
+      if (!hex) return undefined
+      value += String.fromCharCode(Number.parseInt(hex, 16))
+      index += 2
+    } else if (escape === "u") {
+      const unit = /^(?:[0-9a-fA-F]{4}|\{([0-9a-fA-F]+)\})/.exec(body.slice(index))
+      const code = unit && Number.parseInt(unit[1] ?? unit[0], 16)
+      if (!unit || code === null || code > 0x10ffff) return undefined
+      value += String.fromCodePoint(code)
+      index += unit[0].length
+    } else if (escape === "\r") {
+      if (body[index] === "\n") index++
+    } else if (escape !== "\n" && escape !== "\u2028" && escape !== "\u2029") value += escape
+  }
+  return value
+}
+
 /** Literal module edges only. Dynamic expressions cannot establish a known
- * local dependency; external package imports are recorded, never fetched. */
+ * local dependency; external package imports are recorded, never fetched.
+ * A static specifier whose escapes are not valid is returned as written, so it
+ * resolves to a required gap instead of silently becoming no import. */
 export const sourceImports = (name: string, text: string): Array<string> => {
   if (!script.test(name)) return []
   // A small lexical pass keeps examples, comments and ordinary strings from
   // becoming module edges. It does not execute or transpile repository code.
-  const tokens: Array<{ word: string; quoted: boolean }> = []
+  const tokens: Array<{ word: string; quoted: boolean; raw?: string }> = []
   for (let index = 0; index < text.length;) {
     const character = text[index]!
     if (/\s/.test(character)) {
@@ -69,17 +105,15 @@ export const sourceImports = (name: string, text: string): Array<string> => {
       continue
     }
     if (character === "'" || character === "\"" || character === "`") {
-      const delimiter = character
-      let value = "", literal = delimiter !== "`"
+      const delimiter = character, start = ++index
+      while (index < text.length && text[index] !== delimiter) index += text[index] === "\\" ? 2 : 1
+      const body = text.slice(start, Math.min(index, text.length))
       index++
-      while (index < text.length && text[index] !== delimiter) {
-        if (text[index] === "\\") {
-          literal = false
-          index += 2
-        } else value += text[index++]
-      }
-      index++
-      tokens.push({ word: literal ? value : "", quoted: true })
+      // A template literal is a dynamic expression, never a known module edge.
+      const value = delimiter === "`" ? "" : cooked(body)
+      tokens.push(
+        value === undefined ? { word: "", quoted: true, raw: body } : { word: value, quoted: true }
+      )
       continue
     }
     const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(text.slice(index))?.[0] ?? character
@@ -87,27 +121,38 @@ export const sourceImports = (name: string, text: string): Array<string> => {
     index += word.length
   }
   const imports = new Set<string>()
+  const specifier = (token: { word: string; raw?: string } | undefined) => {
+    const value = token?.word || token?.raw
+    if (value) imports.add(value)
+  }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!, next = tokens[index + 1]
     if (token.quoted || !["import", "export", "require"].includes(token.word) || tokens[index - 1]?.word === ".") {
       continue
     }
-    if (token.word === "import" && next?.quoted && next.word) {
-      imports.add(next.word)
+    if (token.word === "import" && next?.quoted) {
+      specifier(next)
       continue
     }
     if (next?.word === "(" && tokens[index + 2]?.quoted && tokens[index + 3]?.word === ")") {
-      if (tokens[index + 2]!.word) imports.add(tokens[index + 2]!.word)
+      specifier(tokens[index + 2])
       continue
     }
     if (token.word === "require" || next?.word === ".") continue
-    for (let cursor = index + 1; cursor < Math.min(index + 100, tokens.length); cursor++) {
+    // A declaration clause holds only names, `*`, commas and one braced list of
+    // (possibly quoted) names; it is read to its end however long it is.
+    let braces = 0
+    for (let cursor = index + 1; cursor < tokens.length; cursor++) {
       const part = tokens[cursor]!
-      if (!part.quoted && [";", "=", "("].includes(part.word)) break
-      if (part.word === "from" && !part.quoted && tokens[cursor + 1]?.quoted) {
-        if (tokens[cursor + 1]!.word) imports.add(tokens[cursor + 1]!.word)
+      if (braces === 0 && part.word === "from" && !part.quoted && tokens[cursor + 1]?.quoted) {
+        specifier(tokens[cursor + 1])
         break
       }
+      if (part.quoted) {
+        if (braces === 0) break
+      } else if (part.word === "{" && braces === 0) braces = 1
+      else if (part.word === "}" && braces === 1) braces = 0
+      else if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part.word) && part.word !== "," && part.word !== "*") break
     }
   }
   return [...imports]
