@@ -7,6 +7,7 @@ import { registeredRepositoryJobs, repositoryJobStates, repositoryJobWorkspace }
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 import { createRepositorySetupController } from "./repositorySetup"
+import { UNKNOWN_FAILURE } from "@smthrs/rpc/UserFailure"
 
 const repo = "example/repo"
 const owner = "maintainer"
@@ -365,6 +366,10 @@ for (const failure of ["network", "http", "invalid-body", "owner", "repo", "job"
       await waitFor(() => t.rows().length === 5 && t.rows().every(row => row.state !== "requested"))
       expect(t.labels()).toEqual({ issues: "Off", review: "Off", feature: "Off", chores: "Off" })
       expect(t.rows().find(row => row.job === "ci")?.error).toBeTruthy()
+      if (failure === "network") {
+        expect(t.rows().find(row => row.job === "ci")?.error).toBe(UNKNOWN_FAILURE.sentence)
+        expect(t.ctx.failures.recent()).toEqual([expect.objectContaining({ seam: "seam.failure", subject: "setup.recovery:ci" })])
+      }
       expect([...t.store.collections.cards.values()]).toEqual([])
       failing = false
       t.controller.refreshRepositoryJobs()

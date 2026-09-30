@@ -314,7 +314,11 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
         publish("completed", result.registration, result.registration.state === "unavailable" ? result.registration.error : undefined)
         return result
       } catch (error) {
-        publish("failed", undefined, error instanceof Error ? error.message : String(error))
+        if (current()) {
+          const sentence = error instanceof SetupRefusal ? error.sentence : presentAppFailure(error,
+            failure => ctx.failures.report("seam.failure", failure, `setup.recovery:${job}`)).sentence
+          publish("failed", undefined, sentence)
+        }
         throw error
       }
     })()
