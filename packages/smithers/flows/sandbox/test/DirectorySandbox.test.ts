@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as CommandLine from "@smthrs/kernel/CommandLine"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
-import { Effect, Exit, FileSystem, Layer, Option, Path, PlatformError, Stream } from "effect"
+import { Effect, Exit, FileSystem, Layer, Path, PlatformError, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { spawn, spawnSync } from "node:child_process"
@@ -113,23 +113,14 @@ const killOwned = (roots: ReadonlyArray<number>, groups: ReadonlyArray<number>):
  */
 const lookalike = (seconds: string) =>
   Effect.acquireRelease(
-    Effect.sync(() => {
-      const control = spawn("sleep", [seconds], { stdio: "ignore" })
-      return control
-    }),
+    Effect.sync(() => spawn("sleep", [seconds], { stdio: "ignore" })),
     (control) => Effect.sync(() => control.kill("SIGKILL"))
   ).pipe(Effect.map((control) => ({
     survived: Effect.sync(() => {
-      expect(control.pid !== undefined && control.exitCode === null && control.signalCode === null).toBe(true)
-      expect(processHasEnded(control.pid!), `the unrelated \`sleep ${seconds}\` survived cleanup`).toBe(false)
+      expect(control.pid).toBeTypeOf("number")
+      expect(processHasEnded(control.pid!), `cleanup ended the unrelated \`sleep ${seconds}\``).toBe(false)
     })
   })))
-
-const firstLine = (process: RemoteProcess): Effect.Effect<string, ProviderError> =>
-  Effect.map(
-    Stream.runHead(Stream.splitLines(Stream.decodeText(process.stdout))),
-    (line) => Option.getOrElse(line, () => "")
-  )
 
 /**
  * The pids a kill fixture prints on its first lines: the wrapper the host
@@ -477,6 +468,13 @@ describe("DirectorySandbox", () => {
           `{ detached: true, stdio: "ignore" }); console.log(child.pid); setInterval(() => {}, 1e6)'`
         ]
         const started: Array<number> = []
+        const groups: Array<number> = []
+        const own = (pid: number) => {
+          started.push(pid)
+          const group = Number.isInteger(pid) ? groupOf(pid) : undefined
+          if (group !== undefined) groups.push(group)
+        }
+        const control = yield* lookalike("3719")
         yield* Effect.scoped(
           Effect.gen(function*() {
             const session = yield* directory.acquire("kill-tree")
@@ -485,7 +483,8 @@ describe("DirectorySandbox", () => {
                 Effect.gen(function*() {
                   const running = yield* session.spawn(line, {})
                   const [wrapper = Number.NaN, pid = Number.NaN] = yield* printedPids(running, 2)
-                  started.push(wrapper, pid)
+                  own(wrapper)
+                  own(pid)
                   expect([wrapper, pid].every(Number.isInteger), `\`${line}\` printed a wrapper and a victim pid`)
                     .toBe(true)
                   expect(processIsAlive(pid)).toBe(true)
@@ -515,31 +514,24 @@ describe("DirectorySandbox", () => {
               Effect.gen(function*() {
                 const running = yield* session.spawn(`echo $$; sleep 3719 | ${parked}`, {})
                 const [wrapper = Number.NaN] = yield* printedPids(running, 1)
-                started.push(wrapper)
-                yield* waitFor(() => anyProcessMatching("sleep 371[9]"), "the pipeline to start")
+                own(wrapper)
+                const pipelineSleep = () =>
+                  ownedProcesses([wrapper], groups).some(({ args }) => args.includes("sleep 3719"))
+                yield* waitFor(pipelineSleep, "the pipeline to start")
                 expect(
                   processHasEnded(wrapper),
                   `the pipeline's wrapper ${wrapper} ended before the kill was issued`
                 ).toBe(false)
                 yield* session.kill!(running, "SIGTERM")
-                return yield* Effect.exit(running.exitCode)
+                return { exit: yield* Effect.exit(running.exitCode), pipelineSleep }
               })
             )
-            expect(Exit.isSuccess(piped) && piped.value === 0).toBe(false)
-            yield* waitFor(() => !anyProcessMatching("sleep 371[9]"), "the pipeline's sleep to end")
+            expect(Exit.isSuccess(piped.exit) && piped.exit.value === 0).toBe(false)
+            yield* waitFor(() => !piped.pipelineSleep(), "the pipeline's sleep to end")
           })
-        ).pipe(Effect.ensuring(Effect.sync(() => {
-          spawnSync("pkill", ["-TERM", "-f", "sleep 371[9]"])
-          spawnSync("pkill", ["-TERM", "-f", gate])
-          for (const pid of started) {
-            try {
-              globalThis.process.kill(pid, "SIGKILL")
-            } catch {
-              // Already gone, which is the point.
-            }
-          }
-        })))
-      }),
+        ).pipe(Effect.ensuring(Effect.sync(() => killOwned(started, groups))))
+        yield* control.survived
+      }).pipe(Effect.scoped),
     budget
   )
 
@@ -550,31 +542,28 @@ describe("DirectorySandbox", () => {
       Effect.gen(function*() {
         const { fs, spawner } = yield* services
         const directory = DirectorySandbox.make({ fs, spawner, root })
-        let pid: number | undefined
+        const started: Array<number> = []
+        const groups: Array<number> = []
+        const control = yield* lookalike("3809")
         yield* Effect.scoped(
           Effect.gen(function*() {
             const session = yield* directory.acquire("scope-closure")
-            const started = yield* Effect.scoped(
+            const background = yield* Effect.scoped(
               Effect.gen(function*() {
-                const running = yield* session.spawn("sleep 3809 & echo $!; wait", {})
-                const background = Number(yield* firstLine(running))
-                pid = background
-                expect(processIsAlive(background)).toBe(true)
-                return background
+                const running = yield* session.spawn("echo $$; sleep 3809 & echo $!; wait", {})
+                const [wrapper = Number.NaN, pid = Number.NaN] = yield* printedPids(running, 2)
+                started.push(wrapper, pid)
+                const group = Number.isInteger(wrapper) ? groupOf(wrapper) : undefined
+                if (group !== undefined) groups.push(group)
+                expect(processIsAlive(pid)).toBe(true)
+                return pid
               })
             )
-            yield* waitFor(() => processHasEnded(started), "the work the closed scope left behind to end")
+            yield* waitFor(() => processHasEnded(background), "the work the closed scope left behind to end")
           })
-        ).pipe(Effect.ensuring(Effect.sync(() => {
-          spawnSync("pkill", ["-TERM", "-f", "sleep 380[9]"])
-          if (pid === undefined) return
-          try {
-            globalThis.process.kill(pid, "SIGKILL")
-          } catch {
-            // Already gone, which is the point.
-          }
-        })))
-      }),
+        ).pipe(Effect.ensuring(Effect.sync(() => killOwned(started, groups))))
+        yield* control.survived
+      }).pipe(Effect.scoped),
     budget
   )
 
