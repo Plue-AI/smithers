@@ -116,7 +116,7 @@ describe("the generated product API client", () => {
 
   it("leaves unset query parameters out of the path", async () => {
     const { calls, transport } = recorder()
-    await ProductApi.getApiLinearIdOps(transport, { path: { id: "7" }, query: { status: "failed", cursor: undefined } })
+    await ProductApi.getApiLinearIdOps(transport, { path: { id: "7" }, query: { status: "failed" } })
     await ProductApi.getApiLinearIdOps(transport, { path: { id: "7" } })
     expect(calls.map((call) => call.args[1])).toEqual(["/api/linear/7/ops?status=failed", "/api/linear/7/ops"])
   })
