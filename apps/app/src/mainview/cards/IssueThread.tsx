@@ -119,6 +119,10 @@ export const stateActions = (card: IssueCard, viewer?: string) => {
   return acts.map((act) => ({ ...act, args }))
 }
 
+/** A comment mirrored from a chat says where it came from; an app comment says nothing. */
+export const OriginMark = ({ origin }: { readonly origin: Comment["origin"] }) =>
+  origin === undefined || origin === "app" ? null : <span className="thread-slack thread-origin" data-origin={origin}>· {origin}</span>
+
 const MessageRow = ({ comment, first, card, context, onRunCommand }: { readonly comment: Comment; readonly first: boolean; readonly card: IssueCard; readonly context: ThreadContext; readonly onRunCommand: RunCommand }) => {
   const { number, repo } = card.payload
   const persona = commentPersona(comment, context)
@@ -129,6 +133,7 @@ const MessageRow = ({ comment, first, card, context, onRunCommand }: { readonly 
         <div className="thread-message-head">
           <AgentMark persona={persona} size={28} onRunCommand={onRunCommand} />
           {comment.createdAt === null ? null : <time className="thread-message-time" dateTime={comment.createdAt}>{timeLabel(Date.parse(comment.createdAt))}</time>}
+          <OriginMark origin={comment.origin} />
         </div>
       ) : null}
       <div className="thread-message-body">
@@ -220,7 +225,7 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
   for (const comment of comments) {
     const at = comment.createdAt === null ? Number.NaN : Date.parse(comment.createdAt)
     const before = previous?.createdAt === null || previous?.createdAt === undefined ? Number.NaN : Date.parse(previous.createdAt)
-    const first = previous === undefined || commentPersona(previous, context).id !== commentPersona(comment, context).id || Number.isNaN(at) || Number.isNaN(before) || at - before > GROUP_MS
+    const first = previous === undefined || commentPersona(previous, context).id !== commentPersona(comment, context).id || previous.origin !== comment.origin || Number.isNaN(at) || Number.isNaN(before) || at - before > GROUP_MS
     rows.push({ comment, first, day: comment.createdAt === null ? "" : dayLabel(comment.createdAt) })
     previous = comment
   }

@@ -81,6 +81,33 @@ describe("the issue list carries conversations and issues", () => {
   })
 })
 
+describe("chat origin (#2489)", () => {
+  const slackComment = (origin: "app" | "slack" | "telegram" | undefined) => {
+    const card = issue()
+    const base = card.payload.comments[0]!
+    return { ...card, payload: { ...card.payload, comments: [{ ...base, origin }] } }
+  }
+  test("a comment from chat is marked with its provider; an app comment or unknown origin is not", () => {
+    expect(renderToStaticMarkup(<IssueCardBody card={slackComment("slack")} onRunCommand={noop} />)).toContain(">· slack</span>")
+    expect(renderToStaticMarkup(<IssueCardBody card={slackComment("telegram")} onRunCommand={noop} />)).toContain(">· telegram</span>")
+    expect(renderToStaticMarkup(<IssueCardBody card={slackComment("app")} onRunCommand={noop} />)).not.toContain("thread-origin")
+    expect(renderToStaticMarkup(<IssueCardBody card={slackComment(undefined)} onRunCommand={noop} />)).not.toContain("thread-origin")
+  })
+
+  test("a conversation row shows the last line with its origin and ages by it", () => {
+    const card = list()
+    const row = card.payload.issues.find(candidate => candidate.kind === "chat" || candidate.task !== undefined)!
+    const withLast = (lastComment: NonNullable<typeof row.lastComment> | null) =>
+      ({ ...card, payload: { ...card.payload, issues: [{ ...row, kind: "chat" as const, lastComment }] } })
+    const html = renderToStaticMarkup(<IssueListCardBody card={withLast({ commenter: "bob", excerpt: "on it", origin: "slack", createdAt: "2026-08-12T09:00:00Z" })} onRunCommand={noop} />)
+    expect(html).toContain('<span class="thread-row-last">on it<span class="thread-slack thread-origin" data-origin="slack">· slack</span></span>')
+    expect(html).toContain('dateTime="2026-08-12T09:00:00Z"')
+    const none = renderToStaticMarkup(<IssueListCardBody card={withLast(null)} onRunCommand={noop} />)
+    expect(none).not.toContain("thread-row-last")
+    expect(none).toContain(`dateTime="${row.updatedAt}"`)
+  })
+})
+
 test("an unknown delivery offers owner resolution and shows its evidence", () => {
   const card = issue()
   card.payload.sync = { ...card.payload.sync!, state: "outcome_unknown", error: "connection lost", deliveryId: 41 }

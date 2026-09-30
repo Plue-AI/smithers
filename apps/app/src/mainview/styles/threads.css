@@ -127,3 +127,10 @@ button.thread-reaction:focus-visible { outline: 2px solid var(--ring-border); ou
 
 /* ── Inbox references (RunsCards.tsx) ────────────────────────────────── */
 .inbox-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.thread-row-last {
+	font-size: var(--fs-caption);
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

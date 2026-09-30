@@ -131,6 +131,24 @@ const forgeFacts = (value: Record<string, unknown>, author: unknown): Pick<Issue
   ...(isRecord(author) && typeof author.avatar_url === "string" ? { authorAvatar: author.avatar_url } : {})
 })
 
+const commentOrigin = (value: unknown): "app" | "slack" | "telegram" | undefined =>
+  value === "app" || value === "slack" || value === "telegram" ? value : undefined
+
+/** The backend's `last_comment` ({commenter, persona, excerpt, origin, created_at}): null when the issue has no comments, absent when malformed. */
+const parseLastComment = (value: unknown): IssueListRow["lastComment"] => {
+  if (value === null) return null
+  if (!isRecord(value)) return undefined
+  const origin = commentOrigin(value.origin)
+  if (typeof value.commenter !== "string" || typeof value.excerpt !== "string" || typeof value.created_at !== "string" || origin === undefined) return undefined
+  const persona = isRecord(value.persona) && typeof value.persona.username === "string" && value.persona.username.trim() !== "" ? value.persona.username : undefined
+  return { commenter: value.commenter, ...(persona === undefined ? {} : { persona }), excerpt: value.excerpt, origin, createdAt: value.created_at }
+}
+
+const lastCommentOf = (value: Record<string, unknown>): Pick<IssueListRow, "lastComment"> => {
+  const lastComment = parseLastComment(value.last_comment)
+  return lastComment === undefined ? {} : { lastComment }
+}
+
 /** One list row; null when the entry carries no usable issue number. */
 const parseListRow = (value: unknown): IssueListRow | null => {
   if (!isRecord(value)) return null
@@ -147,6 +165,7 @@ const parseListRow = (value: unknown): IssueListRow | null => {
     labels: parseLabels(value.labels),
     comments: comments !== null && comments >= 0 ? comments : 0,
     updatedAt: typeof value.updated_at === "string" ? value.updated_at : null,
+    ...lastCommentOf(value),
     ...(taskOf(value) === undefined ? {} : { task: taskOf(value) })
   }
 }
@@ -198,7 +217,8 @@ const parseComment = (value: unknown): IssueCommentRow | null => {
     ...(persona ? { persona, ...(persona.iconUrl ? { authorAvatar: persona.iconUrl } : {}) } : {}),
     author: typeof value.commenter === "string" && value.commenter !== "" ? value.commenter : null,
     commentBody: typeof value.body === "string" ? value.body : "",
-    createdAt: typeof value.created_at === "string" ? value.created_at : null
+    createdAt: typeof value.created_at === "string" ? value.created_at : null,
+    ...(commentOrigin(value.origin) === undefined ? {} : { origin: commentOrigin(value.origin) })
   }
 }
 
@@ -222,6 +242,7 @@ const parseDetail = (
     issueBody: typeof value.body === "string" ? value.body : "",
     labels: parseLabels(value.labels),
     comments: [...comments],
+    ...lastCommentOf(value),
     ...(taskOf(value) === undefined ? {} : { task: taskOf(value) }),
   }
 }

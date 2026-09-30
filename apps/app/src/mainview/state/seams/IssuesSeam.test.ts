@@ -505,6 +505,51 @@ describe("issues seam — mutations re-fetch so the card states the new truth", 
     expect(card.payload.comments).toEqual([])
   })
 
+  test("the wire's origin and last_comment reach the cards; null and malformed values stay absent (#2489)", async () => {
+    const lastComment = { commenter: "bob", persona: { username: "Reviewer" }, excerpt: "on it", origin: "slack", created_at: "2026-08-12T09:00:00Z" }
+    const { store, controller } = await issuesController(
+      backend({
+        "GET /api/repos/will/flows/issues": json(200, [
+          wireIssue(7, { kind: "chat", last_comment: lastComment }),
+          wireIssue(8, { kind: "chat", last_comment: null }),
+          wireIssue(9, { kind: "chat", last_comment: { ...lastComment, origin: "irc" } }),
+          wireIssue(10, { kind: "chat" })
+        ]),
+      })
+    )
+    expect((await controller.commands.run("issues.list")).status).toBe("executed")
+    await settled()
+    const listed = cardOfKind(store, "issues-will/flows", "issue-list").payload.issues
+    expect(listed.map(row => row.lastComment)).toEqual([
+      { commenter: "bob", persona: "Reviewer", excerpt: "on it", origin: "slack", createdAt: "2026-08-12T09:00:00Z" },
+      null,
+      undefined,
+      undefined
+    ])
+    expect("lastComment" in listed[3]!).toBe(false)
+  })
+
+  test("the wire's origin and last_comment reach an opened issue (#2489)", async () => {
+    const lastComment = { commenter: "bob", persona: { username: "Reviewer" }, excerpt: "on it", origin: "slack", created_at: "2026-08-12T09:00:00Z" }
+    const { store, controller } = await issuesController(
+      backend({
+        "GET /api/repos/will/flows/issues/7": json(200, wireIssue(7, { last_comment: lastComment })),
+        "GET /api/repos/will/flows/issues/7/comments": json(200, [
+          { ...wireComment(1, "from app"), origin: "app" },
+          { ...wireComment(2, "from slack"), origin: "slack" },
+          { ...wireComment(3, "from telegram"), origin: "telegram" },
+          { ...wireComment(4, "unknown"), origin: "irc" },
+          wireComment(5, "absent")
+        ])
+      })
+    )
+    expect((await controller.commands.run("issues.view", "7")).status).toBe("executed")
+    await settled()
+    const card = cardOfKind(store, "issue-will/flows-7", "issue")
+    expect(card.payload.lastComment).toEqual({ commenter: "bob", persona: "Reviewer", excerpt: "on it", origin: "slack", createdAt: "2026-08-12T09:00:00Z" })
+    expect(card.payload.comments.map(comment => comment.origin)).toEqual(["app", "slack", "telegram", undefined, undefined])
+  })
+
   test("issues.comment POSTs {body} then upserts the card carrying the new comment", async () => {
     let posted: unknown
     const { store, controller } = await issuesController(

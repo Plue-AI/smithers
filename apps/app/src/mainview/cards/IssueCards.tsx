@@ -14,7 +14,7 @@ import { flowArgs } from "../flows/FlowArgs"
 import { Button, Markdown } from "@smthrs/ui"
 import { useState } from "react"
 import { ageLabel } from "../Timestamps"
-import { commentPersona, IssueThreadBody, stateActions, TaskStrip } from "./IssueThread"
+import { commentPersona, IssueThreadBody, OriginMark, stateActions, TaskStrip } from "./IssueThread"
 import type { Card } from "../state/AppState"
 import { dateLabel } from "../Timestamps"
 import { trustedHttpsUrl } from "../state/seams/SeamContext"
@@ -63,7 +63,10 @@ type IssueRow = Extract<Card, { kind: "issue-list" }>["payload"]["issues"][numbe
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 
 /** A conversation's row (smithers-ui-DESIGN.md §3.1): the title, the issue strip and the age. */
-const ThreadListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => (
+const ThreadListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => {
+  const last = issue.lastComment
+  const activityAt = last?.createdAt ?? issue.updatedAt
+  return (
   <li className="world-card-row ghc-row thread-row" data-issue={issue.number} data-state={issue.state} data-kind={issue.task === undefined ? "conversation" : "issue"}>
     <button type="button" className="thread-row-btn" {...flowAction(onRunCommand, "issues.view", flowArgs("issues.view", { number: issue.number, repo, source: issue.source }))}>
       <span className="thread-row-main">
@@ -71,13 +74,17 @@ const ThreadListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; r
           <span className="thread-row-title">{issue.title}</span>
           <TaskStrip thread={{ ...issue, repo }} onRunCommand={onRunCommand} compact />
           <span className="thread-row-meta">
-            {issue.updatedAt === null ? null : <time dateTime={issue.updatedAt}>{ageLabel(issue.updatedAt)}</time>}
+            {activityAt === null ? null : <time dateTime={activityAt}>{ageLabel(activityAt)}</time>}
           </span>
         </span>
+        {last === undefined || last === null || last.excerpt === "" ? null : (
+          <span className="thread-row-last">{last.excerpt}<OriginMark origin={last.origin} /></span>
+        )}
       </span>
     </button>
   </li>
-)
+  )
+}
 
 const IssueListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => {
   if (issue.kind === "chat") return <ThreadListRow repo={repo} issue={issue} onRunCommand={onRunCommand} />
