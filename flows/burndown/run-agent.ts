@@ -19,7 +19,7 @@ import { Assignment, WorkerResult } from "./schema.ts"
  * re-running hours of agent work.
  */
 export const RunAgent = Action.make("burndown/run-agent", {
-  implementationVersion: "burndown/run-agent/v2",
+  implementationVersion: "burndown/run-agent/v3",
   payload: Assignment,
   success: WorkerResult,
   error: Schema.String,
@@ -32,6 +32,8 @@ export interface Machine {
   readonly workdir: string
   readonly stateDir: string
   readonly env: Record<string, string>
+  /** Disposable per-run directory the run script creates first and deletes on exit. */
+  readonly scratch?: string
   readonly logFile?: boolean
   readonly brief?: (text: string) => Effect.Effect<string, string>
   readonly files?: ReadonlyArray<{ readonly path: string; readonly contents: string }>
@@ -48,20 +50,26 @@ const repoDirs: Record<string, string> = {
   "smithersai/plue": join(homedir(), "plue")
 }
 
-/** This machine: the shared checkout on main, the account's local login dir. */
+/**
+ * This machine: the shared checkout on main, the account's local login dir,
+ * run scratch removed when the agent exits, and one Go build cache for all runs.
+ */
 export const layerLocal = Layer.effect(Placement)(
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
     return {
       machine: (assignment, account) => {
         const workdir = repoDirs[assignment.repo]
+        const stateDir = join(homedir(), "Smithers-Ops/burndown/runs", assignment.key)
+        const scratch = join(stateDir, "tmp")
         return workdir === undefined
           ? Effect.fail(`no local checkout for ${assignment.repo}`)
           : Effect.succeed({
             provider: CommandSandbox.make({ spawner, prefix: [], workdir, name: "local", heartbeat: "10 minutes" }),
             workdir,
-            stateDir: join(homedir(), "Smithers-Ops/burndown/runs", assignment.key),
-            env: accountEnv(account)
+            stateDir,
+            scratch,
+            env: { ...accountEnv(account), TMPDIR: scratch, GOCACHE: join(homedir(), ".cache/burndown/go-build") }
           })
       }
     }
@@ -140,10 +148,14 @@ export const parseReport = (
   })
   if (exitCode !== 0) return result(limitPattern.test(output + diagnostics) ? "limited" : "failed")
   if (report === undefined) return result("failed", [], "No completed final assistant report")
+  if ([assignment.lead, ...assignment.extras].some((issue) => issue.repo !== assignment.repo)) {
+    return result("failed", [], "Inconsistent assigned repositories")
+  }
   const order = [assignment.lead.n, ...assignment.extras.map((issue) => issue.n)]
   if (new Set(order).size !== order.length) return result("failed", [], "Duplicate assigned issues")
   const byIssue = new Map<number, string>()
   const byCommit = new Map<string, number>()
+  const readyLines: Array<{ readonly issue?: number; readonly commit: string }> = []
   let fenced = false
   let closed = false
   let blocked = false
@@ -152,18 +164,10 @@ export const parseReport = (
     if (fenced) continue
     const ready = /^READY\s+(?:#?(\d+)\s+)?([0-9a-f]{40}|[0-9a-f]{64})\s*$/.exec(line)
     if (ready) {
-      const commit = ready[2]!
-      const previous = byCommit.get(commit)
-      const issue = ready[1] === undefined
-        ? previous ?? order.find((n) => !byIssue.has(n))
-        : Number(ready[1])
-      if (issue === undefined || !order.includes(issue) ||
-        (byIssue.has(issue) && byIssue.get(issue) !== commit) ||
-        (previous !== undefined && previous !== issue)) {
-        return result("failed", [], "Invalid READY assignment mapping")
-      }
-      byIssue.set(issue, commit)
-      byCommit.set(commit, issue)
+      readyLines.push({
+        ...ready[1] === undefined ? {} : { issue: Number(ready[1]) },
+        commit: ready[2]!
+      })
       continue
     }
     const status = /^(CLOSED|BLOCKED)\s+#?(\d+)(?:\s+.*)?$/.exec(line)
@@ -174,6 +178,23 @@ export const parseReport = (
     } else if (/^(READY|CLOSED|BLOCKED)\b/.test(line)) {
       return result("failed", [], "Malformed final report line")
     }
+  }
+  // Reserve explicit issue identities before assigning ordered implicit results.
+  for (const { issue, commit } of readyLines.filter((line) => line.issue !== undefined)) {
+    if (!order.includes(issue!) ||
+      (byIssue.has(issue!) && byIssue.get(issue!) !== commit) ||
+      (byCommit.has(commit) && byCommit.get(commit) !== issue)) {
+      return result("failed", [], "Invalid READY assignment mapping")
+    }
+    byIssue.set(issue!, commit)
+    byCommit.set(commit, issue!)
+  }
+  for (const { commit } of readyLines.filter((line) => line.issue === undefined)) {
+    if (byCommit.has(commit)) continue
+    const issue = order.find((n) => !byIssue.has(n))
+    if (issue === undefined) return result("failed", [], "Invalid READY assignment mapping")
+    byIssue.set(issue, commit)
+    byCommit.set(commit, issue)
   }
   if (closed) return result("blocked", [], "CLOSED needs a verified host closure receipt")
   const commits = order.flatMap((issue) => byIssue.has(issue) ? [{ issue, commit: byIssue.get(issue)! }] : [])
@@ -198,6 +219,11 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
         const reportPath = `${machine.stateDir}/agent.report.jsonl`
         const script = [
           `mkdir -p ${shellQuote(machine.stateDir)}`,
+          ...machine.scratch === undefined ? [] : [
+            `mkdir -p ${shellQuote(machine.scratch)}`,
+            `trap ${shellQuote(`rm -rf ${shellQuote(machine.scratch)}`)} EXIT`,
+            `trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM`
+          ],
           `cd ${shellQuote(machine.workdir)}`,
           `${agentArgv(assignment, machine.workdir).map(shellQuote).join(" ")} < ${shellQuote(briefPath)} > ${shellQuote(reportPath)} 2> ${shellQuote(logPath)}`,
           `code=$?`,
@@ -260,5 +286,5 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           Effect.mapError((cause) => `agent ${assignment.key} could not run: ${String(cause)}`)
         )
       }),
-    { implementationVersion: "burndown/run-agent/v2" }
+    { implementationVersion: "burndown/run-agent/v3" }
   )

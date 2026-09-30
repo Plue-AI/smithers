@@ -48,7 +48,8 @@ export type InFlight = typeof InFlight.Type
 export const Ready = Schema.Struct({ assignment: Assignment, result: WorkerResult }).check(
   Schema.makeFilter(({ assignment, result }) => {
     const members = [assignment.lead, ...assignment.extras]
-    return result.status === "ready" && result.key === assignment.key &&
+    return members.every((member) => member.repo === assignment.repo) &&
+      result.status === "ready" && result.key === assignment.key &&
       result.commits.length === members.length && result.commits.every((commit, index) =>
         commit.issue === members[index]?.n && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit.commit)
       )

@@ -419,6 +419,9 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   test("public READY seed rejects inconsistent worker identities and incomplete issue bundles", async () => {
     const { default: Burndown } = await import("../burndown/flow.ts")
     const invalid = [
+      { ...ready, assignment: { ...assignment, repo: "other/repository" } },
+      { ...ready, assignment: { ...assignment, lead: { ...assignment.lead, repo: "other/repository" } } },
+      { ...ready, assignment: { ...assignment, extras: [{ ...assignment.extras[0], repo: "other/repository" }] } },
       { ...ready, result: { ...result, key: "unrelated-worker" } },
       { ...ready, result: { ...result, status: "failed" } },
       { ...ready, result: { ...result, commits: result.commits.slice(0, 1) } },

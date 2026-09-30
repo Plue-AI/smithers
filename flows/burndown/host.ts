@@ -136,7 +136,11 @@ const observe = (state: RoundState) =>
       exclude: busy,
       selection: { history: state.history as Record<string, History> }
     })
-    const fixes = state.quarantined.map((q) => ({
+    const fixes = state.quarantined.filter((q) => {
+      const prior = (state.history as Record<string, History>)[issueKey(q.assignment.repo, q.assignment.lead.n)]
+      const cooldown = Math.min(3 * 3600 * Math.max(1, prior?.attempts ?? 0), 24 * 3600)
+      return prior === undefined || now / 1000 - (prior.last ?? 0) >= cooldown
+    }).map((q) => ({
       repo: q.assignment.repo,
       lead: q.assignment.lead,
       extras: q.assignment.extras,
@@ -167,8 +171,10 @@ const refreshOwned = async (assignment: Assignment): Promise<boolean> => {
   for (const member of [assignment.lead, ...assignment.extras]) {
     try {
       const { stdout } = await run("node", [claimScript, "check", `${member.repo}#${member.n}`, "--by", by])
-      const ownership = JSON.parse(stdout.trim()) as { mine?: boolean; holder?: { host?: string } }
+      const ownership = JSON.parse(stdout.trim()) as { mine?: boolean; holder?: { host?: string; at?: string } }
       if (ownership.mine !== true || ownership.holder?.host !== hostname()) return false
+      const claimedAt = Date.parse(ownership.holder.at ?? "")
+      if (Number.isFinite(claimedAt) && Date.now() - claimedAt < 3_600_000) continue
       if (!await claim(member.repo, member.n, by)) return false
     } catch {
       return false
@@ -291,10 +297,13 @@ const land = (state: RoundState, observation: Observation) => {
   if (process.env.BURNDOWN_LAND === "off" || ready.length === 0) {
     return Effect.succeed({ landed: [], quarantined: [] })
   }
-  return landAll(
-    ready.map((r) => r.result),
-    ready.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 }))
-  )
+  return Effect.gen(function*() {
+    const owned = yield* Effect.filter(ready, (member) => Effect.promise(() => refreshOwned(member.assignment)))
+    return yield* landAll(
+      owned.map((r) => r.result),
+      owned.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 }))
+    )
+  })
 }
 
 const notify = (title: string, message: string) =>
@@ -346,6 +355,15 @@ const settle = (
         history[key] = result.status === "closed"
           ? { ...prior, closed: true }
           : { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000 }
+      }
+    }
+    for (const member of landed.quarantined) {
+      const assignment = queue.find((r) => r.assignment.key === member.key)?.assignment
+      if (assignment === undefined) continue
+      for (const issue of [assignment.lead, ...assignment.extras]) {
+        const key = issueKey(assignment.repo, issue.n)
+        const prior = history[key] ?? {}
+        history[key] = { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000 }
       }
     }
     const capped = observation.candidates.length > 0 && launched.length === 0 &&

@@ -16,14 +16,18 @@ export default Flow.make("burndown", {
   capabilities: ["fs:read:**", "fs:write:**", "proc:spawn:*", "net:get:*", "net:post:*", "model:call:*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   modelInvocable: false,
-  payload: {
+  payload: Schema.Struct({
     repos: Schema.Array(Schema.String),
     ready: Schema.optional(Schema.Array(Ready)),
     placement: Schema.optional(Schema.Literals(["local", "cloud"])),
     startAgents: Schema.optional(Schema.Number),
     maxAgents: Schema.optional(Schema.Number),
     tickMinutes: Schema.optional(Schema.Number)
-  },
+  }).check(
+    Schema.makeFilter(({ repos, ready }) => (ready ?? []).every((member) => repos.includes(member.assignment.repo)), {
+      message: "READY assignment repository must be included in repos"
+    })
+  ),
   success: Schema.String,
   error: RoundError,
   body: Node.capture({ version: "burndown/v2" }, ({ maxAgents, placement, ready, repos, startAgents, tickMinutes }: {

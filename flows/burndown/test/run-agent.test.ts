@@ -194,3 +194,23 @@ test("Claude rejects malformed final results and selects the last result", () =>
   assert.equal(final.status, "blocked")
   assert.deepEqual(final.commits, [])
 })
+
+for (const tool of ["codex", "claude"] as const) {
+  test(`${tool} reserves a later explicit lead before assigning an implicit extra`, () => {
+    const text = `READY ${second}\nREADY #2955 ${first}\nREADY ${second}`
+    const result = parse(tool === "codex" ? codex(text) : claude(text), 0, tool)
+    assert.equal(result.status, "ready")
+    assert.deepEqual(result.commits, [{ issue: 2955, commit: first }, { issue: 2956, commit: second }])
+  })
+}
+
+test("rejects duplicate and cross-repository assigned issues", () => {
+  for (const extras of [
+    [assignment.lead],
+    [{ ...assignment.extras[0]!, repo: "smithersai/plue" }]
+  ]) {
+    const result = parseReport({ ...assignment, extras }, 0, codex(`READY ${first}`), 1.25)
+    assert.equal(result.status, "failed")
+    assert.deepEqual(result.commits, [])
+  }
+})

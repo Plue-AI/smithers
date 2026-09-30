@@ -1,13 +1,13 @@
 import { NodeCrypto } from "@effect/platform-node"
-import { Action, FlowRuntime, Graph, Interpreter, Sleep } from "@smthrs/flow"
 import * as Seat from "@smthrs/agent/Seat"
+import { Action, FlowRuntime, Graph, Interpreter, Sleep } from "@smthrs/flow"
 import { Effect, Layer } from "effect"
-import { layerWired } from "../../packages/smithers/flows/flow/test/MemoryFlowRuntime.ts"
 import assert from "node:assert/strict"
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { test } from "node:test"
+import { layerWired } from "../../packages/smithers/flows/flow/test/MemoryFlowRuntime.ts"
 import Monitor from "../burndown/monitor/flow.ts"
 import { captureEvidence, inspectRun, layer as hostLayer, reportRun } from "../burndown/monitor/host.ts"
 import { Diagnose, Inspect, Loop, Report } from "../burndown/monitor/loop.ts"
@@ -33,7 +33,8 @@ if (![ ['runs','show','watched-run','--json','--root',process.cwd()], ['runs','l
   process.stderr.write('wrong inspection argv'); process.exit(23)
 }
 if (['SMITHERS_REMOTE','SMITHERS_TOKEN','SMITHERS_BACKEND','DATABASE_URL'].some(key => process.env[key] !== undefined)) process.exit(24)
-const response = JSON.parse(fs.readFileSync('response.json', 'utf8'))
+const fixture = JSON.parse(fs.readFileSync('response.json', 'utf8'))
+const response = fixture[args[1]] || fixture
 if (response.wait) { setTimeout(() => {}, 60000) }
 else { process.stdout.write(response.stdout || ''); process.stderr.write(response.stderr || ''); process.exit(response.code || 0) }
 `
@@ -45,7 +46,8 @@ else { process.stdout.write(response.stdout || ''); process.stderr.write(respons
     `#!${process.execPath}
 const fs = require('node:fs')
 if (['SMITHERS_REMOTE','SMITHERS_TOKEN','SMITHERS_BACKEND','DATABASE_URL'].some(key => process.env[key] !== undefined)) process.exit(24)
-const response = JSON.parse(fs.readFileSync('response.json', 'utf8'))
+const fixture = JSON.parse(fs.readFileSync('response.json', 'utf8'))
+const response = fixture.pgrep || fixture
 process.stdout.write(response.stdout || '')
 process.exit(response.code || 0)
 `
@@ -167,33 +169,65 @@ process.exit(response.code || 0)
     await writeFile(reportFile, "existing file")
     await assert.rejects(reportRun({ ...reportPayload, reportRoot: reportFile }))
     await response({ code: 1 })
-    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", ["-fl", "dispatch.py"], host), { failed: false, evidence: "## dispatchers\n(none)" })
+    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", ["-fl", "dispatch.py"], host), {
+      failed: false,
+      evidence: "## dispatchers\n(none)"
+    })
     await response({ code: 2 })
-    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", ["-fl", "dispatch.py"], host), { failed: true, evidence: "## dispatchers (failed)\nInspection failed or timed out." })
+    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", ["-fl", "dispatch.py"], host), {
+      failed: true,
+      evidence: "## dispatchers (failed)\nInspection failed or timed out."
+    })
     await response({ stdout: "123 fixture dispatcher" })
     assert.deepEqual(
       await captureEvidence("dispatchers", "pgrep", ["-fl", "dispatch.py"], host),
       { failed: false, evidence: "## dispatchers\n123 fixture dispatcher" }
     )
-    await response({ stdout: JSON.stringify({ runId: "watched-run", status: "running", note: "historic (failed) evidence" }) })
+    await response({
+      stdout: JSON.stringify({ runId: "watched-run", status: "running", note: "historic (failed) evidence" })
+    })
     const handlers = new Map<string, (input: unknown) => { execute: Effect.Effect<unknown, unknown> }>()
     const runtime = {
       register: (declared: { _tag: string }, handler: never) => Effect.sync(() => handlers.set(declared._tag, handler))
     }
-    const snapshot = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-      yield* Layer.build((hostLayer as Layer.Layer<never, never, Action.Implementations | FlowRuntime.FlowRuntime>).pipe(Layer.provide([
-        Action.layerImplementations,
-        Layer.succeed(FlowRuntime.FlowRuntime, runtime as never)
-      ])))
-      const handler = handlers.get(Inspect.name)!
-      return yield* handler({ runId: "watched-run", hostRoot: host, reportRoot }).execute.pipe(
-        Effect.provideService(FlowRuntime.FlowInstance, { executionId: "monitor-evidence-test" } as never)
-      )
-    }))) as { healthy: boolean; evidence: string }
-    assert.equal(snapshot.healthy, true, "literal failure text in successful evidence must not mark inspection unhealthy")
+    const getSnapshot = () =>
+      Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        yield* Layer.build(
+          (hostLayer as Layer.Layer<never, never, Action.Implementations | FlowRuntime.FlowRuntime>).pipe(
+            Layer.provide([
+              Action.layerImplementations,
+              Layer.succeed(FlowRuntime.FlowRuntime, runtime as never)
+            ])
+          )
+        )
+        const handler = handlers.get(Inspect.name)!
+        return yield* handler({ runId: "watched-run", hostRoot: host, reportRoot }).execute.pipe(
+          Effect.provideService(FlowRuntime.FlowInstance, { executionId: "monitor-evidence-test" } as never)
+        )
+      }))) as Promise<{ healthy: boolean; evidence: string }>
+    const snapshot = await getSnapshot()
+    assert.equal(
+      snapshot.healthy,
+      true,
+      "literal failure text in successful evidence must not mark inspection unhealthy"
+    )
     assert.match(snapshot.evidence, /historic \(failed\) evidence/)
+    await writeFile(join(reportRoot, "status.txt"), "historic (failed) receipt")
+    assert.equal((await getSnapshot()).healthy, true, "status text is evidence, not a failure flag")
+    for (const command of ["list", "pgrep"]) {
+      await response({
+        stdout: JSON.stringify({ runId: "watched-run", status: "running" }),
+        [command]: { code: 2 }
+      })
+      const failedSnapshot = await getSnapshot()
+      assert.equal(failedSnapshot.healthy, false, `${command} failure must be unhealthy`)
+      assert.match(failedSnapshot.evidence, /Inspection failed or timed out/)
+    }
     await response({ stdout: "123 fixture dispatcher (failed)" })
-    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", [], host), { failed: false, evidence: "## dispatchers\n123 fixture dispatcher (failed)" })
+    assert.deepEqual(await captureEvidence("dispatchers", "pgrep", [], host), {
+      failed: false,
+      evidence: "## dispatchers\n123 fixture dispatcher (failed)"
+    })
   } finally {
     if (originalPath === undefined) delete process.env.PATH
     else process.env.PATH = originalPath
@@ -233,56 +267,113 @@ for (const failure of ["inspection", "diagnosis"] as const) {
     const reports: Array<typeof Report.payloadSchema.Type> = []
     let inspections = 0
     const layers = layerWired(Layer.mergeAll(
-      Inspect.toLayer(() => Effect.suspend(() => {
-        events.push("inspect")
-        inspections++
-        return inspections === 1 && failure === "inspection"
-          ? Effect.fail("private inspection error")
-          : Effect.succeed({ healthy: true, now: 0, evidence: "running" })
-      }), { implementationVersion: Inspect.implementationVersion }),
-      Diagnose.toLayer(({ snapshot }) => Effect.suspend(() => {
-        if (inspections === 1 && failure === "inspection") {
-          assert.equal(snapshot.healthy, false)
-          assert.equal(snapshot.evidence, "Monitor inspection failed")
-        }
-        events.push("diagnose")
-        return inspections === 1 && failure === "diagnosis"
-          ? Effect.fail(new Seat.SeatUnresolved({ seat: "fixture", message: "private provider error" }))
-          : Effect.succeed({ healthy: true, findings: [], actions: [] })
-      })),
-      Report.toLayer((payload) => Effect.sync(() => {
-        events.push("report")
-        reports.push(payload)
-        return reports.length === 1
-      }), { implementationVersion: Report.implementationVersion }),
-      Sleep.action.toLayer(({ millis }) => Effect.sync(() => {
-        assert.equal(millis, 60_000)
-        events.push("sleep")
-      })),
+      Inspect.toLayer(() =>
+        Effect.suspend(() => {
+          events.push("inspect")
+          inspections++
+          return inspections === 1 && failure === "inspection"
+            ? Effect.fail("private inspection error")
+            : Effect.succeed({ healthy: true, now: 0, evidence: "running" })
+        }), { implementationVersion: Inspect.implementationVersion }),
+      Diagnose.toLayer(({ snapshot }) =>
+        Effect.suspend(() => {
+          if (inspections === 1 && failure === "inspection") {
+            assert.equal(snapshot.healthy, false)
+            assert.equal(snapshot.evidence, "Monitor inspection failed")
+          }
+          events.push("diagnose")
+          return inspections === 1 && failure === "diagnosis"
+            ? Effect.fail(new Seat.SeatUnresolved({ seat: "fixture", message: "private provider error" }))
+            : Effect.succeed({ healthy: true, findings: [], actions: [] })
+        })
+      ),
+      Report.toLayer((payload) =>
+        Effect.sync(() => {
+          events.push("report")
+          reports.push(payload)
+          return reports.length === 1
+        }), { implementationVersion: Report.implementationVersion }),
+      Sleep.action.toLayer(({ millis }) =>
+        Effect.sync(() => {
+          assert.equal(millis, 60_000)
+          events.push("sleep")
+        })
+      ),
       Interpreter.layer(Loop)
     ))
     const input = {
-      runId: "watched-run", hostRoot: "/watched/host", reportRoot: "/watched/reports",
-      seat: "fixture", everyMinutes: 1
+      runId: "watched-run",
+      hostRoot: "/watched/host",
+      reportRoot: "/watched/reports",
+      seat: "fixture",
+      everyMinutes: 1
     }
-    const result = await Effect.runPromise(Effect.gen(function*() {
-      const next = yield* Loop.execute(input, { executionId: "monitor-first-round" })
-      assert.equal(typeof next, "object")
-      assert.equal((next as { _tag: string })._tag, "Handoff")
-      assert.equal(reports.length, 1, "unhealthy round must report before handing off")
-      assert.ok(events.includes("sleep"), "next round must wait for its scheduled interval")
-      return yield* Loop.execute((next as { payload: typeof input }).payload, { executionId: "monitor-next-round" })
-    }).pipe(Effect.provide(layers.pipe(Layer.provideMerge(NodeCrypto.layer)))))
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const next = yield* Loop.execute(input, { executionId: "monitor-first-round" })
+        assert.equal(typeof next, "object")
+        assert.equal((next as unknown as { _tag: string })._tag, "Handoff")
+        assert.deepEqual(
+          (next as unknown as { payload: typeof input }).payload,
+          input,
+          "next round preserves watched run and host"
+        )
+        assert.equal(reports.length, 1, "unhealthy round must report before handing off")
+        assert.ok(events.includes("sleep"), "next round must wait for its scheduled interval")
+        return yield* Loop.execute((next as unknown as { payload: typeof input }).payload, {
+          executionId: "monitor-next-round"
+        })
+      }).pipe(Effect.provide(layers.pipe(Layer.provideMerge(NodeCrypto.layer))))
+    )
     assert.equal(result, "burndown run watched-run settled")
     assert.equal(reports.length, 2)
     if (failure === "diagnosis") {
       assert.deepEqual(reports[0]!.verdict, {
-        healthy: false, findings: ["Monitor diagnosis failed"], actions: ["Retry diagnosis on the next round"]
+        healthy: false,
+        findings: ["Monitor diagnosis failed"],
+        actions: ["Retry diagnosis on the next round"]
       })
     }
     assert.equal(reports[0]!.inspectedHealthy && reports[0]!.verdict.healthy, false)
     assert.equal(reports[1]!.inspectedHealthy && reports[1]!.verdict.healthy, true)
     assert.ok(!JSON.stringify(reports).includes("private"), "error diagnostics must not leak to reports")
-    assert.deepEqual(events.filter((event) => event !== "diagnose"), ["inspect", "report", "sleep", "inspect", "report"])
+    assert.deepEqual(events.filter((event) => event !== "diagnose"), [
+      "inspect",
+      "report",
+      "sleep",
+      "inspect",
+      "report"
+    ])
   })
 }
+
+test("monitor public handoff resolves host and report roots and pins the default seat", async () => {
+  const currentHost = process.cwd()
+  for (
+    const [configuration, hostRoot, reportRoot] of [
+      [{}, currentHost, join(currentHost, ".smithers", "burndown")],
+      [{ hostRoot: "watched" }, resolve(currentHost, "watched"), resolve(currentHost, "watched/.smithers/burndown")],
+      [{ hostRoot: "/watched/host" }, "/watched/host", "/watched/host/.smithers/burndown"],
+      [{ hostRoot: "watched", reportRoot: "reports" }, resolve(currentHost, "watched"), resolve(currentHost, "reports")]
+    ] as const
+  ) {
+    const result = await Effect.runPromise(
+      Monitor.execute({ runId: "watched-run", ...configuration }, {
+        executionId: `monitor-roots-${JSON.stringify(configuration)}`
+      }).pipe(Effect.provide(
+        layerWired(Interpreter.layer(Monitor, { callbackIdentity: "stable" })).pipe(
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+      ))
+    )
+    assert.equal(typeof result, "object")
+    assert.equal((result as unknown as { _tag: string })._tag, "Handoff")
+    assert.deepEqual((result as unknown as { payload: unknown }).payload, {
+      runId: "watched-run",
+      hostRoot,
+      reportRoot,
+      seat: "claude-code:sonnet",
+      everyMinutes: 10
+    })
+  }
+})
