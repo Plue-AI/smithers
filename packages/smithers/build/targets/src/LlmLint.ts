@@ -2783,6 +2783,10 @@ export const review = (
     return yield* execute.pipe(
       Effect.tapError((error) =>
         settled ? Effect.void : persist({ status: "failed", error: error.message }).pipe(Effect.ignore)
+      ),
+      // A call cut short by interruption was still charged; a resume must not get it back.
+      Effect.onInterrupt(() =>
+        settled ? Effect.void : persist({ status: "failed", error: "Review interrupted" }).pipe(Effect.ignore)
       )
     )
   })

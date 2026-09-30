@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
@@ -457,6 +458,34 @@ describe("LlmLint.review containment follow-up", () => {
     await Fs.writeFile(name, JSON.stringify({ ...record, usage: { ...record.usage, elapsedMs: 60_000 } }))
     const late = await Effect.runPromise(Effect.flip(review(failing.executable, { budget: { wallMs: 60_000 } })))
     expect(late.message).toBe("Review budget exhausted: 60000 ms")
+  })
+
+  it("persists the spend of an interrupted call so a resume still charges it", async () => {
+    const executable = Path.join(root, "slow.mjs")
+    const record = Path.join(root, "slow.log")
+    await Fs.writeFile(
+      executable,
+      "#!/usr/bin/env node\nimport { appendFileSync } from \"node:fs\"\n" +
+        "for await (const _ of process.stdin) {}\n" +
+        `appendFileSync(${JSON.stringify(record)}, "call\\n")\n` +
+        "await new Promise((resolve) => setTimeout(resolve, 30_000))\n" +
+        "process.stdout.write(JSON.stringify({ result: \"[]\" }))\n",
+      { mode: 0o755 }
+    )
+    const calls = async () => (await Fs.readFile(record, "utf8").catch(() => "")).split("\n").filter(Boolean).length
+    const fiber = Effect.runFork(review(executable, { budget: { modelCalls: 1 } }))
+    const started = Date.now()
+    while ((await calls()) < 1) {
+      if (Date.now() - started > 20_000) throw new Error("the slow engine never started")
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    const [interrupted] = await runs()
+    expect(interrupted).toMatchObject({ status: "failed", usage: { modelCalls: 1 } })
+    expect(interrupted!.usage.elapsedMs).toBeGreaterThan(0)
+    const again = await Effect.runPromise(Effect.flip(review(executable, { budget: { modelCalls: 1 } })))
+    expect(again.message).toBe("Review budget exhausted: 1 model calls")
+    expect(await calls()).toBe(1)
   })
 
   it("refuses a FIFO record without waiting for a writer", async () => {
