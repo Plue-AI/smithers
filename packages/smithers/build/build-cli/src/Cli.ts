@@ -618,7 +618,7 @@ export const runPackageVerb = async (
  */
 export const approvalRevision = async (
   label: string,
-  flags: WorkspaceFlags,
+  flags: WorkspaceFlags & { readonly input?: ReadonlyArray<string> | undefined },
   config: RuntimeConfig
 ): Promise<PackageExec.TargetApprovalRequest> => {
   const index = await openPackageIndex(flags, config)
@@ -632,7 +632,8 @@ export const approvalRevision = async (
     plan: true,
     readCache: false,
     signal: config.signal,
-    environment: config.environment
+    environment: config.environment,
+    inputs: parseInputs(flags.input)
   })
   if (planned.roots.length !== 1) throw new Error(`${label} selects ${planned.roots.length} targets; name one`)
   const node = planned.nodes.get(planned.roots[0]!)!
@@ -732,6 +733,7 @@ const runCi = async (
               signal: config.signal,
               reporter,
               environment: config.environment,
+              approvals: config.approvals,
               // CI never spawns an agent: the docs-verb page writers stay out.
               unattended: true
             })
@@ -950,7 +952,8 @@ const runSelected = async (
     reporter,
     environment: config.environment,
     plan: flags.plan,
-    includeExclusive: flags.includeExclusive
+    includeExclusive: flags.includeExclusive,
+    approvals: config.approvals
   }
   const plans: Array<PackageExec.PackagePlan> = []
   const selectedLabels = new Set(labels)

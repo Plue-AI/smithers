@@ -2672,7 +2672,8 @@ const visit = async (
   }
   // The approval binds to this exact revision: the label, the rule, the
   // effective attrs with each dependency's content key substituted, the
-  // declared inputs and the dependency keys. Any edit, rebuilt image or moved
+  // declared inputs, the dependency keys, the resolved tools and the
+  // invocation's `--input` values. Any edit, rebuilt image or moved
   // input is a new revision that needs its own approval.
   const approval = attrMember(attrs, "approval") === "required"
     ? Planner.keyOf({
@@ -2680,7 +2681,9 @@ const visit = async (
       inputs: {
         attrs: Planner.attrsValue(attrs, depKeys, inputDigests),
         declared: declaredInputs,
-        dependencies: dependencyRows
+        dependencies: dependencyRows,
+        toolchain,
+        invocation: context.inputs
       },
       layers: [],
       capabilities: []

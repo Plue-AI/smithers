@@ -717,14 +717,19 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       description: "Approve the current revision of a build target that declares approval: \"required\"",
       mcp: false,
       args: z.object({ target: z.string() }),
-      options: options.pick({ root: true, quiet: true }),
+      options: options.pick({ root: true, quiet: true }).extend({
+        input: z.array(z.string()).optional().describe("Payload input the target runs with, as name=value; repeatable")
+      }),
       run: (c) =>
         guard(c, async () => {
           // The build reads approvals from this workspace's own control database.
           if (Bridge.isRemote(c.options, runtime)) {
             throw new CliError.UsageError({ message: "Build target approvals are local; unset SMITHERS_REMOTE" })
           }
-          const request = await approvalRevision(c.args.target, { workspace: c.options.root ?? process.cwd() }, runtime)
+          const request = await approvalRevision(c.args.target, {
+            workspace: c.options.root ?? process.cwd(),
+            input: c.options.input
+          }, runtime)
           return Bridge.query(TargetApprovals.grant(request), { ...c.options, root: request.root }, runtime)
         })
     })

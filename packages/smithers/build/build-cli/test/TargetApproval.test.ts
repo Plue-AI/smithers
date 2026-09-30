@@ -243,6 +243,27 @@ describe("approval: \"required\" through the public CLI", { timeout: 60_000 }, (
     expect(pushes(await workspace.calls())).toEqual([])
   })
 
+  it("binds the approval to the invocation's payload inputs", async () => {
+    const workspace = await fixture(["one"])
+    const memory = memoryStore()
+    const plain = await approvalRevision("//:push", { workspace: workspace.root }, {
+      environment: workspace.environment
+    })
+    const withInput = await approvalRevision("//:push", { workspace: workspace.root, input: ["channel=beta"] }, {
+      environment: workspace.environment
+    })
+    memory.approve(plain.label, plain.digest)
+    const result = await serve(workspace.root, ["//:push", "--input", "channel=beta"], {
+      environment: workspace.environment,
+      approvals: memory.store
+    })
+
+    expect(withInput.digest).not.toBe(plain.digest)
+    expect(result.exitCode).toBe(1)
+    expect(`${result.output}${result.logs}`).toContain("is not approved")
+    expect(pushes(await workspace.calls())).toEqual([])
+  })
+
   it("fails closed when the store cannot answer", async () => {
     const workspace = await fixture(["one"])
     const result = await serve(workspace.root, ["//:push"], {
