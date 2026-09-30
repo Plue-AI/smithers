@@ -447,7 +447,9 @@ test("real AgentAction review and flow replay use the existing engine", { timeou
     stream: (request) =>
       Stream.suspend(() => {
         calls++
-        requests.push(request.system.map((part) => part.text).join("\n"))
+        // A schema correction returns to the same session as a message, so
+        // capture the conversation as well as the system prompt.
+        requests.push([...request.system.map((part) => part.text), JSON.stringify(request.messages)].join("\n"))
         const review = {
           sections: supported(evidence).sections.map((section) => ({
             ...section,
@@ -534,7 +536,9 @@ test("real AgentAction review and flow replay use the existing engine", { timeou
   assert.match(requests[2]!, /Review citation is not exact source evidence: answer\//)
   assert.match(requests[2]!, /invalidCitationCount/)
   assert.match(requests[2]!, /"line":999/)
-  assert.deepEqual(armed, [true, true, true], "every review request arms judged discipline")
+  // The schema correction stays in the first review session, so two sessions
+  // (review and exact repair) serve three model calls.
+  assert.deepEqual(armed, [true, true], "every review session arms judged discipline")
 })
 
 test("independent page reviews finish before exact citation assessment can fail", async (t) => {
