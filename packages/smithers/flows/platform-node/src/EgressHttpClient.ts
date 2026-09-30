@@ -71,7 +71,11 @@ const exclusions = (declared: string): string =>
 
 // Split ESM bundles expose CommonJS Undici through default, without synthetic
 // named exports. Node and Bun also expose its constructors through default.
-const loadUndici = Effect.promise(async () => (await import("undici/index.js")).default)
+// Its typings declare `default` as a namespace without them, and `bundler`
+// resolution reads that, so the value is typed as the module it carries.
+const loadUndici = Effect.promise(
+  async () => (await import("undici/index.js")).default as unknown as typeof Undici
+)
 
 /**
  * An Undici dispatcher that routes through the egress proxy the supplied
