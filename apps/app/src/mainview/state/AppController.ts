@@ -211,6 +211,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
   readonly showWikiPane: () => void
   readonly showConnectors: () => void
+  /** The ctrl+s overview of every subagent beside the chat (#2190). */
+  readonly showSubagents: () => void
   /** The Library: the plugin shelf this workspace browses and installs from. */
   readonly showPlugins: () => void
   readonly installPlugin: (id: string) => string | void
@@ -1044,6 +1046,7 @@ export const createAppController = (
     showWorld,
     showWikiPane: togglePane,
     showConnectors,
+    showSubagents,
     toggleDevtools,
     toggleChatFilterMenu,
     toggleChatFilter,
@@ -1662,6 +1665,7 @@ export const createAppController = (
       if (repo !== null) stackSeam.watchHomeStack(repo)
     },
     showConnectors,
+    showSubagents,
     showPlugins,
     installPlugin,
     removePlugin,

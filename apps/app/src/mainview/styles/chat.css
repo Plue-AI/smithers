@@ -38,12 +38,13 @@
 
 .chat-filter-swatch,
 .subagent-card,
+.subagent-tree-row,
 .subagent-crumb { --lane-color: var(--lane-0); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-crumb)[data-lane-color="1"] { --lane-color: var(--lane-1); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-crumb)[data-lane-color="2"] { --lane-color: var(--lane-2); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-crumb)[data-lane-color="3"] { --lane-color: var(--lane-3); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-crumb)[data-lane-color="4"] { --lane-color: var(--lane-4); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-crumb)[data-lane-color="5"] { --lane-color: var(--lane-5); }
+:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="1"] { --lane-color: var(--lane-1); }
+:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="2"] { --lane-color: var(--lane-2); }
+:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="3"] { --lane-color: var(--lane-3); }
+:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="4"] { --lane-color: var(--lane-4); }
+:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="5"] { --lane-color: var(--lane-5); }
 
 /* Subagent cards (#2162): tones name the shared SubagentCard roles. */
 .subagent-glyph[data-tone="waiting"] { color: var(--warning); }
@@ -599,7 +600,9 @@
 /* Ask 5: the Flows pane sits beside the conversation like the other two. */
 .flows-surface,
 /* The Library: the plugin shelf, a pane like the rest. */
-.plugins-surface {
+.plugins-surface,
+/* ctrl+s: every subagent (#2190). */
+.subagents-surface {
 	display: flex;
 	min-width: 0;
 	min-height: 0;
@@ -608,6 +611,21 @@
 	background: var(--surface);
 	animation: view-in var(--dur-slow) var(--ease-current);
 }
+
+.subagents-content {
+	min-height: 0;
+	flex: 1;
+	/* 80px bottom keeps the last card clear of the composer dock. */
+	padding: var(--sp-5) var(--sp-6) 80px;
+	overflow: auto;
+}
+
+.subagent-tree { margin: 0; padding: 0; list-style: none; }
+.subagent-tree-row { display: flex; align-items: center; width: 100%; gap: 8px; padding: 4px 8px; border: 0; border-left: 3px solid var(--lane-color); border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
+.subagent-tree-row:hover { background: var(--surface-2); }
+.subagent-tree-row:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.subagent-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-row .subagent-clock { color: var(--text-muted); }
 
 .flows-content {
 	display: flex;

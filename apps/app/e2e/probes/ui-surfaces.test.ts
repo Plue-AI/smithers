@@ -122,3 +122,36 @@ test("the subagent grid draws running, waiting and done cards, and answers the k
     }
   }
 }, 60_000)
+
+test("the ctrl+s overview draws every subagent as a tree over the top-level grid, and each row opens its worker", async () => {
+  for (const width of [1280, 390]) {
+    for (const theme of ["light", "dark"] as const) {
+      const { page, errors } = await open(width, theme)
+      try {
+        const overview = page.getByTestId("subagent-overview")
+        await overview.waitFor()
+        await overview.scrollIntoViewIfNeeded()
+        // The agent, the run, then the run's two children indented under it.
+        const rows = overview.locator(".subagent-tree-row")
+        expect(await rows.locator(".subagent-tree-title").allTextContents())
+          .toEqual(["auth-audit: rate-limit login", "release", "db-migrate", "docs"])
+        const indents = await overview.locator(".subagent-tree li").evaluateAll((items) => items.map((item) => getComputedStyle(item).paddingInlineStart))
+        expect(indents).toEqual(["0px", "0px", "16px", "16px"])
+        // The grid holds the top-level workers only.
+        expect(await overview.locator(".subagent-card").count()).toBe(2)
+        expect(await overview.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        if (width === 1280 && theme === "light") {
+          await rows.nth(2).focus()
+          await page.keyboard.press("Enter")
+          await page.waitForFunction(() => window.uiSurfaces.commands.some((command) => command.name === "runs.open"))
+          expect(await page.evaluate(() => window.uiSurfaces.commands.find((command) => command.name === "runs.open")?.args)).toBe("run-db-migrate example/app")
+          await rows.first().click()
+          await page.waitForFunction(() => window.uiSurfaces.commands.some((command) => command.name === "tab.select"))
+          expect(await page.evaluate(() => window.uiSurfaces.commands.find((command) => command.name === "tab.select")?.args)).toBe("tab-auth-audit")
+        }
+        if (evidence !== undefined) await overview.screenshot({ path: `${evidence}/subagent-overview-${width}-${theme}.png` })
+        expect(errors).toEqual([])
+      } finally { await page.close() }
+    }
+  }
+}, 60_000)

@@ -1,7 +1,7 @@
 import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { TOOLS_BROWSER_FETCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import type { Card,Palette } from "../AppState"
-import { DEFAULT_PALETTE,isPalette,PALETTES,WIKI_DISPLAY_NAME } from "../AppState"
+import { conversationTabIdOf,DEFAULT_PALETTE,isPalette,MAIN_TAB_ID,PALETTES,WIKI_DISPLAY_NAME } from "../AppState"
 import { THEME_PICKER_CARD_ID } from "../AppStore"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
 import type { ControllerContext,NetEntry } from "./context"
@@ -13,6 +13,8 @@ export interface PresentationController {
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
   readonly showWikiPane: () => void
   readonly showConnectors: () => void
+  /** The ctrl+s overview of every subagent beside the chat (#2190): toggles. */
+  readonly showSubagents: () => void
   readonly toggleDevtools: () => void
   readonly toggleChatFilterMenu: () => { readonly value: string }
   readonly toggleChatFilter: (target: string) => string | { readonly value: string }
@@ -75,6 +77,22 @@ export const createPresentationController = (
   const showWikiPane = (): void => {
     const open = ctx.store.session().surface === "world"
     ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: open ? "chat" : "world" })
+  }
+
+  /*
+   * The overview is a pane of the main conversation. From a worker's or a
+   * card's tab, ctrl+s brings the conversation forward with it; only a shown
+   * overview closes.
+   */
+  const showSubagents = (): void => {
+    const session = ctx.store.session()
+    const mainShown = (session.activeTabId ?? MAIN_TAB_ID) === MAIN_TAB_ID || conversationTabIdOf(session) !== undefined
+    if (session.surface === "subagents" && mainShown) {
+      ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: "chat" })
+      return
+    }
+    if (!mainShown) ctx.store.dispatch({ type: "tab.selected", actor: ctx.commandActor, id: MAIN_TAB_ID })
+    ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: "subagents" })
   }
 
   const showConnectors = (): void => {
@@ -473,6 +491,7 @@ export const createPresentationController = (
     showWorld,
     showWikiPane,
     showConnectors,
+    showSubagents,
     toggleDevtools,
     toggleChatFilterMenu,
     toggleChatFilter,

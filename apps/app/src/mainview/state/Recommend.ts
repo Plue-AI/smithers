@@ -204,6 +204,8 @@ export const currentSurfaceFlow = (surface: CommandState["surface"]): string =>
     ? "connect"
     : surface === "plugins"
     ? "plugins"
+    : surface === "subagents"
+    ? "subagents"
     : "chat"
 
 const asString = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined)

@@ -7,8 +7,8 @@ import { createAppStore } from "../../state/AppStore"
 import { createAppController } from "../../state/AppController"
 import { applicationIdentityFromFetch, silentAgent } from "../../state/TestFixtures"
 import type { FlowName } from "../../flows/FlowName"
-import { SubagentBatch, SubagentFinished } from "../../SubagentGrid"
-import { fixtureCards, fixtureSubagents } from "./UiSurfaces"
+import { SubagentBatch, SubagentFinished, SubagentOverview } from "../../SubagentGrid"
+import { fixtureCards, fixtureOverviewCards, fixtureSubagents } from "./UiSurfaces"
 
 /*
  * The surfaces smithers-ui-DESIGN.md extends, mounted as the real card shell
@@ -53,6 +53,8 @@ const run = (name: FlowName, args?: string) => {
 const noop = () => {}
 // The subagent grid (#2162) as the chat draws it: header, cards, and the finished row.
 const subagents = fixtureSubagents(Date.now())
+// The ctrl+s overview (#2190); `?card=subagent-overview` mounts it alone.
+const overviewCards = fixtureOverviewCards(Date.now())
 const root = createRoot(document.getElementById("fixture")!)
 const render = () => {
   const cards = fixtureCards().map((seed) => store.collections.cards.get(seed.id) ?? seed).filter((card) => only === null || card.id === only)
@@ -64,6 +66,7 @@ const render = () => {
     } as unknown as CardViewProps)),
     ...(only === null || only === "subagents" ? [createElement("div", { key: "subagents", "data-testid": "subagents" },
       createElement(SubagentBatch, { items: subagents, onRunCommand: run }),
-      createElement(SubagentFinished, { subagent: subagents[2]!.subagent, color: subagents[2]!.color }))] : [])))
+      createElement(SubagentFinished, { subagent: subagents[2]!.subagent, color: subagents[2]!.color }))] : []),
+    ...(only === null || only === "subagent-overview" ? [createElement(SubagentOverview, { key: "overview", cards: overviewCards, onRunCommand: run })] : [])))
 }
 render()

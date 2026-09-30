@@ -211,7 +211,7 @@ export const AgentRuntimeContextSchema = z.object({
   // the server boundary rather than be rejected here.
   capturedAt: z.number().int().min(0).max(8_640_000_000_000_000),
   revision: z.number().int().nonnegative(),
-  surface: z.enum(["chat", "world", "connectors", "flows", "plugins"]),
+  surface: z.enum(["chat", "world", "connectors", "flows", "plugins", "subagents"]),
   theme: z.enum(["light", "dark"]),
   selectedWorldDocument: runtimeLineSchema.nullable(),
   connectors: z.array(AgentRuntimeConnectorSchema),

@@ -150,3 +150,26 @@ export const fixtureSubagents = (now: number): ReadonlyArray<SubagentItem> => [
     ], files: [{ path: "docs/auth.md", added: 12, removed: 2 }] }
   }
 ]
+
+/** A successful agent/spawn of `child` at the absolute time `at`. */
+const spawn = (sequence: number, child: string, flow: string, at: number) => [
+  { sequence, kind: "control.agent.cell-call-started", occurredAt: at, payload: { flowName: "agent/spawn", input: { flow }, at } },
+  { sequence: sequence + 1, kind: "control.agent.cell-call-settled", occurredAt: at + 1, payload: { flowName: "agent/spawn", outcome: "success", value: { child }, at: at + 1 } }
+]
+
+/** The ctrl+s overview's workers (#2190): a local agent, and a run with two child runs, one of them opened. */
+export const fixtureOverviewCards = (now: number): ReadonlyArray<Card> => [
+  {
+    id: "agent-auth-audit", kind: "agent", title: "auth-audit", status: "active", createdAt: now - 42_000, ordinal: 1,
+    payload: { harnessId: "claude", displayName: "auth-audit: rate-limit login", tabId: "tab-auth-audit", sessionId: "tab-auth-audit", cwd: "/repo", phase: "running", exitCode: null }
+  },
+  {
+    id: "flow-run-run-release", kind: "run-trace", title: "release", status: "active", createdAt: now - 40_000, ordinal: 2,
+    payload: { repo: REPO, runId: "run-release", workflow: "release", phase: "running", steps: [], result: null, lastSeq: 4,
+      events: [...spawn(1, "run-db-migrate", "db-migrate", now - 38_000), ...spawn(3, "run-docs", "docs", now - 30_000)] }
+  },
+  {
+    id: "flow-run-run-db-migrate", kind: "run-trace", title: "db-migrate", status: "active", createdAt: now - 38_000, ordinal: 3,
+    payload: { repo: REPO, runId: "run-db-migrate", workflow: "db-migrate", phase: "completed", steps: [], result: null, lastSeq: 0 }
+  }
+]

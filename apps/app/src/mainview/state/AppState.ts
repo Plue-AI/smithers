@@ -808,8 +808,8 @@ export const SessionSchema = z.object({
    */
   palette: z.enum(PALETTES).optional(),
   composerOwner: z.enum(["user", "smithers"]),
-  /* The pane the chat shell has open beside the conversation ("flows": will, ask 5, 2026-09-02). */
-  surface: z.enum(["chat", "world", "connectors", "flows", "plugins"]),
+  /* The pane the chat shell has open beside the conversation ("flows": will, ask 5, 2026-09-02; "subagents": the ctrl+s overview, #2190). */
+  surface: z.enum(["chat", "world", "connectors", "flows", "plugins", "subagents"]),
   /*
    * The plugins installed on this workspace, in the order a person added
    * them. Optional (missing = none installed) so sessions persisted before

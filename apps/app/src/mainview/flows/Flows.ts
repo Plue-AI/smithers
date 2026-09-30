@@ -26,7 +26,7 @@ import type { FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
 import { adminOperatorFlows, adminResetFlows, adminToolFlows } from "./entries/admin"
-import { agentFlows } from "./entries/agent"
+import { agentFlows, SUBAGENTS_USER_ONLY_REASON, subagentsSurfaceFlows } from "./entries/agent"
 import { agentSessionFlows } from "./entries/agentSession"
 import { appFlows } from "./entries/app"
 import { signupFlows } from "./entries/signup"
@@ -118,6 +118,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
   { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
   { name: "plugins", why: PLUGINS_USER_ONLY_REASON },
+  { name: "subagents", why: SUBAGENTS_USER_ONLY_REASON },
   { name: "history.retry", why: HISTORY_RETRY_USER_ONLY_REASON },
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]
@@ -128,6 +129,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...worldSurfaceFlows(actions),
   ...flowsSurfaceFlows(actions),
   ...(actions.snapshot?.()?.pluginLibrary === true ? pluginsSurfaceFlows(actions) : []),
+  ...subagentsSurfaceFlows(actions),
   ...appearanceFlows(actions),
   ...debugVerboseFlows(actions),
   ...systemFlows(actions),

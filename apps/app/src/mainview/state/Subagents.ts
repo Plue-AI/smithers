@@ -214,3 +214,55 @@ export const parentRunOf = (cards: ReadonlyArray<Card>, card: RunCard): { readon
   }
   return undefined
 }
+
+/** One row of the ctrl+s overview's tree (#2190). */
+export interface OverviewNode {
+  readonly id: string
+  readonly level: number
+  readonly color: number
+  readonly subagent: SubagentCard.Subagent
+  /** The worker's own card, while this client holds one. */
+  readonly card: AgentCard | RunCard | undefined
+  /** How it opens: its agent card, or a run id in its repository. */
+  readonly open: { readonly agent: AgentCard } | { readonly runId: string; readonly repo: string }
+}
+
+/**
+ * Every subagent in the conversation as a tree, depth first: each agent card
+ * and each run no other run spawned, oldest first, with the child runs each
+ * run's journal recorded under it. Agents keep their chat lane color; a child
+ * keeps its place among its siblings, as the run card's grid colors it.
+ */
+export const overview = (cards: ReadonlyArray<Card>, laneColors: number): ReadonlyArray<OverviewNode> => {
+  const agents = cards.filter((card): card is AgentCard => card.kind === "agent")
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  const runs = cards.filter((card): card is RunCard => card.kind === "run-trace" && parentRunOf(cards, card) === undefined)
+  const roots = [...agents, ...runs].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  const nodes: Array<OverviewNode> = []
+  const seen = new Set<string>()
+  const children = (run: RunCard, level: number): void => {
+    if (seen.has(run.id)) return
+    seen.add(run.id)
+    childRuns(run, true).forEach((child, index) => {
+      const own = childCardOf(cards, run, child.runId)
+      nodes.push({
+        id: `${run.id}/${child.runId}`,
+        level,
+        color: index % laneColors,
+        subagent: childSubagent(child, own),
+        card: own,
+        open: { runId: child.runId, repo: run.payload.repo }
+      })
+      if (own !== undefined) children(own, level + 1)
+    })
+  }
+  roots.forEach((root, index) => {
+    if (root.kind === "agent") {
+      nodes.push({ id: root.id, level: 0, color: agents.indexOf(root) % laneColors, subagent: agentSubagent(root), card: root, open: { agent: root } })
+      return
+    }
+    nodes.push({ id: root.id, level: 0, color: index % laneColors, subagent: runSubagent(root), card: root, open: { runId: root.payload.runId, repo: root.payload.repo } })
+    children(root, 1)
+  })
+  return nodes
+}

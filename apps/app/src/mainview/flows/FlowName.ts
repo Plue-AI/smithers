@@ -300,6 +300,7 @@ export const FLOW_NAMES = [
   "storage.recovery",
   "storage.recovery.export",
   "storage.recovery.reset",
+  "subagents",
   "sync.ops.show-more",
   "system.recommend",
   "tab.card",

@@ -1452,6 +1452,8 @@ smthrs flow start review --data '{"args":"Review main"}' --detached
 
 **Available now.** The toast offers the controls that apply; the run card has **Steer** and **Stop**. See [Watch an agent work](/docs/learn/watch-an-agent/#steer-or-stop).
 
+Ctrl+S shows every subagent as a tree beside the chat; press it again to close.
+
 **TUI**
 
 **Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a `/claude` or `/codex` worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.

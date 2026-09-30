@@ -48,7 +48,7 @@ import { ConfirmDialog } from "./SurfaceChrome"
 import { TabBodies } from "./tabs/TabBodies"
 import { ToastStack } from "./ToastStack"
 import { TranscriptMessage } from "./TranscriptMessage"
-import { agentDoors, SubagentBatch, SubagentFinished } from "./SubagentGrid"
+import { agentDoors, SubagentBatch, SubagentFinished, SubagentOverview } from "./SubagentGrid"
 import { all as allChat, entryId, merge as mergeTimeline, subagentsFromCards } from "./state/ChatTimeline"
 import { ChatRunTimeline } from "./ChatRunTimeline"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
@@ -496,6 +496,12 @@ function AppContent() {
           controller.runCommand("card.minimize")
           return
         }
+        // ctrl+s shows every subagent, as the TUI's Summary does (#2190).
+        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
+          event.preventDefault()
+          controller.runCommand("subagents")
+          return
+        }
         // The dev-tools keyboard path (§2b): unregistered for non-admins, so a no-op there.
         if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "d") {
           event.preventDefault()
@@ -619,6 +625,8 @@ function AppContent() {
           <ConnectorsSurface /> :
           session.surface === "flows" ?
           <FlowsSurface cards={cardRows} /> :
+          session.surface === "subagents" ?
+          <SubagentOverview cards={conversationCards} onRunCommand={controller.runCommand} /> :
           session.surface === "plugins" && controller.features.pluginLibrary ?
           <PluginsSurface /> :
           null}

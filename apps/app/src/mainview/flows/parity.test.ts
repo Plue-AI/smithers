@@ -299,7 +299,7 @@ describe("launch-law parity: every affordance is a command", () => {
     "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
-    "../SubagentGrid.tsx": 4,
+    "../SubagentGrid.tsx": 6, // + the ctrl+s overview (#2190): its tree rows and its close
       "../FlowsSurface.tsx": 2,
       "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.

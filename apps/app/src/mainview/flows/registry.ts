@@ -351,7 +351,7 @@ export const unmetRequirements = (
 
 /** The app state the recommendation rule reads, sampled from the store. */
 export interface CommandState {
-  readonly surface: "chat" | "world" | "connectors" | "flows" | "plugins"
+  readonly surface: "chat" | "world" | "connectors" | "flows" | "plugins" | "subagents"
   readonly typing: boolean
   readonly hasConnectors: boolean
   /** The plugins installed on this workspace (the session's shelf); optional so state fixtures stay minimal. */
@@ -436,13 +436,13 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
  *
  * A flow's namespace is its dotted head (`auth.sign-in` → `auth`). Every
  * Namespaced flows live in one; the only bare names are the surface
- * switches (`chat`, `wiki`, `connect`, `flows`, `plugins`), which ARE the top
+ * switches (`chat`, `wiki`, `connect`, `flows`, `plugins`, `subagents`), which ARE the top
  * level of the app and read wrong under any prefix. The hidden `world` alias of `wiki`
  * (entries/world.ts) never lists, so it needs no place here.
  */
 
 /** The surface switches: the one legitimate top-level leaves. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "connect", "flows", "plugins"]
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "connect", "flows", "plugins", "subagents"]
 
 export interface Namespace {
   readonly id: string

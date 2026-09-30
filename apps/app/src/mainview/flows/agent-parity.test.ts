@@ -23,6 +23,7 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
+import { SUBAGENTS_USER_ONLY_REASON } from "./entries/agent"
 import { HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { PLUGINS_USER_ONLY_REASON } from "./entries/plugins"
@@ -45,6 +46,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
   "flows": "a surface switch; the model lists flows with flow.list, which answers as an embedded card",
+  "subagents": SUBAGENTS_USER_ONLY_REASON,
   "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
   "system.recommend": "the system's own refresh; a model must not steer what the human is offered next",
   "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",

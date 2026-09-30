@@ -9,9 +9,11 @@ import type { Card } from "./state/AppState"
 import { MAIN_TAB_ID } from "./state/AppState"
 import type { CardProjectionAuthority } from "./cards/CardFamily"
 import { LANE_COLORS, subagentsFromCards } from "./state/ChatTimeline"
-import { childCardOf, childRuns, childSubagent, footerOf, parentRunOf } from "./state/Subagents"
+import { childCardOf, childRuns, childSubagent, footerOf, overview, parentRunOf, type OverviewNode } from "./state/Subagents"
 import { useCardRows } from "./state/useCardRows"
 import { workerToastActions } from "./WorkerToastActions"
+import { SurfaceHeader } from "./SurfaceChrome"
+import { Bot } from "lucide-react"
 
 /*
  * Slate's subagent card grid (#2162), drawn from `@smthrs/rpc/SubagentCard`
@@ -250,3 +252,48 @@ export const ChildRuns = ({ card, collection, onRunCommand }: {
   childRuns(card).length === 0 ? null
     : collection === undefined ? <ChildRunGrid card={card} cards={[]} onRunCommand={onRunCommand} />
     : <LiveChildRunGrid card={card} collection={collection} onRunCommand={onRunCommand} />
+
+/** Where an overview row opens: an agent's own tab or card tab, else its run card. */
+const nodeDoors = (node: OverviewNode): { readonly open: Door; readonly stop?: Door | undefined } =>
+  "agent" in node.open ? agentDoors(node.open.agent)
+    : { open: childRunDoor(node.open.runId, node.open.repo), stop: node.card === undefined ? undefined : stopDoor(node.card) }
+
+/**
+ * The ctrl+s overview beside the chat (#2190), the GUI's form of the TUI
+ * Summary: every subagent as a tree, then the top-level ones as the grid.
+ * A tree row and a card open the same worker.
+ */
+export const SubagentOverview = ({ cards, onRunCommand }: {
+  readonly cards: ReadonlyArray<Card>
+  readonly onRunCommand: (name: FlowName, args?: string) => void
+}) => {
+  const nodes = overview(cards, LANE_COLORS)
+  const now = useSubagentClock(nodes.map(node => node.subagent))
+  const roots = nodes.filter(node => node.level === 0)
+  return (
+    <section data-keyboard-pane="Subagents" className="subagents-surface embedded-pane" aria-label="Subagents" data-testid="subagent-overview">
+      <SurfaceHeader icon={<Bot size={17} aria-hidden="true" />} title="Subagents" closeCommand="chat" onClose={() => onRunCommand("chat")} />
+      <div className="subagents-content">
+        {nodes.length === 0 ? null : (
+          <ul className="subagent-tree" aria-label="Subagent tree">
+            {nodes.map(node => {
+              const open = nodeDoors(node).open
+              const glyph = SubagentCard.glyph(node.subagent.status, now)
+              return (
+                <li key={node.id} style={{ paddingInlineStart: `${node.level * 16}px` }}>
+                  <button type="button" className="subagent-tree-row" data-lane-color={node.color} data-testid={`subagent-tree-${node.id}`}
+                    {...flowAction(onRunCommand, open.flow, open.args)}>
+                    <span className="subagent-glyph" data-tone={glyph.tone}>{glyph.glyph}</span>
+                    <span className="subagent-tree-title">{node.subagent.title}</span>
+                    <span className="subagent-clock">{footerOf(node.subagent, now).clock}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        <SubagentBatch onRunCommand={onRunCommand} items={roots.map(node => ({ id: node.id, color: node.color, subagent: node.subagent, ...nodeDoors(node) }))} />
+      </div>
+    </section>
+  )
+}
