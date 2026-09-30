@@ -33,10 +33,16 @@ export const cloudHandoffLimits = {
   totalBytes: 64 * 1024 * 1024,
   symlinkBytes: 1023
 } as const
+export interface CloudAttribution {
+  readonly tool: "codex" | "claude"
+  readonly model: string
+}
 export interface HandoffOptions {
   readonly repository: string
   readonly repoDirectory: string
   readonly artifactDirectory: string
+  /** Trusted coding assignment, kept beside the untrusted exported artifact. */
+  readonly attribution?: CloudAttribution
   readonly lockPath?: string
   /** Tests replace the lock runner; production always invokes its executable script once. */
   readonly run?: (command: string, args: ReadonlyArray<string>) => Promise<void>
@@ -156,12 +162,13 @@ export const validateCloudHandoff = (value: unknown, repository: string): CloudH
 // copy and all mutations. Its editor updates only selected paths in jj's private
 // right-side tree; jj preserves unrelated working-copy changes on commit.
 const reconstruction = String.raw`#!/usr/bin/env python3
-import base64, json, os, pathlib, stat, subprocess, sys, tempfile
+import base64, json, os, pathlib, re, stat, subprocess, sys, tempfile
 HERE=pathlib.Path(__file__).resolve().parent
 ARTIFACT=json.loads((HERE/'artifact.json').read_text())
 RECEIPT=HERE/'receipt.json'
 REPO=pathlib.Path((HERE/'repository.txt').read_text())
-COAUTHOR='Co-Authored-By: GPT-6.1 Sol <noreply@openai.com>'
+ATTRIBUTION=json.loads((HERE/'attribution.json').read_text())
+COAUTHOR=None if ATTRIBUTION is None else ('Co-Authored-By: GPT-6.1 Sol <noreply@openai.com>' if ATTRIBUTION['tool']=='codex' else 'Co-Authored-By: Claude Opus <noreply@anthropic.com>')
 inflight=None
 committed=False
 report={'status':'preparing','commits':[]}
@@ -287,7 +294,9 @@ for change in changes:
         for change in commit['changes']:
             if disk(REPO,change['path'])!=change['after'] or tree('@',change['path'])!=change['after']: raise RuntimeError('reconstructed working-copy differs: '+change['path'])
         message=commit['message'].rstrip()
-        if not message.endswith(COAUTHOR): message+='\n\n'+COAUTHOR
+        if COAUTHOR:
+            message=re.sub(r'(?im)^Co-Authored-By: [^\r\n]*<noreply@(?:openai\.com|anthropic\.com)>[ \t]*$', '', message).rstrip()
+            message+='\n\n'+COAUTHOR
         if revision('main')!=main: raise RuntimeError('main changed during preparation')
         jj('commit',*paths,'--message='+message)
         committed=True
@@ -375,9 +384,16 @@ export const retainCloudHandoff = async (
 
 /** Retains host bytes before running the locked, own-path-only jj preparation. */
 export const prepareCloudHandoff = async (value: unknown, options: HandoffOptions): Promise<PreparedHandoff> => {
+  const attribution = options.attribution ?? null
+  if (attribution !== null && !(
+    (attribution.tool === "codex" && attribution.model === "gpt-6.1-sol") ||
+    (attribution.tool === "claude" && attribution.model === "claude-opus-5-5")
+  )) throw new Error("invalid Cloud assignment attribution tool/model")
   const artifact = validateCloudHandoff(value, options.repository)
   const artifactPath = await retainValidated(artifact, options.artifactDirectory)
   const directory = dirname(artifactPath)
+  await retainFile(join(directory, "attribution.json"), JSON.stringify(attribution), 0o600)
+  await syncDirectory(directory)
   const repository = options.repository === "smithersai/smithers" ? "smithers" : "plue"
   const repoDirectory = await realpath(options.repoDirectory)
   const receiptPath = join(directory, "receipt.json")

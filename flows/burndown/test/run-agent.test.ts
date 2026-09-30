@@ -249,3 +249,32 @@ test("Codex does not reuse an earlier READY after an empty completed turn", () =
   assert.equal(result.status, "failed")
   assert.deepEqual(result.commits, [])
 })
+
+for (const tool of ["codex", "claude"] as const) {
+  const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
+  for (const [name, text] of [
+    ["explicit READY then BLOCKED", `READY #2955 ${first}\nBLOCKED #2955 dependency`],
+    ["BLOCKED then explicit READY", `BLOCKED #2955 dependency\nREADY #2955 ${first}`],
+    ["implicit READY then BLOCKED", `READY ${first}\nBLOCKED #2955 dependency`],
+    ["BLOCKED then implicit READY", `BLOCKED #2955 dependency\nREADY ${first}`],
+    ["CLOSED then BLOCKED", "CLOSED #2955\nBLOCKED #2955 dependency"],
+    ["BLOCKED then CLOSED", "BLOCKED #2955 dependency\nCLOSED #2955"]
+  ]) {
+    test(`${tool} rejects contradictory ${name} for the same assigned issue`, () => {
+      const result = parse(report(text!), 0, tool)
+      assert.equal(result.status, "failed")
+      assert.deepEqual(result.commits, [])
+    })
+  }
+  test(`${tool} preserves a ready lead when a different assigned issue is blocked`, () => {
+    for (const text of [
+      `READY #2955 ${first}\nBLOCKED #2956 dependency`,
+      `BLOCKED #2956 dependency\nREADY ${first}`
+    ]) {
+      const result = parse(report(text), 0, tool)
+      assert.equal(result.status, "ready")
+      assert.deepEqual(result.commits, [{ issue: 2955, commit: first }])
+      assert.match(result.notes, /BLOCKED #2956 dependency/)
+    }
+  })
+}

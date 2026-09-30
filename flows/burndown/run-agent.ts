@@ -19,7 +19,7 @@ import { Assignment, WorkerResult } from "./schema.ts"
  * re-running hours of agent work.
  */
 export const RunAgent = Action.make("burndown/run-agent", {
-  implementationVersion: "burndown/run-agent/v4",
+  implementationVersion: "burndown/run-agent/v5",
   payload: Assignment,
   success: WorkerResult,
   error: Schema.String,
@@ -163,6 +163,7 @@ export const parseReport = (
   if (new Set(order).size !== order.length) return result("failed", [], "Duplicate assigned issues")
   const byIssue = new Map<number, string>()
   const byCommit = new Map<string, number>()
+  const statuses = new Map<number, string>()
   const readyLines: Array<{ readonly issue?: number; readonly commit: string }> = []
   let fenced = false
   let closed = false
@@ -180,7 +181,12 @@ export const parseReport = (
     }
     const status = /^(CLOSED|BLOCKED)\s+#?(\d+)(?:\s+.*)?$/.exec(line)
     if (status) {
-      if (!order.includes(Number(status[2]))) return result("failed", [], "Unassigned report issue")
+      const issue = Number(status[2])
+      if (!order.includes(issue)) return result("failed", [], "Unassigned report issue")
+      if (statuses.has(issue) && statuses.get(issue) !== status[1]) {
+        return result("failed", [], "Conflicting final issue status")
+      }
+      statuses.set(issue, status[1]!)
       closed ||= status[1] === "CLOSED"
       blocked ||= status[1] === "BLOCKED"
     } else if (/^(READY|CLOSED|BLOCKED)\b/.test(line)) {
@@ -203,6 +209,9 @@ export const parseReport = (
     if (issue === undefined) return result("failed", [], "Invalid READY assignment mapping")
     byIssue.set(issue, commit)
     byCommit.set(commit, issue)
+  }
+  if ([...byIssue.keys()].some((issue) => statuses.has(issue))) {
+    return result("failed", [], "Conflicting final issue status")
   }
   if (closed) return result("blocked", [], "CLOSED needs a verified host closure receipt")
   const commits = order.flatMap((issue) => byIssue.has(issue) ? [{ issue, commit: byIssue.get(issue)! }] : [])
@@ -295,5 +304,5 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           Effect.mapError((cause) => `agent ${assignment.key} could not run: ${String(cause)}`)
         )
       }),
-    { implementationVersion: "burndown/run-agent/v4" }
+    { implementationVersion: "burndown/run-agent/v5" }
   )

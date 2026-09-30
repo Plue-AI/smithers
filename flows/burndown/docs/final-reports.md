@@ -10,7 +10,9 @@ output do not override a successful final result.
 READY accepts full commit IDs in assigned issue order, or explicit
 `READY #<issue> <commit>` mappings. Explicit mappings reserve their issues before
 implicit lines are assigned. Repeats are deduplicated; unknown issues, conflicting
-mappings, excess commits and inconsistent repositories fail the bundle.
+mappings, contradictory statuses for one issue, excess commits and inconsistent
+repositories fail the bundle. READY for one issue can coexist with BLOCKED for
+another assigned issue.
 
 CLOSED text requires host verification and returns blocked without a closure
 receipt. It cannot hide an open issue from selection.

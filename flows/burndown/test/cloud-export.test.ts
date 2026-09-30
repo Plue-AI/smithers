@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import test from "node:test"
 import { promisify } from "node:util"
-import { exportCloudCommits, type ReadCommand } from "../cloud-export.ts"
+import { cloudDiagnostic, exportCloudCommits, type ReadCommand } from "../cloud-export.ts"
 import { validateCloudHandoff } from "../cloud-handoff.ts"
 
 const sha = "a".repeat(40)
@@ -13,10 +13,12 @@ const newOid = "2".repeat(40)
 const zero = "0".repeat(40)
 const entry = (before = "100644", after = "100755", path = "binary", status = "M", old = oldOid, next = newOid) =>
   `:${before} ${after} ${old} ${next} ${status}\0${path}\0`
+const metadataCommand = (program: string, args: ReadonlyArray<string>) => program === "git" || args[1]!.includes("git show")
+const metadataBytes = (value: string) => Buffer.from(value).toString("base64")
 const fake =
   (raw = entry(), data = "AQD/", metadata = `${sha}\0${parent}\0fix: binary\n`): ReadCommand => (program, args) =>
     Effect.succeed(
-      program === "git" ? metadata : args[1]!.includes("diff-tree") ? Buffer.from(raw).toString("base64") : data
+      metadataCommand(program, args) ? metadataBytes(metadata) : args[1]!.includes("diff-tree") ? Buffer.from(raw).toString("base64") : data
     )
 const failure = async (read: ReadCommand, ids = [sha]) => {
   const exit = await Effect.runPromise(Effect.exit(exportCloudCommits("smithersai/smithers", ids, read)))
@@ -26,9 +28,11 @@ const failure = async (read: ReadCommand, ids = [sha]) => {
 
 test("Cloud export preserves ordered metadata, raw binary bytes and executable modes", async () => {
   const result = await Effect.runPromise(exportCloudCommits("smithersai/smithers", [sha], (program, args) => {
-    if (program === "git") {
-      assert.deepEqual(args, ["show", "-s", "--format=format:%H%x00%P%x00%B", `${sha}^{commit}`])
-      return Effect.succeed(`${sha}\0${parent}\0fix: binary\n\nbody\n`)
+    if (metadataCommand(program, args)) {
+      assert.equal(program, "sh")
+      assert.ok(args[1]!.includes("--format=format:%H%x00%P%x00%B"))
+      assert.ok(args[1]!.includes(`${sha}^{commit}`))
+      return Effect.succeed(metadataBytes(`${sha}\0${parent}\0fix: binary\n\nbody\n`))
     }
     const script = args[1]!
     assert.equal(program, "sh")
@@ -102,7 +106,7 @@ test("Cloud export rejects malformed metadata and non-single-parent commits befo
     let reads = 0
     await failure(() => {
       reads++
-      return Effect.succeed(metadata)
+      return Effect.succeed(metadataBytes(metadata))
     })
     assert.equal(reads, 1)
   }
@@ -113,8 +117,8 @@ test("Cloud export reads a linear two-commit chain and refuses a non-linear next
   for (const linear of [true, false]) {
     let reads = 0
     const read: ReadCommand = (program, args) => {
-      if (program === "git") {
-        return Effect.succeed(reads++ === 0 ? `${sha}\0${parent}\0first` : `${next}\0${linear ? sha : parent}\0second`)
+      if (metadataCommand(program, args)) {
+        return Effect.succeed(metadataBytes(reads++ === 0 ? `${sha}\0${parent}\0first` : `${next}\0${linear ? sha : parent}\0second`))
       }
       return Effect.succeed(args[1]!.includes("diff-tree") ? Buffer.from(entry()).toString("base64") : "AP8=")
     }
@@ -142,7 +146,7 @@ test("Cloud export refuses unsafe paths, unsupported modes and malformed raw rec
   ) {
     let blobs = 0
     await failure((program, args) => {
-      if (program === "git") return Effect.succeed(`${sha}\0${parent}\0message`)
+      if (metadataCommand(program, args)) return Effect.succeed(metadataBytes(`${sha}\0${parent}\0message`))
       if (args[1]!.includes("diff-tree")) return Effect.succeed(Buffer.from(raw).toString("base64"))
       blobs++
       return Effect.succeed("AP8=")
@@ -212,7 +216,7 @@ test("Git-only Cloud VM exports binary, executable and symlink blobs without jj"
   const raw = `:100644 100755 ${oldOid} ${newOid} M\0binary\0:000000 120000 ${zero} ${linkOid} A\0link\0`
   const result = await Effect.runPromise(exportCloudCommits("smithersai/smithers", [sha], (program, args) => {
     assert.notEqual(program, "jj", "Cloud VM only has a healthy Git repository")
-    if (program === "git") return Effect.succeed(`${sha}\0${parent}\0fix: binary\n`)
+    if (metadataCommand(program, args)) return Effect.succeed(metadataBytes(`${sha}\0${parent}\0fix: binary\n`))
     const script = args[1]!
     if (script.includes("diff-tree")) return Effect.succeed(Buffer.from(raw).toString("base64"))
     return Effect.succeed(script.includes(oldOid) ? "AP8=" : script.includes(newOid) ? "AQD/" : "Li4vdGFyZ2V0")
@@ -229,13 +233,13 @@ test("Git-only Cloud VM exports binary, executable and symlink blobs without jj"
 
 test("Cloud export rejects malformed tree transport, duplicate paths and inconsistent status/object modes", async () => {
   assert.match(
-    await failure((program) => Effect.succeed(program === "git" ? `${sha}\0${parent}\0message` : "invalid!")),
+    await failure((program, args) => Effect.succeed(metadataCommand(program, args) ? metadataBytes(`${sha}\0${parent}\0message`) : "invalid!")),
     /metadata/
   )
   const invalidUtf8 = Buffer.concat([Buffer.from(entry().slice(0, -7)), Buffer.from([255, 0])])
   assert.match(
-    await failure((program) =>
-      Effect.succeed(program === "git" ? `${sha}\0${parent}\0message` : invalidUtf8.toString("base64"))
+    await failure((program, args) =>
+      Effect.succeed(metadataCommand(program, args) ? metadataBytes(`${sha}\0${parent}\0message`) : invalidUtf8.toString("base64"))
     ),
     /unsafe/
   )
@@ -271,9 +275,9 @@ test("Cloud export accepts twenty ordered commits and empty regular-file blobs",
   const ids = Array.from({ length: 20 }, (_, i) => (i + 10).toString(16).padStart(40, "0"))
   let commit = 0
   const result = await Effect.runPromise(exportCloudCommits("smithersai/smithers", ids, (program, args) => {
-    if (program === "git") {
+    if (metadataCommand(program, args)) {
       const index = commit++
-      return Effect.succeed(`${ids[index]}\0${index === 0 ? parent : ids[index - 1]}\0commit ${index}`)
+      return Effect.succeed(metadataBytes(`${ids[index]}\0${index === 0 ? parent : ids[index - 1]}\0commit ${index}`))
     }
     return Effect.succeed(
       args[1]!.includes("diff-tree")
@@ -290,8 +294,8 @@ test("Cloud export counts changed paths across the entire ordered commit chain",
   const next = "c".repeat(40)
   let commits = 0
   const result = await failure((program, args) => {
-    if (program === "git") {
-      return Effect.succeed(commits++ === 0 ? `${sha}\0${parent}\0first` : `${next}\0${sha}\0second`)
+    if (metadataCommand(program, args)) {
+      return Effect.succeed(metadataBytes(commits++ === 0 ? `${sha}\0${parent}\0first` : `${next}\0${sha}\0second`))
     }
     const raw = Array.from(
       { length: commits === 1 ? 500 : 501 },
@@ -306,7 +310,7 @@ test("Cloud export counts changed paths across the entire ordered commit chain",
 test("Cloud export maps VM tree and blob guard overflows to precise limit errors", async () => {
   for (const kind of ["tree", "blob"] as const) {
     const read: ReadCommand = (program, args) => {
-      if (program === "git") return Effect.succeed(`${sha}\0${parent}\0message`)
+      if (metadataCommand(program, args)) return Effect.succeed(metadataBytes(`${sha}\0${parent}\0message`))
       if (args[1]!.includes("diff-tree")) {
         return Effect.succeed(kind === "tree" ? "#oversized" : Buffer.from(entry()).toString("base64"))
       }
@@ -324,14 +328,14 @@ test("Cloud export runs VM byte guards before transporting oversized Git output"
   for (const kind of ["tree", "blob"] as const) {
     let guards = 0
     const result = await failure((program, args) => {
-      if (program === "git") return Effect.succeed(`${sha}\0${parent}\0message`)
+      if (metadataCommand(program, args)) return Effect.succeed(metadataBytes(`${sha}\0${parent}\0message`))
       if (kind === "blob" && args[1]!.includes("diff-tree")) {
         return Effect.succeed(Buffer.from(entry()).toString("base64"))
       }
       guards++
       // Replace only the Git producer: execute the exact VM guard/transport shell.
       const script = args[1]!.replace(
-        /^git .+ > "\$t"$/m,
+        /^git .+ > "\$t"(?:.*)?$/m,
         `"${process.execPath}" -e 'process.stdout.write(Buffer.alloc(17 * 1024 * 1024))' > "$t"`
       )
       return Effect.tryPromise({
@@ -345,4 +349,72 @@ test("Cloud export runs VM byte guards before transporting oversized Git output"
     )
     assert.equal(guards, 1)
   }
+})
+
+
+for (const stage of ["metadata", "tree", "blob"] as const) {
+  test(`Cloud export retains real producer ${stage} failure diagnostics with bounded redaction`, async () => {
+    const execute = promisify(execFile)
+    const secret = "explicit-cloud-credential"
+    const stderr = `fatal: missing object https://user:password@api.jjhub.tech/?token=hidden ${secret}\n${"x".repeat(12000)}`
+    let executions = 0
+    const read: ReadCommand = (program, args) => {
+      const current = metadataCommand(program, args) ? "metadata" : args[1]!.includes("diff-tree") ? "tree" : "blob"
+      if (current !== stage) return fake()(program, args)
+      executions++
+      const producer = `"${process.execPath}" -e '${"process.stderr.write(Buffer.from(\"" + Buffer.from(stderr).toString("base64") + "\",\"base64\"));process.exit(128)"}'`
+      // Run the exported VM shell exactly, replacing only its Git producer.
+      const script = args[1]!.replace(/^git ([^\n]+?) > "\$t"/m, `${producer} > "$t"`)
+      assert.notEqual(script, args[1], "must execute the real guard around the substituted producer")
+      return Effect.tryPromise({
+        try: async () => (await execute("sh", ["-c", script])).stdout,
+        catch: () => "Cloud committed-tree export command failed"
+      })
+    }
+    const exit = await Effect.runPromise(Effect.exit(exportCloudCommits("smithersai/smithers", [sha], read, { redactions: [secret] })))
+    assert.equal(exit._tag, "Failure")
+    const result = JSON.stringify(exit)
+    assert.match(result, new RegExp(stage))
+    assert.match(result, new RegExp(sha))
+    assert.match(result, /128/)
+    assert.match(result, /missing object/)
+    assert.doesNotMatch(result, /explicit-cloud-credential|user:password|token=hidden/)
+    assert.ok(result.length < 6000, "failure diagnostics must remain bounded")
+    assert.equal(executions, 1)
+  })
+
+  test(`Cloud export annotates ${stage} transport errors separately from Git exits`, async () => {
+    const secret = "transport-secret"
+    let reads = 0
+    const read: ReadCommand = (program, args) => {
+      reads++
+      const current = metadataCommand(program, args) ? "metadata" : args[1]!.includes("diff-tree") ? "tree" : "blob"
+      return current === stage ? Effect.fail(`SSH grant timed out ${secret}`) : fake()(program, args)
+    }
+    const exit = await Effect.runPromise(Effect.exit(exportCloudCommits("smithersai/smithers", [sha], read, { redactions: [secret] })))
+    assert.equal(exit._tag, "Failure")
+    const result = JSON.stringify(exit)
+    assert.match(result, new RegExp(stage))
+    assert.match(result, new RegExp(sha))
+    assert.match(result, /SSH grant timed out/)
+    assert.doesNotMatch(result, /transport-secret/)
+    assert.equal(reads, stage === "metadata" ? 1 : stage === "tree" ? 2 : 3)
+  })
+}
+
+
+test("Cloud export rejects invalid or oversized metadata before tree reads", async () => {
+  for (const [receipt, expected] of [["invalid!", /metadata is invalid/], ["#oversized", /metadata is oversized/]] as const) {
+    let reads = 0
+    assert.match(await failure(() => { reads++; return Effect.succeed(receipt) }), expected)
+    assert.equal(reads, 1)
+  }
+})
+
+test("Cloud diagnostics redact known token families and strip terminal control bytes", () => {
+  const raw = "Bearer abc-secret ghp_fake github_pat_fake sk-fake eyJfake.payload.signature \u0000safe\u001b tail"
+  const redacted = cloudDiagnostic(raw, [""])
+  assert.equal(redacted, "[redacted] [redacted] [redacted] [redacted] [redacted] safe tail")
+  assert.equal(cloudDiagnostic("x".repeat(2049)).length, 2048)
+  assert.equal(cloudDiagnostic("private private", ["private"]), "[redacted] [redacted]")
 })

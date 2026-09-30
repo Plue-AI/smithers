@@ -18,7 +18,11 @@ const home = join(root, "home")
 const accounts = join(root, "accounts")
 const bin = join(root, "bin")
 const probe = join(root, "probe")
-const saved = { HOME: process.env.HOME, PATH: process.env.PATH, BURNDOWN_ACCOUNTS_DIR: process.env.BURNDOWN_ACCOUNTS_DIR }
+const saved = {
+  HOME: process.env.HOME,
+  PATH: process.env.PATH,
+  BURNDOWN_ACCOUNTS_DIR: process.env.BURNDOWN_ACCOUNTS_DIR
+}
 await mkdir(join(home, "smithers"), { recursive: true })
 await mkdir(join(accounts, "codex-fixture"), { recursive: true })
 await mkdir(bin, { recursive: true })

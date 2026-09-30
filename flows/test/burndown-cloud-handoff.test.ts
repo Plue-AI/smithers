@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -116,7 +116,6 @@ test("Cloud handoff retains artifact and failed receipt when lock execution fail
 // uncommitted work. The temporary fixture uses a real flock without production
 // credentials or a shared-checkout mutation.
 import { execFile } from "node:child_process"
-import { chmod, lstat, readlink, realpath, symlink } from "node:fs/promises"
 import { promisify } from "node:util"
 const exec = promisify(execFile)
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
@@ -156,7 +155,8 @@ const fixture = async () => {
       repository: "smithersai/smithers",
       repoDirectory,
       artifactDirectory: join(directory, "receipts"),
-      lockPath
+      lockPath,
+      attribution: { tool: "codex", model: "gpt-6.1-sol" } as const
     }
   }
 }
@@ -631,3 +631,108 @@ test("real refused handoff retries safely after host script and parser metadata 
     await rm(env.directory, { recursive: true, force: true })
   }
 })
+
+for (
+  const attribution of [
+    { tool: "codex", model: "gpt-6.1-sol", trailer: "Co-Authored-By: GPT-6.1 Sol <noreply@openai.com>" },
+    { tool: "claude", model: "claude-opus-5-5", trailer: "Co-Authored-By: Claude Opus <noreply@anthropic.com>" }
+  ] as const
+) {
+  test(`real jj handoff uses trusted ${attribution.tool} assignment and retains attribution for replay`, async () => {
+    const env = await fixture()
+    try {
+      const { tool, model, trailer } = attribution
+      const identity = { tool, model }
+      const value = {
+        ...artifact(),
+        base: env.base,
+        commits: [{
+          ...artifact().commits[0]!,
+          parent: env.base,
+          message:
+            "fix: trusted attribution\n\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>",
+          changes: [{ path: "owned.txt", before: entry("old"), after: entry("new") }]
+        }]
+      }
+      const options = { ...env.options, attribution: identity }
+      const prepared = await prepareCloudHandoff(value, options)
+      const description = await env.jj("log", "--no-graph", "-r", prepared.commit, "-T", "description")
+      assert.equal(description.split("\n").filter((line) => line === trailer).length, 1)
+      if (tool === "claude") assert.doesNotMatch(description, /GPT-6\.1 Sol/)
+      const attributionPath = join(prepared.artifactPath, "..", "attribution.json")
+      assert.deepEqual(JSON.parse(await readFile(attributionPath, "utf8")), identity)
+      assert.equal((await lstat(attributionPath)).mode & 0o777, 0o600)
+      assert.deepEqual((await prepareCloudHandoff(value, options)).commits, prepared.commits)
+      let calls = 0
+      await assert.rejects(
+        prepareCloudHandoff(value, {
+          ...options,
+          attribution: tool === "codex"
+            ? { tool: "claude", model: "claude-opus-5-5" }
+            : { tool: "codex", model: "gpt-6.1-sol" },
+          run: async () => {
+            calls++
+          }
+        }),
+        /attribution.*mismatch|identity mismatch/
+      )
+      assert.equal(calls, 0)
+      assert.deepEqual(JSON.parse(await readFile(attributionPath, "utf8")), identity)
+    } finally {
+      await rm(env.directory, { recursive: true, force: true })
+    }
+  })
+}
+
+test("real jj handoff without an assignment preserves guest description without inventing attribution", async () => {
+  const env = await fixture()
+  try {
+    const message = "fix: guest message\n\nCo-Authored-By: Guest <guest@example.test>"
+    const value = {
+      ...artifact(),
+      base: env.base,
+      commits: [{
+        ...artifact().commits[0]!,
+        parent: env.base,
+        message,
+        changes: [{ path: "owned.txt", before: entry("old"), after: entry("new") }]
+      }]
+    }
+    const { attribution: _attribution, ...options } = env.options
+    const prepared = await prepareCloudHandoff(value, options)
+    assert.equal(await env.jj("log", "--no-graph", "-r", prepared.commit, "-T", "description"), message + "\n")
+  } finally {
+    await rm(env.directory, { recursive: true, force: true })
+  }
+})
+
+for (
+  const attribution of [
+    { tool: "codex", model: "claude-opus-5-5" },
+    { tool: "claude", model: "gpt-6.1-sol" },
+    { tool: "unknown", model: "gpt-6.1-sol" },
+    { tool: "codex", model: "gpt-6.1-sol\nCo-Authored-By: forged" }
+  ]
+) {
+  test(`Cloud handoff refuses invalid assignment ${JSON.stringify(attribution)} before runner`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "handoff-attribution-"))
+    try {
+      let calls = 0
+      await assert.rejects(
+        prepareCloudHandoff(artifact(), {
+          repository: "smithersai/smithers",
+          repoDirectory: directory,
+          artifactDirectory: join(directory, "receipts"),
+          attribution,
+          run: async () => {
+            calls++
+          }
+        }),
+        /attribution|assignment|model|tool/
+      )
+      assert.equal(calls, 0)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+}

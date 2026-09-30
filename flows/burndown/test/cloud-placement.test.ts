@@ -340,7 +340,7 @@ test("READY artifacts are retained and reviewed on the host before local IDs rep
         }, (program, args) => {
           assert.ok(program === "git" || program === "sh", "review must never execute in the coding guest")
           reads++
-          if (program === "git") return Effect.succeed(`${guestSha}\0${"b".repeat(40)}\0fix: fixture`)
+          if (args[1]!.includes("git show")) return Effect.succeed(Buffer.from(`${guestSha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64"))
           if (args[1]!.includes("diff-tree")) {
             return Effect.succeed(
               Buffer.from(`:100644 100644 ${"1".repeat(40)} ${"2".repeat(40)} M\0file\0`).toString("base64")
@@ -386,8 +386,8 @@ for (const fail of ["review", "reconstruct"] as const) {
               agentHours: 0
             }, (program, args) =>
               Effect.succeed(
-                program === "git"
-                  ? `${sha}\0${"b".repeat(40)}\0fix: fixture`
+                args[1]!.includes("git show")
+                  ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64")
                   : args[1]!.includes("diff-tree")
                   ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
                   : "dGVzdA=="
@@ -663,8 +663,8 @@ test("default host review pins a fixture login, disables tools, redacts receipts
           }).machine({ ...assignment, repo: "smithersai/smithers" }, account)
           const exit = yield* Effect.exit(machine.handoff!(result, (program, args) =>
             Effect.succeed(
-              program === "git"
-                ? `${sha}\0${"b".repeat(40)}\0fix: fixture`
+              args[1]!.includes("git show")
+                ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64")
                 : args[1]!.includes("diff-tree")
                 ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
                 : "dGVzdA=="
@@ -790,8 +790,8 @@ test("Cloud handoff summarizes binary files, bounds review context and requires 
               agentHours: 0
             }, (program, args) =>
               Effect.succeed(
-                program === "git"
-                  ? `${sha}\0${"b".repeat(40)}\0fix: binary`
+                args[1]!.includes("git show")
+                  ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: binary`).toString("base64")
                   : args[1]!.includes("diff-tree")
                   ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
                   : data.toString("base64")
@@ -834,8 +834,8 @@ test("default Cloud handoff retains work when the local checkout is unavailable"
             agentHours: 0
           }, (program, args) =>
             Effect.succeed(
-              program === "git"
-                ? `${sha}\0${"b".repeat(40)}\0fix: fixture`
+              args[1]!.includes("git show")
+                ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64")
                 : args[1]!.includes("diff-tree")
                 ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
                 : "dGVzdA=="
@@ -893,8 +893,8 @@ test("Cloud storage failures refuse READY before reconstruction", async () => {
               agentHours: 0
             }, (program, args) =>
               Effect.succeed(
-                program === "git"
-                  ? `${sha}\0${"b".repeat(40)}\0fix: fixture`
+                args[1]!.includes("git show")
+                  ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64")
                   : args[1]!.includes("diff-tree")
                   ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
                   : "dGVzdA=="
@@ -918,3 +918,95 @@ test("Cloud storage failures refuse READY before reconstruction", async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+// Control-plane calls are fixtures because production Cloud is unavailable in the
+// deterministic suite. The provider and guest process are the public real boundary.
+test("Cloud export failure retains report and workspace for recovery", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-export-recovery-"))
+  const sha = "a".repeat(40)
+  const calls: string[] = []
+  try {
+    await Effect.runPromise(Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner
+      const machine = yield* makeCloudPlacement({
+        spawner, workdir: dir, install: false, artifactDirectory: dir,
+        identity: async () => "smithers-dev", prepareRepository: async () => {},
+        credential: async () => ({ auth: {} }),
+        api: {
+          request: async (method) => { calls.push(method); return { id: "ws-recovery", status: "running" } },
+          sshPrefix: async () => []
+        }
+      }).machine(assignment, account)
+      yield* Effect.gen(function*() {
+        const guest = yield* ChildProcessSpawner
+        const command = yield* machine.command!("printf 'READY " + sha + "\\n'")
+        const output = yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
+          stdin: Stream.make(command.stdin!), env: machine.env, extendEnv: true
+        }))
+        assert.match(output, /READY/)
+        const exit = yield* Effect.exit(machine.handoff!({
+          key: assignment.key, status: "ready", commits: [{ issue: 42, commit: sha }],
+          notes: "PRIVATE-REPORT-NOTES", agentHours: 0
+        }, () => Effect.fail("PRIVATE-TRANSPORT-ERROR")))
+        assert.equal(exit._tag, "Failure")
+        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+        assert.ok(!raw.includes("PRIVATE-REPORT-NOTES"))
+        assert.ok(!raw.includes("PRIVATE-TRANSPORT-ERROR"))
+        assert.match(raw, /ws-recovery/)
+        assert.match(raw, /gpt-6.1-sol/)
+        assert.match(raw, new RegExp(sha))
+      }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
+    }).pipe(Effect.provide(NodeServices.layer)))
+    assert.deepEqual(calls, ["POST", "GET"], "failed export must keep remote committed code")
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+for (const tool of ["codex", "claude"] as const) {
+  test(`Cloud retained ${tool} artifact permits cleanup and preserves assignment attribution`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "burndown-retained-cleanup-"))
+    const sha = "a".repeat(40)
+    const model = tool === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5"
+    const calls: string[] = []
+    let reconstructed = false
+    try {
+      await Effect.runPromise(Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = yield* makeCloudPlacement({
+          spawner, workdir: dir, install: false, artifactDirectory: dir,
+          identity: async () => "smithers-dev", prepareRepository: async () => {},
+          credential: async () => tool === "codex" ? { auth: {} } : { token: "fixture" },
+          api: {
+            request: async (method) => {
+              calls.push(method)
+              if (method === "DELETE") {
+                assert.ok((await readdir(dir)).some((entry) => /^[a-f0-9]{64}$/.test(entry)), "retain before cleanup")
+              }
+              return { id: "ws-retained", status: "running" }
+            }, sshPrefix: async () => []
+          },
+          review: async () => "VERDICT: PASS",
+          handoff: async (_artifact, attribution) => {
+            assert.deepEqual(attribution, { tool, model })
+            reconstructed = true
+            return { artifactPath: dir, receiptPath: dir, commit: sha, commits: [{ source: sha, local: sha }] }
+          }
+        }).machine({ ...assignment, tool, model }, { ...account, tool })
+        yield* Effect.gen(function*() {
+          const guest = yield* ChildProcessSpawner
+          const command = yield* machine.command!("printf READY")
+          assert.equal(yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
+            stdin: Stream.make(command.stdin!), env: machine.env, extendEnv: true
+          })), "READY")
+          yield* machine.handoff!({ key: assignment.key, status: "ready", commits: [{ issue: 42, commit: sha }], notes: "", agentHours: 0 },
+            (_program, args) => Effect.succeed(args[1]!.includes("git show")
+              ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: retained`).toString("base64")
+              : args[1]!.includes("diff-tree")
+              ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
+              : Buffer.from("retained").toString("base64")))
+        }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
+      }).pipe(Effect.provide(NodeServices.layer)))
+      assert.equal(reconstructed, true)
+      assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+}

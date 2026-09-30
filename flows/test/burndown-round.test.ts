@@ -361,7 +361,11 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
         const launched = await invoke(Launch.name, {
           state: { ...initial(), options: { ...initial().options, placement } },
           observation: { ...observation(), candidates: [candidate(3101)], capacity: [capacity(1)] },
-          plan: { launches: [{ repo: assignment.repo, n: 3101, account: assignment.account }], nextTarget: 4, note: "disk" }
+          plan: {
+            launches: [{ repo: assignment.repo, n: 3101, account: assignment.account }],
+            nextTarget: 4,
+            note: "disk"
+          }
         })
         const expected = placement === "local" ? 0 : 1
         assert.equal((launched as Array<unknown>).length, expected)

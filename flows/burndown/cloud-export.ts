@@ -7,6 +7,17 @@ export type ReadCommand = (
   args: ReadonlyArray<string>,
   stdin?: Uint8Array
 ) => Effect.Effect<string, string>
+export interface ExportOptions {
+  /** Known credentials are scrubbed in addition to common token formats. */
+  readonly redactions?: ReadonlyArray<string>
+}
+/** Bounded terminal-safe diagnostics; never retain command argv or an SSH grant. */
+export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string> = []): string => {
+  let text = value
+  for (const secret of redactions) if (secret) text = text.replaceAll(secret, "[redacted]")
+  return text.replaceAll(/Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi, "[redacted]")
+    .replaceAll(/[\x00-\x08\x0b-\x1f\x7f]/g, "").slice(0, 2048)
+}
 type Entry = { oid: string; type: "file" | "symlink"; executable: boolean }
 
 const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
@@ -59,7 +70,12 @@ const treeChanges = (bytes: Buffer): Array<{ path: string; before: Entry | null;
 }
 
 /** Exports only committed changes, retaining full before/after bytes for conflict checks. */
-export const exportCloudCommits = (repository: string, ids: ReadonlyArray<string>, read: ReadCommand) =>
+export const exportCloudCommits = (
+  repository: string,
+  ids: ReadonlyArray<string>,
+  read: ReadCommand,
+  options: ExportOptions = {}
+) =>
   Effect.gen(function*() {
     if (ids.length === 0 || ids.length > cloudHandoffLimits.commits || ids.some((sha) => !/^[0-9a-f]{40}$/.test(sha))) {
       return yield* Effect.fail("Cloud handoff requires one to twenty full READY commit IDs")
@@ -68,7 +84,44 @@ export const exportCloudCommits = (repository: string, ids: ReadonlyArray<string
     let total = 0
     let paths = 0
     for (const sha of ids) {
-      const raw = yield* read("git", ["show", "-s", "--format=format:%H%x00%P%x00%B", `${sha}^{commit}`])
+      const readBytes = (stage: string, command: string, limit: number, oversized: string) =>
+        Effect.gen(function*() {
+          const raw = yield* read("sh", ["-c", [
+            "set -e",
+            't=$(mktemp); e=""',
+            `trap 'rm -f "$t" "$e"' EXIT`,
+            'e=$(mktemp)',
+            "set +e",
+            `${command} > "$t" 2> "$e"`,
+            "code=$?",
+            "set -e",
+            'if [ "$code" -ne 0 ]; then',
+            `  printf '#git-error:%s:' "$code"`,
+            '  head -c 8192 "$e" | base64',
+            "  exit 0",
+            "fi",
+            `if [ "$(wc -c < "$t")" -gt ${limit} ]; then printf '#oversized'; else base64 < "$t"; fi`
+          ].join("\n")]).pipe(Effect.mapError((error) =>
+            `Cloud export ${stage} ${sha}: command transport failed: ${cloudDiagnostic(error, options.redactions)}`
+          ))
+          const failed = /^#git-error:(\d{1,3}):([A-Za-z0-9+/=\s]*)$/.exec(raw)
+          if (failed !== null) {
+            const diagnostic = cloudDiagnostic(Buffer.from(failed[2]!, "base64").toString("utf8"), options.redactions)
+            return yield* Effect.fail(`Cloud export ${stage} ${sha}: Git exit ${failed[1]}: ${diagnostic}`)
+          }
+          if (raw === "#oversized") return yield* Effect.fail(oversized)
+          return raw
+        })
+      const encodedMetadata = yield* readBytes(
+        "metadata",
+        `git show -s --format=format:%H%x00%P%x00%B ${quote(sha + "^{commit}")}`,
+        64 * 1024,
+        "Cloud handoff metadata is oversized"
+      )
+      const raw = yield* Effect.try({
+        try: () => decodeBytes(encodedMetadata, "Cloud handoff metadata is invalid").toString("utf8"),
+        catch: () => "Cloud handoff metadata is invalid"
+      })
       const metadata = yield* Effect.try({
         try: () => {
           const fields = /^([^\0]*)\0([^\0]*)\0([^\0]*)$/.exec(raw)
@@ -84,16 +137,8 @@ export const exportCloudCommits = (repository: string, ids: ReadonlyArray<string
       ) {
         return yield* Effect.fail("Cloud handoff requires ordered, conflict-free single-parent commits")
       }
-      const readBytes = (command: string, limit: number, oversized: string) =>
-        Effect.gen(function*() {
-          const raw = yield* read("sh", [
-            "-c",
-            `set -e\nt=$(mktemp)\ntrap 'rm -f "$t"' EXIT\n${command} > "$t"\nif [ "$(wc -c < "$t")" -gt ${limit} ]; then printf '#oversized'; else base64 < "$t"; fi`
-          ])
-          if (raw === "#oversized") return yield* Effect.fail(oversized)
-          return raw
-        })
       const diff = yield* readBytes(
+        "tree",
         `git diff-tree --no-commit-id -r --raw -M --no-renames --no-abbrev -z ${quote(sha)}`,
         cloudHandoffLimits.files * (4096 * 4 + 128),
         "Cloud handoff exceeds changed-path limit"
@@ -110,6 +155,7 @@ export const exportCloudCommits = (repository: string, ids: ReadonlyArray<string
       const snapshot = (entry: Entry | null): Effect.Effect<File | null, string> =>
         entry === null ? Effect.succeed(null) : Effect.gen(function*() {
           const encoded = yield* readBytes(
+            "blob",
             `git cat-file blob ${quote(entry.oid)}`,
             cloudHandoffLimits.fileBytes,
             "Cloud handoff file bytes are invalid or oversized"
