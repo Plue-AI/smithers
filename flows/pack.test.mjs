@@ -571,6 +571,10 @@ describe("discovery over the project flows directory", () => {
     // registered. Both statements are about the delegation, so a module that is
     // its own flow has nothing for either to name.
     const delegatingModules = ["checks/wiki"];
+    // The burndown flows run only on a host that supplies their layers (the
+    // round loop, the agent runner, the monitor's actions), so without one they
+    // refuse to load: the documented host-only exception, as `checks/wiki` has.
+    const hostModules = { "burndown": "body_unavailable", "burndown/monitor": "missing_service", "burndown/worker": "body_unavailable" };
     // Registration and its setup child run only on the coding host, which implements their steps.
     const hiddenModules = ["memory/mine", "register-repository", "register-repository/setup", "rollout"];
     assert.deepEqual(
@@ -582,13 +586,14 @@ describe("discovery over the project flows directory", () => {
         "unsupported_module_metadata at wiki/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",
       ].sort(),
     );
-    assert.deepEqual([...scan.entries].map((entry) => entry.name).sort(), [...EXPECTED_FLOWS, ...modules, ...delegatingModules].sort());
+    assert.deepEqual([...scan.entries].map((entry) => entry.name).sort(), [...EXPECTED_FLOWS, ...modules, ...delegatingModules, ...Object.keys(hostModules)].sort());
     // The authoring entry carries its stage instructions itself; those stages
     // stay directly runnable without appearing as nested model calls.
     const hiddenFlows = [
       "create-flow/clarify", "create-flow/design", "create-flow/document",
       "create-flow/fix", "create-flow/provision", "create-flow/scaffold",
       ...hiddenModules,
+      ...Object.keys(hostModules),
     ].sort();
     // Visibility survives discovery for both prompt and module declarations.
     assert.deepEqual(
@@ -607,7 +612,7 @@ describe("discovery over the project flows directory", () => {
           ),
       ),
     );
-    assert.deepEqual(loaded, [...modules.map((name) => [name, "self"]), ["checks/wiki", "missing_delegate coding/WikiCheck"]]
+    assert.deepEqual(loaded, [...modules.map((name) => [name, "self"]), ["checks/wiki", "missing_delegate coding/WikiCheck"], ...Object.entries(hostModules)]
       .sort(([left], [right]) => left < right ? -1 : 1)
       .map(([name, outcome]) => `${name}: ${outcome}`));
   });

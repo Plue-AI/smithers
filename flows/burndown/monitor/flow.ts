@@ -11,7 +11,7 @@ const currentHost = process.cwd()
 export default Flow.make("burndown/monitor", {
   description: "Watches a burndown run on a schedule and reports whether it is healthy.",
   capabilities: ["fs:read:**", "fs:write:**", "proc:spawn:*", "net:get:*", "net:post:*", "model:call:*"],
-  effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "sealed" },
+  effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   modelInvocable: false,
   payload: {
     runId: Schema.String,
