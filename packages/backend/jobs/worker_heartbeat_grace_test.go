@@ -43,9 +43,9 @@ func TestWorkerRejectsHeartbeatIntervalOutsideLease(t *testing.T) {
 	for _, interval := range []time.Duration{-time.Millisecond, time.Second, 2 * time.Second} {
 		t.Run(interval.String(), func(t *testing.T) {
 			err := (&Store{}).RunWorker(t.Context(), WorkerConfig{
-			WorkerID: "invalid-heartbeat", Capacity: 1, Lease: time.Second,
-			HeartbeatInterval: interval,
-		}, func(context.Context, *Lease) error { return nil })
+				WorkerID: "invalid-heartbeat", Capacity: 1, Lease: time.Second,
+				HeartbeatInterval: interval,
+			}, func(context.Context, *Lease) error { return nil })
 			require.ErrorContains(t, err, "heartbeat interval")
 		})
 	}

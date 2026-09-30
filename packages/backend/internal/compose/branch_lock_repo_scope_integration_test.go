@@ -63,7 +63,7 @@ func TestBranchLockDecisionRequiresRoutedRepositoryPostgres(t *testing.T) {
 				&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 				&routes.OrgHandler{Service: services.NewOrgServiceWithPool(q, pool)}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 				nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				&routes.BranchLockHandler{Service: lockService})
 			post := func(path, id string) *httptest.ResponseRecorder {
 				req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/repos/%s/branch-locks/join-requests/%s/decide", path, id), strings.NewReader(fmt.Sprintf(`{"decision":%q}`, decision)))
