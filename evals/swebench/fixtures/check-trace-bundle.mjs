@@ -23,6 +23,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { PROMPT, readCodexTrace, visible, VISIBLE_KEYS, WITHHELD_KEYS } from "../lib/trace-bundle.mjs"
+import { usd } from "../prices.ts"
 
 const temporary = mkdtempSync(join(tmpdir(), "flows-trace-bundle-"))
 const fb = join(temporary, "fullbench")
@@ -229,7 +230,10 @@ assert.match(text, /\| tool calls \/ exec commands \| 2 \| 2 \|/u)
 assert.match(text, /\| input tokens \| 200,000 \|/u)
 assert.match(text, /\| cached input tokens \| 100,000 \|/u)
 assert.match(text, /\| tokens, total \| 204,000 \| 46,469 \|/u)
-assert.match(text, /\| USD \| \$0\.6[67]\d\d \| not derivable \|/u, "ours is priced; codex's cannot be")
+// Both model turns, priced at the committed rate card's row for the seat.
+const ourUsd = usd("openai:gpt-5.6-sol", { inputTokens: 200_000, cachedInputTokens: 100_000, outputTokens: 4000 }).usd
+assert.ok(ourUsd > 0)
+assert.ok(text.includes(`| USD | $${ourUsd.toFixed(4)} | not derivable |`), "ours is priced; codex's cannot be")
 assert.match(text, /\| files touched \| 1 \| 1 \|/u)
 assert.ok(
   !text.includes("An `eval error` verdict is a fact"),

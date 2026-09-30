@@ -13,6 +13,7 @@ import assert from "node:assert/strict"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { read } from "../lib/fullbench-manifest.mjs"
+import { usd } from "../prices.ts"
 
 const [, , temporary] = process.argv
 if (temporary === undefined) {
@@ -110,9 +111,13 @@ assert.equal(manifest.states.get(third).imageState, "kept", "a pinned instance's
 // filesystem, and the cost every journal priced.
 assert.ok(manifest.states.get(first).patchBytes > 0)
 assert.equal(manifest.states.get(second).patchBytes, 0)
+// Two turns of the stub journal's usage, priced at the committed rate card.
+const journalUsd =
+  usd("openai:gpt-5.6-sol", { inputTokens: 200_000, cachedInputTokens: 100_000, outputTokens: 4000 }).usd
+assert.ok(journalUsd > 0)
 for (const id of [first, second, third]) {
   assert.ok(
-    Math.abs(manifest.states.get(id).cost.usd - 0.67) < 1e-9,
+    Math.abs(manifest.states.get(id).cost.usd - journalUsd) < 1e-9,
     `${id} priced its journal at ${manifest.states.get(id).cost.usd}`
   )
   assert.equal(manifest.states.get(id).cost.modelCalls, 2)
@@ -159,7 +164,9 @@ assert.match(text(join(fb, "driver.log")), /disk gate \(pull\): 1000 MiB free, n
 // ---------------------------------------------------------------------------
 assert.equal(text(join(temporary, "phase-c.exit")).trim(), "7", "a paused driver exits 7")
 const paused = text(join(fb, "PAUSED"))
-assert.match(paused, /cumulative API cost \$2\.01 reached the \$0\.50 budget/)
+// The three priced attempts, rounded to cents after summing as the gate does.
+const spent = (Math.round(journalUsd * 3 * 100) / 100).toFixed(2)
+assert.ok(paused.includes(`cumulative API cost $${spent} reached the $0.50 budget`), paused)
 assert.match(text(join(fb, "progress.md")), /> \*\*PAUSED\*\* at 20/)
 
 // ---------------------------------------------------------------------------
