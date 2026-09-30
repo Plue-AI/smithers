@@ -1029,24 +1029,8 @@ func (s *workflowRunService) createInProgressCheckRun(
 		return
 	}
 
-	owner := strings.TrimSpace(repoOwner)
-	repoName := strings.TrimSpace(repository.Name)
-	if owner == "" || repoName == "" {
-		return
-	}
-
-	if s.installationResolver == nil {
-		return
-	}
-
-	installationID, err := s.installationResolver.GetGitHubInstallationIDForRepositoryOwner(
-		ctx,
-		repository.UserID.Int64,
-		repository.OrgID.Int64,
-		owner,
-		repoName,
-	)
-	if err != nil || installationID <= 0 {
+	owner, repoName, installationID, ok := s.gitHubCheckRunTarget(ctx, repository, repoOwner)
+	if !ok {
 		return
 	}
 
@@ -1087,6 +1071,39 @@ func (s *workflowRunService) createInProgressCheckRun(
 		middleware.LoggerWithWorkflowRun(ctx, run.ID).
 			Warn("failed to persist github check run metadata", "error", err)
 	}
+}
+
+// gitHubCheckRunTarget is the GitHub repository a run's check run is written
+// to and the installation bound to it: the repository's one GitHub destination
+// (its mirror destination or single recorded GitHub source), else its own
+// owner/name. A mirror's commits are its source's commits, so its check runs
+// land where that repository's branch protection and release gates read them.
+// ok is false when no installation is bound to the target.
+func (s *workflowRunService) gitHubCheckRunTarget(ctx context.Context, repository db.Repository, repoOwner string) (string, string, int64, bool) {
+	if s.installationResolver == nil {
+		return "", "", 0, false
+	}
+	owner := strings.TrimSpace(repoOwner)
+	repoName := strings.TrimSpace(repository.Name)
+	if store, ok := s.queries.(gitHubDestinationStore); ok {
+		if githubOwner, githubRepo, err := resolveGitHubDestination(ctx, store, nil, 0, repository.ID, "", ""); err == nil {
+			owner, repoName = githubOwner, githubRepo
+		}
+	}
+	if owner == "" || repoName == "" {
+		return "", "", 0, false
+	}
+	installationID, err := s.installationResolver.GetGitHubInstallationIDForRepositoryOwner(
+		ctx,
+		repository.UserID.Int64,
+		repository.OrgID.Int64,
+		owner,
+		repoName,
+	)
+	if err != nil || installationID <= 0 {
+		return "", "", 0, false
+	}
+	return owner, repoName, installationID, true
 }
 
 func workflowCheckRunName(def db.WorkflowDefinition) string {
@@ -1298,34 +1315,18 @@ func (s *workflowRunService) completeGitHubCheckRunForCancellation(ctx context.C
 		return nil
 	}
 
-	if s.installationResolver == nil {
-		return nil
-	}
-
 	repository, err := s.queries.GetRepoByID(ctx, run.RepositoryID)
 	if err != nil {
 		return nil
 	}
-	owner := strings.TrimSpace(s.resolveRepoOwner(ctx, repository))
-	repoName := strings.TrimSpace(repository.Name)
-	if owner == "" || repoName == "" {
-		return nil
-	}
-
-	installationID, err := s.installationResolver.GetGitHubInstallationIDForRepositoryOwner(
-		ctx,
-		repository.UserID.Int64,
-		repository.OrgID.Int64,
-		owner,
-		repoName,
-	)
-	if err != nil || installationID <= 0 {
+	owner, repoName, installationID, ok := s.gitHubCheckRunTarget(ctx, repository, s.resolveRepoOwner(ctx, repository))
+	if !ok {
 		return nil
 	}
 
 	_, err = s.checkRunService.UpdateCheckRun(ctx, installationID, owner, repoName, run.CheckRunID.Int64, GitHubCheckRunUpdate{
 		Status:     "completed",
-		Conclusion: "neutral",
+		Conclusion: "cancelled",
 		Output: &GitHubCheckRunOutput{
 			Title:   "Workflow cancelled",
 			Summary: fmt.Sprintf("Workflow run #%d was cancelled.", run.ID),

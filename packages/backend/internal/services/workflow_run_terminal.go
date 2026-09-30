@@ -93,10 +93,12 @@ func workflowRunStatusToCheckRunConclusion(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "success":
 		return "success"
-	case "failure", "error":
-		return "failure"
+	case "cancelled":
+		return "cancelled"
 	default:
-		return "neutral"
+		// GitHub counts neutral as passing; anything else that is not a
+		// success must fail closed.
+		return "failure"
 	}
 }
 
@@ -182,19 +184,8 @@ func (s *workflowRunService) completeGitHubCheckRun(ctx context.Context, run db.
 	if err != nil {
 		return nil
 	}
-	owner := strings.TrimSpace(s.resolveRepoOwner(ctx, repository))
-	repoName := strings.TrimSpace(repository.Name)
-	if owner == "" || repoName == "" {
-		return nil
-	}
-	installationID, err := s.installationResolver.GetGitHubInstallationIDForRepositoryOwner(
-		ctx,
-		repository.UserID.Int64,
-		repository.OrgID.Int64,
-		owner,
-		repoName,
-	)
-	if err != nil || installationID <= 0 {
+	owner, repoName, installationID, ok := s.gitHubCheckRunTarget(ctx, repository, s.resolveRepoOwner(ctx, repository))
+	if !ok {
 		return nil
 	}
 

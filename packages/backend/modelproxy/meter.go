@@ -72,8 +72,8 @@ type Result struct {
 type Meter struct {
 	Ledger credits.Ledger
 	// DailyCapNanos caps every owner's platform-key spend per UTC day
-	// (DailySpendCapEnv); 0 means no cap. Calls admitted together can pass
-	// it by at most their bounds.
+	// (DailySpendCapEnv); 0 means no cap. The check is not atomic: calls
+	// admitted concurrently each see the same prior spend.
 	DailyCapNanos int64
 }
 
