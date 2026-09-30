@@ -31,7 +31,8 @@ export const bootProductionRepository = async (page: Page, repo = PRODUCTION_REP
   if (process.env.SMITHERS_REAL_AUTH_KIND === "application-token") {
     expect(session?.allowlisted).toBe(true)
   } else {
-    expect(session).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: true })
+    // The scoped-down account (e2e/README.md): a suite that passes as an admin hides permission bugs.
+    expect(session).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: false })
   }
 }
 

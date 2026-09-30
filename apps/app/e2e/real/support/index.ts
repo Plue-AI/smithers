@@ -79,17 +79,18 @@ export const realApi = async (
   const token = await page.evaluate(() =>
     document.querySelector('meta[name="smithers-local-session"]')?.getAttribute("content") ?? null)
   const authorization = applicationAuthorization()
-  const ownerMutation = process.env.SMITHERS_REAL_AUTH_KIND === "owner-session" && !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
-  const csrf = ownerMutation
+  // A cookie session's mutation carries the double-submit CSRF pair the app sends; the API refuses it otherwise.
+  const mutation = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
+  const csrf = mutation
     ? (await page.context().cookies(target.origin)).find((cookie) => cookie.name === "__csrf")?.value
     : undefined
-  if (ownerMutation && !csrf) throw new Error("Owner session has no CSRF cookie for the requested mutation.")
+  if (mutation && process.env.SMITHERS_REAL_AUTH_KIND === "owner-session" && !csrf) throw new Error("Owner session has no CSRF cookie for the requested mutation.")
   return page.context().request.fetch(target.toString(), {
     method,
-    ...(token || authorization || ownerMutation ? { headers: {
+    ...(token || authorization || csrf ? { headers: {
       ...(token ? { "x-smithers-local-session": token } : {}),
       ...(authorization ? { authorization } : {}),
-      ...(ownerMutation ? { Origin: target.origin, "X-CSRF-Token": csrf! } : {})
+      ...(csrf ? { Origin: target.origin, "X-CSRF-Token": csrf } : {})
     } } : {}),
     ...(data === undefined ? {} : { data })
   })

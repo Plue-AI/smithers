@@ -39,7 +39,7 @@ const importRepository = async (
   const body = await start.json().catch(() => undefined) as Record<string, unknown> | undefined
   const jobId = typeof body?.importJobId === "string" && body.importJobId !== "" ? body.importJobId : undefined
   observed(start.status(), jobId)
-  await attachProductionJson(testInfo, "workflow-fixture-import-start", { repo, status: start.status(), jobId, jobStatus: body?.status })
+  await attachProductionJson(testInfo, "workflow-fixture-import-start", { repo, status: start.status(), jobId, jobStatus: body?.status, ...(start.ok() ? {} : { refusal: body }) })
   expect(start.status(), `import ${repo}`).toBeGreaterThanOrEqual(200)
   expect(start.status(), `import ${repo}`).toBeLessThan(300)
   expect(jobId, "the import service must return the exact accepted job id").toBeDefined()
@@ -80,18 +80,23 @@ const deleteGitHub = async (owned: OwnedGitHubRepository): Promise<void> => {
   await owned.page.close()
 }
 
+/** The runs one owned repository accepted, and the box they ran on once it is known. */
+type OwnedRuns = RunTracker & { readonly repo: string; readonly runs: Set<string>; readonly workspaceId?: string }
+
 export const drainRuns = async (
   page: Page,
   request: APIRequestContext,
-  owned: OwnedWorkflowRepository
+  owned: OwnedRuns
 ): Promise<ReadonlyArray<RunSummary>> => {
   const terminal: RunSummary[] = []
   const failures: unknown[] = []
   for (const runId of owned.runs) {
     try {
+      const workspaceId = owned.workspaceId
+      if (workspaceId === undefined) throw new Error(`Owned run ${runId} names no box to read it from.`)
       const current = await gatewayCall(page, request, owned.repo, "Projection.Snapshot", {
         selector: { _tag: "run-summary", runId }
-      }, owned.workspaceId)
+      }, workspaceId)
       let row = runSummary(current)
       if (row === undefined) throw new Error(`Owned run ${runId} disappeared before cleanup.`)
       if (row.runId !== runId) throw new Error(`Projection for owned run ${runId} returned row ${row.runId}.`)
@@ -100,8 +105,8 @@ export const drainRuns = async (
           runId,
           idempotencyKey: `cancel:${runId}`,
           reason: "owned real E2E fixture cleanup"
-        }, owned.workspaceId)
-        row = await waitForTerminalRun(page, request, owned.repo, runId, 120_000, owned.workspaceId)
+        }, workspaceId)
+        row = await waitForTerminalRun(page, request, owned.repo, runId, 120_000, workspaceId)
       }
       terminal.push(row)
     } catch (error) {
@@ -197,6 +202,62 @@ const setup = async (
   }
 }
 
+/**
+ * Drains the scenario's runs, then deletes the Cloud repository and its GitHub
+ * source. Anything unresolved preserves both and is filed as a teardown problem.
+ */
+const settle = async (
+  page: Page,
+  request: APIRequestContext,
+  testInfo: TestInfo,
+  owned: OwnedGitHubRepository,
+  fixture: OwnedRuns,
+  bodyError: unknown
+): Promise<void> => {
+  const cleanupFailures: unknown[] = []
+  let runs: ReadonlyArray<RunSummary> = []
+  let drained = false
+  try {
+    runs = await drainRuns(page, request, fixture)
+    drained = true
+  } catch (error) {
+    cleanupFailures.push(error)
+  }
+
+  let githubDeleted = false
+  let cloudDeleted: unknown
+  if (drained && fixture.ambiguities.length === 0) {
+    const deletions = await Promise.allSettled([
+      deleteOwnedCloudRepository(page, request, fixture.repo),
+      deleteGitHub(owned)
+    ])
+    if (deletions[0]?.status === "fulfilled") cloudDeleted = deletions[0].value
+    else cleanupFailures.push(deletions[0]?.reason)
+    if (deletions[1]?.status === "fulfilled") githubDeleted = true
+    else cleanupFailures.push(deletions[1]?.reason)
+  } else {
+    cleanupFailures.push(new TeardownProblem(`Preserved ${fixture.repo} because ${fixture.ambiguities.length > 0 ? fixture.ambiguities.join(" ") : "not every accepted run reached terminal"}.`))
+  }
+  await attachProductionJson(testInfo, "workflow-fixture-cleanup", {
+    repo: fixture.repo, trackedRunIds: [...fixture.runs], ambiguities: fixture.ambiguities,
+    runs, drained, githubDeleted, cloudDeleted,
+    preserved: !drained || fixture.ambiguities.length > 0,
+    // The filed sentence names what is left behind; the words a library threw
+    // about its own internals are kept here, where a trace reader finds them.
+    cleanupFailures: cleanupFailures.map(String)
+  })
+  /*
+   * The scenario answers for its body. A cleanup that could not finish is
+   * filed as a teardown problem, where the real-E2E reporter folds it into
+   * the run's reporter errors and the coverage gate fails the RUN — so the
+   * leak is still loud, and a proof that ran to completion is not reported
+   * as a failure because the housekeeping after it hit an account wall.
+   */
+  const outcome = scenarioOutcome({ repository: fixture.repo, bodyError, teardownFailures: cleanupFailures })
+  for (const sentence of outcome.teardown) testInfo.annotations.push({ type: TEARDOWN_ANNOTATION, description: sentence })
+  if (outcome.verdict !== undefined) throw outcome.verdict
+}
+
 export const workflowTest = authenticatedTest.extend<WorkflowFixtures>({
   provisionCodingGateway: [true, { option: true }],
   workflowRepo: async ({ page, request, context, provisionCodingGateway }, use, testInfo) => {
@@ -207,49 +268,36 @@ export const workflowTest = authenticatedTest.extend<WorkflowFixtures>({
     } catch (error) {
       bodyError = error
     }
+    await settle(page, request, testInfo, owned, fixture, bodyError)
+  }
+})
 
-    const cleanupFailures: unknown[] = []
-    let runs: ReadonlyArray<RunSummary> = []
-    let drained = false
+/** A GitHub source Smithers has never imported; the scenario records the box its run names. */
+export type ColdWorkflowRepository = RunTracker & {
+  readonly repo: string
+  readonly runs: Set<string>
+  workspaceId?: string
+}
+
+/** Owns a fresh GitHub source and nothing else: the scenario's own import and run are the first. */
+export const coldWorkflowTest = authenticatedTest.extend<{ readonly coldRepo: ColdWorkflowRepository }>({
+  coldRepo: async ({ page, context, request }, use, testInfo) => {
+    await bootProductionRepository(page)
+    const name = fixtureRepositoryName(`smithers-e2e-import-cold-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+    const owned = await createOwnedGitHubRepository(context, name)
+    const fixture: ColdWorkflowRepository = { repo: owned.fullName, runs: new Set(), ambiguities: [] }
+    let bodyError: unknown
     try {
-      runs = await drainRuns(page, request, fixture)
-      drained = true
+      await attachProductionJson(testInfo, "cold-fixture-owned-source", {
+        repo: owned.fullName,
+        githubUrl: owned.url,
+        cleanupNamespace: "codeplanesmithers/smithers-e2e-import-*"
+      })
+      await use(fixture)
     } catch (error) {
-      cleanupFailures.push(error)
+      bodyError = error
     }
-
-    let githubDeleted = false
-    let cloudDeleted: unknown
-    if (drained && fixture.ambiguities.length === 0) {
-      const deletions = await Promise.allSettled([
-        deleteOwnedCloudRepository(page, request, fixture.repo),
-        deleteGitHub(owned)
-      ])
-      if (deletions[0]?.status === "fulfilled") cloudDeleted = deletions[0].value
-      else cleanupFailures.push(deletions[0]?.reason)
-      if (deletions[1]?.status === "fulfilled") githubDeleted = true
-      else cleanupFailures.push(deletions[1]?.reason)
-    } else {
-      cleanupFailures.push(new TeardownProblem(`Preserved ${fixture.repo} because ${fixture.ambiguities.length > 0 ? fixture.ambiguities.join(" ") : "not every accepted run reached terminal"}.`))
-    }
-    await attachProductionJson(testInfo, "workflow-fixture-cleanup", {
-      repo: fixture.repo, trackedRunIds: [...fixture.runs], ambiguities: fixture.ambiguities,
-      runs, drained, githubDeleted, cloudDeleted,
-      preserved: !drained || fixture.ambiguities.length > 0,
-      // The filed sentence names what is left behind; the words a library threw
-      // about its own internals are kept here, where a trace reader finds them.
-      cleanupFailures: cleanupFailures.map(String)
-    })
-    /*
-     * The scenario answers for its body. A cleanup that could not finish is
-     * filed as a teardown problem, where the real-E2E reporter folds it into
-     * the run's reporter errors and the coverage gate fails the RUN — so the
-     * leak is still loud, and a proof that ran to completion is not reported
-     * as a failure because the housekeeping after it hit an account wall.
-     */
-    const outcome = scenarioOutcome({ repository: fixture.repo, bodyError, teardownFailures: cleanupFailures })
-    for (const sentence of outcome.teardown) testInfo.annotations.push({ type: TEARDOWN_ANNOTATION, description: sentence })
-    if (outcome.verdict !== undefined) throw outcome.verdict
+    await settle(page, request, testInfo, owned, fixture, bodyError)
   }
 })
 
