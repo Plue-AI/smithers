@@ -10,7 +10,12 @@
  * person drives it (one message, or none, runs one more frame) or releases it,
  * after which it runs on by itself. The hold is in the queue, not the harness:
  * the harness only ever sees a drain that took a while to answer.
+ *
+ * A park (`ctx.park`) is a question for the person: its boundary waits for
+ * {@link Hooks.ask} and delivers the reply. With no one to ask, the drain
+ * fails, so the run stops loudly instead of answering its own question.
  */
+import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Steering from "@smthrs/harness/Steering"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { Effect } from "effect"
@@ -44,6 +49,8 @@ export interface Hooks {
   readonly parked?: () => void
   /** The person drove or released: resolves once the run may go on, its seat back. */
   readonly unparked?: () => Promise<void>
+  /** A park's question for the person: resolves with their reply; rejects when no one will answer. */
+  readonly ask?: (question: string, signal: AbortSignal) => Promise<string>
 }
 
 export const make = (hooks: Hooks = {}): Queue => {
@@ -87,6 +94,13 @@ export const make = (hooks: Hooks = {}): Queue => {
       Effect.suspend(() => (parked && hooks.unparked !== undefined ? Effect.promise(hooks.unparked) : Effect.void))
     )
   })
+  /** Puts a park's question to the person and queues the reply, or fails when no one answers. */
+  const answer = (question: string) =>
+    Effect.tryPromise({
+      try: (signal) =>
+        hooks.ask === undefined ? Promise.reject(new Error("no one to ask")) : hooks.ask(question, signal),
+      catch: () => new HarnessError({ code: "suspended", message: `No one answered: ${question}` })
+    }).pipe(Effect.map(steer))
   return {
     steer,
     take: () => {
@@ -119,7 +133,7 @@ export const make = (hooks: Hooks = {}): Queue => {
         Effect.suspend(() => {
           if (drained.has(input.boundary)) return Effect.succeed({ ...drained.get(input.boundary)!, duplicate: true })
           return Effect.andThen(
-            hijacked ? hold : Effect.void,
+            hijacked ? hold : input.park === undefined ? Effect.void : answer(input.park.message),
             Effect.sync(() => {
               const seen = drained.get(input.boundary)
               if (seen !== undefined) return { ...seen, duplicate: true }

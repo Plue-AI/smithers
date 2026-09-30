@@ -869,7 +869,16 @@ export class Workspace {
         const current = this.tabs.get(tab.id)
         if (current?.status === "running") this.tabs.move(current, "block")
       },
-      unparked: () => this.seated(tab.id)
+      unparked: () => this.seated(tab.id),
+      // `ctx.park` asks the person, as `ask` does; the reply shows in the tab as theirs.
+      ask: async (question, signal) => {
+        const { answer } = await this.ask(tab.id, { question, to: "person" }, signal)
+        const at = Date.now()
+        writer.append({ type: "user", at, text: answer, steered: true })
+        this.transcripts.set(tab.id, Transcript.user(this.transcript(tab.id), answer, true, at))
+        this.changed()
+        return answer
+      }
     })
     try {
       writer.append({ type: "user", at, text: tab.prompt })

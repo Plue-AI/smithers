@@ -119,7 +119,7 @@ export interface TurnInput {
   /** Who waits on an approval: `chat` (the default) or a worker tab id. */
   readonly source?: string
   readonly history: ReadonlyArray<Context.Entry>
-  /** Where messages typed mid-turn wait for the next cell boundary. */
+  /** Where messages typed mid-turn wait for the next cell boundary; a worker's also answers its parks. */
   readonly steering?: Steering.Source
   /** Reasoning effort; the agent's `effort`, then the provider's default, when absent. */
   readonly thinking?: ModelRequest.ReasoningEffort
@@ -696,6 +696,9 @@ export const make = (options: {
         // Jev's latency would sit in front of the chat's acknowledgment.
         judged: input.role !== "coordinator",
         supervisor: { stance },
+        // A worker's steering queue puts a park's question to the person (`steering.ts`), so its park waits
+        // for the answer instead of being refused and left for the model to settle.
+        approvalChannel: input.role === "worker" && input.steering !== undefined,
         maxFrames
       }).pipe(
         Stream.provideService(Steering.Source, input.steering ?? Steering.makeNoop()),
