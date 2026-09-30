@@ -109,7 +109,7 @@ describe("the wiki spaces transport (#1922)", () => {
     const transport = makeCloudWikiTransport({ baseUrl: "", http: async (url, init) => {
       const headers = new Headers(init?.headers)
       requests.push({ url, method: init?.method ?? "GET", type: headers.get("content-type") ?? undefined, body: init?.body })
-      if (url.includes("/navigation/index")) return Response.json({ pages: [{ ...page, body: "", metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", heading: "Install", alias: "start", embed: false, page_id: 8 }] }, backlinks: [{ page_id: 8, path: "Guides/Start.md", embed: false }] }], folders: ["Guides"], tags: ["guide"] })
+      if (url.includes("/navigation/index")) return Response.json({ pages: [{ ...page, body: "", metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", heading: "Install", alias: "start", embed: false, page_id: 8 }] }, backlinks: [{ page_id: 8, path: "Guides/Start.md", embed: false }] }], folders: ["Guides"], tags: ["guide"], checkpoint: 12 })
       if (url.includes("/history/7?")) return Response.json([{ page_id: 7, revision: 2, path: "Home.md", title: "Home", content_digest: "a".repeat(64), deleted: false, author: { id: 1, login: "will" }, updated_at: "2026-09-26T00:00:00Z" }])
       if (init?.method === "DELETE") return new Response(null, { status: 204 })
       if (url.includes("per_page=50") && !url.includes("/history/")) return Response.json([page])
@@ -125,6 +125,7 @@ describe("the wiki spaces transport (#1922)", () => {
     const index = await run(transport.index("owner/repo", "private"))
     expect(index.pages[0]?.backlinks?.[0]).toEqual({ page_id: 8, path: "Guides/Start.md", embed: false })
     expect(index.folders).toEqual(["Guides"])
+    expect(index.checkpoint).toBe(12)
     await run(transport.history("owner/repo", "private", 7, 1))
     await run(transport.create("owner/repo", "private", { title: "Home", body: "# Home\n" }))
     await run(transport.patch("owner/repo", "private", "home", { path: "Guides/Home.md", expected_revision: 2 }))

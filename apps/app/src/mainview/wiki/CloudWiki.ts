@@ -76,7 +76,9 @@ export const CloudWikiIndex = z.object({
     backlinks: z.array(z.object({ page_id: positiveId, path: z.string(), heading: z.string().optional(), embed: z.boolean() })).nullish()
   })),
   folders: z.array(z.string()).nullish(),
-  tags: z.array(z.string()).nullish()
+  tags: z.array(z.string()).nullish(),
+  /** The event sequence the pages are at least as new as; resume `history/events` after it. */
+  checkpoint: z.number().int().nonnegative().optional()
 })
 export type CloudWikiIndex = z.infer<typeof CloudWikiIndex>
 
