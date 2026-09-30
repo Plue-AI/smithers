@@ -25,18 +25,22 @@ interface Response {
  */
 const host = (
   spawns: Array<ReadonlyArray<string>>,
-  responses: ReadonlyArray<readonly [string, Response]>
+  responses: ReadonlyArray<readonly [string, Response]>,
+  commands?: Array<ChildProcess.StandardCommand>
 ) =>
   Layer.succeed(ChildProcessSpawner.ChildProcessSpawner)(ChildProcessSpawner.makeNoop({
     spawn: (command) =>
       Effect.sync(() => {
         const standard = command as ChildProcess.StandardCommand
+        commands?.push(standard)
         const argv = [standard.command, ...standard.args]
         spawns.push(argv)
         // The working directory is part of what identifies a run: the baseline
         // is the same argv in the scratch worktree.
         const line = [...argv, standard.options.cwd ?? ""].join(" ")
-        const found = responses.find(([fragment]) => line.includes(fragment))?.[1] ?? {}
+        const found = responses.find(([fragment]) =>
+          line.includes(fragment) && (fragment !== "sh -c" || standard.command === "sh")
+        )?.[1] ?? {}
         const encode = (text: string) => Stream.make(new TextEncoder().encode(text))
         const stdout = encode(found.stdout ?? "")
         const stderr = encode(found.stderr ?? "")
@@ -107,6 +111,42 @@ const failureOf = <A>(exit: Exit.Exit<A, unknown>) =>
     : undefined
 
 describe("TestRun", () => {
+  it("refuses a disabled baseline before any runner or Git operation starts", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await execute(
+      Effect.exit(TestRun.run({ against: "base", selection: ["tests/test_x.py"] })).pipe(
+        Effect.provide(Layer.mergeAll(
+          host(spawns, [["pytest", { stdout: "3 passed in 0.1s\n" }]]),
+          TestRunner.layer({ command: "pytest", cwd: "/repo", baseline: false }),
+          tree
+        ))
+      )
+    )
+    expect(failureOf(exit)?.code).toBe("provider_unavailable")
+    expect(failureOf(exit)?.message).toMatch(/baseline/i)
+    expect(spawns).toEqual([])
+  })
+
+  it.each([undefined, "workspace"] as const)(
+    "still runs against %s when the host disables baselines",
+    async (against) => {
+      const spawns: Array<ReadonlyArray<string>> = []
+      const result = await execute(
+        TestRun.run(against === undefined ? {} : { against }).pipe(
+          Effect.provide(Layer.mergeAll(
+            host(spawns, [["pytest", { stdout: "3 passed in 0.1s\n" }]]),
+            TestRunner.layer({ command: "pytest", cwd: "/repo", baseline: false }),
+            tree
+          ))
+        )
+      )
+      expect(result).toMatchObject({ passed: 3, exitCode: 0 })
+      expect(Object.hasOwn(result, "base")).toBe(false)
+      expect(spawns).toHaveLength(1)
+      expect(spawns[0]?.[0]).toBe("bash")
+    }
+  )
+
   it("answers with a reading of the runner's report, not its output", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const result = await execute(Effect.provide(
@@ -129,7 +169,7 @@ describe("TestRun", () => {
     // never quoted into a command line.
     expect(spawns).toEqual([[
       "bash",
-      "-lc",
+      "-c",
       "python -m pytest -rA \"$@\"",
       "python -m pytest -rA",
       "tests/test_widen.py::test_narrows"
@@ -329,6 +369,112 @@ describe("TestRun", () => {
     expect(Object.hasOwn(result, "fixed")).toBe(false)
   })
 
+  it.each([undefined, "test-worker"])(
+    "runs a root-only baseline with container %s from its staged checkout",
+    async (container) => {
+      const spawns: Array<ReadonlyArray<string>> = []
+      const commands: Array<ChildProcess.StandardCommand> = []
+      const result = await execute(
+        TestRun.run({ against: "base" }).pipe(
+          Effect.provide(Layer.mergeAll(
+            host(spawns, [...shadowCheckout, ["rev-parse", { stdout: "abc123\n" }], ["pytest", {
+              stdout: "3 passed in 0.1s\n"
+            }]], commands),
+            TestRunner.layer({ command: "pytest", root: "/repo", ...(container === undefined ? {} : { container }) }),
+            tree,
+            Layer.succeed(Container.Container)(Container.makeCommand())
+          ))
+        )
+      )
+      expect(result).toMatchObject({ passed: 3, base: { passed: 3, commit: "abc123" } })
+      const runs = commands.filter((command) => command.command === (container === undefined ? "bash" : "docker"))
+      expect(runs).toHaveLength(2)
+      expect(runs[0]?.options.cwd).toBeUndefined()
+      const cleanup = spawns.at(-1)
+      const scratch = cleanup?.[3]
+      expect(cleanup).toEqual(["rm", "-rf", "--", expect.stringMatching(/^\/repo\/\.flows-test-base\/run-/)])
+      if (container === undefined) {
+        expect(runs[1]?.options.cwd).toBe(scratch)
+      } else {
+        expect(runs[0]?.args).not.toContain("-w")
+        expect(runs[1]?.args).toEqual(expect.arrayContaining(["-w", scratch, container]))
+        expect(runs[1]?.options.cwd).toBeUndefined()
+      }
+    }
+  )
+
+  it("refuses a baseline without a repository directory after reporting the current run", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await execute(
+      Effect.exit(TestRun.run({ against: "base" })).pipe(
+        Effect.provide(Layer.mergeAll(
+          host(spawns, [["pytest", { stdout: "3 passed in 0.1s\n" }]]),
+          TestRunner.layer({ command: "pytest" }),
+          tree
+        ))
+      )
+    )
+    expect(failureOf(exit)?.code).toBe("invalid_input")
+    expect(failureOf(exit)?.message).toContain("no repository directory")
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]?.[0]).toBe("bash")
+  })
+
+  it("preserves a caller Git startup failure instead of treating it as a missing base", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    let gitAttempts = 0
+    const exit = await execute(Effect.gen(function*() {
+      const current = yield* ChildProcessSpawner.ChildProcessSpawner.pipe(
+        Effect.provide(host(spawns, [["pytest", { stdout: "3 passed in 0.1s\n" }]]))
+      )
+      const caller = ChildProcessSpawner.makeNoop({
+        spawn: (command) => {
+          if ((command as ChildProcess.StandardCommand).command !== "git") return current.spawn(command)
+          gitAttempts++
+          return Effect.fail(new Error("caller git unavailable") as never)
+        }
+      })
+      return yield* Effect.exit(TestRun.run({ against: "base" })).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, caller),
+        Effect.provide(runner)
+      )
+    }))
+    expect(failureOf(exit)?.code).toBe("command_failed")
+    expect(failureOf(exit)?.message).toContain("caller git unavailable")
+    expect(gitAttempts).toBe(1)
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0]?.[0]).toBe("bash")
+  })
+
+  it("retains both runner streams in its returned report", async () => {
+    const result = await execute(
+      TestRun.run({}).pipe(
+        Effect.provide(Layer.merge(
+          host([], [["pytest", { stdout: "1 passed in 0.1s", stderr: "runner warning" }]]),
+          runner
+        ))
+      )
+    )
+    expect(result.tail).toBe("1 passed in 0.1s\nrunner warning")
+    expect(result.tailTruncated).toBe(false)
+  })
+
+  it("refuses a container runner without contacting the host when its transport is missing", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await execute(
+      Effect.exit(TestRun.run({})).pipe(
+        Effect.provide(Layer.mergeAll(
+          host(spawns, []),
+          TestRunner.layer({ command: "pytest", container: "test-worker" }),
+          tree
+        ))
+      )
+    )
+    expect(failureOf(exit)?.code).toBe("provider_unavailable")
+    expect(failureOf(exit)?.message).toContain("test-worker")
+    expect(spawns).toEqual([])
+  })
+
   it("falls back from the capture base to HEAD, and says which it used", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const result = await execute(Effect.provide(
@@ -430,7 +576,7 @@ describe("TestRun", () => {
       "--",
       "swebench-1",
       "bash",
-      "-lc",
+      "-c",
       "pytest -rA \"$@\"",
       "pytest -rA",
       "tests/test_x.py"
@@ -481,7 +627,7 @@ describe("TestRun", () => {
     ))
 
     expect(result.command).not.toContain("s3cret-value")
-    expect(result.command).toBe("bash -lc pytest \"$@\" pytest")
+    expect(result.command).toBe("bash -c pytest \"$@\" pytest")
     expect(result.tail).toBe("")
     expect(spawns[0]).toContain("SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD")
     expect(spawns[0]?.join(" ")).not.toContain("s3cret-value")

@@ -6,6 +6,7 @@
 
 import { GrantStoreError, permissionDenied } from "@smthrs/capability/Permission"
 import { Effect, Layer } from "effect"
+import { emptyPolicy as closedPolicy } from "../GrantStore.ts"
 import { GrantStore, layerNoop, type Resolution, type Service } from "../GrantStore.ts"
 
 /**
@@ -24,6 +25,7 @@ export const layerAllow: Layer.Layer<GrantStore> = layerNoop
  */
 export const layerDeny = (reason = "denied by test"): Layer.Layer<GrantStore> => {
   const service = GrantStore.of({
+    policy: closedPolicy,
     check: Effect.fn("GrantStore.check")((capability) => Effect.fail(permissionDenied(capability, reason))),
     reply: Effect.fn("GrantStore.reply")(() => Effect.fail(new GrantStoreError({ code: "request_not_found" }))),
     list: Effect.fn("GrantStore.list")(() => Effect.succeed([]))(),
@@ -48,6 +50,7 @@ export const layerScripted = (
     Effect.sync(() => {
       let index = 0
       const service: Service = GrantStore.of({
+        policy: closedPolicy,
         check: Effect.fn("GrantStore.check")((capability) =>
           Effect.suspend(() => {
             const reply = replies[index++]

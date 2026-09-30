@@ -3,6 +3,7 @@ import * as Capability from "@smthrs/capability/Capability"
 import { permissionDenied } from "@smthrs/capability/Permission"
 import * as HostJj from "@smthrs/jj"
 import { Deferred, Effect, Fiber, FileSystem as EffectFileSystem, Path } from "effect"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Jj from "../src/Jj.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -11,6 +12,7 @@ const itEffect = (name: string, effect: () => Effect.Effect<void, unknown, never
 
 const scriptedStore = (checks: Array<Capability.Capability>) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return Effect.void
@@ -216,6 +218,7 @@ describe("Jj", () => {
             })
         })
         const store = GrantStore.of({
+          policy: closedPolicy,
           check: (capability) => {
             checks.push(capability)
             return checks.length === 2
@@ -304,6 +307,7 @@ describe("Jj", () => {
     let invoked = false
     const checks: Array<Capability.Capability> = []
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) => {
         checks.push(capability)
         return Effect.fail(permissionDenied(capability, "denied by test"))

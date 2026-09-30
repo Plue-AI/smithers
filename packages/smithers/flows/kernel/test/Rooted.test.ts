@@ -10,8 +10,10 @@ import { join } from "node:path"
 import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as CommandLine from "../src/CommandLine.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as KernelPath from "../src/Path.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
 import * as Rooted from "../src/Rooted.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -30,6 +32,7 @@ const project = () => {
 }
 
 const allow = GrantStore.of({
+  policy: closedPolicy,
   check: () => Effect.void,
   reply: () => Effect.void,
   list: Effect.succeed([]),
@@ -221,7 +224,9 @@ describe("Rooted", () => {
           nested: yield* spawner.string(printCwd({ cwd: "src" }))
         }
       }).pipe(
-        Effect.provide(Layer.merge(GuardedSpawner.layer, KernelPath.layer)),
+        Effect.provide(
+          Layer.merge(GuardedSpawner.layer.pipe(Layer.provide(ProcessConfinement.layerNoop)), KernelPath.layer)
+        ),
         Effect.provide([Workspace.layer(root), Layer.succeed(GrantStore, allow)]),
         Effect.provide(NodeServices.layer)
       )

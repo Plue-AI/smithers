@@ -9,10 +9,12 @@ import {
   Stream
 } from "effect"
 import * as FileSystem from "../src/FileSystem.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 const allowAll = GrantStore.of({
+  policy: closedPolicy,
   check: () => Effect.void,
   reply: () => Effect.die("not used"),
   list: Effect.succeed([]),
@@ -20,6 +22,7 @@ const allowAll = GrantStore.of({
 })
 
 const neverGrants = GrantStore.of({
+  policy: closedPolicy,
   check: () => Effect.die("confined views never consult a grant store"),
   reply: () => Effect.die("not used"),
   list: Effect.succeed([]),

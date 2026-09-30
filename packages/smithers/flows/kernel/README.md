@@ -116,6 +116,7 @@ on the [API reference](https://kernel.smithers.sh/reference/api/).
 | `HttpClient`          | The guarded HTTP client: `net:get`, `net:post`, `model:call`, and every redirect hop rechecked.              |
 | `ChildProcessSpawner` | The guarded spawner over Effect's own tag.                                                                   |
 | `ContainedSpawner`    | A `SIGTERM`-then-`SIGKILL` deadline on every child, and a ledger entry released when its scope closes.       |
+| `ProcessConfinement`  | Host confinement for approved processes, derived conservatively from effective grants and ceilings.          |
 | `ProcessLedger`       | The durable record of spawned processes, and the `orphans` a dead host leaves its successor to reap.         |
 | `CommandLine`         | The one renderer shared by the `proc:spawn` capability resource and the interpreters that run the line.      |
 | `Jj`                  | The guarded [Jujutsu](https://jj-vcs.github.io) repository port over `@smthrs/jj`'s own tag.                 |

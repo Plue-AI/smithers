@@ -6,7 +6,9 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, ExitCode, make, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -68,6 +70,7 @@ describe("contained pipeline wiring", () => {
       const test = fixture()
       const checks: Array<string> = []
       const store = GrantStore.of({
+        policy: closedPolicy,
         check: (capability) => {
           checks.push(capability.resource)
           return capability.resource !== denied
@@ -87,7 +90,12 @@ describe("contained pipeline wiring", () => {
         expect(checks).toEqual(denied === "first" ? ["first"] : ["first", "last"])
         expect(test.commands.map((command) => command.command)).toEqual(allowed ? ["first", "last"] : [])
       }).pipe(
-        Effect.provide(GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))),
+        Effect.provide(
+          GuardedSpawner.layer.pipe(
+            Layer.provide(ProcessConfinement.layerNoop),
+            Layer.provide([Workspace.layerNoop, Path.layer])
+          )
+        ),
         Effect.provide(test.layer),
         Effect.provideService(GrantStore, store),
         Effect.scoped

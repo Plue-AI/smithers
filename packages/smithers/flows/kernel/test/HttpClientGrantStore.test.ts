@@ -4,6 +4,7 @@ import { Deferred, Effect, Fiber, Option } from "effect"
 import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import * as GrantStore from "../src/GrantStore.ts"
 import * as HttpClient from "../src/HttpClient.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -113,6 +114,7 @@ describe("HttpClient with a real GrantStore lifecycle", () => {
         const checks: Array<unknown> = []
         const calls: Array<readonly [string, string, string | undefined]> = []
         const store = GrantStore.GrantStore.of({
+          policy: closedPolicy,
           check: (capability) => {
             checks.push(capability)
             return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))

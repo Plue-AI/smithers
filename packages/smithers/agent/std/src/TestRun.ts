@@ -235,7 +235,7 @@ export const presentation = {
  * The invocation for one run: the declared command line with the selection
  * appended as arguments rather than as text.
  *
- * `bash -lc '<command> "$@"' <command> id…` is how a selection reaches a runner
+ * `bash -c '<command> "$@"' <command> id…` is how a selection reaches a runner
  * without being quoted into it. A test id holds `::`, `[`, `]`, spaces and
  * shell metacharacters routinely, and every one of them is data here.
  */
@@ -244,7 +244,7 @@ const invocation = (
   selection: ReadonlyArray<string>
 ): { readonly file: string; readonly args: ReadonlyArray<string> } => ({
   file: "bash",
-  args: ["-lc", `${runner.command} "$@"`, runner.command, ...selection]
+  args: ["-c", `${runner.command} "$@"`, runner.command, ...selection]
 })
 
 const failed = (message: string, code: StdError.Code = "command_failed"): StdError.StdError =>
@@ -257,7 +257,7 @@ const execute = (
   options: {
     readonly selection: ReadonlyArray<string>
     readonly cwd: string | undefined
-    readonly timeoutMs: number | undefined
+    readonly timeoutMs: number
   }
 ): Effect.Effect<
   { readonly outcome: typeof Outcome.Type; readonly report: TestReport.Report },
@@ -284,7 +284,7 @@ const execute = (
       args: [...routed.args],
       ...(options.cwd === undefined || runner.container !== undefined ? {} : { cwd: options.cwd }),
       ...(routed.env === undefined ? {} : { env: routed.env }),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      timeoutMs: options.timeoutMs,
       maxCaptureBytes: MAX_CAPTURE_BYTES
     }).pipe(
       Effect.mapError((error) =>
@@ -330,10 +330,10 @@ const execute = (
 /**
  * Runs the declared suite, and on request the same suite on the pristine base.
  *
- * The baseline is a detached checkout of the base commit inside the repository,
- * so a runner that reaches the repository through a mount reaches the checkout
- * the same way. Host git writes it from a shadow `GIT_DIR`, never the
- * workspace's `.git`, so no program that directory names runs on the host. It is removed when the call ends, however it ends.
+ * Baseline Git and both runners use the caller-provided process service.
+ * A host that cannot safely stage the base declares `baseline: false`, which
+ * refuses the request before running either suite or Git. Library hosts that
+ * support staging remove the detached checkout when the call ends.
  *
  * @category handlers
  * @since 1.0.0
@@ -347,6 +347,12 @@ export const run = Effect.fn("TestRun.run")(function*(
 > {
   const declaration = yield* TestRunner.TestRunner
   const runner = yield* declaration.declared
+  if (input.against === "base" && runner.baseline === false) {
+    return yield* Effect.fail(failed(
+      "Baseline comparison is unavailable on this host. Run against the workspace.",
+      "provider_unavailable"
+    ))
+  }
   const transport = yield* Effect.serviceOption(Container.Container)
   const selection = input.selection ?? []
   const timeoutMs = input.timeoutMs ?? runner.timeoutMs ?? DEFAULT_TIMEOUT_MS

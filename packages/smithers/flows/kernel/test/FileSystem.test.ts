@@ -17,6 +17,7 @@ import {
 } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import * as FileSystem from "../src/FileSystem.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -31,6 +32,7 @@ const denial = (error: unknown) => Option.getOrThrow(Permission.fromPlatformErro
 
 const scriptedStore = (allowed: ReadonlySet<string>, checks: Array<Capability.Capability>) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return allowed.has(`${capability.action}:${capability.resource}`)
@@ -832,6 +834,7 @@ describe("FileSystem", () => {
         const checks: Array<Capability.Capability> = []
         const delegated: Array<unknown> = []
         const grants = GrantStore.of({
+          policy: closedPolicy,
           check: (capability) => {
             checks.push(capability)
             return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
@@ -892,6 +895,7 @@ describe("FileSystem", () => {
     Object.defineProperty(removeOptions, "hidden", { enumerable: false, value: "ignored" })
     const calls: Array<unknown> = []
     const grants = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) =>
         Effect.sync(() => {
           if (capability.action === "fs:read") {
@@ -963,6 +967,7 @@ describe("FileSystem", () => {
     let reads = 0
     let writes = 0
     const grants = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) => {
         checks.push(capability)
         return allowed

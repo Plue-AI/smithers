@@ -28,12 +28,15 @@ import {
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { isAbsolute, join, relative } from "node:path"
 import * as FileSystem from "../src/FileSystem.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import * as GrantStore from "../src/GrantStore.ts"
 import * as HostServices from "../src/HostServices.ts"
 import * as KernelHttpClient from "../src/HttpClient.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 const allowAll = GrantStore.GrantStore.of({
+  policy: closedPolicy,
   check: () => Effect.void,
   reply: () => Effect.die("not used by aggregate-layer tests"),
   list: Effect.succeed([]),
@@ -166,6 +169,7 @@ describe("HostServices", () => {
         expect((yield* client.get("https://example.test/health")).status).toBe(200)
       }).pipe(
         Effect.provide(HostServices.layer),
+        Effect.provide(ProcessConfinement.layerNoop),
         Effect.provideService(EffectFileSystem.FileSystem, fileSystem),
         Effect.provideService(EffectHttpClient.HttpClient, http),
         Effect.provide(testHost),
@@ -179,6 +183,7 @@ describe("HostServices", () => {
     Effect.gen(function*() {
       const checks: Array<Capability.Capability> = []
       const deny = GrantStore.GrantStore.of({
+        policy: closedPolicy,
         check: (capability) => {
           checks.push(capability)
           return Effect.fail(Permission.permissionDenied(capability, "denied by integration test"))
@@ -223,6 +228,7 @@ describe("HostServices", () => {
         })
       }).pipe(
         Effect.provide(HostServices.layer),
+        Effect.provide(ProcessConfinement.layerNoop),
         Effect.provideService(EffectFileSystem.FileSystem, fileSystem),
         Effect.provideService(EffectHttpClient.HttpClient, http),
         Effect.provide(testHost),
@@ -285,6 +291,7 @@ describe("HostServices", () => {
             expect(calls).toEqual(["https://example.test/allow"])
           }).pipe(
             Effect.provide(HostServices.layer),
+            Effect.provide(ProcessConfinement.layerNoop),
             Effect.provideService(EffectFileSystem.FileSystem, fileSystem),
             Effect.provideService(EffectHttpClient.HttpClient, http),
             Effect.provide(testHost),

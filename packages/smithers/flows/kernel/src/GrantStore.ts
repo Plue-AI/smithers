@@ -69,13 +69,38 @@ export interface EnvelopeGrantOptions {
   readonly scope?: "run" | "remembered" | undefined
 }
 
-/**
- * Operations exposed by the grant store.
- *
+/** A policy rule and the authority captured when it was granted.
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface PolicyRule {
+  readonly rule: Rule
+  readonly ceiling: Pick<CapabilitySet, "groups">
+}
+
+/** Atomic ordered policy snapshot, bounded by the calling fiber.
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface Policy {
+  readonly groups: ReadonlyArray<ReadonlyArray<PolicyRule>>
+  readonly ceiling: CapabilitySet
+}
+
+/** A conservative snapshot for services that expose no durable authority.
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const emptyPolicy: Effect.Effect<Policy> = current.pipe(
+  Effect.map((ceiling) => Object.freeze({ groups: Object.freeze([]), ceiling }))
+)
+
+/** Operations exposed by the grant store.
  * @category models
  * @since 1.0.0-rc.0
  */
 export interface Service {
+  readonly policy: Effect.Effect<Policy, GrantStoreError>
   readonly check: (
     capability: Capability,
     meta?: Record<string, unknown>
@@ -1257,7 +1282,24 @@ export const make = (
       })
     )
 
-    return GrantStore.of({ check, reply, list, grantEnvelope })
+    const policy: Service["policy"] = mutation.withPermit(Effect.gen(function*() {
+      if (closed) return yield* Effect.fail(new GrantStoreError({ code: "store_closed" }))
+      const ceiling = yield* current
+      const unbounded = (rules: ReadonlyArray<Rule>) =>
+        rules.map((rule) =>
+          Object.freeze({ rule: snapshotRule(rule), ceiling: Object.freeze({ groups: Object.freeze([]) }) })
+        )
+      return Object.freeze({
+        ceiling,
+        groups: Object.freeze([
+          unbounded(configuredRules),
+          unbounded(envelopeRules),
+          runRules.map(({ rule, ceiling }) => Object.freeze({ rule: snapshotRule(rule), ceiling })),
+          unbounded(rememberedRules)
+        ].map((group) => Object.freeze(group)))
+      })
+    }))
+    return GrantStore.of({ check, reply, list, grantEnvelope, policy })
   })
 
 /**
@@ -1277,6 +1319,17 @@ export const layer = (
  * @since 1.0.0-rc.0
  */
 export const makeNoop: Service = GrantStore.of({
+  policy: current.pipe(Effect.map((ceiling) =>
+    Object.freeze({
+      ceiling,
+      groups: Object.freeze([Object.freeze((["*", "net:private"] as const).map((action) =>
+        Object.freeze({
+          rule: snapshotRule(new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource: "**" }) })),
+          ceiling: Object.freeze({ groups: Object.freeze([]) })
+        })
+      ))])
+    })
+  )),
   check: Effect.fn("GrantStore.check")(() => Effect.void),
   reply: Effect.fn("GrantStore.reply")(() => Effect.void),
   list: Effect.fn("GrantStore.list")(() => Effect.succeed([]))(),

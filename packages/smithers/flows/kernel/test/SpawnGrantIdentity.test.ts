@@ -25,6 +25,7 @@ import * as ChildProcessEnvironment from "../src/ChildProcessEnvironment.ts"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
 import * as CommandLine from "../src/CommandLine.ts"
 import * as GrantStore from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 const spawned: Array<ChildProcess.Command> = []
@@ -53,6 +54,7 @@ const allow = (resource: string) =>
 
 const guarded = (rules: ReadonlyArray<Permission.Rule>) =>
   ChildProcessSpawner.layer.pipe(
+    Layer.provide(ProcessConfinement.layerNoop),
     Layer.provide(GrantStore.layer({ attended: false, rules })),
     Layer.provide([Workspace.layer("/workspace"), Path.layer, Layer.succeed(HostChildProcessSpawner)(host)])
   )
@@ -228,15 +230,20 @@ describe("proc:spawn grant identity", () => {
           const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
           const exit = yield* Effect.exit(spawner.exitCode(command))
           return { exit, spawned: spawned.length }
-        }).pipe(Effect.provide(ChildProcessSpawner.layer.pipe(
-          Layer.provide(GrantStore.layer({ attended: false, rules })),
-          Layer.provide([
-            Workspace.layer(workspace),
-            NodePath.layer,
-            NodeFileSystem.layer,
-            Layer.succeed(HostChildProcessSpawner)(host)
-          ])
-        )))
+        }).pipe(
+          Effect.provide(
+            ChildProcessSpawner.layer.pipe(
+              Layer.provide(ProcessConfinement.layerNoop),
+              Layer.provide(GrantStore.layer({ attended: false, rules })),
+              Layer.provide([
+                Workspace.layer(workspace),
+                NodePath.layer,
+                NodeFileSystem.layer,
+                Layer.succeed(HostChildProcessSpawner)(host)
+              ])
+            )
+          )
+        )
       try {
         const linked = ChildProcess.make("git", ["status"], { cwd: NodePathModule.join(workspace, "link") })
         const bare = yield* onDisk([allow("git status")], linked)

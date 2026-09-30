@@ -166,6 +166,7 @@ The decision service every decorator consults.
 
 ```ts
 interface Service {
+  readonly policy: Effect.Effect<Policy, GrantStoreError>
   readonly check: (
     capability: Capability,
     meta?: Record<string, unknown>
@@ -199,6 +200,27 @@ admission adopts the in-flight outcome. Admissions reserve rule and envelope
 signature capacity before writing, so distinct concurrent decisions cannot
 exceed either ceiling. Failed or interrupted writes release their reservations;
 successful writes convert them to active grants.
+
+### GrantStore.Policy, PolicyRule and emptyPolicy
+
+```ts
+interface PolicyRule {
+  readonly rule: Rule
+  readonly ceiling: Pick<CapabilitySet, "groups">
+}
+interface Policy {
+  readonly groups: ReadonlyArray<ReadonlyArray<PolicyRule>>
+  readonly ceiling: CapabilitySet
+}
+const emptyPolicy: Effect.Effect<Policy>
+```
+
+`policy` takes one immutable snapshot under the mutation permit. Groups retain
+configured, envelope, captured run and remembered rule ordering. Each run rule
+retains its captured ceiling; `ceiling` is the caller's current authority.
+Closed stores fail with `store_closed`. Pending and once approvals provide no
+persistent authority. Custom services with no provable authority can use
+`emptyPolicy`, which opens nothing.
 
 ### GrantStore.PendingRequest
 
@@ -879,6 +901,56 @@ command that cannot be snapshotted fails with an `InvalidData` `PlatformError`.
 A command with no `cwd`, or a relative one, runs in `Workspace.root`, never the
 process's own directory, and the check sees that resolved directory.
 
+## ProcessConfinement
+
+The host service required for guarded processes, imported from
+`@smthrs/kernel/ProcessConfinement`.
+After every process permission check succeeds, `ChildProcessSpawner.layer`
+derives one profile and wraps every pipeline stage before spawning anything.
+Absent this service, spawning fails with a `NotFound` `PlatformError` before
+any child starts. `layerNoop` explicitly opts out of OS confinement. Wrapper
+failures start no child.
+
+```ts
+interface Profile {
+  readonly workspaceRoot: string
+  readonly reads: ReadonlyArray<string>
+  readonly writes: ReadonlyArray<string>
+  readonly readOnly: ReadonlyArray<string>
+  readonly network: "none" | "open"
+}
+interface Service {
+  readonly confine: (
+    command: ChildProcess.StandardCommand,
+    profile: Profile
+  ) => Effect.Effect<ChildProcess.StandardCommand, PlatformError, Scope.Scope>
+}
+class ProcessConfinement extends Context.Service<ProcessConfinement, Service>()(
+  "@smthrs/kernel/ProcessConfinement"
+) {}
+const profile: (
+  grants: GrantStore.Service,
+  workspaceRoot: string,
+  path: Path.Path
+) => Effect.Effect<Profile, GrantStoreError>
+const makeNoop: Service
+const layerNoop: Layer.Layer<ProcessConfinement>
+```
+
+Paths are workspace-relative, with `.` naming the root. Projection proves a
+subset of effective authority using whole-tree coverage, configured deny
+precedence and captured/current ceilings. Literal filesystem permissions and
+complex globs open no tree unless a separate whole-tree grant covers it.
+Universal `*` and `**` resources cover the workspace. Writable trees also
+require read authority over the same tree and write authority for its directory
+entry. Native writable mounts expose existing data and directory metadata.
+Unrepresentable refusals conservatively close affected access; `readOnly` is
+currently empty. Narrow tree ceilings can produce a smaller allowed tree.
+Network opens only when unrestricted get, post and explicit private authority
+are all proved. Restricted egress remains closed. Host confinement may also
+provide system reads needed to launch programs and mask credential paths.
+`makeNoop` and `layerNoop` explicitly choose unconfined execution.
+
 ## ChildProcessEnvironment
 
 Least-authority construction for a child process's replacement environment.
@@ -1428,7 +1500,7 @@ unbounded hostile input.
 ## What the kernel does not do
 
 :::warning
-The kernel checks capabilities at adapter call sites. It does not sandbox the operating system and cannot observe host access that bypasses the decorated services. Hermetic execution additionally requires a `StepBoundary`.
+The kernel checks capabilities at adapter call sites. Child processes require a host `ProcessConfinement` to enforce filesystem and network grants in the operating system. An explicit unconfined layer leaves child access outside the kernel boundary. Hermetic build execution additionally requires a `StepBoundary`.
 :::
 
 See [Capabilities and the host kernel](/docs/concepts/kernel/) and the platform

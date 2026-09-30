@@ -13,7 +13,9 @@ import {
 } from "effect/unstable/process/ChildProcessSpawner"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
 import * as CommandLine from "../src/CommandLine.ts"
-import { GrantStore } from "../src/GrantStore.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
+import { emptyPolicy, GrantStore } from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 /**
@@ -21,7 +23,8 @@ import * as Workspace from "../src/Workspace.ts"
  * POSIX-only, so a relative root would resolve against the process's own
  * directory, a drive path on Windows.
  */
-const guarded = ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("/workspace"), Path.layer]))
+const confinedGuarded = ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("/workspace"), Path.layer]))
+const guarded = confinedGuarded.pipe(Layer.provide(ProcessConfinement.layerNoop))
 
 const itEffect = (name: string, effect: () => Effect.Effect<void, unknown, never>) => it.effect(name, () => effect())
 
@@ -34,6 +37,7 @@ const denial = (error: unknown) => Option.getOrThrow(Permission.fromPlatformErro
 
 const scriptedStore = (allowed: ReadonlySet<string>, checks: Array<Capability.Capability>) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return allowed.has(`${capability.action}:${capability.resource}`)
@@ -124,6 +128,7 @@ describe("ChildProcessSpawner", () => {
   itEffect("preserves PermissionRequired through the PlatformError projection", () => {
     let invoked = false
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) =>
         Effect.fail(Permission.permissionRequired({
           requestId: "permission-7",
@@ -162,6 +167,7 @@ describe("ChildProcessSpawner", () => {
   itEffect("preserves GrantStoreError through the PlatformError projection", () => {
     let invoked = false
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: () =>
         Effect.fail(
           new Permission.GrantStoreError({
@@ -215,6 +221,7 @@ describe("ChildProcessSpawner", () => {
         const checked: Array<readonly [string, unknown]> = []
         let delegated: ChildProcess.Command | undefined
         const store = GrantStore.of({
+          policy: closedPolicy,
           check: (capability, context) =>
             Effect.all([
               Effect.sync(() => checked.push([capability.resource, context])),
@@ -333,6 +340,7 @@ describe("ChildProcessSpawner", () => {
   itEffect("passes the command's cwd to the grant check without changing no-env metadata", () => {
     const seen: Array<unknown> = []
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (capability, context) => {
         seen.push({ capability, context })
         return Effect.void
@@ -376,6 +384,7 @@ describe("ChildProcessSpawner", () => {
   itEffect("passes sorted environment names without values to the grant check", () => {
     const seen: Array<unknown> = []
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (capability, context) => {
         seen.push({ capability, context })
         return Effect.void
@@ -408,6 +417,7 @@ describe("ChildProcessSpawner", () => {
       Array.from({ length: 71 }, (_, index) => [`NAME_${String(index).padStart(2, "0")}`, `value-${index}`])
     )
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (_capability, context) => {
         seen.push(context)
         return Effect.void
@@ -438,6 +448,7 @@ describe("ChildProcessSpawner", () => {
       Array.from({ length: 64 }, (_, index) => [`NAME_${String(index).padStart(2, "0")}`, `value-${index}`])
     )
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (_capability, context) => {
         seen.push(context)
         return Effect.void
@@ -466,6 +477,7 @@ describe("ChildProcessSpawner", () => {
     const checked: Array<unknown> = []
     const spawned: Array<string | undefined> = []
     const store = GrantStore.of({
+      policy: closedPolicy,
       check: (_capability, context) => {
         checked.push(context?.cwd)
         return Effect.void
@@ -483,7 +495,11 @@ describe("ChildProcessSpawner", () => {
       expect(checked).toEqual(expected)
       expect(spawned).toEqual(expected)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("D:\\work"), NodePath.layerWin32]))),
+      Effect.provide(
+        ChildProcessSpawner.layer.pipe(
+          Layer.provide([Workspace.layer("D:\\work"), NodePath.layerWin32, ProcessConfinement.layerNoop])
+        )
+      ),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "out", onSpawn: (command) => spawned.push(CommandLine.cwd(command)) })
@@ -695,3 +711,186 @@ describe("ChildProcessSpawner", () => {
     )
   })
 })
+
+describe("ChildProcessSpawner confinement", () => {
+  it.effect("checks all stages before wrapping nested pipeline and preserves routing", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const events: Array<string> = []
+      let spawned: ChildProcess.Command | undefined
+      const store = {
+        ...scriptedStore(new Set(), []),
+        policy: emptyPolicy,
+        check: (capability: Capability.Capability) =>
+          Effect.sync(() => {
+            events.push(`check:${capability.resource}`)
+          })
+      }
+      const confinement = {
+        confine: (command: ChildProcess.StandardCommand, profile: ProcessConfinement.Profile) =>
+          Effect.sync(() => {
+            events.push(`wrap:${command.command}`)
+            expect(profile).toMatchObject({ workspaceRoot: "/workspace", writes: [], network: "none" })
+            expect(command.options.cwd).toBe("/workspace")
+            return ChildProcess.make("sandbox", [command.command, ...command.args], command.options)
+          })
+      }
+      const command = ChildProcess.make("first", ["a"]).pipe(
+        ChildProcess.pipeTo(ChildProcess.make("second"), { from: "stderr" }),
+        ChildProcess.pipeTo(ChildProcess.make("third"))
+      )
+      yield* Effect.gen(function*() {
+        const spawner = yield* HostChildProcessSpawner
+        yield* spawner.spawn(command)
+      }).pipe(
+        Effect.provide(confinedGuarded),
+        Effect.provideService(
+          HostChildProcessSpawner,
+          hostSpawner({
+            stdout: "",
+            onSpawn: (command) => {
+              spawned = command
+              events.push("spawn")
+            }
+          })
+        ),
+        Effect.provideService(GrantStore, store),
+        Effect.provideService(ProcessConfinement.ProcessConfinement, confinement)
+      )
+      expect(events).toEqual([
+        "check:first a",
+        "check:second",
+        "check:third",
+        "wrap:first",
+        "wrap:second",
+        "wrap:third",
+        "spawn"
+      ])
+      expect(CommandLine.stages(spawned!).map((stage) => stage.command)).toEqual(["sandbox", "sandbox", "sandbox"])
+      if (spawned!._tag === "PipedCommand" && spawned!.left._tag === "PipedCommand") {
+        expect(spawned!.left.options).toEqual({ from: "stderr" })
+      }
+    })))
+  it.effect("later wrapper failure starts zero processes", () =>
+    Effect.scoped(Effect.gen(function*() {
+      let wraps = 0
+      let spawns = 0
+      const confinement = {
+        confine: (command: ChildProcess.StandardCommand) =>
+          ++wraps === 1 ? Effect.succeed(command) : Effect.fail(Permission.toPlatformError({
+            module: "ChildProcessSpawner",
+            method: "spawn",
+            error: Permission.permissionDenied(
+              new Capability.Capability({ action: "proc:spawn", resource: "second" }),
+              "wrapper unavailable"
+            )
+          }))
+      }
+      const error = yield* Effect.gen(function*() {
+        const spawner = yield* HostChildProcessSpawner
+        return yield* Effect.flip(
+          spawner.spawn(ChildProcess.make("first").pipe(ChildProcess.pipeTo(ChildProcess.make("second"))))
+        )
+      }).pipe(
+        Effect.provide(confinedGuarded),
+        Effect.provideService(
+          HostChildProcessSpawner,
+          hostSpawner({
+            stdout: "",
+            onSpawn: () => {
+              spawns++
+            }
+          })
+        ),
+        Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:first", "proc:spawn:second"]), [])),
+        Effect.provideService(ProcessConfinement.ProcessConfinement, confinement)
+      )
+      expect(denial(error)).toMatchObject({ reason: "wrapper unavailable" })
+      expect(wraps).toBe(2)
+      expect(spawns).toBe(0)
+    })))
+  it.effect("denied approval never wraps", () =>
+    Effect.scoped(Effect.gen(function*() {
+      let wraps = 0
+      yield* Effect.gen(function*() {
+        const spawner = yield* HostChildProcessSpawner
+        yield* Effect.flip(spawner.spawn(ChildProcess.make("denied")))
+      }).pipe(
+        Effect.provide(confinedGuarded),
+        Effect.provideService(
+          HostChildProcessSpawner,
+          hostSpawner({
+            stdout: "",
+            onSpawn: () => {
+              throw new Error("must not spawn")
+            }
+          })
+        ),
+        Effect.provideService(GrantStore, scriptedStore(new Set(), [])),
+        Effect.provideService(ProcessConfinement.ProcessConfinement, {
+          confine: (command) =>
+            Effect.sync(() => {
+              wraps++
+              return command
+            })
+        })
+      )
+      expect(wraps).toBe(0)
+    })))
+})
+
+it.effect("confinement snapshot failure is typed and starts no process", () =>
+  Effect.scoped(Effect.gen(function*() {
+    let wrapped = false
+    const error = yield* Effect.gen(function*() {
+      const spawner = yield* HostChildProcessSpawner
+      return yield* Effect.flip(spawner.spawn(ChildProcess.make("tool")))
+    }).pipe(
+      Effect.provide(confinedGuarded),
+      Effect.provideService(
+        HostChildProcessSpawner,
+        hostSpawner({
+          stdout: "",
+          onSpawn: () => {
+            throw new Error("must not spawn")
+          }
+        })
+      ),
+      Effect.provideService(GrantStore, {
+        ...scriptedStore(new Set(["proc:spawn:tool"]), []),
+        policy: Effect.fail(new Permission.GrantStoreError({ code: "store_closed" }))
+      }),
+      Effect.provideService(ProcessConfinement.ProcessConfinement, {
+        confine: (command) =>
+          Effect.sync(() => {
+            wrapped = true
+            return command
+          })
+      })
+    )
+    expect(denial(error)).toMatchObject({ code: "store_closed" })
+    expect(wrapped).toBe(false)
+  })))
+
+it.effect("missing confinement refuses approved commands without spawning", () =>
+  Effect.scoped(Effect.gen(function*() {
+    let spawns = 0
+    const error = yield* Effect.gen(function*() {
+      const spawner = yield* HostChildProcessSpawner
+      return yield* Effect.flip(spawner.spawn(ChildProcess.make("tool")))
+    }).pipe(
+      Effect.provide(ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("/workspace"), Path.layer]))),
+      Effect.provideService(
+        HostChildProcessSpawner,
+        hostSpawner({
+          stdout: "",
+          onSpawn: () => {
+            spawns++
+          }
+        })
+      ),
+      Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:tool"]), []))
+    )
+    expect(error.reason._tag).toBe("NotFound")
+    expect(error.reason.module).toBe("ProcessConfinement")
+    expect(spawns).toBe(0)
+  })))

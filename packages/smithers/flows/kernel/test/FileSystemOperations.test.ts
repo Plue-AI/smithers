@@ -3,6 +3,7 @@ import * as Capability from "@smthrs/capability/Capability"
 import { fromPlatformError, permissionDenied } from "@smthrs/capability/Permission"
 import { Effect, FileSystem as EffectFileSystem, Option, Path as EffectPath, PlatformError, Sink, Stream } from "effect"
 import * as FileSystem from "../src/FileSystem.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -18,6 +19,7 @@ const scriptedStore = (
   checks: Array<Capability.Capability>
 ) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return allowed(capability)

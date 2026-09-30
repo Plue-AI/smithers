@@ -69,6 +69,12 @@ Some of them export more than the common nine:
 | `UpdatePlan`   | `StepStatus`, `Plan`                                                                        |
 | `WebSearch`    | the `WebSearch` service, `make`, `makeNoop`, `layerNoop`                                    |
 
+A runner declared with `baseline: false` refuses `against: "base"` before
+running any process. The native CLI sets this flag until an isolated staging
+provider is available ([#3234](https://github.com/smithersai/smithers/issues/3234)). Workspace tests still use the confined runner. Library
+hosts that omit the flag keep baseline Git on their caller-provided spawner.
+The runner wrapper uses `bash -c` and does not execute host login profiles.
+
 ## Manifest
 
 The whole library keyed by registry name. Every registry is frozen.
@@ -287,15 +293,15 @@ reports no `mutated` at all.
 
 How the project under test runs its suite, declared once by the host.
 
-| Export        | Type                                    | Meaning                                                                     |
-| ------------- | --------------------------------------- | --------------------------------------------------------------------------- |
-| `captureBase` | `"refs/flows/capture-base"`             | The default ref naming the pristine tree.                                   |
-| `Runner`      | interface                               | `command`, `cwd?`, `root?`, `container?`, `env?`, `baseRef?`, `timeoutMs?`. |
-| `TestRunner`  | interface and `Context.Service` tag     | `{ declared: Effect<Runner, StdError> }`.                                   |
-| `make`        | `(runner: Runner) => TestRunner`        |                                                                             |
-| `makeNoop`    | `() => TestRunner`                      | Declares that this host knows of no runner.                                 |
-| `layer`       | `(runner: Runner) => Layer<TestRunner>` |                                                                             |
-| `layerNoop`   | `Layer<TestRunner>`                     |                                                                             |
+| Export        | Type                                    | Meaning                                                                                         |
+| ------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `captureBase` | `"refs/flows/capture-base"`             | The default ref naming the pristine tree.                                                       |
+| `Runner`      | interface                               | `command`, `cwd?`, `root?`, `container?`, `env?`, `baseRef?`, `baseline?: false`, `timeoutMs?`. |
+| `TestRunner`  | interface and `Context.Service` tag     | `{ declared: Effect<Runner, StdError> }`.                                                       |
+| `make`        | `(runner: Runner) => TestRunner`        |                                                                                                 |
+| `makeNoop`    | `() => TestRunner`                      | Declares that this host knows of no runner.                                                     |
+| `layer`       | `(runner: Runner) => Layer<TestRunner>` |                                                                                                 |
+| `layerNoop`   | `Layer<TestRunner>`                     |                                                                                                 |
 
 ## Checkpoints
 

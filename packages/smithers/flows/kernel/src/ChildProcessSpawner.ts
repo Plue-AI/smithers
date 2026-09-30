@@ -3,8 +3,8 @@
  *
  * Smithers has no shell service of its own — process execution is Effect's
  * `effect/unstable/process`. The only thing the kernel adds is the
- * `proc:spawn` capability check, applied to the one primitive every other
- * helper is derived from.
+ * `proc:spawn` capability check and the host confinement wrapper, applied to
+ * the one primitive every other helper is derived from.
  *
  * There is no kernel spawner interface and no kernel spawner tag. Effect owns
  * both, and its tag fixes the error channel to `PlatformError`, so this module
@@ -23,14 +23,15 @@
  */
 
 import { toPlatformError } from "@smthrs/capability/Permission"
-import { Effect, FileSystem, Layer, Option, Path } from "effect"
-import { systemError } from "effect/PlatformError"
+import { Effect, FileSystem, Layer, Option, Path, type Scope } from "effect"
+import { type PlatformError, systemError } from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CommandLine from "./CommandLine.ts"
 import { GrantStore } from "./GrantStore.ts"
 import * as Containment from "./internal/Containment.ts"
 import { makeCapability } from "./internal/makeCapability.ts"
+import * as ProcessConfinement from "./ProcessConfinement.ts"
 import * as Rooted from "./Rooted.ts"
 import { Workspace } from "./Workspace.ts"
 
@@ -262,6 +263,10 @@ export const layerNoop = (
  * paths are included explicitly in the resource; browser and remote adapters
  * reject them rather than silently substituting a different shell.
  *
+ * Every approved stage requires `ProcessConfinement` in the host context.
+ * A missing service refuses spawning; its `layerNoop` is the explicit choice
+ * for an unconfined host.
+ *
  * Pipeline `from`/`to` routing remains outside the grant. The working
  * directory and overridden environment names also reach attended surfaces as
  * display metadata; environment values never leave the command.
@@ -288,6 +293,7 @@ export const layer: Layer.Layer<
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
     const grants = yield* GrantStore
+    const confinement = yield* Effect.serviceOption(ProcessConfinement.ProcessConfinement)
     const path = yield* Path.Path
     const rooted = Rooted.path(path, path.resolve((yield* Workspace).root))
     const root = rooted.resolve(".")
@@ -344,6 +350,44 @@ export const layer: Layer.Layer<
     }
     const check = (command: ChildProcess.Command) =>
       Effect.forEach(CommandLine.stages(command), checkStage, { discard: true })
+    const confine = (
+      command: ChildProcess.Command
+    ): Effect.Effect<
+      ChildProcess.Command,
+      PlatformError,
+      Scope.Scope
+    > =>
+      Option.match(confinement, {
+        onNone: () =>
+          Effect.fail(systemError({
+            _tag: "NotFound",
+            module: "ProcessConfinement",
+            method: "confine",
+            description:
+              "process confinement is required; use ProcessConfinement.layerNoop to explicitly run unconfined"
+          })),
+        onSome: (service) =>
+          Effect.gen(function*() {
+            const profile = yield* ProcessConfinement.profile(grants, root, path).pipe(
+              Effect.mapError((error) => toPlatformError({ module: "ChildProcessSpawner", method: "spawn", error }))
+            )
+            const wrap = (
+              command: ChildProcess.Command
+            ): Effect.Effect<
+              ChildProcess.Command,
+              PlatformError,
+              Scope.Scope
+            > =>
+              command._tag === "StandardCommand"
+                ? service.confine(command, profile)
+                : Effect.gen(function*() {
+                  const left = yield* wrap(command.left)
+                  const right = yield* wrap(command.right)
+                  return ChildProcess.pipeTo(right, command.options)(left)
+                })
+            return yield* wrap(command)
+          })
+      })
     return Containment.inherit(
       spawner,
       makeSpawner(
@@ -359,7 +403,9 @@ export const layer: Layer.Layer<
               })
           }).pipe(
             Effect.map((snapshot) => Rooted.command(snapshot, rooted)),
-            Effect.flatMap((rooted) => check(rooted).pipe(Effect.andThen(spawner.spawn(rooted))))
+            Effect.flatMap((rooted) =>
+              check(rooted).pipe(Effect.andThen(confine(rooted)), Effect.flatMap(spawner.spawn))
+            )
           )
         )
       )

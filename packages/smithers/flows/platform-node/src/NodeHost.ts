@@ -6,7 +6,8 @@
  * filesystem, child-process spawner, Undici `HttpClient`, native `Path`,
  * and the Node `Jj` adapter from its own package. Use the layer when a Node
  * program wants every host capability from one place; use the individual
- * modules when a program should only be able to reach part of the host.
+ * modules when a program should only be able to reach part of the host. The
+ * bundle also supplies native `ProcessConfinement` for the kernel spawner.
  *
  * There is no Node HTTP module either: outgoing requests are Effect's
  * `HttpClient`, and `@effect/platform-node` already ships the Undici-backed
@@ -28,6 +29,7 @@ import * as NodePath from "@effect/platform-node/NodePath"
 import type { Jj, JjError } from "@smthrs/jj"
 import * as NodeJj from "@smthrs/jj/node/NodeJj"
 import type { HostServiceIds } from "@smthrs/kernel/HostServices"
+import type * as KernelProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import type * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import type { FileSystem } from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -38,6 +40,7 @@ import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSp
 import { isAbsolute } from "node:path"
 import * as AtomicFileSystem from "./AtomicFileSystem.ts"
 import * as EgressHttpClient from "./EgressHttpClient.ts"
+import * as ProcessConfinement from "./ProcessConfinement.ts"
 import * as ProcessReaper from "./ProcessReaper.ts"
 
 /**
@@ -82,7 +85,13 @@ const httpClient = EgressHttpClient.layer(process.env)
  * @category models
  * @since 0.1.0
  */
-export type NodeHost = FileSystem | Path.Path | ChildProcessSpawner | Jj | HttpClient
+export type NodeHost =
+  | FileSystem
+  | Path.Path
+  | ChildProcessSpawner
+  | Jj
+  | HttpClient
+  | KernelProcessConfinement.ProcessConfinement
 
 /**
  * Invalid repository-root configuration, refused before layer construction.
@@ -152,6 +161,7 @@ const reaping = (options?: ContainedOptions): ProcessReaper.Options => ({
  * @since 0.1.0
  */
 export const layer: Layer.Layer<NodeHost, JjError> = Layer.mergeAll(
+  ProcessConfinement.layer(),
   platform,
   Layer.provide(NodeChildProcessSpawner.layer, platform),
   httpClient,
@@ -166,6 +176,7 @@ export const layer: Layer.Layer<NodeHost, JjError> = Layer.mergeAll(
  */
 export const layerAt = (repositoryRoot: string): Layer.Layer<NodeHost, JjError> =>
   Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     Layer.provide(NodeChildProcessSpawner.layer, platform),
     httpClient,
@@ -206,6 +217,7 @@ export const layerContained = (
     Layer.provide(NodeChildProcessSpawner.layer, platform)
   )
   return Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     httpClient,
     // jj goes through the CONTAINED spawner here, not around it. `NodeJj.layer`
@@ -233,6 +245,7 @@ export const layerContainedAt = (
     Layer.provide(NodeChildProcessSpawner.layer, platform)
   )
   return Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     httpClient,
     Layer.provideMerge(NodeJj.layerSpawnerAt(absoluteRoot(repositoryRoot)), spawner)

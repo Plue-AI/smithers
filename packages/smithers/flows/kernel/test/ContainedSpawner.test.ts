@@ -1,3 +1,5 @@
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 /**
  * The containment decorator, exercised over a scripted host spawner.
  *
@@ -145,6 +147,7 @@ describe("ContainedSpawner", () => {
             }
           })
         const store = GrantStore.of({
+          policy: closedPolicy,
           check: (capability) => {
             checks.push(capability.resource)
             return allowed && capability.resource === "env DECLARED -- agent --run"
@@ -164,7 +167,12 @@ describe("ContainedSpawner", () => {
             expect((yield* Effect.flip(start)).reason._tag).toBe("PermissionDenied")
           }
         }).pipe(
-          Effect.provide(GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))),
+          Effect.provide(
+            GuardedSpawner.layer.pipe(
+              Layer.provide(ProcessConfinement.layerNoop),
+              Layer.provide([Workspace.layerNoop, Path.layer])
+            )
+          ),
           Effect.provide(ContainedSpawner.layer({ graceMs: 50 }, lifecycle)),
           Effect.provide(hostSpawner(spawned, 4321, events)),
           Effect.provideService(GrantStore, store),

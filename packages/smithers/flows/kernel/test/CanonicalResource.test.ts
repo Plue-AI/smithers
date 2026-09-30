@@ -10,6 +10,7 @@ import {
   Stream
 } from "effect"
 import * as FileSystem from "../src/FileSystem.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -129,6 +130,7 @@ describe("canonicalResource", () => {
 describe("FileSystem.sink failures", () => {
   itEffect("surfaces a host sink failure through the decorated tag's PlatformError channel", () => {
     const grants = GrantStore.of({
+      policy: closedPolicy,
       check: () => Effect.void,
       reply: () => Effect.die("not used"),
       list: Effect.succeed([]),
@@ -156,6 +158,7 @@ describe("FileSystem.sink failures", () => {
   itEffect("keeps a denied sink from ever reaching the host", () => {
     let opened = false
     const grants = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) => Effect.fail(Permission.permissionDenied(capability, "denied by test")),
       reply: () => Effect.die("not used"),
       list: Effect.succeed([]),

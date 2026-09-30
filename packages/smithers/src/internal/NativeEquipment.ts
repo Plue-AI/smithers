@@ -795,6 +795,7 @@ export const testRunner = (
   if (cwd === undefined) return undefined
   return {
     command,
+    baseline: false,
     cwd,
     root: workspaceRoot,
     ...(container === undefined || container === "" ? {} : { container }),

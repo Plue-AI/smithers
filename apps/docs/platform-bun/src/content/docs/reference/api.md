@@ -133,12 +133,16 @@ its true length, so a root taken from input cannot flood a log line. Branch on
 
 ### Models
 
-| Export              | Type                                                            | Meaning                                             |
-| ------------------- | --------------------------------------------------------------- | --------------------------------------------------- |
-| `BunHost`           | `FileSystem \| Path \| ChildProcessSpawner \| Jj \| HttpClient` | The closed Host service union this bundle provides. |
-| `BunHostErrorCode`  | `"invalid_repository_root"`                                     | The stable codes a factory refuses with.            |
-| `ContainedOptions`  | `ProcessReaper.SpawnerOptions & ProcessReaper.Options`          | What a caller may configure about containment.      |
-| `implementationIds` | `Readonly<Record<HostServiceIds[number], string>>`              | The module behind each raw bundle Host slot.        |
+| Export              | Type                                                                                  | Meaning                                                        |
+| ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `BunHost`           | `FileSystem \| Path \| ChildProcessSpawner \| Jj \| HttpClient \| ProcessConfinement` | The Host services and native confinement this bundle provides. |
+| `BunHostErrorCode`  | `"invalid_repository_root"`                                                           | The stable codes a factory refuses with.                       |
+| `ContainedOptions`  | `ProcessReaper.SpawnerOptions & ProcessReaper.Options`                                | What a caller may configure about containment.                 |
+| `implementationIds` | `Readonly<Record<HostServiceIds[number], string>>`                                    | The module behind each raw bundle Host slot.                   |
+
+All four factories supply the shared native
+[`ProcessConfinement.layer()`](https://platform-node.smithers.sh/reference/api/#processconfinement).
+Guarded commands use the same OS confinement on Node and Bun.
 
 `ContainedOptions` carries three fields:
 

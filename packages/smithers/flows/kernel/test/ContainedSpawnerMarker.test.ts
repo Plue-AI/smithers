@@ -4,7 +4,9 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { runInNewContext } from "node:vm"
 import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -12,6 +14,7 @@ const lifecycle: ContainedSpawner.Lifecycle = (command, spawn) =>
   Effect.map(spawn(command), (handle) => ({ handle, activate: Effect.void, settled: Effect.succeed(true) }))
 
 const grants = GrantStore.of({
+  policy: closedPolicy,
   check: () => Effect.void,
   reply: () => Effect.void,
   list: Effect.succeed([]),
@@ -29,7 +32,12 @@ describe("contained service contract", () => {
           expect(ContainedSpawner.isContained({ ...spawner })).toBe(false)
         }).pipe(
           Effect.provide(
-            guarded ? GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer])) : Layer.empty
+            guarded
+              ? GuardedSpawner.layer.pipe(
+                Layer.provide(ProcessConfinement.layerNoop),
+                Layer.provide([Workspace.layerNoop, Path.layer])
+              )
+              : Layer.empty
           ),
           Effect.provide(ContainedSpawner.layer({}, owned ? lifecycle : undefined)),
           Effect.provide(GuardedSpawner.layerNoop()),

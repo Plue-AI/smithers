@@ -21813,6 +21813,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/kernel/src/ProcessConfinement.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/kernel/src/ProcessLedger.ts"
       },
       {
@@ -22213,7 +22217,15 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/platform-node/src/ProcessConfinement.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/platform-node/src/ProcessReaper.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-node/src/ProcessSandbox.ts"
       },
       {
         "kind": "file",
@@ -28724,6 +28736,10 @@
       {
         "kind": "file",
         "path": "flows/burndown/test/cloud-symlink.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/dashboard.test.ts"
       },
       {
         "kind": "file",

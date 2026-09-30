@@ -53,6 +53,8 @@ export interface Runner {
   readonly env?: Record<string, string> | undefined
   /** The ref whose commit is the pristine base; defaults to {@link captureBase}, then HEAD. */
   readonly baseRef?: string | undefined
+  /** False refuses baseline requests before any process runs. */
+  readonly baseline?: false | undefined
   /** Default wall-clock budget for one run. */
   readonly timeoutMs?: number | undefined
 }

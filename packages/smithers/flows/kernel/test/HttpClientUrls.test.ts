@@ -5,6 +5,7 @@ import { Effect, Option } from "effect"
 import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import type * as EffectHttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as HttpClient from "../src/HttpClient.ts"
 
@@ -23,6 +24,7 @@ const itEffect = <E>(name: string, effect: () => Effect.Effect<void, E>) => it.e
 
 const store = (checks: Array<Capability.Capability>) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return Effect.void

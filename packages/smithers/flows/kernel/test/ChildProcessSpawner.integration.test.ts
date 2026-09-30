@@ -13,6 +13,7 @@ import { join } from "node:path"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
 import * as CommandLine from "../src/CommandLine.ts"
 import * as GrantStore from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 const directories = new Set<string>()
@@ -47,6 +48,7 @@ const withGuardedSpawner = <A, E>(
       const store = yield* GrantStore.make(options)
       return yield* use(store).pipe(
         Effect.provide(ChildProcessSpawner.layer),
+        Effect.provide(ProcessConfinement.layerNoop),
         Effect.provide(NodeChildProcessSpawner.layer),
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePath.layer),

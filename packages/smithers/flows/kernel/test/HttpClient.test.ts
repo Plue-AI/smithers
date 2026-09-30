@@ -8,6 +8,7 @@ import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientErrorModule from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore, make as makeGrantStore, type Service } from "../src/GrantStore.ts"
 import * as HttpClient from "../src/HttpClient.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -16,6 +17,7 @@ const itEffect = <E>(name: string, effect: () => Effect.Effect<void, E>) => it.e
 
 const store = (checks: Array<Capability.Capability>, allowed = true) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return allowed
@@ -303,6 +305,7 @@ describe("HttpClient", () => {
         effect,
         redirecting(calls),
         GrantStore.of({
+          policy: closedPolicy,
           check: (capability) => {
             checks.push(capability)
             return capability.resource === "first.test"
@@ -321,6 +324,7 @@ describe("HttpClient", () => {
     const calls: Array<string> = []
     const checks: Array<Capability.Capability> = []
     const onlyFirst = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) => {
         checks.push(capability)
         return capability.resource === "first.test"

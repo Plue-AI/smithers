@@ -84,6 +84,10 @@ const result = Bash.run({
 service turns the request into the argv the host spawns. `Container.layerCommand`
 builds the `docker exec` form, which `podman` shares.
 
+The native CLI refuses named-container execution with `provider_unavailable`.
+An existing Docker daemon is outside its OS sandbox. Isolated providers are
+tracked in [#1790](https://github.com/smithersai/smithers/issues/1790).
+
 The transport always goes through a login shell, because the images an agent
 meets activate the project's interpreter from `/etc/profile.d`. A program
 spawned directly by `docker exec` gets a different Python from the one that owns
@@ -115,6 +119,28 @@ beside work that touches other paths.
 Read [Hermetic mode is a pre-check, not a sandbox](../concepts/effects-and-capabilities.md#hermetic-mode-is-a-pre-check-not-a-sandbox)
 before you rely on this. The check is lexical: it bounds what the caller
 declared it would do, not what the process can do.
+
+## Confine approved commands
+
+The CLI and native flow hosts use bubblewrap on Linux and seatbelt on macOS.
+Approval to start a command does not open filesystem writes or networking.
+The host derives those permissions from its effective grants, including the
+current capability ceiling. A missing sandbox refuses the command.
+
+Matching `fs:read:/workspace/build/**`, `fs:write:/workspace/build`, and
+`fs:write:/workspace/build/**` grants open the `build` tree for writing.
+The directory entry needs its own write authority. Literal writes,
+complex globs, and permissions narrowed by a deny stay closed when the native
+mechanism cannot represent them safely. Egress opens only with unrestricted
+`net:get`, `net:post`, and `net:private` grants. Host-specific network grants
+keep networking closed. Host Unix sockets stay closed with open IP networking,
+except the fixed macOS system DNS resolver endpoint. Commands also receive private temporary storage.
+
+`NodeHost` and `BunHost` supply confinement. A custom native host provides
+[`ProcessConfinement.layer()`](/api/platform-node#processconfinement) to the
+kernel spawner. A missing confinement service refuses execution.
+`mode: "hermetic"` continues to check declarations before execution; it does
+not grant additional OS access.
 
 ## Read the result
 

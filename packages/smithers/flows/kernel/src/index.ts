@@ -165,3 +165,9 @@ export * as Rooted from "./Rooted.ts"
  * @since 1.0.0-rc.0
  */
 export * as Workspace from "./Workspace.ts"
+
+/** Host process confinement.
+ * @category namespace exports
+ * @since 1.0.0-rc.1
+ */
+export * as ProcessConfinement from "./ProcessConfinement.ts"

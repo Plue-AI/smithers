@@ -3,6 +3,8 @@ import { describe, expect, it } from "@effect/vitest"
 import * as EgressHttpClient from "../src/EgressHttpClient.ts"
 import * as Index from "../src/index.ts"
 import * as NodeHost from "../src/NodeHost.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
+import * as ProcessSandbox from "../src/ProcessSandbox.ts"
 import * as ScopedProcess from "../src/ScopedProcess.ts"
 
 describe("@smthrs/platform-node barrel", () => {
@@ -11,7 +13,9 @@ describe("@smthrs/platform-node barrel", () => {
       "EgressHttpClient",
       "HostLiveness",
       "NodeHost",
+      "ProcessConfinement",
       "ProcessReaper",
+      "ProcessSandbox",
       "ScopedProcess"
     ])
     expect(Index.NodeHost.layer).toBe(NodeHost.layer)
@@ -20,6 +24,10 @@ describe("@smthrs/platform-node barrel", () => {
     expect(Index.NodeHost.layerContainedAt).toBe(NodeHost.layerContainedAt)
     expect(Index.EgressHttpClient.layer).toBe(EgressHttpClient.layer)
     expect(Index.NodeHost.EgressHttpClient).toBe(EgressHttpClient)
+    expect(Index.ProcessConfinement.make).toBe(ProcessConfinement.make)
+    expect(Index.ProcessConfinement.layer).toBe(ProcessConfinement.layer)
+    expect(Index.ProcessSandbox.plan).toBe(ProcessSandbox.plan)
+    expect(Index.ProcessSandbox.wrap).toBe(ProcessSandbox.wrap)
     expect(Index.ScopedProcess.spawn).toBe(ScopedProcess.spawn)
     expect(Index.ScopedProcess.status).toBe(ScopedProcess.status)
   })

@@ -139,7 +139,7 @@ Six services are injected, and a flow whose service a host has not bound gets a 
 
 ## Hermetic mode is a pre-check, not a sandbox
 
-`Bash` retains `mode: "hermetic"` as effect-contract vocabulary, but the handler is not an operating-system sandbox. It performs a fail-closed lexical pre-check of the explicit path tokens in the command against `reads` and `writes`, resolving every token and every declaration to a canonical absolute path before comparing, and treating each physical line of a script as its own command. It then starts an ordinary host shell process. Shell expansion, subprocess access, and paths computed at runtime are not observed, so the check bounds what a caller declared it would do rather than what the process can do. A host that needs confinement must supply a sandbox or access-reporting boundary; the lexical check alone cannot prove hermetic execution.
+`Bash` retains `mode: "hermetic"` as effect-contract vocabulary, but the handler is not an operating-system sandbox. It performs a fail-closed lexical pre-check of the explicit path tokens in the command against `reads` and `writes`, resolving every token and every declaration to a canonical absolute path before comparing, and treating each physical line of a script as its own command. The host spawner runs the command under its configured confinement. Shell expansion, subprocess access, and paths computed at runtime are not observed, so the check bounds what a caller declared it would do rather than what the process can do. The CLI and native flow hosts supply OS confinement from the grants in force. The lexical check alone cannot prove hermetic execution.
 
 ## Documentation
 

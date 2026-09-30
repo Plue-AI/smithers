@@ -351,6 +351,7 @@ describe("NodeControl.testRunner", () => {
         "/work/repo"
       )
     ).toEqual({
+      baseline: false,
       command: "./tests/runtests.py --settings=test_sqlite",
       container: "swebench-1",
       cwd: "/testbed",
@@ -361,6 +362,7 @@ describe("NodeControl.testRunner", () => {
 
   it("defaults the runner's directory to the repository and drops an unusable timeout", () => {
     expect(NodeControl.testRunner({ SMITHERS_TEST_COMMAND: "pytest -q" }, "/work/repo")).toEqual({
+      baseline: false,
       command: "pytest -q",
       cwd: "/work/repo",
       root: "/work/repo"
@@ -380,6 +382,7 @@ describe("NodeControl.testRunner", () => {
     expect(
       NodeControl.testRunner({ SMITHERS_TEST_COMMAND: "pytest -q" }, "/work/repo", "/work/repo/.flows/forks/child")
     ).toEqual({
+      baseline: false,
       command: "pytest -q",
       cwd: "/work/repo/.flows/forks/child",
       root: "/work/repo/.flows/forks/child"
@@ -402,6 +405,7 @@ describe("NodeControl.testRunner", () => {
         "/work/repo/.flows/forks/child"
       )
     ).toEqual({
+      baseline: false,
       command: "pytest -q",
       container: "swebench-1",
       cwd: "/testbed/.flows/forks/child",

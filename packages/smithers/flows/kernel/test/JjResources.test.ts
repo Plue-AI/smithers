@@ -4,6 +4,7 @@ import { permissionDenied } from "@smthrs/capability/Permission"
 import * as HostJj from "@smthrs/jj"
 import { Effect, FileSystem as EffectFileSystem, Path } from "effect"
 import { systemError } from "effect/PlatformError"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import { GrantStore, type Service } from "../src/GrantStore.ts"
 import * as Jj from "../src/Jj.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -19,6 +20,7 @@ const itEffect = (name: string, effect: () => Effect.Effect<void, unknown, never
 
 const scriptedStore = (checks: Array<Capability.Capability>) =>
   GrantStore.of({
+    policy: closedPolicy,
     check: (capability) => {
       checks.push(capability)
       return Effect.void
@@ -135,6 +137,7 @@ describe("Jj capability resources", () => {
         })
     })
     const grants = GrantStore.of({
+      policy: closedPolicy,
       check: (capability) => {
         checks.push(capability)
         return capability.action === "jj:workspace-add"

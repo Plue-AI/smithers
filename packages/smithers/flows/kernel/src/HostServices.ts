@@ -118,7 +118,8 @@ export const HostServiceIds = [
  * layer over a raw platform bundle and the guarded implementation shadows the
  * raw one for everything downstream. There is no exception and no second tag
  * list — `HttpClient` decorates Effect's network tag exactly the way
- * `FileSystem` decorates Effect's filesystem tag.
+ * `FileSystem` decorates Effect's filesystem tag. The host supplies
+ * `ProcessConfinement` for approved processes; absence refuses spawning.
  *
  * @category layers
  * @since 1.0.0-rc.0

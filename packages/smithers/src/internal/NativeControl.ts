@@ -59,6 +59,7 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import type { NotificationQueue } from "@smthrs/notifications"
 import * as PersistedPlan from "@smthrs/plan/Plan"
+import * as ProcessConfinement from "@smthrs/platform-node/ProcessConfinement"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
@@ -67,7 +68,7 @@ import * as Registry from "@smthrs/registry/Registry"
 import { type AttemptStore, Ownership, RunStore } from "@smthrs/run-store"
 import * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
-import * as NativeSearch from "@smthrs/std/NativeSearch"
+import * as PortableSearch from "@smthrs/std/PortableSearch"
 import * as RunCatalog from "@smthrs/sync/RunCatalog"
 import * as SyncAuth from "@smthrs/sync/SyncAuth"
 import * as SyncServer from "@smthrs/sync/SyncServer"
@@ -1122,7 +1123,7 @@ export const make = (
       KernelPath.layer,
       KernelHttpClient.layer.pipe(Layer.provide(native.httpClient(environment)))
     ).pipe(
-      Layer.provide([grants, Workspace.layer(workspaceRoot)]),
+      Layer.provide([grants, Workspace.layer(workspaceRoot), ProcessConfinement.layer()]),
       Layer.provideMerge(contained)
     )
     // `SMITHERS_MEMORY_DB` moves the memory store to its own SQLite file, so
@@ -1178,7 +1179,8 @@ export const make = (
         const memoryServices = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>().pipe(
           Effect.map(Context.pick(MemoryStore.MemoryStore, Recall.Recall))
         )
-        const nativeSearch = NativeSearch.make(Context.merge(filesystemServices, shellServices))
+        // Search reads through the guarded filesystem rather than launching rg.
+        const nativeSearch = PortableSearch.make(filesystemServices)
         // What `memory` reads through: the workspace, jj and git, the judge,
         // and the facts store.
         const contextServices = Context.merge(
@@ -1190,21 +1192,36 @@ export const make = (
         // runner reaches the same transport `bash` does, and the judge that
         // attributes a non-zero exit travels with them.
         const runner = testRunner(environment, root, workspaceRoot)
-        const container = Container.makeCommand()
+        // A caller's OS profile cannot constrain execution in an existing
+        // Docker daemon. Native commands require an isolated provider instead.
+        const container = Container.makeNoop()
         // A sealed host reaches one container and nothing of itself: `bash`
         // refuses every other target and the host filesystem flows are absent.
         const sealedTo = sealedContainer(environment)
         // With a host language server, `edit` returns the errors it leaves and
         // `bash` keeps the files the server holds open current. Servers start
-        // on the first file they serve, through the same guarded spawner.
+        // on the first file they serve. Their executable and fixed arguments
+        // come from the operator environment, outside the repository.
+        // This host-only service never enters shell or module bindings.
+        const ownerShellServices = Context.add(
+          shellServices,
+          KernelChildProcessSpawner.ChildProcessSpawner,
+          toolSpawner!
+        )
         const languageServer = sealedTo === undefined
-          ? yield* HostLanguageServers.make(workspaceRoot, environment).pipe(Effect.provideContext(shellServices))
+          ? yield* HostLanguageServers.make(workspaceRoot, environment).pipe(Effect.provideContext(ownerShellServices))
           : undefined
         // Each configured server is a startup-time connection the operator
         // opted into by naming it, the same way `memory` below is: a server
         // that fails to spawn dies the executor loudly (`Effect.orDie`) rather
         // than running silently short of the tools it was configured to have.
-        const mcp = yield* Effect.forEach(mcpServers, (server) => Effect.orDie(McpFlows.connected(server)))
+        // Startup argv is explicit owner configuration; connected tool flows
+        // capture the MCP client, never this contained host spawner.
+        const mcp = yield* Effect.forEach(mcpServers, (server) => Effect.orDie(
+          McpFlows.connected(server).pipe(
+            Effect.provideService(KernelChildProcessSpawner.ChildProcessSpawner, toolSpawner!)
+          )
+        ))
         const sources = [
           ...(sealedTo === undefined
             ? [StandardFlows.filesystem(HostLanguageServers.bind(filesystemServices, languageServer), nativeSearch)]

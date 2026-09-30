@@ -57,7 +57,8 @@
     "./index": "./src/index.ts",
     "./test/HostContract": "./src/test/HostContract.ts",
     "./test/TestGrantStore": "./src/test/TestGrantStore.ts",
-    "./ChildProcessEnvironment": "./src/ChildProcessEnvironment.ts"
+    "./ChildProcessEnvironment": "./src/ChildProcessEnvironment.ts",
+    "./ProcessConfinement": "./src/ProcessConfinement.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -296,6 +297,16 @@
         "require": {
           "types": "./dist/cjs/ChildProcessEnvironment.d.ts",
           "default": "./dist/cjs/ChildProcessEnvironment.js"
+        }
+      },
+      "./ProcessConfinement": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
         }
       }
     }

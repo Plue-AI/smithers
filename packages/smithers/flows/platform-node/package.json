@@ -43,7 +43,9 @@
     "./NodeHost": "./src/NodeHost.ts",
     "./ProcessReaper": "./src/ProcessReaper.ts",
     "./index": "./src/index.ts",
-    "./ScopedProcess": "./src/ScopedProcess.ts"
+    "./ScopedProcess": "./src/ScopedProcess.ts",
+    "./ProcessConfinement": "./src/ProcessConfinement.ts",
+    "./ProcessSandbox": "./src/ProcessSandbox.ts"
   },
   "files": [
     "bin/**",
@@ -143,6 +145,26 @@
         "require": {
           "types": "./dist/cjs/ScopedProcess.d.ts",
           "default": "./dist/cjs/ScopedProcess.js"
+        }
+      },
+      "./ProcessConfinement": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
+        }
+      },
+      "./ProcessSandbox": {
+        "import": {
+          "types": "./dist/esm/ProcessSandbox.d.ts",
+          "default": "./dist/esm/ProcessSandbox.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessSandbox.d.ts",
+          "default": "./dist/cjs/ProcessSandbox.js"
         }
       }
     }

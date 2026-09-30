@@ -6,6 +6,7 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { describe, expect, it } from "vitest"
 import { attenuate } from "../src/CapabilitySet.ts"
+import { emptyPolicy as closedPolicy } from "../src/GrantStore.ts"
 import * as GrantStore from "../src/GrantStore.ts"
 import * as HttpClient from "../src/HttpClient.ts"
 import * as Workspace from "../src/Workspace.ts"
@@ -13,6 +14,7 @@ import * as Workspace from "../src/Workspace.ts"
 const recordingStore = () => {
   const checked: Array<string> = []
   const service = GrantStore.GrantStore.of({
+    policy: closedPolicy,
     check: (capability) =>
       Effect.sync(() => {
         checked.push(`${capability.action}:${capability.resource}`)

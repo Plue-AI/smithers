@@ -106,6 +106,11 @@ whether a reproduction reproduced is worth less than no answer at all.
 
 ## Attribute a failure to your own edit
 
+The native CLI supports workspace tests. Baseline comparison refuses before any
+command starts; isolated staging is tracked in
+[#3234](https://github.com/smithersai/smithers/issues/3234). A host declares this
+with `baseline: false`.
+
 `against: "base"` runs the same selection a second time against the pristine
 base commit, in a scratch checkout, and differences the two failure sets:
 

@@ -265,7 +265,8 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
-      grantEnvelope: () => Effect.void
+      grantEnvelope: () => Effect.void,
+      policy: GrantStore.emptyPolicy
     })
     const result = await Effect.runPromise(
       WebFetchModule.run({ url: "https://first.test/start", format: "text" }).pipe(
@@ -306,7 +307,8 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
-      grantEnvelope: () => Effect.void
+      grantEnvelope: () => Effect.void,
+      policy: GrantStore.emptyPolicy
     })
     const failure = await Effect.runPromise(Effect.flip(
       WebFetchModule.run({ url: "https://first.test/start" }).pipe(
@@ -345,7 +347,8 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
-      grantEnvelope: () => Effect.void
+      grantEnvelope: () => Effect.void,
+      policy: GrantStore.emptyPolicy
     })
     const result = await Effect.runPromise(
       WebFetchModule.run({ url: "https://first.test/start" }).pipe(

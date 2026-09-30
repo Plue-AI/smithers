@@ -60,16 +60,19 @@ adapter at it; see [Configure the filesystem helper](./guides/configure-the-file
 
 ## Entry points
 
-| Import                                   | Source                                                                                                                                    | Platform   |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `@smthrs/platform-node`                  | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                       | Node       |
-| `@smthrs/platform-node/NodeHost`         | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                 | Node       |
-| `@smthrs/platform-node/AtomicFileSystem` | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts) | Node       |
-| `@smthrs/platform-node/HostLiveness`     | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)         | Node       |
-| `@smthrs/platform-node/ProcessReaper`    | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)       | Node       |
-| `@smthrs/platform-node/ScopedProcess`    | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)       | Node / Bun |
+| Import                                     | Source                                                                                                                                        | Platform   |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `@smthrs/platform-node`                    | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                           | Node       |
+| `@smthrs/platform-node/NodeHost`           | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                     | Node       |
+| `@smthrs/platform-node/AtomicFileSystem`   | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts)     | Node       |
+| `@smthrs/platform-node/HostLiveness`       | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)             | Node       |
+| `@smthrs/platform-node/ProcessReaper`      | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)           | Node       |
+| `@smthrs/platform-node/ScopedProcess`      | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)           | Node / Bun |
+| `@smthrs/platform-node/ProcessConfinement` | [src/ProcessConfinement.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessConfinement.ts) | Node / Bun |
+| `@smthrs/platform-node/ProcessSandbox`     | [src/ProcessSandbox.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessSandbox.ts)         | Node / Bun |
 
-The barrel exports `NodeHost`, `HostLiveness`, `ProcessReaper`, and `ScopedProcess`.
+The barrel exports `NodeHost`, `EgressHttpClient`, `HostLiveness`, `ProcessReaper`,
+`ScopedProcess`, `ProcessConfinement`, and `ProcessSandbox`.
 `AtomicFileSystem` is reached as `NodeHost.AtomicFileSystem` or through its own
 subpath, never from the barrel.
 
@@ -494,3 +497,56 @@ fails with a `TransportError` whose `cause` is an `EgressAddressError` (`_tag`
 Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
 fail closed. The transport sets Host from the URL and discards caller-supplied
 proxy authorization and connection framing headers.
+
+## ProcessConfinement
+
+`ProcessConfinement.layer(options?)` provides the kernel's process confinement.
+Compose it as an input to `@smthrs/kernel/ChildProcessSpawner.layer`, alongside
+the same `GrantStore` and `Workspace` used for filesystem authorization. The
+kernel checks approval, snapshots effective grants, and confines every pipeline
+stage before spawning any stage. All `NodeHost` bundles supply this service;
+a guarded spawner without it refuses execution.
+
+`make(options?)` returns the same service directly. Options are:
+
+| Option               | Default                | Behavior                                                                                |
+| -------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| `unavailable`        | `"refuse"`             | Refuse a missing mechanism; `"unconfined"` explicitly permits execution with a warning. |
+| `temporaryDirectory` | OS temporary directory | Parent for private, scope-owned temporary storage.                                      |
+| `host`               | Real host probes       | Injectable mechanism selection and filesystem probes.                                   |
+
+Linux needs `bwrap`; macOS needs `/usr/bin/sandbox-exec`. An installed mechanism
+that fails to start never falls back to unconfined execution. A shell request
+runs inside the wrapper, including its redirections and subprocesses. Streams,
+exit codes, and cancellation retain Effect's process contract.
+
+The profile accepts writable directory trees without broadening file grants to
+their parents. A writable tree also needs read authority and write authority
+for its directory entry because a writable bind exposes existing data and
+metadata. Unsupported globs, partial ceilings, and ambiguous deny regions
+stay closed. Networking opens only for unrestricted grants across all network
+actions. Closed networking blocks socket creation. Native agent commands keep
+host Unix sockets closed when IP networking opens, except the fixed macOS
+system DNS resolver endpoint.
+The launcher receives a minimal environment; the command's environment is
+restored inside confinement without putting its values in launcher arguments.
+macOS also denies delegation through host IPC services. Runtime paths and
+private temporary storage are bootstrap permissions;
+known host credential locations stay masked. Workspace links do not grant
+reads of their external targets. This boundary does not isolate trusted host
+JavaScript or supply a remote sandbox provider.
+
+## ProcessSandbox
+
+The build graph and `ProcessConfinement` share this mechanism implementation.
+`select(request, host)`, `plan(request, location, host)`, and `wrap(plan, argv,
+environment, host?)` resolve a request into an enforced command.
+`seatbelt`, `bubblewrap`, and `docker` render each supported mechanism;
+`host`, `validateWrites`, `environment`, `diagnose`, `isUnenforceable`, and
+`unenforceable` expose its host probes, validation, environment, diagnostics,
+and refusals. Requests name `network`, `reads`, and writable directory `writes`,
+with optional `mechanism`, `writeFiles`, `readOnly`, `externalReads`, `strict`,
+and `unixSockets`. Native agent confinement uses a strict process and IPC
+policy and closes Unix sockets; build tools retain their declared policy. Build
+output files may open a parent directory; agent permission profiles never use
+that build-specific option.

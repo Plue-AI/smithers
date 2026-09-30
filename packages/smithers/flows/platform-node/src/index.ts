@@ -36,3 +36,9 @@ export * as ProcessReaper from "./ProcessReaper.ts"
 
 /** Transient pipe-based commands with supervised process cleanup. */
 export * as ScopedProcess from "./ScopedProcess.ts"
+
+/** Native confinement of approved processes under the kernel grants. */
+export * as ProcessConfinement from "./ProcessConfinement.ts"
+
+/** Shared operating-system sandbox for build and agent processes. */
+export * as ProcessSandbox from "./ProcessSandbox.ts"

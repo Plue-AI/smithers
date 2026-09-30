@@ -2,7 +2,8 @@
  * Aggregate Bun Host bundle.
  *
  * Runtime-specific dependencies stay inside this package; callers get the same
- * closed five-service Host surface every other bundle provides.
+ * closed five-service Host surface every other bundle provides, plus native
+ * `ProcessConfinement` for guarded commands.
  *
  * There is no Bun shell module: running a command is Effect's
  * `ChildProcessSpawner`, and `@effect/platform-bun`'s implementation is
@@ -27,10 +28,12 @@ import * as BunPath from "@effect/platform-bun/BunPath"
 import type { Jj, JjError } from "@smthrs/jj"
 import * as BunJj from "@smthrs/jj/bun/BunJj"
 import type { HostServiceIds } from "@smthrs/kernel/HostServices"
+import type * as KernelProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import type * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import * as HostLiveness from "@smthrs/platform-node/HostLiveness"
+import * as ProcessConfinement from "@smthrs/platform-node/ProcessConfinement"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import type * as Crypto from "effect/Crypto"
 import type { FileSystem } from "effect/FileSystem"
@@ -68,7 +71,13 @@ export { AtomicFileSystem, BunChildProcessSpawner, BunCrypto, BunFileSystem, Hos
  * @since 1.0.0-rc.0
  * @slop
  */
-export type BunHost = FileSystem | Path.Path | ChildProcessSpawner | Jj | HttpClient
+export type BunHost =
+  | FileSystem
+  | Path.Path
+  | ChildProcessSpawner
+  | Jj
+  | HttpClient
+  | KernelProcessConfinement.ProcessConfinement
 
 /**
  * The stable codes a `BunHost` factory refuses with.
@@ -233,6 +242,7 @@ export const layerHttpClient: Layer.Layer<HttpClient> = EgressHttpClient.layer(p
  * @slop
  */
 export const layer: Layer.Layer<BunHost | Crypto.Crypto, JjError> = Layer.mergeAll(
+  ProcessConfinement.layer(),
   platform,
   Layer.provide(BunChildProcessSpawner.layer, platform),
   BunJj.layer,
@@ -255,6 +265,7 @@ export const layer: Layer.Layer<BunHost | Crypto.Crypto, JjError> = Layer.mergeA
 export const layerAt = (root: string): Layer.Layer<BunHost | Crypto.Crypto, JjError> => {
   const repositoryRoot = absoluteRoot("layerAt", root)
   return Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     Layer.provide(BunChildProcessSpawner.layer, platform),
     BunJj.layerAt(repositoryRoot),
@@ -288,6 +299,7 @@ export const layerContained = (
     Layer.provide(BunChildProcessSpawner.layer, platform)
   )
   return Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     layerHttpClient,
     // jj goes through the CONTAINED spawner here, not around it, exactly as in
@@ -318,6 +330,7 @@ export const layerContainedAt = (
     Layer.provide(BunChildProcessSpawner.layer, platform)
   )
   return Layer.mergeAll(
+    ProcessConfinement.layer(),
     platform,
     layerHttpClient,
     Layer.provideMerge(BunJj.layerSpawnerAt(repositoryRoot), spawner)
