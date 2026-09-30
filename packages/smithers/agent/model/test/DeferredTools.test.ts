@@ -240,15 +240,21 @@ interface ProbeRecord {
 }
 
 // Live responses recorded 2026-09-24 against the ChatGPT-subscription backend.
-const probe = JSON.parse(
+// The fixture stays as recorded; its `gpt-6-astra` seat is the one now named
+// `gpt-6.1-sol`, so the records are read under the current id.
+const renamedSeats: Readonly<Record<string, string>> = { "gpt-6-astra": "gpt-6.1-sol" }
+const probe = (JSON.parse(
   readFileSync(new URL("./fixtures/gpt6-deferred-probe.json", import.meta.url), "utf8")
-) as { readonly records: ReadonlyArray<ProbeRecord> }
+) as { readonly records: ReadonlyArray<ProbeRecord> }).records.map((record) => ({
+  ...record,
+  model: renamedSeats[record.model] ?? record.model
+}))
 
 const called = (record: ProbeRecord): ReadonlyArray<string> =>
   record.outcome.output.filter((item) => item.type === "function_call").map((item) => item.name ?? "")
 
 const provenNative = (model: string): boolean =>
-  probe.records.some((record) =>
+  probe.some((record) =>
     record.model === model && record.mode === "native" && record.http === 200 &&
     record.outcome.status === "completed" && called(record).includes("get_weather")
   )
@@ -285,7 +291,7 @@ describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
   const gpt6 = ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"] as const
 
   it("allowlists exactly the GPT-6 ids whose native probe called the deferred tool", () => {
-    const probed = [...new Set(probe.records.map((record) => record.model))].sort()
+    const probed = [...new Set(probe.map((record) => record.model))].sort()
     expect(probed).toEqual([...gpt6].sort())
     for (const model of probed) {
       expect(DeferredTools.supportsDeferred("openai-responses-chatgpt", model)).toBe(provenNative(model))
@@ -296,7 +302,7 @@ describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
   })
 
   it("records a falsifying ablation: without the search items the loader is called again", () => {
-    const ablated = probe.records.filter((record) => record.mode === "ablate")
+    const ablated = probe.filter((record) => record.mode === "ablate")
     expect(ablated.length).toBeGreaterThan(0)
     for (const record of ablated) {
       expect(record.sent.tools).toEqual(["load_tools"])
@@ -307,7 +313,7 @@ describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
   it("lowers each GPT-6 seat on the ChatGPT route to the wire the probe sent", () => {
     for (const model of gpt6) {
       const body = Effect.runSync(OpenAIResponses.chatgptProtocol.body.from(probeRequest(model), { native: true }))
-      const native = probe.records.find((record) => record.model === model && record.mode === "native")
+      const native = probe.find((record) => record.model === model && record.mode === "native")
       expect(OpenAIResponses.chatgptProtocol.supportsDeferred(model)).toBe(true)
       expect(body.tools?.map((entry) => entry.type === "function" ? entry.name : entry.type)).toEqual(
         native?.sent.tools
