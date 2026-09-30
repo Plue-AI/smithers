@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -355,4 +356,165 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	parsed, err := url.Parse(raw)
 	require.NoError(t, err)
 	return parsed
+}
+
+func TestJournalWorkspaceIDAcceptsOnlyTheJournalScheme(t *testing.T) {
+	workspace := "0f1e2d3c-4b5a-4968-8776-655443322110"
+	name, err := JournalDatabaseName(workspace)
+	require.NoError(t, err)
+	parsed, err := JournalWorkspaceID(name)
+	require.NoError(t, err)
+	assert.Equal(t, workspace, parsed)
+	for _, foreign := range []string{
+		"", "smithers_flows_", "smithers_flows_keep", "postgres", "smithers_test_journal_admin_0f1e2d3c",
+		strings.ToUpper(name), "smithers_flows_" + strings.ToUpper(name[len("smithers_flows_"):]),
+		name + "0", name[:len(name)-1], "x" + name, "smithers_flows_0f1e2d3c-4b5a-4968-8776-655443322110",
+		name + "\n", "smithers_flows_0f1e2d3c4b5a49688776655443322g10",
+	} {
+		_, err = JournalWorkspaceID(foreign)
+		require.Error(t, err, foreign)
+	}
+}
+
+func (server *journalServer) exists(t *testing.T, name string) (role, database bool) {
+	t.Helper()
+	require.NoError(t, server.superuser.QueryRow(context.Background(), `SELECT
+		EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1), EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&role, &database))
+	return role, database
+}
+
+func TestPostgresJournalsDropRemovesTheWorkspaceJournalOnly(t *testing.T) {
+	server := newJournalServer(t, true)
+	ctx := context.Background()
+	// One connection, so every check below sees the session Drop used.
+	config, err := pgxpool.ParseConfig(server.adminURL)
+	require.NoError(t, err)
+	config.MaxConns = 1
+	single, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	defer single.Close()
+	journals, err := NewPostgresJournals(ctx, single, server.adminURL, journalTestKey)
+	require.NoError(t, err)
+	deleted, kept := uuid.NewString(), uuid.NewString()
+	journal := server.provisioned(t, journals, deleted)
+	other := server.provisioned(t, journals, kept)
+
+	// A host still connected to the journal does not block the drop.
+	live, err := pgx.Connect(ctx, journal.URL)
+	require.NoError(t, err)
+	defer live.Close(ctx)
+	_, err = live.Exec(ctx, "CREATE SCHEMA flows_control_db")
+	require.NoError(t, err)
+
+	require.NoError(t, journals.Drop(ctx, deleted))
+	role, database := server.exists(t, journal.Name)
+	assert.False(t, role || database)
+	require.Error(t, live.Ping(ctx))
+	_, err = pgx.Connect(ctx, journal.URL)
+	require.Error(t, err)
+	role, database = server.exists(t, other.Name)
+	assert.True(t, role && database, "another workspace's journal survives")
+	var current string
+	require.NoError(t, single.QueryRow(ctx, `SELECT current_user`).Scan(&current))
+	assert.Equal(t, mustURL(t, server.adminURL).User.Username(), current, "the pooled session is the backend again")
+
+	// Idempotent: a repeat, a workspace that never had a journal, and a role
+	// whose database an operator already dropped.
+	require.NoError(t, journals.Drop(ctx, deleted))
+	require.NoError(t, journals.Drop(ctx, uuid.NewString()))
+	_, err = server.superuser.Exec(ctx, "DROP DATABASE "+other.Name+" WITH (FORCE)")
+	require.NoError(t, err)
+	require.NoError(t, journals.Drop(ctx, kept))
+	role, database = server.exists(t, other.Name)
+	assert.False(t, role || database)
+
+	// A provision interrupted before the backend held the role's membership
+	// is still dropped.
+	interrupted := server.provisioned(t, journals, uuid.NewString())
+	interruptedID, err := JournalWorkspaceID(interrupted.Name)
+	require.NoError(t, err)
+	admin := mustURL(t, server.adminURL).User.Username()
+	_, err = server.superuser.Exec(ctx, "REVOKE "+interrupted.Name+" FROM "+admin+" GRANTED BY "+admin)
+	require.NoError(t, err)
+	var canSet bool
+	require.NoError(t, server.superuser.QueryRow(ctx, `SELECT pg_has_role($1, $2, 'SET')`, admin, interrupted.Name).Scan(&canSet))
+	require.False(t, canSet)
+	require.NoError(t, journals.Drop(ctx, interruptedID))
+	role, database = server.exists(t, interrupted.Name)
+	assert.False(t, role || database)
+
+	// A superuser backend (the local embedded server) drops the same way.
+	superuserPool, err := pgxpool.New(ctx, server.superuserURL)
+	require.NoError(t, err)
+	defer superuserPool.Close()
+	asSuperuser, err := NewPostgresJournals(ctx, superuserPool, server.superuserURL, journalTestKey)
+	require.NoError(t, err)
+	superuserWorkspace := uuid.NewString()
+	superuserJournal := server.provisioned(t, asSuperuser, superuserWorkspace)
+	require.NoError(t, asSuperuser.Drop(ctx, superuserWorkspace))
+	role, database = server.exists(t, superuserJournal.Name)
+	assert.False(t, role || database)
+
+	require.ErrorContains(t, journals.Drop(ctx, "smithers_flows_keep"), "canonical workspace id")
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.Error(t, journals.Drop(cancelled, uuid.NewString()))
+}
+
+func TestPostgresJournalsWorkspacesListsOnlyThisBackendsJournals(t *testing.T) {
+	server := newJournalServer(t, true)
+	ctx := context.Background()
+	journals, err := NewPostgresJournals(ctx, server.pool, server.adminURL, journalTestKey)
+	require.NoError(t, err)
+	listed, err := journals.Workspaces(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+	first, second := uuid.NewString(), uuid.NewString()
+	server.provisioned(t, journals, first)
+	server.provisioned(t, journals, second)
+
+	// Roles a sweep must never see: outside the naming scheme though tagged
+	// as this backend's, another backend's journal, and an untagged one.
+	tag := quoteLiteral("smithers flow journal of database " + server.backend)
+	foreignName, err := JournalDatabaseName(uuid.NewString())
+	require.NoError(t, err)
+	untaggedName, err := JournalDatabaseName(uuid.NewString())
+	require.NoError(t, err)
+	decoys := map[string]string{
+		"smithers_flows_keep": tag,
+		`"SMITHERS_FLOWS_` + strings.ToUpper(foreignName[len("smithers_flows_"):]) + `"`: tag,
+		foreignName:  quoteLiteral("smithers flow journal of database another_backend"),
+		untaggedName: "",
+	}
+	for role, comment := range decoys {
+		_, err = server.superuser.Exec(ctx, "CREATE ROLE "+role)
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = server.superuser.Exec(context.Background(), "DROP ROLE IF EXISTS "+role) })
+		if comment != "" {
+			_, err = server.superuser.Exec(ctx, "COMMENT ON ROLE "+role+" IS "+comment)
+			require.NoError(t, err)
+		}
+	}
+
+	listed, err = journals.Workspaces(ctx)
+	require.NoError(t, err)
+	expected := []string{first, second}
+	slices.Sort(expected)
+	assert.Equal(t, expected, listed)
+
+	require.NoError(t, journals.Drop(ctx, first))
+	listed, err = journals.Workspaces(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{second}, listed)
+	for role := range decoys {
+		var exists bool
+		require.NoError(t, server.superuser.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`,
+			strings.Trim(role, `"`)).Scan(&exists))
+		assert.True(t, exists, role)
+	}
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = journals.Workspaces(cancelled)
+	require.Error(t, err)
 }

@@ -604,6 +604,11 @@ type WorkspaceService struct {
 	// agentEnvironment supplies setup-only secrets and persistent nonsecret
 	// variables for new repository workspace VMs.
 	agentEnvironment AgentEnvironmentProvisioningProvider
+	// egressAllowDomains is the repository allowlist every workspace VM's
+	// egress proxy is created and resumed with (#2653).
+	egressAllowDomains EgressAllowDomainsSource
+	// flowJournals drops a deleted workspace's flow journal (#3172).
+	flowJournals FlowJournals
 	// boxHostActivity is when each box's coding host last recorded activity.
 	boxHostActivity     *sync.Map
 	providerConnections ProviderPoolOffer
@@ -672,6 +677,12 @@ func WithWorkspaceGoldenSnapshots(golden *GoldenSnapshotService) WorkspaceServic
 // the VM provisioning lifecycle.
 func WithWorkspaceAgentEnvironment(provider AgentEnvironmentProvisioningProvider) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.agentEnvironment = provider }
+}
+
+// WithWorkspaceEgressAllowDomains sends each repository's egress allowlist
+// with every workspace VM it creates, forks or resumes.
+func WithWorkspaceEgressAllowDomains(source EgressAllowDomainsSource) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.egressAllowDomains = source }
 }
 
 // WithWorkspaceProviderConnections offers the owner's connected accounts to

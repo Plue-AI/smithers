@@ -127,9 +127,16 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	var journals flowhost.Journals
 	if address := strings.TrimSpace(cfg.Sandbox.FlowJournalPostgresURL); address != "" {
 		key := sha256.Sum256([]byte("smithers flow journal key v1\x00" + cfg.Webhook.SecretEncryptionKey))
-		if journals, err = flowhost.NewPostgresJournals(context.Background(), pool, address, key[:]); err != nil {
+		postgres, err := flowhost.NewPostgresJournals(context.Background(), pool, address, key[:])
+		if err != nil {
 			return nil, err
 		}
+		owner, ok := boxes.(interface{ SetFlowJournals(services.FlowJournals) })
+		if !ok {
+			return nil, errors.New("Flow journals need the workspace service to drop deleted workspaces' journals")
+		}
+		owner.SetFlowJournals(postgres)
+		journals = postgres
 	}
 	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals})
 	if err != nil {

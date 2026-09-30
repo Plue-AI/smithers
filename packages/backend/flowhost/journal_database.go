@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -68,6 +69,24 @@ func JournalDatabaseName(workspaceID string) (string, error) {
 	return "smithers_flows_" + strings.ReplaceAll(workspaceID, "-", ""), nil
 }
 
+// journalNamePattern is the whole journal naming scheme: a name outside it is
+// never a workspace's journal, so it is never listed or dropped.
+var journalNamePattern = regexp.MustCompile(`^smithers_flows_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$`)
+
+// JournalWorkspaceID is the workspace a journal database or role name belongs
+// to. It refuses every name JournalDatabaseName could not have produced.
+func JournalWorkspaceID(name string) (string, error) {
+	parts := journalNamePattern.FindStringSubmatch(name)
+	if parts == nil {
+		return "", errors.New("not a flow journal name")
+	}
+	workspaceID := strings.Join(parts[1:], "-")
+	if derived, err := JournalDatabaseName(workspaceID); err != nil || derived != name {
+		return "", errors.New("not a flow journal name")
+	}
+	return workspaceID, nil
+}
+
 // identity is the journal's part of the host's service identity: where the
 // host connects and to which database, never the credential. A SQLite host
 // has none.
@@ -106,13 +125,15 @@ func (journal JournalDatabase) environment(workspaceID string) (map[string]strin
 	return map[string]string{"SMITHERS_POSTGRES_URL": journal.URL, "SMITHERS_POSTGRES_SCHEMA": journal.Schema}, nil
 }
 
-// PostgresJournals provisions per-workspace journal databases on the
-// backend's PostgreSQL server. The backend's role needs CREATEROLE and
+// PostgresJournals provisions and drops per-workspace journal databases on
+// the backend's PostgreSQL server. The backend's role needs CREATEROLE and
 // CREATEDB (or superuser); every workspace role it creates has neither.
 type PostgresJournals struct {
 	pool    *pgxpool.Pool
 	address *url.URL
 	key     []byte
+	// tag marks each journal role this backend provisions (#3172).
+	tag string
 }
 
 // NewPostgresJournals keeps journals on pool's server. address is how a flow
@@ -143,7 +164,7 @@ func NewPostgresJournals(ctx context.Context, pool *pgxpool.Pool, address string
 	// Best effort: a backend that does not own its database is refused per
 	// provision by the connect check, with the remedy in the error.
 	_, _ = pool.Exec(ctx, "REVOKE CONNECT, TEMPORARY ON DATABASE "+pgx.Identifier{database}.Sanitize()+" FROM PUBLIC")
-	return &PostgresJournals{pool: pool, address: parsed, key: append([]byte(nil), key...)}, nil
+	return &PostgresJournals{pool: pool, address: parsed, key: append([]byte(nil), key...), tag: "smithers flow journal of database " + database}, nil
 }
 
 // Describe answers a workspace's journal without touching the server, for
@@ -173,19 +194,11 @@ func (journals *PostgresJournals) Provision(ctx context.Context, workspaceID str
 	if err != nil {
 		return JournalDatabase{}, err
 	}
-	conn, err := journals.pool.Acquire(ctx)
+	conn, release, err := journals.lockJournal(ctx, journal.Name)
 	if err != nil {
 		return JournalDatabase{}, err
 	}
-	defer conn.Release()
-	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 2099))`, journal.Name); err != nil {
-		return JournalDatabase{}, err
-	}
-	defer func() {
-		if _, unlock := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 2099))`, journal.Name); unlock != nil {
-			conn.Conn().Close(context.WithoutCancel(ctx)) // closing the session releases the lock
-		}
-	}()
+	defer release()
 	verifier, err := scramVerifier(journals.password(journal.Name))
 	if err != nil {
 		return JournalDatabase{}, err
@@ -209,6 +222,11 @@ func (journals *PostgresJournals) Provision(ctx context.Context, workspaceID str
 	}
 	if err != nil {
 		return JournalDatabase{}, fmt.Errorf("flow journal role: %w", err)
+	}
+	// The tag names this backend's database, so a sweep never lists another
+	// backend's journals on a shared server.
+	if _, err = conn.Exec(ctx, "COMMENT ON ROLE "+role+" IS "+quoteLiteral(journals.tag)); err != nil {
+		return JournalDatabase{}, fmt.Errorf("flow journal role tag: %w", err)
 	}
 	if err = conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, journal.Name).Scan(&exists); err != nil {
 		return JournalDatabase{}, err
@@ -252,6 +270,100 @@ func (journals *PostgresJournals) Provision(ctx context.Context, workspaceID str
 		return JournalDatabase{}, errors.New("flow journal role could connect to the backend database; revoke CONNECT on it from PUBLIC")
 	}
 	return journal, nil
+}
+
+// lockJournal holds the per-workspace advisory lock Provision and Drop share,
+// on a connection of its own, until the returned release runs.
+func (journals *PostgresJournals) lockJournal(ctx context.Context, name string) (*pgxpool.Conn, func(), error) {
+	conn, err := journals.pool.Acquire(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 2099))`, name); err != nil {
+		conn.Release()
+		return nil, nil, err
+	}
+	return conn, func() {
+		if _, unlock := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 2099))`, name); unlock != nil {
+			conn.Conn().Close(context.WithoutCancel(ctx)) // closing the session releases the lock
+		}
+		conn.Release()
+	}, nil
+}
+
+// Drop removes a deleted workspace's journal database, ending any session
+// still open on it, and then its role. It is idempotent, serialized with
+// Provision, and touches only the name the workspace id derives.
+func (journals *PostgresJournals) Drop(ctx context.Context, workspaceID string) (err error) {
+	name, err := JournalDatabaseName(workspaceID)
+	if err != nil {
+		return err
+	}
+	conn, release, err := journals.lockJournal(ctx, name)
+	if err != nil {
+		return err
+	}
+	defer release()
+	role := pgx.Identifier{name}.Sanitize()
+	var roleExists, databaseExists bool
+	if err = conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1),
+			EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&roleExists, &databaseExists); err != nil {
+		return err
+	}
+	if databaseExists {
+		// Only the owner drops a database and ends its sessions; the backend
+		// acts as the workspace role through the SET-only membership
+		// Provision granted (a provision interrupted before it is repaired).
+		if _, err = conn.Exec(ctx, "GRANT "+role+" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE"); err != nil {
+			return fmt.Errorf("flow journal role membership: %w", err)
+		}
+		if _, err = conn.Exec(ctx, "SET ROLE "+role); err != nil {
+			return fmt.Errorf("flow journal database drop: %w", err)
+		}
+		_, err = conn.Exec(ctx, "DROP DATABASE IF EXISTS "+role+" WITH (FORCE)")
+		if _, reset := conn.Exec(context.WithoutCancel(ctx), "RESET ROLE"); reset != nil {
+			conn.Conn().Close(context.WithoutCancel(ctx)) // never return a pooled session acting as the workspace
+			return errors.Join(err, reset)
+		}
+		if err != nil {
+			return fmt.Errorf("flow journal database drop: %w", err)
+		}
+	}
+	if roleExists {
+		if _, err = conn.Exec(ctx, "DROP ROLE IF EXISTS "+role); err != nil {
+			return fmt.Errorf("flow journal role drop: %w", err)
+		}
+	}
+	return nil
+}
+
+// Workspaces lists every workspace with a journal role this backend
+// provisioned (and so possibly a database), so a sweep can drop those whose
+// workspace is gone. Another backend's journals on the same server and names
+// outside the journal scheme are never listed.
+func (journals *PostgresJournals) Workspaces(ctx context.Context) ([]string, error) {
+	rows, err := journals.pool.Query(ctx, `SELECT r.rolname::text FROM pg_roles r
+		JOIN pg_shdescription d ON d.objoid = r.oid AND d.classoid = 'pg_authid'::regclass
+		WHERE r.rolname LIKE 'smithers\_flows\_%' AND d.description = $1`, journals.tag)
+	if err != nil {
+		return nil, err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+	var workspaces []string
+	for _, name := range names {
+		if workspaceID, err := JournalWorkspaceID(name); err == nil {
+			workspaces = append(workspaces, workspaceID)
+		}
+	}
+	slices.Sort(workspaces)
+	return workspaces, nil
+}
+
+func quoteLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // scramVerifier is PostgreSQL's SCRAM-SHA-256 stored form of a password

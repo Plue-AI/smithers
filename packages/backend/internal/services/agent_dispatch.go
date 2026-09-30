@@ -1171,6 +1171,13 @@ func (d *agentDispatch) createVM() error {
 		return quotaErr
 	}
 	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Quota: quota, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
+	if d.svc.egressAllowDomains != nil && d.input.RepositoryID > 0 {
+		domains, err := d.svc.egressAllowDomains.AllowDomains(d.ctx, d.input.RepositoryID)
+		if err != nil {
+			return d.markInfraFailed("repository egress policy: " + err.Error())
+		}
+		d.vmReq.EgressProxy.AllowDomains = domains
+	}
 	if err := d.vmReq.EgressProxy.Validate(); err != nil {
 		return d.markInfraFailed("egress proxy bindings: " + err.Error())
 	}

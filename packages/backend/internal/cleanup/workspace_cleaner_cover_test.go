@@ -35,6 +35,7 @@ func (m *workspaceCoverStore) CleanupOverQuotaWorkspaces(context.Context) error 
 func (m *workspaceCoverStore) CleanupStoppedAgentWorkspaceDisks(context.Context) error { return nil }
 func (m *workspaceCoverStore) CleanupAbandonedWorkspaces(context.Context) error        { return nil }
 func (m *workspaceCoverStore) ReapWorkspaceChildren(context.Context) error             { return nil }
+func (m *workspaceCoverStore) CleanupOrphanFlowJournals(context.Context) error         { return nil }
 
 func (m *workspaceCoverStore) sweepCount() int {
 	return int(atomic.LoadInt32(&m.sweep))

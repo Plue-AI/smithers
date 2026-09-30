@@ -99,3 +99,24 @@ type EgressRevokeResult struct {
 type EgressRevoker interface {
 	RevokeEgress(ctx context.Context, sandboxID string, req EgressRevokeRequest) (EgressRevokeResult, error)
 }
+
+// EgressReloadRequest is the domain allowlist a running sandbox's egress
+// proxy switches to. An empty list resets it to the provider's deployment
+// list; it never denies everything. Hosts a bound secret names stay
+// reachable whatever the list says.
+type EgressReloadRequest struct {
+	AllowDomains []string `json:"allowDomains"`
+}
+
+// EgressReloadResult reports the allowlist the proxy now enforces.
+type EgressReloadResult struct {
+	SandboxID    string   `json:"sandboxId"`
+	AllowDomains []string `json:"allowDomains"`
+}
+
+// EgressReloader is implemented by providers that can replace a running
+// sandbox's egress allowlist on its live proxy without restarting the
+// sandbox. An unknown, stopped, or revoked sandbox is an error.
+type EgressReloader interface {
+	ReloadEgress(ctx context.Context, sandboxID string, req EgressReloadRequest) (EgressReloadResult, error)
+}

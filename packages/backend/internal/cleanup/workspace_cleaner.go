@@ -16,12 +16,14 @@ type WorkspaceCleanupStore interface {
 	CleanupStoppedAgentWorkspaceDisks(ctx context.Context) error
 	CleanupAbandonedWorkspaces(ctx context.Context) error
 	ReapWorkspaceChildren(ctx context.Context) error
+	CleanupOrphanFlowJournals(ctx context.Context) error
 }
 
 // WorkspaceCleaner periodically cleans up idle sessions, suspends idle or
 // over-quota workspaces, reclaims long-stopped agent workspace disks,
-// reclaims workspaces whose client lease lapsed, and reaps child workspaces
-// whose parent stopped or whose batch expired.
+// reclaims workspaces whose client lease lapsed, reaps child workspaces
+// whose parent stopped or whose batch expired, and drops the flow journals of
+// deleted workspaces.
 type WorkspaceCleaner struct {
 	periodicRunner
 	store WorkspaceCleanupStore
@@ -63,6 +65,9 @@ func (c *WorkspaceCleaner) sweep(ctx context.Context) error {
 	}
 	if err := c.store.ReapWorkspaceChildren(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("reap child workspaces: %w", err))
+	}
+	if err := c.store.CleanupOrphanFlowJournals(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("drop orphan flow journals: %w", err))
 	}
 
 	if len(errs) > 0 {

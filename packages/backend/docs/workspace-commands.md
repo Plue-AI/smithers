@@ -63,8 +63,10 @@ shared filesystem execution service for arbitrary replicas.
 ## CLI and agents
 
 `smthrs workspace exec` uses these endpoints for both human and agent callers.
-`--exec-id` supplies the retry identity. Ctrl-C and `--timeout` request
-cancellation; network errors preserve the ID for reattachment. Interactive
+`--exec-id` supplies the retry identity. `--detach` returns the receipt after
+admission and leaves the command running; the same command and ID reattach.
+Ctrl-C and `--timeout` request cancellation; network errors preserve the ID for
+reattachment. Interactive
 input uses `workspace ssh` or `workspace shell`.
 
 The synchronous `/commands` endpoint and SSH log-file command runner are

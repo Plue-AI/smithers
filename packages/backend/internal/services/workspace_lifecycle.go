@@ -245,6 +245,7 @@ func (s *WorkspaceService) destroyWorkspace(ctx context.Context, workspace db.Wo
 	if _, err := s.q.SoftDeleteWorkspace(ctx, workspace.ID); err != nil {
 		return pkgerrors.Internal("soft-delete workspace: " + err.Error())
 	}
+	s.dropFlowJournal(ctx, workspace.ID)
 	s.meterWorkspaceUsage(ctx, workspace, "stopped")
 	s.notifyWorkspace(ctx, workspace.ID, "stopped")
 

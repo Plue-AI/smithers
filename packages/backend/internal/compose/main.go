@@ -652,6 +652,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			defer unsubscribeAccessRevocations()
 		}
 	}
+	// A repository's egress allowlist: created and resumed sandboxes render
+	// it, and a write reloads it into running ones when the provider can.
+	var egressReloader sandbox.EgressReloader
+	if reloader, ok := provider.(sandbox.EgressReloader); ok {
+		egressReloader = reloader
+	}
+	egressPolicyService := services.NewRepositoryEgressPolicyService(queries, egressReloader)
 	// Backstop for micro-VMs whose owning workspace row was cascade-
 	// deleted with its repository: nothing else can see them, because every
 	// other sweep starts from the row that is gone.
@@ -714,6 +721,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}),
 		services.WithAgentEnvironmentVariables(agentEnvironmentService),
 		services.WithAgentEnvironmentBoundSecrets(agentEnvironmentService),
+		services.WithAgentEgressAllowDomains(egressPolicyService),
 		services.WithAgentSandboxMetrics(smithersMetrics),
 		services.WithAgentWorkflowMetrics(smithersMetrics),
 		services.WithAgentSessionMetrics(smithersMetrics),
@@ -742,6 +750,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceAuditService(auditService),
 		services.WithWorkspaceSandboxClient(sandboxClient),
+		services.WithWorkspaceEgressAllowDomains(egressPolicyService),
 		services.WithWorkspaceSourceReader(repoHostClient),
 		services.WithWorkspaceRefDeleter(repoHostClient),
 		services.WithWorkspaceSandboxMetrics(smithersMetrics),
@@ -913,6 +922,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	mythicalService.SetPublicURL(publicBaseURL)
 	gitHubMainPullService.SetMainMoved(mythicalService.MainMoved)
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
@@ -1455,7 +1465,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
 			AdminWorkspaces:    &routes.AdminWorkspaceHandler{Service: adminManageService},
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
-			DeploymentAdmin:    deploymentAdminRoutes},
+			DeploymentAdmin:    deploymentAdminRoutes,
+			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService}},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{registrationPool: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,

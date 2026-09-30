@@ -392,6 +392,7 @@ type AgentService struct {
 	sandboxConfig         AgentSandboxConfig
 	environmentVariables  AgentEnvironmentVariablesLoader
 	boundSecrets          AgentEnvironmentBoundSecretsLoader
+	egressAllowDomains    EgressAllowDomainsSource
 	sandboxMetrics        SandboxMetricsRecorder
 	workflowMetrics       WorkflowRunMetricsObserver
 	sessionMetrics        AgentSessionMetricsObserver
@@ -529,6 +530,14 @@ func WithAgentSecretService(secretService AgentSecretReader) AgentServiceOption 
 func WithAgentEnvironmentBoundSecrets(loader AgentEnvironmentBoundSecretsLoader) AgentServiceOption {
 	return func(s *AgentService) {
 		s.boundSecrets = loader
+	}
+}
+
+// WithAgentEgressAllowDomains sends the repository's egress allowlist with
+// every agent sandbox dispatch creates (#2653).
+func WithAgentEgressAllowDomains(source EgressAllowDomainsSource) AgentServiceOption {
+	return func(s *AgentService) {
+		s.egressAllowDomains = source
 	}
 }
 

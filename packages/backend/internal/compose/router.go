@@ -58,6 +58,8 @@ type routerExtras struct {
 	// ModelProxy is the metered platform-model proxy; nil when the deployment
 	// offers no platform models.
 	ModelProxy http.Handler
+	// EgressPolicy serves a repository's owner-only egress allowlist.
+	EgressPolicy *routes.RepositoryEgressPolicyHandler
 }
 
 func buildRouter(
@@ -1344,6 +1346,12 @@ func buildRouter(
 					r.Post("/lfs/batch", lfsHandler.PostBatch)
 					r.With(writeRepo...).Post("/lfs/confirm", lfsHandler.PostConfirm)
 					r.With(writeRepo...).Delete("/lfs/objects/{oid}", lfsHandler.DeleteObject)
+				}
+
+				// A repository's egress allowlist is its owner's alone (#2653).
+				if extras.EgressPolicy != nil {
+					r.With(ownerRepo...).Get("/egress-policy", extras.EgressPolicy.GetEgressPolicy)
+					r.With(ownerRepo...).Put("/egress-policy", extras.EgressPolicy.PutEgressPolicy)
 				}
 
 				// Deploy keys: per-repository SSH deploy keys.

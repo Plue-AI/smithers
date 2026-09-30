@@ -24,6 +24,10 @@ type WikiIndex struct {
 	Pages   []WikiIndexPage `json:"pages"`
 	Folders []string        `json:"folders"`
 	Tags    []string        `json:"tags"`
+	// Checkpoint is the event sequence the pages are at least as new as. It is
+	// read before the pages, so replaying events after it over this index is
+	// idempotent and can never skip a change.
+	Checkpoint int64 `json:"checkpoint"`
 }
 
 func (s *WikiService) GetWikiIndex(ctx context.Context, viewer *db.User, owner, repo string) (WikiIndex, error) {
@@ -39,11 +43,16 @@ func (s *WikiService) GetWikiIndex(ctx context.Context, viewer *db.User, owner, 
 	// edits during a scan cannot hide or duplicate pages. One SQL snapshot.
 	store, ok := s.queries.(interface {
 		ListWikiIndex(context.Context, db.ListWikiIndexParams) ([]db.ListWikiIndexRow, error)
+		GetWikiSpaceHead(context.Context, db.GetWikiSpaceHeadParams) (int64, error)
 	})
 	if !ok {
 		return result, wikiUnavailable("wiki index is unavailable")
 	}
-	rows, err := store.ListWikiIndex(ctx, db.ListWikiIndexParams{RepositoryID: repository.ID, Visibility: wikiVisibility(ctx)})
+	visibility := wikiVisibility(ctx)
+	if result.Checkpoint, err = store.GetWikiSpaceHead(ctx, db.GetWikiSpaceHeadParams{RepositoryID: repository.ID, Visibility: visibility}); err != nil {
+		return result, pkgerrors.Internal("failed to read wiki checkpoint").WithCause(err)
+	}
+	rows, err := store.ListWikiIndex(ctx, db.ListWikiIndexParams{RepositoryID: repository.ID, Visibility: visibility})
 	if err != nil {
 		return result, pkgerrors.Internal("failed to read wiki index").WithCause(err)
 	}

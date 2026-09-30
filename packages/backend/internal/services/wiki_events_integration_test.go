@@ -238,3 +238,52 @@ func TestWikiProduct_PostgresRevocationDuringContentRead(t *testing.T) {
 		})
 	}
 }
+
+func TestWikiProduct_PostgresIndexCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	userID, repoID := setupTestUserAndRepo(t, pool)
+	actor, err := q.GetUserByID(ctx, userID)
+	require.NoError(t, err)
+	repo, err := q.GetRepoByID(ctx, repoID)
+	require.NoError(t, err)
+	s := newTestWikiService(q, nil, WithWikiCollaboration(q, nil), WithWikiContent(blob.NewMemoryStore()))
+	private, err := WithWikiVisibility(ctx, "private")
+	require.NoError(t, err)
+
+	empty, err := s.GetWikiIndex(private, &actor, actor.Username, repo.Name)
+	require.NoError(t, err)
+	require.Zero(t, empty.Checkpoint)
+
+	first, err := s.CreateWikiPage(private, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Home", Body: "one"})
+	require.NoError(t, err)
+	_, err = s.CreateWikiPage(private, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Guide", Body: "two"})
+	require.NoError(t, err)
+	index, err := s.GetWikiIndex(private, &actor, actor.Username, repo.Name)
+	require.NoError(t, err)
+	events, err := s.ListWikiEvents(private, &actor, actor.Username, repo.Name, 0)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	require.Equal(t, events[len(events)-1].Sequence, index.Checkpoint)
+	after, err := s.ListWikiEvents(private, &actor, actor.Username, repo.Name, index.Checkpoint)
+	require.NoError(t, err)
+	require.Empty(t, after)
+
+	// The scopes count separately: the public wiki has no events yet.
+	public, err := s.GetWikiIndex(ctx, &actor, actor.Username, repo.Name)
+	require.NoError(t, err)
+	require.Zero(t, public.Checkpoint)
+
+	changed := "changed"
+	// An edit after the checkpoint is exactly the events a resumed fold reads.
+	_, err = s.UpdateWikiPage(private, &actor, actor.Username, repo.Name, first.Slug, UpdateWikiPageInput{Body: &changed, ExpectedRevision: &first.Revision})
+	require.NoError(t, err)
+	tail, err := s.ListWikiEvents(private, &actor, actor.Username, repo.Name, index.Checkpoint)
+	require.NoError(t, err)
+	require.Len(t, tail, 1)
+	require.Equal(t, index.Checkpoint+1, tail[0].Sequence)
+	moved, err := s.GetWikiIndex(private, &actor, actor.Username, repo.Name)
+	require.NoError(t, err)
+	require.Equal(t, tail[0].Sequence, moved.Checkpoint)
+}

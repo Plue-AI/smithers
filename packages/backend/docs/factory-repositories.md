@@ -26,6 +26,9 @@ merged with the GitHub merge commit as its receipt (`github_merge` on
 `GET /landings/{n}`). Smithers never appends it to its own main. The
 receipt needs the repository owner's GitHub App installation to cover the
 GitHub repository; without one, the landing stays open.
+The proposal never carries a closing keyword: once GitHub main holds the
+merge commit, the stack writes one comment on the issue (the commit, the
+checks, the run) and only then closes it; a retry never repeats the comment.
 Do not register a second prompt worker for the same TODO.
 
 For another repository, commit its own factory and the flows it runs there.
