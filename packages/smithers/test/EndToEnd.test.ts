@@ -137,6 +137,8 @@ describe("one project, from init to gc", processBudget, () => {
         "import { Schema } from \"effect\"",
         "",
         "export default Flow.make({",
+        // The registry name the path derives; `@smthrs/core` requires it.
+        "  name: \"idle\",",
         "  description: \"A module flow this host accepts and drives nothing for.\",",
         "  input: Schema.Struct({ args: Schema.String }),",
         "  output: Schema.String",

@@ -958,6 +958,58 @@ describe("the executor's registry seam", () => {
     expect(record.statuses).toEqual([])
   })
 
+  /**
+   * A module whose delegate this host never registered is not a defect in the
+   * entry: the host program that registers the delegate drives it. The launch
+   * is accepted as pending, the same answer a flow this composition does not
+   * know gets, so `smthrs up` leaves a durable run at `accepted` for that
+   * program instead of refusing it (`docs/guides/launch-a-detached-run.md`).
+   */
+  it("accepts a launch of a module whose delegate this host never registered as pending", async () => {
+    const record = recorder()
+    const moduleDescriptor = new Descriptor.FlowDescriptor({
+      ...seated,
+      flows: [],
+      body: new Descriptor.BodyRefModule({
+        path: "/flows/agents/notes/flow.ts",
+        contentDigest: "b".repeat(64)
+      })
+    })
+    const missing = (flow: string) =>
+      new Executable.ExecutableError({
+        code: "missing_delegate",
+        flow,
+        delegate: Executable.defaultAgent,
+        available: [],
+        message: `flow "${flow}" delegates to "agent", which no registered flow provides`
+      })
+
+    const acceptance = await withExecutor(
+      record,
+      {
+        registry: {
+          get: () => Effect.succeed(moduleDescriptor),
+          getOption: () => Effect.succeed(Option.some(moduleDescriptor)),
+          loadBody: () => Effect.succeed(moduleBody)
+        },
+        // Another flow's missing delegate says nothing about this one.
+        catalog: { executables: [], refused: [missing("agents/other"), missing(flowId)] }
+      },
+      (executor) =>
+        executor.launch({
+          ...launchInput,
+          plan: {
+            ...launchInput.plan,
+            card: { ...launchInput.plan.card, executionDigest: Descriptor.executionDigest(moduleDescriptor) }
+          }
+        })
+    )
+
+    expect(acceptance).toBe("pending")
+    // Nothing here drives it.
+    expect(record.statuses).toEqual([])
+  })
+
   it("leaves a flow the registry does not disclose pending, and drives nothing", async () => {
     const record = recorder()
     const acceptance = await withExecutor(

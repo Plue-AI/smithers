@@ -3953,6 +3953,13 @@ export const make = (
         if (flowBody._tag !== "Prompt") {
           if (Option.isNone(executables)) return "pending" as const
           const digest = yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value)
+          // A module whose delegate this host never registered is driven by
+          // the host program that registers it, so pending is the honest
+          // acceptance here too: nothing here runs it, and that program still
+          // might. Every other refusal is a defect in the entry and refuses.
+          if (
+            executables.value.refused.some((entry) => entry.flow === flowId && entry.code === "missing_delegate")
+          ) return "pending" as const
           yield* approvedModule(input.run.runId, input.plan.card, digest)
         } else {
           yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value)
