@@ -97,12 +97,14 @@ func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer, targets flo
 // restarted, which stops every workspace) is started again, and its host
 // reported not running, so the resolver restarts the host on the same state
 // and the run carries on (#2131). A box stopped or suspended on purpose stays so.
+// A box the runtime lost outright is replaced the same way when its journals
+// live outside it (#1868).
 func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	connection, err := l.Launcher.InspectFlowHost(ctx, launch)
 	if err == nil {
 		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
 	}
-	if errors.Is(err, workspaceapi.ErrWorkspaceStopped) &&
+	if (errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound)) &&
 		l.boxes.RestartLostBox(ctx, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID) == nil {
 		return flowhost.Connection{}, flowhost.ErrHostNotRunning
 	}

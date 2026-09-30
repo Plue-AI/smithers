@@ -461,6 +461,60 @@ func TestPostgresJournalsDropRemovesTheWorkspaceJournalOnly(t *testing.T) {
 	require.Error(t, journals.Drop(cancelled, uuid.NewString()))
 }
 
+// Before a lost box is replaced, every session its host holds on the
+// workspace's journal ends; another workspace's sessions and the journal
+// itself are untouched, and the replacement's host connects again (#1868).
+func TestPostgresJournalsFenceEndsOnlyTheLostBoxsSessions(t *testing.T) {
+	server := newJournalServer(t, true)
+	ctx := context.Background()
+	journals, err := NewPostgresJournals(ctx, server.pool, server.adminURL, journalTestKey)
+	require.NoError(t, err)
+	lost, kept := uuid.NewString(), uuid.NewString()
+	journal := server.provisioned(t, journals, lost)
+	other := server.provisioned(t, journals, kept)
+
+	stale, err := pgx.Connect(ctx, journal.URL)
+	require.NoError(t, err)
+	defer stale.Close(ctx)
+	_, err = stale.Exec(ctx, "CREATE SCHEMA flows_control_db; CREATE TABLE flows_control_db.events(id bigint PRIMARY KEY); INSERT INTO flows_control_db.events VALUES (1)")
+	require.NoError(t, err)
+	neighbour, err := pgx.Connect(ctx, other.URL)
+	require.NoError(t, err)
+
+	fenced, err := journals.Fence(ctx, lost)
+	require.NoError(t, err)
+	assert.True(t, fenced)
+	_, err = stale.Exec(ctx, "INSERT INTO flows_control_db.events VALUES (2)")
+	require.Error(t, err, "the lost box's host can no longer write")
+	require.NoError(t, neighbour.Ping(ctx), "another workspace's host keeps its session")
+	require.NoError(t, neighbour.Close(ctx))
+
+	provisioned, err := journals.Provision(ctx, lost)
+	require.NoError(t, err)
+	replacement, err := pgx.Connect(ctx, provisioned.URL)
+	require.NoError(t, err)
+	defer replacement.Close(ctx)
+	var events []int64
+	rows, err := replacement.Query(ctx, "SELECT id FROM flows_control_db.events ORDER BY id")
+	require.NoError(t, err)
+	events, err = pgx.CollectRows(rows, pgx.RowTo[int64])
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1}, events, "the replacement opens the same journal")
+
+	// A workspace with no journal database has nothing to recover: one never
+	// provisioned, or one whose database an operator dropped.
+	fenced, err = journals.Fence(ctx, uuid.NewString())
+	require.NoError(t, err)
+	assert.False(t, fenced)
+	_, err = server.superuser.Exec(ctx, "DROP DATABASE "+other.Name+" WITH (FORCE)")
+	require.NoError(t, err)
+	fenced, err = journals.Fence(ctx, kept)
+	require.NoError(t, err)
+	assert.False(t, fenced)
+	_, err = journals.Fence(ctx, "smithers_flows_keep")
+	require.ErrorContains(t, err, "canonical workspace id")
+}
+
 func TestPostgresJournalsWorkspacesListsOnlyThisBackendsJournals(t *testing.T) {
 	server := newJournalServer(t, true)
 	ctx := context.Background()

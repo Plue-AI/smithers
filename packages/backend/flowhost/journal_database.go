@@ -404,6 +404,60 @@ func (journals *PostgresJournals) Drop(ctx context.Context, workspaceID string) 
 	return nil
 }
 
+// Fence ends every session a workspace's journal role holds, before the
+// runtime replaces a box it lost (#1868): a host still running there loses its
+// current connections to the journal the replacement's host opens. It reports
+// whether the workspace has a journal database at all; without one there is
+// nothing to recover, and nothing is fenced. It is serialized with Provision
+// and Drop.
+func (journals *PostgresJournals) Fence(ctx context.Context, workspaceID string) (bool, error) {
+	name, err := JournalDatabaseName(workspaceID)
+	if err != nil {
+		return false, err
+	}
+	conn, release, err := journals.lockJournal(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	var exists bool
+	if err = conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)
+			AND EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil || !exists {
+		return false, err
+	}
+	role := pgx.Identifier{name}.Sanitize()
+	// A role may end its own sessions; the backend acts as it through the
+	// SET-only membership Provision grants.
+	if _, err = conn.Exec(ctx, "GRANT "+role+" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE"); err != nil {
+		return false, fmt.Errorf("flow journal role membership: %w", err)
+	}
+	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+role); err != nil {
+			return err
+		}
+		// A session that ends by itself meanwhile answers false; what counts
+		// is that none is left once every termination has waited.
+		if _, err := tx.Exec(ctx, `SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity
+			WHERE usename = current_user AND pid <> pg_backend_pid()`); err != nil {
+			return fmt.Errorf("flow journal fence: %w", err)
+		}
+		// pg_stat_activity is a snapshot per transaction until cleared.
+		if _, err := tx.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil {
+			return fmt.Errorf("flow journal fence: %w", err)
+		}
+		var left int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE usename = current_user AND pid <> pg_backend_pid()`).Scan(&left); err != nil {
+			return fmt.Errorf("flow journal fence: %w", err)
+		}
+		if left > 0 {
+			return errors.New("flow journal fence: a session of the lost box did not end")
+		}
+		return nil
+	})
+	return err == nil, err
+}
+
 // Workspaces lists every workspace with a journal role this backend
 // provisioned (and so possibly a database), so a sweep can drop those whose
 // workspace is gone. Another backend's journals on the same server and names

@@ -115,6 +115,8 @@ func (f *fakeFlowJournals) Drop(_ context.Context, workspaceID string) error {
 
 func (f *fakeFlowJournals) Workspaces(context.Context) ([]string, error) { return f.listed, f.listErr }
 
+func (f *fakeFlowJournals) Fence(context.Context, string) (bool, error) { return false, nil }
+
 type flowJournalQuerier struct {
 	WorkspaceQuerier
 	rows map[string]error

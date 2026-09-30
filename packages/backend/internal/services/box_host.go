@@ -220,16 +220,83 @@ const boxHostActivityInterval = time.Minute
 // RestartLostBox starts again a box the product holds running whose runtime
 // no longer runs it: a backend restart stops every workspace. A box stopped,
 // suspended or deleted on purpose is refused, never woken by its host.
+//
+// A box the runtime no longer has at all is replaced under the same workspace
+// when its hosts' journals live in PostgreSQL (#1868): parked runs and their
+// approvals are in the journal, not the box, so the resolver restarts the
+// host on the replacement at a new owner generation. With journals in the
+// box, the loss stays a refusal.
 func (s *WorkspaceService) RestartLostBox(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
 	workspace, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
 	if err != nil {
 		return err
 	}
-	if workspace.UserID != userID || workspace.Status != "running" || s.runtime == nil {
+	if workspace.UserID != userID || s.runtime == nil {
 		return pkgerrors.Conflict("workspace is not held running")
 	}
-	_, err = s.ensureRuntimeWorkspaceRunning(ctx, workspace, userID)
+	// One critical section, so a stop or suspend that lands meanwhile is
+	// never undone by this start.
+	unlock := s.lockRuntimeWorkspace(workspace.ID)
+	defer unlock()
+	current, err := s.currentRuntimeWorkspaceLocked(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if current.Status != "running" {
+		return pkgerrors.Conflict("workspace is not held running")
+	}
+	if s.flowJournals != nil {
+		if err := s.replaceMissingBoxLocked(ctx, current, userID); err != nil {
+			return err
+		}
+	}
+	_, err = s.ensureRuntimeWorkspaceRunningLocked(ctx, current, userID)
 	return err
+}
+
+// replaceMissingBoxLocked creates a box the runtime lost outright again,
+// under the same workspace ID, after ending the lost box's journal sessions.
+// A box with no journal database (its host kept SQLite in the box) is left
+// missing, so the start that follows refuses it. The start prepares a
+// replacement like a fresh box: repository checkout included.
+func (s *WorkspaceService) replaceMissingBoxLocked(ctx context.Context, row db.Workspace, requesterID int64) error {
+	inspectCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "inspect"))
+	if err != nil {
+		return err
+	}
+	if _, err := s.runtime.InspectWorkspace(inspectCtx, row.ID); !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+		return nil
+	}
+	if err := s.authorizeWorkspaceResume(ctx, row); err != nil {
+		return err
+	}
+	if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
+		return err
+	}
+	journaled, err := s.flowJournals.Fence(ctx, row.ID)
+	if err != nil {
+		return pkgerrors.Internal("fence the lost box's flow journal").WithCause(err)
+	}
+	if !journaled {
+		return nil
+	}
+	spec, err := s.runtimeWorkspaceSpec(ctx, row)
+	if err != nil {
+		return err
+	}
+	createCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "replace"))
+	if err != nil {
+		return err
+	}
+	observed, err := s.runtime.CreateWorkspace(createCtx, spec)
+	if err != nil {
+		return runtimeOperationError("replace workspace runtime", err)
+	}
+	if err := validateRuntimeWorkspace(row.ID, observed); err != nil {
+		return pkgerrors.Internal(err.Error())
+	}
+	slog.InfoContext(ctx, "workspace box replaced", "workspace_id", row.ID, "repository_id", row.RepositoryID, "vm_id", row.VmID)
+	return nil
 }
 
 // retireBoxHostCredentials revokes every credential minted for a

@@ -57,29 +57,58 @@ SMITHERS_TEST_DATABASE_URL="$TEST_POSTGRES_URL" SMITHERS_REQUIRE_DATABASE_TESTS=
 
 ## Lost box
 
-Cross-box recovery remains tracked in
-[#1868](https://github.com/smithersai/smithers/issues/1868), dependent on the
-trusted shared journal composition in
-[#2099](https://github.com/smithersai/smithers/issues/2099). The repository host
-currently opens local Control and engine stores. Product approval delivery is
-durable in PostgreSQL, but its opaque decision cannot restore a lost Control
-approval token, engine journal, or artifact.
+A box the runtime no longer has at all is replaced only when its coding hosts
+keep their journals in PostgreSQL (`SMITHERS_FLOW_JOURNAL_POSTGRES_URL`,
+[#2099](https://github.com/smithersai/smithers/issues/2099)). Parked runs and
+their Control approval tokens live in the workspace's journal database, not in
+the box, so replacement keeps them.
 
-Do not recreate an empty box and report recovery. Do not inject backend database
-credentials into a repository-executing host; catalog validation refuses them.
-Copying a local database and advancing a generation in the copy does not fence
-the original database's owner.
+The next inspection of the host (every host call and every observation of a
+progressing run inspects it) finds the box missing. The workspace service
+then:
 
-The shared composition must retain both stores and referenced artifacts,
-authorize the original approval, and fence the old executor before a replacement
-becomes ready. Recovery must retain the original run identity and trace and
-record a replacement receipt. Intentional deletion must remain distinct from
-an unavailable placement.
+1. Checks that the product row is still held running. A box stopped,
+   suspended or deleted on purpose is never recreated.
+2. Rechecks the resume admission, as a restart of a stopped box does.
+3. Ends every current session of the workspace's journal role
+   (`PostgresJournals.Fence`). A workspace with no journal database has nothing
+   to recover, so its box is not recreated.
+4. Creates the box again under the same workspace ID and prepares it like a
+   fresh start, including the repository checkout.
 
-The remaining acceptance crosses the canonical workspace runtime: park an
-executing run on approval, lose its placement, durably admit the original
-decision during the outage, and recover on a replacement. Assert the same run
-and trace prefix, one completed post-approval effect, duplicate-decision
-idempotency, old-owner refusal, and a durable recovery receipt. An explicit
-recoverable failure is acceptable only with a successful one-action resume.
-Repeat with intentional deletion and assert that no replacement is created.
+The resolver then starts the host at the next owner generation on the same
+journal database, which holds the parked run and its approval token.
+
+With journals in the box (SQLite in the state directory), a missing box stays
+a refusal: `workspace runtime no longer exists; create a fresh workspace`. Do
+not recreate an empty box and report recovery.
+
+`TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal` and
+`TestBoxHostLauncherRestartsALostBox` cover the decision.
+`TestPostgresJournalsFenceEndsOnlyTheLostBoxsSessions` runs the fence on real
+PostgreSQL:
+
+```bash
+SMITHERS_TEST_DATABASE_URL="$TEST_POSTGRES_URL" SMITHERS_REQUIRE_DATABASE_TESTS=1 \
+  go test ./packages/backend/flowhost \
+  -run '^TestPostgresJournalsFenceEndsOnlyTheLostBoxsSessions$' -count=1 -v
+```
+
+Limits tracked in [#1868](https://github.com/smithersai/smithers/issues/1868):
+
+- The journal credential is derived per workspace and nothing in the journal
+  checks the owner generation. The fence ends current sessions only; a
+  partitioned host that is still alive can connect again and write.
+- The replacement decision is serialized per process, not across backend
+  replicas. A second replica that also saw the box missing can end the
+  replacement host's current sessions.
+- The replacement's repository is a fresh checkout of the target bookmark. The
+  lost box's working-copy edits and the artifacts in its state directory are
+  gone.
+- Hosted (plue) placements are not replaced yet. Their `CreateWorkspace`
+  returns the lost placement row, which still inspects as missing, so the
+  replacement fails and the next inspection tries again. A microVM guest also
+  needs a routable journal server address, which hosted deployments do not
+  configure yet.
+- No end-to-end run has yet parked an approval, lost its box, and completed on
+  the replacement through the packaged host.

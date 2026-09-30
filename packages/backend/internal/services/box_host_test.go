@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type boxHostTestQuerier struct {
@@ -203,6 +205,124 @@ func TestKeepBoxAwakeWritesAtMostOncePerInterval(t *testing.T) {
 	}
 	svc.KeepBoxAwake(context.Background(), "other")
 	require.Equal(t, 2, q.touches)
+}
+
+// missingBoxRuntime has lost a box outright until the service creates it
+// again; its zero capabilities end the start at repository preparation.
+type missingBoxRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	present bool
+	created []workspaceapi.WorkspaceSpec
+	events  *[]string
+}
+
+func (r *missingBoxRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	return workspaceapi.WorkspaceCapabilities{}
+}
+
+func (r *missingBoxRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	if !r.present {
+		return workspaceapi.Workspace{}, workspaceapi.ErrWorkspaceNotFound
+	}
+	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
+}
+
+func (r *missingBoxRuntime) CreateWorkspace(_ context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
+	r.present = true
+	r.created = append(r.created, spec)
+	*r.events = append(*r.events, "create "+spec.ID)
+	return workspaceapi.Workspace{ID: spec.ID, State: workspaceapi.WorkspaceRunning}, nil
+}
+
+type fencingFlowJournals struct {
+	fakeFlowJournals
+	events    *[]string
+	journaled bool
+	fenceErr  error
+}
+
+func (f *fencingFlowJournals) Fence(_ context.Context, workspaceID string) (bool, error) {
+	*f.events = append(*f.events, "fence "+workspaceID)
+	return f.journaled, f.fenceErr
+}
+
+type refusingResumePolicy struct {
+	countedResumePolicy
+	err error
+}
+
+func (p *refusingResumePolicy) AuthorizeCountedSandboxResume(context.Context, int64, string, string) error {
+	p.countedCalls++
+	return p.err
+}
+
+// A box the runtime lost outright is replaced under the same workspace only
+// when its hosts' journals live in a PostgreSQL database, outside the box:
+// the resume admission passes, the lost box's journal sessions end, and the
+// replacement is prepared like a fresh start, so the resolver restarts the
+// host on the same journal (#1868). Without a journal database, for a box not
+// held running, or for a box that is still there, nothing is created.
+func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
+	refused := errors.New("sandbox slot refused")
+	missing := "workspace runtime no longer exists"
+	for _, tc := range []struct {
+		name      string
+		status    string
+		stopped   bool // stopped after the request loaded the row
+		deleted   bool
+		present   bool
+		journals  bool
+		journaled bool
+		fenceErr  error
+		billing   error
+		want      string
+		events    []string
+	}{
+		{name: "journal database", status: "running", journals: true, journaled: true,
+			want: "cannot initialize persistent repositories", events: []string{"fence ws-missing-box", "create ws-missing-box"}},
+		{name: "journals configured, none for this box", status: "running", journals: true,
+			want: missing, events: []string{"fence ws-missing-box"}},
+		{name: "journals in the box", status: "running", want: missing},
+		{name: "fence failed", status: "running", journals: true, journaled: true, fenceErr: errors.New("journal server unreachable"),
+			want: "fence the lost box", events: []string{"fence ws-missing-box"}},
+		{name: "resume refused", status: "running", journals: true, journaled: true, billing: refused, want: refused.Error()},
+		{name: "box still there", status: "running", present: true, journals: true, journaled: true, want: "cannot initialize persistent repositories"},
+		{name: "stopped on purpose", status: "stopped", journals: true, journaled: true, want: "not held running"},
+		{name: "stopped meanwhile", status: "running", stopped: true, journals: true, journaled: true, want: "not held running"},
+		{name: "deleted", status: "running", deleted: true, journals: true, journaled: true, want: "not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := sampleDBWorkspace("ws-missing-box")
+			row.Status = tc.status
+			current := row
+			if tc.stopped {
+				current.Status = "stopped"
+			}
+			q := &mockWorkspaceQuerier{
+				getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
+					if tc.deleted {
+						return db.Workspace{}, pgx.ErrNoRows
+					}
+					return row, nil
+				},
+				getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return current, nil },
+			}
+			var events []string
+			runtime := &missingBoxRuntime{present: tc.present, events: &events}
+			policy := &refusingResumePolicy{err: tc.billing}
+			service := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceRuntime(runtime))
+			if tc.journals {
+				service.SetFlowJournals(&fencingFlowJournals{events: &events, journaled: tc.journaled, fenceErr: tc.fenceErr})
+			}
+			err := service.RestartLostBox(context.Background(), row.ID, row.RepositoryID, row.UserID)
+			require.ErrorContains(t, err, tc.want)
+			require.Equal(t, tc.events, events)
+			if len(tc.events) == 2 {
+				require.Equal(t, row.ID, runtime.created[0].ID)
+				require.Equal(t, 1, policy.countedCalls, "the replacement passes the resume admission once")
+			}
+		})
+	}
 }
 
 // A backend restart stops every workspace in the runtime. A box the product

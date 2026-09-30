@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// FlowJournals drops the per-workspace flow journal databases and roles a
-// coding host keeps its journals in (#2099, #3172). A journal lives as long
+// FlowJournals drops and fences the per-workspace flow journal databases and
+// roles a coding host keeps its journals in (#2099, #3172, #1868). A journal lives as long
 // as its workspace: stopping, suspending or a lapsed lease keeps it, and
 // deleting the workspace drops it. flowhost.PostgresJournals implements it.
 type FlowJournals interface {
@@ -19,6 +19,11 @@ type FlowJournals interface {
 	Drop(ctx context.Context, workspaceID string) error
 	// Workspaces lists the workspaces that have a journal from this backend.
 	Workspaces(ctx context.Context) ([]string, error)
+	// Fence ends every session a workspace's journal role holds, so a host
+	// on a lost box loses its connections to the journal its replacement
+	// opens. It reports whether the workspace has a journal database; without
+	// one a lost box has nothing to recover.
+	Fence(ctx context.Context, workspaceID string) (bool, error)
 }
 
 // SetFlowJournals makes deleting a workspace drop its flow journal. The flow
