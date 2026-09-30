@@ -33,8 +33,8 @@ afterEach(async () => {
   })
 })
 
-const frame = async (item: Transcript.Item, width = 100): Promise<string> => {
-  setup = await testRender(<View.Entry item={item} now={1_000} tick="." expanded={false} />, { width, height: 14 })
+const frame = async (item: Transcript.Item, width = 100, expanded = false): Promise<string> => {
+  setup = await testRender(<View.Entry item={item} now={1_000} tick="." expanded={expanded} />, { width, height: 24 })
   await setup.renderOnce()
   const text = setup.captureCharFrame()
   await act(async () => {
@@ -46,7 +46,7 @@ const frame = async (item: Transcript.Item, width = 100): Promise<string> => {
 
 /** Non-empty rows without the transcript's left bar. */
 const lines = (text: string): ReadonlyArray<string> =>
-  text.split("\n").map((line) => line.replace(/^┃ /, "").trimEnd()).filter((line) => line.trim() !== "")
+  text.split("\n").map((line) => line.replace(/^┃ /, "").trim()).filter((line) => line.trim() !== "")
 
 const cell = (calls: ReadonlyArray<Transcript.Call>): Transcript.Item => ({
   kind: "cell",
@@ -72,12 +72,12 @@ const call = (change: Partial<Transcript.Call>): Transcript.Call => ({
 describe("a command's row", () => {
   it("reads ✗ and its exit status when the command exited nonzero, though the call succeeded", async () => {
     const rows = lines(await frame(cell([call({ exit: 1 })])))
-    expect(rows.find((row) => row.includes("node check.mjs"))).toMatch(/^✗ node check\.mjs {2}exit 1 +100ms$/)
+    expect(rows.find((row) => row.includes("node check.mjs"))).toMatch(/^✗ node check\.mjs {2}exit 1$/)
   })
 
   it("reads ✓ and exit 0 only for a command that passed", async () => {
     const rows = lines(await frame(cell([call({ exit: 0 })])))
-    expect(rows.find((row) => row.includes("node check.mjs"))).toMatch(/^✓ node check\.mjs {2}exit 0 +100ms$/)
+    expect(rows.find((row) => row.includes("node check.mjs"))).toMatch(/^✓ node check\.mjs {2}exit 0$/)
   })
 
   it("reads ✗ for a call that failed, and keeps a read's own icon while it succeeds", async () => {
@@ -99,7 +99,19 @@ describe("a command's row", () => {
       change: { path: "math.js", removed: "a - b", added: "a + b", line: 1 }
     })
     const rows = lines(await frame(cell([edit])))
-    expect(rows.find((row) => row.includes("math.js"))).toMatch(/^✓ edited math\.js {2}\+1 −1 +100ms$/)
+    expect(rows.find((row) => row.includes("math.js"))).toMatch(/^✓ edited math\.js {2}\+1 −1$/)
+  })
+
+  it("reveals command and edit timing only in expanded details", async () => {
+    const item = cell([
+      call({ exit: 0 }),
+      call({ flow: "edit", subject: "math.js", change: { path: "math.js", removed: "a", added: "b", line: 1 } })
+    ])
+    const compact = await frame(item)
+    expect(compact).not.toContain("100ms")
+    const expanded = lines(await frame(item, 100, true))
+    expect(expanded.find((row) => row.includes("node check.mjs"))).toMatch(/exit 0 +100ms$/)
+    expect(expanded.find((row) => row.includes("math.js"))).toMatch(/\+1 −1 +100ms$/)
   })
 
   it("keeps a zero exit status the harness reported, from the recorded fix-add run", () => {
@@ -148,7 +160,7 @@ describe("a run's ending in its transcript", () => {
     })
     await setup.renderOnce()
     const row = lines(setup.captureCharFrame()).find((each) => each.includes("src/auth.ts"))!
-    expect(row).toMatch(/^■ \S+ src\/auth\.ts +4ms$/)
+    expect(row).toMatch(/^■ \S+ src\/auth\.ts$/)
     const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
     expect(spans.filter((span) => span.text.includes("■")).map((span) => rgbToHex(span.fg))).toEqual([color.faint])
     for (const span of spans) expect(rgbToHex(span.fg)).not.toBe(color.danger)

@@ -153,7 +153,7 @@ describe("the default cell", () => {
 
   test("shows only what the program did, and Ctrl+O shows the program", async () => {
     const shown = await draw(cell, false)
-    expect(shown).toContain("$ bash node check.mjs  exit 0")
+    expect(shown).toContain("✓ node check.mjs  exit 0")
     for (const hidden of ["ctx.call", "agent.delegate", "ui.publish", "monitor.watch", "printed", "0ms", "38.0s"]) {
       expect(shown).not.toContain(hidden)
     }

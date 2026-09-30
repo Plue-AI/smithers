@@ -102,9 +102,9 @@ describe("the card adapter", () => {
     ])
     const card = SubagentCard.card(Subagents.subagent(tab("w", "done", { endedAt: 1 }), worker, models), 42_000)
     expect(card.activity.rows.map((row) => SubagentCard.line(row))).toEqual([
-      "├ Ran node check.mjs ✗",
+      "├ Ran node check.mjs  exit 1 ✗",
       "├ Edited math.js +1 -1 ✓",
-      "└ Ran node check.mjs ✓"
+      "└ Ran node check.mjs  exit 0 ✓"
     ])
   })
 
@@ -133,6 +133,29 @@ describe("the card adapter", () => {
     const undone = Transcript.undone(patched, [edit!.identity!], ["src/cart.js"], 20)
     expect(Subagents.result(undone).files).toEqual([])
     expect(Subagents.result(Transcript.empty)).toEqual({ files: [] })
+  })
+
+  it("keeps result evidence for files retained after a partial undo of one call", () => {
+    const worker = cell(Transcript.empty, 10, "", [
+      { flow: "bash", input: { command: "npm test" }, value: { exitCode: 0 } }
+    ])
+    const command = worker.items.find((item) => item.kind === "cell")!
+    if (command.kind !== "cell") throw new Error("missing cell")
+    const identity = command.calls[0]!.identity!
+    const patched = Transcript.patched(worker, {
+      call: identity,
+      patches: [
+        { path: "reverted.ts", patch: "-old\n+new" },
+        { path: "retained.ts", patch: "+one\n+two" }
+      ]
+    })
+    const partial = Transcript.undone(patched, [identity], ["reverted.ts"], 20)
+    expect(Subagents.result(partial)).toEqual({
+      files: [{ path: "retained.ts", added: 2, removed: 0 }],
+      check: { command: "npm test", exit: 0 }
+    })
+    const all = Transcript.undone(partial, [identity], ["retained.ts"], 21)
+    expect(Subagents.result(all)).toEqual({ files: [], check: { command: "npm test", exit: 0 } })
   })
 
   it("prefers the flow's own verbs and takes counts from captured patches", () => {

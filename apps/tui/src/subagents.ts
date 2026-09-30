@@ -90,8 +90,8 @@ export const result = (transcript: Transcript.Transcript): Result => {
     for (const call of item.calls) {
       const command = call.subject.split("\n")[0]!
       if (call.exit !== undefined && !inspects(command)) check = { command, exit: call.exit }
-      if (call.undone === true) continue
       for (const patch of call.patches ?? []) {
+        if (patch.undone === true) continue
         const counts = SubagentCard.diffCounts(patch.patch)
         const seen = byPath.get(patch.path)
         byPath.set(patch.path, {
