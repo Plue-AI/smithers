@@ -16,9 +16,10 @@ const countLiveWorkspaceChildren = `-- name: CountLiveWorkspaceChildren :one
 SELECT COUNT(*)
 FROM workspace_children
 WHERE user_id = $1
-  AND stopped_at IS NULL
+  AND (stopped_at IS NULL OR (vm_id <> '' AND vm_released_at IS NULL))
 `
 
+// A stopped child counts until its machine is confirmed deleted.
 func (q *Queries) CountLiveWorkspaceChildren(ctx context.Context, userID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countLiveWorkspaceChildren, userID)
 	var count int64
@@ -33,11 +34,11 @@ RETURNING id, parent_workspace_id, user_id, profile, requested, snapshot_id, sna
 `
 
 type CreateWorkspaceChildBatchParams struct {
-	ParentWorkspaceID string    `json:"parent_workspace_id"`
-	UserID            int64     `json:"user_id"`
-	Profile           string    `json:"profile"`
-	Requested         int32     `json:"requested"`
-	ExpiresAt         time.Time `json:"expires_at"`
+	ParentWorkspaceID pgtype.UUID `json:"parent_workspace_id"`
+	UserID            int64       `json:"user_id"`
+	Profile           string      `json:"profile"`
+	Requested         int32       `json:"requested"`
+	ExpiresAt         time.Time   `json:"expires_at"`
 }
 
 func (q *Queries) CreateWorkspaceChildBatch(ctx context.Context, arg CreateWorkspaceChildBatchParams) (WorkspaceChildBatch, error) {
@@ -217,7 +218,10 @@ SELECT b.id, b.snapshot_id
 FROM workspace_child_batches b
 WHERE b.snapshot_id <> ''
   AND b.snapshot_deleted_at IS NULL
-  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.batch_id = b.id AND c.stopped_at IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM workspace_children c
+    WHERE c.batch_id = b.id AND (c.stopped_at IS NULL OR (c.vm_id <> '' AND c.vm_released_at IS NULL))
+  )
 ORDER BY b.created_at, b.id
 LIMIT $1
 `
@@ -227,7 +231,7 @@ type ListDrainedWorkspaceChildSnapshotsRow struct {
 	SnapshotID string `json:"snapshot_id"`
 }
 
-// Batch snapshots no live child still boots from.
+// Batch snapshots no child machine still boots from.
 func (q *Queries) ListDrainedWorkspaceChildSnapshots(ctx context.Context, maxRows int32) ([]ListDrainedWorkspaceChildSnapshotsRow, error) {
 	rows, err := q.db.Query(ctx, listDrainedWorkspaceChildSnapshots, maxRows)
 	if err != nil {
@@ -249,32 +253,34 @@ func (q *Queries) ListDrainedWorkspaceChildSnapshots(ctx context.Context, maxRow
 }
 
 const listReapableWorkspaceChildren = `-- name: ListReapableWorkspaceChildren :many
-SELECT workspace_id, vm_id, reason::text AS reason
+SELECT workspace_id, reason::text AS reason
 FROM (
-    SELECT c.workspace_id, w.vm_id, c.created_at,
+    SELECT c.workspace_id, c.created_at,
         CASE
-            WHEN p.id IS NULL OR p.deleted_at IS NOT NULL OR p.status <> 'running' THEN 'parent_stopped'
+            WHEN $1::bool
+                OR p.id IS NULL OR p.deleted_at IS NOT NULL OR p.status <> 'running' THEN 'parent_stopped'
             WHEN w.status = 'failed' THEN 'failed'
             WHEN w.deleted_at IS NOT NULL OR w.status IN ('suspended', 'stopped') THEN 'requested'
             WHEN b.expires_at <= now() THEN 'expired'
             WHEN w.status IN ('pending', 'starting') AND w.vm_id = ''
-                AND c.created_at < now() - make_interval(secs => $1::int) THEN 'abandoned'
+                AND c.created_at < now() - make_interval(secs => $2::int) THEN 'abandoned'
             WHEN w.status = 'running'
-                AND w.last_activity_at < now() - make_interval(secs => $2::int) THEN 'idle'
+                AND w.last_activity_at < now() - make_interval(secs => $3::int) THEN 'idle'
         END AS reason
     FROM workspace_children c
     JOIN workspace_child_batches b ON b.id = c.batch_id
     JOIN workspaces w ON w.id = c.workspace_id
     LEFT JOIN workspaces p ON p.id = b.parent_workspace_id
     WHERE c.stopped_at IS NULL
-      AND ($3::uuid IS NULL OR b.parent_workspace_id = $3::uuid)
+      AND ($4::uuid IS NULL OR b.parent_workspace_id = $4::uuid)
 ) candidates
 WHERE reason IS NOT NULL
 ORDER BY created_at, workspace_id
-LIMIT $4
+LIMIT $5
 `
 
 type ListReapableWorkspaceChildrenParams struct {
+	ParentStopped     bool        `json:"parent_stopped"`
 	AbandonAfterSecs  int32       `json:"abandon_after_secs"`
 	IdleAfterSecs     int32       `json:"idle_after_secs"`
 	ParentWorkspaceID pgtype.UUID `json:"parent_workspace_id"`
@@ -283,14 +289,16 @@ type ListReapableWorkspaceChildrenParams struct {
 
 type ListReapableWorkspaceChildrenRow struct {
 	WorkspaceID string `json:"workspace_id"`
-	VmID        string `json:"vm_id"`
 	Reason      string `json:"reason"`
 }
 
 // Live children that must stop, and why: their parent stopped, they stopped
 // themselves, their batch expired, they never booted, or they went idle.
+// parent_stopped forces the reason for a cascade that saw the parent stop,
+// even if the parent has since resumed.
 func (q *Queries) ListReapableWorkspaceChildren(ctx context.Context, arg ListReapableWorkspaceChildrenParams) ([]ListReapableWorkspaceChildrenRow, error) {
 	rows, err := q.db.Query(ctx, listReapableWorkspaceChildren,
+		arg.ParentStopped,
 		arg.AbandonAfterSecs,
 		arg.IdleAfterSecs,
 		arg.ParentWorkspaceID,
@@ -303,7 +311,43 @@ func (q *Queries) ListReapableWorkspaceChildren(ctx context.Context, arg ListRea
 	items := []ListReapableWorkspaceChildrenRow{}
 	for rows.Next() {
 		var i ListReapableWorkspaceChildrenRow
-		if err := rows.Scan(&i.WorkspaceID, &i.VmID, &i.Reason); err != nil {
+		if err := rows.Scan(&i.WorkspaceID, &i.Reason); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnreleasedWorkspaceChildVMs = `-- name: ListUnreleasedWorkspaceChildVMs :many
+SELECT workspace_id, vm_id
+FROM workspace_children
+WHERE stopped_at IS NOT NULL
+  AND vm_id <> ''
+  AND vm_released_at IS NULL
+ORDER BY stopped_at, workspace_id
+LIMIT $1
+`
+
+type ListUnreleasedWorkspaceChildVMsRow struct {
+	WorkspaceID string `json:"workspace_id"`
+	VmID        string `json:"vm_id"`
+}
+
+// Machines of stopped children not yet confirmed deleted.
+func (q *Queries) ListUnreleasedWorkspaceChildVMs(ctx context.Context, maxRows int32) ([]ListUnreleasedWorkspaceChildVMsRow, error) {
+	rows, err := q.db.Query(ctx, listUnreleasedWorkspaceChildVMs, maxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnreleasedWorkspaceChildVMsRow{}
+	for rows.Next() {
+		var i ListUnreleasedWorkspaceChildVMsRow
+		if err := rows.Scan(&i.WorkspaceID, &i.VmID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -371,7 +415,7 @@ type ListWorkspaceChildReceiptsRow struct {
 	Status         string             `json:"status"`
 }
 
-func (q *Queries) ListWorkspaceChildReceipts(ctx context.Context, parentWorkspaceID string) ([]ListWorkspaceChildReceiptsRow, error) {
+func (q *Queries) ListWorkspaceChildReceipts(ctx context.Context, parentWorkspaceID pgtype.UUID) ([]ListWorkspaceChildReceiptsRow, error) {
 	rows, err := q.db.Query(ctx, listWorkspaceChildReceipts, parentWorkspaceID)
 	if err != nil {
 		return nil, err
@@ -427,6 +471,42 @@ WHERE id = $1
 
 func (q *Queries) MarkWorkspaceChildSnapshotDeleted(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markWorkspaceChildSnapshotDeleted, id)
+	return err
+}
+
+const recordWorkspaceChildVM = `-- name: RecordWorkspaceChildVM :exec
+UPDATE workspace_children
+SET vm_id = $1
+WHERE workspace_id = $2
+  AND vm_released_at IS NULL
+`
+
+type RecordWorkspaceChildVMParams struct {
+	VmID        string `json:"vm_id"`
+	WorkspaceID string `json:"workspace_id"`
+}
+
+// Owns a machine the moment it exists, so a failed boot is still reclaimed.
+func (q *Queries) RecordWorkspaceChildVM(ctx context.Context, arg RecordWorkspaceChildVMParams) error {
+	_, err := q.db.Exec(ctx, recordWorkspaceChildVM, arg.VmID, arg.WorkspaceID)
+	return err
+}
+
+const releaseWorkspaceChildVM = `-- name: ReleaseWorkspaceChildVM :exec
+UPDATE workspace_children
+SET vm_released_at = now()
+WHERE workspace_id = $1
+  AND vm_id = $2
+  AND vm_released_at IS NULL
+`
+
+type ReleaseWorkspaceChildVMParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	VmID        string `json:"vm_id"`
+}
+
+func (q *Queries) ReleaseWorkspaceChildVM(ctx context.Context, arg ReleaseWorkspaceChildVMParams) error {
+	_, err := q.db.Exec(ctx, releaseWorkspaceChildVM, arg.WorkspaceID, arg.VmID)
 	return err
 }
 
@@ -493,7 +573,7 @@ func (q *Queries) StartWorkspaceChild(ctx context.Context, arg StartWorkspaceChi
 	return result.RowsAffected(), nil
 }
 
-const stopWorkspaceChild = `-- name: StopWorkspaceChild :one
+const stopWorkspaceChild = `-- name: StopWorkspaceChild :exec
 WITH receipt AS (
     UPDATE workspace_children
     SET stopped_at = now(), stop_reason = $1::text,
@@ -510,7 +590,6 @@ SET status = CASE WHEN $1::text = 'failed' OR w.status = 'failed' THEN 'failed' 
     updated_at = now()
 FROM receipt
 WHERE w.id = receipt.workspace_id
-RETURNING w.vm_id
 `
 
 type StopWorkspaceChildParams struct {
@@ -519,11 +598,9 @@ type StopWorkspaceChildParams struct {
 	WorkspaceID    string      `json:"workspace_id"`
 }
 
-// Closes a child's receipt once and tombstones its workspace. Returns the
-// machine the child held at that moment; no row means it was already stopped.
-func (q *Queries) StopWorkspaceChild(ctx context.Context, arg StopWorkspaceChildParams) (string, error) {
-	row := q.db.QueryRow(ctx, stopWorkspaceChild, arg.StopReason, arg.FailureMessage, arg.WorkspaceID)
-	var vm_id string
-	err := row.Scan(&vm_id)
-	return vm_id, err
+// Closes a child's receipt once and tombstones its workspace. The machine
+// stays owned by the receipt until ReleaseWorkspaceChildVM.
+func (q *Queries) StopWorkspaceChild(ctx context.Context, arg StopWorkspaceChildParams) error {
+	_, err := q.db.Exec(ctx, stopWorkspaceChild, arg.StopReason, arg.FailureMessage, arg.WorkspaceID)
+	return err
 }

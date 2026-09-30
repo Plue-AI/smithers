@@ -2796,6 +2796,14 @@ type WorkflowRunLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type WorkflowSandboxClaim struct {
+	WorkflowRunID  int64              `json:"workflow_run_id"`
+	Generation     int64              `json:"generation"`
+	ClaimToken     pgtype.UUID        `json:"claim_token"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+}
+
 type WorkflowScheduleSpec struct {
 	ID                   int64              `json:"id"`
 	WorkflowDefinitionID int64              `json:"workflow_definition_id"`
@@ -2913,11 +2921,12 @@ type WorkspaceChild struct {
 	StopReason     pgtype.Text        `json:"stop_reason"`
 	FailureMessage pgtype.Text        `json:"failure_message"`
 	CreatedAt      time.Time          `json:"created_at"`
+	VmReleasedAt   pgtype.Timestamptz `json:"vm_released_at"`
 }
 
 type WorkspaceChildBatch struct {
 	ID                string             `json:"id"`
-	ParentWorkspaceID string             `json:"parent_workspace_id"`
+	ParentWorkspaceID pgtype.UUID        `json:"parent_workspace_id"`
 	UserID            int64              `json:"user_id"`
 	Profile           string             `json:"profile"`
 	Requested         int32              `json:"requested"`

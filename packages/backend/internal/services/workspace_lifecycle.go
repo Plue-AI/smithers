@@ -452,7 +452,7 @@ func (s *WorkspaceService) ensureExistingWorkspaceRunning(ctx context.Context, w
 	if err := s.refuseRebuildRequired(workspace); err != nil {
 		return workspace, err
 	}
-	if err := s.refuseWorkspaceChildResume(ctx, workspace); err != nil {
+	if handled, err := s.runningWorkspaceChild(ctx, workspace); handled || err != nil {
 		return workspace, err
 	}
 	if s.runtime != nil {
@@ -536,6 +536,9 @@ func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace
 
 func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput) (db.Workspace, error) {
 	if err := s.refuseRebuildRequired(workspace); err != nil {
+		return workspace, err
+	}
+	if handled, err := s.runningWorkspaceChild(ctx, workspace); handled || err != nil {
 		return workspace, err
 	}
 	durable := s.durableProvisioning()

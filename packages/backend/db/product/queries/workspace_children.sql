@@ -15,10 +15,11 @@ FOR UPDATE;
 SELECT EXISTS (SELECT 1 FROM workspace_children WHERE workspace_id = sqlc.arg(workspace_id));
 
 -- name: CountLiveWorkspaceChildren :one
+-- A stopped child counts until its machine is confirmed deleted.
 SELECT COUNT(*)
 FROM workspace_children
 WHERE user_id = sqlc.arg(user_id)
-  AND stopped_at IS NULL;
+  AND (stopped_at IS NULL OR (vm_id <> '' AND vm_released_at IS NULL));
 
 -- name: CreateWorkspaceChildBatch :one
 INSERT INTO workspace_child_batches (parent_workspace_id, user_id, profile, requested, expires_at)
@@ -59,6 +60,13 @@ UPDATE workspace_child_batches
 SET snapshot_id = sqlc.arg(snapshot_id)
 WHERE id = sqlc.arg(id);
 
+-- name: RecordWorkspaceChildVM :exec
+-- Owns a machine the moment it exists, so a failed boot is still reclaimed.
+UPDATE workspace_children
+SET vm_id = sqlc.arg(vm_id)
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND vm_released_at IS NULL;
+
 -- name: StartWorkspaceChild :execrows
 -- Registers a booted child. Zero rows means the child was stopped while it
 -- booted, and the caller deletes the machine it created.
@@ -77,9 +85,9 @@ SET vm_id = sqlc.arg(vm_id), started_at = now()
 FROM started
 WHERE c.workspace_id = started.id;
 
--- name: StopWorkspaceChild :one
--- Closes a child's receipt once and tombstones its workspace. Returns the
--- machine the child held at that moment; no row means it was already stopped.
+-- name: StopWorkspaceChild :exec
+-- Closes a child's receipt once and tombstones its workspace. The machine
+-- stays owned by the receipt until ReleaseWorkspaceChildVM.
 WITH receipt AS (
     UPDATE workspace_children
     SET stopped_at = now(), stop_reason = sqlc.arg(stop_reason)::text,
@@ -95,8 +103,24 @@ SET status = CASE WHEN sqlc.arg(stop_reason)::text = 'failed' OR w.status = 'fai
     deleted_at = COALESCE(w.deleted_at, now()),
     updated_at = now()
 FROM receipt
-WHERE w.id = receipt.workspace_id
-RETURNING w.vm_id;
+WHERE w.id = receipt.workspace_id;
+
+-- name: ListUnreleasedWorkspaceChildVMs :many
+-- Machines of stopped children not yet confirmed deleted.
+SELECT workspace_id, vm_id
+FROM workspace_children
+WHERE stopped_at IS NOT NULL
+  AND vm_id <> ''
+  AND vm_released_at IS NULL
+ORDER BY stopped_at, workspace_id
+LIMIT sqlc.arg(max_rows);
+
+-- name: ReleaseWorkspaceChildVM :exec
+UPDATE workspace_children
+SET vm_released_at = now()
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND vm_id = sqlc.arg(vm_id)
+  AND vm_released_at IS NULL;
 
 -- name: ListWorkspaceChildOrdinals :many
 SELECT workspace_id, ordinal
@@ -116,11 +140,14 @@ ORDER BY b.created_at, b.id, c.ordinal;
 -- name: ListReapableWorkspaceChildren :many
 -- Live children that must stop, and why: their parent stopped, they stopped
 -- themselves, their batch expired, they never booted, or they went idle.
-SELECT workspace_id, vm_id, reason::text AS reason
+-- parent_stopped forces the reason for a cascade that saw the parent stop,
+-- even if the parent has since resumed.
+SELECT workspace_id, reason::text AS reason
 FROM (
-    SELECT c.workspace_id, w.vm_id, c.created_at,
+    SELECT c.workspace_id, c.created_at,
         CASE
-            WHEN p.id IS NULL OR p.deleted_at IS NOT NULL OR p.status <> 'running' THEN 'parent_stopped'
+            WHEN sqlc.arg(parent_stopped)::bool
+                OR p.id IS NULL OR p.deleted_at IS NOT NULL OR p.status <> 'running' THEN 'parent_stopped'
             WHEN w.status = 'failed' THEN 'failed'
             WHEN w.deleted_at IS NOT NULL OR w.status IN ('suspended', 'stopped') THEN 'requested'
             WHEN b.expires_at <= now() THEN 'expired'
@@ -141,12 +168,15 @@ ORDER BY created_at, workspace_id
 LIMIT sqlc.arg(max_rows);
 
 -- name: ListDrainedWorkspaceChildSnapshots :many
--- Batch snapshots no live child still boots from.
+-- Batch snapshots no child machine still boots from.
 SELECT b.id, b.snapshot_id
 FROM workspace_child_batches b
 WHERE b.snapshot_id <> ''
   AND b.snapshot_deleted_at IS NULL
-  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.batch_id = b.id AND c.stopped_at IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM workspace_children c
+    WHERE c.batch_id = b.id AND (c.stopped_at IS NULL OR (c.vm_id <> '' AND c.vm_released_at IS NULL))
+  )
 ORDER BY b.created_at, b.id
 LIMIT sqlc.arg(max_rows);
 

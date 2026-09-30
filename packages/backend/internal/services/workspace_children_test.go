@@ -329,6 +329,122 @@ func TestWorkspaceChildrenAreReapedWithTheirParent(t *testing.T) {
 	requireChildAPIError(t, err, pkgerrors.CodeConflict, "cannot be resumed")
 }
 
+func TestWorkspaceChildrenStopWhenTheParentStoppedEvenIfItResumed(t *testing.T) {
+	f := newChildFixture(t, nil)
+	ctx := context.Background()
+	_, err := f.spawn(t, 2, "")
+	require.NoError(t, err)
+	// The parent is running again by the time the cascade queries.
+	f.svc.cascadeWorkspaceChildren(ctx, f.parent.ID, "suspended")
+	require.NoError(t, f.svc.WaitForProvisioning(ctx))
+	for _, child := range f.receipts(t) {
+		require.Equal(t, "parent_stopped", child.StopReason)
+	}
+	require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
+}
+
+func TestWorkspaceChildrenNeverTakeTheCredentialedPath(t *testing.T) {
+	f := newChildFixture(t, nil)
+	ctx := context.Background()
+	_, err := f.spawn(t, 1, "")
+	require.NoError(t, err)
+	child := f.receipts(t)[0]
+	row, err := f.queries.GetWorkspace(ctx, child.WorkspaceID)
+	require.NoError(t, err)
+
+	// A running child with a running machine is answered as it is.
+	got, err := f.svc.ensureWorkspaceRunningOwned(ctx, row, CreateWorkspaceSessionInput{})
+	require.NoError(t, err)
+	require.Equal(t, row.VmID, got.VmID)
+	creates := len(f.provider.Creates())
+
+	// Its machine stopped: no resume, no reprovision.
+	_, err = f.provider.StopSandbox(ctx, row.VmID)
+	require.NoError(t, err)
+	_, err = f.svc.ensureWorkspaceRunningOwned(ctx, row, CreateWorkspaceSessionInput{})
+	requireChildAPIError(t, err, pkgerrors.CodeConflict, "cannot be resumed")
+	_, err = f.svc.ensureExistingWorkspaceRunning(ctx, row)
+	requireChildAPIError(t, err, pkgerrors.CodeConflict, "cannot be resumed")
+
+	// A child still booting is never provisioned by a session.
+	starting := row
+	starting.Status, starting.VmID = "starting", ""
+	_, err = f.svc.ensureWorkspaceRunningOwned(ctx, starting, CreateWorkspaceSessionInput{})
+	requireChildAPIError(t, err, pkgerrors.CodeConflict, "cannot be resumed")
+
+	// A machine the provider lost is reported, not replaced.
+	require.NoError(t, f.provider.DeleteSandbox(ctx, row.VmID))
+	_, err = f.svc.ensureExistingWorkspaceRunning(ctx, row)
+	require.Error(t, err)
+	require.Len(t, f.provider.Creates(), creates, "no child machine was booted outside its batch")
+
+	// A plain fork is not a child.
+	fork := f.workspace(t, "fork", f.provider.Boot(nil))
+	f.exec(t, `UPDATE workspaces SET is_fork = TRUE WHERE id = $1`, fork.ID)
+	fork.IsFork = true
+	handled, err := f.svc.runningWorkspaceChild(ctx, fork)
+	require.NoError(t, err)
+	require.False(t, handled)
+}
+
+func TestWorkspaceChildrenDropTheParentIdentity(t *testing.T) {
+	f := newChildFixture(t, nil)
+	_, err := f.spawn(t, 2, "")
+	require.NoError(t, err)
+	scrubs := map[string]bool{}
+	for _, exec := range f.provider.Execs() {
+		if exec.Command == workspaceChildIdentityScrubCommand() {
+			scrubs[exec.SandboxID] = true
+		}
+	}
+	for _, child := range f.receipts(t) {
+		require.True(t, scrubs[child.VMID], "every child drops the parent's head reporter and bindings")
+	}
+	command := workspaceChildIdentityScrubCommand()
+	for _, want := range []string{workspaceHeadReporterService, workspaceCodingConfigPath, workspaceGitCredentialEnvPath} {
+		require.Contains(t, command, want)
+	}
+
+	t.Run("a child that keeps the parent's identity is discarded", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		f.provider.ExecFunc = func(machine *sandboxfake.Machine, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+			if req.Command == workspaceChildIdentityScrubCommand() {
+				failed := int32(1)
+				return sandbox.ExecResult{StatusCode: &failed, Stderr: "parent identity remains"}, nil
+			}
+			return scrubChildLogins(machine, req)
+		}
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		require.Contains(t, f.receipts(t)[0].FailureMessage, "drop the parent's identity: parent identity remains")
+		require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
+	})
+	t.Run("an exec transport failure is a scrub failure", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		f.provider.ExecFunc = func(machine *sandboxfake.Machine, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+			if req.Command == workspaceChildIdentityScrubCommand() {
+				return sandbox.ExecResult{}, errors.New("exec channel closed")
+			}
+			return scrubChildLogins(machine, req)
+		}
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		require.Contains(t, f.receipts(t)[0].FailureMessage, "exec channel closed")
+	})
+}
+
+func TestWorkspaceChildSnapshotsOutliveTheirRepository(t *testing.T) {
+	f := newChildFixture(t, nil)
+	ctx := context.Background()
+	_, err := f.spawn(t, 1, "")
+	require.NoError(t, err)
+	require.Len(t, f.provider.Snapshots(), 1)
+	// Deleting a repository hard-deletes its workspaces, parent and children.
+	f.exec(t, `DELETE FROM workspaces WHERE repository_id = $1`, f.repo)
+	require.NoError(t, f.svc.ReapWorkspaceChildren(ctx))
+	require.Empty(t, f.provider.Snapshots(), "the batch keeps its snapshot for release after its parent is gone")
+}
+
 func TestWorkspaceChildrenSweepReasons(t *testing.T) {
 	f := newChildFixture(t, nil)
 	ctx := context.Background()
@@ -418,17 +534,53 @@ func TestWorkspaceChildrenFailuresAreRecorded(t *testing.T) {
 		require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
 		require.Len(t, f.provider.Deleted(), 2)
 	})
-	t.Run("a machine that will not delete keeps the child live for the next sweep", func(t *testing.T) {
+	t.Run("a machine that will not delete stays owned and counted until the sweep deletes it", func(t *testing.T) {
 		f := newChildFixture(t, nil)
+		ctx := context.Background()
 		_, err := f.spawn(t, 1, "")
 		require.NoError(t, err)
+		child := f.receipts(t)[0]
 		f.exec(t, `UPDATE workspace_child_batches SET expires_at = now() - interval '1 second'`)
 		f.provider.DeleteErr = func(string) error { return errors.New("controller unavailable") }
-		require.ErrorContains(t, f.svc.ReapWorkspaceChildren(context.Background()), "controller unavailable")
-		require.Nil(t, f.receipts(t)[0].StoppedAt)
-		f.provider.DeleteErr = nil
-		require.NoError(t, f.svc.ReapWorkspaceChildren(context.Background()))
+		require.ErrorContains(t, f.svc.ReapWorkspaceChildren(ctx), "controller unavailable")
 		require.Equal(t, "expired", f.receipts(t)[0].StopReason)
+		_, live := f.provider.Machine(child.VMID)
+		require.True(t, live)
+		live64, err := f.queries.CountLiveWorkspaceChildren(ctx, f.user)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), live64, "an undeleted machine still counts")
+		require.Len(t, f.provider.Snapshots(), 1, "its snapshot stays while the machine exists")
+		f.provider.DeleteErr = nil
+		require.NoError(t, f.svc.ReapWorkspaceChildren(ctx))
+		_, live = f.provider.Machine(child.VMID)
+		require.False(t, live)
+		live64, err = f.queries.CountLiveWorkspaceChildren(ctx, f.user)
+		require.NoError(t, err)
+		require.Zero(t, live64)
+		require.Empty(t, f.provider.Snapshots())
+	})
+	t.Run("a failed boot whose machine will not delete is reclaimed by the sweep", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		ctx := context.Background()
+		f.provider.ExecFunc = func(*sandboxfake.Machine, sandbox.ExecRequest) (sandbox.ExecResult, error) {
+			failed := int32(1)
+			return sandbox.ExecResult{StatusCode: &failed, Stderr: "vendor login remains"}, nil
+		}
+		f.provider.DeleteErr = func(id string) error {
+			if id != f.parent.VmID {
+				return errors.New("controller unavailable")
+			}
+			return nil
+		}
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		child := f.receipts(t)[0]
+		require.Equal(t, "failed", child.Status)
+		require.NotEmpty(t, child.VMID, "the receipt owns the machine it booted")
+		require.Len(t, f.provider.Live(), 2)
+		f.provider.DeleteErr = nil
+		require.NoError(t, f.svc.ReapWorkspaceChildren(ctx))
+		require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
 	})
 }
 
@@ -455,7 +607,9 @@ func TestWorkspaceChildrenNeedTheSandboxProvider(t *testing.T) {
 	_, err = svc.ListWorkspaceChildren(context.Background(), "w", 1, 1)
 	requireChildAPIError(t, err, pkgerrors.CodeConflict, "sandbox provider")
 	require.NoError(t, svc.ReapWorkspaceChildren(context.Background()))
-	require.NoError(t, svc.refuseWorkspaceChildResume(context.Background(), db.Workspace{IsFork: true}))
+	handled, err := svc.runningWorkspaceChild(context.Background(), db.Workspace{IsFork: true})
+	require.NoError(t, err)
+	require.False(t, handled)
 	svc.cascadeWorkspaceChildren(context.Background(), "w", "stopped")
 	require.NoError(t, svc.WaitForProvisioning(context.Background()))
 }
@@ -623,8 +777,14 @@ func TestWorkspaceChildrenSurfaceEveryStorageFault(t *testing.T) {
 		_, err = f.svc.ensureExistingWorkspaceRunning(ctx, db.Workspace{ID: f.parent.ID, IsFork: true, Status: "suspended"})
 		requireChildFault(t, err)
 
+		f.inject("ListUnreleasedWorkspaceChildVMs")
+		requireChildFault(t, f.svc.ReapWorkspaceChildren(ctx))
+
 		f.inject("")
 		f.exec(t, `UPDATE workspace_child_batches SET expires_at = now() - interval '1 second'`)
+		f.inject("StopWorkspaceChild")
+		requireChildFault(t, f.svc.ReapWorkspaceChildren(ctx))
+		require.Nil(t, f.receipts(t)[0].StoppedAt)
 		f.inject("ListDrainedWorkspaceChildSnapshots")
 		requireChildFault(t, f.svc.ReapWorkspaceChildren(ctx))
 		require.Equal(t, "expired", f.receipts(t)[0].StopReason)
@@ -639,6 +799,43 @@ func TestWorkspaceChildrenSurfaceEveryStorageFault(t *testing.T) {
 		require.NoError(t, f.pool.QueryRow(ctx, `SELECT bool_and(snapshot_deleted_at IS NOT NULL) FROM workspace_child_batches`).Scan(&deleted))
 		require.True(t, deleted)
 	})
+	t.Run("an unrecorded machine is deleted at once", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		f.inject("RecordWorkspaceChildVM")
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		require.Equal(t, "failed", f.receipts(t)[0].Status)
+		require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
+	})
+	t.Run("an unrecorded release is retried by the sweep", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		ctx := context.Background()
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		f.exec(t, `UPDATE workspace_child_batches SET expires_at = now() - interval '1 second'`)
+		f.inject("ReleaseWorkspaceChildVM")
+		requireChildFault(t, f.svc.ReapWorkspaceChildren(ctx))
+		f.inject("")
+		require.NoError(t, f.svc.ReapWorkspaceChildren(ctx), "an already deleted machine counts as released")
+		live, err := f.queries.CountLiveWorkspaceChildren(ctx, f.user)
+		require.NoError(t, err)
+		require.Zero(t, live)
+	})
+	t.Run("a child stopped while booting keeps an undeletable machine for the sweep", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		f.provider.CreateErr = func(sandbox.CreateRequest) error {
+			_, err := f.pool.Exec(context.Background(),
+				`UPDATE workspace_children SET stopped_at = now(), stop_reason = 'requested' WHERE stopped_at IS NULL`)
+			return err
+		}
+		f.inject("ReleaseWorkspaceChildVM")
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		f.inject("")
+		f.provider.CreateErr = nil
+		require.NoError(t, f.svc.ReapWorkspaceChildren(context.Background()))
+		require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
+	})
 	t.Run("an unknown parent lists nothing", func(t *testing.T) {
 		f := newChildFixture(t, nil)
 		_, err := f.svc.ListWorkspaceChildren(context.Background(), "00000000-0000-4000-8000-000000000001", f.repo, f.user)
@@ -646,32 +843,17 @@ func TestWorkspaceChildrenSurfaceEveryStorageFault(t *testing.T) {
 	})
 }
 
-func TestWorkspaceChildStopEdges(t *testing.T) {
+func TestWorkspaceChildStopIsIdempotent(t *testing.T) {
 	f := newChildFixture(t, nil)
 	ctx := context.Background()
 	_, err := f.spawn(t, 1, "")
 	require.NoError(t, err)
 	child := f.receipts(t)[0]
-
-	// The listing saw no machine, but a boot registered one before the stop.
-	f.provider.DeleteErr = func(id string) error {
-		if id == child.VMID {
-			return errors.New("controller unavailable")
-		}
-		return nil
-	}
-	require.NoError(t, f.svc.stopWorkspaceChild(ctx, child.WorkspaceID, "", "requested", ""))
-	_, live := f.provider.Machine(child.VMID)
-	require.True(t, live, "an undeletable machine is logged; the orphan reaper owns it")
-	f.provider.DeleteErr = nil
-	require.NoError(t, f.svc.stopWorkspaceChild(ctx, child.WorkspaceID, child.VMID, "requested", ""), "a second stop is a no-op")
+	require.NoError(t, f.svc.stopWorkspaceChild(ctx, child.WorkspaceID, "requested", ""))
+	require.NoError(t, f.svc.stopWorkspaceChild(ctx, child.WorkspaceID, "expired", ""), "a second stop is a no-op")
 	require.Equal(t, "requested", f.receipts(t)[0].StopReason)
-
-	// A plain fork that is not running is not a child.
-	fork := f.workspace(t, "fork", "")
-	f.exec(t, `UPDATE workspaces SET is_fork = TRUE, status = 'suspended' WHERE id = $1`, fork.ID)
-	fork.IsFork, fork.Status = true, "suspended"
-	require.NoError(t, f.svc.refuseWorkspaceChildResume(ctx, fork))
+	require.NoError(t, f.svc.ReapWorkspaceChildren(ctx))
+	require.Equal(t, []string{f.parent.VmID}, f.provider.Live())
 }
 
 func TestWorkspaceChildrenInheritTheOutsiderMark(t *testing.T) {
