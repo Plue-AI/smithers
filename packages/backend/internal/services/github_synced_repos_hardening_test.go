@@ -256,11 +256,11 @@ func TestSyncedRepos_CommentEventEdgeCases(t *testing.T) {
 	row, err := service.EnrollGitHubRepo(context.Background(), EnrollGitHubRepoInput{Owner: "octo", Repo: "widget"})
 	require.NoError(t, err)
 
-	require.NoError(t, service.ApplyIssueCommentEvent(context.Background(), "octo", "widget", 0, "deleted", 4,
-		json.RawMessage(`{"id":900}`)))
+	require.NoError(t, service.ApplyIssueCommentEvent(context.Background(), "octo", "widget", 0, "deleted",
+		json.RawMessage(`{"id":44,"number":4,"comments":0}`), json.RawMessage(`{"id":900}`)))
 	assert.Empty(t, store.comments)
-	require.NoError(t, service.ApplyIssueCommentEvent(context.Background(), "ghost", "repo", 0, "created", 4,
-		json.RawMessage(`{"id":900}`)))
+	require.NoError(t, service.ApplyIssueCommentEvent(context.Background(), "ghost", "repo", 0, "created",
+		json.RawMessage(`{"id":44,"number":4,"comments":1}`), json.RawMessage(`{"id":900}`)))
 	assert.Empty(t, store.comments, "unenrolled repo deliveries never create rows")
 	assert.Len(t, store.repos, 1, "and never enroll")
 	_ = row

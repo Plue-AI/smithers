@@ -345,7 +345,7 @@ func (s *GitHubWebhookService) applySyncedRepoEvent(ctx context.Context, event, 
 	case "pull_request":
 		err = s.syncedRepos.ApplyIssueEvent(ctx, owner, name, repoID, GitHubRepoMetadataPulls, action, envelope.PullRequest)
 	case "issue_comment":
-		err = s.syncedRepos.ApplyIssueCommentEvent(ctx, owner, name, repoID, action, gitHubWebhookIssueNumber(envelope.Issue), envelope.Comment)
+		err = s.syncedRepos.ApplyIssueCommentEvent(ctx, owner, name, repoID, action, envelope.Issue, envelope.Comment)
 	default:
 		// push / check_* only prove deliveries are still arriving.
 		err = s.syncedRepos.TouchWebhook(ctx, owner, name, repoID)
@@ -371,19 +371,6 @@ func gitHubWebhookRepoSlug(repository gitHubWebhookRepository) (string, string) 
 		}
 	}
 	return owner, name
-}
-
-func gitHubWebhookIssueNumber(issue json.RawMessage) int64 {
-	if len(issue) == 0 {
-		return 0
-	}
-	var header struct {
-		Number int64 `json:"number"`
-	}
-	if err := json.Unmarshal(issue, &header); err != nil {
-		return 0
-	}
-	return header.Number
 }
 
 func (s *GitHubWebhookService) handleInstallationEvent(ctx context.Context, execer gitHubWebhookExecer, action string, envelope gitHubWebhookEnvelope) error {

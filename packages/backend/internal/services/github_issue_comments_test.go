@@ -56,6 +56,7 @@ func TestGitHubIssueComments_ServesSyncedStoreWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.MarkGitHubSyncedRepoSynced(context.Background(), row.ID))
 	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(context.Background(), row.ID))
+	seedSyncedIssueComments(t, store, row.ID, 7, 1)
 	require.NoError(t, store.UpsertGitHubSyncedIssueComment(context.Background(), db.UpsertGitHubSyncedIssueCommentParams{
 		SyncedRepoID: row.ID,
 		IssueNumber:  7,
@@ -95,6 +96,7 @@ func TestGitHubIssueComments_SyncedPagination(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.MarkGitHubSyncedRepoSynced(context.Background(), row.ID))
 	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(context.Background(), row.ID))
+	seedSyncedIssueComments(t, store, row.ID, 7, 3)
 	for _, id := range []int64{1, 2, 3} {
 		payload, err := json.Marshal(map[string]int64{"id": id})
 		require.NoError(t, err)
@@ -187,6 +189,7 @@ func TestSyncedRepos_ServeCommentsRequiresWebhookHeartbeat(t *testing.T) {
 	assert.False(t, served, "no webhook heartbeat yet — the comments store may be incomplete")
 
 	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(context.Background(), row.ID))
+	seedSyncedIssueComments(t, store, row.ID, 7, 1)
 	require.NoError(t, store.UpsertGitHubSyncedIssueComment(context.Background(), db.UpsertGitHubSyncedIssueCommentParams{
 		SyncedRepoID:    row.ID,
 		IssueNumber:     7,
@@ -199,8 +202,18 @@ func TestSyncedRepos_ServeCommentsRequiresWebhookHeartbeat(t *testing.T) {
 	require.True(t, served)
 	assert.JSONEq(t, `[{"id":9001,"body":"hi"}]`, string(page.Body))
 
-	// A different issue number has no rows — still served (empty), never live.
-	page, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 99, nil, nil)
-	require.True(t, served)
-	assert.JSONEq(t, `[]`, string(page.Body))
+	// A heartbeat says nothing about an issue the store never loaded (#2405).
+	_, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 99, nil, nil)
+	assert.False(t, served, "an issue with no stored baseline must be read live")
+}
+
+// seedSyncedIssueComments stores issue number as advertising comments comments.
+func seedSyncedIssueComments(t *testing.T, store GitHubSyncedRepoStore, repoID, number, comments int64) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"id": 1000 + number, "number": number, "state": "open", "comments": comments})
+	require.NoError(t, err)
+	require.NoError(t, store.UpsertGitHubSyncedIssue(context.Background(), db.UpsertGitHubSyncedIssueParams{
+		SyncedRepoID: repoID, Resource: GitHubRepoMetadataIssues, Number: number, GithubID: 1000 + number,
+		State: "open", Payload: payload,
+	}))
 }

@@ -314,6 +314,26 @@ WHERE synced_repo_id = sqlc.arg(synced_repo_id)
 ORDER BY github_created_at NULLS LAST, github_id
 LIMIT sqlc.arg(row_limit)::int OFFSET sqlc.arg(row_offset)::int;
 
+-- name: GetGitHubSyncedIssueCommentCoverage :one
+-- The comment store is a complete baseline for one issue only when it holds
+-- exactly as many comments as the stored issue advertises. The issue row is
+-- refreshed by reconcile and by every issue_comment delivery, so a missed or
+-- historical comment shows up as a mismatch. No row: the issue (or its
+-- advertised count) is not stored, so there is no baseline at all.
+SELECT
+    (i.payload->>'comments')::bigint AS advertised,
+    (
+        SELECT COUNT(*)
+        FROM github_synced_issue_comments c
+        WHERE c.synced_repo_id = i.synced_repo_id
+          AND c.issue_number = i.number
+    )::bigint AS stored
+FROM github_synced_issues i
+WHERE i.synced_repo_id = sqlc.arg(synced_repo_id)
+  AND i.resource = 'issues'
+  AND i.number = sqlc.arg(issue_number)
+  AND jsonb_typeof(i.payload->'comments') = 'number';
+
 -- name: UpsertGitHubSyncedIssueComment :exec
 INSERT INTO github_synced_issue_comments (
     synced_repo_id, issue_number, github_id, payload,
@@ -343,6 +363,14 @@ WHERE github_synced_issue_comments.github_updated_at IS NULL
 DELETE FROM github_synced_issue_comments
 WHERE synced_repo_id = sqlc.arg(synced_repo_id)
   AND github_id = sqlc.arg(github_id);
+
+-- name: DeleteGitHubSyncedIssueCommentsNotIn :exec
+-- Comment baseline load: drop an issue's stored comments GitHub no longer
+-- returns. Only ever run with the FULL just-fetched comment id set.
+DELETE FROM github_synced_issue_comments
+WHERE synced_repo_id = sqlc.arg(synced_repo_id)
+  AND issue_number = sqlc.arg(issue_number)
+  AND NOT (github_id = ANY(sqlc.arg(github_ids)::bigint[]));
 
 -- ---- Per-user read grants (live-read proof gating the shared store) ----
 

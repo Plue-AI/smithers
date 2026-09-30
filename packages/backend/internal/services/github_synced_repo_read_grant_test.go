@@ -37,6 +37,7 @@ func newPrivateRepoFixture(t *testing.T) *privateRepoFixture {
 	require.NoError(t, store.MarkGitHubSyncedRepoSynced(ctx, row.ID))
 	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(ctx, row.ID))
 	seedSyncedIssue(t, store, row.ID, GitHubRepoMetadataIssues, 1, "open", time.Now())
+	seedSyncedIssueComments(t, store, row.ID, 1, 1)
 	require.NoError(t, store.UpsertGitHubSyncedIssueComment(ctx, db.UpsertGitHubSyncedIssueCommentParams{
 		SyncedRepoID: row.ID,
 		IssueNumber:  1,

@@ -34,6 +34,7 @@ type fakeSyncedRepoStore struct {
 	mirrorStatusErr    error
 	readGrants         map[string]time.Time // "userID|owner/repo" -> verified_at
 	readGrantErr       error
+	coverageErr        error
 	readyImports       []fakeReadyImport
 }
 
@@ -370,6 +371,46 @@ func (f *fakeSyncedRepoStore) ListGitHubSyncedIssueComments(_ context.Context, a
 	return rows[start:end], nil
 }
 
+func (f *fakeSyncedRepoStore) GetGitHubSyncedIssueCommentCoverage(_ context.Context, arg db.GetGitHubSyncedIssueCommentCoverageParams) (db.GetGitHubSyncedIssueCommentCoverageRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.coverageErr != nil {
+		return db.GetGitHubSyncedIssueCommentCoverageRow{}, f.coverageErr
+	}
+	issue, ok := f.issues[issueKey(arg.SyncedRepoID, GitHubRepoMetadataIssues, arg.IssueNumber)]
+	var header struct {
+		Comments *int64 `json:"comments"`
+	}
+	if !ok || json.Unmarshal(issue.Payload, &header) != nil || header.Comments == nil {
+		return db.GetGitHubSyncedIssueCommentCoverageRow{}, pgx.ErrNoRows
+	}
+	row := db.GetGitHubSyncedIssueCommentCoverageRow{Advertised: *header.Comments}
+	for _, comment := range f.comments {
+		if comment.SyncedRepoID == arg.SyncedRepoID && comment.IssueNumber == arg.IssueNumber {
+			row.Stored++
+		}
+	}
+	return row, nil
+}
+
+func (f *fakeSyncedRepoStore) DeleteGitHubSyncedIssueCommentsNotIn(_ context.Context, arg db.DeleteGitHubSyncedIssueCommentsNotInParams) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keep := map[int64]struct{}{}
+	for _, id := range arg.GithubIds {
+		keep[id] = struct{}{}
+	}
+	for key, row := range f.comments {
+		if row.SyncedRepoID != arg.SyncedRepoID || row.IssueNumber != arg.IssueNumber {
+			continue
+		}
+		if _, ok := keep[row.GithubID]; !ok {
+			delete(f.comments, key)
+		}
+	}
+	return nil
+}
+
 func readGrantKey(userID int64, owner, repo string) string {
 	return strconv.FormatInt(userID, 10) + "|" + syncedRepoKey(owner, repo)
 }
@@ -632,8 +673,9 @@ func TestSyncedRepos_WebhookEventsKeepStoreFresh(t *testing.T) {
 		json.RawMessage(`{"id":1,"number":4,"state":"open","title":"New","updated_at":"2026-08-01T00:00:00Z"}`)))
 	require.NoError(t, service.ApplyIssueEvent(ctx, "octo", "widget", 0, GitHubRepoMetadataPulls, "opened",
 		json.RawMessage(`{"id":2,"number":11,"state":"open","title":"PR","updated_at":"2026-08-01T00:00:00Z"}`)))
-	require.NoError(t, service.ApplyIssueCommentEvent(ctx, "octo", "widget", 0, "created", 4,
-		json.RawMessage(`{"id":900,"body":"hi","updated_at":"2026-08-01T00:00:00Z"}`)))
+	require.NoError(t, service.ApplyIssueCommentEvent(ctx, "octo", "widget", 0, "created",
+		json.RawMessage(`{"id":1,"number":4,"state":"open","title":"New","comments":1,"updated_at":"2026-08-01T00:01:00Z"}`),
+		json.RawMessage(`{"id":900,"body":"hi","updated_at":"2026-08-01T00:01:00Z"}`)))
 
 	assert.True(t, store.repoByID(row.ID).LastWebhookAt.Valid, "deliveries heartbeat the registry row")
 	assert.Len(t, store.issues, 2)

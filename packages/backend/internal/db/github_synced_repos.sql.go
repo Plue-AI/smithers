@@ -137,6 +137,26 @@ func (q *Queries) DeleteGitHubSyncedIssueComment(ctx context.Context, arg Delete
 	return err
 }
 
+const deleteGitHubSyncedIssueCommentsNotIn = `-- name: DeleteGitHubSyncedIssueCommentsNotIn :exec
+DELETE FROM github_synced_issue_comments
+WHERE synced_repo_id = $1
+  AND issue_number = $2
+  AND NOT (github_id = ANY($3::bigint[]))
+`
+
+type DeleteGitHubSyncedIssueCommentsNotInParams struct {
+	SyncedRepoID int64   `json:"synced_repo_id"`
+	IssueNumber  int64   `json:"issue_number"`
+	GithubIds    []int64 `json:"github_ids"`
+}
+
+// Comment baseline load: drop an issue's stored comments GitHub no longer
+// returns. Only ever run with the FULL just-fetched comment id set.
+func (q *Queries) DeleteGitHubSyncedIssueCommentsNotIn(ctx context.Context, arg DeleteGitHubSyncedIssueCommentsNotInParams) error {
+	_, err := q.db.Exec(ctx, deleteGitHubSyncedIssueCommentsNotIn, arg.SyncedRepoID, arg.IssueNumber, arg.GithubIds)
+	return err
+}
+
 const deleteGitHubSyncedIssuesNotIn = `-- name: DeleteGitHubSyncedIssuesNotIn :exec
 DELETE FROM github_synced_issues
 WHERE synced_repo_id = $1
@@ -288,6 +308,44 @@ func (q *Queries) EnrollGitHubSyncedRepo(ctx context.Context, arg EnrollGitHubSy
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getGitHubSyncedIssueCommentCoverage = `-- name: GetGitHubSyncedIssueCommentCoverage :one
+SELECT
+    (i.payload->>'comments')::bigint AS advertised,
+    (
+        SELECT COUNT(*)
+        FROM github_synced_issue_comments c
+        WHERE c.synced_repo_id = i.synced_repo_id
+          AND c.issue_number = i.number
+    )::bigint AS stored
+FROM github_synced_issues i
+WHERE i.synced_repo_id = $1
+  AND i.resource = 'issues'
+  AND i.number = $2
+  AND jsonb_typeof(i.payload->'comments') = 'number'
+`
+
+type GetGitHubSyncedIssueCommentCoverageParams struct {
+	SyncedRepoID int64 `json:"synced_repo_id"`
+	IssueNumber  int64 `json:"issue_number"`
+}
+
+type GetGitHubSyncedIssueCommentCoverageRow struct {
+	Advertised int64 `json:"advertised"`
+	Stored     int64 `json:"stored"`
+}
+
+// The comment store is a complete baseline for one issue only when it holds
+// exactly as many comments as the stored issue advertises. The issue row is
+// refreshed by reconcile and by every issue_comment delivery, so a missed or
+// historical comment shows up as a mismatch. No row: the issue (or its
+// advertised count) is not stored, so there is no baseline at all.
+func (q *Queries) GetGitHubSyncedIssueCommentCoverage(ctx context.Context, arg GetGitHubSyncedIssueCommentCoverageParams) (GetGitHubSyncedIssueCommentCoverageRow, error) {
+	row := q.db.QueryRow(ctx, getGitHubSyncedIssueCommentCoverage, arg.SyncedRepoID, arg.IssueNumber)
+	var i GetGitHubSyncedIssueCommentCoverageRow
+	err := row.Scan(&i.Advertised, &i.Stored)
 	return i, err
 }
 

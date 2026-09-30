@@ -88,6 +88,8 @@ type GitHubSyncedRepoStore interface {
 	UpsertGitHubSyncedIssueComment(ctx context.Context, arg db.UpsertGitHubSyncedIssueCommentParams) error
 	DeleteGitHubSyncedIssueComment(ctx context.Context, arg db.DeleteGitHubSyncedIssueCommentParams) error
 	ListGitHubSyncedIssueComments(ctx context.Context, arg db.ListGitHubSyncedIssueCommentsParams) ([]db.GithubSyncedIssueComment, error)
+	GetGitHubSyncedIssueCommentCoverage(ctx context.Context, arg db.GetGitHubSyncedIssueCommentCoverageParams) (db.GetGitHubSyncedIssueCommentCoverageRow, error)
+	DeleteGitHubSyncedIssueCommentsNotIn(ctx context.Context, arg db.DeleteGitHubSyncedIssueCommentsNotInParams) error
 	UpsertGitHubSyncedRepoReadGrant(ctx context.Context, arg db.UpsertGitHubSyncedRepoReadGrantParams) error
 	GetGitHubSyncedRepoReadGrant(ctx context.Context, arg db.GetGitHubSyncedRepoReadGrantParams) (db.GithubSyncedRepoReadGrant, error)
 	DeleteGitHubSyncedRepoReadGrantsForUser(ctx context.Context, userID int64) error
@@ -131,6 +133,12 @@ type GitHubSyncedRepoService struct {
 	// syncDone, when set, fires after every background backfill attempt.
 	// Test seam — nil in production.
 	syncDone func(syncedRepoID int64, err error)
+	// commentBaselines holds the in-flight per-issue comment baseline loads
+	// ("repoID|issue"), so concurrent reads start one load, not many.
+	commentBaselines sync.Map
+	// commentBaselineDone, when set, fires after every background comment
+	// baseline load. Test seam — nil in production.
+	commentBaselineDone func(syncedRepoID, issueNumber int64, err error)
 	// pushAccess proves a user's current GitHub push access. github-sync
 	// writes the mirror's refs, issues, landings and merges to the GitHub repo
 	// with the platform token, so a mirror is bound, and advertised to
@@ -177,6 +185,12 @@ func WithGitHubSyncedRepoBudget(budget *BudgetTracker) GitHubSyncedRepoOption {
 // background backfill attempt (tests only — lets tests wait for the goroutine).
 func WithGitHubSyncedRepoSyncNotify(fn func(syncedRepoID int64, err error)) GitHubSyncedRepoOption {
 	return func(s *GitHubSyncedRepoService) { s.syncDone = fn }
+}
+
+// WithGitHubSyncedRepoCommentBaselineNotify registers a callback fired after
+// every background comment baseline load (tests only).
+func WithGitHubSyncedRepoCommentBaselineNotify(fn func(syncedRepoID, issueNumber int64, err error)) GitHubSyncedRepoOption {
+	return func(s *GitHubSyncedRepoService) { s.commentBaselineDone = fn }
 }
 
 func NewGitHubSyncedRepoService(store GitHubSyncedRepoStore, opts ...GitHubSyncedRepoOption) *GitHubSyncedRepoService {
@@ -860,11 +874,14 @@ func (s *GitHubSyncedRepoService) ServeMetadata(
 
 // ServeComments answers an issue-comments read FROM THE STORE with the same
 // stale-while-revalidate provenance as ServeMetadata, and reports served=false
-// when the caller must fall back to the live GitHub passthrough. Comments are
-// webhook-populated ONLY — the backfill reconciles issues/pulls, never
-// comments — so a repo with no webhook heartbeat yet could hold an empty
-// comments store for an issue that actually has comments; only webhook-fed
-// repos are served from the store.
+// when the caller must fall back to the live GitHub passthrough. A repository
+// heartbeat proves deliveries arrive, not that one issue's historical comments
+// were ever loaded, so the store serves an issue only while it holds exactly
+// the comment count the stored issue advertises (see
+// GetGitHubSyncedIssueCommentCoverage). A stored issue whose count differs is
+// served live while a background load fetches its complete comment list; a
+// later reconcile that refreshes the count exposes missed deliveries the same
+// way. Pull requests and unstored issues advertise no count and stay live.
 func (s *GitHubSyncedRepoService) ServeComments(
 	ctx context.Context,
 	grant GitHubRepoReadGrant,
@@ -892,6 +909,23 @@ func (s *GitHubSyncedRepoService) ServeComments(
 		return GitHubSyncedMetadataPage{}, false
 	}
 	if !row.LastWebhookAt.Valid {
+		return GitHubSyncedMetadataPage{}, false
+	}
+	coverage, err := s.store.GetGitHubSyncedIssueCommentCoverage(ctx, db.GetGitHubSyncedIssueCommentCoverageParams{
+		SyncedRepoID: row.ID,
+		IssueNumber:  issueNumber,
+	})
+	if err != nil {
+		// No row: the issue or its advertised count is not stored (pull
+		// requests never carry one), so no baseline can ever be proven.
+		if !stdErrors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("github synced comment coverage unreadable; serving live",
+				"owner", owner, "repo", repo, "issue", issueNumber, "error", err)
+		}
+		return GitHubSyncedMetadataPage{}, false
+	}
+	if coverage.Stored != coverage.Advertised {
+		s.scheduleCommentBaseline(row, issueNumber, fetch)
 		return GitHubSyncedMetadataPage{}, false
 	}
 
@@ -980,6 +1014,89 @@ func (s *GitHubSyncedRepoService) scheduleBackfill(row db.GithubSyncedRepo, fetc
 			s.syncDone(row.ID, err)
 		}
 	}()
+}
+
+// scheduleCommentBaseline loads one issue's complete comment list in the
+// background. Like scheduleBackfill it never uses the request context.
+func (s *GitHubSyncedRepoService) scheduleCommentBaseline(row db.GithubSyncedRepo, issueNumber int64, fetch gitHubSyncedRepoPageFetcher) {
+	fetch = s.preferredFetcher(row, fetch)
+	if fetch == nil {
+		return
+	}
+	key := strconv.FormatInt(row.ID, 10) + "|" + strconv.FormatInt(issueNumber, 10)
+	if _, running := s.commentBaselines.LoadOrStore(key, struct{}{}); running {
+		return
+	}
+	if !s.allowBudget(row) {
+		s.commentBaselines.Delete(key)
+		return
+	}
+	go func() {
+		defer s.commentBaselines.Delete(key)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("github synced comment baseline panicked",
+					"owner", row.OwnerLogin, "repo", row.RepoName, "issue", issueNumber, "panic", fmt.Sprint(r))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), githubSyncedRepoBackfillBudget)
+		defer cancel()
+		err := s.loadCommentBaseline(ctx, row, issueNumber, fetch)
+		if err != nil {
+			slog.Warn("github synced comment baseline failed; serving live",
+				"owner", row.OwnerLogin, "repo", row.RepoName, "issue", issueNumber, "error", err)
+		}
+		if s.commentBaselineDone != nil {
+			s.commentBaselineDone(row.ID, issueNumber, err)
+		}
+	}()
+}
+
+// loadCommentBaseline stores every comment GitHub returns for one issue and,
+// when the walk saw the whole list, drops stored comments GitHub no longer has.
+// GitHub lists issue comments oldest first, so a comment created mid-walk only
+// appends; a list longer than the page ceiling is stored without pruning.
+func (s *GitHubSyncedRepoService) loadCommentBaseline(ctx context.Context, row db.GithubSyncedRepo, issueNumber int64, fetch gitHubSyncedRepoPageFetcher) error {
+	resource := "issues/" + strconv.FormatInt(issueNumber, 10) + "/comments"
+	seen := make([]int64, 0, githubSyncedRepoBackfillPageSize)
+	for page := 1; page <= githubSyncedRepoBackfillMaxPages; page++ {
+		query := url.Values{}
+		query.Set("per_page", strconv.Itoa(githubSyncedRepoBackfillPageSize))
+		query.Set("page", strconv.Itoa(page))
+		body, err := fetch(ctx, resource, query)
+		if err != nil {
+			return err
+		}
+		var comments []json.RawMessage
+		if err := json.Unmarshal(body, &comments); err != nil {
+			return fmt.Errorf("decode github issue comments page: %w", err)
+		}
+		for _, comment := range comments {
+			var header gitHubCommentHeader
+			if err := json.Unmarshal(comment, &header); err != nil || header.ID <= 0 {
+				continue
+			}
+			if err := s.store.UpsertGitHubSyncedIssueComment(ctx, db.UpsertGitHubSyncedIssueCommentParams{
+				SyncedRepoID:    row.ID,
+				IssueNumber:     issueNumber,
+				GithubID:        header.ID,
+				Payload:         comment,
+				GithubCreatedAt: parseGitHubTimestamp(header.CreatedAt),
+				GithubUpdatedAt: parseGitHubTimestamp(header.UpdatedAt),
+			}); err != nil {
+				return err
+			}
+			seen = append(seen, header.ID)
+		}
+		if len(comments) < githubSyncedRepoBackfillPageSize {
+			return s.store.DeleteGitHubSyncedIssueCommentsNotIn(ctx, db.DeleteGitHubSyncedIssueCommentsNotInParams{
+				SyncedRepoID: row.ID,
+				IssueNumber:  issueNumber,
+				GithubIds:    seen,
+			})
+		}
+	}
+	return nil
 }
 
 // backfill reconciles BOTH collections for a repo against GitHub. On failure the
@@ -1281,8 +1398,10 @@ func (s *GitHubSyncedRepoService) ApplyIssueEvent(ctx context.Context, owner, re
 	return err
 }
 
-// ApplyIssueCommentEvent applies an `issue_comment` webhook to the store.
-func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, owner, repo string, githubRepoID int64, action string, issueNumber int64, comment json.RawMessage) error {
+// ApplyIssueCommentEvent applies an `issue_comment` webhook to the store. The
+// delivery's issue object carries the issue's current comment count; storing it
+// keeps the per-issue coverage check in ServeComments exact.
+func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, owner, repo string, githubRepoID int64, action string, issue, comment json.RawMessage) error {
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {
 		return err
@@ -1290,7 +1409,15 @@ func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, ow
 	if err := s.store.TouchGitHubSyncedRepoWebhook(ctx, row.ID); err != nil {
 		return err
 	}
-	if len(comment) == 0 || issueNumber <= 0 {
+	var issueHeader gitHubIssueHeader
+	if len(issue) == 0 || json.Unmarshal(issue, &issueHeader) != nil || issueHeader.Number <= 0 {
+		return nil
+	}
+	issueNumber := issueHeader.Number
+	if _, err := s.storeSyncedIssue(ctx, row.ID, GitHubRepoMetadataIssues, issue); err != nil {
+		return err
+	}
+	if len(comment) == 0 {
 		return nil
 	}
 	var header gitHubCommentHeader
