@@ -76,30 +76,35 @@ function BlockView({ block, split }: { block: Panels.Block; split: boolean }) {
       return (
         <box style={{ marginBottom: 1 }}>
           <text fg={color.brand}>{block.path}</text>
-          {block.patch.includes("@@")
-            ? (
-              <diff
-                diff={block.patch}
-                view={split ? "split" : "unified"}
-                filetype={block.path.split(".").pop() ?? "text"}
-                syntaxStyle={syntax}
-                showLineNumbers
-                fg={color.text}
-                lineNumberFg={color.faint}
-                lineNumberBg={color.page}
-                addedBg={color.addedBg}
-                removedBg={color.removedBg}
-                contextBg={color.page}
-                addedLineNumberBg={color.addedBg}
-                removedLineNumberBg={color.removedBg}
-                addedSignColor={color.success}
-                removedSignColor={color.danger}
-              />
-            )
-            : <text fg={color.muted}>{block.patch}</text>}
+          <PatchView path={block.path} patch={block.patch} split={split} />
         </box>
       )
   }
+}
+
+/** One file's patch with line numbers and syntax colors; a labeled change (binary, large) as its words. */
+export function PatchView({ path, patch, split }: { path: string; patch: string; split: boolean }) {
+  return patch.includes("@@")
+    ? (
+      <diff
+        diff={patch}
+        view={split ? "split" : "unified"}
+        filetype={path.split(".").pop() ?? "text"}
+        syntaxStyle={syntax}
+        showLineNumbers
+        fg={color.text}
+        lineNumberFg={color.faint}
+        lineNumberBg={color.page}
+        addedBg={color.addedBg}
+        removedBg={color.removedBg}
+        contextBg={color.page}
+        addedLineNumberBg={color.addedBg}
+        removedLineNumberBg={color.removedBg}
+        addedSignColor={color.success}
+        removedSignColor={color.danger}
+      />
+    )
+    : <text fg={color.muted}>{patch}</text>
 }
 export function PanelView(
   props: {

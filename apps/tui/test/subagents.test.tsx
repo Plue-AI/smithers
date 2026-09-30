@@ -100,14 +100,49 @@ describe("the card adapter", () => {
     })
   })
 
-  it("lists changed files from captured patches, leaving out undone calls", () => {
-    const patch = (path: string, undone?: true): Transcript.Call => ({
+  const patched = (...calls: ReadonlyArray<Transcript.Call>): Transcript.Transcript => ({
+    ...Transcript.empty,
+    items: [{
+      kind: "cell",
+      id: "0",
+      index: 1,
+      prose: "",
+      source: "",
+      status: "done",
+      calls,
+      printed: "",
+      startedAt: 0
+    }]
+  })
+  const edit = (path: string, undone?: true): Transcript.Call => ({
+    flow: "edit",
+    identity: path,
+    subject: path,
+    status: "ok",
+    patches: [{ path, patch: "+a\n-b", ...(undone === undefined ? {} : { undone }) }],
+    startedAt: 0
+  })
+
+  it("lists every captured file, undone ones too, and reads undone once all are", () => {
+    const partly = Subagents.subagent(tab("w", "done"), patched(edit("kept.ts"), edit("undone.ts", true)), models)
+    expect(partly.files).toEqual([
+      { path: "kept.ts", added: 1, removed: 1 },
+      { path: "undone.ts", added: 1, removed: 1 }
+    ])
+    expect(partly.title).toBe("w")
+    const all = Subagents.subagent(tab("w", "done"), patched(edit("a.ts", true), edit("b.ts", true)), models)
+    expect(all.title).toBe("w · undone")
+    expect(all.files).toHaveLength(2)
+    expect(Subagents.subagent(tab("w", "done"), Transcript.empty, models).title).toBe("w")
+  })
+
+  it("lists changed files from captured patches", () => {
+    const patch = (path: string): Transcript.Call => ({
       flow: "edit",
       subject: path,
       status: "ok",
       patches: [{ path, patch: "+a\n-b" }],
-      startedAt: 0,
-      ...(undone === undefined ? {} : { undone })
+      startedAt: 0
     })
     const transcript: Transcript.Transcript = {
       ...Transcript.empty,
@@ -118,7 +153,7 @@ describe("the card adapter", () => {
         prose: "",
         source: "",
         status: "done",
-        calls: [patch("kept.ts"), patch("undone.ts", true)],
+        calls: [patch("kept.ts")],
         printed: "",
         startedAt: 0
       }]

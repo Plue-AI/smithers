@@ -30,7 +30,11 @@ export interface FlowForm {
 
 /** Which keys act right now, in the order `handleKey` tries them. */
 export const context = (state: {
+  /** The undo checklist is open. */
+  readonly checklist: boolean
   readonly picker: boolean
+  /** A run's full-height diff shows. */
+  readonly review: boolean
   readonly inspecting: boolean
   readonly form: boolean
   readonly approvals: boolean
@@ -46,7 +50,9 @@ export const context = (state: {
   readonly shell: boolean
   readonly turn: boolean
 }): Keys.KeyContext => {
+  if (state.checklist) return "checklist"
   if (state.picker) return "picker"
+  if (state.review) return "review"
   if (state.inspecting) return "selection"
   if (state.form) return "form"
   if (state.approvals && state.empty) return "approval"
@@ -137,9 +143,9 @@ const workerBinding = (key: KeyEvent): string | undefined => {
 
 /**
  * A focused chat card: enter opens it, esc leaves it, arrows and tab move
- * between cards. On a subagent card, `f` opens its files and the worker keys
- * act on its worker. Anything else unfocuses it and goes on to the composer;
- * false then.
+ * between cards. On a subagent card, `f` opens its files, `d` its run's diff,
+ * `u` undoes the run, and the worker keys act on its worker. Anything else
+ * unfocuses it and goes on to the composer; false then.
  */
 export const cardKey = (key: KeyEvent, act: {
   readonly move: (direction: Subagents.Direction) => void
@@ -149,6 +155,10 @@ export const cardKey = (key: KeyEvent, act: {
   readonly worker: Tab | undefined
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
   readonly files: () => void
+  /** Present only when the worker settled with captured changes. */
+  readonly diff?: (() => void) | undefined
+  /** Present only when those changes can be undone now. */
+  readonly undo?: (() => void) | undefined
 }): boolean => {
   if (key.name === "return" || key.name === "kpenter") {
     key.preventDefault()
@@ -178,6 +188,13 @@ export const cardKey = (key: KeyEvent, act: {
     act.files()
     return true
   }
+  const run = key.name === "d" ? act.diff : key.name === "u" ? act.undo : undefined
+  if (run !== undefined) {
+    key.preventDefault()
+    act.leave()
+    run()
+    return true
+  }
   const binding = workerBinding(key)
   if (binding === undefined) {
     act.leave()
@@ -192,8 +209,8 @@ export const cardKey = (key: KeyEvent, act: {
 /**
  * The Summary overview: arrows or hjkl move in the pane (right leaves the
  * tree), enter opens, esc closes; `app.tsx` switches panes with tab. The
- * worker keys act on the selected worker, `x` stops a selected monitor, and
- * `f` opens a card's files.
+ * worker keys act on the selected worker, `x` stops a selected monitor;
+ * `f` opens a card's files, `d` and `u` show and undo its run.
  */
 export const overviewKey = (key: KeyEvent, state: {
   readonly pane: "tree" | "cards"
@@ -217,9 +234,15 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly files: () => void
   readonly scroll: (direction: number) => void
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
+  /** `d`: the selected worker's run diff, when it settled with captured changes. */
+  readonly diff?: (() => void) | undefined
+  /** `u`: undo the selected worker's run, when it can be undone now. */
+  readonly undo?: (() => void) | undefined
 }) => {
   key.preventDefault()
   if (key.name === "escape") return act.close()
+  if (key.name === "d" && act.diff !== undefined) return act.diff()
+  if (key.name === "u" && act.undo !== undefined) return act.undo()
   if (key.name === "i") return act.release()
   if (key.name === "return" || key.name === "kpenter") return act.open()
   if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
@@ -293,6 +316,40 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   }
 }
 
+/** A run's full-height diff: `u` undoes the run, esc goes back, arrows and page keys scroll. Takes every key. */
+export const reviewKey = (key: KeyEvent, act: {
+  /** Present only when the run can be undone now. */
+  readonly undo: (() => void) | undefined
+  readonly close: () => void
+  /** Lines, or a half page with `page`. */
+  readonly scroll: (by: number, page: boolean) => void
+}) => {
+  key.preventDefault()
+  if (key.name === "escape") return act.close()
+  if (key.name === "u") return act.undo?.()
+  if (key.name === "up" || key.name === "k") return act.scroll(-1, false)
+  if (key.name === "down" || key.name === "j") return act.scroll(1, false)
+  if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1, true)
+}
+
+/** The undo checklist: arrows move, space checks a file, enter undoes the checked ones, esc goes back. */
+export const checklistKey = (key: KeyEvent, state: { readonly rows: number }, act: {
+  readonly close: () => void
+  readonly select: (update: (selected: number) => number) => void
+  readonly toggle: () => void
+  readonly undo: () => void
+}) => {
+  key.preventDefault()
+  if (key.name === "escape") return act.close()
+  const move = (step: number) => {
+    if (state.rows > 0) act.select((selected) => (selected + step + state.rows) % state.rows)
+  }
+  if (key.name === "up") return move(-1)
+  if (key.name === "down") return move(1)
+  if (key.name === "space") return act.toggle()
+  if (key.name === "return" || key.name === "kpenter") return act.undo()
+}
+
 /** Keys while a dialog is open: its filter input takes the typing, these move and pick. */
 export const dialogKey = (key: KeyEvent, open: { readonly kind: string; readonly selected: number }, state: {
   readonly rows: number
@@ -313,7 +370,7 @@ export const dialogKey = (key: KeyEvent, open: { readonly kind: string; readonly
   if (key.name === "escape") return act.close()
   // Typing that arrives before the dialog's input mounts would reach the still-focused composer.
   const typed = typing(key)
-  if (state.composerFocused && open.kind !== "undo" && typed !== undefined) {
+  if (state.composerFocused && typed !== undefined) {
     key.preventDefault()
     return act.type(typed)
   }
@@ -378,8 +435,10 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly fillRun: (id: string) => void
   /** Opens the form for a worker's ask the person holds. */
   readonly answerWorker: (id: string) => void
-  /** Undo the selected row's changes, in a worker's own transcript when `tab` is set. */
+  /** Undo a worker's whole run when `tab` is set, else the chat turn of the selected Summary row. */
   readonly undo: (row: Panels.Row | undefined, tab: string | undefined) => void
+  /** A worker's run diff, full height. */
+  readonly diff: (tab: string) => void
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
   readonly scroll: (direction: number) => void
   readonly navigate: (update: (current: Panels.Navigation) => Panels.Navigation) => void
@@ -394,22 +453,17 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   if (key.name === "r" && surface.startsWith("flow:") && state.flow.retry) return act.retryRun(surface.slice(5))
   if (key.name === "x" && surface.startsWith("flow:") && state.flow.stop) return act.cancelRun(surface.slice(5))
   if (key.name === "a" && surface.startsWith("flow:")) return act.fillRun(surface.slice(5))
-  if (key.name === "u" && (surface === "summary" || surface.startsWith("tab:"))) {
-    return act.undo(
-      panel.rows[Math.min(navigation.selected, panel.rows.length - 1)],
-      surface.startsWith("tab:") ? surface.slice(4) : undefined
-    )
+  if (key.name === "u" && surface === "summary") {
+    return act.undo(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], undefined)
   }
   if (state.worker !== undefined) {
+    if (key.name === "u") return act.undo(undefined, state.worker.id)
+    if (key.name === "d") return act.diff(state.worker.id)
     if (key.name === "a") return act.answerWorker(state.worker.id)
     const binding = Keys.bindingFor(key, "panel")
     const action = binding === undefined ? undefined : Tabs.actionFor(binding.id, state.worker)
     if (action !== undefined) return act.workerAction(state.worker, action.id)
     if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
-    // j/k pick the transcript row `u` undoes.
-    if (["j", "k", "up", "down"].includes(key.name)) {
-      return act.navigate((current) => Panels.navigate(current, key.name, panel.rows))
-    }
     return
   }
   if (key.name === "a") {

@@ -133,22 +133,32 @@ test.each([12, 24])("empty picker at height %s shows refusal and accepts filter 
   })
   expect(queries).toEqual(["a", "ab", "abc"])
 })
-test("confirmation has choices without capturing text as a query", async () => {
+test("the undo checklist lists files and its keys without capturing text as a query", async () => {
   const queries: string[] = []
   const frame = await draw(
     <AppView.PickerDialog
-      title="Undo notes.txt?"
+      title="Undo Fix add?"
       query={undefined}
       onQuery={(query) => queries.push(query)}
-      rows={[{ key: "undo", label: "Undo" }, { key: "cancel", label: "Cancel" }]}
+      rows={[{ key: "math.js", label: "[x] math.js", hint: "+1 −1" }, {
+        key: "check.log",
+        label: "[x] check.log",
+        hint: "new"
+      }]}
       selected={1}
       empty="No choices"
       width={80}
       height={24}
+      keys={[
+        { id: "undo-files", keys: ["enter"], label: "Undo 2 files", context: "checklist", group: "Undo" },
+        { id: "undo-back", keys: ["esc"], label: "Back", context: "checklist", group: "Undo" }
+      ]}
     />
   )
-  expect(frame).toContain("Undo notes.txt?")
-  expect(frame).toContain("Cancel")
+  expect(frame).toContain("Undo Fix add?")
+  expect(frame).toMatch(/\[x\] math\.js\s+\+1 −1/)
+  expect(frame).toMatch(/\[x\] check\.log\s+new/)
+  expect(frame).toContain("enter Undo 2 files  esc Back")
   expect(frame).not.toContain("Search")
   await act(async () => {
     await setup!.mockInput.typeText("abc")

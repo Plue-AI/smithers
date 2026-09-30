@@ -53,6 +53,7 @@ import * as Palette from "./palette.ts"
 import { PanelView } from "./panel-view.tsx"
 import * as Panels from "./panels.ts"
 import * as Pickers from "./picker.ts"
+import { ReviewView } from "./review-view.tsx"
 import * as Scrubber from "./scrubber.ts"
 import * as Session from "./session.ts"
 import * as Shell from "./shell.ts"
@@ -330,6 +331,9 @@ export function App(props: AppProps) {
   const [filter, setFilter] = useState(Timeline.all)
   /** Workers whose card lists its changed files. */
   const [filesOpen, setFilesOpen] = useState<ReadonlySet<string>>(new Set())
+  /** The worker whose run's diff shows full height, over the surface it was opened on. */
+  const [review, setReview] = useState<{ readonly tab: string; readonly surface: string } | undefined>()
+  const reviewScroll = useRef<((by: number, page: boolean) => void) | undefined>(undefined)
   const toggleFiles = (id: string) =>
     setFilesOpen((current) => {
       const next = new Set(current)
@@ -672,6 +676,11 @@ export function App(props: AppProps) {
     if (surface.startsWith("flow:")) void runs.hydrate(surface.slice(5))
   }, [surface, runs])
   const workerTab = surface.startsWith("tab:") ? snapshot.tabs.find((tab) => `tab:${tab.id}` === surface) : undefined
+  /** The run whose diff shows; leaving the surface it was opened on closes it. */
+  const reviewTab = review?.surface === surface ? snapshot.tabs.find((tab) => tab.id === review.tab) : undefined
+  useEffect(() => {
+    if (review !== undefined && review.surface !== surface) setReview(undefined)
+  }, [surface, review])
   const continued = workerTab !== undefined &&
       (workerTab.status === "done" || workerTab.status === "failed" || workerTab.status === "cancelled")
     ? workerTab
@@ -1194,51 +1203,71 @@ export function App(props: AppProps) {
     })
   }, [props.host.cwd, setStatus])
 
-  /** Reverses a Summary or worker tab row's captured changes in the background; the composer stays usable. */
-  const runUndo = useCallback((target: Undo.Target, tab: string | undefined) => {
+  /** Work that an undo's writes could race: a turn, a `!cmd`, another undo, workers and flow runs. */
+  const undoBlocked = () => {
     const current = live.current
-    if (
-      current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined || workspace.busy ||
-      runs.busy
-    ) {
-      return setStatus(Undo.message({ _tag: "Busy" }), "warning")
-    }
+    return current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined ||
+      workspace.busy || runs.busy
+  }
+
+  /** Reads what undoing `cells` would restore and opens the checklist; a run with nothing to write says why. */
+  const startUndo = (cells: ReadonlyArray<Undo.Cell>, title: string, tab: string | undefined) => {
+    if (undoBlocked()) return setStatus(Undo.message({ _tag: "Busy" }), "warning")
+    void Undo.plan(props.host.cwd, cells).then(
+      (plan) => {
+        if ("_tag" in plan) return setStatus(Undo.message(plan), "warning")
+        const checked = Undo.ready(plan)
+        if (checked.size === 0) return setStatus(Undo.refusal(plan), "danger")
+        // A dialog the person opened meanwhile stays.
+        flushSync(() =>
+          setPicker((current) =>
+            current ??
+              { kind: "undo", query: "", selected: 0, title, plan, checked, ...(tab === undefined ? {} : { tab }) }
+          )
+        )
+      },
+      (error) => {
+        Log.write("undo", error)
+        setStatus(Undo.message({ _tag: "WriteFailed", path: "", message: "", restored: true }), "danger")
+      }
+    )
+  }
+
+  /** Writes the checked files in the background; the composer stays usable and the toast settles with the writes. */
+  const runUndo = (open: Extract<Picker, { kind: "undo" }>) => {
+    if (undoBlocked()) return setStatus(Undo.message({ _tag: "Busy" }), "warning")
+    const files = Undo.chosen(open.plan, open.checked)
+    if (files.length === 0) return
     const startedAt = Date.now()
     live.current.undoing = startedAt
     setUndoing(startedAt)
     const cwd = props.host.cwd
-    void Undo.plan(cwd, target)
-      .then((plan) => ("_tag" in plan ? plan : Undo.commit(cwd, plan).then((failure) => failure ?? plan)))
+    void Undo.commit(cwd, files)
       .catch((error): Undo.Failure => {
         Log.write("undo", error)
         return { _tag: "WriteFailed", path: "", message: "", restored: false }
       })
-      .then((settled) => {
-        if ("_tag" in settled) {
+      .then((failure) => {
+        if (failure !== undefined) {
           setStatus(
-            Undo.message(settled),
-            settled._tag === "Conflict" || settled._tag === "WriteFailed" ? "danger" : "warning"
+            Undo.message(failure),
+            failure._tag === "Conflict" || failure._tag === "WriteFailed" ? "danger" : "warning"
           )
         } else {
           const at = Date.now()
-          const paths = settled.files.map((file) => file.path)
+          const paths = Undo.recorded(open.plan, files)
+          const { calls } = open.plan
+          const tab = open.tab
           try {
-            if (tab !== undefined) workspace.undone(tab, settled.calls, paths, at)
-            writer.current.append({
-              type: "undo",
-              at,
-              calls: settled.calls,
-              paths,
-              ...(tab === undefined ? {} : { tab })
-            })
+            if (tab !== undefined) workspace.undone(tab, calls, paths, at)
+            writer.current.append({ type: "undo", at, calls, paths, ...(tab === undefined ? {} : { tab }) })
             entries.current.push({ kind: "undo", paths })
-            if (tab === undefined) setTranscript((current) => Transcript.undone(current, settled.calls, paths, at))
-            setStatus(Undo.done(settled))
+            if (tab === undefined) setTranscript((current) => Transcript.undone(current, calls, paths, at))
+            setStatus(Undo.done(files))
+            // Back to where the run was opened from, which now reads undone.
+            setReview(undefined)
           } catch (error) {
-            setStatus(
-              `${Undo.done(settled)} · ${Failures.line("undo", error)}`,
-              "danger"
-            )
+            setStatus(`${Undo.done(files)} · ${Failures.line("undo", error)}`, "danger")
           }
         }
         live.current.undoing = undefined
@@ -1247,7 +1276,7 @@ export function App(props: AppProps) {
         const next = live.current.turn === undefined ? dequeue() : undefined
         if (next !== undefined) startTurnRef.current(next)
       })
-  }, [props.host.cwd, workspace, runs, setStatus, dequeue])
+  }
 
   const switchSeat = useCallback((next: string) => {
     setSeat(next)
@@ -1737,10 +1766,7 @@ export function App(props: AppProps) {
       return setFilter((current) => Timeline.toggleKind(current, value.slice(value.indexOf(":") + 1) as Timeline.Kind))
     }
     setPicker(undefined)
-    if (open.kind === "undo") {
-      if (value === "undo") runUndo(open.target, open.tab)
-      return
-    }
+    if (open.kind === "undo") return
     if (open.kind === "fork") {
       const turn = open.turns.find((each) => String(each.index) === value)
       if (turn === undefined) return
@@ -1813,12 +1839,14 @@ export function App(props: AppProps) {
       }
     }
     resumeGuarded(value)
-  }, [switchSeat, openSession, forkSession, runUndo, setStatus, workspace, runs, setText, command])
+  }, [switchSeat, openSession, forkSession, setStatus, workspace, runs, setText, command])
 
   /** Which keys act right now, in the order `handleKey` tries them. */
   const keyContext = (): Keys.KeyContext =>
     Dispatch.context({
+      checklist: live.current.picker?.kind === "undo",
       picker: live.current.picker !== undefined,
+      review: reviewTab !== undefined,
       inspecting: activeInspection !== undefined,
       form: liveForm.current !== undefined,
       approvals: live.current.approvals.length > 0,
@@ -1831,43 +1859,50 @@ export function App(props: AppProps) {
       turn: live.current.turn !== undefined
     })
 
-  /** Undoes a Summary or worker tab row's changes after the confirm dialog. */
-  const undoRow = (row: Panels.Row | undefined, tab: string | undefined) =>
-    undoFound(
-      () =>
-        row === undefined
-          ? { _tag: "NothingToUndo" as const }
-          : Undo.target(tab === undefined ? transcript : workspace.transcript(tab), row.id),
-      tab
+  /** A worker's whole run. */
+  const runOf = (tab: Tab) => Undo.run(workspace.transcript(tab.id))
+  /** `d`: a settled worker with captured changes. */
+  const canDiff = (tab: Tab | undefined): tab is Tab =>
+    tab !== undefined && !Tabs.live(tab.status) && Undo.changes(runOf(tab)).length > 0
+  /** `u`: those changes are not all undone, and nothing runs that the writes could race. */
+  const canUndo = (tab: Tab | undefined): tab is Tab => canDiff(tab) && !undoBlocked() && Undo.possible(runOf(tab))
+  /** The worker's run diff, full height, over the current surface. */
+  const openReview = (tab: Tab) => flushSync(() => setReview({ tab: tab.id, surface }))
+  const undoWorker = (tab: Tab) => startUndo(runOf(tab), tabTitle(tab), tab.id)
+  /** `u` in a worker tab, or on a Summary row: the worker's run, or the chat turn the row belongs to. */
+  const undoFrom = (row: Panels.Row | undefined, tab: string | undefined) => {
+    const worker = tab === undefined ? undefined : snapshot.tabs.find((each) => each.id === tab)
+    if (worker !== undefined) return undoWorker(worker)
+    const { prompt, cells } = row === undefined ? { prompt: undefined, cells: [] } : Undo.turn(transcript, row.id)
+    return startUndo(
+      cells,
+      prompt === undefined ? "changes" : Summary.sentence(prompt).replace(/[.!?]+$/, ""),
+      undefined
     )
-  /** Asks to undo what `find` picks, or says why nothing can be. */
-  const undoFound = (find: () => Undo.Target | Undo.Failure, tab: string | undefined) => {
-    const current = live.current
-    if (
-      current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined || workspace.busy ||
-      runs.busy
-    ) {
-      return setStatus(Undo.message({ _tag: "Busy" }), "warning")
-    }
-    const found = find()
-    if ("_tag" in found) {
-      return setStatus(
-        Undo.message(found),
-        found._tag === "NothingToUndo" || found._tag === "AlreadyUndone" ? "warning" : "danger"
-      )
-    }
-    return setPicker({ kind: "undo", query: "", selected: 0, target: found, ...(tab === undefined ? {} : { tab }) })
   }
 
   /** A Ctrl+K action: what its key does in its own view, or the newest change for undo elsewhere. */
   const act = (chosen: Palette.Act) => {
     switch (chosen.act) {
-      case "undo":
+      case "undo": {
         // A worker tab or the Summary review undoes its selected row, as `u` does there.
         if (panel !== undefined && (workerTab !== undefined || (surface === "summary" && !overviewShown))) {
-          return undoRow(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], workerTab?.id)
+          return undoFrom(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], workerTab?.id)
         }
-        return undoFound(() => Undo.latest(transcript), undefined)
+        if (reviewTab !== undefined) return undoWorker(reviewTab)
+        if (overviewKeys) {
+          const selected = overviewPane === "tree" ? overviewTab : overviewCard
+          if (selected !== undefined) return undoWorker(selected)
+        }
+        if (focusedWorker !== undefined) return undoWorker(focusedWorker)
+        const latest = Undo.latest(transcript)
+        if ("_tag" in latest) return setStatus(Undo.message(latest), "warning")
+        return startUndo(
+          latest.cells,
+          latest.prompt === undefined ? "changes" : Summary.sentence(latest.prompt).replace(/[.!?]+$/, ""),
+          undefined
+        )
+      }
       case "diff":
       case "split":
         if (panel === undefined) return
@@ -1951,7 +1986,9 @@ export function App(props: AppProps) {
           workerAction,
           files: () => {
             if (focusedWorker !== undefined) toggleFiles(focusedWorker.id)
-          }
+          },
+          diff: canDiff(focusedWorker) ? () => openReview(focusedWorker) : undefined,
+          undo: canUndo(focusedWorker) ? () => undoWorker(focusedWorker) : undefined
         })
       ) return
     } else if (
@@ -1973,6 +2010,7 @@ export function App(props: AppProps) {
         if (open !== undefined) setPicker(undefined)
         setPanelFocus(false)
         setCardFocus(undefined)
+        setReview(undefined)
         setText("")
       })
       return
@@ -2112,11 +2150,19 @@ export function App(props: AppProps) {
       )
       return
     }
+    if (reviewTab !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
+      return Dispatch.reviewKey(key, {
+        undo: canUndo(reviewTab) ? () => undoWorker(reviewTab) : undefined,
+        close: () => flushSync(() => setReview(undefined)),
+        scroll: (by, page) => reviewScroll.current?.(by, page)
+      })
+    }
     if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
       const ids = [SubagentView.chat, ...inboxRows.map((row) => row.key)]
+      const overviewWorker = overviewPane === "tree" ? overviewTab : overviewCard
       return Dispatch.overviewKey(key, {
         pane: overviewPane,
-        worker: overviewPane === "tree" ? overviewTab : overviewCard,
+        worker: overviewWorker,
         monitor: overviewRow?.monitor?.id
       }, {
         close: () =>
@@ -2182,7 +2228,9 @@ export function App(props: AppProps) {
           if (overviewCard !== undefined) toggleFiles(overviewCard.id)
         },
         scroll: (direction) => panelScroll.current?.(direction),
-        workerAction
+        workerAction,
+        diff: canDiff(overviewWorker) ? () => openReview(overviewWorker) : undefined,
+        undo: canUndo(overviewWorker) ? () => undoWorker(overviewWorker) : undefined
       })
     }
     if (panelFocus && panel !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
@@ -2203,12 +2251,39 @@ export function App(props: AppProps) {
         cancelRun: runs.cancel,
         fillRun: (id) => flushSync(() => openForm(id)),
         answerWorker: (id) => flushSync(() => answerWorker(id)),
-        undo: undoRow,
+        undo: undoFrom,
+        diff: (id) => {
+          const worker = snapshot.tabs.find((tab) => tab.id === id)
+          if (canDiff(worker)) openReview(worker)
+        },
         workerAction,
         scroll: (direction) => panelScroll.current?.(direction),
         navigate: setNavigation,
         send: (prompt) => send(prompt),
         perform
+      })
+    }
+    if (open?.kind === "undo") {
+      return Dispatch.checklistKey(key, { rows: open.plan.entries.length }, {
+        close: () => flushSync(() => setPicker(undefined)),
+        select: (update) =>
+          flushSync(() =>
+            setPicker((current) => current === undefined ? current : { ...current, selected: update(current.selected) })
+          ),
+        toggle: () =>
+          flushSync(() =>
+            setPicker((current) =>
+              current?.kind !== "undo" ? current : {
+                ...current,
+                checked: Undo.toggle(current.plan, current.checked, current.plan.entries[current.selected]!.path)
+              }
+            )
+          ),
+        undo: () => {
+          if (Undo.chosen(open.plan, open.checked).length === 0) return
+          flushSync(() => setPicker(undefined))
+          runUndo(open)
+        }
       })
     }
     if (open !== undefined) {
@@ -2297,16 +2372,32 @@ export function App(props: AppProps) {
       }))
     )
   const cardHint = (id: string) => Keys.registry.filter((binding) => binding.id === id)
+  /** The undo checklist's keys, in its dialog and the footer: Enter names what it writes, and only while a file is checked. */
+  const checklistKeys = picker?.kind === "undo"
+    ? [
+      ...cardHint("undo-files").flatMap((binding) => {
+        const files = Undo.chosen(picker.plan, picker.checked)
+        return files.length === 0 ? [] : [{ ...binding, label: Undo.label(files) }]
+      }),
+      ...cardHint("undo-back")
+    ]
+    : undefined
   // A worker's own actions are buttons in its view; the footer carries the rest.
   const footerHints = driven !== undefined && !panelFocus
     ? [
       ...cardHint("send"),
       ...cardHint("parent").map((binding) => ({ ...binding, label: "Release" }))
     ]
+    : footerContext === "checklist" && checklistKeys !== undefined
+    ? checklistKeys
+    : footerContext === "review" && reviewTab !== undefined
+    ? [...(canUndo(reviewTab) ? cardHint("review-undo") : []), ...cardHint("review-close")]
     : footerContext === "card" && focusedWorker !== undefined
     ? [
-      ...cardHint("card-move"),
+      ...(canDiff(focusedWorker) ? cardHint("card-diff") : []),
+      ...(canUndo(focusedWorker) ? cardHint("card-undo") : []),
       ...cardHint("open-card"),
+      ...cardHint("card-move"),
       ...actionHints(focusedWorker),
       ...((Subagents.subagent(focusedWorker, workspace.transcript(focusedWorker.id), props.models).files?.length ?? 0) >
           0
@@ -2314,13 +2405,23 @@ export function App(props: AppProps) {
         : [])
     ]
     : footerContext === "panel" && workerTab !== undefined
-    ? Keys.panelHints({ undo: true }).filter((binding) => binding.id !== "expand-row")
+    ? Keys.panelHints({ diff: canDiff(workerTab), undo: canUndo(workerTab) }).filter((binding) =>
+      binding.id !== "expand-row" && binding.id !== "navigate"
+    )
     : footerContext === "panel" && panel !== undefined
     ? [
       ...(surface === "summary" ? Keys.panelHints({}).filter((binding) => binding.id === "close-panel") : []),
       ...Keys.panelHints({
         ...selectedFlowActions,
-        undo: surface === "summary" || surface.startsWith("tab:"),
+        // The chat turn of the selected row, when it has changes to undo.
+        undo: surface === "summary" && !undoBlocked() &&
+          Undo.possible(
+            Undo.turn(
+              transcript,
+              panel.rows[Math.max(0, Math.min(navigation.selected, panel.rows.length - 1))]?.id ?? ""
+            )
+              .cells
+          ),
         action: panel.rows[Math.max(0, Math.min(navigation.selected, panel.rows.length - 1))]?.action?.label
       }).filter((binding) => surface !== "summary" || binding.id !== "close-panel"),
       // A contributed panel key works only on its owner's view; a global one works here too.
@@ -2329,9 +2430,11 @@ export function App(props: AppProps) {
       )
     ]
     : footerContext === "overview"
-    // `a` shows only on a row it answers; a monitor row has no cards, graph or view to open.
+    // `d` and `u` act on a settled worker; a monitor has no cards, graph or view to open.
     ? [
       ...(overviewRow?.monitor === undefined ? [] : cardHint("stop")),
+      ...(canDiff(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-diff") : []),
+      ...(canUndo(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-undo") : []),
       ...Keys.hintsFor("overview", merged).filter((binding) =>
         (binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input" ||
           (overviewRow?.worker !== undefined && overviewRow.worker.status === "failed" &&
@@ -2445,7 +2548,15 @@ export function App(props: AppProps) {
               )
             })()}
           </box>
-          {workerTab !== undefined && !focusMain ?
+          {reviewTab !== undefined ?
+            (
+              <ReviewView
+                title={tabTitle(reviewTab)}
+                changes={Undo.changes(Undo.run(workspace.transcript(reviewTab.id)))}
+                scrollRef={reviewScroll}
+              />
+            ) :
+            workerTab !== undefined && !focusMain ?
             (
               <WorkerView
                 tab={{ ...workerTab, title: tabTitle(workerTab) }}
@@ -2457,7 +2568,6 @@ export function App(props: AppProps) {
                 width={width}
                 expanded={expanded}
                 onAction={(action) => workerAction(workerTab, action)}
-                selected={panel?.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.id}
                 jump={workerJump(workerTab.id)}
                 scrollRef={panelScroll}
                 path={path(workerTab)}
@@ -2564,7 +2674,8 @@ export function App(props: AppProps) {
                   : null}
               </scrollbox>
             )}
-          {!showActivity || monitored === undefined || (short && activeInspection === undefined) ?
+          {!showActivity || monitored === undefined || (short && activeInspection === undefined) ||
+              reviewTab !== undefined ?
             null :
             (
               <ActivityView
@@ -2581,19 +2692,21 @@ export function App(props: AppProps) {
                     : inspectActivity(monitored.activity.records.at(-1)!.sequence!, false)}
               />
             )}
-          {followUps.length === 0 ? null : (
-            <box style={{ marginTop: 1, paddingLeft: 2, flexShrink: 0 }}>
-              {(short ? followUps.slice(-1) : followUps).map((prompt) => (
-                <text key={prompt.id} fg={color.muted} wrapMode="none">
-                  {short ? `${followUps.length} queued: ` : "Follow-up: "}
-                  {prompt.text.split("\n")[0]}
+          {followUps.length === 0 || reviewTab !== undefined ?
+            null :
+            (
+              <box style={{ marginTop: 1, paddingLeft: 2, flexShrink: 0 }}>
+                {(short ? followUps.slice(-1) : followUps).map((prompt) => (
+                  <text key={prompt.id} fg={color.muted} wrapMode="none">
+                    {short ? `${followUps.length} queued: ` : "Follow-up: "}
+                    {prompt.text.split("\n")[0]}
+                  </text>
+                ))}
+                <text fg={color.faint} wrapMode="none">
+                  {short ? "alt+up Edit queue" : "↳ alt+up to edit all queued messages"}
                 </text>
-              ))}
-              <text fg={color.faint} wrapMode="none">
-                {short ? "alt+up Edit queue" : "↳ alt+up to edit all queued messages"}
-              </text>
-            </box>
-          )}
+              </box>
+            )}
           {form === undefined ? null : (
             <FlowFormView
               form={form}
@@ -2608,7 +2721,7 @@ export function App(props: AppProps) {
               }}
             />
           )}
-          {menu === undefined || panelFocus || form !== undefined ?
+          {menu === undefined || panelFocus || form !== undefined || reviewTab !== undefined ?
             null :
             (
               <CompletionMenu
@@ -2643,6 +2756,8 @@ export function App(props: AppProps) {
           )}
           {form !== undefined ? null : (
             <box
+              // Kept mounted under a full-height diff, so a draft survives it.
+              visible={reviewTab === undefined}
               style={{ border: ["left"], marginTop: short ? 0 : 1, flexShrink: 0 }}
               borderColor={accent}
               customBorderChars={View.bar}
@@ -2654,7 +2769,7 @@ export function App(props: AppProps) {
                 <textarea
                   ref={composer}
                   selectionOccupancy="boundary"
-                  focused={picker === undefined && !panelFocus && form === undefined}
+                  focused={picker === undefined && !panelFocus && form === undefined && reviewTab === undefined}
                   placeholder={continued !== undefined
                     ? `Continue ${tabTitle(continued)}`
                     : steered !== undefined || driven !== undefined
@@ -2774,6 +2889,7 @@ export function App(props: AppProps) {
           )}
           width={Math.min(72, dimensions.width - 4)}
           height={dimensions.height}
+          {...(checklistKeys === undefined ? {} : { keys: checklistKeys })}
         />
       )}
     </box>

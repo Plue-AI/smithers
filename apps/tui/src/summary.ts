@@ -2,6 +2,7 @@
 import type * as Panels from "./panels.ts"
 import * as Runtime from "./runtime.ts"
 import * as Transcript from "./transcript.ts"
+import * as Undo from "./undo.ts"
 
 export const sentence = (value: string): string => {
   const line =
@@ -86,8 +87,7 @@ export const panel = (transcript: Transcript.Transcript, id = "summary", title =
           ? []
           : [{ kind: "diff", path: call.change.path, patch: Transcript.unified(call.change) }]
       )
-      const patched = item.calls.filter((call) => (call.patches?.length ?? 0) > 0)
-      const undone = patched.length > 0 && patched.every((call) => call.undone === true)
+      const undone = Undo.undone([item])
       rows.push({
         id: item.id,
         label: undone ? `Undone: ${cellLabel(item)}`.slice(0, 240) : cellLabel(item),

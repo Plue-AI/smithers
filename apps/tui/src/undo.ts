@@ -1,10 +1,12 @@
 /**
- * Undo a turn's edits: reverse the file changes captured at the flow boundary
- * (`changes.ts`), all or nothing. `target` picks the calls from a Summary row,
- * `plan` computes every file's restored content without writing, and `commit`
- * writes it, rolling back on an IO error.
+ * Review and undo a run: the file changes captured at the flow boundary
+ * (`changes.ts`) for a worker's whole transcript, or one chat turn. `changes`
+ * is the run's combined diff per file; `plan` reads the disk and works out
+ * each file's restored content, or why it stays; `commit` writes the files the
+ * person kept checked, rolling back on an IO error.
  */
-import { applyPatch, parsePatch, reversePatch, type StructuredPatch } from "diff"
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
+import { applyPatch, reversePatch } from "diff"
 import { chmod, mkdir, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { real } from "./approvals.ts"
@@ -15,160 +17,196 @@ import type * as Transcript from "./transcript.ts"
 export type Failure =
   | { readonly _tag: "Busy" }
   | { readonly _tag: "NothingToUndo" }
-  | { readonly _tag: "AlreadyUndone" }
-  /** A writer call with no receipt: shell outside a repository, or a session from before capture. */
-  | { readonly _tag: "Uncaptured"; readonly flows: ReadonlyArray<string> }
-  /** A binary, large, or truncated change, labeled instead of diffed. */
-  | { readonly _tag: "Unrendered"; readonly paths: ReadonlyArray<string> }
-  /** A receipt path that reaches outside the workspace, directly or through a symlink. */
+  /** A path that reaches outside the workspace, directly or through a symlink, when writing. */
   | { readonly _tag: "Outside"; readonly paths: ReadonlyArray<string> }
-  /** The files changed since the turn. */
+  /** The files changed between the plan and the write. */
   | { readonly _tag: "Conflict"; readonly paths: ReadonlyArray<string> }
   | { readonly _tag: "WriteFailed"; readonly path: string; readonly message: string; readonly restored: boolean }
 
-/** The calls to reverse, newest first, and the paths they touched. */
-export interface Target {
-  readonly calls: ReadonlyArray<Transcript.Call>
-  readonly paths: ReadonlyArray<string>
+/** Why a file of the run stays as it is. */
+export type Refusal = "changed" | "outside" | "unrendered"
+
+/** `new` the run created it; `deleted` the run removed it. */
+export type State = "new" | "deleted"
+
+/** One file of a run's combined diff. */
+export interface Change {
+  readonly path: string
+  /** Its patches, oldest first. */
+  readonly patches: ReadonlyArray<Transcript.Patch>
+  readonly added: number
+  readonly removed: number
+  readonly state?: State
+  /** Every patch of it was undone. */
+  readonly undone: boolean
 }
+
+/** A file undo restores. */
 export interface File {
   readonly path: string
+  /** Its bytes when planned; `null` when absent. */
   readonly current: string | null
+  /** What undo writes; `null` removes it. */
   readonly next: string | null
   /** Permission bits for a restored deletion, from the patch's `deleted file mode`. */
   readonly mode?: number
 }
+
+/** One row of the checklist. */
+export interface Entry extends Partial<File> {
+  readonly path: string
+  readonly added: number
+  readonly removed: number
+  readonly state?: State
+  readonly refused?: Refusal
+  /** The paths undone only together with this one: both sides of a move. */
+  readonly with: ReadonlyArray<string>
+}
+
 export interface Plan {
-  /** Identities of the reversed calls. */
+  /** Identities of the calls whose patches the plan reverses. */
   readonly calls: ReadonlyArray<string>
-  readonly files: ReadonlyArray<File>
+  /** Files that change back, then refused ones, each in the order the run first touched it. */
+  readonly entries: ReadonlyArray<Entry>
+  /** Paths whose patches net to no change: an undo records them too. */
+  readonly settled: ReadonlyArray<string>
 }
 
-/** The flows that write files in the TUI's catalog (filesystem and shell). */
-export const writers: ReadonlyArray<string> = ["edit", "write", "apply_patch", "bash"]
+export type Cell = Extract<Transcript.Item, { kind: "cell" }>
 
-type Cell = Extract<Transcript.Item, { kind: "cell" }>
+/** A worker's whole transcript. */
+export const run = (transcript: Transcript.Transcript): ReadonlyArray<Cell> =>
+  transcript.items.filter((item): item is Cell => item.kind === "cell")
 
-const parsed = (patch: Changes.Patch): StructuredPatch | undefined => {
-  const all = parsePatch(patch.patch)
-  if (all.length !== 1) return undefined
-  const one = all[0]!
-  if (one.isBinary === true) return undefined
-  const flagged = one.isCreate === true || one.isDelete === true || one.isRename === true ||
-    one.oldFileName === "/dev/null" || one.newFileName === "/dev/null"
-  return one.hunks.length === 0 && !flagged ? undefined : one
-}
-const name = (value: string | undefined): string | undefined =>
-  value === undefined || value === "/dev/null" ? undefined : value.replace(/^[ab]\//, "")
-const sides = (patch: Changes.Patch, structured: StructuredPatch) => {
-  const before = structured.isCreate === true || structured.oldFileName === "/dev/null"
-    ? undefined
-    : name(structured.oldFileName) ?? patch.path
-  const after = structured.isDelete === true || structured.newFileName === "/dev/null"
-    ? undefined
-    : name(structured.newFileName) ?? patch.path
-  return { before, after }
-}
-
-/** The calls a Summary row stands for: a cell, or a prompt's whole turn. Pure, for the keypress. */
-export const target = (transcript: Transcript.Transcript, rowId: string): Target | Failure => {
+/** The chat turn a Summary row belongs to, from its prompt to the next one: the prompt's text and the cells. */
+export const turn = (
+  transcript: Transcript.Transcript,
+  rowId: string
+): { readonly prompt: string | undefined; readonly cells: ReadonlyArray<Cell> } => {
   const at = transcript.items.findIndex((item) => item.id === rowId)
-  const row = transcript.items[at]
-  let cells: Array<Cell> = []
-  if (row?.kind === "cell") cells = [row]
-  else if (row?.kind === "user" && row.queued === undefined) {
-    for (const item of transcript.items.slice(at + 1)) {
-      if (item.kind === "user" && item.queued === undefined) break
-      if (item.kind === "cell") cells.push(item)
-    }
-  } else return { _tag: "NothingToUndo" }
-  const all = cells.toReversed().flatMap((cell) => cell.calls.toReversed())
-  // A shell diff is repository-wide, so a nonempty receipt may include edits
-  // from other workers. An empty receipt made no edits and can coexist with a
-  // named-file call in the same turn.
-  const uncaptured = [
-    ...new Set(
-      all.filter((call) =>
-        writers.includes(call.flow) && call.denied !== true &&
-        (call.patches === undefined || (call.flow === "bash" && call.patches.length > 0))
-      ).map((call) => call.flow)
-    )
-  ]
-  if (uncaptured.length > 0) return { _tag: "Uncaptured", flows: uncaptured }
-  const patched = all.filter((call) => (call.patches?.length ?? 0) > 0)
-  if (patched.length === 0) return { _tag: "NothingToUndo" }
-  const calls = patched.filter((call) => call.undone !== true)
-  if (calls.length === 0) return { _tag: "AlreadyUndone" }
-  const unrendered = [
-    ...new Set(
-      calls.flatMap((call) => call.patches!.filter((patch) => parsed(patch) === undefined).map((patch) => patch.path))
-    )
-  ]
-  if (unrendered.length > 0) return { _tag: "Unrendered", paths: unrendered }
-  const paths = new Set<string>()
-  for (const call of calls) {
-    for (const patch of call.patches!) {
-      const { before, after } = sides(patch, parsed(patch)!)
-      paths.add(after ?? before ?? patch.path)
-      if (before !== undefined) paths.add(before)
-    }
+  if (at < 0) return { prompt: undefined, cells: [] }
+  const prompt = (item: Transcript.Item) => item.kind === "user" && item.queued === undefined
+  const start = transcript.items.findLastIndex((item, index) => index <= at && prompt(item))
+  const end = transcript.items.findIndex((item, index) => index > at && prompt(item))
+  const opening = transcript.items[start]
+  return {
+    prompt: opening?.kind === "user" ? opening.text : undefined,
+    cells: transcript.items.slice(Math.max(0, start), end < 0 ? undefined : end)
+      .filter((item): item is Cell => item.kind === "cell")
   }
-  return { calls, paths: [...paths] }
 }
 
-/**
- * The newest prompt's changes that can still be undone, for Ctrl+K where no
- * row is selected. A prompt with nothing, or nothing left, to undo is passed
- * over; any other refusal is the answer.
- */
-export const latest = (transcript: Transcript.Transcript): Target | Failure => {
-  let passed: Failure = { _tag: "NothingToUndo" }
-  for (const item of transcript.items.toReversed()) {
-    if (item.kind !== "user" || item.queued !== undefined) continue
-    const found = target(transcript, item.id)
-    if (!("_tag" in found)) return found
-    if (found._tag !== "NothingToUndo" && found._tag !== "AlreadyUndone") return found
-    if (found._tag === "AlreadyUndone") passed = found
-  }
-  return passed
-}
-
-/**
- * Receipts come from a session file, so their paths are data: undo writes only
- * where a path lands inside the workspace after following every symlink.
- */
-const outside = (cwd: string, paths: ReadonlyArray<string>): Failure | undefined => {
-  const root = real(resolve(cwd))
-  const escaped = [...new Set(paths)].filter((path) => {
-    const inside = relative(root, real(resolve(cwd, path)))
-    return inside === "" || inside === ".." || inside.startsWith("../") || isAbsolute(inside)
-  })
-  return escaped.length === 0 ? undefined : { _tag: "Outside", paths: escaped.sort() }
-}
-
-/** Every file's restored content, reading only. Collects every conflicting path. */
-export const plan = async (
-  cwd: string,
-  target: Target,
-  read: (path: string) => Promise<string | null | undefined> = Changes.read
-): Promise<Plan | Failure> => {
-  // A shell diff is repository-wide and may hold other workers' edits; `target` never picks one, and neither does a plan.
-  if (target.calls.some((call) => call.flow === "bash")) return { _tag: "Uncaptured", flows: ["bash"] }
-  const escaped = outside(
-    cwd,
-    target.calls.flatMap((call) =>
-      call.patches!.flatMap((patch) => {
-        const structured = parsed(patch)
-        if (structured === undefined) return [patch.path]
-        const { before, after } = sides(patch, structured)
-        return [before, after].filter((path): path is string => path !== undefined)
-      })
+/** Every captured patch of these cells, oldest first, with its call. */
+const captured = (cells: ReadonlyArray<Cell>) =>
+  cells.flatMap((cell) =>
+    cell.calls.flatMap((call) =>
+      call.denied === true ? [] : (call.patches ?? []).map((patch) => ({ call: call.identity, patch }))
     )
   )
-  if (escaped !== undefined) return escaped
+
+/** The path a patch is listed under: the file it leaves behind, else the one it removed. */
+const home = (patch: Changes.Patch): string => Changes.ends(patch)[0]!
+
+const stateOf = (patches: ReadonlyArray<Changes.Patch>): State | undefined => {
+  const first = patches[0] === undefined ? undefined : Changes.structured(patches[0])
+  const last = patches.at(-1) === undefined ? undefined : Changes.structured(patches.at(-1)!)
+  const created = first !== undefined && Changes.sides(patches[0]!, first).before === undefined
+  const deleted = last !== undefined && Changes.sides(patches.at(-1)!, last).after === undefined
+  return created && !deleted ? "new" : deleted && !created ? "deleted" : undefined
+}
+
+const count = (patches: ReadonlyArray<Changes.Patch>) =>
+  patches.reduce(
+    (total, patch) => {
+      const each = SubagentCard.diffCounts(patch.patch)
+      return { added: total.added + each.added, removed: total.removed + each.removed }
+    },
+    { added: 0, removed: 0 }
+  )
+
+/** The run's combined diff: every file it changed, first touched first, undone ones included. */
+export const changes = (cells: ReadonlyArray<Cell>): ReadonlyArray<Change> => {
+  const byPath = new Map<string, Array<Transcript.Patch>>()
+  for (const { patch } of captured(cells)) byPath.set(home(patch), [...byPath.get(home(patch)) ?? [], patch])
+  return [...byPath].map(([path, patches]) => {
+    const state = stateOf(patches)
+    return {
+      path,
+      patches,
+      ...count(patches),
+      ...(state === undefined ? {} : { state }),
+      undone: patches.every((patch) => patch.undone === true)
+    }
+  })
+}
+
+/** Whether these cells hold a captured change not yet undone. */
+export const possible = (cells: ReadonlyArray<Cell>): boolean =>
+  captured(cells).some(({ patch }) => patch.undone !== true)
+
+/** Whether every captured change of these cells was undone. */
+export const undone = (cells: ReadonlyArray<Cell>): boolean => {
+  const all = captured(cells)
+  return all.length > 0 && all.every(({ patch }) => patch.undone === true)
+}
+
+/**
+ * The newest prompt with captured changes left, for Ctrl+K where no row is selected.
+ * Refused files stay on that turn's checklist rather than undoing an older turn.
+ */
+export const latest = (transcript: Transcript.Transcript): ReturnType<typeof turn> | Failure => {
+  for (const item of transcript.items.toReversed()) {
+    if (item.kind !== "user" || item.queued !== undefined) continue
+    const found = turn(transcript, item.id)
+    if (possible(found.cells)) return found
+  }
+  return { _tag: "NothingToUndo" }
+}
+
+/**
+ * Receipts come from a session file, so their paths are data: undo reads and
+ * writes only where a path lands inside the workspace after following every symlink.
+ */
+const outside = (cwd: string, path: string): boolean => {
+  const inside = relative(real(resolve(cwd)), real(resolve(cwd, path)))
+  return inside === "" || inside === ".." || inside.startsWith("../") || isAbsolute(inside)
+}
+
+/**
+ * Each file's restored content, reading only. A file changed since the run, a
+ * path outside the workspace, and a binary or large change are refused one by
+ * one; the other files still undo.
+ */
+export const plan = async (
+  cwd: string,
+  cells: ReadonlyArray<Cell>,
+  read: (path: string) => Promise<string | null | undefined> = Changes.read
+): Promise<Plan | Failure> => {
+  const pending = captured(cells).filter(({ patch }) => patch.undone !== true)
+  if (pending.length === 0) return { _tag: "NothingToUndo" }
+  const order: Array<string> = []
+  const touch = (path: string) => {
+    if (!order.includes(path)) order.push(path)
+  }
+  // Both sides of a move undo together or not at all.
+  const groups = new Map<string, Set<string>>()
+  const group = (path: string) => groups.get(path) ?? new Set([path])
+  const link = (a: string, b: string) => {
+    const both = new Set([...group(a), ...group(b)])
+    for (const path of both) groups.set(path, both)
+  }
+  const refused = new Map<string, Refusal>()
+  for (const { patch } of pending) {
+    for (const path of Changes.ends(patch)) touch(path)
+    const [first, second] = Changes.ends(patch)
+    if (second !== undefined) link(first!, second)
+    if (Changes.structured(patch) === undefined) refused.set(patch.path, "unrendered")
+  }
+  for (const path of order) {
+    if (outside(cwd, path)) refused.set(path, "outside")
+  }
   const seeded = new Map<string, string | null | undefined>()
   const state = new Map<string, string | null | undefined>()
-  const poisoned = new Set<string>()
   const modes = new Map<string, number>()
   const now = async (path: string) => {
     if (!state.has(path)) {
@@ -178,50 +216,115 @@ export const plan = async (
     }
     return state.get(path)
   }
-  for (const call of target.calls) {
-    for (const patch of call.patches!) {
-      const structured = parsed(patch)!
-      const { before, after } = sides(patch, structured)
-      const path = after ?? before!
-      const content = await now(path)
-      if (poisoned.has(path)) continue
-      const fits = after === undefined ? content === null : typeof content === "string"
-      const restored = !fits
-        ? false
-        : structured.hunks.length === 0
-        ? content ?? ""
-        : applyPatch(content ?? "", reversePatch(structured))
-      if (restored === false || (before === undefined && restored !== "")) {
-        poisoned.add(path)
+  const blocked = (paths: ReadonlyArray<string>) =>
+    paths.some((path) => [...group(path)].some((each) => refused.has(each)))
+  // Newest first, each patch reversed over what the later ones left.
+  for (const { patch } of pending.toReversed()) {
+    if (blocked(Changes.ends(patch))) continue
+    const parsed = Changes.structured(patch)!
+    const { before, after } = Changes.sides(patch, parsed)
+    const path = after ?? before!
+    const content = await now(path)
+    const fits = after === undefined ? content === null : typeof content === "string"
+    const restored = !fits
+      ? false
+      : parsed.hunks.length === 0
+      ? content ?? ""
+      : applyPatch(content ?? "", reversePatch(parsed))
+    if (restored === false || (before === undefined && restored !== "")) {
+      refused.set(path, "changed")
+      continue
+    }
+    if (after === undefined && parsed.oldMode !== undefined) modes.set(path, parseInt(parsed.oldMode, 8) & 0o777)
+    if (before === undefined) state.set(path, null)
+    else if (before !== path) {
+      if ((await now(before)) !== null) {
+        refused.set(before, "changed")
         continue
       }
-      if (after === undefined && structured.oldMode !== undefined) {
-        modes.set(path, parseInt(structured.oldMode, 8) & 0o777)
-      }
-      if (before === undefined) state.set(path, null)
-      else if (before !== path) {
-        if ((await now(before)) !== null) {
-          poisoned.add(before)
-          continue
-        }
-        state.set(before, restored)
-        state.set(path, null)
-      } else state.set(path, restored)
-    }
+      state.set(before, restored)
+      state.set(path, null)
+    } else state.set(path, restored)
   }
-  if (poisoned.size > 0) return { _tag: "Conflict", paths: [...poisoned].sort() }
-  const files: Array<File> = []
-  for (const [path, next] of state) {
+  const reason = (path: string): Refusal | undefined => {
+    const all = [...group(path)].flatMap((each) => refused.get(each) ?? [])
+    return all.includes("outside") ? "outside" : all.includes("unrendered") ? "unrendered" : all[0]
+  }
+  const ready: Array<Entry> = []
+  const kept: Array<Entry> = []
+  const settled: Array<string> = []
+  for (const path of order) {
+    const patches = pending.filter(({ patch }) => home(patch) === path).map(({ patch }) => patch)
+    const counts = count(patches)
+    const shared = { path, ...counts, with: [...group(path)] }
+    const why = reason(path)
+    if (why !== undefined) {
+      const was = stateOf(patches)
+      kept.push({ ...shared, ...(was === undefined ? {} : { state: was }), refused: why })
+      continue
+    }
     const current = seeded.get(path)
-    const mode = next === null ? undefined : modes.get(path)
-    if (current !== undefined && next !== undefined && current !== next) {
-      files.push({ path, current, next, ...(mode === undefined ? {} : { mode }) })
+    const next = state.get(path)
+    if (current === undefined || next === undefined) {
+      kept.push({ ...shared, refused: "changed" })
+      continue
     }
+    if (current === next) {
+      settled.push(path)
+      continue
+    }
+    const mode = next === null ? undefined : modes.get(path)
+    ready.push({
+      ...shared,
+      current,
+      next,
+      ...(next === null ? { state: "new" as const } : current === null ? { state: "deleted" as const } : {}),
+      ...(mode === undefined ? {} : { mode })
+    })
   }
-  // Every call nets to no change on disk: a→b then b→a.
-  if (files.length === 0) return { _tag: "NothingToUndo" }
-  return { calls: target.calls.flatMap((call) => (call.identity === undefined ? [] : [call.identity])), files }
+  if (ready.length === 0 && kept.length === 0) return { _tag: "NothingToUndo" }
+  return {
+    calls: [...new Set(pending.flatMap(({ call }) => call === undefined ? [] : [call]))],
+    entries: [...ready, ...kept],
+    settled
+  }
 }
+
+/** The files to write: the checked entries, each with both sides of its move. */
+export const chosen = (plan: Plan, checked: ReadonlySet<string>): ReadonlyArray<File> =>
+  plan.entries.flatMap((entry) =>
+    entry.refused !== undefined || entry.current === undefined || entry.next === undefined ||
+      !entry.with.some((path) => checked.has(path))
+      ? []
+      : [{
+        path: entry.path,
+        current: entry.current,
+        next: entry.next,
+        ...(entry.mode === undefined ? {} : { mode: entry.mode })
+      }]
+  )
+
+/** The checked paths after toggling `path` and the paths it moves with. */
+export const toggle = (plan: Plan, checked: ReadonlySet<string>, path: string): ReadonlySet<string> => {
+  const entry = plan.entries.find((each) => each.path === path)
+  if (entry === undefined || entry.refused !== undefined) return checked
+  const next = new Set(checked)
+  for (const each of entry.with) {
+    if (checked.has(path)) next.delete(each)
+    else next.add(each)
+  }
+  return next
+}
+
+/** Every entry undo can write, checked at first. */
+export const ready = (plan: Plan): ReadonlySet<string> =>
+  new Set(plan.entries.flatMap((entry) => entry.refused === undefined ? [entry.path] : []))
+
+/** The paths an undo of `files` records: those, and the ones that netted to no change. */
+export const recorded = (plan: Plan, files: ReadonlyArray<File>): ReadonlyArray<string> => [
+  ...files.map((file) => file.path),
+  ...plan.settled
+]
 
 export const put = async (path: string, content: string | null, mode?: number): Promise<void> => {
   if (content === null) return unlink(path)
@@ -239,18 +342,18 @@ const modeOf = async (path: string): Promise<number | undefined> => {
   }
 }
 
-/** Writes the plan; refuses if a file moved since `plan` read it, and rolls back on an IO error. */
+/** Writes the files; refuses if one moved since `plan` read it, and rolls back on an IO error. */
 export const commit = async (
   cwd: string,
-  plan: Plan,
+  files: ReadonlyArray<File>,
   read: (path: string) => Promise<string | null | undefined> = Changes.read,
   write: typeof put = put
 ): Promise<Failure | undefined> => {
-  const escaped = outside(cwd, plan.files.map((file) => file.path))
-  if (escaped !== undefined) return escaped
+  const escaped = [...new Set(files.map((file) => file.path))].filter((path) => outside(cwd, path))
+  if (escaped.length > 0) return { _tag: "Outside", paths: escaped.sort() }
   const moved: Array<string> = []
   const modes = new Map<string, number | undefined>()
-  for (const file of plan.files) {
+  for (const file of files) {
     if ((await read(resolve(cwd, file.path))) !== file.current) moved.push(file.path)
     try {
       modes.set(file.path, await modeOf(resolve(cwd, file.path)))
@@ -265,7 +368,7 @@ export const commit = async (
   }
   if (moved.length > 0) return { _tag: "Conflict", paths: moved.sort() }
   const applied: Array<File> = []
-  for (const file of plan.files) {
+  for (const file of files) {
     try {
       await write(resolve(cwd, file.path), file.next, file.mode)
       applied.push(file)
@@ -313,6 +416,13 @@ const because: Readonly<Record<string, string>> = {
   EBUSY: "in use"
 }
 
+/** A refused row's words. */
+export const words: Readonly<Record<Refusal, string>> = {
+  changed: "changed since",
+  outside: "outside workspace",
+  unrendered: "binary or large"
+}
+
 /** Toast text. */
 export const message = (failure: Failure): string => {
   switch (failure._tag) {
@@ -320,16 +430,10 @@ export const message = (failure: Failure): string => {
       return "Stop running work first"
     case "NothingToUndo":
       return "Nothing to undo"
-    case "AlreadyUndone":
-      return "Already undone"
-    case "Uncaptured":
-      return `Not undone · uncaptured: ${failure.flows.join(", ")}`
-    case "Unrendered":
-      return `Not undone · binary or large: ${failure.paths.join(", ")}`
     case "Outside":
-      return `Not undone · outside workspace: ${failure.paths.join(", ")}`
+      return `Not undone · ${words.outside}: ${failure.paths.join(", ")}`
     case "Conflict":
-      return `Not undone · changed since: ${failure.paths.join(", ")}`
+      return `Not undone · ${words.changed}: ${failure.paths.join(", ")}`
     case "WriteFailed":
       return `Undo failed${failure.path === "" ? "" : ` · ${failure.path}`}: ${
         because[failure.message] ?? "could not write"
@@ -337,6 +441,25 @@ export const message = (failure: Failure): string => {
   }
 }
 
+/** Toast text when every file of a plan is refused. */
+export const refusal = (plan: Plan): string =>
+  `Not undone · ${
+    (["changed", "outside", "unrendered"] as const).flatMap((why) => {
+      const paths = plan.entries.filter((entry) => entry.refused === why).map((entry) => entry.path)
+      return paths.length === 0 ? [] : [`${words[why]}: ${paths.join(", ")}`]
+    }).join(" · ")
+  }`
+
+/** `+1 −1`, or `new`, `deleted`. */
+export const counts = (change: { readonly added: number; readonly removed: number; readonly state?: State }) =>
+  change.state ??
+    [change.added > 0 ? `+${change.added}` : "", change.removed > 0 ? `−${change.removed}` : ""].filter(Boolean)
+      .join(" ")
+
+/** `Undo math.js` or `Undo 2 files`. */
+export const label = (files: ReadonlyArray<File>): string =>
+  files.length === 1 ? `Undo ${files[0]!.path}` : `Undo ${files.length} files`
+
 /** Success toast text. */
-export const done = (plan: Plan): string =>
-  plan.files.length === 1 ? `Undid ${plan.files[0]!.path}` : `Undid ${plan.files.length} files`
+export const done = (files: ReadonlyArray<File>): string =>
+  files.length === 1 ? `Undid ${files[0]!.path}` : `Undid ${files.length} files`

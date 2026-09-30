@@ -406,31 +406,6 @@ describe("WorkerView", () => {
     expect(frame.indexOf("Ran 1 subagent")).toBeLessThan(frame.indexOf("◉ Check docs finished"))
   })
 
-  it("marks the row u undoes", async () => {
-    const cell = transcript.items.find((item) => item.kind === "cell")!
-    const { captureCharFrame } = await mount(
-      <WorkerView
-        tab={tab("a", "done", { endedAt: 2_000 })}
-        transcript={transcript}
-        models={models}
-        now={4_000}
-        tick="⠋"
-        tone={color.info}
-        width={90}
-        expanded={false}
-        onAction={() => {}}
-        selected={cell.id}
-        {...chrome}
-      />,
-      90,
-      24
-    )
-    // The breadcrumb's path also reads `chat › …`; the mark is the row's own.
-    const marked = captureCharFrame().split("\n").filter((line) => line.includes("›") && !line.includes("chat ›"))
-    expect(marked).toHaveLength(1)
-    expect(marked[0]).toContain("Read the middleware.")
-  })
-
   it("shows a failure and runs an action from its button", async () => {
     const actions: Array<string> = []
     const { captureCharFrame, mockMouse } = await mount(

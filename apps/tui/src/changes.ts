@@ -4,7 +4,7 @@ import type * as Cell from "@smthrs/harness/Cell"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as ApplyPatch from "@smthrs/std/ApplyPatch"
 import * as Bash from "@smthrs/std/Bash"
-import { createTwoFilesPatch } from "diff"
+import { createTwoFilesPatch, parsePatch, type StructuredPatch } from "diff"
 import { Effect, Schema } from "effect"
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -174,6 +174,38 @@ const command = async (
   }
 }
 const git = (cwd: string, args: Array<string>, env?: Record<string, string>) => command("git", cwd, args, env)
+/** A receipt's one-file patch, parsed; undefined for a binary, large or truncated change, which is labeled, not diffed. */
+export const structured = (patch: Patch): StructuredPatch | undefined => {
+  const all = parsePatch(patch.patch)
+  if (all.length !== 1) return undefined
+  const one = all[0]!
+  if (one.isBinary === true) return undefined
+  const flagged = one.isCreate === true || one.isDelete === true || one.isRename === true ||
+    one.oldFileName === "/dev/null" || one.newFileName === "/dev/null"
+  return one.hunks.length === 0 && !flagged ? undefined : one
+}
+const side = (value: string | undefined): string | undefined =>
+  value === undefined || value === "/dev/null" ? undefined : value.replace(/^[ab]\//, "")
+/** The path a patch reads before and writes after; `undefined` for a created or deleted side. */
+export const sides = (
+  patch: Patch,
+  parsed: StructuredPatch
+): { readonly before: string | undefined; readonly after: string | undefined } => ({
+  before: parsed.isCreate === true || parsed.oldFileName === "/dev/null"
+    ? undefined
+    : side(parsed.oldFileName) ?? patch.path,
+  after: parsed.isDelete === true || parsed.newFileName === "/dev/null"
+    ? undefined
+    : side(parsed.newFileName) ?? patch.path
+})
+/** Every path a patch touches: both sides of a move, else its own. */
+export const ends = (patch: Patch): ReadonlyArray<string> => {
+  const parsed = structured(patch)
+  if (parsed === undefined) return [patch.path]
+  const { before, after } = sides(patch, parsed)
+  const both = [...new Set([after, before].filter((path): path is string => path !== undefined))]
+  return both.length === 0 ? [patch.path] : both
+}
 export const splitPatch = (diff: string): Array<Patch> =>
   diff.split(/(?=^diff --git )/m).filter((part) => part.trim() !== "").map((patch) => {
     const added = patch.match(/^\+\+\+ (?:b\/)?(.+)$/m)?.[1]
@@ -296,8 +328,34 @@ const indexState = async (cwd: string, blob: string, before: FileStat): Promise<
   return { digest: createHash("sha256").update(bytes).digest("hex"), text, mode: Number(before.mode & 0o777n) }
 }
 
+/**
+ * Shell calls in flight, each collecting the files named writers touch
+ * meanwhile, in any worker of this process. Those files are the writers'
+ * receipts, so a shell receipt leaves them out.
+ */
+const shells = new Set<Set<string>>()
+const claim = (cwd: string, files: ReadonlyArray<string>): void => {
+  for (const claimed of shells) for (const file of files) claimed.add(resolve(cwd, file))
+}
+
 /** A bash call's changes against pre-call files, relative to `cwd`; no receipt outside a repository. */
 const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const claimed = new Set<string>()
+      shells.add(claimed)
+      return claimed
+    }),
+    (claimed) =>
+      observed(binding, call, cwd, (receipt) =>
+        onPatch({
+          ...receipt,
+          patches: receipt.patches.filter((patch) => !claimed.has(resolve(cwd, patch.path)))
+        })),
+    (claimed) => Effect.sync(() => shells.delete(claimed))
+  )
+
+const observed = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.gen(function*() {
     const jj = Subprocess.which("jj", process.env) !== null
       ? (yield* Effect.promise(() => command("jj", cwd, ["log", "--no-graph", "-r", "@", "-T", "commit_id"])))?.trim()
@@ -346,8 +404,10 @@ const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPat
 const named = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.gen(function*() {
     const files = paths(call.flowName, call.input)
+    yield* Effect.sync(() => claim(cwd, files))
     const before = yield* Effect.promise(() => states(cwd, files))
-    const result = yield* binding.run(call)
+    // Claimed again once it ends: a shell that started meanwhile saw no claim at the start.
+    const result = yield* binding.run(call).pipe(Effect.ensuring(Effect.sync(() => claim(cwd, files))))
     const patches: Array<Patch> = []
     let additional = 0
     for (const path of files) {

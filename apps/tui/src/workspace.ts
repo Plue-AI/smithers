@@ -25,6 +25,7 @@ import * as Summary from "./summary.ts"
 import { TabError } from "./tab-error.ts"
 import * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
+import * as Undo from "./undo.ts"
 import * as Wrapped from "./wrapped.ts"
 
 export interface Tab {
@@ -1598,9 +1599,7 @@ const seatProvider = (seat: string): string =>
 /** The failure card's single progress and file-impact line. */
 export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string => {
   const steps = transcript.items.filter((item) => item.kind === "cell" && item.status !== "writing").length
-  const changed = transcript.items.some((item) =>
-    item.kind === "cell" && item.calls.some((call) => (call.patches?.length ?? 0) > 0 && call.undone !== true)
-  )
+  const changed = Undo.possible(Undo.run(transcript))
   const prefix = tab.failure?.line ?? "The worker stopped before finishing."
   return `${prefix} ${steps} of ~40 steps done. ${changed ? "Files changed." : "No files changed."}`
 }

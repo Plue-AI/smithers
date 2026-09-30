@@ -334,20 +334,32 @@ test("palette retains contributed action ownership and exact file identity in se
   expect(sources).toEqual(before)
 })
 
-const undo = (paths: ReadonlyArray<string>): Picker.Picker => ({
+const undo = (checked: ReadonlyArray<string>): Picker.Picker => ({
   kind: "undo",
   query: "",
   selected: 0,
-  target: { calls: [], paths }
+  title: "Fix add in math.js and run check",
+  plan: {
+    calls: ["edit", "bash"],
+    entries: [
+      { path: "math.js", added: 1, removed: 1, current: "a + b", next: "a - b", with: ["math.js"] },
+      { path: "check.log", added: 1, removed: 0, state: "new", current: "ok\n", next: null, with: ["check.log"] },
+      { path: "logo.png", added: 0, removed: 0, refused: "unrendered", with: ["logo.png"] },
+      { path: "notes.md", added: 2, removed: 0, refused: "changed", with: ["notes.md"] }
+    ],
+    settled: []
+  },
+  checked: new Set(checked)
 })
-test("undo uses literal path or file count and preserves its two choices", () => {
-  expect(Picker.title(undo(["notes.txt"]), false)).toBe("Undo notes.txt?")
-  expect(Picker.title(undo(["a", "b"]), false)).toBe("Undo 2 files?")
-  expect(rows(undo(["notes.txt"]))).toEqual([{ key: "undo", label: "Undo", value: "undo" }, {
-    key: "cancel",
-    label: "Cancel",
-    value: "cancel"
-  }])
+test("undo names the run and lists every file with its box, counts or reason", () => {
+  expect(Picker.title(undo([]), false)).toBe("Undo Fix add in math.js and run check?")
+  expect(rows(undo(["math.js", "check.log"]))).toEqual([
+    { key: "math.js", label: "[x] math.js", hint: "+1 −1", value: "math.js" },
+    { key: "check.log", label: "[x] check.log", hint: "new", value: "check.log" },
+    { key: "logo.png", label: "[ ] logo.png", hint: "binary or large", value: "logo.png" },
+    { key: "notes.md", label: "[ ] notes.md", hint: "changed since", value: "notes.md" }
+  ])
+  expect(rows(undo(["check.log"])).map((row) => row.label).slice(0, 2)).toEqual(["[ ] math.js", "[x] check.log"])
 })
 
 test.each(

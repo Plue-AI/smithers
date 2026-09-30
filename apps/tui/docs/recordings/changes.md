@@ -26,8 +26,8 @@ Press Enter
 Wait for answer "Fixed math.js."
 Press Ctrl+S
 Press u
-Wait for "Undo math.js?"
-Capture "Confirm undo for the selected captured edit."
+Wait for "[x] math.js"
+Capture "Every file the turn changed, checked."
 Press Enter
 Wait 400 ms
 Expect file "math.js" contains "a - b"

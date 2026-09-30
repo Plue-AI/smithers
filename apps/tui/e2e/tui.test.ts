@@ -1102,7 +1102,7 @@ describe("completion", () => {
     await tui.until((screen) => /┃\s+\/summ/.test(screen) && screen.includes("/summary"), 5_000, "menu")
     // The rest of the word and Enter arrive before the next render, as they do under load.
     await tui.press("ary" + key.enter)
-    await tui.until((screen) => screen.includes("u Undo changes"), 5_000, "summary")
+    await tui.until((screen) => screen.includes("enter Expand row"), 5_000, "summary")
   }, 60_000)
 
   it("esc closes the menu without clearing the draft", async () => {
@@ -1529,7 +1529,7 @@ describe("runtime views", () => {
     await started.tui.type("/summary")
     await started.tui.press(key.enter)
     await started.tui.until(
-      (screen) => screen.includes("u Undo changes") && screen.includes("Asked:"),
+      (screen) => screen.includes("u Undo") && screen.includes("Asked:"),
       5_000,
       "summary"
     )
@@ -1541,11 +1541,17 @@ describe("runtime views", () => {
     return started
   }
 
-  it("u on the edit row confirms, restores math.js, and tells the transcript", async () => {
+  it("u on the edit row lists the turn's files, restores math.js, and tells the transcript", async () => {
     const { tui, cwd } = await editRow()
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
+    await tui.until(
+      (screen) =>
+        screen.includes("Undo node check.mjs fails?") && /\[x\] math\.js\s+\+1 −1/.test(screen) &&
+        screen.includes("enter Undo math.js"),
+      5_000,
+      "checklist"
+    )
     await tui.press(key.enter)
     await tui.until(
       (screen) => readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Undid math.js"),
@@ -1555,7 +1561,7 @@ describe("runtime views", () => {
     await tui.until((screen) => /› .*Undone: Updated math\.js/.test(screen), 5_000, "undone row")
     await tui.press(key.escape)
     await tui.until(
-      (screen) => screen.includes("Undid math.js") && !screen.includes("u Undo changes"),
+      (screen) => screen.includes("Undid math.js") && !screen.includes("u Undo"),
       5_000,
       "chat note"
     )
@@ -1567,18 +1573,22 @@ describe("runtime views", () => {
     const { tui, cwd } = await editRow()
     writeFileSync(join(cwd, "math.js"), "export const add = (a, b) => b + a\n")
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
-    await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("changed since: math.js"), 10_000, "conflict")
+    await tui.until((screen) => screen.includes("Not undone · changed since: math.js"), 10_000, "conflict")
+    expect(tui.screen()).not.toContain("Undo node check.mjs fails?")
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toBe("export const add = (a, b) => b + a\n")
   }, 180_000)
 
-  it("esc in the undo dialog changes nothing", async () => {
+  it("space unchecks a file and esc in the undo checklist changes nothing", async () => {
     const { tui, cwd } = await editRow()
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
+    await tui.until((screen) => screen.includes("[x] math.js"), 5_000, "checklist")
+    await tui.press(" ")
+    await tui.until((screen) => screen.includes("[ ] math.js") && !screen.includes("enter Undo"), 5_000, "unchecked")
+    await tui.press(key.enter)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(tui.screen()).toContain("[ ] math.js")
     await tui.press(key.escape)
-    await tui.until((screen) => !screen.includes("Undo math.js?"), 5_000, "closed")
+    await tui.until((screen) => !screen.includes("math.js  +1 −1"), 5_000, "closed")
     await new Promise((resolve) => setTimeout(resolve, 500))
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     expect(tui.screen()).not.toContain("Undid")
@@ -1590,7 +1600,8 @@ describe("runtime views", () => {
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("esc Interrupt"), 10_000, "running turn")
     await tui.press(key.ctrlS)
-    await tui.until((screen) => screen.includes("u Undo changes"), 5_000, "summary")
+    // Nothing can be undone while the turn runs, so the footer offers no u.
+    await tui.until((screen) => screen.includes("enter Expand row") && !screen.includes("u Undo"), 5_000, "summary")
     await tui.type("u")
     await tui.until((screen) => screen.includes("Stop running work first"), 5_000, "busy")
     await tui.press(key.escape)
@@ -1601,7 +1612,7 @@ describe("runtime views", () => {
   it("keeps the undo across a restart", async () => {
     const first = await editRow()
     await first.tui.type("u")
-    await first.tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
+    await first.tui.until((screen) => screen.includes("[x] math.js"), 5_000, "checklist")
     await first.tui.press(key.enter)
     await first.tui.until((screen) => screen.includes("Undid math.js"), 10_000, "undone")
     await first.tui.stop()
@@ -1624,10 +1635,61 @@ describe("runtime views", () => {
       await tui.type("j")
       await new Promise((resolve) => setTimeout(resolve, 150))
     }
-    await tui.until((screen) => /› .*Undone: Updated math\.js/.test(screen), 5_000, "undone row")
+    await tui.until(
+      (screen) => /› .*Undone: Updated math\.js/.test(screen) && !screen.includes("u Undo"),
+      5_000,
+      "undone row"
+    )
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Already undone"), 5_000, "already undone")
+    await tui.until((screen) => screen.includes("Nothing to undo"), 5_000, "nothing to undo")
   }, 180_000)
+
+  it("d and u on the settled chat card review the run's diff and undo it; the card reads undone", async () => {
+    const cwd = repository()
+    tui = await Tui.start({
+      cwd,
+      command: `bun ${join(app, "e2e", "workspace-fixture.tsx")}`,
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        SMITHERS_TUI_SESSION_DIR: mkdtempSync(join(tmpdir(), "tui-card-undo-"))
+      }
+    })
+    await tui.until(drawn, 20_000, "first draw")
+    await tui.type("delegate fix")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Fixer finished"), 10_000, "worker done")
+    await tui.press(key.tab)
+    await tui.until((screen) => screen.includes("d Diff  u Undo  enter Open"), 5_000, "card focused")
+    await tui.type("d")
+    await tui.until(
+      (screen) =>
+        screen.includes("Fixer  1 file +1 −1") && screen.includes("math.js  +1 −1") && screen.includes("a + b") &&
+        screen.includes("u Undo  esc Back"),
+      5_000,
+      "diff"
+    )
+    await tui.type("u")
+    await tui.until(
+      (screen) => screen.includes("Undo Fixer?") && screen.includes("enter Undo math.js  esc Back"),
+      5_000,
+      "checklist"
+    )
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) =>
+        readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Fixer · undone") &&
+        screen.includes("Undid math.js"),
+      10_000,
+      "undone card"
+    )
+    await tui.press(key.tab)
+    await tui.until((screen) => screen.includes("d Diff  enter Open") && !screen.includes("u Undo"), 5_000, "no undo")
+    await tui.type("d")
+    await tui.until((screen) => screen.includes("Fixer  1 file +1 −1 · undone"), 5_000, "undone diff")
+    await tui.press(key.escape)
+    await tui.until((screen) => screen.includes("Ask Smithers"), 5_000, "back to chat")
+  }, 60_000)
 
   it("u in a worker tab undoes the worker's edit and records it in the worker file", async () => {
     const cwd = repository()
@@ -1651,19 +1713,13 @@ describe("runtime views", () => {
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) =>
-        screen.includes("esc Chat") && screen.includes("u Undo changes") && screen.includes("Subagent · Fixer"),
+      (screen) => screen.includes("d Diff  u Undo  esc Chat") && screen.includes("Subagent · Fixer"),
       5_000,
       "worker tab"
     )
-    // j picks the edit cell; u undoes that row, not the whole worker.
-    for (let step = 0; step < 8 && !/› .*ctx\.call\("edit"\)/.test(tui.screen()); step++) {
-      await tui.type("j")
-      await new Promise((resolve) => setTimeout(resolve, 150))
-    }
-    await tui.until((screen) => /› .*ctx\.call\("edit"\)/.test(screen), 5_000, "edit row")
+    // u undoes the whole run, whatever row the view shows.
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
+    await tui.until((screen) => screen.includes("Undo Fixer?") && screen.includes("[x] math.js"), 5_000, "checklist")
     await tui.press(key.enter)
     await tui.until(
       (screen) => readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Undid math.js"),
@@ -1676,8 +1732,9 @@ describe("runtime views", () => {
     expect(chat.filter((record) => record.type === "undo")).toMatchObject([{ tab: "fixer", paths: ["math.js"] }])
     const worker = lines(join(folder, "workers", readdirSync(join(folder, "workers"))[0]!))
     expect(worker.filter((record) => record.type === "undo")).toMatchObject([{ paths: ["math.js"] }])
+    await tui.until((screen) => screen.includes("d Diff  esc Chat"), 5_000, "no undo left")
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Already undone"), 5_000, "already undone")
+    await tui.until((screen) => screen.includes("Nothing to undo"), 5_000, "nothing to undo")
   }, 60_000)
 
   it(
@@ -1737,17 +1794,18 @@ describe("runtime views", () => {
     await tui.until((screen) => screen.includes("review · running"))
     await tui.press(key.ctrlBracket)
     await tui.press(key.ctrlBracket)
+    // The flow's run could race the writes: the footer offers the diff, not undo.
     await tui.until(
-      (screen) => screen.includes("esc Chat") && screen.includes("u Undo changes"),
+      (screen) => screen.includes("d Diff  esc Chat") && !screen.includes("u Undo"),
       5_000,
       "worker footer"
     )
     await tui.press("u")
     const screen = await tui.until((screen) =>
-      screen.includes("Stop running work first") || screen.includes("Undo math.js?")
+      screen.includes("Stop running work first") || screen.includes("Undo Fixer?")
     )
     expect(screen).toContain("Stop running work first")
-    expect(screen).not.toContain("Undo math.js?")
+    expect(screen).not.toContain("Undo Fixer?")
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
   }, 60_000)
 
@@ -1756,9 +1814,7 @@ describe("runtime views", () => {
     rmSync(join(cwd, "math.js"))
     if (spawnSync("mkfifo", [join(cwd, "math.js")]).status !== 0) throw new Error("mkfifo failed")
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
-    await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("changed since: math.js"), 5_000, "undo settled")
+    await tui.until((screen) => screen.includes("changed since: math.js"), 5_000, "undo refused")
     await tui.press(key.escape)
     await tui.type("/new")
     await tui.press(key.enter)
@@ -1791,14 +1847,9 @@ describe("runtime views", () => {
     await tui.type("tab:fix")
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("u Undo changes") && screen.includes("Fixer"), 5_000, "worker tab")
-    for (let step = 0; step < 8 && !/› .*ctx\.call\("edit"\)/.test(tui.screen()); step++) {
-      await tui.type("j")
-      await new Promise((resolve) => setTimeout(resolve, 150))
-    }
-    await tui.until((screen) => /› .*ctx\.call\("edit"\)/.test(screen), 5_000, "edit row")
+    await tui.until((screen) => screen.includes("u Undo") && screen.includes("Fixer"), 5_000, "worker tab")
     await tui.type("u")
-    await tui.until((screen) => screen.includes("Undo math.js?"), 5_000, "confirm")
+    await tui.until((screen) => screen.includes("Undo Fixer?"), 5_000, "checklist")
     await tui.press(key.enter)
     await tui.until(() => existsSync(`${gate}.held`), 5_000, "undo held")
     await tui.press(key.escape)

@@ -15,7 +15,7 @@ import * as Search from "./search.ts"
 import * as Session from "./session.ts"
 import { activeTheme, themes } from "./theme.ts"
 import * as Timeline from "./timeline.ts"
-import type * as Undo from "./undo.ts"
+import * as Undo from "./undo.ts"
 import * as View from "./view.tsx"
 import type { Tab } from "./workspace.ts"
 
@@ -49,7 +49,12 @@ export type Picker =
     readonly kind: "undo"
     readonly query: ""
     readonly selected: number
-    readonly target: Undo.Target
+    /** The run's name: a worker's title, or a chat turn's prompt. */
+    readonly title: string
+    readonly plan: Undo.Plan
+    /** The paths undo writes; a refused file is never checked. */
+    readonly checked: ReadonlySet<string>
+    /** The worker whose run this is; the chat's own turn otherwise. */
     readonly tab?: string
   }
 
@@ -152,7 +157,12 @@ export const rows = (
     ]
   }
   if (picker.kind === "undo") {
-    return [{ key: "undo", label: "Undo", value: "undo" }, { key: "cancel", label: "Cancel", value: "cancel" }]
+    return picker.plan.entries.map((entry) => ({
+      key: entry.path,
+      label: `${picker.checked.has(entry.path) ? "[x]" : "[ ]"} ${entry.path}`,
+      hint: entry.refused === undefined ? Undo.counts(entry) : Undo.words[entry.refused],
+      value: entry.path
+    }))
   }
   if (picker.kind === "fork") {
     const now = Date.now()
@@ -186,7 +196,7 @@ export const title = (picker: Picker, truncated: boolean): string =>
     : picker.kind === "fork"
     ? "Fork from message"
     : picker.kind === "undo"
-    ? `Undo ${picker.target.paths.length === 1 ? picker.target.paths[0] : `${picker.target.paths.length} files`}?`
+    ? `Undo ${picker.title}?`
     : "Resume session"
 
 /** What the dialog says with no rows. */

@@ -136,8 +136,8 @@ the only help key.
 | Ctrl+\\ or `/chat`                                    | Return to full chat from a main view                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | hjkl or arrows                                        | In a view: move between rows, collapse/expand details                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Enter                                                 | In a view: toggle the selected row's details                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| d, v                                                  | In a view: toggle the selected turn's diff; toggle split/unified                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| u                                                     | In the Summary view or a worker tab: undo the selected row's captured file changes (confirm first). Ctrl+K Undo elsewhere takes the newest prompt with changes left                                                                                                                                                                                                                                                                                                                  |
+| d, v                                                  | In a view: toggle the selected turn's diff; toggle split/unified. On a settled worker (card, Summary row, tab): its run's diff, full height                                                                                                                                                                                                                                                                                                                                          |
+| u                                                     | On a settled worker (card, Summary row, tab, its diff): undo its run from a checklist of its files (Space unchecks one, Enter undoes). On a Summary row: the chat turn it belongs to. Shown only when something can be undone. Ctrl+K Undo elsewhere takes the newest prompt with changes left                                                                                                                                                                                                                                                        |
 | Tab                                                   | In a view: next tab. In the chat with the editor empty: focus the newest card; arrows move between cards, Enter opens it, Esc returns                                                                                                                                                                                                                                                                                                                                                |
 | Esc, i                                                | In a view: focus the composer without stopping background work                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | a                                                     | Activate the selected row's action, if present                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -226,13 +226,24 @@ are excluded from workspace mutation accounting. Other project files remain
 observed, including files beside that storage.
 
 The completion judge uses a connected subscription. Missing seats or invalid
-verdicts fail closed; no gateway key is required. **u** on a Summary or worker tab row
-reverses its captured changes after a confirm, all or nothing; a deleted
-file comes back with its mode. It refuses when a file
-changed since, a path lands outside the working directory (directly or through a symlink), a change is binary or large, or the turn ran a shell command
-that changed files: a shell diff can hold other workers' edits. The session
-records the undo and the next turn is told. `/new`, `/resume` and `/fork` wait
-for it.
+verdicts fail closed; no gateway key is required.
+
+## Review and undo
+
+On a settled worker, from its chat card, its Summary row or its tab, **d**
+opens the run's combined captured diff full height (`Fix add  2 files +2 −1`,
+then each file and its hunks; **u** undoes, Esc goes back). **u** lists every
+file the run changed as a checklist, `[x] math.js  +1 −1`, `[x] check.log  new`,
+and Enter undoes the checked ones; Space unchecks one. Files a shell command
+wrote undo from the call's captured receipt; a named write another worker made
+during that command stays out of it. A file changed since the run, a path
+outside the working directory (directly or through a symlink), and a binary or
+large change are listed unchecked with the reason; the other files still undo.
+A deleted file comes back with its mode. **u** shows only when something can
+be undone and no turn, command, worker or flow runs. Afterwards the card reads
+`· undone`, the session records the undo, and the next turn is told. `/new`,
+`/resume` and `/fork` wait for it. In the Summary of the chat itself, **u**
+undoes the selected row's turn the same way.
 
 ## Runtime UI and delegation
 
@@ -333,8 +344,8 @@ ones. Click a tab, a worker or a card to open it. A worker's tab starts with
 `▌ Subagent · <title>` in its lane color and `Back (ctrl+y)`, then its status,
 model, clock and tokens, and buttons for the actions its status allows:
 **x** Stop, **r** Resume, **m** Switch model, **w** Wait for reset, **s**
-Steer. Its transcript is drawn with the chat's own cells. **j**/**k** pick a
-row and **u** undoes its changes. A worker's toast reads like its card
+Steer. Its transcript is drawn with the chat's own cells; **d** and **u**
+review and undo its run. A worker's toast reads like its card
 (`◐ title · 42s`) with Stop and Steer.
 
 Type in a finished worker's tab to continue its conversation. Wrapped workers

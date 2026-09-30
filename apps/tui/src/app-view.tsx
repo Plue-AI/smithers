@@ -182,6 +182,8 @@ export function PickerDialog(props: {
   readonly empty: string
   readonly width: number
   readonly height: number
+  /** Keys drawn under the list, as the undo checklist offers them. */
+  readonly keys?: ReadonlyArray<Keys.Binding>
 }) {
   const { rows, height } = props
   const compact = height < 20
@@ -215,6 +217,11 @@ export function PickerDialog(props: {
           empty={props.empty}
         />
       </box>
+      {props.keys === undefined ? null : (
+        <box style={{ paddingLeft: 3, paddingRight: 3, marginTop: compact ? 0 : 1 }}>
+          <View.KeyHints bindings={props.keys} />
+        </box>
+      )}
     </View.Dialog>
   )
 }

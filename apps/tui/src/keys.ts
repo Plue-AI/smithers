@@ -19,6 +19,8 @@ export type KeyContext =
   | "completion"
   | "card"
   | "overview"
+  | "review"
+  | "checklist"
 
 export interface Binding {
   readonly id: string
@@ -101,7 +103,7 @@ export const registry: ReadonlyArray<Binding> = [
     group: "Panel"
   },
   { id: "expand-row", keys: ["enter", "space"], label: "Expand row", context: "panel", group: "Panel" },
-  { id: "diff", keys: ["d"], label: "Toggle diff", context: "panel", group: "Panel" },
+  { id: "diff", keys: ["d"], label: "Diff", context: "panel", group: "Panel" },
   { id: "split", keys: ["v"], label: "Split diff", context: "panel", group: "Panel" },
   { id: "retry", keys: ["r"], label: "Resume", context: "panel", group: "Panel" },
   { id: "worker-model", keys: ["m"], label: "Switch model", context: "panel", group: "Panel" },
@@ -110,7 +112,7 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "steer-worker", keys: ["s"], label: "Steer", context: "panel", group: "Panel" },
   { id: "take-over", keys: ["t"], label: "Take over", context: "panel", group: "Panel" },
   { id: "approve-form", keys: ["a"], label: "Action", context: "panel", group: "Panel" },
-  { id: "undo", keys: ["u"], label: "Undo changes", context: "panel", group: "Panel" },
+  { id: "undo", keys: ["u"], label: "Undo", context: "panel", group: "Panel" },
   { id: "next-panel-tab", keys: ["tab"], label: "Next tab", context: "panel", group: "Tabs" },
 
   { id: "close-picker", keys: ["esc"], label: "Back", context: "picker", group: "Picker" },
@@ -175,6 +177,8 @@ export const registry: ReadonlyArray<Binding> = [
     context: "card",
     group: "Cards"
   },
+  { id: "card-diff", keys: ["d"], label: "Diff", context: "card", group: "Cards" },
+  { id: "card-undo", keys: ["u"], label: "Undo", context: "card", group: "Cards" },
   { id: "card-files", keys: ["f"], label: "Files", context: "card", group: "Cards" },
   { id: "close-card", keys: ["esc"], label: "Composer", context: "card", group: "Cards" },
 
@@ -192,7 +196,25 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "overview-answer", keys: ["a"], label: "Answer", context: "overview", group: "Summary" },
   { id: "overview-graph", keys: ["g"], label: "Graph", context: "overview", group: "Summary" },
   { id: "overview-files", keys: ["f"], label: "Files", context: "overview", group: "Summary" },
-  { id: "overview-close", keys: ["esc"], label: "Close", context: "overview", group: "Summary" }
+  { id: "overview-diff", keys: ["d"], label: "Diff", context: "overview", group: "Summary" },
+  { id: "overview-undo", keys: ["u"], label: "Undo", context: "overview", group: "Summary" },
+  { id: "overview-close", keys: ["esc"], label: "Close", context: "overview", group: "Summary" },
+
+  { id: "review-undo", keys: ["u"], label: "Undo", context: "review", group: "Diff" },
+  {
+    id: "review-scroll",
+    keys: ["up", "down", "j", "k"],
+    display: "↑↓",
+    label: "Scroll",
+    context: "review",
+    group: "Diff"
+  },
+  { id: "review-close", keys: ["esc"], label: "Back", context: "review", group: "Diff" },
+
+  { id: "undo-files", keys: ["enter"], label: "Undo", context: "checklist", group: "Undo" },
+  { id: "undo-toggle", keys: ["space"], label: "Toggle", context: "checklist", group: "Undo" },
+  { id: "undo-move", keys: ["up", "down"], display: "up/down", label: "Move", context: "checklist", group: "Undo" },
+  { id: "undo-back", keys: ["esc"], label: "Back", context: "checklist", group: "Undo" }
 ]
 
 export interface KeyEventLike {
@@ -352,13 +374,16 @@ export const hintsFor = (context: KeyContext, list: ReadonlyArray<Binding> = reg
       "overview-answer",
       "overview-close",
       "overview-graph"
-    ]
+    ],
+    review: ["review-undo", "review-close"],
+    checklist: ["undo-files", "undo-back"]
   }
   const available = bindingsFor(context, list)
   const builtIn = preferred[context].map((id) => available.find((binding) => binding.id === id)).filter(
     (binding): binding is Binding => binding !== undefined
   )
-  const typing = context === "picker" || context === "form" || context === "approval" || context === "completion"
+  const typing = context === "picker" || context === "form" || context === "approval" || context === "completion" ||
+    context === "review" || context === "checklist"
   // Every contributed key, after the built-in ones; `fit` drops what the footer has no room for.
   const contributed = typing ? [] : available.filter((binding) => binding.owner !== undefined)
   return [...builtIn, ...contributed]
@@ -397,12 +422,19 @@ export const fit = (
  * the panel basics. `action` relabels `a` with the selected row's action.
  */
 export const panelHints = (
-  panel: { readonly retry?: boolean; readonly stop?: boolean; readonly undo?: boolean; readonly action?: string }
+  panel: {
+    readonly retry?: boolean
+    readonly stop?: boolean
+    readonly diff?: boolean
+    readonly undo?: boolean
+    readonly action?: string
+  }
 ): ReadonlyArray<Binding> => {
   const byId = (id: string) => registry.find((binding) => binding.id === id)!
   return [
     ...(panel.retry === true ? [byId("retry")] : []),
     ...(panel.stop === true ? [byId("stop")] : []),
+    ...(panel.diff === true ? [byId("diff")] : []),
     ...(panel.undo === true ? [byId("undo")] : []),
     ...(panel.action === undefined ? [] : [{ ...byId("approve-form"), label: panel.action }]),
     byId("close-panel"),

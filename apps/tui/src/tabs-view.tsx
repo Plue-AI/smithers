@@ -184,8 +184,6 @@ export function WorkerView(props: {
   readonly width: number
   readonly expanded: boolean
   readonly onAction: (action: Tabs.ActionId) => void
-  /** The transcript item `u` undoes, marked and kept in view. */
-  readonly selected?: string | undefined
   /** The transcript item the run timeline's playhead is on. */
   readonly jump?: string | undefined
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
@@ -200,13 +198,6 @@ export function WorkerView(props: {
   if (props.scrollRef !== undefined) {
     props.scrollRef.current = (direction) => scroll.current?.scrollBy(direction * 0.5, "viewport")
   }
-  // Follow the selection once the user moves it; on open the view stays at the live bottom.
-  const opened = useRef(props.selected)
-  useEffect(() => {
-    if (props.selected === opened.current) return
-    opened.current = undefined
-    if (props.selected !== undefined) scroll.current?.scrollChildIntoView(props.selected)
-  }, [props.selected])
   useEffect(() => {
     if (props.jump !== undefined) scroll.current?.scrollChildIntoView(props.jump)
   }, [props.jump])
@@ -269,21 +260,16 @@ export function WorkerView(props: {
           row={({ row: { item } }) => {
             const step = item.kind === "cell" ? Scrubber.step(transcript, item) : undefined
             return (
-              <box key={item.id} id={item.id} style={{ flexDirection: "row" }}>
-                <text fg={color.brand} style={{ width: 2, flexShrink: 0 }}>
-                  {item.id === props.selected ? "›" : " "}
-                </text>
-                <box style={{ flexGrow: 1, flexShrink: 1 }}>
-                  <View.Entry
-                    item={item}
-                    now={props.now}
-                    tick={props.tick}
-                    expanded={props.expanded}
-                    tone={props.tone}
-                    selected={item.id === props.selected || item.id === props.jump}
-                    {...(step === undefined ? {} : { step })}
-                  />
-                </box>
+              <box key={item.id} id={item.id}>
+                <View.Entry
+                  item={item}
+                  now={props.now}
+                  tick={props.tick}
+                  expanded={props.expanded}
+                  tone={props.tone}
+                  selected={item.id === props.jump}
+                  {...(step === undefined ? {} : { step })}
+                />
               </box>
             )
           }}

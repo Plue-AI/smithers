@@ -15,9 +15,12 @@ import * as Shell from "./shell.ts"
 
 export type CellStatus = "writing" | "running" | "done" | "failed" | "rejected"
 
+/** A captured change; `undone` once the user reversed it. */
+export type Patch = Changes.Patch & { readonly undone?: true }
+
 export interface Call {
   readonly identity?: string
-  readonly patches?: ReadonlyArray<Changes.Patch>
+  readonly patches?: ReadonlyArray<Patch>
   readonly flow: string
   readonly subject: string
   readonly status: "running" | "ok" | "failed"
@@ -30,8 +33,6 @@ export interface Call {
   readonly change?: Change
   readonly startedAt: number
   readonly endedAt?: number
-  /** The user reversed this call's captured changes. */
-  readonly undone?: true
   /** Authorization refused before the writer could execute. */
   readonly denied?: true
 }
@@ -580,23 +581,32 @@ export const patched = (transcript: Transcript, receipt: Changes.Receipt): Trans
   )
 })
 
-/** Marks reversed calls by identity (stable across live and restored folds) and notes the undo. */
+/**
+ * Marks the patches these calls made to `paths` undone, by call identity
+ * (stable across live and restored folds), and notes the undo.
+ */
 export const undone = (
   transcript: Transcript,
   calls: ReadonlyArray<string>,
   paths: ReadonlyArray<string>,
   at: number
-): Transcript =>
-  note(
+): Transcript => {
+  const reversed = (call: Call) => call.identity !== undefined && calls.includes(call.identity)
+  return note(
     {
       ...transcript,
       items: transcript.items.map((item) =>
-        item.kind !== "cell" || !item.calls.some((call) => call.identity !== undefined && calls.includes(call.identity))
+        item.kind !== "cell" || !item.calls.some(reversed)
           ? item
           : ({
             ...item,
             calls: item.calls.map((call) =>
-              call.identity !== undefined && calls.includes(call.identity) ? { ...call, undone: true as const } : call
+              !reversed(call) || call.patches === undefined ? call : {
+                ...call,
+                patches: call.patches.map((patch) =>
+                  Changes.ends(patch).some((path) => paths.includes(path)) ? { ...patch, undone: true as const } : patch
+                )
+              }
             )
           })
       )
@@ -604,6 +614,7 @@ export const undone = (
     `Undid ${paths.join(", ")}`,
     at
   )
+}
 
 export const caption = (transcript: Transcript, prose: string): Transcript =>
   updateCell(transcript, (cell) => ({ ...cell, prose }))

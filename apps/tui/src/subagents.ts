@@ -13,6 +13,7 @@ import * as Tabs from "./tabs.ts"
 import * as Timeline from "./timeline.ts"
 import * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
+import * as Undo from "./undo.ts"
 import type { Tab } from "./workspace.ts"
 
 const states = { running: "pending", ok: "done", failed: "error" } as const
@@ -46,9 +47,10 @@ export const subagent = (
   transcript: Transcript.Transcript,
   models: ReadonlyArray<Model>
 ): SubagentCard.Subagent => {
-  const cells = transcript.items.filter((item) => item.kind === "cell")
+  const cells = Undo.run(transcript)
   return {
-    title: tabTitle(tab),
+    // A run whose every change was undone says so; its files stay listed, as `d` still shows them.
+    title: Undo.undone(cells) ? `${tabTitle(tab)} · undone` : tabTitle(tab),
     status: tab.status,
     model: Tabs.seatName(tab, models),
     startedAt: tab.startedAt,
@@ -59,9 +61,7 @@ export const subagent = (
     ]),
     files: cells.flatMap((cell) =>
       cell.calls.flatMap((call) =>
-        call.undone === true
-          ? []
-          : (call.patches ?? []).map((each) => ({ path: each.path, ...SubagentCard.diffCounts(each.patch) }))
+        (call.patches ?? []).map((each) => ({ path: each.path, ...SubagentCard.diffCounts(each.patch) }))
       )
     )
   }

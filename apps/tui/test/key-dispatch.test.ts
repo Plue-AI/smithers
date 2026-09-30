@@ -279,7 +279,9 @@ const key = (
   })
 
 const idleContext = {
+  checklist: false,
   picker: false,
+  review: false,
   inspecting: false,
   form: false,
   approvals: false,
@@ -294,7 +296,9 @@ const idleContext = {
 
 test.each(
   [
-    [{ picker: true, inspecting: true, form: true, panel: true }, "picker"],
+    [{ checklist: true, picker: true, review: true }, "checklist"],
+    [{ picker: true, review: true, inspecting: true, form: true, panel: true }, "picker"],
+    [{ review: true, inspecting: true, form: true, approvals: true, overview: true, panel: true }, "review"],
     [{ inspecting: true, form: true, approvals: true }, "selection"],
     [{ form: true, approvals: true, panel: true }, "form"],
     [{ approvals: true, overview: true, panel: true }, "approval"],
@@ -585,6 +589,7 @@ const panelActs = (calls: unknown[]): Parameters<typeof Dispatch.panelKey>[3] =>
   fillRun: (id) => calls.push(["fill", id]),
   answerWorker: (id) => calls.push(["answer", id]),
   undo: (row, tab) => calls.push(["undo", row?.id, tab]),
+  diff: (tab) => calls.push(["diff", tab]),
   workerAction: (tab, action) => calls.push(["worker", tab.id, action]),
   scroll: (step) => calls.push(["scroll", step]),
   navigate: () => calls.push("navigate"),
@@ -800,6 +805,36 @@ test.each(
   expect(event.defaultPrevented).toBe(true)
 })
 
+test.each(
+  [
+    ["tree", "d", true, ["diff"]],
+    ["cards", "u", true, ["undo"]],
+    ["tree", "d", false, []],
+    ["cards", "u", false, []]
+  ] as const
+)("overview %s %s runs the selected worker's run action when offered (%s)", (pane, name, offered, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.overviewKey(event, { pane, worker: worker("done") }, {
+    close: () => calls.push("close"),
+    release: () => calls.push("release"),
+    pane: () => calls.push("pane"),
+    tree: (step) => calls.push(["tree", step]),
+    peek: () => calls.push("peek"),
+    answer: () => calls.push("answer"),
+    graph: () => calls.push("graph"),
+    card: (step) => calls.push(["card", step]),
+    open: () => calls.push("open"),
+    files: () => calls.push("files"),
+    scroll: (step) => calls.push(["scroll", step]),
+    workerAction: () => calls.push("worker"),
+    diff: offered ? () => calls.push("diff") : undefined,
+    undo: offered ? () => calls.push("undo") : undefined
+  })
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
+
 test.each(["escape", "return"])("scrubber %s returns to live without inspecting future data", (name) => {
   const calls: unknown[] = []
   const event = key(name)
@@ -825,19 +860,116 @@ test.each([["left", { ctrl: true }], ["right", { meta: true }], ["up", { option:
   }
 )
 
-test.each([["summary", undefined], ["tab:worker/a", "worker/a"]] as const)(
-  "undo on %s retains its transcript owner",
-  (surface, owner) => {
+test("u on the Summary undoes the selected row's turn", () => {
+  const calls: unknown[] = []
+  Dispatch.panelKey(key("u"), panel, {
+    surface: "summary",
+    navigation: { ...Panels.initial(), selected: 10 },
+    worker: undefined,
+    flow: { retry: false, stop: false }
+  }, panelActs(calls))
+  expect(calls).toEqual([["undo", "check", undefined]])
+})
+
+test.each([["u", [["undo", undefined, "worker"]]], ["d", [["diff", "worker"]]], ["j", []], ["down", []]] as const)(
+  "%s in a worker tab acts on its whole run, never a row",
+  (name, expected) => {
     const calls: unknown[] = []
-    Dispatch.panelKey(key("u"), panel, {
-      surface,
-      navigation: { ...Panels.initial(), selected: 10 },
-      worker: undefined,
+    const event = key(name)
+    Dispatch.panelKey(event, panel, {
+      surface: "tab:worker",
+      navigation: Panels.initial(),
+      worker: worker("done"),
       flow: { retry: false, stop: false }
     }, panelActs(calls))
-    expect(calls).toEqual([["undo", "check", owner]])
+    expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+    expect(event.defaultPrevented).toBe(true)
   }
 )
+
+test.each(["d", "u"] as const)("%s on a flow or custom panel keeps its own meaning", (name) => {
+  const calls: unknown[] = []
+  Dispatch.panelKey(key(name), panel, {
+    surface: "ui:checks",
+    navigation: Panels.initial(),
+    worker: undefined,
+    flow: { retry: false, stop: false }
+  }, panelActs(calls))
+  expect(calls).toEqual(["navigate"])
+})
+
+test.each(
+  [
+    ["d", true, true, ["leave", "diff"], true],
+    ["u", true, true, ["leave", "undo"], true],
+    // Not offered: the letter leaves the card for the composer.
+    ["d", false, false, ["leave"], false],
+    ["u", true, false, ["leave"], false]
+  ] as const
+)("card %s with diff=%s undo=%s", (name, diff, undo, expected, consumed) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  expect(Dispatch.cardKey(event, {
+    worker: worker("done"),
+    move: (step) => calls.push(step),
+    leave: () => calls.push("leave"),
+    open: () => calls.push("open"),
+    files: () => calls.push("files"),
+    workerAction: () => calls.push("worker"),
+    diff: diff ? () => calls.push("diff") : undefined,
+    undo: undo ? () => calls.push("undo") : undefined
+  })).toBe(consumed)
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(consumed)
+})
+
+test.each(
+  [
+    ["escape", true, ["close"]],
+    ["u", true, ["undo"]],
+    ["u", false, []],
+    ["up", true, [[-1, false]]],
+    ["k", true, [[-1, false]]],
+    ["down", true, [[1, false]]],
+    ["j", true, [[1, false]]],
+    ["pageup", true, [[-1, true]]],
+    ["pagedown", true, [[1, true]]],
+    ["x", true, []]
+  ] as const
+)("review %s (undo offered: %s)", (name, undo, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.reviewKey(event, {
+    undo: undo ? () => calls.push("undo") : undefined,
+    close: () => calls.push("close"),
+    scroll: (by, page) => calls.push([by, page])
+  })
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+test.each(
+  [
+    ["escape", 0, ["close"]],
+    ["up", 0, [2]],
+    ["down", 2, [0]],
+    ["space", 1, ["toggle"]],
+    ["return", 1, ["undo"]],
+    ["kpenter", 1, ["undo"]],
+    ["a", 1, []]
+  ] as const
+)("checklist %s from row %s", (name, selected, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.checklistKey(event, { rows: 3 }, {
+    close: () => calls.push("close"),
+    select: (update) => calls.push(update(selected)),
+    toggle: () => calls.push("toggle"),
+    undo: () => calls.push("undo")
+  })
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
 
 test("a declared panel action executes only after the action key, without sending chat text", () => {
   const calls: unknown[] = []
@@ -931,8 +1063,8 @@ test.each(["中", "é", "😀"])("an unmounted dialog filter captures Unicode %s
   expect(event.defaultPrevented).toBe(true)
 })
 
-test.each([["models", false], ["undo", true]] as const)(
-  "%s does not intercept ordinary mounted or undo typing",
+test.each([["models", false]] as const)(
+  "%s does not intercept ordinary mounted typing",
   (kind, composerFocused) => {
     const calls: string[] = []
     const event = key("a")
