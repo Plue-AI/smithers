@@ -148,3 +148,26 @@ func TestHandlerUnitOutputBoundOverflowRefusesBeforeMeteringOrProviderDispatch(t
 	require.Equal(t, 1, caller.calls)
 	require.Zero(t, keys.reads)
 }
+
+// revokedWhileReading admits the headers, then is revoked, as a chat turn
+// cancelled while its caller holds the body back.
+type revokedWhileReading struct{ calls int }
+
+func (c *revokedWhileReading) ResolveModelCaller(*http.Request) (Caller, error) {
+	c.calls++
+	if c.calls > 1 {
+		return Caller{}, ErrUnauthenticated
+	}
+	return Caller{OwnerType: "user", OwnerID: 1, Source: "app", UserID: 1}, nil
+}
+
+func TestHandlerUnitCredentialRevokedDuringBodyStartsNoCall(t *testing.T) {
+	keys := &unitProxyKeys{providers: []string{"openai"}}
+	caller := &revokedWhileReading{}
+	response := httptest.NewRecorder()
+	// The unconfigured meter would answer 503 if reached.
+	(&Handler{Keys: keys, Callers: caller}).ServeHTTP(response, httptest.NewRequest("POST", Path+"/openai/v1/responses", strings.NewReader(`{"model":"gpt-6-sol","max_output_tokens":8}`)))
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	require.Equal(t, 2, caller.calls)
+	require.Zero(t, keys.reads)
+}

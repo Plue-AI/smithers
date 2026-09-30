@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/internal/chat/turncredential"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
@@ -78,7 +79,7 @@ type modelProxyCallerQuerier interface {
 
 // ModelProxyCallers resolves who pays for a proxy call. Agent runs and
 // managed Flow hosts are repository automation and charge the repository's
-// owner; a workspace and a signed-in app call charge the user.
+// owner; a workspace, a chat turn and a signed-in app call charge the user.
 type ModelProxyCallers struct {
 	q     modelProxyCallerQuerier
 	pool  *pgxpool.Pool
@@ -122,6 +123,19 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 		caller.Source, caller.UserID, caller.RepositoryID = modelproxy.SourceFlowHost, binding.UserID, binding.RepositoryID
 		caller.WorkspaceID, caller.Reference = binding.WorkspaceID, binding.ID
 		return caller, err
+	}
+	if token := bearerCredential(r); strings.HasPrefix(token, turncredential.Prefix) {
+		// A hosted chat turn spends its owner's managed credit, as the
+		// owner's own app call does; the reference names the turn.
+		turn, err := turncredential.Verify(ctx, c.pool, token)
+		if err != nil {
+			if errors.Is(err, turncredential.ErrInvalid) {
+				return modelproxy.Caller{}, modelproxy.ErrUnauthenticated
+			}
+			return modelproxy.Caller{}, err
+		}
+		return modelproxy.Caller{OwnerType: "user", OwnerID: turn.UserID, UserID: turn.UserID, Source: modelproxy.SourceApp,
+			RepositoryID: turn.RepositoryID, Reference: turn.TurnID}, nil
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil || !info.IsTokenAuth {

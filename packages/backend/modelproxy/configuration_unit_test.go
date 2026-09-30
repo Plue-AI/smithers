@@ -117,6 +117,6 @@ func TestConfigurationUnitAdmittedRequestWithoutLedgerRefusesBeforeProvider(t *t
 		httptest.NewRequest("POST", Path+"/openai/v1/responses", strings.NewReader(`{"model":"gpt-6-sol","max_output_tokens":3}`)))
 	require.Equal(t, 503, response.Code)
 	require.JSONEq(t, `{"error":{"type":"api_error","message":"Model credit is unavailable."}}`, response.Body.String())
-	require.Equal(t, 1, caller.calls)
+	require.Equal(t, 2, caller.calls, "resolved before the body and again before spending")
 	require.Zero(t, keys.reads, "an admitted body still cannot reach a provider without credit admission")
 }

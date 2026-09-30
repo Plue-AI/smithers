@@ -18,6 +18,11 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
+// ErrOwnerModelUnset is a turn that names no model for an owner with no
+// default model. It is a missing credential unless managed models serve the
+// turn (NewManagedModels).
+var ErrOwnerModelUnset = fmt.Errorf("owner has no default model: %w", ports.ErrModelCredentialMissing)
+
 // OwnerSecretResolver reads the same encrypted repository secrets written by
 // the product API. The database address becomes available after native-owned
 // PostgreSQL starts, so it is obtained at turn time. The first turn opens a
@@ -86,7 +91,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	if len(input.Model) == 0 || string(input.Model) == "null" {
 		err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Binding{}, ports.ErrModelCredentialMissing
+			return Binding{}, ErrOwnerModelUnset
 		}
 		if err != nil {
 			return Binding{}, fmt.Errorf("read owner default model: %w", err)

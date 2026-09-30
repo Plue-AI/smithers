@@ -148,6 +148,11 @@ func (host *Host) RunModelTest(ctx context.Context, ownerID int64, request json.
 	if err != nil {
 		return nil, err
 	}
+	// A test tests the owner's own credential; managed credit has no chat
+	// turn to meter it against.
+	if binding.Managed {
+		return nil, ports.ErrModelCredentialMissing
+	}
 	grant := ports.ChatTurnGrant{OwnerID: ownerID, TurnID: "model-test", ProducerBaseURL: "http://127.0.0.1"}
 	lease, err := host.launcher.LaunchChatHost(ctx, grant, binding)
 	if err != nil {

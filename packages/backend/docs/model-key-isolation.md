@@ -10,6 +10,13 @@ the backend owner (mode `0600`). Coding processes receive a credential scoped
 to their binding and call the backend's metered model proxy. Catalog
 environments reject raw provider credential names in every topology.
 
+A hosted chat turn with no model, for an owner with no default model, runs a
+priced default on managed credit. Its model host receives a
+`smithers_chatturn_` credential bound to the turn's current producer
+generation. The proxy refuses it once the turn is reclaimed, cancelled,
+finished, or its lease lapses, and charges the turn's owner. An explicit
+model keeps its own credential and fails when that credential is missing.
+
 Use `SMITHERS_WORKSPACE_ISOLATION=microvm` for untrusted repositories.
 Trusted-process execution shares the backend owner's permissions and is not
 an isolation boundary: repository commands can read files that owner can read.

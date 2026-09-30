@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
+	"github.com/smithersai/smithers/packages/backend/internal/chat/turncredential"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -31,6 +32,12 @@ type Binding struct {
 	// CredentialValue is held only in the launch request's memory and child
 	// process environment. It must never enter workspace metadata or logs.
 	CredentialValue string
+
+	// Managed spends the owner's managed credit through the metered model
+	// proxy. A resolver leaves CredentialValue empty; the host fills it with
+	// the turn's own credential (turncredential.Mint), so no provider key
+	// or user token reaches the launcher.
+	Managed bool
 }
 
 type Resolver interface {
@@ -87,6 +94,9 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 	if err != nil {
 		return fmt.Errorf("resolve owner model: %w", err)
 	}
+	if binding.Managed {
+		binding.CredentialValue = turncredential.Mint(grant.TurnID, grant.Generation, grant.Token)
+	}
 	lease, err := host.launcher.LaunchChatHost(ctx, grant, binding)
 	if err != nil {
 		return fmt.Errorf("launch owner model host: %w", err)
@@ -129,6 +139,11 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 	binding, err := host.resolver.ResolveChatModel(ctx, grant.OwnerID, grant.RepositoryID, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("resolve owner model: %w", err)
+	}
+	// Managed credit is metered against a durable chat turn; a model stream
+	// has none, so it runs only on the owner's own credential.
+	if binding.Managed {
+		return nil, fmt.Errorf("model stream has no chat turn to meter managed credit: %w", ports.ErrModelCredentialMissing)
 	}
 	chatGrant := ports.ChatTurnGrant{
 		TurnID: "model-stream-" + runID, OwnerID: grant.OwnerID, RepositoryID: grant.RepositoryID,

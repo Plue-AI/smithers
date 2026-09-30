@@ -46,7 +46,7 @@ type Caller struct {
 	RepositoryID  int64
 	WorkspaceID   string
 	WorkflowRunID int64
-	// Reference names the calling Flow host binding.
+	// Reference names the calling Flow host binding or chat turn.
 	Reference string
 }
 

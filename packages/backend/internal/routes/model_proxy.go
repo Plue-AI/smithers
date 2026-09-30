@@ -5,13 +5,15 @@ import (
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/internal/chat/turncredential"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 // ModelProxyAuth authenticates the metered model proxy. An Anthropic SDK's
-// x-api-key is read as the bearer. A managed Flow host's model credential is
-// verified by the proxy's caller resolver, a per-run agent token by
+// x-api-key is read as the bearer. A managed Flow host's or a chat turn's
+// model credential is verified by the proxy's caller resolver, a per-run
+// agent token by
 // agentAuth, and anything else must be a user token (userAuth). A cookie
 // never spends credit.
 func ModelProxyAuth(agentAuth, userAuth func(http.Handler) http.Handler) func(http.Handler) http.Handler {
@@ -30,7 +32,7 @@ func ModelProxyAuth(agentAuth, userAuth func(http.Handler) http.Handler) func(ht
 			switch {
 			case !strings.EqualFold(scheme, "bearer") || token == "":
 				modelproxy.WriteError(w, "", http.StatusUnauthorized, "authentication_error", "Authentication required.")
-			case strings.HasPrefix(token, flowhost.ModelCredentialPrefix):
+			case strings.HasPrefix(token, flowhost.ModelCredentialPrefix), strings.HasPrefix(token, turncredential.Prefix):
 				next.ServeHTTP(w, r)
 			case middleware.IsAgentCredentialSyntax(token):
 				agent.ServeHTTP(w, r)

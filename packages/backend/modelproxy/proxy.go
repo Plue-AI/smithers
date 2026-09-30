@@ -76,16 +76,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, provider, http.StatusNotFound, "not_found_error", "Only POST "+strings.Join(rt.paths, ", ")+" is served.")
 		return
 	}
-	caller, err := h.Callers.ResolveModelCaller(r)
-	if err != nil {
+	resolveCaller := func() (Caller, bool) {
+		caller, err := h.Callers.ResolveModelCaller(r)
+		if err == nil {
+			return caller, true
+		}
 		if errors.Is(err, ErrUnauthenticated) {
 			WriteError(w, provider, http.StatusUnauthorized, "authentication_error", "Authentication required.")
-			return
+			return Caller{}, false
 		}
 		if !errors.Is(err, ErrForbidden) {
 			slog.Error("model proxy caller resolution failed", "provider", provider, "error", err)
 		}
 		WriteError(w, provider, http.StatusForbidden, "permission_error", "This credential may not spend platform models.")
+		return Caller{}, false
+	}
+	// A refused credential never makes the proxy read a body.
+	if _, ok := resolveCaller(); !ok {
 		return
 	}
 	limit := h.MaxBodyBytes
@@ -124,6 +131,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, provider, http.StatusBadRequest, "invalid_request_error", "Invalid request.")
 			return
 		}
+	}
+	// The caller sets the body's pace, so the credential is resolved again
+	// just before spending: a grant revoked meanwhile, such as a cancelled
+	// chat turn, starts no provider call.
+	caller, ok := resolveCaller()
+	if !ok {
+		return
 	}
 	call := Call{Provider: provider, Model: parsed.model, Stream: parsed.stream, Maximum: parsed.maximum(price)}
 	answered := false

@@ -17,7 +17,8 @@ unrecognized or malformed credential, including an empty value, returns HTTP
 cookie. A well-formed token that has expired or cannot be found keeps the
 `unauthorized` code.
 
-`smithers_flowhost_` model credentials cannot authenticate as a user. Legacy
+`smithers_flowhost_` and `smithers_chatturn_` model credentials cannot
+authenticate as a user. Legacy
 `jjhub_` credentials are not accepted by the API.
 
 LFS grants, Worker exchange credentials, OAuth client Basic credentials, and
