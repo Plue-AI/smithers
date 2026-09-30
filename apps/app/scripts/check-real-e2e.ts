@@ -57,7 +57,7 @@ function joinDefault(root: string, child: string): string {
       "change.revert", "change.split", "change.split-ready", "code.definition", "code.diagnostics",
       "code.hover", "commits.list", "commits.read", "connect", "desktop",
       "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
-      "files.list", "files.open-diff", "integrations.list", "issues.comment.react", "issues.comment.retry",
+      "files.list", "files.open-diff", "integrations.admit", "integrations.list", "issues.comment.react", "issues.comment.retry",
       "issues.fix", "issues.set", "issues.verify", "files.read", "findings.not-useful", "findings.please-fix",
       "flow.plan", "flow.run.retry", "flows", "github.app.choose", "github.app.open",
       "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "issues",

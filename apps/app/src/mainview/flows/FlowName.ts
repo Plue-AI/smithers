@@ -174,6 +174,7 @@ export const FLOW_NAMES = [
   "history.view",
   "input.mode",
   "integrations.list",
+  "integrations.admit",
   "issue.add-flow",
   "issue.flows",
   "issue.implement",

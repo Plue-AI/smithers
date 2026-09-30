@@ -79,6 +79,7 @@ export interface FlowInput {
   readonly "issues.comment.retry": { readonly cardId: string; readonly requestId: string }
   readonly "issues.set": { readonly number: number; readonly repo: string; readonly field: "owner" | "due" | "priority" | "parent"; readonly value: string }
   readonly "integrations.list": { readonly repo: string }
+  readonly "integrations.admit": { readonly connection_id?: string; readonly scope_id?: string; readonly conversation_id?: string; readonly external_user_id?: string; readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
   readonly "findings.please-fix": { readonly changeId: string; readonly findingId: number }
   readonly "findings.not-useful": { readonly changeId: string; readonly findingId: number }
@@ -267,6 +268,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "issues.set": payload => JSON.stringify(payload),
   "integrations.list": payload => line(token(payload, "repo")),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),
+  "integrations.admit": payload => JSON.stringify(payload),
   "findings.please-fix": payload => line(token(payload, "changeId"), token(payload, "findingId")),
   "findings.not-useful": payload => line(token(payload, "changeId"), token(payload, "findingId")),
   "review.unrequest": payload => line(token(payload, "changeId"), token(payload, "requestId")),

@@ -537,6 +537,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly commentOnIssue: IssuesSeam["commentOnIssue"]
   readonly setIssueTask: IssuesSeam["setIssueTask"]
   readonly listIntegrations: IntegrationsSeam["listIntegrations"]
+  readonly admitSlackChannel: IntegrationsSeam["admitSlackChannel"]
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
   readonly setLandingTab: LandingsSeam["setTab"]
@@ -1859,6 +1860,7 @@ export const createAppController = (
     setIssueTask: issuesSeam.setIssueTask,
     listIntegrations: integrationsSeam.listIntegrations,
     listLandings: landingsSeam.listLandings,
+    admitSlackChannel: integrationsSeam.admitSlackChannel,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
     createLanding: landingsSeam.createLanding,

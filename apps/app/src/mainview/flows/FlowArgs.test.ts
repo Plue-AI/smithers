@@ -31,6 +31,20 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
       '{"request":"Inspect owner/other first","repo":"will/flows"}',
       { request: "Inspect owner/other first", repo: "will/flows" })
   })
+  test("integrations.admit's button carries only its repository, so the form asks for the ids", () => {
+    roundTrip("integrations.admit", { repo: "owner/repo" }, '{"repo":"owner/repo"}', { repo: "owner/repo" })
+    roundTrip("integrations.admit", { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" },
+      '{"connection_id":"slack-main","scope_id":"T0123","conversation_id":"C0123","external_user_id":"U0123","repo":"owner/repo"}',
+      { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" })
+  })
+  test("integrations.admit's slash line reads ids in order, an optional user, and a trailing repository", () => {
+    expect(payloadFor("integrations.admit", "slack-main T0123 C0123")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123" } })
+    expect(payloadFor("integrations.admit", "slack-main T0123 C0123 U0123 owner/repo")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" } })
+    expect(payloadFor("integrations.admit", "slack-main T0123 owner/repo")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", repo: "owner/repo" } })
+    expect(payloadFor("integrations.admit", undefined)).toEqual({ payload: {} })
+    expect(payloadFor("integrations.admit", "a b c d e")).toHaveProperty("error")
+    expect(payloadFor("integrations.admit", '{"conversation_id":"C0123","other":1}')).toHaveProperty("error")
+  })
   test("change.request carries its pushed source ref through a box chooser continuation", () => {
     roundTrip("change.request", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" },
       "Fix the flaky check from:topic owner/repo", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" })

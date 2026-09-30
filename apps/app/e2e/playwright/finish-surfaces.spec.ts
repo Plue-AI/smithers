@@ -132,6 +132,42 @@ test("the Connect card reads the admitted Slack channels and the Linear team fro
   await capture(page, card, "app-connect")
 })
 
+test("admit a Slack channel", async ({ page }) => {
+  await boot(page)
+  let admitted: Array<Record<string, unknown>> = []
+  const puts: unknown[] = []
+  let refuse = true
+  await page.route((url) => url.pathname === `/api/repos/${repo}/issues/sync/channels`, async (route) => {
+    if (route.request().method() === "PUT") {
+      puts.push(route.request().postDataJSON())
+      if (refuse) return route.fulfill(json({ error: { message: "sync conversation already configured for another repository" } }, 409))
+      admitted = [{ provider: "slack", ...(route.request().postDataJSON() as Record<string, unknown>) }]
+      return route.fulfill(json({}))
+    }
+    return route.fulfill(json(admitted))
+  })
+  await page.route((url) => url.pathname === "/api/integrations/linear", (route) => route.fulfill(json([])))
+  await slash(page, `/integrations.list ${repo}`)
+  const card = page.locator('[data-kind="connect"]').last()
+  const slack = card.locator('[data-integration="slack"]')
+  await expect(slack).toHaveAttribute("data-state", "not-connected")
+  await slack.getByRole("button", { name: "Connect", exact: true }).click()
+  await page.getByLabel("Connection", { exact: true }).fill("slack-main")
+  await page.getByLabel("Workspace", { exact: true }).fill("T0123")
+  await page.getByLabel("Channel", { exact: true }).fill("C0123")
+  await page.getByRole("button", { name: "Connect", exact: true }).last().click()
+  await expect.poll(() => puts.length).toBe(1)
+  expect(puts[0]).toEqual({ provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "" })
+  // A refused write renders no connection.
+  await expect(slack).toHaveAttribute("data-state", "not-connected")
+  // The retry succeeds and the card connects without a reload.
+  refuse = false
+  await slash(page, `/integrations.admit slack-main T0123 C0123 ${repo}`)
+  await expect(slack).toHaveAttribute("data-state", "connected")
+  await expect(slack).toContainText("C0123")
+  expect(puts).toHaveLength(2)
+})
+
 test("a run's Steps view leads with its recorded triggers: the schedule that fired it and each approval decision with who made it", async ({ page }) => {
   const runId = "run-nightly"
   const stamp = (sequence: number, kind: string, occurredAt: number, payload: Record<string, unknown> = {}) => ({ sequence, kind, occurredAt, payload })

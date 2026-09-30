@@ -58,28 +58,30 @@ afterEach(async () => {
  * (compose/router.go): GET …/issues/sync/channels and GET /api/integrations/linear.
  * A missing route is `unavailable`, never "not connected".
  */
-const setup = async (answer: (url: string) => Response | Promise<Response>, options: Partial<Pick<SeamContext, "withToast" | "actor">> = {}) => {
+const setup = async (answer: (url: string, init?: RequestInit) => Response | Promise<Response>, options: Partial<Pick<SeamContext, "withToast" | "actor">> = {}) => {
   const data = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } } })
   stores.add(store)
   const seen: string[] = []
+  const writes: Array<{ method: string; body: unknown }> = []
   let disposed = false
   const retire = () => { disposed = true }
   retireContexts.add(retire)
   let ordinal = 0
   const seam = createIntegrationsSeam({ store, dispatch: store.dispatch, actor: () => "user", nextOrdinal: () => ++ordinal, baseUrl: "https://app.test",
-    http: (url) => {
+    http: (url, init) => {
       seen.push(url)
+      if (init?.method !== undefined && init.method !== "GET") writes.push({ method: init.method, body: JSON.parse(String(init.body)) })
       return track(Promise.resolve().then(() => {
         if (url !== CHANNELS && url !== LINEAR) {
           unexpectedRequests.push(url)
           throw new Error(`Unexpected Integrations HTTP: ${url}`)
         }
-        return answer(url)
+        return answer(url, init)
       }))
     }, isDisposed: () => disposed, ...options } satisfies SeamContext)
   const rows = () => { const card = store.collections.cards.get("connect-embedded"); return card?.kind === "connect" ? card.payload.integrations?.rows : undefined }
-  return { store, seam: { listIntegrations: (repo?: string) => track(seam.listIntegrations(repo)) }, seen, rows, retire }
+  return { store, seam: { listIntegrations: (repo?: string) => track(seam.listIntegrations(repo)), admitSlackChannel: (admission: Parameters<typeof seam.admitSlackChannel>[0], repo?: string) => track(seam.admitSlackChannel(admission, repo)) }, seen, writes, rows, retire }
 }
 
 const CHANNELS = "https://app.test/api/repos/Owner/Repo/issues/sync/channels"
@@ -427,4 +429,92 @@ test("the controlled toast wrapper receives the live owner and existing connect 
   if (refreshed?.kind !== "connect") throw new Error("Expected connect card")
   expect({ id: refreshed.id, kind: refreshed.kind, title: refreshed.title, status: refreshed.status, createdAt: refreshed.createdAt, ordinal: refreshed.ordinal, payload: refreshed.payload }).toEqual({ ...original, payload: { ...original.payload, integrations: { repo: "Owner/Repo", rows: [{ id: "slack", state: "connected", detail: "C003" }, { id: "linear", state: "connected", detail: "ENG" }] } } })
   expect((await store.eventHistory()).events.slice(eventCount).map(event => ({ type: event.type, actor: event.actor }))).toEqual([{ type: "card.upsert", actor: "smithers" }])
+})
+
+/* Admission (#2267): the PUT the authenticated route validates, then the readback the card projects. */
+const admission = { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123" }
+
+test("admitting a Slack channel PUTs the admission, reads the channels back and connects the card without a reload", async () => {
+  let admitted = false
+  const { seam, writes, rows } = await setup((url, init) => {
+    if (url === LINEAR) return Response.json([])
+    if (init?.method === "PUT") { admitted = true; return Response.json({}) }
+    return Response.json(admitted ? [{ provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123" }] : [])
+  })
+  await seam.listIntegrations("Owner/Repo")
+  expect(rows()?.[0]).toEqual({ id: "slack", state: "not-connected" })
+  expect(await seam.admitSlackChannel({ ...admission, external_user_id: " U0999 " }, "Owner/Repo")).toEqual({ value: "Admitted C0123 to Owner/Repo." })
+  expect(writes).toEqual([{ method: "PUT", body: { provider: "slack", ...admission, external_user_id: "U0999" } }])
+  expect(rows()?.[0]).toEqual({ id: "slack", state: "connected", detail: "C0123" })
+})
+
+test("a refused admission renders no connection and says the server's words", async () => {
+  const { seam, rows, writes } = await setup((_url, init) => init?.method === "PUT"
+    ? Response.json({ error: { message: "sync conversation already configured for another repository" } }, { status: 409 })
+    : Response.json([]))
+  await seam.listIntegrations("Owner/Repo")
+  const answer = await seam.admitSlackChannel(admission, "Owner/Repo")
+  expect(answer).toContain("sync conversation already configured for another repository")
+  expect(writes).toHaveLength(1)
+  expect(rows()?.[0]).toEqual({ id: "slack", state: "not-connected" })
+})
+
+test("an admission the readback does not list is not a success, and a failed readback says so", async () => {
+  const listed = await setup((_url, init) => init?.method === "PUT" ? Response.json({}) : Response.json([{ provider: "slack", conversation_id: "C0999" }]))
+  expect(await listed.seam.admitSlackChannel(admission, "Owner/Repo")).toBe("Slack channel C0123 was not among the admitted channels afterwards.")
+  const failed = await setup((url, init) => init?.method === "PUT" ? Response.json({}) : url === LINEAR ? Response.json([]) : Response.json({ message: "down" }, { status: 502 }))
+  expect(await failed.seam.admitSlackChannel(admission, "Owner/Repo")).toContain("Reading the Slack channels failed (502)")
+})
+
+test("a write that cannot reach the server is an unreachable sentence, not a connection", async () => {
+  const { seam, rows } = await setup((_url, init) => { if (init?.method === "PUT") throw new Error("offline"); return Response.json([]) })
+  await seam.listIntegrations("Owner/Repo")
+  expect(await seam.admitSlackChannel(admission, "Owner/Repo")).toContain("Slack channels")
+  expect(rows()?.[0]).toEqual({ id: "slack", state: "not-connected" })
+})
+
+test.each([
+  { name: "empty connection", change: { connection_id: " " }, words: "connection id" },
+  { name: "long connection", change: { connection_id: "c".repeat(129) }, words: "connection id" },
+  { name: "lowercase workspace", change: { scope_id: "t0123" }, words: "workspace id" },
+  { name: "short workspace", change: { scope_id: "T1" }, words: "workspace id" },
+  { name: "user id as channel", change: { conversation_id: "U0123" }, words: "channel id" },
+  { name: "bad user", change: { external_user_id: "u 1" }, words: "user id" }
+])("$name is refused before any write", async ({ change, words }) => {
+  const { seam, writes } = await setup(() => Response.json([]))
+  expect(await seam.admitSlackChannel({ ...admission, ...change }, "Owner/Repo")).toContain(words)
+  expect(writes).toEqual([])
+})
+
+test("an unresolved repository is refused before any write", async () => {
+  const { seam, writes } = await setup(() => Response.json([]))
+  expect(await seam.admitSlackChannel(admission, "bad name")).toBe('"bad name" is not an owner/repo name')
+  expect(writes).toEqual([])
+})
+
+test("a duplicate submit while the first is in flight writes once, and a later resubmit is allowed", async () => {
+  let release = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  releases.add(release)
+  const { seam, writes } = await setup(async (url, init) => {
+    if (init?.method === "PUT") { await gate; return Response.json({}) }
+    return url === LINEAR ? Response.json([]) : Response.json([{ provider: "slack", conversation_id: "C0123" }])
+  })
+  const first = seam.admitSlackChannel(admission, "Owner/Repo")
+  await new Promise<void>(resolve => { setTimeout(resolve, 5) })
+  expect(await seam.admitSlackChannel(admission, "Owner/Repo")).toBe("Admitting C0123 is already under way.")
+  release()
+  expect(await first).toEqual({ value: "Admitted C0123 to Owner/Repo." })
+  expect(writes).toHaveLength(1)
+  expect(await seam.admitSlackChannel(admission, "Owner/Repo")).toEqual({ value: "Admitted C0123 to Owner/Repo." })
+  expect(writes).toHaveLength(2)
+})
+
+test("the admission runs under the shared toast keyed by the admission, and a failure settles it as a failure string", async () => {
+  const calls: Array<{ key: string; title: string; sourceCard: string | undefined }> = []
+  const { seam } = await setup((_url, init) => init?.method === "PUT" ? Response.json({ message: "no write access" }, { status: 403 }) : Response.json([]), {
+    withToast: async (key, title, _done, work, _quiet, _current, sourceCard) => { calls.push({ key, title, sourceCard }); return work() }
+  })
+  expect(await seam.admitSlackChannel(admission, "Owner/Repo")).toContain("no write access")
+  expect(calls).toEqual([{ key: "integrations.admit:owner/repo\nslack-main\nT0123\nC0123\n", title: "Admitting Slack channel", sourceCard: "connect-embedded" }])
 })

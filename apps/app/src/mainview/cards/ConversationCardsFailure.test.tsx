@@ -67,6 +67,20 @@ describe("integration rows", () => {
     ])
   })
 
+  test("only a disconnected Slack row offers Connect, and it opens the admission flow for the card's repository", () => {
+    const { calls, run } = recorder()
+    const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "not-connected" }, { id: "linear", state: "not-connected" }])} onConnectGitHub={() => {}} onRunCommand={run} />)
+    expect(host.querySelectorAll('[data-integration] button')).toHaveLength(1)
+    const button = host.querySelector<HTMLButtonElement>('[data-integration="slack"] button')!
+    expect(button.textContent).toBe("Connect")
+    button.click()
+    expect(calls).toEqual([{ name: "integrations.admit", payload: { repo: "acme/app" } }])
+    for (const state of ["connected", "unavailable", "error"] as const) {
+      const other = render(<ConnectCardBody card={connect([{ id: "slack", state, ...(state === "error" ? { error: "x" } : {}) }])} onConnectGitHub={() => {}} onRunCommand={() => {}} />)
+      expect(Array.from(other.querySelectorAll('[data-integration="slack"] button')).map(node => node.textContent)).not.toContain("Connect")
+    }
+  })
+
   test("a healthy row draws no failure", () => {
     const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "connected", detail: "C123" }])} onConnectGitHub={() => {}} onRunCommand={() => {}} />)
     expect(host.querySelector('[data-testid^="integration-failure-"]')).toBeNull()

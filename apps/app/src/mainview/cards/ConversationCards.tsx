@@ -81,7 +81,8 @@ export const ConnectCardBody = ({
             failure={describedFailure(`IntegrationFailed.${row.id}`, INTEGRATION_FAILURES[row.id], row.error)}
             actions={{ retry: flowAction(onRunCommand, "integrations.list", flowArgs("integrations.list", { repo: card.payload.integrations!.repo })) }} />}
         </span>
-        {row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
+        {row.id === "slack" && row.state === "not-connected" ? <Button size="sm" {...flowAction(onRunCommand, "integrations.admit", flowArgs("integrations.admit", { repo: card.payload.integrations!.repo }))}>Connect</Button>
+          : row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
           : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
           : row.state === "error" ? <Badge variant="destructive">Error</Badge>
           : null}
