@@ -31363,10 +31363,6 @@
         "path": "flows/test/worker-rollout.test.ts"
       },
       {
-        "kind": "file",
-        "path": "scripts/ci/worker-deploy-qualification.test.mjs"
-      },
-      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
@@ -31383,10 +31379,6 @@
       {
         "kind": "file",
         "path": "pnpm-workspace.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "scripts/ci/worker-deploy-qualification.test.mjs"
       },
       {
         "kind": "file",
@@ -55470,6 +55462,54 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:workerDeployQualification",
+    "package": "scripts",
+    "name": "workerDeployQualification",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/ci/worker-deploy-qualification.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/rollout/refuse-unqualified.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/bug-worker/package.json"
       }
     ],
     "outputs": [],

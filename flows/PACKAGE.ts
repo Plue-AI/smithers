@@ -35,15 +35,13 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
-    Smithers.file("//flows/test/worker-rollout.test.ts"),
-    Smithers.file("//scripts/ci/worker-deploy-qualification.test.mjs")
+    Smithers.file("//flows/test/worker-rollout.test.ts")
   ]),
   srcs: [
     sources,
     scripts,
     Smithers.file("//flows/review/flow.mdx"),
     Smithers.file("//pnpm-workspace.yaml"),
-    Smithers.file("//scripts/ci/worker-deploy-qualification.test.mjs"),
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
     Smithers.file("//apps/review/package.json"),
     Smithers.file("//apps/bug-worker/package.json"),
