@@ -3,7 +3,7 @@ import { StorageRecoveryError } from "../chain/StorageRecovery"
 import type { StorageRecoverySnapshot } from "../chain/StorageRecovery"
 import { invokeStartupRecovery, storageRecoveryExportFlow } from "../flows/StorageRecoveryFlow"
 import { createStorageRecoveryAction } from "./StorageRecoveryAction"
-import { RECOVERY_HUMAN_ONLY } from "./StorageRecoveryContract"
+import { HeldBrowserStorageError, RECOVERY_HUMAN_ONLY } from "./StorageRecoveryContract"
 
 const raw = "private recovery fixture"
 const snapshot: StorageRecoverySnapshot = {
@@ -13,7 +13,98 @@ const snapshot: StorageRecoverySnapshot = {
   localStorage: [{ key: "smithers-mvp.store", value: raw }]
 }
 
+const bounded = async <T>(promise: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Recovery fixture did not settle")), 3000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+
 describe("the shared private recovery action and Flow", () => {
+  test("an admitted erase owns repeated reset/download calls and disposal waits for it", async () => {
+    const entered = Promise.withResolvers<void>()
+    const erased = Promise.withResolvers<void>()
+    const calls: string[] = []
+    const action = createStorageRecoveryAction({
+      read: async () => { calls.push("read"); return snapshot },
+      download: () => { calls.push("download") },
+      reset: async () => { calls.push("erase"); entered.resolve(); await erased.promise }
+    }, "user")
+    let closing: Promise<void> | undefined
+    try {
+      await action.reset()
+      const resetting = action.reset()
+      await bounded(entered.promise)
+      expect(action.reset()).toBe(resetting)
+      expect(action.run()).toBe(resetting)
+      expect(action.state.get("reset")).toMatchObject({ phase: "resetting", actor: "user" })
+      let disposed = false
+      closing = action.dispose().then(() => { disposed = true })
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(disposed).toBe(false)
+      expect(calls).toEqual(["erase"])
+      erased.resolve()
+      await bounded(Promise.all([resetting, closing]))
+      expect(disposed).toBe(true)
+      expect(await action.reset()).toBe("Recovery was canceled because the app closed. Saved data was not reset.")
+      expect(await action.run()).toBe("Recovery was canceled because the app closed. Saved data was not reset.")
+      expect(calls).toEqual(["erase"])
+    } finally {
+      erased.resolve()
+      await bounded(closing ?? action.dispose())
+    }
+  })
+
+  for (const failure of ["held", "private"] as const) {
+    test(`${failure} erase failure preserves private-safe state and requires a fresh confirmation to retry`, async () => {
+      let attempts = 0
+      const action = createStorageRecoveryAction({
+        read: async () => snapshot,
+        download: () => {},
+        reset: async () => {
+          attempts++
+          if (attempts === 1) throw failure === "held" ? new HeldBrowserStorageError() : new Error(raw)
+        }
+      }, "user")
+      const message = failure === "held"
+        ? "This browser's saved data is still open in another Smithers tab, so the reset did not finish. Close the other tabs and try again."
+        : "This browser's saved data could not be erased. The reset did not finish; reload and try again."
+      try {
+        await action.reset()
+        expect(await action.reset()).toBe(message)
+        expect(action.state.get("reset")).toMatchObject({ phase: "failed", message, actor: "user", revision: 3 })
+        expect(JSON.stringify([...action.state.values()])).not.toContain(raw)
+        await action.reset()
+        expect(attempts).toBe(1)
+        expect(action.state.get("reset")?.phase).toBe("armed")
+        expect(await action.reset()).toBeUndefined()
+        expect(attempts).toBe(2)
+        // A successful host erase reloads the page; the local action has no completion receipt to invent.
+        expect(action.state.get("reset")?.phase).toBe("resetting")
+      } finally { await action.dispose() }
+    })
+  }
+
+  for (const actor of ["user", "smithers"] as const) {
+    test(`a lazy binding refusal is visible only to its ${actor} actor without reading private storage`, async () => {
+      const calls: string[] = []
+      const action = createStorageRecoveryAction({
+        read: async () => { calls.push("read"); return snapshot },
+        download: () => { calls.push("download") }
+      }, actor)
+      try {
+        await action.state.preload()
+        await action.bindingUnavailable()
+        expect(action.state.get("recovery")).toMatchObject(actor === "user"
+          ? { phase: "failed", actor: "user", revision: 1, message: "The local recovery snapshot could not be read completely. No partial download was produced and saved data was not reset." }
+          : { phase: "idle", actor: "system", revision: 0, message: null })
+        expect(calls).toEqual([])
+      } finally { await action.dispose() }
+    })
+  }
+
   test("reset finishes a pending private download before erasing and blocks a later capture", async () => {
     const captured = Promise.withResolvers<StorageRecoverySnapshot>()
     const started = Promise.withResolvers<void>()
