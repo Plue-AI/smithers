@@ -33,7 +33,7 @@ const fixture = (
     records,
     workspace: new Workspace({
       host,
-      workerSeat: "openai:gpt-6-astra",
+      workerSeat: "openai:gpt-6.1-sol",
       history,
       persist: (record) => records.push(record),
       restored

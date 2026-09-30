@@ -786,8 +786,8 @@ describe("routed workers", () => {
   it("an operator's SMITHERS_TUI_WORKER_SEAT means no routing", async () => {
     const available: Models.Available = {
       models: [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }, {
-        seat: "openai:gpt-6-astra",
-        label: "GPT-6 Astra",
+        seat: "openai:gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
         provider: "OpenAI"
       }],
       defaultSeat: undefined,

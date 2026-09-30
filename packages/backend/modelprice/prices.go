@@ -127,7 +127,7 @@ var Table = map[string]Price{
 	"claude-sonnet-4-5": anthropicTiered(3, 15, 200_000),
 	"claude-haiku-4-5":  anthropic(1, 5, 0.1),
 
-	"gpt-6-astra": openaiTiered(10, 1, 12.5, 50),
+	"gpt-6.1-sol": openaiTiered(2, 0.2, 2.5, 10),
 	"gpt-6-sol":   openaiTiered(2, 0.2, 2.5, 10),
 	"gpt-6-luna":  openaiTiered(0.1, 0.01, 0.125, 0.5),
 	// Promotional through at least 2026-11-21; re-check before then.

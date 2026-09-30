@@ -45,8 +45,7 @@ describe("NodeControl.seatCandidates", () => {
     const auth = join("/codex", "auth.json")
     expect(await ids({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([
       "luna",
-      "sol",
-      "astra"
+      "sol"
     ])
     // Without the mode the resolver signs `openai:` seats with OPENAI_API_KEY.
     expect(await ids({ CODEX_HOME: "/codex" }, { [auth]: session })).toEqual([])
@@ -60,30 +59,29 @@ describe("NodeControl.seatCandidates", () => {
     // The pool is asked which routes have accounts when a seat resolves, so a
     // configured route is offered without a key of the provider's own.
     // A Claude subscription has no pool route: only Claude Code signs with it.
-    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["luna", "sol"])
     expect(
       await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" })
     )
-      .toEqual(["luna", "sol", "astra"])
+      .toEqual(["luna", "sol"])
     // The configured subscription pool takes precedence over stale API-key mode.
     expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" }))
       .toEqual([
         "luna",
-        "sol",
-        "astra"
+        "sol"
       ])
     expect(await ids(pool)).toEqual([])
   })
 
   it("offers the OpenAI aliases behind the model proxy only with its credential", async () => {
     const proxied = { SMITHERS_OPENAI_AUTH: "chatgpt", SMITHERS_MODEL_PROXY_URL: "https://proxy.example" }
-    expect(await ids({ ...proxied, OPENAI_API_KEY: "proxy-credential" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids({ ...proxied, OPENAI_API_KEY: "proxy-credential" })).toEqual(["luna", "sol"])
     expect(await ids(proxied)).toEqual([])
   })
 
   it("offers the OpenAI aliases for an API key in api-key mode only", async () => {
-    expect(await ids({ OPENAI_API_KEY: "sk" })).toEqual(["luna", "sol", "astra"])
-    expect(await ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual(["luna", "sol", "astra"])
+    expect(await ids({ OPENAI_API_KEY: "sk" })).toEqual(["luna", "sol"])
+    expect(await ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual(["luna", "sol"])
     expect(await ids({ OPENAI_API_KEY: "sk", SMITHERS_OPENAI_AUTH: "bogus" })).toEqual([])
   })
 
@@ -117,6 +115,6 @@ describe("NodeControl.layerSeatCatalog", () => {
     expect(missing.variants).toBe(SeatRouter.defaultVariants)
     writeFileSync(join(home, "auth.json"), session)
     const signed = await read({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: home })
-    expect(signed.candidates).toEqual(["luna", "sol", "astra"])
+    expect(signed.candidates).toEqual(["luna", "sol"])
   })
 })

@@ -183,8 +183,7 @@ export const defaultSeat: Readonly<Record<Candidate, string>> = {
  * @since 1.0.0
  */
 export const seatAliases: Readonly<Record<string, string>> = {
-  sol: "openai:gpt-6-sol",
-  astra: "openai:gpt-6-astra",
+  sol: "openai:gpt-6.1-sol",
   luna: "openai:gpt-6-luna",
   opus: "anthropic:claude-opus-5-5",
   sonnet: "anthropic:claude-sonnet-5-5",

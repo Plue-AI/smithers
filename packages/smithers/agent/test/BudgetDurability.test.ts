@@ -84,7 +84,7 @@ describe("budget usage durability", () => {
     await run(inRun(
       "weighted",
       Effect.gen(function*() {
-        const weights = { "gpt-6-astra": { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 4.5 } }
+        const weights = { "gpt-6.1-sol": { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 4.5 } }
         const budget = yield* Budget.make({ weights })
         const usage = {
           inputTokens: 1000,
@@ -93,13 +93,13 @@ describe("budget usage durability", () => {
           reasoningTokens: 50,
           totalTokens: 1100
         }
-        yield* budget.record("paid", usage, "gpt-6-astra")
-        yield* budget.record("paid", usage, "gpt-6-astra")
+        yield* budget.record("paid", usage, "gpt-6.1-sol")
+        yield* budget.record("paid", usage, "gpt-6.1-sol")
         expect((yield* budget.usage).tokens).toBe(730)
         const restarted = yield* Budget.make({})
         expect(yield* restarted.usage).toEqual(yield* budget.usage)
         expect(yield* records(yield* Journal.Journal, "weighted")).toHaveLength(1)
-        expect(Number.isNaN(Budget.tokensOf({ totalTokens: 100 }, weights["gpt-6-astra"]))).toBe(true)
+        expect(Number.isNaN(Budget.tokensOf({ totalTokens: 100 }, weights["gpt-6.1-sol"]))).toBe(true)
       })
     ))
   })

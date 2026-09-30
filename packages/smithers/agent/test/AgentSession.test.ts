@@ -2535,13 +2535,13 @@ describe("AgentSession seat routing", () => {
     const run = await routedRun({
       flowId: "agents/auto",
       judge: routingJudge({ routed: 0 }, Effect.void, { phase: "review", size: "important" }),
-      catalog: catalogOf(["opus", "fable", "astra", "sol"]),
+      catalog: catalogOf(["opus", "fable", "sol"]),
       status: "completed"
     })
 
-    expect(run.resolved).toEqual(["fable", "astra"])
+    expect(run.resolved).toEqual(["fable", "sol"])
     const payload = seatRouted(run.trail)[0]!.payload
-    expect(payload).toMatchObject({ seat: "fable", backups: ["astra"] })
+    expect(payload).toMatchObject({ seat: "fable", backups: ["sol"] })
     expect(payload).not.toHaveProperty("panel")
   })
 

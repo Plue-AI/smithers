@@ -59,7 +59,7 @@ it("peeks at a park with its reset and count, a backup seat, and a failure with 
         tab("p", "parked", {
           wakeAt: new Date(2026, 8, 28, 14, 5).getTime(),
           parks: 3,
-          activeSeat: "openai:gpt-6-astra"
+          activeSeat: "openai:gpt-6.1-sol"
         })
       ),
       () => Transcript.empty

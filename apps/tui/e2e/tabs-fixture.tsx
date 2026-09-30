@@ -5,11 +5,11 @@ import { Effect } from "effect"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 
-const workers: Record<string, { title: string; prompt: string; model?: "sol" | "luna" | "astra" }> = {
+const workers: Record<string, { title: string; prompt: string; model?: "sol" | "luna" }> = {
   audit: { title: "Audit auth middleware", prompt: "Audit the auth middleware.", model: "sol" },
   flaky: { title: "Fix flaky seat queue test", prompt: "Fix the flaky seat queue test.", model: "luna" },
   strip: { title: "Refactor tab strip overflow", prompt: "Refactor the tab strip overflow." },
-  frame: { title: "Profile frame budget", prompt: "Profile the frame budget.", model: "astra" },
+  frame: { title: "Profile frame budget", prompt: "Profile the frame budget.", model: "sol" },
   docs: { title: "Document which-key", prompt: "Document which-key." },
   lint: { title: "Lint the key registry", prompt: "Lint the key registry." },
   api: { title: "implement/api", prompt: "Implement the OAuth session." },

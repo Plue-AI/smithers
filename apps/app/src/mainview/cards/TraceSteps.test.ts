@@ -13,7 +13,7 @@ const model = (records: ReadonlyArray<ReturnType<typeof event>>, status = "runni
 describe("traceSteps", () => {
   test("a run reads as steps: time · type · description · duration · tokens, in journal order", () => {
     const steps = traceSteps(model([
-      event(1, "agent.turn-opened", { seat: "openai:gpt-6-astra" }),
+      event(1, "agent.turn-opened", { seat: "openai:gpt-6.1-sol" }),
       event(2, "agent.model-settled", { text: "Reading the file", usage: { inputTokens: 1200, outputTokens: 300 } }),
       event(3, "agent.cell-produced", { source: "await ctx.call('read', { path: 'src/a.ts' })" }),
       event(4, "agent.cell-call-started", { callId: "c1", flowName: "read", input: { path: "src/a.ts" } }),
@@ -23,7 +23,7 @@ describe("traceSteps", () => {
     ]))
     // Frames and cells are containers; the model turn and the two calls are the steps.
     expect(steps.map((step) => [step.type, step.description, step.status])).toEqual([
-      ["model", "Model turn · openai:gpt-6-astra", "completed"],
+      ["model", "Model turn · openai:gpt-6.1-sol", "completed"],
       ["read", "Read a.ts", "completed"],
       ["test", "Failed to run bun test src", "failed"]
     ])

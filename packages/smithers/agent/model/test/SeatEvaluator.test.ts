@@ -22,7 +22,7 @@ const run = (model: Model.Model, options: { timeoutMs?: number } = {}, input = r
   Effect.runPromise(
     Effect.gen(function*() {
       return yield* (yield* Evaluator.Evaluator).evaluate(input)
-    }).pipe(Effect.provide(Evaluator.layerFromSeat({ modelId: "gpt-6-astra", model }, options)))
+    }).pipe(Effect.provide(Evaluator.layerFromSeat({ modelId: "gpt-6.1-sol", model }, options)))
   )
 const reply = (value: unknown, stopReason: "stop" | "length" = "stop") =>
   Model.make({
@@ -44,7 +44,7 @@ describe("subscription seat evaluator", () => {
       }
     }))
     expect(result.answers).toEqual(answers)
-    expect(sent?.modelId).toBe("gpt-6-astra")
+    expect(sent?.modelId).toBe("gpt-6.1-sol")
     expect(sent?.tools).toEqual([])
     expect(JSON.stringify(sent)).toContain("tests passed")
   })

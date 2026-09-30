@@ -73,7 +73,7 @@ codex login --device-auth
 export SMITHERS_OPENAI_AUTH=chatgpt
 ```
 
-For Codex, use `model: openai:gpt-6-astra`. For a Claude subscription, run
+For Codex, use `model: openai:gpt-6.1-sol`. For a Claude subscription, run
 `claude auth login` and use `model: opus`; with `ANTHROPIC_API_KEY` unset the
 seat runs on your own Claude Code, and with it set, on the Anthropic API. Team hosts use
 their connected accounts. The completion judge is Jev through the Vercel AI Gateway

@@ -6,7 +6,7 @@ role: assistant
 profile: ./flows/assistant/flow.mdx
 org: ./org
 world: ./world
-seat: openai:gpt-6-astra
+seat: openai:gpt-6.1-sol
 judgeSeat: openai:gpt-6-sol
 voice:
   openers: ["on it", "got it", "sure", "will do", "noted", "done:", "handoff"]

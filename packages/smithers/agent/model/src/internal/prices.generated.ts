@@ -245,23 +245,6 @@ export const modelPrices: Readonly<Record<string, ModelPrice>> = {
       "cacheWrite1h": 5
     }
   },
-  "gpt-6-astra": {
-    "input": 10,
-    "output": 50,
-    "cacheRead": 1,
-    "cacheWrite": 12.5,
-    "cacheWrite1h": 12.5,
-    "provider": "openai",
-    "context": "tiered",
-    "longContextFrom": 272000,
-    "longContext": {
-      "input": 20,
-      "output": 75,
-      "cacheRead": 2,
-      "cacheWrite": 25,
-      "cacheWrite1h": 25
-    }
-  },
   "gpt-6-luna": {
     "input": 0.1,
     "output": 0.5,
@@ -280,6 +263,23 @@ export const modelPrices: Readonly<Record<string, ModelPrice>> = {
     }
   },
   "gpt-6-sol": {
+    "input": 2,
+    "output": 10,
+    "cacheRead": 0.2,
+    "cacheWrite": 2.5,
+    "cacheWrite1h": 2.5,
+    "provider": "openai",
+    "context": "tiered",
+    "longContextFrom": 272000,
+    "longContext": {
+      "input": 4,
+      "output": 15,
+      "cacheRead": 0.4,
+      "cacheWrite": 5,
+      "cacheWrite1h": 5
+    }
+  },
+  "gpt-6.1-sol": {
     "input": 2,
     "output": 10,
     "cacheRead": 0.2,

@@ -577,7 +577,7 @@ func TestProxy_GatewayStatusIsUnknownAndKeyRefusalIsOpaque(t *testing.T) {
 func TestProxy_LongContextPromptIsReservedAndSettledAtTheLongRates(t *testing.T) {
 	f := newProxyFixture(t)
 	f.grant(100_000_000_000)
-	price, ok := modelprice.Lookup("gpt-6-astra")
+	price, ok := modelprice.Lookup("gpt-6.1-sol")
 	require.True(t, ok)
 	for _, tc := range []struct {
 		name   string
@@ -596,7 +596,7 @@ func TestProxy_LongContextPromptIsReservedAndSettledAtTheLongRates(t *testing.T)
 					tc.prompt, cached, written)
 			}
 			before := len(f.rows())
-			body := responsesBody("gpt-6-astra", int(tc.prompt))
+			body := responsesBody("gpt-6.1-sol", int(tc.prompt))
 			recorder := f.call("/model-proxy/openai/v1/responses", body)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 			rows := f.rows()

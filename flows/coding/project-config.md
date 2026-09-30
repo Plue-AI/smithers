@@ -56,7 +56,7 @@ fails the existing planning/validation policy; the loader invents none.
 
 ## Seats
 
-`seats` maps a role id to a seat alias (`sol`, `astra`, `luna`, `opus`,
+`seats` maps a role id to a seat alias (`sol`, `luna`, `opus`,
 `fable`, `qwen`) or an explicit `provider:model`, for example
 `{"coding/implement": "luna", "coding/plan": "sol"}`. A declared role wins over
 the `SMITHERS_CODING_*_MODEL` defaults; `SMITHERS_CODING_SEATS` (a JSON object of

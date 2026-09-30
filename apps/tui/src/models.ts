@@ -22,14 +22,12 @@ export interface Model {
 export const delegateModels = {
   cerebras: Providers.defaultSeat.cerebras,
   luna: Providers.seatAliases.luna!,
-  sol: Providers.seatAliases.sol!,
-  astra: Providers.seatAliases.astra!
+  sol: Providers.seatAliases.sol!
 } as const
 export type DelegateModel = string
 
 const subscription: ReadonlyArray<Omit<Model, "provider">> = [
-  { seat: "openai:gpt-6-sol", label: "GPT-6 Sol" },
-  { seat: "openai:gpt-6-astra", label: "GPT-6 Astra" }
+  { seat: "openai:gpt-6.1-sol", label: "GPT-6.1 Sol" }
 ]
 
 const byProvider: Readonly<Record<Providers.Candidate, ReadonlyArray<Omit<Model, "provider">>>> = {

@@ -88,7 +88,7 @@ seat resolver:
 ```ts
 const judge = Effect.gen(function*() {
   const resolver = yield* SeatResolver.SeatResolver
-  const seat = yield* resolver.resolve("openai:gpt-6-astra")
+  const seat = yield* resolver.resolve("openai:gpt-6.1-sol")
   return Evaluator.layerFromSeat(seat)
 })
 ```

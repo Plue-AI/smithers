@@ -475,6 +475,6 @@ describe("seat names", () => {
     const base = { seat: "openai:gpt-6-sol" }
     expect(Tabs.seatName(base, [])).toBe("sol")
     expect(Tabs.seatName({ ...base, harness: { vendor: "claude" } }, [])).toBe("claude")
-    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6-astra" }, [])).toBe("astra")
+    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6.1-sol" }, [])).toBe("astra")
   })
 })

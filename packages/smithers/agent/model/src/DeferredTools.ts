@@ -66,7 +66,7 @@ const isAnthropicDeferredModel = (modelId: string): boolean => ANTHROPIC_DEFERRE
 // opt-in until their wire support is verified against the live backend.
 //
 // GPT-6: OpenAI's tool search guide says "only `gpt-5.4` and later models
-// support `tool_search`" and uses gpt-6-astra in its client-executed examples
+// support `tool_search`" and uses GPT-6 models in its client-executed examples
 // (https://developers.openai.com/api/docs/guides/tools-tool-search, fetched
 // 2026-09-24). The same day a live probe sent this module's exact native body
 // (a `defer_loading` function carried only by a client `tool_search_output`)
@@ -83,8 +83,8 @@ const OPENAI_DEFERRED_MODELS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
+  "gpt-6.1-sol",
   "gpt-6-sol",
-  "gpt-6-astra",
   "gpt-6-luna"
 ])
 
@@ -94,8 +94,8 @@ const isOpenAiDeferredModel = (modelId: string): boolean => OPENAI_DEFERRED_MODE
 // that backend belong here (see the GPT-6 note above). GPT-5.x was never
 // probed there, so it keeps the portable lowering on this route.
 const CHATGPT_DEFERRED_MODELS = new Set([
+  "gpt-6.1-sol",
   "gpt-6-sol",
-  "gpt-6-astra",
   "gpt-6-luna"
 ])
 

@@ -700,7 +700,7 @@ describe("background work", () => {
     named.workspace.request({ ...request, model: "astra" })
     expect(named.workspace.snapshot().tabs[0]?.seat).toBe(Models.delegateModels.astra)
     await tick()
-    expect(named.input().seat).toBe("openai:gpt-6-astra")
+    expect(named.input().seat).toBe("openai:gpt-6.1-sol")
     named.complete({ _tag: "done", answer: "Done" })
     await tick()
 

@@ -6,7 +6,7 @@ import * as Transcript from "../src/transcript.ts"
 const sources: Complete.Sources = {
   models: [
     { seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "Codex subscription" },
-    { seat: "openai:gpt-6-astra", label: "GPT-6 Astra", provider: "Codex subscription" },
+    { seat: "openai:gpt-6.1-sol", label: "GPT-6.1 Sol", provider: "Codex subscription" },
     { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5", provider: "Anthropic" }
   ],
   files: () => ["README.md", "src/app.tsx", "src/view.tsx", "test/app.test.ts", "docs/my notes.md"]
@@ -18,7 +18,7 @@ describe("fuzzy", () => {
   it("matches letters in order and ranks runs and word starts first", () => {
     expect(Fuzzy.score("xyz", "model")).toBeUndefined()
     expect(Fuzzy.filter(["session", "resume", "new"], "se", (each) => each)).toEqual(["session", "resume"])
-    expect(Fuzzy.filter(["GPT-6 Astra", "GPT-6 Sol"], "sol", (each) => each)).toEqual(["GPT-6 Sol"])
+    expect(Fuzzy.filter(["GPT-6.1 Sol", "GPT-6 Sol"], "sol", (each) => each)).toEqual(["GPT-6 Sol"])
   })
 
   it("requires every space-separated token", () => {

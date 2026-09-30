@@ -129,7 +129,7 @@ export type State = typeof State.Type
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const seats = ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"] as const
+export const seats = ["luna", "sol", "opus", "fable", "sonnet", "kimi"] as const
 
 /**
  * One graph seat.
@@ -190,7 +190,7 @@ export interface Planned {
   readonly panel?: { readonly seats: ReadonlyArray<GraphSeat>; readonly merger: GraphSeat }
 }
 
-const panel: Planned = { seat: "fable", panel: { seats: ["opus", "fable", "astra"], merger: "fable" } }
+const panel: Planned = { seat: "fable", panel: { seats: ["opus", "fable", "sol"], merger: "fable" } }
 
 /**
  * The routing graph: the seat or panel one set of answers runs on. Writing
@@ -235,7 +235,7 @@ export const plan = (answers: Answers): Planned => {
  */
 export const backupsOf = (seat: GraphSeat, phase: Phase): ReadonlyArray<GraphSeat> =>
   seat === "fable"
-    ? ["astra"]
+    ? ["sol"]
     : seat === "opus"
     ? phase === "ui" ? ["kimi", "sol"] : ["sol"]
     : seat === "kimi"

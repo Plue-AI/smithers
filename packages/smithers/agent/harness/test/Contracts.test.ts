@@ -104,13 +104,13 @@ const jevEvents: ReadonlyArray<AgentEvent.AgentEvent> = [
     seat: "fable",
     modelId: "model-f",
     variant: "review",
-    candidates: ["opus", "fable", "astra", "sol"],
+    candidates: ["opus", "fable", "sol"],
     decidedBy: "jev",
     latencyMs: 90,
-    backups: ["astra"],
+    backups: ["sol"],
     panel: {
-      seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: ["astra"] }, {
-        seat: "astra",
+      seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: ["sol"] }, {
+        seat: "sol",
         backups: []
       }],
       merger: "fable"

@@ -13,7 +13,7 @@ describe("profile", () => {
     expect(suite.profile).toBe(join(example, "flows/assistant/flow.mdx"))
     const composed = Profile.compose({ org: suite.org, role: suite.role, profile: suite.profile })
     expect(composed.name).toBe("Assistant")
-    expect(composed.seat).toBe("openai:gpt-6-astra")
+    expect(composed.seat).toBe("openai:gpt-6.1-sol")
     expect(composed.effort).toBe("low")
     expect(composed.skills).toEqual(["voice"])
     expect(composed.system[2]).toStartWith("# Role: Assistant (assistant)\n\n## Objective")

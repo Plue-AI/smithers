@@ -23,7 +23,7 @@ import * as SeatRouter from "../src/SeatRouter.ts"
 type Size = SeatRouter.Answers["size"]
 type Clarity = SeatRouter.Answers["clarity"]
 
-const everySeat = ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"] as const
+const everySeat = ["luna", "sol", "opus", "fable", "sonnet", "kimi"] as const
 const phases = ["plan", "implement", "review", "ui", "tool", "other"] as const
 const sizes = ["trivial", "simple", "middle", "important"] as const
 const clarities = ["clear", "unknowns"] as const
@@ -47,7 +47,7 @@ const graph: ReadonlyArray<
   ["plan", "simple", "*", "*", "opus"],
   // Middle plan: Fable.
   ["plan", "middle", "*", "*", "fable"],
-  // Important/complex plan: Opus + Fable + Astra in parallel; Fable merges.
+  // Important/complex plan: Opus + Fable + Sol in parallel; Fable merges.
   ["plan", "important", "*", "*", "panel"],
   // Implementation: Fable for the ~1% most important/architected code.
   ["implement", "important", "unknowns", "*", "fable"],
@@ -76,7 +76,7 @@ const expected = (answers: SeatRouter.Answers): SeatRouter.Planned => {
   )!
   const pick = row[4]
   return pick === "panel"
-    ? { seat: "fable", panel: { seats: ["opus", "fable", "astra"], merger: "fable" } }
+    ? { seat: "fable", panel: { seats: ["opus", "fable", "sol"], merger: "fable" } }
     : { seat: pick as SeatRouter.GraphSeat }
 }
 
@@ -113,12 +113,12 @@ describe("SeatRouter.plan", () => {
 })
 
 describe("SeatRouter.backupsOf", () => {
-  it("fails Fable over to Astra, Opus to Sol (Kimi then Sol for UI), Kimi to none, the rest to Kimi", () => {
-    expect(SeatRouter.backupsOf("fable", "plan")).toEqual(["astra"])
+  it("fails Fable over to Sol, Opus to Sol (Kimi then Sol for UI), Kimi to none, the rest to Kimi", () => {
+    expect(SeatRouter.backupsOf("fable", "plan")).toEqual(["sol"])
     expect(SeatRouter.backupsOf("opus", "implement")).toEqual(["sol"])
     expect(SeatRouter.backupsOf("opus", "ui")).toEqual(["kimi", "sol"])
     expect(SeatRouter.backupsOf("kimi", "other")).toEqual([])
-    for (const seat of ["sonnet", "luna", "sol", "astra"] as const) {
+    for (const seat of ["sonnet", "luna", "sol"] as const) {
       expect(SeatRouter.backupsOf(seat, "tool")).toEqual(["kimi"])
     }
   })
@@ -185,32 +185,32 @@ describe("SeatRouter.fit", () => {
     const planned = SeatRouter.plan({ phase: "plan", size: "important", clarity: "clear", binary: false })
     expect(SeatRouter.fit(planned, "plan", everySeat)).toEqual({
       seat: "fable",
-      backups: ["astra"],
+      backups: ["sol"],
       panel: {
         seats: [
-          { seat: "opus", backups: ["sol"] },
-          // Astra answers on the panel, so Fable does not fail over to it.
+          // Sol answers on the panel, so neither Opus nor Fable fails over to it.
+          { seat: "opus", backups: [] },
           { seat: "fable", backups: [] },
-          { seat: "astra", backups: ["kimi"] }
+          { seat: "sol", backups: ["kimi"] }
         ],
         merger: "fable"
       }
     })
-    // Fable and Astra both land on Astra; with Opus gone the panel is Astra alone, with Astra's backup.
-    expect(SeatRouter.fit(planned, "plan", ["astra"])).toEqual({ seat: "astra", backups: [] })
-    expect(SeatRouter.fit(planned, "plan", ["astra", "kimi"])).toEqual({ seat: "astra", backups: ["kimi"] })
-    // With Fable gone, its chain lands on Astra; the Astra member keeps Astra's own backup, Kimi.
-    expect(SeatRouter.fit(planned, "plan", ["opus", "astra", "kimi"])).toEqual({
-      seat: "astra",
+    // Opus and Fable both land on Sol; the panel is Sol alone, with Sol's backup.
+    expect(SeatRouter.fit(planned, "plan", ["sol"])).toEqual({ seat: "sol", backups: [] })
+    expect(SeatRouter.fit(planned, "plan", ["sol", "kimi"])).toEqual({ seat: "sol", backups: ["kimi"] })
+    // With Fable gone, its chain lands on Sol; the Sol member keeps Sol's own backup, Kimi.
+    expect(SeatRouter.fit(planned, "plan", ["opus", "sol", "kimi"])).toEqual({
+      seat: "sol",
       backups: [],
-      panel: { seats: [{ seat: "opus", backups: [] }, { seat: "astra", backups: ["kimi"] }], merger: "astra" }
+      panel: { seats: [{ seat: "opus", backups: [] }, { seat: "sol", backups: ["kimi"] }], merger: "sol" }
     })
   })
 
   it("routes a panel with no member available to the merger's chain alone", () => {
     // A caller's pick whose panel does not seat its merger: with every member
     // chain gone, the merger answers by itself rather than dropping the route.
-    const planned: SeatRouter.Planned = { seat: "opus", panel: { seats: ["fable"], merger: "opus" } }
+    const planned: SeatRouter.Planned = { seat: "opus", panel: { seats: ["kimi"], merger: "opus" } }
     expect(SeatRouter.fit(planned, "plan", ["opus", "sol"])).toEqual({ seat: "opus", backups: ["sol"] })
     expect(SeatRouter.fit(planned, "plan", ["sol"])).toEqual({ seat: "sol", backups: [] })
     expect(SeatRouter.fit(planned, "plan", ["kimi"])).toBeUndefined()
@@ -307,12 +307,12 @@ describe("SeatRouter.route", () => {
     const decision = Exit.isSuccess(exit) ? exit.value : undefined
     expect(decision).toMatchObject({
       seat: "fable",
-      backups: ["astra"],
+      backups: ["sol"],
       panel: {
         seats: [
-          { seat: "opus", backups: ["sol"] },
+          { seat: "opus", backups: [] },
           { seat: "fable", backups: [] },
-          { seat: "astra", backups: ["kimi"] }
+          { seat: "sol", backups: ["kimi"] }
         ],
         merger: "fable"
       },
@@ -332,7 +332,7 @@ describe("SeatRouter.route", () => {
     const decision = Exit.isSuccess(exit) ? exit.value : undefined
     expect(decision).toMatchObject({
       seat: "fable",
-      backups: ["astra"],
+      backups: ["sol"],
       answers: { phase: "review", size: "important" }
     })
     expect(decision).not.toHaveProperty("panel")
@@ -488,7 +488,7 @@ describe("SeatRouter.events", () => {
           }))
         )
       ),
-      catalog(["opus", "fable", "sol"])
+      catalog(["opus", "fable"])
     )
     const decision = Exit.isSuccess(exit) ? exit.value : undefined
     const [routed, settled, ...rest] = SeatRouter.events(decision!, at)
@@ -501,8 +501,8 @@ describe("SeatRouter.events", () => {
       modelId: "fable-1",
       variant: "investigate",
       decidedBy: "jev",
-      candidates: ["opus", "fable", "sol"],
-      panel: { seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: [] }], merger: "fable" }
+      candidates: ["opus", "fable"],
+      panel: { seats: [{ seat: "opus", backups: [] }, { seat: "fable", backups: [] }], merger: "fable" }
     })
     expect(routed).not.toHaveProperty("backups")
     expect(

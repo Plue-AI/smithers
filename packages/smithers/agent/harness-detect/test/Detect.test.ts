@@ -234,7 +234,7 @@ describe("the table", () => {
     expect(harnessModelSpec("nope")).toBeUndefined()
     expect(harnessModels("codex")).toEqual({
       flag: ["-m"],
-      suggestions: ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"]
+      suggestions: ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"]
     })
     expect(harnessModels("opencode")?.list).toEqual(["opencode", "models"])
     expect(harnessModels("opencode-kimi")?.list).toEqual(["opencode", "models", "kimi-for-coding"])
@@ -255,7 +255,7 @@ describe("the table", () => {
       listable: true
     })
     expect(byId.codex?.models).toEqual({
-      suggestions: ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"],
+      suggestions: ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"],
       listable: false
     })
     expect(byId.crush?.models).toBeUndefined()

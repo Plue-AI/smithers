@@ -15,7 +15,7 @@ describe("seatOf", () => {
   test.each(
     [
       ["sol", "openai:gpt-6-sol"],
-      ["astra", "openai:gpt-6-astra"],
+      ["astra", "openai:gpt-6.1-sol"],
       ["luna", Models.delegateModels.luna],
       // A Claude alias stays an alias: the seat resolver runs it on a key or on Claude Code.
       ["opus", "opus"],

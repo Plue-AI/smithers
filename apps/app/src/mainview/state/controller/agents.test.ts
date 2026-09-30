@@ -53,7 +53,7 @@ test("the card lists the built-in roles, then the repository's flows that declar
   await loadRepository(t.store, [
     flow("review", "sol", "Reviews the working-copy change."),
     flow("checks/lint", null),
-    flow("assistant", "openai:gpt-6-astra", "Answers questions and routes work."),
+    flow("assistant", "openai:gpt-6.1-sol", "Answers questions and routes work."),
     flow("product-release", "openai:gpt-6-sol", "Ships a release.")
   ])
   await t.agents.listAgents()
@@ -62,7 +62,7 @@ test("the card lists the built-in roles, then the repository's flows that declar
   expect(t.rows().slice(AGENT_ROLES.length)).toEqual([
     { id: "review", label: "review", purpose: "Reviews the working-copy change.", model: { provider: "", id: "sol", label: "sol" },
       builtin: false, available: false, reason: "", account: "" },
-    { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6-astra", label: "gpt-6-astra" },
+    { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
       builtin: false, available: false, reason: "", account: "" },
     { id: "product-release", label: "product-release", purpose: "Ships a release.", model: { provider: "openai", id: "gpt-6-sol", label: "GPT-6 Sol" },
       builtin: false, available: false, reason: "", account: "" }

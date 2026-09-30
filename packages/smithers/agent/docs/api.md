@@ -800,7 +800,7 @@ a pick with nothing available, fails as `Seat.SeatUnrouted`.
 ### SeatRouter.seats, SeatRouter.phases
 
 ```ts
-const seats: readonly ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"]
+const seats: readonly ["luna", "sol", "opus", "fable", "sonnet", "kimi"]
 type GraphSeat = typeof seats[number]
 const phases: readonly ["plan", "implement", "review", "ui", "tool", "other"]
 type Phase = typeof phases[number]
@@ -826,7 +826,7 @@ const plan: (answers: Answers) => Planned
 const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
 ```
 
-`plan` is the graph; the panel is Opus, Fable, and Astra, merged by Fable.
+`plan` is the graph; the panel is Opus, Fable, and Sol, merged by Fable.
 
 | Phase       | Pick                                                                     |
 | ----------- | ------------------------------------------------------------------------ |
@@ -838,7 +838,7 @@ const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
 | `other`     | Opus                                                                     |
 
 Writing code never runs on Luna. `backupsOf` is the failover order: Fable to
-Astra; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
+Sol; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
 to Kimi.
 
 ### SeatRouter.fit, SeatRouter.Route

@@ -282,7 +282,7 @@ const probeRequest = (modelId: string): ModelRequest =>
   })
 
 describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
-  const gpt6 = ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"] as const
+  const gpt6 = ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"] as const
 
   it("allowlists exactly the GPT-6 ids whose native probe called the deferred tool", () => {
     const probed = [...new Set(probe.records.map((record) => record.model))].sort()

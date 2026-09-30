@@ -205,7 +205,7 @@ export const load = (dir: string, only?: ReadonlyArray<string>): Suite => {
     profile: at(base, raw.profile),
     org: at(base, String(raw.org)),
     world: at(base, String(raw.world)),
-    seat: String(raw.seat ?? "openai:gpt-6-astra"),
+    seat: String(raw.seat ?? "openai:gpt-6.1-sol"),
     judgeSeat: String(raw.judgeSeat ?? "openai:gpt-6-sol"),
     voice: {
       openers: strings(voice.openers),

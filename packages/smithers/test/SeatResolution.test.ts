@@ -680,8 +680,7 @@ describe("NodeControl.seatResolver behind SMITHERS_MODEL_PROXY_URL", () => {
 describe("NodeControl.seatResolver aliases", () => {
   it.each(
     [
-      ["sol", "gpt-6-sol", "https://api.openai.com/v1/responses"],
-      ["astra", "gpt-6-astra", "https://api.openai.com/v1/responses"],
+      ["sol", "gpt-6.1-sol", "https://api.openai.com/v1/responses"],
       ["luna", "gpt-6-luna", "https://api.openai.com/v1/responses"],
       ["opus", "claude-opus-5-5", "https://api.anthropic.com/v1/messages"],
       ["sonnet", "claude-sonnet-5-5", "https://api.anthropic.com/v1/messages"],

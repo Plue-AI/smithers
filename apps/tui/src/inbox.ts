@@ -166,7 +166,7 @@ export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript
   if (row.run !== undefined) return row.run.message === undefined ? [] : [row.run.message]
   const tab = row.worker
   if (tab === undefined) return []
-  // A backup seat answering, as `fable → astra`.
+  // A backup seat answering, as `fable → sol`.
   const backup = tab.activeSeat !== undefined && tab.activeSeat !== tab.seat
     ? [`${Tabs.model(tab.seat, [])} → ${Tabs.model(tab.activeSeat, [])}`]
     : []

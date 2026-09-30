@@ -153,7 +153,7 @@ func TestUnknownContextPricingIsRefused(t *testing.T) {
 func TestOpenAILongContextPremiumAtBelowAndAboveThreshold(t *testing.T) {
 	type card struct{ in, cacheRead, cacheWrite, out float64 }
 	cards := map[string]card{
-		"gpt-6-astra":   {10, 1, 12.5, 50},
+		"gpt-6.1-sol":   {2, 0.2, 2.5, 10},
 		"gpt-6-sol":     {2, 0.2, 2.5, 10},
 		"gpt-6-luna":    {0.1, 0.01, 0.125, 0.5},
 		"gpt-5.6-sol":   {4, 0.4, 5, 20},
@@ -229,7 +229,7 @@ func TestPublishedRateCards(t *testing.T) {
 }
 
 func TestMaximumCoversEverySplitAcrossTheThreshold(t *testing.T) {
-	price, _ := Lookup("gpt-6-astra")
+	price, _ := Lookup("gpt-6.1-sol")
 	for _, bound := range []int64{100_000, 271_999, 272_000, 500_000} {
 		limit, err := CostNanos(price, price.Maximum(bound, 5000))
 		if err != nil {

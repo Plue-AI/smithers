@@ -21,7 +21,7 @@ const fixture = () => {
   const profile = join(root, "flows/assistant/flow.mdx")
   writeFileSync(
     profile,
-    "---\ndescription: Assistant\nmodel: openai:gpt-6-astra\nmetadata:\n  name: Assistant\n  skills: voice\n---\nCharter"
+    "---\ndescription: Assistant\nmodel: openai:gpt-6.1-sol\nmetadata:\n  name: Assistant\n  skills: voice\n---\nCharter"
   )
   return { root, profile }
 }
@@ -33,13 +33,13 @@ test("production uses the shared eval composition and its exact digest", async (
     org: join(root, "Org"),
     role: "assistant",
     body: "Charter",
-    meta: { description: "Assistant", model: "openai:gpt-6-astra", metadata: { name: "Assistant", skills: "voice" } }
+    meta: { description: "Assistant", model: "openai:gpt-6.1-sol", metadata: { name: "Assistant", skills: "voice" } }
   })
   const actual = await run(Profile.forRun(
     root,
     {
       name: "assistant",
-      frontmatter: { metadata: { name: "Assistant", skills: "voice" }, model: "openai:gpt-6-astra" }
+      frontmatter: { metadata: { name: "Assistant", skills: "voice" }, model: "openai:gpt-6.1-sol" }
     },
     "Charter",
     ["fs:read:Org/Common Operating Instructions.md", "fs:read:Org/Skills/**"]

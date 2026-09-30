@@ -1414,7 +1414,7 @@ describe("AgentAction payload-chosen seats", () => {
 describe("AgentAction seat auto", () => {
   const decodes = answering(`{"approved":true,"issues":[]}`)
   // Sonnet runs alone here; Opus fails over to Sol.
-  const candidates = ["sonnet", "opus", "sol", "fable", "astra"]
+  const candidates = ["sonnet", "opus", "sol", "fable"]
   const catalog = SeatRouter.layer({ candidates: Effect.succeed(candidates), variants: SeatRouter.defaultVariants })
 
   /** Edge answers the graph routes to Sonnet, to Opus, and to the review panel. */
@@ -1878,7 +1878,7 @@ describe("AgentAction seat auto", () => {
       const seen: Array<AgentEvent.AgentEvent> = []
       // Opus and Astra have no backup here; Fable fails over to Astra.
       const catalog = SeatRouter.layer({
-        candidates: Effect.succeed(["opus", "fable", "astra"]),
+        candidates: Effect.succeed(["opus", "fable", "sol"]),
         variants: SeatRouter.defaultVariants
       })
       const runtime = ManagedRuntime.make(Layer.merge(
@@ -1916,7 +1916,7 @@ describe("AgentAction seat auto", () => {
         {
           opus: { answer: review("opus"), refuse: "once" },
           fable: { answer: review("fable"), merged: review("merged", false) },
-          astra: { answer: review("astra", false), refuse: "once" }
+          sol: { answer: review("sol", false), refuse: "once" }
         },
         "auto-panel"
       )
@@ -1929,12 +1929,12 @@ describe("AgentAction seat auto", () => {
       expect(Object.keys(routed[0]!.questions)).not.toContain("phase")
       expect(seen[0]).toMatchObject({
         seat: "fable",
-        backups: ["astra"],
+        backups: ["sol"],
         panel: {
           seats: [
             { seat: "opus", backups: [] },
             { seat: "fable", backups: [] },
-            { seat: "astra", backups: [] }
+            { seat: "sol", backups: [] }
           ],
           merger: "fable"
         }
@@ -1942,8 +1942,8 @@ describe("AgentAction seat auto", () => {
       // The merger reads the task and every member's decoded answer.
       const merge = mergeOf(requests)
       expect(merge).toContain("Review this diff:\ndiff")
-      for (const seat of ["opus", "fable", "astra"]) {
-        expect(merge).toContain(`${seat}: {"approved":${seat !== "astra"},"issues":["${seat}"]}`)
+      for (const seat of ["opus", "fable", "sol"]) {
+        expect(merge).toContain(`${seat}: {"approved":${seat !== "sol"},"issues":["${seat}"]}`)
       }
       expect(merge).not.toContain("failed and gave no answer")
     })
@@ -1953,7 +1953,7 @@ describe("AgentAction seat auto", () => {
         {
           opus: { answer: review("opus") },
           fable: { answer: review("fable"), merged: review("merged", false) },
-          astra: { answer: review("astra"), refuse: "always" }
+          sol: { answer: review("sol"), refuse: "always" }
         },
         "auto-panel-survivors"
       )
@@ -1962,8 +1962,8 @@ describe("AgentAction seat auto", () => {
       const merge = mergeOf(requests)
       expect(merge).toContain(`opus: {"approved":true,"issues":["opus"]}`)
       expect(merge).toContain(`fable: {"approved":true,"issues":["fable"]}`)
-      expect(merge).not.toContain(`astra: {`)
-      expect(merge).toContain("These seats failed and gave no answer: astra.")
+      expect(merge).not.toContain(`sol: {`)
+      expect(merge).toContain("These seats failed and gave no answer: sol.")
     })
 
     it("fails when no member answers, without asking the merger", async () => {
@@ -1971,7 +1971,7 @@ describe("AgentAction seat auto", () => {
         {
           opus: { answer: review("opus"), refuse: "always" },
           fable: { answer: review("fable"), refuse: "always" },
-          astra: { answer: review("astra"), refuse: "always" }
+          sol: { answer: review("sol"), refuse: "always" }
         },
         "auto-panel-none"
       )
@@ -1985,14 +1985,14 @@ describe("AgentAction seat auto", () => {
         {
           opus: { answer: review("opus") },
           fable: { answer: review("fable"), merged: review("merged") },
-          astra: { answer: review("astra") }
+          sol: { answer: review("sol") }
         },
         "auto-panel-one-way",
         true
       )
 
       // Every member answered and decoded; none could be handed on.
-      for (const seat of ["opus", "fable", "astra"]) expect(requests[seat]).toHaveLength(1)
+      for (const seat of ["opus", "fable", "sol"]) expect(requests[seat]).toHaveLength(1)
       expect(Object.values(requests).flat().some((prompt) => prompt.includes("Independent answers"))).toBe(false)
       const failure = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined
       expect(failure).toMatchObject({ code: "model_failed", message: "The panel answer of opus did not encode" })

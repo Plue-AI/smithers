@@ -32,7 +32,7 @@ it.skipIf(process.env.SMITHERS_LIVE_MODEL_TESTS !== "1")(
         join(root, "flows", "hello", "flow.mdx"),
         `---
 description: Subscription prompt proof.
-model: openai:gpt-6-astra
+model: openai:gpt-6.1-sol
 capabilities: []
 ---
 Reply with the exact text SUBSCRIPTION_OK. Do not run tools or modify files. This request is complete when your response contains that exact text.
@@ -87,7 +87,7 @@ Reply with the exact text SUBSCRIPTION_OK. Do not run tools or modify files. Thi
               db.prepare("SELECT payload_json FROM flows_journal_events WHERE event_type = ?").all(type).map((event) =>
                 JSON.parse(String(event.payload_json))
               )
-            expect(payloads("control.agent.model-requested").some((event) => event.modelId === "gpt-6-astra")).toBe(
+            expect(payloads("control.agent.model-requested").some((event) => event.modelId === "gpt-6.1-sol")).toBe(
               true
             )
             expect(JSON.stringify(payloads("control.agent.resolved"))).toContain("SUBSCRIPTION_OK")

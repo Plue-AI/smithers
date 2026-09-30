@@ -39,7 +39,7 @@ The four decisions every declaration makes:
   task's phase, size, clarity, and binary success, and the routing graph picks
   the seat and its backups from the host's `SeatRouter.Catalog`. `phase` pins
   the phase so Jev is not asked it. An important plan or review routes to a
-  panel: the step runs on Opus, Fable, and Astra in parallel, each with its own
+  panel: the step runs on Opus, Fable, and Sol in parallel, each with its own
   backups, then Fable merges their answers. A member that fails is named to
   the merger and left out; the step fails only when no member answers.
   Corrections and the repair reuse the routed seat unless `repair.seat` names

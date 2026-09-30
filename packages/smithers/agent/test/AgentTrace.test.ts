@@ -1878,12 +1878,12 @@ describe("Jev receipts", () => {
         seat: "fable",
         modelId: "model-c",
         variant: "review",
-        candidates: ["opus", "fable", "astra"],
+        candidates: ["opus", "fable", "sol"],
         decidedBy: "jev",
         latencyMs: 75,
-        backups: ["astra"],
+        backups: ["sol"],
         panel: {
-          seats: [{ seat: "opus", backups: ["astra"] }, { seat: "fable", backups: [] }],
+          seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: [] }],
           merger: "fable"
         }
       }),
@@ -1895,12 +1895,12 @@ describe("Jev receipts", () => {
           seat: "fable",
           modelId: "model-c",
           variant: "review",
-          candidates: ["opus", "fable", "astra"],
+          candidates: ["opus", "fable", "sol"],
           decidedBy: "jev",
           latencyMs: 75,
-          backups: ["astra"],
+          backups: ["sol"],
           panel: {
-            seats: [{ seat: "opus", backups: ["astra"] }, { seat: "fable", backups: [] }],
+            seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: [] }],
             merger: "fable"
           }
         }

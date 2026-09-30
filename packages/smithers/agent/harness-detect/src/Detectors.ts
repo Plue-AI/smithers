@@ -162,7 +162,7 @@ export const DETECTORS: ReadonlyArray<Detector> = [
     binary: "codex",
     launch: ["codex"],
     /* `codex --help`: "-m, --model <MODEL>"; the ids are the seats apps/tui/src/models.ts routes Codex to. */
-    models: { flag: ["-m"], suggestions: ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"] },
+    models: { flag: ["-m"], suggestions: ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"] },
     signal: (host) => {
       const { join } = hostPath(host)
       const auth = readJson(host, join(envDir(host, "CODEX_HOME", join(host.home, ".codex")), "auth.json"))

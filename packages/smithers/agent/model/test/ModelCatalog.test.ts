@@ -56,7 +56,7 @@ describe("ModelCatalog.contextWindowTokensFor", () => {
   // floor, or long sessions on it compact early and discard context.
   it.each([
     ["gpt-6-sol", 400_000],
-    ["gpt-6-astra", 400_000],
+    ["gpt-6.1-sol", 400_000],
     ["gpt-6-luna", 400_000],
     ["gpt-5.6-sol", 400_000],
     ["claude-opus-5-5", 1_000_000],
