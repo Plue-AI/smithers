@@ -301,3 +301,52 @@ func TestPairMutationsRecheckAuthorityAtWriteTime(t *testing.T) {
 		}
 	}
 }
+
+type pairPresenceBarrierStore struct {
+	*pairWriteBarrierStore
+}
+
+func (s pairPresenceBarrierStore) UpdatePairSessionMemberPresence(ctx context.Context, arg db.UpdatePairSessionMemberPresenceParams) (db.PairSessionMember, error) {
+	s.pause()
+	return s.PairSessionStore.UpdatePairSessionMemberPresence(ctx, arg)
+}
+
+// TestPairHeartbeatAfterRemovalOrEndWritesNothing parks a heartbeat after its
+// role check. Heartbeats are not serialized behind the session lock; their
+// write itself requires a live member of a live session.
+func TestPairHeartbeatAfterRemovalOrEndWritesNothing(t *testing.T) {
+	for _, change := range []string{"revoke", "end"} {
+		t.Run(change, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			fx := newPairFixture(t)
+			owner := mkPairUser(t, fx.pool, "beat-owner")
+			editor := mkPairUser(t, fx.pool, "beat-editor")
+			ws := mkPairWorkspace(t, fx.pool, owner, fx.repoID)
+			svc := newPairService(fx, map[int64]bool{owner: true, editor: true}, false, nil)
+			session, err := svc.CreateSession(ctx, owner, fx.repoID, ws)
+			require.NoError(t, err)
+			link, err := svc.MintLink(ctx, session.ID, owner, PairRoleEditor)
+			require.NoError(t, err)
+			_, err = svc.ResolveByLink(ctx, link.Slug, editor)
+			require.NoError(t, err)
+
+			barrier := pairPresenceBarrierStore{&pairWriteBarrierStore{PairSessionStore: fx.store, entered: make(chan struct{}), release: make(chan struct{})}}
+			parked := NewPairSessionService(barrier, &stubBilling{paid: map[int64]bool{owner: true, editor: true}}, &stubForker{pool: fx.pool, repoID: fx.repoID},
+				PairSessionServiceConfig{TxBeginner: fx.pool})
+			beat := make(chan error, 1)
+			go func() { beat <- parked.Heartbeat(ctx, session.ID, editor, []byte(`{"cursor":1}`)) }()
+			<-barrier.entered
+			if change == "revoke" {
+				require.NoError(t, svc.RevokeMember(ctx, session.ID, owner, editor))
+			} else {
+				require.NoError(t, svc.EndSession(ctx, session.ID, owner))
+			}
+			close(barrier.release)
+			require.Equal(t, 403, httpStatus(<-beat), "a beat that lost its authority must not write")
+			var presence []byte
+			require.NoError(t, fx.pool.QueryRow(ctx, `SELECT presence FROM pair_session_members WHERE session_id=$1 AND user_id=$2`, session.ID, editor).Scan(&presence))
+			require.NotContains(t, string(presence), "cursor")
+		})
+	}
+}

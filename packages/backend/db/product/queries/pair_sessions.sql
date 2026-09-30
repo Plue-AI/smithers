@@ -150,7 +150,9 @@ WHERE session_id = $1
 RETURNING *;
 
 -- name: UpdatePairSessionMemberPresence :one
--- 80ms cursor/caret beat writes ONLY this member's row.
+-- 80ms cursor/caret beat writes ONLY this member's row, and only while the
+-- member and the session are both live, so a beat racing a removal or an end
+-- cannot write after it.
 UPDATE pair_session_members
 SET presence = sqlc.arg(presence),
     presence_updated_at = NOW(),
@@ -158,6 +160,11 @@ SET presence = sqlc.arg(presence),
 WHERE session_id = $1
   AND user_id = $2
   AND removed_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM pair_sessions
+    WHERE pair_sessions.id = pair_session_members.session_id
+      AND pair_sessions.status NOT IN ('ended', 'failed')
+  )
 RETURNING *;
 
 -- name: TouchPairSessionMemberSeen :exec

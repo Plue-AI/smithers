@@ -1598,6 +1598,11 @@ SET presence = $3,
 WHERE session_id = $1
   AND user_id = $2
   AND removed_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM pair_sessions
+    WHERE pair_sessions.id = pair_session_members.session_id
+      AND pair_sessions.status NOT IN ('ended', 'failed')
+  )
 RETURNING session_id, user_id, role, invited_via_invite_id, presence, presence_updated_at, last_seen_at, joined_at, removed_at
 `
 
@@ -1607,7 +1612,9 @@ type UpdatePairSessionMemberPresenceParams struct {
 	Presence  json.RawMessage `json:"presence"`
 }
 
-// 80ms cursor/caret beat writes ONLY this member's row.
+// 80ms cursor/caret beat writes ONLY this member's row, and only while the
+// member and the session are both live, so a beat racing a removal or an end
+// cannot write after it.
 func (q *Queries) UpdatePairSessionMemberPresence(ctx context.Context, arg UpdatePairSessionMemberPresenceParams) (PairSessionMember, error) {
 	row := q.db.QueryRow(ctx, updatePairSessionMemberPresence, arg.SessionID, arg.UserID, arg.Presence)
 	var i PairSessionMember
