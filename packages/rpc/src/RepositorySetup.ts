@@ -223,6 +223,11 @@ export const SetupReceiptSchema = z.object({
   results: z.array(SetupEvalResultSchema),
   evidence: z.array(z.string()),
   error: z.string().optional(),
+  observation: z.object({
+    state: z.enum(["blocked", "failed"]),
+    code: z.enum(["runtime_unavailable", "runtime_unrecoverable"]),
+    observedAt: z.number().int().positive()
+  }).optional(),
   trialIssue: z.object({
     source: z.enum(["github", "smithers-cloud"]),
     number: z.number().int().positive(),

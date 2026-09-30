@@ -43,6 +43,7 @@ func (e *Error) Error() string {
 	return "flow runtime bridge: " + e.Code + ": " + e.Message
 }
 
+func (e *Error) FlowRuntimeHTTPStatus() int { return e.HTTPStatus }
 func (e *Error) FlowRuntimeCode() string    { return e.Code }
 func (e *Error) FlowRuntimeRetryable() bool { return e.Retryable }
 

@@ -170,46 +170,9 @@ func (s *RepositorySetupService) Read(ctx context.Context, repoID, userID int64,
 	if err != nil {
 		return SetupRecord{}, err
 	}
-	return s.observeSetupRetry(ctx, record), nil
+	return record, nil
 }
 
-// A launch can be retried before a repository/setup run exists. Keep the
-// accepted queued receipt and its pinned workspace, but show a safe delay
-// reason from the durable dispatch state. The dispatcher's last_error can
-// contain provider details and must never enter a product response.
-func (s *RepositorySetupService) observeSetupRetry(ctx context.Context, record SetupRecord) SetupRecord {
-	receipt := record.Response.Receipt
-	if record.OperationID == "" || record.Terminal || receipt == nil || receipt.Phase != "queued" || receipt.RunID != "" {
-		return record
-	}
-	scope := repositoryJobFlowScope(record.RepositoryID, record.UserID)
-	var attempt int
-	var status string
-	var failedBefore bool
-	err := s.pool.QueryRow(ctx, `SELECT d.attempt,d.status,COALESCE(d.last_error,'')<>''
-		FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id
-		WHERE r.id=$1 AND r.tenant_id=$2 AND r.principal_id=$3 AND r.operation=$4`,
-		record.OperationID, scope.TenantID, scope.PrincipalID, flowdispatch.OperationLaunch).
-		Scan(&attempt, &status, &failedBefore)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return record
-	}
-	if err != nil {
-		if record.ObservationError == "" {
-			record.ObservationError = "Setup status is temporarily unavailable"
-		}
-		return record
-	}
-	if attempt == 0 || !failedBefore || (status != "ready" && status != "claimed") {
-		return record
-	}
-	response := record.Response
-	observed := *receipt
-	observed.Error = "Retrying"
-	response.Receipt = &observed
-	record.Response = response
-	return record
-}
 func (s *RepositorySetupService) latest(ctx context.Context, repoID, userID int64, job string) (SetupRecord, error) {
 	return scanSetup(s.pool.QueryRow(ctx, "SELECT "+setupColumns+" FROM repository_setup_requests WHERE user_id=$1 AND repository_id=$2 AND job=$3 ORDER BY created_at DESC,id DESC LIMIT 1", userID, repoID, job))
 }
@@ -253,9 +216,6 @@ func (s *RepositorySetupService) ResolveFlowHostTarget(ctx context.Context, targ
 		if createErr != nil {
 			return flowhost.Authority{}, createErr
 		}
-		if workspace.Status != "running" {
-			return refuse("runtime_workspace_not_ready", true)
-		}
 		// Setup runs on the repository's own box: every box runs the catalog's
 		// pinned coding host, so any box serves it. The primary box's
 		// find-or-create deduplicates provisioning; keep the first selected
@@ -264,13 +224,36 @@ func (s *RepositorySetupService) ResolveFlowHostTarget(ctx context.Context, targ
 		if err != nil {
 			return refuse("runtime_binding_unavailable", true)
 		}
+		if workspace.Status != "running" {
+			return refuse("runtime_workspace_not_ready", true)
+		}
 	}
 	workspace, err := db.New(s.pool).GetWorkspaceForUserRepo(ctx, db.GetWorkspaceForUserRepoParams{ID: workspaceID, RepositoryID: repoID, UserID: userID})
-	if err != nil || workspace.DeletedAt.Valid {
+	if err != nil {
+		return refuse("runtime_workspace_unavailable", !errors.Is(err, pgx.ErrNoRows))
+	}
+	if workspace.DeletedAt.Valid {
 		return refuse("runtime_workspace_unavailable", false)
 	}
 	return flowhost.Authority{Target: target, RepositoryID: repoID, UserID: userID, WorkspaceID: workspaceID, CatalogKey: flowhost.CatalogCoding}, nil
 }
+func setupPreRunObservation(checkpoint flowdispatch.RuntimeCheckpoint, state jobs.State) *SetupObservation {
+	if checkpoint.RunID != "" || checkpoint.Run != nil || checkpoint.FailureCode == "" {
+		return nil
+	}
+	observedAt := checkpoint.FailureObservedAt
+	if observedAt <= 0 {
+		// Legacy checkpoints did not retain a time. We observe the refusal
+		// now, without inventing its age.
+		observedAt = time.Now().UnixMilli()
+	}
+	observation := &SetupObservation{State: "blocked", Code: "runtime_unavailable", ObservedAt: observedAt}
+	if state.Terminal() {
+		observation.State, observation.Code = "failed", "runtime_unrecoverable"
+	}
+	return observation
+}
+
 func (s *RepositorySetupService) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 	var correlation struct {
 		Kind string `json:"kind"`
@@ -308,6 +291,10 @@ func (s *RepositorySetupService) ProjectFlowRuntime(ctx context.Context, update 
 	receipt.RunID = checkpoint.RunID
 	observationError := ""
 	terminal := false
+	if observation := setupPreRunObservation(checkpoint, update.State); observation != nil {
+		receipt.Error = "Retrying"
+		receipt.Observation = observation
+	}
 	if checkpoint.Run != nil {
 		if checkpoint.Run.RunID != checkpoint.RunID || checkpoint.Run.FlowID != "repository/setup" {
 			return fmt.Errorf("setup run identity differs")
@@ -480,7 +467,7 @@ func (s *RepositorySetupService) Recover(ctx context.Context, repoID, userID int
 	} else if err != nil || record.Input.Repo != repo {
 		result.Setup = SetupRecoveryState{State: "unavailable", Error: "Setup recovery storage is unavailable"}
 	} else {
-		observed := s.observeSetupRetry(ctx, record)
+		observed := record
 		result.Setup = SetupRecoveryState{State: "found", Input: &observed.Input, Result: &observed.Response, ObservationError: observed.ObservationError}
 	}
 	return result, nil

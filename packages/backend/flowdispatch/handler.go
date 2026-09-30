@@ -65,6 +65,8 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
+	checkpoint.FailureCode = ""
+	checkpoint.FailureObservedAt = 0
 	checkpoint.Identity = identity
 	marker, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -544,6 +546,7 @@ func (service *Service) project(ctx context.Context, lease *jobs.Lease, state jo
 
 func (service *Service) fail(lease *jobs.Lease, code string, checkpoint RuntimeCheckpoint) error {
 	checkpoint.FailureCode = code
+	checkpoint.FailureObservedAt = time.Now().UnixMilli()
 	if len(checkpoint.Projection) > 0 {
 		projectionContext, cancel := context.WithTimeout(context.Background(), service.runtimeCallTimeout)
 		err := service.project(projectionContext, lease, jobs.StateFailed, checkpoint)
@@ -562,11 +565,35 @@ func (service *Service) fail(lease *jobs.Lease, code string, checkpoint RuntimeC
 }
 
 func (service *Service) runtimeError(lease *jobs.Lease, err error, checkpoint RuntimeCheckpoint) error {
-	code, retryable := runtimeFailure(err)
+	code, retryable := preRunRuntimeFailure(err, checkpoint.RunID)
 	if retryable {
+		// Persist a product observation even when resolution failed before a
+		// run exists. Never submit another operation from reconnect or polling.
+		checkpoint.FailureCode = code
+		checkpoint.FailureObservedAt = time.Now().UnixMilli()
+		if len(checkpoint.Projection) > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), service.runtimeCallTimeout)
+			projectionErr := service.project(ctx, lease, jobs.StateWaiting, checkpoint)
+			cancel()
+			if projectionErr != nil {
+				return projectionErr
+			}
+		}
 		return safeFailure{code: code, retryable: true}
 	}
 	return service.fail(lease, code, checkpoint)
+}
+
+// A bare worker 404 or lost lease cannot prove loss of a pinned workspace.
+// Other HTTP refusals retain their declared verdict (including auth/input).
+func preRunRuntimeFailure(err error, runID string) (string, bool) {
+	code, retryable := runtimeFailure(err)
+	var httpFailure interface{ FlowRuntimeHTTPStatus() int }
+	if runID == "" && (code == "host_lease_lost" ||
+		((code == "http_refused" || code == "health_refused") && errors.As(err, &httpFailure) && httpFailure.FlowRuntimeHTTPStatus() == 404)) {
+		retryable = true
+	}
+	return code, retryable
 }
 
 func runtimeFailure(err error) (string, bool) {

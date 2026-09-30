@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 	"github.com/stretchr/testify/require"
 )
 
@@ -151,72 +154,135 @@ func TestRepositorySetupDurableAdmissionAndRuntimeCompletion(t *testing.T) {
 	require.True(t, row.Terminal)
 }
 
-func TestRepositorySetupReadShowsSafePreRunRetryWithoutChangingAdmission(t *testing.T) {
-	pool := newProductTestPool(t)
-	ctx := context.Background()
-	product := NewRepositorySetupService(pool, NewRepositoryJobService(db.New(pool), nil, pool), nil)
-	store, err := jobs.NewStore(pool)
-	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: product, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
-		t.Fatal("reading setup must not launch a host")
-		return nil, nil
-	})})
-	require.NoError(t, err)
-	product.SetFlowDispatcher(dispatcher)
-	request := func() SetupRecord {
-		userID, repoID := setupTestUserAndRepo(t, pool)
-		input := setupFixtureInput(t)
-		input.RequestID = uuid.NewString()
-		require.NoError(t, pool.QueryRow(ctx, `SELECT u.username||'/'||r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID).Scan(&input.Repo))
-		input.Digest = setupCandidateDigest(input, false)
-		input.WorkspaceID = uuid.NewString()
-		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, input.WorkspaceID, repoID, userID)
-		require.NoError(t, err)
-		record, err := product.Request(ctx, repoID, userID, input)
-		require.NoError(t, err)
-		return record
+func TestRepositorySetupPreRunFailureRecoveryAndTerminalIsolation(t *testing.T) {
+	for _, refusal := range []string{"worker404", "lostLease"} {
+		t.Run(refusal, func(t *testing.T) {
+			pool := newProductTestPool(t)
+			ctx := context.Background()
+			product := NewRepositorySetupService(pool, NewRepositoryJobService(db.New(pool), nil, pool), nil)
+			store, err := jobs.NewStore(pool)
+			require.NoError(t, err)
+			// A real HTTP 404 must remain retryable; the raw provider body is
+			// deliberately sensitive and cannot appear in the public receipt.
+			host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("worker http://private-host token=private-value"))
+			}))
+			defer host.Close()
+			bridge, err := runtimebridge.New(runtimebridge.Config{Endpoint: host.URL, Credential: "private-value"})
+			require.NoError(t, err)
+			var ready atomic.Bool
+			runtime := &setupBlockedRuntime{entered: make(chan struct{}), release: make(chan struct{})}
+			dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: product,
+				ObservationDelay: time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
+				Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+					if _, err := product.ResolveFlowHostTarget(ctx, target); err != nil {
+						return nil, err
+					}
+					if ready.Load() {
+						return runtime, nil
+					}
+					if refusal == "lostLease" {
+						return nil, repositoryJobFlowFailure{code: "host_lease_lost", retryable: false}
+					}
+					return bridge, nil
+				})})
+			require.NoError(t, err)
+			product.SetFlowDispatcher(dispatcher)
+			request := func() SetupRecord {
+				userID, repoID := setupTestUserAndRepo(t, pool)
+				input := setupFixtureInput(t)
+				input.RequestID = uuid.NewString()
+				require.NoError(t, pool.QueryRow(ctx, `SELECT u.username||'/'||r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID).Scan(&input.Repo))
+				input.Digest = setupCandidateDigest(input, false)
+				input.WorkspaceID = uuid.NewString()
+				_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, input.WorkspaceID, repoID, userID)
+				require.NoError(t, err)
+				record, err := product.Request(ctx, repoID, userID, input)
+				require.NoError(t, err)
+				return record
+			}
+			blocked, other := request(), request()
+			runtime.input = blocked.Input
+			// Authoritative product deletion settles only this second request.
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET deleted_at=clock_timestamp() WHERE id=$1`, other.WorkspaceID)
+			require.NoError(t, err)
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() {
+				done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "setup-refusal", Capacity: 2, Lease: 2 * time.Second, PollInterval: time.Millisecond, RetryDelay: 20 * time.Millisecond})
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Error("worker did not stop")
+				}
+			})
+			read := func(record SetupRecord) SetupRecord {
+				row, err := product.Read(ctx, record.RepositoryID, record.UserID, record.Input.Repo, record.Input.Job, record.Input.RequestID)
+				require.NoError(t, err)
+				return row
+			}
+			require.Eventually(t, func() bool { return read(blocked).Response.Receipt.Observation != nil }, 5*time.Second, 5*time.Millisecond)
+			observed := read(blocked)
+			require.False(t, observed.Terminal)
+			require.Equal(t, "queued", observed.Response.Receipt.Phase)
+			require.Equal(t, "Retrying", observed.Response.Receipt.Error)
+			require.Equal(t, "blocked", observed.Response.Receipt.Observation.State)
+			require.Equal(t, "runtime_unavailable", observed.Response.Receipt.Observation.Code)
+			require.Greater(t, observed.Response.Receipt.Observation.ObservedAt, int64(0))
+			raw, err := json.Marshal(observed.Response)
+			require.NoError(t, err)
+			for _, secret := range []string{"private-value", "private-host", "http_refused", "host_lease_lost"} {
+				require.NotContains(t, string(raw), secret)
+			}
+			require.Equal(t, blocked.OperationID, observed.OperationID)
+			require.Equal(t, blocked.WorkspaceID, observed.WorkspaceID)
+			// Reload and repeated admission only observe or join the same intent.
+			reloaded := NewRepositorySetupService(pool, product.repositoryJobs, nil)
+			for range 3 {
+				row, err := reloaded.Read(ctx, blocked.RepositoryID, blocked.UserID, blocked.Input.Repo, blocked.Input.Job, blocked.Input.RequestID)
+				require.NoError(t, err)
+				require.NotNil(t, row.Response.Receipt.Observation)
+				recovered, err := reloaded.Recover(ctx, blocked.RepositoryID, blocked.UserID, "owner", blocked.Input.Repo, blocked.Input.Job)
+				require.NoError(t, err)
+				require.Equal(t, "found", recovered.Setup.State)
+				require.Equal(t, blocked.Input.RequestID, recovered.Setup.Result.RequestID)
+				joined, err := product.Request(ctx, blocked.RepositoryID, blocked.UserID, blocked.Input)
+				require.NoError(t, err)
+				require.Equal(t, blocked.ID, joined.ID)
+			}
+			_, err = product.Read(ctx, blocked.RepositoryID, other.UserID, blocked.Input.Repo, blocked.Input.Job, blocked.Input.RequestID)
+			require.Error(t, err)
+			_, err = product.Read(ctx, other.RepositoryID, blocked.UserID, blocked.Input.Repo, blocked.Input.Job, blocked.Input.RequestID)
+			require.Error(t, err)
+			require.Eventually(t, func() bool { return read(other).Terminal }, 5*time.Second, 5*time.Millisecond)
+			failed := read(other)
+			require.Equal(t, "failed", failed.Response.Receipt.Phase)
+			require.Equal(t, "runtime_unrecoverable", failed.Response.Receipt.Observation.Code)
+			require.Equal(t, "failed", failed.Response.Receipt.Observation.State)
+			ready.Store(true)
+			select {
+			case <-runtime.entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("retry did not launch")
+			}
+			close(runtime.release)
+			require.Eventually(t, func() bool { return read(blocked).Response.Receipt.Phase == "running" }, 5*time.Second, 5*time.Millisecond)
+			require.Nil(t, read(blocked).Response.Receipt.Observation)
+			runtime.complete.Store(true)
+			require.Eventually(t, func() bool { return read(blocked).Terminal && read(blocked).Response.Receipt.Phase == "completed" }, 5*time.Second, 5*time.Millisecond)
+			require.EqualValues(t, 1, runtime.launches.Load())
+			var admitted int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE id=$1`, blocked.OperationID).Scan(&admitted))
+			require.Equal(t, 1, admitted)
+			require.Equal(t, blocked.WorkspaceID, read(blocked).WorkspaceID)
+			require.Equal(t, "failed", read(other).Response.Receipt.Phase)
+		})
 	}
-	blocked, other := request(), request()
-	read := func(record SetupRecord) SetupRecord {
-		observed, err := product.Read(ctx, record.RepositoryID, record.UserID, record.Input.Repo, record.Input.Job, record.Input.RequestID)
-		require.NoError(t, err)
-		return observed
-	}
-	require.Empty(t, read(blocked).Response.Receipt.Error)
-	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET attempt=1,status='ready',last_error='provider token=private-value',updated_at=clock_timestamp() WHERE operation_id=$1`, blocked.OperationID)
-	require.NoError(t, err)
-	observed := read(blocked)
-	require.Equal(t, "queued", observed.Response.Receipt.Phase)
-	require.Equal(t, "Retrying", observed.Response.Receipt.Error)
-	require.NotContains(t, observed.Response.Receipt.Error, "private-value")
-	require.Equal(t, blocked.Response.Receipt.UpdatedAt, observed.Response.Receipt.UpdatedAt)
-	require.Equal(t, blocked.OperationID, observed.OperationID)
-	require.Equal(t, blocked.WorkspaceID, observed.WorkspaceID)
-	require.False(t, observed.Terminal)
-	recovered, err := product.Recover(ctx, blocked.RepositoryID, blocked.UserID, "owner", blocked.Input.Repo, blocked.Input.Job)
-	require.NoError(t, err)
-	require.Equal(t, observed.Response.Receipt, recovered.Setup.Result.Receipt)
-	require.Empty(t, read(other).Response.Receipt.Error)
-	_, err = product.Read(ctx, blocked.RepositoryID, other.UserID, blocked.Input.Repo, blocked.Input.Job, blocked.Input.RequestID)
-	require.Error(t, err)
-	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET status='claimed',claim_token=$2,worker_id='test-worker',claimed_at=clock_timestamp(),lease_expires_at=clock_timestamp()+interval '1 minute' WHERE operation_id=$1`, blocked.OperationID, uuid.NewString())
-	require.NoError(t, err)
-	require.Equal(t, "Retrying", read(blocked).Response.Receipt.Error)
-	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET status='ready',claim_token=NULL,worker_id=NULL,claimed_at=NULL,lease_expires_at=NULL,last_error='' WHERE operation_id=$1`, blocked.OperationID)
-	require.NoError(t, err)
-	require.Empty(t, read(blocked).Response.Receipt.Error, "the retry label is a read projection, not persisted setup state")
-	_, err = pool.Exec(ctx, `DELETE FROM product_job_dispatches WHERE operation_id=$1`, other.OperationID)
-	require.NoError(t, err)
-	require.Empty(t, read(other).Response.Receipt.Error, "an old queued receipt without a dispatch row remains readable")
-	projection, err := json.Marshal(map[string]string{"kind": repositorySetupBinding, "id": blocked.ID})
-	require.NoError(t, err)
-	scope := repositoryJobFlowScope(blocked.RepositoryID, blocked.UserID)
-	require.NoError(t, product.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{OperationID: blocked.OperationID, Scope: scope, State: jobs.StateAccepted,
-		Checkpoint: flowdispatch.RuntimeCheckpoint{Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, BindingKind: repositorySetupBinding, BindingID: blocked.ID, WorkspaceID: blocked.Input.WorkspaceID}, FlowID: "repository/setup", Projection: projection, RunID: "run-recovered"}}))
-	started := read(blocked)
-	require.Equal(t, "running", started.Response.Receipt.Phase)
-	require.Equal(t, "run-recovered", started.Response.Receipt.RunID)
-	require.Empty(t, started.Response.Receipt.Error)
 }
 
 func TestRepositorySetupDeletionRemovesOnlyOwnedReceipts(t *testing.T) {
@@ -316,6 +382,15 @@ func TestRepositorySetupProjectionRejectsForeignAndMissingCompletion(t *testing.
 		projection, _ := json.Marshal(map[string]string{"kind": repositorySetupBinding, "id": record.ID})
 		checkpoint := flowdispatch.RuntimeCheckpoint{Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, BindingKind: repositorySetupBinding, BindingID: record.ID}, FlowID: "repository/setup", Projection: projection, RunID: "run-1", Run: &flowruntime.Run{RunID: "run-1", FlowID: "repository/setup", Status: state}}
 		update := flowdispatch.ProjectionUpdate{OperationID: record.OperationID, Scope: scope, State: jobs.StateCompleted, Checkpoint: checkpoint}
+		legacy := update
+		legacy.State = jobs.StateWaiting
+		legacy.Checkpoint.RunID, legacy.Checkpoint.Run = "", nil
+		legacy.Checkpoint.FailureCode = "provider-secret"
+		require.NoError(t, product.ProjectFlowRuntime(ctx, legacy))
+		observed, err := product.Read(ctx, repoID, userID, repo, input.Job, input.RequestID)
+		require.NoError(t, err)
+		require.Equal(t, "runtime_unavailable", observed.Response.Receipt.Observation.Code)
+		require.Greater(t, observed.Response.Receipt.Observation.ObservedAt, int64(0), "legacy checkpoint is observed now")
 		foreign := update
 		foreign.Scope.PrincipalID = "user:0"
 		require.Error(t, product.ProjectFlowRuntime(ctx, foreign))

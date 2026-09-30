@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 	"github.com/stretchr/testify/require"
 )
 
@@ -266,4 +268,31 @@ func TestSignalAdmissionUnitRefusesBeforeDurableWork(t *testing.T) {
 			require.Equal(t, jobs.RequestReceipt{}, receipt)
 		})
 	}
+}
+
+func TestPreRunRuntimeFailurePreservesAuthoritativeRefusals(t *testing.T) {
+	for _, refusal := range []string{"http_refused", "health_refused"} {
+		for _, tc := range []struct {
+			status int
+			runID  string
+			retry  bool
+		}{
+			{404, "", true}, {404, "run", false}, {400, "", false}, {401, "", false},
+			{403, "", false}, {409, "", false}, {500, "", true}, {503, "", true},
+		} {
+			t.Run(fmt.Sprintf("%s/%d/%s", refusal, tc.status, tc.runID), func(t *testing.T) {
+				failure := &runtimebridge.Error{Code: refusal, HTTPStatus: tc.status, Retryable: tc.status >= 500, Message: "private provider details"}
+				code, retry := preRunRuntimeFailure(fmt.Errorf("wrapped: %w", failure), tc.runID)
+				require.Equal(t, refusal, code)
+				require.Equal(t, tc.retry, retry)
+			})
+		}
+	}
+	code, retry := preRunRuntimeFailure(safeFailure{code: "http_refused"}, "")
+	require.Equal(t, "http_refused", code)
+	require.False(t, retry, "an untyped refusal is not evidence of a bare HTTP 404")
+	_, retry = preRunRuntimeFailure(safeFailure{code: "host_lease_lost"}, "")
+	require.True(t, retry)
+	_, retry = preRunRuntimeFailure(safeFailure{code: "host_lease_lost"}, "run")
+	require.False(t, retry)
 }

@@ -86,6 +86,14 @@ type SetupTrialIssue struct {
 	Number int64  `json:"number"`
 	URL    string `json:"url,omitempty"`
 }
+
+// SetupObservation is safe product evidence of a pre-run host refusal. It
+// carries no provider message, host address, or worker credential.
+type SetupObservation struct {
+	State      string `json:"state"`
+	Code       string `json:"code"`
+	ObservedAt int64  `json:"observedAt"`
+}
 type SetupReceipt struct {
 	RequestID      string            `json:"requestId"`
 	RunID          string            `json:"runId,omitempty"`
@@ -98,6 +106,7 @@ type SetupReceipt struct {
 	Results        []SetupEvalResult `json:"results"`
 	Evidence       []string          `json:"evidence"`
 	Error          string            `json:"error,omitempty"`
+	Observation    *SetupObservation `json:"observation,omitempty"`
 	TrialIssue     *SetupTrialIssue  `json:"trialIssue,omitempty"`
 	RegistrationID string            `json:"registrationId,omitempty"`
 	SourceRevision string            `json:"sourceRevision,omitempty"`
