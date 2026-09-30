@@ -107,3 +107,26 @@ test('a pending replacement takes digits and u as its character, not a count or 
   expect(vimKey(undone, 'u')).toBe(true)
   expect(undone.value).toBe('bc\nnext')
 })
+
+test('replacement accepts one astral or combining character key and rejects named keys', () => {
+  const buffer = normal('a👩🏽‍💻éz', 1)
+  keys(buffer, 'y', 'y')
+  buffer.cursor = 1
+  keys(buffer, 'r', '\u{10400}')
+  expect(buffer.value).toBe('a\u{10400}éz')
+  expect([buffer.cursor, buffer.mode, buffer.register, buffer.undo.length]).toEqual([1, 'normal', 'a👩🏽‍💻éz', 1])
+  keys(buffer, 'u')
+  expect(buffer.value).toBe('a👩🏽‍💻éz')
+
+  const counted = normal('a👩🏽‍💻e\u0301z')
+  counted.cursor = 1
+  keys(counted, '2', 'r', '\u1e0d\u0307')
+  expect(counted.value).toBe('a\u1e0d\u0307\u1e0d\u0307z')
+
+  for (const named of ['Enter', 'ArrowLeft', 'F1']) {
+    const cancelled = normal('abc')
+    keys(cancelled, 'r', named)
+    expect(cancelled.value).toBe('abc')
+    expect([cancelled.pending, cancelled.undo.length]).toEqual(['', 0])
+  }
+})

@@ -32,6 +32,8 @@ export const nextVimCharacter = (value: string, cursor: number): number => {
   const char = characterAt(value, cursor)
   return char ? char.index + char.segment.length : value.length
 }
+/** A standardized character key is one Unicode character; named keys such as Enter or F1 are longer. */
+const isCharacterKey = (key: string) => [...characters.segment(key)].length === 1
 const normalCursor = (value: string, cursor: number) => {
   const at = Math.max(start(value, cursor), Math.min(cursor, end(value, cursor) - 1))
   return characterAt(value, at)?.index ?? at
@@ -120,7 +122,7 @@ export function vimKey(buffer: VimBuffer, key: string, ctrl = false): boolean {
   }
   if (buffer.pending === 'r' && !ctrl) {
     // The replacement operand is data: a digit or `u` is never a count or Undo.
-    if (key.length === 1 && cursor < end(value, cursor)) {
+    if (isCharacterKey(key) && cursor < end(value, cursor)) {
       let to = cursor, size = 0
       while (size < count && to < end(value, cursor)) { to = nextVimCharacter(value, to); size++ }
       replace(buffer, cursor, to, key.repeat(size))
