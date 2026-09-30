@@ -434,6 +434,19 @@ const bareValueEnd = (
 const plainKeyName = (name: string): boolean => /keys?$/i.test(name) && !isSensitiveKey(name)
 
 /**
+ * The end of a credential that is a URL's password (`//x-access-token:secret@`):
+ * the `@` that closes the userinfo, so the host and path stay readable. Any
+ * other bare value keeps its end.
+ */
+const userinfoEnd = (text: string, start: number, end: number): number => {
+  if (!/\/\/[^\s/@?#]*[:=]$/.test(text.slice(Math.max(0, start - 128), start))) return end
+  const value = text.slice(start, end)
+  const authority = value.search(/[/?#]/)
+  const at = value.lastIndexOf("@", authority < 0 ? value.length : authority)
+  return at > 0 ? start + at : end
+}
+
+/**
  * Whether a name that matched a credential word names a credential: not a
  * {@link plainKeyName}, and not a count under a plural `tokens` name
  * (`max_tokens: 4096`), which is accounting.
@@ -510,6 +523,7 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
       if (alreadyRedacted.test(text.slice(start + 1, end - (text[end - 1] === quote ? 1 + depth : 0)))) continue
     } else {
       end = bareValueEnd(text, start, scope, stack)
+      end = userinfoEnd(text, start, end)
       // A placeholder then a space is a value an earlier pass already bounded:
       // what follows it is the next part of the line, `{"statusCode":401}`.
       const bounded = text.startsWith(placeholder, start) && /\s/.test(text[start + placeholder.length] ?? "")
@@ -801,7 +815,7 @@ export const diagnosticRules: ReadonlyArray<Rule> = [
   },
   {
     id: "url-userinfo",
-    pattern: /(\/\/)(?!\[REDACTED\]@)[^/@\s"'\\]+@/g,
+    pattern: /(\/\/)(?!\[REDACTED\]@)(?![^/@\s"'\\]*:\[REDACTED\]@)[^/@\s"'\\]+@/g,
     replace: "$1[REDACTED]@"
   },
   {

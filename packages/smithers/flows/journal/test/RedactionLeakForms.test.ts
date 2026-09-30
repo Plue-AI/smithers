@@ -554,3 +554,25 @@ describe("the value grammar on hostile input", () => {
     expect(Date.now() - started).toBeLessThan(5_000)
   })
 })
+
+describe("a credential named inside URL userinfo", () => {
+  const user = "x-access-token"
+  it.each([
+    ["a quoted remote", `fatal: unable to access 'https://${user}:${secret}@github.com/acme/private.git/': 403`],
+    ["a bare remote", `clone https://${user}:${secret}@github.com/acme/private.git/`],
+    ["a parenthesized remote", `at clone (https://${user}:${secret}@github.com/acme/private.git/)`]
+  ])("keeps the user name, host and path of %s", (_name, text) => {
+    const kept = text.replace(secret, "[REDACTED]")
+    for (const redact of [Redaction.redact, Redaction.redactDiagnostic]) expect(redact(text)).toBe(kept)
+  })
+
+  it("stops a password that holds an @ at the last @ of the authority", () => {
+    const text = `https://${user}:${secret}@a@github.com/acme/p.git?x=@1`
+    expect(Redaction.redact(text)).toBe(`https://${user}:[REDACTED]@github.com/acme/p.git?x=@1`)
+  })
+
+  it("still redacts the rest of a value that has no userinfo end", () => {
+    expectRedacted(Redaction.redact(`https://${user}:${secret}/acme/p.git`), secret)
+    expectRedacted(Redaction.redact(`https://${user}:${secret}`), secret)
+  })
+})
