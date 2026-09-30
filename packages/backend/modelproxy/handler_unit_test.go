@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/require"
 )
@@ -102,6 +103,32 @@ func TestHandlerUnitBodyLimitBoundary(t *testing.T) {
 			(&Handler{Keys: keys, Callers: caller, MaxBodyBytes: item.limit}).ServeHTTP(response, httptest.NewRequest("POST", Path+"/openai/v1/responses", strings.NewReader(raw)))
 			require.Equal(t, item.status, response.Code)
 			require.JSONEq(t, fmt.Sprintf(`{"error":{"type":"invalid_request_error","message":%q}}`, item.message), response.Body.String())
+			require.Equal(t, 1, caller.calls)
+			require.Zero(t, keys.reads)
+		})
+	}
+}
+
+// A body cut off mid-read is not an oversized one. On 2026-09-30 the edge's
+// security policy denied a 10,537-byte Jev request after forwarding its
+// headers; the proxy saw the aborted stream and answered 413 (#2965).
+func TestHandlerUnitUnreadableBodyIsNotTooLarge(t *testing.T) {
+	for _, item := range []struct {
+		name    string
+		failure error
+	}{
+		{"stream reset", errors.New("http2: stream closed")},
+		{"truncated", io.ErrUnexpectedEOF},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			keys := &unitProxyKeys{providers: []string{"vercel"}}
+			caller := &unitProxyCaller{}
+			request := httptest.NewRequest("POST", Path+"/vercel/v4/ai/evaluation-model", nil)
+			request.Body = io.NopCloser(io.MultiReader(strings.NewReader(`{"state":`), iotest.ErrReader(item.failure)))
+			response := httptest.NewRecorder()
+			(&Handler{Keys: keys, Callers: caller}).ServeHTTP(response, request)
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			require.JSONEq(t, `{"error":{"type":"invalid_request_error","message":"Request body could not be read."}}`, response.Body.String())
 			require.Equal(t, 1, caller.calls)
 			require.Zero(t, keys.reads)
 		})

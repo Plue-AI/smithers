@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/modelprice"
 )
@@ -91,8 +93,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		limit = defaultMaxBody
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-	if err != nil || int64(len(body)) > limit {
+	if int64(len(body)) > limit {
+		slog.Warn("model proxy request body too large", "provider", provider, "path", path, "request_id", chimiddleware.GetReqID(r.Context()), "limit_bytes", limit)
 		WriteError(w, provider, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body is too large.")
+		return
+	}
+	if err != nil {
+		// A stream the client or an edge proxy aborted, not an oversized one.
+		slog.Warn("model proxy request body unreadable", "provider", provider, "path", path, "request_id", chimiddleware.GetReqID(r.Context()), "read_bytes", len(body), "error", err)
+		WriteError(w, provider, http.StatusBadRequest, "invalid_request_error", "Request body could not be read.")
 		return
 	}
 	parsed, err := parseRequest(provider, path, r.Header, body)
