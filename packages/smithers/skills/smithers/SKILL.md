@@ -161,6 +161,8 @@ Tools manage their own login in the selected home; profiles describe locations.
   and restart. Repair uses a new execution identity without stealing claims.
 - Unknown quota is not exhausted quota. Retry unavailable observations without
   authorizing launches beyond computed account ceilings.
+- Unknown worker status preserves running work and held claims; only a verified
+  missing execution permits recovery. Reject malformed recovery identities at admission.
 - Resolve compatible helpers from immutable host source or explicit configuration.
 - Verify before rebase and verify the final candidate again. Parse structured
   final reports rather than incidental tool text. Preserve meaningful errors
