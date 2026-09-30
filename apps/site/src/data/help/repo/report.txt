@@ -1,25 +1,12 @@
-smthrs repo — repo
+smthrs repo report — Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
 
-Usage: smthrs repo <command>
+Usage: smthrs repo report <repo> [options]
 
-Commands:
-  archive      Archive a repository
-  clone        Clone a repository
-  connect      Connect this jj repository to a public GitHub repository
-  create       Create a new repository
-  delete       Delete a repository
-  disconnect   Disconnect this repository from Smithers
-  edit         Edit repository settings
-  fork         Fork a repository
-  home         List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows
-  list         List your repositories
-  mirror-sync  Start a GitHub mirror sync run
-  push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
-  report       Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
-  status       Show local repository connection status
-  transfer     Transfer repository ownership
-  unarchive    Unarchive a repository
-  view         View repository details
+Arguments:
+  repo  Public GitHub repository in OWNER/REPO format
+
+Options:
+  --workspace <string>  ID of one of your workspaces that answers the lookup
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -4533,6 +4533,10 @@
                 "park"
               ]
             },
+            "deadline": {
+              "description": "Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds",
+              "type": "string"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -8148,6 +8152,38 @@
             "list",
             "name",
             "working-copy"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "repo report",
+      "description": "Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Public GitHub repository in OWNER/REPO format"
+            }
+          },
+          "required": [
+            "repo"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "workspace": {
+              "type": "string",
+              "description": "ID of one of your workspaces that answers the lookup"
+            }
+          },
+          "required": [
+            "workspace"
           ],
           "additionalProperties": false
         }

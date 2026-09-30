@@ -15,5 +15,7 @@
   "credentialRedaction": "Before-rebase SQLite675 and realPostgres675 pass;1350 merged and100% executed coverage with original thresholds. Incoming typed depth error retained; after-rebase268Redaction/LeakForms,1realPG committedrow,20Bug/actualCLI cases pass. After-rebase focused runs do not claim fresh whole-package100% coverage.",
   "validators": "Exact shipped builder compiles actual host graph without launch; allfour serializer bindings preserved. Generated valid/malformed review/push/replay,closedguard and inventory53cases pass after rebase. No arbitrary minifier or deployed execution claim.",
   "pending": "2998 preserved cause and cancellation pass; actual verbose qualification remains3204/3006. 3110 HTTP2/history corrections qualified, missinghelper+AgentMemory focused cases remain. 3184 canonical declaration build fails through foreign3241; baseline unchanged. IncomingCLItesttypes blocked by sameProcessConfinement import inCloudSandboxCommand.integration.test.ts; source types/startup pass.",
-  "generated": "Targetindexgeneration, indexdrift, CLIgeneration/check, docssync/check all exit0."
+  "generated": "Targetindexgeneration, indexdrift, CLIgeneration/check, docssync/check all exit0.",
+  "catchupCandidate": "3721f34bb5f33a05fdade6d4324aafaee17ab962",
+  "catchup": "Latest main deadline/control/gateway/egress/repository changes retained. Input schema block, Client/Misc, credential rule and validator/build sources unchanged. Actual CLI startup2 and actual shipped transform/receipt/inventory53 pass again. CLI/docs/index generation and checks pass. Earlier coverage and testing-import limitations unchanged."
 }
