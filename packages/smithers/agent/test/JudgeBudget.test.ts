@@ -10,6 +10,7 @@
  * ceiling is spent it is refused under the run's policy (#3010).
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as Capability from "@smthrs/capability/Capability"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -18,7 +19,7 @@ import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
 import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, Exit, Layer, Option, Schema, Stream } from "effect"
+import { Context, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Agent from "../src/Agent.ts"
 import * as AgentAction from "../src/AgentAction.ts"
@@ -26,6 +27,7 @@ import * as Budget from "../src/Budget.ts"
 import * as QuotaPolicy from "../src/QuotaPolicy.ts"
 import * as Seat from "../src/Seat.ts"
 import * as SeatResolver from "../src/SeatResolver.ts"
+import * as StandardFlows from "../src/StandardFlows.ts"
 
 const Result = Schema.Struct({ summary: Schema.String, keyPoints: Schema.Array(Schema.String) })
 
@@ -198,5 +200,117 @@ describe("a seat-backed completion judge under a run budget", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(calls).toEqual({ primary: 2, judge: 2 })
     expect(ledger.tokens).toBe(210)
+  })
+})
+
+/** A primary model that answers each call with the next cell, reporting five tokens per call. */
+const cells = (calls: { primary: number }, bodies: ReadonlyArray<string>): Model.Model =>
+  Model.make({
+    stream: () => {
+      const body = bodies[Math.min(calls.primary, bodies.length - 1)]!
+      calls.primary++
+      return Stream.fromIterable([
+        ModelEvent.ModelEvent.TextStart({ type: "text-start", id: "cell" }),
+        ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id: "cell", text: "```cell\n" + body + "\n```" }),
+        ModelEvent.ModelEvent.TextEnd({ type: "text-end", id: "cell" }),
+        ModelEvent.ModelEvent.Usage({ inputTokens: 3, outputTokens: 2, totalTokens: 5 }),
+        ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
+      ])
+    }
+  })
+
+const OneAction = Flow.make("judge-budget/OneAction", {
+  payload: { topic: Schema.String },
+  success: Result,
+  error: AgentAction.AgentFailure,
+  body: ({ topic }) => Research.call({ topic })
+})
+
+/**
+ * A run whose cell asks the `jev` flow one question, then answers. The flow's
+ * judge reports 100 tokens on `jev-model` per reading; the completion judge
+ * reports nothing.
+ */
+const driveJev = async (maxTokens: number) => {
+  const calls = { primary: 0, judge: 0, jev: 0 }
+  const jev = Context.make(
+    Evaluator.Evaluator,
+    Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.sync(() => {
+          calls.jev++
+          return {
+            answers: { q: { type: "boolean" as const, probability: 0.9 } },
+            latencyMs: 0,
+            usage: { inputTokens: 90, outputTokens: 10, modelId: "jev-model" }
+          }
+        })
+    })
+  )
+  const seats = SeatResolver.layer({
+    resolve: (id) =>
+      Effect.succeed(
+        Seat.make({
+          id,
+          modelId: "test-model",
+          model: cells(calls, [
+            "const judged = await ctx.call(\"jev\", { state: { a: 1 }, questions: { q: { type: \"boolean\", instructions: \"Is a set?\" } } })\nconsole.log(JSON.stringify(judged))",
+            "ctx.done(" + JSON.stringify(answer) + ")"
+          ]),
+          route: { prepare: () => Effect.succeed(prepared) },
+          contextWindowTokens: 200_000
+        })
+      )
+  })
+  const host = AgentAction.layerHost({
+    registry: Registry.makeNoop({
+      list: () => Effect.succeed([]),
+      visible: () => Effect.succeed([]),
+      getOption: () => Effect.succeed(Option.none())
+    }),
+    limits: { calls: 8 },
+    capabilityEnvelope: [new Capability.CapabilityPattern({ action: "model:call", resource: Evaluator.defaultModel })],
+    maxFrames: 4,
+    flows: [StandardFlows.jev(jev)]
+  })
+  const layer = Layer.mergeAll(Research.layer, Interpreter.layer(OneAction)).pipe(
+    Layer.provideMerge(Layer.mergeAll(host, seats, Agent.layer)),
+    Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layer({ tokens: { max: maxTokens } }))),
+    Layer.provideMerge(Agent.layerDefaults),
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(FlowEngine.layerMemory),
+    Layer.provideMerge(NodeCrypto.layer)
+  )
+  return Effect.runPromise(
+    Effect.gen(function*() {
+      const exit = yield* Effect.exit(
+        OneAction.execute({ topic: "durable workflows" }, { executionId: "jev-budget-1" })
+      )
+      const ledger = yield* (yield* Budget.Budget).usageOf("jev-budget-1")
+      return { exit, ledger, calls: { ...calls } }
+    }).pipe(
+      Effect.provide(layer),
+      Effect.provide(Evaluator.layerFromSeat({ modelId: "judge-model", model: judge(calls, 0) })),
+      Effect.orDie
+    )
+  )
+}
+
+describe("a cell's own jev reading under a run budget (#3010)", () => {
+  it("charges the flow's reading to the run, once", async () => {
+    const { calls, exit, ledger } = await driveJev(1_000)
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(calls).toMatchObject({ primary: 2, jev: 1 })
+    // Two primary calls at 5 and the jev reading at 100; the harness's own
+    // readings reported nothing.
+    expect(ledger.tokens).toBe(110)
+  })
+
+  it("takes no reading once the ceiling is spent, and the run stops at its next primary call", async () => {
+    const { calls, exit, ledger } = await driveJev(5)
+    expect(calls.jev).toBe(0)
+    expect(calls.primary).toBe(1)
+    expect(ledger.tokens).toBe(5)
+    expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain("BudgetExceeded")
   })
 })

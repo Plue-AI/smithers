@@ -172,7 +172,10 @@ proceeds while any allowance is left and is refused only once the ceiling is
 already spent, under the same `onExceeded` policy. A completion whose primary
 call spent the whole ceiling is therefore not judged: it fails, parks, or is
 skipped. The supervisor's reading runs beside the frame and is charged but not
-admitted; the frame's next primary call applies the budget.
+admitted; the frame's next primary call applies the budget. A reading a cell's
+own flow takes (`jev`, memory relevance, test failure attribution) is admitted
+and charged the same way through `FlowEngineLike.CallReadings`; once the
+ceiling is spent the flow gets a `refused` judge failure and asks nothing.
 
 Usage reported before a capacity refusal or stream interruption is also spend.
 The model boundary flushes that last reported usage on exit under a distinct

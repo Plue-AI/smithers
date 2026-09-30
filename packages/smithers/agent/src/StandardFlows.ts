@@ -79,6 +79,7 @@ import type * as FileSystem from "effect/FileSystem"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as ChildFlows from "./ChildFlows.ts"
+import * as FlowEngineLike from "./FlowEngineLike.ts"
 
 /** These refusal classes carry host-authored text separately from diagnostic causes. */
 const publicRefusal = (error: { readonly message: string }): string => error.message
@@ -294,7 +295,8 @@ export const tests = (
         activity: TestRun.activity,
         presentation: TestRun.presentation
       }),
-      services
+      // A failed run's attribution reading is charged to the calling run (#3010).
+      FlowEngineLike.metered(services)
     )
   ])
 
@@ -619,7 +621,10 @@ export function memory(
   judgeOrScope: Context.Context<Evaluator.Evaluator> | MemoryScope | HostWide,
   scoped?: MemoryScope | HostWide
 ): FlowBinding.Source {
-  const [judge, scope] = Context.isContext(judgeOrScope) ? [judgeOrScope, scoped] : [undefined, judgeOrScope]
+  // Each relevance reading a call takes is charged to the calling run (#3010).
+  const [judge, scope] = Context.isContext(judgeOrScope)
+    ? [FlowEngineLike.metered(judgeOrScope), scoped]
+    : [undefined, judgeOrScope]
   if (scope === hostWide) return unscopedMemory(services, judge)
   if (scope === undefined) {
     // A missing scope never widens to every bank.
@@ -798,7 +803,8 @@ export const jev = (
             }
           })
       }),
-      services
+      // Each reading a call takes is charged to the calling run (#3010).
+      FlowEngineLike.metered(services)
     )
   ])
 }

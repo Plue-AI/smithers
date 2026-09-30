@@ -1816,6 +1816,182 @@ describe("cell call identity across runs", () => {
  * clock can advance past every scheduled sleep, and the flow engine's own
  * execution is not what is under test here.
  */
+describe("FlowEngineLike.CallReadings (#3010)", () => {
+  const readingCall = (ordinal: number): Cell.Call =>
+    new Cell.Call({
+      flowName: "jev",
+      input: { state: { ordinal } },
+      capabilities: [],
+      effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "irreversible" },
+      placement: Option.none(),
+      identity: new Cell.CallIdentity({
+        session: "session-1",
+        frame: 0,
+        cell: "cell-digest",
+        ordinal,
+        declaration: "declaration-digest",
+        layers: []
+      })
+    })
+
+  type Answer = Effect.Effect<Evaluator.Response, Evaluator.EvaluatorError>
+  const request: Evaluator.Request = { state: {}, questions: { q: { type: "boolean", instructions: "?" } } }
+  const answered = (usage?: Evaluator.Usage): Answer =>
+    Effect.succeed({
+      answers: { q: { type: "boolean", probability: 0.5 } },
+      latencyMs: 0,
+      ...(usage === undefined ? {} : { usage })
+    })
+
+  /** A judge that answers each reading from `script`, in order, counting them. */
+  const judging = (script: ReadonlyArray<Answer>) => {
+    const asked = { count: 0 }
+    const services = FlowEngineLike.metered(Context.make(
+      Evaluator.Evaluator,
+      Evaluator.Evaluator.of({ evaluate: () => Effect.suspend(() => script[asked.count++]!) })
+    ))
+    return { asked, evaluate: Context.get(services, Evaluator.Evaluator).evaluate }
+  }
+
+  /** A cell-call runner whose flow asks the metered judge once per scripted answer. */
+  const reading = (judge: ReturnType<typeof judging>, readings: number): FlowEngineLike.CallRunner => ({
+    run: () =>
+      Effect.forEach(Array.from({ length: readings }), () => Effect.result(judge.evaluate(request))).pipe(
+        Effect.map((results) =>
+          new Cell.CallResult({
+            outcome: "success",
+            value: results.map((result) => result._tag === "Success" ? "answered" : result.failure.code)
+          })
+        )
+      )
+  })
+
+  it("charges each reading a call's flow paid, taken or failed, priced by model, and nothing on replay", async () => {
+    const judge = judging([
+      answered({ inputTokens: 900_000, outputTokens: 100_000, modelId: "judge-a" }),
+      Effect.fail(
+        new Evaluator.EvaluatorError({
+          code: "invalid_answer",
+          message: "bad",
+          usage: { inputTokens: 5, outputTokens: 1 }
+        })
+      ),
+      answered()
+    ])
+    const entries: Array<Budget.LedgerEntry> = []
+    const ledger = Budget.memoryLedger()
+    let park = true
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({
+          model: countingModel([]),
+          route: staticRoute(),
+          calls: reading(judge, 3)
+        })
+        const result = yield* port.call(readingCall(0))
+        if (park) {
+          park = false
+          yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "killed" }))
+        }
+        return { value: result.value, usage: yield* (yield* Budget.Budget).usage }
+      }).pipe(Effect.provide(Budget.layer(
+        { tokens: { max: 10_000_000 }, prices: { "judge-a": { input: 2, cacheRead: 0, cacheWrite: 0, output: 10 } } },
+        {
+          ledger: {
+            ...ledger,
+            record: (entry) => Effect.andThen(Effect.sync(() => void entries.push(entry)), ledger.record(entry))
+          }
+        }
+      ))),
+      { resume: true }
+    )
+    expect(judge.asked.count).toBe(3)
+    expect(completed(outcome)).toEqual({
+      value: ["answered", "invalid_answer", "answered"],
+      usage: { tokens: 1_000_006, calls: 2, largestCall: 1_000_000 }
+    })
+    expect(entries.map((entry) => entry.stepKey)).toEqual([
+      expect.stringMatching(/^call-reading\/.+\/0$/),
+      expect.stringMatching(/^call-reading\/.+\/1$/)
+    ])
+    expect(entries[0]!.costUsd).toBeCloseTo(2.8)
+    expect(entries[1]!.costUsd).toBeUndefined()
+  })
+
+  it("takes no reading once the run's ceiling is spent", async () => {
+    const judge = judging([answered({ inputTokens: 1, outputTokens: 0 })])
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({
+          model: countingModel([]),
+          route: staticRoute(),
+          calls: reading(judge, 1)
+        })
+        yield* (yield* Budget.Budget).record("spent", { totalTokens: 100 })
+        return (yield* port.call(readingCall(0))).value
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100 } })))
+    )
+    expect(completed(outcome)).toEqual(["refused"])
+    expect(judge.asked.count).toBe(0)
+  })
+
+  it("takes no reading when the ledger cannot say what the run spent", async () => {
+    const judge = judging([answered()])
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({
+          model: countingModel([]),
+          route: staticRoute(),
+          calls: reading(judge, 1)
+        })
+        return yield* port.call(readingCall(0))
+      }).pipe(Effect.provideService(Budget.Budget, {
+        ...Budget.makeUnbounded(),
+        admitReading: () =>
+          Effect.fail(new Budget.AccountingUnavailable({ phase: "recover", runId: "exec-1", message: "no ledger" }))
+      }))
+    )
+    expect((completed(outcome) as Cell.CallResult).value).toEqual(["refused"])
+    expect(judge.asked.count).toBe(0)
+  })
+
+  it("is the judge unchanged outside a call", async () => {
+    const judge = judging([answered({ inputTokens: 1, outputTokens: 0 })])
+    const response = await Effect.runPromise(judge.evaluate(request))
+    expect(response.usage).toEqual({ inputTokens: 1, outputTokens: 0 })
+    expect(judge.asked.count).toBe(1)
+  })
+
+  it("fails a call before its flow runs if a reading receipt cannot be allocated", async () => {
+    const judge = judging([answered()])
+    const outcome = await drive(Effect.gen(function*() {
+      const crypto = yield* Crypto.Crypto
+      const port = yield* FlowEngineLike.make({
+        model: countingModel([]),
+        route: staticRoute(),
+        calls: reading(judge, 1)
+      })
+        .pipe(
+          Effect.provideService(Crypto.Crypto, {
+            ...crypto,
+            randomUUIDv4: Effect.fail(PlatformError.systemError({
+              module: "Crypto",
+              method: "randomUUIDv4",
+              _tag: "Unknown",
+              description: "injected entropy failure"
+            }))
+          })
+        )
+      return yield* port.call(readingCall(0))
+    }))
+    expect(failure(outcome)).toMatchObject({
+      code: "engine_failed",
+      message: "Could not allocate a call reading receipt"
+    })
+    expect(judge.asked.count).toBe(0)
+  })
+})
+
 describe("FlowEngineLike.defaultModelRetryPolicy", () => {
   /** What the provider actually saw: how often it was called, and how far apart. */
   interface Observed {

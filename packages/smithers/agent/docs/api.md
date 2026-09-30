@@ -2330,6 +2330,29 @@ is journaled, so a permission requirement raised from inside one would replay
 forever and no later grant could unblock it. A `WorkspaceCallRunner` may also
 touch the workspace it runs inside; a plain `CallRunner` satisfies it too.
 
+### FlowEngineLike.CallReadings, FlowEngineLike.metered
+
+```ts
+class CallReadings extends Context.Service<CallReadings, {
+  readonly admit: Effect.Effect<void, Evaluator.EvaluatorError>
+  readonly paid: (usage: Evaluator.Usage) => Effect.Effect<void>
+}>()("@smthrs/agent/FlowEngineLike/CallReadings")
+
+const metered: <R>(
+  services: Context.Context<R | Evaluator.Evaluator>
+) => Context.Context<R | Evaluator.Evaluator>
+```
+
+A flow a cell calls may ask the host's judge itself (`jev`, memory relevance,
+test failure attribution). The port provides `CallReadings` around each call,
+and `metered` wraps the judge those flows are handed: each reading is admitted
+with `Budget.admitReading`, failing `refused` without asking once the run's
+budget is spent, and what it paid, taken or failed, is charged to the run
+under the model it names when the call's execution ends, under a receipt of
+that execution's own. A replayed call pays nothing again. Outside a call the
+metered judge is the judge unchanged. `StandardFlows.jev`, `memory`, `tests`
+and `Memory.binding` meter their judge already.
+
 ### FlowEngineLike.sandboxed
 
 ```ts

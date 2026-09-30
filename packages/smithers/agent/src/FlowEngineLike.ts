@@ -148,6 +148,59 @@ export interface CallRunner {
 }
 
 /**
+ * The evaluator readings a cell call's flow takes, charged to the run.
+ *
+ * A flow the cell calls may ask the host's judge itself: `jev`, memory
+ * relevance, test failure attribution. Its call is recorded as a result that
+ * carries no usage, so the port that runs the call provides this service
+ * around it, and a judge wrapped by {@link metered} asks it to admit each
+ * reading and to note what each paid. The port charges those readings when
+ * the call's execution ends, under keys of that execution's own, as it does a
+ * model call that cannot seal: a replayed call is served its record and pays
+ * nothing again (#3010).
+ *
+ * @category services
+ * @since 1.0.0-rc.1
+ */
+export class CallReadings extends Context.Service<CallReadings, {
+  /** Fails, taking no reading, once the run's budget is spent. */
+  readonly admit: Effect.Effect<void, Evaluator.EvaluatorError>
+  /** Notes what one reading paid, taken or failed. */
+  readonly paid: (usage: Evaluator.Usage) => Effect.Effect<void>
+}>()("@smthrs/agent/FlowEngineLike/CallReadings") {}
+
+/**
+ * Wraps the judge a cell-call flow is handed so each of its readings inside a
+ * run's call is admitted and charged through {@link CallReadings}. Outside a
+ * call it is the judge unchanged.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const metered = <R>(
+  services: Context.Context<R | Evaluator.Evaluator>
+): Context.Context<R | Evaluator.Evaluator> => {
+  const judge = Context.get(services, Evaluator.Evaluator)
+  return Context.add(
+    services,
+    Evaluator.Evaluator,
+    Evaluator.Evaluator.of({
+      evaluate: (request) =>
+        Effect.flatMap(Effect.serviceOption(CallReadings), (readings) => {
+          if (Option.isNone(readings)) return judge.evaluate(request)
+          const note = (usage: Evaluator.Usage | undefined) =>
+            usage === undefined ? Effect.void : readings.value.paid(usage)
+          return readings.value.admit.pipe(
+            Effect.andThen(judge.evaluate(request)),
+            Effect.tap((response) => note(response.usage)),
+            Effect.tapError((error) => note(error.usage))
+          )
+        })
+    })
+  )
+}
+
+/**
  * A cell-call runner that may touch the workspace it runs inside.
  *
  * The only difference from {@link CallRunner} is the `Workspace` requirement,
@@ -600,6 +653,9 @@ const engineFailed = (message: string, cause: unknown): HarnessError.HarnessErro
 
 /** The ledger key prefix for the usage a recorded boundary paid for. */
 const boundaryUsagePrefix = "boundary-usage/"
+
+/** The ledger key prefix for what a cell call's evaluator readings paid. */
+const callReadingPrefix = "call-reading/"
 
 /**
  * Reports a budget that could not account this run.
@@ -1167,7 +1223,50 @@ export const make = (
           // Admission is separate from the schema whose representation is
           // durable key material. Validate before persistence, including
           // instances a host mutated after construction, with a typed cause.
-          execute: calls.run(decoded).pipe(Effect.tap(Cell.decodeCallResult))
+          execute: Effect.suspend(() => {
+            const paid: Array<Evaluator.Usage> = []
+            return Effect.gen(function*() {
+              // What this execution's evaluator readings paid is charged under
+              // a receipt of its own, as an unsealed model invocation is: an
+              // execution that re-runs after a crash paid again (#3010).
+              const receipt = yield* crypto.randomUUIDv4.pipe(
+                Effect.mapError((cause) => engineFailed("Could not allocate a call reading receipt", cause))
+              )
+              const readings = CallReadings.of({
+                admit: budget.admitReading(`${callReadingPrefix}${key}/${receipt}`).pipe(
+                  Effect.flatMap((verdict) =>
+                    verdict._tag === "refuse"
+                      ? Effect.fail(verdict.failure)
+                      : Effect.void
+                  ),
+                  // A spent budget, or a ledger that cannot say, takes no reading.
+                  Effect.mapError((failure) =>
+                    new Evaluator.EvaluatorError({
+                      code: "refused",
+                      message: `The run's budget took no reading: ${failure.message}`
+                    })
+                  )
+                ),
+                paid: (usage) => Effect.sync(() => void paid.push(usage))
+              })
+              return yield* calls.run(decoded).pipe(
+                Effect.provideService(CallReadings, readings),
+                Effect.tap(Cell.decodeCallResult),
+                Effect.onExit(() =>
+                  Effect.forEach(
+                    paid,
+                    (usage, index) =>
+                      budget.record(
+                        `${callReadingPrefix}${key}/${receipt}/${index}`,
+                        { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+                        usage.modelId
+                      ).pipe(Effect.mapError(accountingFailed)),
+                    { discard: true }
+                  )
+                )
+              )
+            })
+          })
         })
       }).pipe(Effect.provide(context))
 

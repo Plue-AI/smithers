@@ -66,6 +66,7 @@ import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CellPlugin from "./CellPlugin.ts"
+import * as FlowEngineLike from "./FlowEngineLike.ts"
 import * as Commits from "./internal/memory/commits.ts"
 import * as Pack from "./internal/memory/pack.ts"
 import * as Repo from "./internal/memory/repo.ts"
@@ -1125,6 +1126,8 @@ export const binding = (
   options: Options
 ): FlowBinding.Binding => {
   const pinned = options.thresholds ?? MemoryCalibration.initial
+  // Each relevance reading a call takes is charged to the calling run (#3010).
+  const judged = FlowEngineLike.metered(services)
   const handler = (input: Input, call: Cell.Call) =>
     select(input, { ...options, thresholds: pinned }).pipe(
       Effect.tap((selection) => journal(selection, call)),
@@ -1147,7 +1150,7 @@ export const binding = (
         thresholds: MemoryCalibration.digest(pinned)
       }))
     }),
-    services
+    judged
   )
 }
 
