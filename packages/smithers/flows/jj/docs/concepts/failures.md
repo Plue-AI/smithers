@@ -82,7 +82,8 @@ message to parse: `reactor_disposed`, `reactor_instantiation_failed`,
 `reactor_abi_incomplete`, `reactor_request_allocation_failed`,
 `reactor_response_allocation_failed`, `reactor_symlinks_unsupported`,
 `patch_path_metadata_invalid`, `patch_path_metadata_incomplete`,
-`patch_headers_disagree`, or `patch_output_unexpected`. The `JjError` `code`
+`patch_headers_disagree`, `patch_output_unexpected`, `wasi_not_initialized`, or
+`lock_timeout`. The `JjError` `code`
 stays `unknown`.
 
 Bounding it is the second job. A live `PlatformError` carries argv, and an

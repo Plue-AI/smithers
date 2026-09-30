@@ -280,7 +280,9 @@ fi
         })
         let now = 0
         vi.spyOn(Date, "now").mockImplementation(() => now += 120_001)
-        expect((yield* Effect.flip(jj.snapshot())).message).toContain("timed out waiting")
+        const refused = yield* Effect.flip(jj.snapshot())
+        expect(refused.message).toContain("timed out waiting")
+        expect(refused.cause).toMatchObject({ name: "JjInternalFault", code: "lock_timeout" })
         expect(existsSync(join(lock, "unknown-owner"))).toBe(true)
       })
     ))

@@ -25,7 +25,9 @@ export const JjInternalFaultCode = Schema.Literals([
   "patch_path_metadata_invalid",
   "patch_path_metadata_incomplete",
   "patch_headers_disagree",
-  "patch_output_unexpected"
+  "patch_output_unexpected",
+  "wasi_not_initialized",
+  "lock_timeout"
 ])
 
 /**

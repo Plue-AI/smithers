@@ -70,6 +70,7 @@
  */
 
 import * as Schema from "effect/Schema"
+import { JjInternalFault } from "../internal/JjInternalFault.ts"
 import type { SyncDirentLike, SyncFsLike, SyncStatsLike } from "./WasiFs.ts"
 
 /**
@@ -352,7 +353,10 @@ export const make = (options: WasiPreview1Options): WasiPreview1 => {
 
   const buffer = (): ArrayBuffer => {
     if (memory === undefined) {
-      throw new Error("WasiPreview1: initialize(memory) must be called before the module issues syscalls")
+      throw new JjInternalFault({
+        code: "wasi_not_initialized",
+        message: "WasiPreview1: initialize(memory) must be called before the module issues syscalls"
+      })
     }
     return memory.buffer
   }
@@ -1143,6 +1147,9 @@ export const make = (options: WasiPreview1Options): WasiPreview1 => {
   const errnoOf = (cause: unknown): number => {
     if (cause instanceof ErrnoError) return cause.errno
     if (cause instanceof RangeError) return Errno.fault // out-of-bounds wasm memory access
+    // A misused shim is a defect in the reactor, never a filesystem errno: its
+    // stable `code` is not one, so it must not reach the errno lookup below.
+    if (cause instanceof JjInternalFault) throw cause
     const code = codeOf(cause)
     if (code !== undefined) return errnoByCode[code] ?? Errno.io
     throw cause

@@ -43,6 +43,7 @@ import { hostname } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { stripVTControlCharacters } from "node:util"
 import { quoteGitPatchPaths } from "../internal/gitPatchPaths.ts"
+import { JjInternalFault } from "../internal/JjInternalFault.ts"
 import { isJjError, Jj, JjError, jjErrorCause } from "../Jj.ts"
 import { resolveJjBinary } from "./resolveJjBinary.ts"
 
@@ -404,7 +405,10 @@ const withLockFile = <A, E, R>(
             })
             if (claimed) return
             if (Date.now() - startedAt >= lockAcquireWithinMs) {
-              return yield* Effect.fail(lockFailure(method, new Error("timed out waiting for another jj operation")))
+              return yield* Effect.fail(lockFailure(
+                method,
+                new JjInternalFault({ code: "lock_timeout", message: "timed out waiting for another jj operation" })
+              ))
             }
             // Only the wait is interruptible: acquisition and registration of
             // its finalizer must be inseparable, or cancellation leaks a lock.

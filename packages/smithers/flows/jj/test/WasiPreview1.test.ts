@@ -298,7 +298,13 @@ describe("WasiPreview1 unsupported native concurrent namespace mutation", () => 
 describe("WasiPreview1 bookkeeping", () => {
   it("requires initialize(memory) before the first memory-touching syscall", () => {
     const wasi = make({ fs: nodeFs })
-    expect(() => wasi.imports.fd_prestat_get!(3, RET)).toThrow(/initialize/)
+    expect(() => wasi.imports.fd_prestat_get!(3, RET)).toThrowError(
+      expect.objectContaining({
+        name: "JjInternalFault",
+        code: "wasi_not_initialized",
+        message: expect.stringMatching(/initialize/)
+      })
+    )
   })
 
   it("reports an empty argv and environment", () => {
