@@ -450,6 +450,7 @@ describe("unified control dispatch", () => {
         refusals: [],
         inputTokens: 0,
         outputTokens: 0,
+        costUsd: 0,
         parkedQuestion: "Ship this change?",
         parkedApproval: JSON.stringify(approval),
         startedAt: 2,
