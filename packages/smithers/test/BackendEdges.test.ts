@@ -56,7 +56,7 @@ describe("repository edge contracts", () => {
       "git@ssh.example.test:owner/repo.git",
       "copy",
       "--depth=1"
-    ])
+    ], {})
     await expect(repositories["repo clone"]!(c, {}, {})).rejects.toThrow("required")
   })
   it("lists published refs without starting a local process", async () => {

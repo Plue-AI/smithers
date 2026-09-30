@@ -12,7 +12,7 @@ import { auth } from "../src/internal/backend/Auth.ts"
 import { APIError, Client, object } from "../src/internal/backend/Client.ts"
 import { local } from "../src/internal/backend/Local.ts"
 import { misc } from "../src/internal/backend/Misc.ts"
-import { repositories } from "../src/internal/backend/Repositories.ts"
+import { gitAuth, repositories } from "../src/internal/backend/Repositories.ts"
 import { stacks } from "../src/internal/backend/Stack.ts"
 import { resolveID, workspaces } from "../src/internal/backend/Workspaces.ts"
 
@@ -114,6 +114,147 @@ const homeFixture = async (
     }
   }
 }
+
+describe("repo clone over local Git HTTP", () => {
+  it("preserves the configured origin and uses its saved login for a private repository", async () => {
+    let gitRoot = ""
+    const gitRequests: Array<{ path: string; authorization: string | undefined }> = []
+    const fixture = await homeFixture(async (req, res) => {
+      if (req.url === "/api/repos/owner/repo") {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end("{}")
+        return
+      }
+      const url = new URL(req.url || "/", `http://${req.headers.host}`)
+      gitRequests.push({ path: url.pathname, authorization: req.headers.authorization })
+      if (req.headers.authorization !== "Bearer home-session-secret") {
+        res.writeHead(401)
+        res.end()
+        return
+      }
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = Buffer.concat(chunks)
+      const result = spawnSync("git", ["http-backend"], {
+        input: body,
+        env: {
+          ...process.env,
+          GIT_PROJECT_ROOT: gitRoot,
+          GIT_HTTP_EXPORT_ALL: "1",
+          PATH_INFO: url.pathname,
+          QUERY_STRING: url.search.slice(1),
+          REQUEST_METHOD: req.method || "GET",
+          CONTENT_TYPE: String(req.headers["content-type"] || ""),
+          CONTENT_LENGTH: String(body.length),
+          HTTP_GIT_PROTOCOL: String(req.headers["git-protocol"] || "")
+        }
+      })
+      const output = result.stdout
+      const boundary = Buffer.from("\r\n\r\n")
+      const end = output.indexOf(boundary)
+      if (result.status !== 0 || end < 0) {
+        res.writeHead(500)
+        res.end(result.stderr)
+        return
+      }
+      let status = 200
+      const headers: Record<string, string> = {}
+      for (const line of output.subarray(0, end).toString().split("\r\n")) {
+        const colon = line.indexOf(":")
+        if (colon < 0) continue
+        const name = line.slice(0, colon), value = line.slice(colon + 1).trim()
+        if (name.toLowerCase() === "status") status = Number(value.split(" ")[0])
+        else headers[name] = value
+      }
+      res.writeHead(status, headers)
+      res.end(output.subarray(end + boundary.length))
+    })
+    try {
+      gitRoot = join(fixture.home, "git")
+      const owner = join(gitRoot, "owner")
+      const source = join(fixture.home, "source")
+      await mkdir(owner, { recursive: true })
+      const git = (args: string[], at: string) => {
+        const result = spawnSync("git", args, { cwd: at, encoding: "utf8" })
+        expect(result.status, `${args.join(" ")}: ${result.stderr}`).toBe(0)
+      }
+      git(["init", "--bare", "repo.git"], owner)
+      git(["init", "-b", "main", "source"], fixture.home)
+      git(["config", "user.name", "Clone Fixture"], source)
+      git(["config", "user.email", "fixture@example.test"], source)
+      await writeFile(join(source, "README.md"), "private clone works\n")
+      git(["add", "README.md"], source)
+      git(["commit", "-qm", "seed"], source)
+      git(["remote", "add", "origin", join(owner, "repo.git")], source)
+      git(["push", "-q", "origin", "main"], source)
+      git(["symbolic-ref", "HEAD", "refs/heads/main"], join(owner, "repo.git"))
+
+      const checkout = join(fixture.home, "checkout")
+      const result = await fixture.run(["repo", "clone", "owner/repo", "--protocol", "https", "--directory", checkout])
+      expect(result.code, result.error).toBe(0)
+      expect(await readFile(join(checkout, "README.md"), "utf8")).toBe("private clone works\n")
+      expect(gitRequests.length).toBeGreaterThan(0)
+      expect(gitRequests.every((request) => request.path.startsWith("/owner/repo.git/") &&
+        request.authorization === "Bearer home-session-secret")).toBe(true)
+    } finally {
+      await fixture.close()
+    }
+  })
+  it("does not send the saved backend login to another clone URL", async () => {
+    const fixture = await homeFixture((_req, res) => res.end("{}"))
+    const authorizations: Array<string | undefined> = []
+    const external = createServer((req, res) => {
+      authorizations.push(req.headers.authorization)
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>((resolve) => external.listen(0, "127.0.0.1", resolve))
+    try {
+      const address = external.address()
+      if (!address || typeof address === "string") throw new Error("Expected an external local HTTP port")
+      const url = `http://127.0.0.1:${address.port}/another/repo.git`
+      const result = await fixture.run(["repo", "clone", url, "--directory", join(fixture.home, "external")])
+      expect(result.code).not.toBe(0)
+      expect(authorizations.length).toBeGreaterThan(0)
+      expect(authorizations.every((authorization) => authorization === undefined)).toBe(true)
+    } finally {
+      await new Promise<void>((resolve, reject) => external.close((error) => error ? reject(error) : resolve()))
+      await fixture.close()
+    }
+  })
+  it("does not forward the saved login across a Git redirect to another origin", async () => {
+    const redirectedAuthorizations: Array<string | undefined> = []
+    const external = createServer((req, res) => {
+      redirectedAuthorizations.push(req.headers.authorization)
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>((resolve) => external.listen(0, "127.0.0.1", resolve))
+    const address = external.address()
+    if (!address || typeof address === "string") throw new Error("Expected an external local HTTP port")
+    const trustedAuthorizations: Array<string | undefined> = []
+    const fixture = await homeFixture((req, res) => {
+      if (req.url === "/api/repos/owner/repo") {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end("{}")
+        return
+      }
+      trustedAuthorizations.push(req.headers.authorization)
+      res.writeHead(302, { Location: `http://127.0.0.1:${address.port}${req.url}` })
+      res.end()
+    })
+    try {
+      const result = await fixture.run(["repo", "clone", "owner/repo", "--protocol", "https",
+        "--directory", join(fixture.home, "redirected")])
+      expect(result.code).not.toBe(0)
+      expect(trustedAuthorizations).toContain("Bearer home-session-secret")
+      expect(redirectedAuthorizations).toEqual([])
+    } finally {
+      await fixture.close()
+      await new Promise<void>((resolve, reject) => external.close((error) => error ? reject(error) : resolve()))
+    }
+  })
+})
 
 describe("repo home over local HTTP server", () => {
   it("reads the selected repository's home with the saved login and prints blocks in server order", async () => {
@@ -312,7 +453,7 @@ describe("repository selection and transfer", () => {
       })
       expect(await repositories["repo clone"]!(c, { repo }, { directory: "copy", "clone-arg": ["--depth=1"] }))
         .toMatchObject({ directory: "copy", tool: "git" })
-      expect(exec).toHaveBeenLastCalledWith("git", ["clone", repo, "copy", "--depth=1"])
+      expect(exec).toHaveBeenLastCalledWith("git", ["clone", repo, "copy", "--depth=1"], {})
       expect(request).not.toHaveBeenCalled()
     }
   )
@@ -322,9 +463,9 @@ describe("repository selection and transfer", () => {
     expect(exec).toHaveBeenCalledWith("jj", [
       "git",
       "clone",
-      protocol === "ssh" ? "git@ssh.example.test:owner/repo.git" : "https://example.test/owner/repo.git",
+      protocol === "ssh" ? "git@ssh.example.test:owner/repo.git" : "https://api.example.test/owner/repo.git",
       "repo"
-    ])
+    ], protocol === "https" ? gitAuth("https://api.example.test", "session-secret") : {})
   })
   it.each(["../bad", ".hidden", "a.lock", "a..b", "bad name"])(
     "rejects unsafe ref %s before launching git",
