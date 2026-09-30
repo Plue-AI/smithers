@@ -228,7 +228,8 @@ describe("secret host binding refusals (#3212)", () => {
   it("states the backend's typed refusal of a wildcard or CIDR host as the user's to fix", async () => {
     for (const host of ["*.ngrok-free.app", "127.0.0.0/8"]) {
       const { c } = await fixture()
-      const message = `secret binding host "${host}" must be an exact host name; wildcards and address ranges are refused`
+      const message =
+        `secret binding host "${host}" must be an exact host name; wildcards and address ranges are refused`
       const fetch = vi.fn().mockResolvedValue(Response.json({
         code: "validation_failed",
         fault: "user",
@@ -243,7 +244,10 @@ describe("secret host binding refusals (#3212)", () => {
       }).then(() => undefined, (cause: unknown) => cause)
       const [url, init] = fetch.mock.calls[0]!
       expect(String(url)).toBe("https://api.example.test/api/repos/owner/repo/secrets/DEPLOY_KEY")
-      expect(JSON.parse(String(init.body))).toEqual({ hosts: ["api.example.com", host], match_headers: ["authorization"] })
+      expect(JSON.parse(String(init.body))).toEqual({
+        hosts: ["api.example.com", host],
+        match_headers: ["authorization"]
+      })
       const failure = c.failure(error)
       expect(failure).toBeInstanceOf(Refused)
       expect(failure).toMatchObject({ fault: "user", message })

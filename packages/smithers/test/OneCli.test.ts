@@ -1,8 +1,8 @@
+import { Cli } from "incur"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Cli } from "incur"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 import { browserLogin } from "../src/internal/backend/Auth.ts"
@@ -251,7 +251,8 @@ describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
-    expect(Object.keys(definitions)).toHaveLength(210)
+    // Includes history land and workspace children list/spawn/stop (b80b439db473).
+    expect(Object.keys(definitions)).toHaveLength(211)
     expect(Object.keys(definitions).filter((name) => !handlers[name])).toEqual([])
     expect(commandPath("status")).toBe("change status")
     expect(commandPath("run view")).toBe("runs show")

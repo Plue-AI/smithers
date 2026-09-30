@@ -95,7 +95,7 @@ describe("issue views", () => {
   })
 
   it("surfaces an undeclared view as the API's refusal", async () => {
-    serve([{ body: { message: 'issue view "gone" not found' }, status: 404 }])
+    serve([{ body: { message: "issue view \"gone\" not found" }, status: 404 }])
     await expect(resources["issue list"]!(await client(), {}, { ...options, view: "gone" })).rejects.toThrow(
       /not found/
     )

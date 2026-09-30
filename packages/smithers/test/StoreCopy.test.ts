@@ -74,7 +74,10 @@ const catalog = (filename: string) =>
         UNION ALL SELECT 'function', p.proname, pg_get_functiondef(p.oid) FROM pg_proc p
         WHERE p.pronamespace = current_schema()::regnamespace
         ORDER BY 1, 2`
-      return rows.map((row) => ({ ...row, definition: row.definition?.replaceAll(current!.schema, "<schema>") ?? null }))
+      return rows.map((row) => ({
+        ...row,
+        definition: row.definition?.replaceAll(current!.schema, "<schema>") ?? null
+      }))
     })
   )
 
@@ -121,21 +124,35 @@ it("copies a PostgreSQL schema whole, continues its identities and drops the cop
     )
     expect(await counts(engineCopy)).toEqual(before.counts)
     // A row the copy appends takes the next identity, and the triggers fire there.
-    await on(engineCopy, Effect.gen(function*() {
-      const sql = yield* SqlClient
-      yield* sql`INSERT INTO flows_journal_events(run_id,seq,event_id,source_id,source_seq,emitted_at_ms,event_type,payload_json,meta_json) VALUES('run-1',2,'two','source',2,0,'example.output','{}','{}')`
-    }))
+    await on(
+      engineCopy,
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql`INSERT INTO flows_journal_events(run_id,seq,event_id,source_id,source_seq,emitted_at_ms,event_type,payload_json,meta_json) VALUES('run-1',2,'two','source',2,0,'example.output','{}','{}')`
+      })
+    )
     const refused = await on(
       engineCopy,
-      Effect.flip(Effect.flatMap(SqlClient, (sql) =>
-        sql`INSERT INTO flows_plan_input_heads(run_id, plan_id, base_digest, generation)
-          VALUES ('run-1', 'plan', 'base', 0)`))
+      Effect.flip(
+        Effect.flatMap(
+          SqlClient,
+          (sql) =>
+            sql`INSERT INTO flows_plan_input_heads(run_id, plan_id, base_digest, generation)
+          VALUES ('run-1', 'plan', 'base', 0)`
+        )
+      )
     )
     // The copied trigger refuses a head without an environment; with one, the row lands.
     expect(String((refused as { readonly cause?: unknown }).cause)).toContain("ConstraintError")
-    await on(engineCopy, Effect.flatMap(SqlClient, (sql) =>
-      sql`INSERT INTO flows_plan_input_heads(run_id, plan_id, base_digest, generation, environment_digest)
-        VALUES ('run-1', 'plan', 'base', 0, 'environment')`))
+    await on(
+      engineCopy,
+      Effect.flatMap(
+        SqlClient,
+        (sql) =>
+          sql`INSERT INTO flows_plan_input_heads(run_id, plan_id, base_digest, generation, environment_digest)
+        VALUES ('run-1', 'plan', 'base', 0, 'environment')`
+      )
+    )
     expect(await counts(engineCopy)).toEqual({ runs: 1, events: 2 })
     expect(await counts(engine)).toEqual(before.counts)
     expect(await catalog(engine)).toEqual(before.engine)
@@ -145,17 +162,25 @@ it("copies a PostgreSQL schema whole, continues its identities and drops the cop
     await Effect.runPromise(StoreCopy.discard(controlCopy))
     const left = await on(
       `${url}?schema=public`,
-      Effect.flatMap(SqlClient, (sql) =>
-        sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY 1`)
+      Effect.flatMap(
+        SqlClient,
+        (sql) =>
+          sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY 1`
+      )
     )
     expect(left.map((row) => row.name)).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
   } finally {
-    await on(`${url}?schema=public`, Effect.gen(function*() {
-      const sql = yield* SqlClient
-      for (const row of yield* sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${
-        `${prefix}%`
-      }`) yield* sql`DROP SCHEMA ${sql(row.name)} CASCADE`
-    })).catch(() => undefined)
+    await on(
+      `${url}?schema=public`,
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        for (
+          const row of yield* sql<
+            { name: string }
+          >`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`}`
+        ) yield* sql`DROP SCHEMA ${sql(row.name)} CASCADE`
+      })
+    ).catch(() => undefined)
   }
 })
 
@@ -168,18 +193,26 @@ it("refuses a PostgreSQL copy that exists already or would reach its source, and
   roots.push(directory)
   const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) => on(`${url}?schema=public`, body)
   const schemas = () =>
-    admin(Effect.flatMap(SqlClient, (sql) =>
-      sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY 1`
-    )).then((rows) => rows.map((row) => row.name))
+    admin(
+      Effect.flatMap(SqlClient, (sql) =>
+        sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY 1`)
+    ).then((rows) =>
+      rows.map((row) =>
+        row.name
+      )
+    )
   const code = (effect: Effect.Effect<void, unknown>) =>
     Effect.runPromise(Effect.flip(effect)).then((error) => (error as { readonly code?: unknown }).code)
   try {
     const source = join(directory, "source.db")
-    await on(source, Effect.gen(function*() {
-      const sql = yield* SqlClient
-      yield* sql`CREATE TABLE rows (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, value TEXT)`
-      yield* sql`INSERT INTO rows (value) VALUES ('one')`
-    }))
+    await on(
+      source,
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql`CREATE TABLE rows (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, value TEXT)`
+        yield* sql`INSERT INTO rows (value) VALUES ('one')`
+      })
+    )
     // An existing destination is never adopted, and never dropped.
     const taken = join(directory, "taken.db")
     await on(taken, Effect.flatMap(SqlClient, (sql) => sql`CREATE TABLE keep (id INTEGER)`))
@@ -187,28 +220,38 @@ it("refuses a PostgreSQL copy that exists already or would reach its source, and
     expect(await schemas()).toEqual([`${prefix}_source_db`, `${prefix}_taken_db`])
 
     // A default drawing from a sequence the source owns would advance the source.
-    await on(source, Effect.gen(function*() {
-      const sql = yield* SqlClient
-      yield* sql`CREATE SEQUENCE counter`
-      yield* sql`CREATE TABLE counted (n BIGINT DEFAULT nextval('counter'))`
-    }))
+    await on(
+      source,
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql`CREATE SEQUENCE counter`
+        yield* sql`CREATE TABLE counted (n BIGINT DEFAULT nextval('counter'))`
+      })
+    )
     expect(await code(StoreCopy.copy(source, join(directory, "reaching.db")))).toBe("verify_copy_unsafe")
     // A function pinned to a search path resolves its names somewhere else.
-    await on(source, Effect.gen(function*() {
-      const sql = yield* SqlClient
-      yield* sql`DROP TABLE counted`
-      yield* sql`DROP SEQUENCE counter`
-      yield* sql.unsafe(`CREATE FUNCTION pinned() RETURNS integer LANGUAGE sql SET search_path = public AS 'SELECT 1'`)
-    }))
+    await on(
+      source,
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        yield* sql`DROP TABLE counted`
+        yield* sql`DROP SEQUENCE counter`
+        yield* sql.unsafe(
+          `CREATE FUNCTION pinned() RETURNS integer LANGUAGE sql SET search_path = public AS 'SELECT 1'`
+        )
+      })
+    )
     expect(await code(StoreCopy.copy(source, join(directory, "pinned.db")))).toBe("verify_copy_unsafe")
     // Each refused copy rolled its schema back.
     expect(await schemas()).toEqual([`${prefix}_source_db`, `${prefix}_taken_db`])
   } finally {
     await admin(Effect.gen(function*() {
       const sql = yield* SqlClient
-      for (const row of yield* sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${
-        `${prefix}%`
-      }`) yield* sql`DROP SCHEMA ${sql(row.name)} CASCADE`
+      for (
+        const row of yield* sql<
+          { name: string }
+        >`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`}`
+      ) yield* sql`DROP SCHEMA ${sql(row.name)} CASCADE`
     })).catch(() => undefined)
   }
 })

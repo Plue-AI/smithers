@@ -26,7 +26,12 @@ const backend = async () => {
     let text = ""
     req.on("data", (chunk) => text += chunk)
     req.on("end", () => {
-      seen.push({ method: req.method!, url: req.url!, authorization: req.headers.authorization, body: text ? JSON.parse(text) : undefined })
+      seen.push({
+        method: req.method!,
+        url: req.url!,
+        authorization: req.headers.authorization,
+        body: text ? JSON.parse(text) : undefined
+      })
       res.setHeader("content-type", "application/json")
       res.statusCode = req.method === "POST" && req.url!.endsWith("/children") ? 202 : 200
       res.end(JSON.stringify({ url: req.url }))
@@ -69,9 +74,24 @@ describe("workspace children", () => {
     await workspaceChildren["workspace children list"]!(c, {}, {})
     await workspaceChildren["workspace children stop"]!(c, { child: "c/1" }, { workspace: parent.toUpperCase() })
     expect(seen).toEqual([
-      { method: "POST", url: `/api/repos/alice/demo/workspaces/${parent}/children`, authorization: "token children-credential", body: { count: 3, profile: "build", ttl_secs: 600 } },
-      { method: "GET", url: `/api/repos/alice/demo/workspaces/${parent}/children`, authorization: "token children-credential", body: undefined },
-      { method: "POST", url: `/api/repos/alice/demo/workspaces/${parent.toUpperCase()}/children/c%2F1/stop`, authorization: "token children-credential", body: undefined }
+      {
+        method: "POST",
+        url: `/api/repos/alice/demo/workspaces/${parent}/children`,
+        authorization: "token children-credential",
+        body: { count: 3, profile: "build", ttl_secs: 600 }
+      },
+      {
+        method: "GET",
+        url: `/api/repos/alice/demo/workspaces/${parent}/children`,
+        authorization: "token children-credential",
+        body: undefined
+      },
+      {
+        method: "POST",
+        url: `/api/repos/alice/demo/workspaces/${parent.toUpperCase()}/children/c%2F1/stop`,
+        authorization: "token children-credential",
+        body: undefined
+      }
     ])
   })
 
@@ -81,16 +101,24 @@ describe("workspace children", () => {
     await workspaceChildren["workspace children spawn"]!(c, {}, { count: 1, workspace: "other" })
     await workspaceChildren["workspace children list"]!(c, {}, { repo: "bob/site", workspace: parent })
     expect(seen.map(({ url, authorization, body }) => ({ url, authorization, body }))).toEqual([
-      { url: "/api/repos/alice/demo/workspaces/other/children", authorization: "token owner-login", body: { count: 1 } },
+      {
+        url: "/api/repos/alice/demo/workspaces/other/children",
+        authorization: "token owner-login",
+        body: { count: 1 }
+      },
       { url: `/api/repos/bob/site/workspaces/${parent}/children`, authorization: "token owner-login", body: undefined }
     ])
   })
 
   it("needs a workspace outside one", async () => {
     const { origin } = await backend()
-    for (const files of [{}, { config: "not json", token: "t" }, { config: "{}", token: "t" }, { config: coding(origin) }]) {
+    for (
+      const files of [{}, { config: "not json", token: "t" }, { config: "{}", token: "t" }, { config: coding(origin) }]
+    ) {
       const c = await machine(origin, files)
-      await expect(workspaceChildren["workspace children list"]!(c, {}, { repo: "alice/demo" })).rejects.toThrow("--workspace is required")
+      await expect(workspaceChildren["workspace children list"]!(c, {}, { repo: "alice/demo" })).rejects.toThrow(
+        "--workspace is required"
+      )
       await expect(workspaceChildren["workspace children list"]!(c, {}, {})).rejects.toThrow()
     }
   })

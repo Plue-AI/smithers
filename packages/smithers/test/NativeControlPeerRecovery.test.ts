@@ -71,7 +71,10 @@ it(
       original.kill("SIGSTOP")
       database(root, "control", (db) => {
         db.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
-        db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+        db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
+          Date.now() - 60_000,
+          runId
+        )
       })
 
       // Reproduce the durable split from #2958: budget suspension released the

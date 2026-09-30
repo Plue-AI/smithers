@@ -174,8 +174,13 @@ it.skipIf(!hasJj)("forks a module run into its own module child, carrying and ed
   })
   expect(stateOf(root, carried).result).toBeUndefined()
   // It routes to the fork's worktree, where the fork's host runs it.
-  expect(read(root, "engine", (db) =>
-    db.prepare("SELECT parent_run_id FROM flows_runs WHERE run_id=?").get(carried)!.parent_run_id)).toBe(fork.runId)
+  expect(
+    read(
+      root,
+      "engine",
+      (db) => db.prepare("SELECT parent_run_id FROM flows_runs WHERE run_id=?").get(carried)!.parent_run_id
+    )
+  ).toBe(fork.runId)
   expect(await Workspace.canExecute(root, fork.workspace, carried)).toBe(true)
   expect(await Workspace.canExecute(root, root, carried)).toBe(false)
   // Both finished steps crossed, the second one edited; the unfinished task did not.

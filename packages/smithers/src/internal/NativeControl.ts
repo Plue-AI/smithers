@@ -1231,11 +1231,12 @@ export const make = (
         // than running silently short of the tools it was configured to have.
         // Startup argv is explicit owner configuration; connected tool flows
         // capture the MCP client, never this contained host spawner.
-        const mcp = yield* Effect.forEach(mcpServers, (server) => Effect.orDie(
-          McpFlows.connected(server).pipe(
-            Effect.provideService(KernelChildProcessSpawner.ChildProcessSpawner, toolSpawner!)
-          )
-        ))
+        const mcp = yield* Effect.forEach(mcpServers, (server) =>
+          Effect.orDie(
+            McpFlows.connected(server).pipe(
+              Effect.provideService(KernelChildProcessSpawner.ChildProcessSpawner, toolSpawner!)
+            )
+          ))
         const sources = [
           ...(sealedTo === undefined
             ? [StandardFlows.filesystem(HostLanguageServers.bind(filesystemServices, languageServer), nativeSearch)]

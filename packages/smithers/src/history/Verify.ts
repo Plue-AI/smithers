@@ -30,9 +30,9 @@ import { randomBytes } from "node:crypto"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import type * as Application from "../Application.ts"
 import * as CliError from "../CliError.ts"
 import { databasePath } from "../internal/ControlDatabasePath.ts"
-import type * as Application from "../Application.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
 import { executionDatabasePath } from "../internal/ExecutionDatabasePath.ts"
 import type * as NativeControl from "../internal/NativeControl.ts"
@@ -328,14 +328,14 @@ const one = (
       )
       const drove = yield* Effect.gen(function*() {
         const runtime = yield* ControlRuntime.ControlRuntime
-        const before = yield* runtime.getRun(runId as RunId)
+        const before = yield* runtime.getRun(runId)
         if (all && terminal(before.status)) return { runId, status: before.status } satisfies Settled
         yield* (yield* Control.Control).resume({
-          runId: runId as RunId,
+          runId,
           idempotencyKey: `verify:${runId}`,
           allowCodeDrift: true
         })
-        yield* settled(runId as RunId, before.updatedAt).pipe(
+        yield* settled(runId, before.updatedAt).pipe(
           Effect.timeoutOrElse({
             duration: options.settleWithin ?? "10 minutes",
             orElse: () =>

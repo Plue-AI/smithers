@@ -12,7 +12,10 @@ import { UsageError } from "../../CliError.ts"
 import { type Client, esc, object, str, type Values } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 
-/** Where the control plane writes the workspace's identity and credential. */
+/** Where the control plane writes the workspace's identity and credential.
+ * @private
+ * @since 1.0.0
+ */
 export const guest = {
   config: "/etc/smithers/workspace-coding.json",
   token: ".config/smithers/workspace-children-token"

@@ -402,7 +402,11 @@ export const history: Record<string, Handler> = {
     }
     const head = str(object(item.pullRequest).head)
     if (str(item.state) !== "proposed" || head === "") {
-      throw new Refused({ fault: "user", code: "not_landable", message: `${named(ref)} has no open pull request to land` })
+      throw new Refused({
+        fault: "user",
+        code: "not_landable",
+        message: `${named(ref)} has no open pull request to land`
+      })
     }
     // The head this read saw: one that moves before the stack merges is refused, never landed unseen.
     return c.request("POST", stackPath(c, o, `/items/${esc(str(item.id))}/land`), { head })

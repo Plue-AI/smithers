@@ -6,18 +6,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, resolve } from "node:path"
 import { Refused, UsageError } from "../../CliError.ts"
-import {
-  chunksOf,
-  type Client,
-  esc,
-  list,
-  object,
-  pick,
-  positive,
-  query,
-  str,
-  type Values
-} from "./Client.ts"
+import { chunksOf, type Client, esc, list, object, pick, positive, query, str, type Values } from "./Client.ts"
 import * as ProductApi from "./ProductApi.ts"
 
 /**
@@ -154,7 +143,9 @@ add("secret set", async (c, a, o) => {
     name: a.name,
     value,
     ...(o["main-only"] ? { main_only: true } : {}),
-    ...(list(o.host).length > 0 || list(o.header).length > 0 ? { hosts: list(o.host), match_headers: list(o.header) } : {})
+    ...(list(o.host).length > 0 || list(o.header).length > 0
+      ? { hosts: list(o.host), match_headers: list(o.header) }
+      : {})
   })
 })
 add(

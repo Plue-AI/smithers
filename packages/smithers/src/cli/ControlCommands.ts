@@ -567,7 +567,9 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: false,
       args: runArgs,
       options,
-      run: (c) => guard(c, () => decideIncident(c.args.run, "continue", c.options, runtime), { next: afterDecision })
+      run: (c) =>
+        guard(c, () =>
+          decideIncident(c.args.run, "continue", c.options, runtime), { next: afterDecision })
     })
     .command("stop", {
       description: "Stop a run a budget or time limit parked",
@@ -581,9 +583,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs.extend({ payload: z.string() }),
       options,
-      run: (c) =>
-        guard(c, () =>
-          Bridge.invoke(["signal", c.args.run, c.args.payload], c.options, runtime))
+      run: (c) => guard(c, () => Bridge.invoke(["signal", c.args.run, c.args.payload], c.options, runtime))
     })
     .command("steer", {
       description: "Send an attributed operator message",

@@ -303,7 +303,9 @@ describe("the serve command", () => {
         cause: [{ _tag: "Fail", error: { _tag: "@smthrs/gateway/HistoryRefused", code: "not_found_row" } }]
       })
       // A read-only token cannot fork.
-      const readOnly = await Effect.runPromise(ScopedToken.mint({ key: credential, scopes: ["read:runs"], ttlMillis: 60_000 }))
+      const readOnly = await Effect.runPromise(
+        ScopedToken.mint({ key: credential, scopes: ["read:runs"], ttlMillis: 60_000 })
+      )
       expect(JSON.stringify((await call("Run.Fork", { runId: "run-unknown", at: 0 }, readOnly.token)).exit))
         .toContain("Unauthorized")
       // The address is decoded before the host sees it.

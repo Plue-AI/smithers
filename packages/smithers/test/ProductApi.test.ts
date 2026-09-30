@@ -124,7 +124,10 @@ describe("the generated product API client", () => {
     const path = { owner: "o", repo: "r", change_id: "c" }
     await ProductApi.getApiReposOwnerRepoChangesChangeIdDiff(transport, { path, query: { whitespace: "ignore" } })
     await ProductApi.getApiReposOwnerRepoChangesChangeIdDiff(transport, { path })
-    expect(calls.map((call) => call.args[1])).toEqual(["/api/repos/o/r/changes/c/diff?whitespace=ignore", "/api/repos/o/r/changes/c/diff"])
+    expect(calls.map((call) => call.args[1])).toEqual([
+      "/api/repos/o/r/changes/c/diff?whitespace=ignore",
+      "/api/repos/o/r/changes/c/diff"
+    ])
   })
 
   it("rejects when the transport rejects", async () => {

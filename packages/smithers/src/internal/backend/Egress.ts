@@ -24,7 +24,6 @@ const host = (value: unknown): string => {
   return name
 }
 
-
 /** @private
  * @since 1.0.0
  */

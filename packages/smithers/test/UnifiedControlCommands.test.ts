@@ -702,7 +702,15 @@ describe("unified control dispatch", () => {
       scope: "once",
       idempotencyKey: `approve:${requestId}`
     })
-    const incident = { classification: "Runaway", source: "tokens", message: "over", used: 15, max: 10, next: 15, allowance: 40 }
+    const incident = {
+      classification: "Runaway",
+      source: "tokens",
+      message: "over",
+      used: 15,
+      max: 10,
+      next: 15,
+      allowance: 40
+    }
     // `null` records a request no guard made: it carries no incident.
     const parked = (sequence: number, requestId: string, facts: unknown = incident) =>
       event(sequence, "control.approval.requested", {

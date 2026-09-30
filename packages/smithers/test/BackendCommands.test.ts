@@ -998,7 +998,12 @@ describe("repo report over local HTTP server", () => {
   }
 
   it("prints the recorded report with its source commit and launches nothing", async () => {
-    const shared = { repo: "acme/widgets", commit: "fc3f257b643b", report: { repo: "acme/widgets" }, recordedAt: "2026-09-30T00:00:00Z" }
+    const shared = {
+      repo: "acme/widgets",
+      commit: "fc3f257b643b",
+      report: { repo: "acme/widgets" },
+      recordedAt: "2026-09-30T00:00:00Z"
+    }
     const { requests, fixture } = serve(shared)
     const f = await fixture
     try {
@@ -1007,9 +1012,18 @@ describe("repo report over local HTTP server", () => {
       expect(requests).toEqual([{
         method: "POST",
         url: "/api/workflow/rpc",
-        body: { repo: "Acme/Widgets", procedure: "Registration.Report", payload: { repo: "acme/widgets" }, workspaceId: WORKSPACE }
+        body: {
+          repo: "Acme/Widgets",
+          procedure: "Registration.Report",
+          payload: { repo: "acme/widgets" },
+          workspaceId: WORKSPACE
+        }
       }])
-      expect(JSON.parse(result.output)).toMatchObject({ cached: true, commit: "fc3f257b643b", report: { repo: "acme/widgets" } })
+      expect(JSON.parse(result.output)).toMatchObject({
+        cached: true,
+        commit: "fc3f257b643b",
+        report: { repo: "acme/widgets" }
+      })
     } finally {
       await f.close()
     }

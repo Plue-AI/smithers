@@ -132,7 +132,10 @@ describe("smthrs egress", () => {
     const result = await b.run(["egress", "allow", "*.EXAMPLE.com"])
     expect(result.code, result.output).toBe(0)
     expect(b.seen).toEqual([{ ...read, method: "PATCH", body: { add: ["*.example.com"] } }])
-    expect(JSON.parse(result.output)).toMatchObject({ allow_domains: ["*.example.com"], reloads: [{ sandbox_id: "sb-1", reloaded: true }] })
+    expect(JSON.parse(result.output)).toMatchObject({
+      allow_domains: ["*.example.com"],
+      reloads: [{ sandbox_id: "sb-1", reloaded: true }]
+    })
   })
 
   it("denies an allowed host by removing only that host; the last one empties the list", async () => {

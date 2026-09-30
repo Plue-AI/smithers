@@ -199,7 +199,9 @@ describe("box remote execution", () => {
   })
   it("refuses a detached command with a cancellation timeout before admission", async () => {
     const { c, request } = await fixture()
-    await expect(workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "x", detach: true, timeout: 5 }))
+    await expect(
+      workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "x", detach: true, timeout: 5 })
+    )
       .rejects.toThrow("--detach cannot be combined with --timeout")
     expect(request).not.toHaveBeenCalled()
   })

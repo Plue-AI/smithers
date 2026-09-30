@@ -278,18 +278,26 @@ it("verifies a PostgreSQL-backed project on a schema copy it drops afterwards", 
   vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
   vi.stubEnv("SMITHERS_BACKEND", "postgres")
   const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) =>
-    Effect.runPromise(body.pipe(Effect.provide(NodeDatabase.layer({ filename: `${process.env.SMITHERS_HISTORY_TEST_PG_URL!}?schema=public` }))))
+    Effect.runPromise(
+      body.pipe(
+        Effect.provide(NodeDatabase.layer({ filename: `${process.env.SMITHERS_HISTORY_TEST_PG_URL!}?schema=public` }))
+      )
+    )
   const schemas = () =>
-    admin(Effect.flatMap(SqlClient, (sql) =>
-      sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY nspname`
-    )).then((rows) => rows.map((row) => row.name))
+    admin(
+      Effect.flatMap(SqlClient, (sql) =>
+        sql<
+          { name: string }
+        >`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY nspname`)
+    ).then((rows) => rows.map((row) => row.name))
   const rows = () =>
     admin(Effect.flatMap(SqlClient, (sql) =>
       sql<{ count: number }>`SELECT
         (SELECT count(*) FROM ${sql(`${prefix}_engine_db`)}.flows_journal_events)
         + (SELECT count(*) FROM ${sql(`${prefix}_engine_db`)}.flows_attempts)
-        + (SELECT count(*) FROM ${sql(`${prefix}_control_db`)}.flows_journal_events) AS count`
-    )).then(([row]) => Number(row!.count))
+        + (SELECT count(*) FROM ${sql(`${prefix}_control_db`)}.flows_journal_events) AS count`)).then(([row]) =>
+        Number(row!.count)
+      )
   try {
     const { root, runId } = await parkedProject()
     expect(existsSync(join(root, ".flows", "engine.db"))).toBe(false)
@@ -315,9 +323,11 @@ it("verifies a PostgreSQL-backed project on a schema copy it drops afterwards", 
   } finally {
     await admin(Effect.gen(function*() {
       const sql = yield* SqlClient
-      for (const name of yield* sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${
-        `${prefix}%`
-      }`) yield* sql`DROP SCHEMA ${sql(name.name)} CASCADE`
+      for (
+        const name of yield* sql<
+          { name: string }
+        >`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`}`
+      ) yield* sql`DROP SCHEMA ${sql(name.name)} CASCADE`
     })).catch(() => undefined)
     vi.unstubAllEnvs()
   }
