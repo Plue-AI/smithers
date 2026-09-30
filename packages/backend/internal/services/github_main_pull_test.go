@@ -1250,3 +1250,16 @@ func TestGitHubMainPullKeepsFactoryResultWhenNextPullFailsBeforeReconcile(t *tes
 	assert.Equal(t, first.FactoryState, second.FactoryState)
 	assert.Equal(t, first.FactoryError, second.FactoryError)
 }
+
+func (h *fakeMainPullHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

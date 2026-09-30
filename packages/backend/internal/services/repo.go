@@ -94,6 +94,7 @@ type RepoHostClient interface {
 	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	ListFilesAtChange(ctx context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error)
 	ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 }
 
 // repoHostNotesReader exposes real Git notes refs independently of bookmarks.
@@ -1431,10 +1432,7 @@ func (s *RepoService) ReplaceRepoTopics(ctx context.Context, actor *db.User, own
 	return updated.Topics, nil
 }
 
-// Bookmark listing is paginated and mirrored repos routinely carry hundreds of
-// bookmarks, so a name is not guaranteed to appear on the first page — every
-// lookup must follow the cursor (bounded to keep a misbehaving cursor from
-// looping forever).
+// Full bookmark enumeration follows bounded pages. Named lookups use GetBookmark.
 const (
 	bookmarkPageSize = 100
 	bookmarkMaxPages = 100
@@ -1465,16 +1463,8 @@ func (s *RepoService) walkBookmarks(ctx context.Context, owner, repoName string,
 // its target change ID is returned; otherwise the ref is returned as-is (assumed
 // to already be a change or commit ID).
 func (s *RepoService) resolveChangeRef(ctx context.Context, owner, repoName, ref string) (string, error) {
-	resolved := ""
-	err := s.walkBookmarks(ctx, owner, repoName, func(bookmarks []repohost.Bookmark) bool {
-		for _, b := range bookmarks {
-			if b.Name == ref {
-				resolved = strings.TrimSpace(b.TargetChangeID)
-				return false
-			}
-		}
-		return true
-	})
+	bookmark, _, err := repohost.LookupBookmark(ctx, s.repoHost, owner, repoName, ref)
+	resolved := strings.TrimSpace(bookmark.TargetChangeID)
 	if err != nil {
 		if isRepoHostStatus(err, 404) {
 			return "", errors.NotFound("repository storage not found")
@@ -1506,20 +1496,13 @@ func (s *RepoService) resolveContentsCommit(ctx context.Context, owner, repo, re
 	if immutableCommitSHA(ref) {
 		return ref, nil
 	}
+	bookmark, found, err := repohost.LookupBookmark(ctx, s.repoHost, owner, repo, ref)
 	change := ref
-	found := false
 	commit := ""
-	err := s.walkBookmarks(ctx, owner, repo, func(bookmarks []repohost.Bookmark) bool {
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == ref {
-				found = true
-				change = strings.TrimSpace(bookmark.TargetChangeID)
-				commit = strings.TrimSpace(bookmark.TargetCommitID)
-				return false
-			}
-		}
-		return true
-	})
+	if found {
+		change = strings.TrimSpace(bookmark.TargetChangeID)
+		commit = strings.TrimSpace(bookmark.TargetCommitID)
+	}
 	if err != nil {
 		if isRepoHostStatus(err, 404) {
 			return "", errors.NotFound("repository storage not found")

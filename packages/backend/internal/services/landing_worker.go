@@ -200,10 +200,11 @@ type landingWorkerOwnershipQueries interface {
 }
 
 type landingWorkerOwnershipRepoHost interface {
+	GetFileAtCommit(context.Context, string, string, string, string) (repohost.FileContent, error)
 	ownershipRepoHost
 	GetChange(ctx context.Context, owner, repo, changeID string) (repohost.Change, error)
 	GetChangeFiles(ctx context.Context, owner, repo, changeID string) ([]repohost.ChangeFile, error)
-	ListBookmarks(ctx context.Context, owner, repo string, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 }
 
 // LandingWorkerOption configures optional dependencies on LandingWorker.
@@ -820,22 +821,14 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 }
 
 func workerTargetBookmarkRevision(ctx context.Context, rh landingWorkerOwnershipRepoHost, owner, repo, target string) (string, error) {
-	cursor := ""
-	for {
-		bookmarks, next, err := rh.ListBookmarks(ctx, owner, repo, cursor, 100)
-		if err != nil {
-			return "", err
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == target && bookmark.TargetChangeID != "" {
-				return bookmark.TargetChangeID, nil
-			}
-		}
-		if next == "" {
-			return "", fmt.Errorf("target bookmark does not exist")
-		}
-		cursor = next
+	bookmark, found, err := repohost.LookupBookmark(ctx, rh, owner, repo, target)
+	if err != nil {
+		return "", err
 	}
+	if found && bookmark.TargetChangeID != "" {
+		return bookmark.TargetChangeID, nil
+	}
+	return "", fmt.Errorf("target bookmark does not exist")
 }
 
 // retryLandingFinalize retries a post-land database write with exponential

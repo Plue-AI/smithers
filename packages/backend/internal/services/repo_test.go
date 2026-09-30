@@ -356,6 +356,7 @@ func (m *pagedRepoHostClient) ListDirectory(_ context.Context, _, _, change, pre
 }
 
 type mockRepoHostClient struct {
+	getBookmarkFn        func(context.Context, string, string, string) (repohost.Bookmark, error)
 	initRepoFn           func(ctx context.Context, owner, repo, defaultBookmark string, autoInit bool) error
 	setDefaultBookmarkFn func(ctx context.Context, owner, repo, name string) error
 	deleteRepoFn         func(ctx context.Context, owner, repo string) error
@@ -2093,13 +2094,29 @@ func TestRepoService_ResolveChangeRef(t *testing.T) {
 		assert.Equal(t, "change-222", ref)
 	})
 
-	t.Run("follows pagination to a bookmark beyond the first page", func(t *testing.T) {
-		rh := &mockRepoHostClient{listBookmarksFn: paginatedBookmarksFn(manyBookmarksWithMain(t))}
+	t.Run("resolves one named bookmark among more than 500", func(t *testing.T) {
+		bookmarks := map[string]repohost.Bookmark{}
+		for i := range 601 {
+			name := fmt.Sprintf("branch-%d", i)
+			bookmarks[name] = repohost.Bookmark{Name: name, TargetChangeID: name}
+		}
+		bookmarks["main"] = repohost.Bookmark{Name: "main", TargetChangeID: "change-main"}
+		calls := 0
+		rh := &mockRepoHostClient{getBookmarkFn: func(_ context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+			calls++
+			require.Equal(t, "alice", owner)
+			require.Equal(t, "demo", repo)
+			return bookmarks[name], nil
+		}, listBookmarksFn: func(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+			t.Fatal("named resolution must not enumerate bookmarks")
+			return nil, "", nil
+		}}
 		svc := NewRepoService(q, rh, "s1")
 
 		ref, err := svc.resolveChangeRef(context.Background(), "alice", "demo", "main")
 		require.NoError(t, err)
-		assert.Equal(t, "change-main", ref, "main lives past page 1 on mirrored repos and must still resolve")
+		assert.Equal(t, "change-main", ref)
+		require.Equal(t, 1, calls)
 	})
 
 	t.Run("passes through change ID when no bookmark matches", func(t *testing.T) {
@@ -2699,4 +2716,20 @@ func (m *mockRepoHostClient) ListNotesRefs(ctx context.Context, owner, repo stri
 func (*stubBillingPolicy) AuthorizeSandboxStart(context.Context, int64) error { return nil }
 func (*stubBillingPolicy) SandboxEntitlement(context.Context, int64) (SandboxEntitlement, error) {
 	return SandboxEntitlement{}, nil
+}
+
+func (m *mockRepoHostClient) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	if m.getBookmarkFn != nil {
+		return m.getBookmarkFn(ctx, owner, repo, name)
+	}
+	items, _, err := m.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }

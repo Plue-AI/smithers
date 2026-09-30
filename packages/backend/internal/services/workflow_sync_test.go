@@ -17,6 +17,7 @@ import (
 )
 
 type mockWorkflowSyncRepoHost struct {
+	getBookmarkFn       func(context.Context, string, string, string) (repohost.Bookmark, error)
 	listFilesAtChangeFn func(ctx context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error)
 	getFileAtChangeFn   func(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	listBookmarksFn     func(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
@@ -82,22 +83,30 @@ func TestWorkflowSyncService_ResolveBookmarkCommitUsesAuthoritativeRepoHost(t *t
 		},
 	}
 	commitID := strings.Repeat("a", 40)
+	calls := 0
+	bookmarks := map[string]repohost.Bookmark{}
+	for i := range 601 {
+		name := fmt.Sprintf("branch-%d", i)
+		bookmarks[name] = repohost.Bookmark{Name: name, TargetCommitID: strings.Repeat("b", 40)}
+	}
+	bookmarks["main"] = repohost.Bookmark{Name: "main", TargetCommitID: commitID}
 	repoHost := &mockWorkflowSyncRepoHost{
-		listBookmarksFn: func(_ context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error) {
+		getBookmarkFn: func(_ context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+			calls++
 			assert.Equal(t, "alice", owner)
 			assert.Equal(t, "demo", repo)
-			assert.Equal(t, 100, limit)
-			if cursor == "" {
-				return []repohost.Bookmark{{Name: "develop", TargetCommitID: strings.Repeat("b", 40)}}, "page-2", nil
-			}
-			return []repohost.Bookmark{{Name: "main", TargetCommitID: commitID}}, "", nil
+			return bookmarks[name], nil
+		}, listBookmarksFn: func(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+			t.Fatal("named resolution must not list bookmarks")
+			return nil, "", nil
 		},
 	}
 
 	got, err := NewWorkflowSyncService(queries, repoHost, nil).ResolveBookmarkCommit(context.Background(), 42, " main ")
 	require.NoError(t, err)
 	assert.Equal(t, commitID, got)
-	assert.Equal(t, []string{"", "page-2"}, repoHost.listBookmarkCursors)
+	assert.Equal(t, 1, calls)
+	assert.Empty(t, repoHost.listBookmarkCursors)
 }
 
 type mockWorkflowSyncParser struct {
@@ -751,4 +760,39 @@ func TestLoadDefinitionsFromCommit_RejectsOversizedFile(t *testing.T) {
 	require.Len(t, result.FileErrors, 1)
 	assert.Equal(t, ".smithers/workflows/huge.tsx", result.FileErrors[0].Path)
 	assert.Contains(t, result.FileErrors[0].Error, "workflow file too large")
+}
+
+func (m *mockWorkflowSyncRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	if m.getBookmarkFn != nil {
+		return m.getBookmarkFn(ctx, owner, repo, name)
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}
+
+func TestWorkflowSyncBookmarkLookupErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		bookmark   repohost.Bookmark
+		err        error
+	}{
+		{name: "absent", want: "not found", err: &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}},
+		{name: "empty target", want: "no target commit", bookmark: repohost.Bookmark{Name: "main"}},
+		{name: "missing repository", want: "repository storage absent", err: &repohost.StatusError{StatusCode: 404, Message: "repository storage absent"}},
+		{name: "canceled", want: "context canceled", err: context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &mockWorkflowSyncQuerier{getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
+				return db.Repository{Name: "demo", UserID: pgtype.Int8{Int64: 7, Valid: true}}, nil
+			}, getUserByIDFn: func(context.Context, int64) (db.User, error) { return db.User{Username: "alice"}, nil }}
+			calls := 0
+			h := &mockWorkflowSyncRepoHost{getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+				calls++
+				return tc.bookmark, tc.err
+			}}
+			_, err := NewWorkflowSyncService(q, h, nil).ResolveBookmarkCommit(t.Context(), 42, "main")
+			require.ErrorContains(t, err, tc.want)
+			require.Equal(t, 1, calls)
+			require.Empty(t, h.listBookmarkCursors)
+		})
+	}
 }

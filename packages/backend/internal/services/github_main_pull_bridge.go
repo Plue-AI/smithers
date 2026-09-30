@@ -28,7 +28,7 @@ type gitHubMainPullRepoHost interface {
 	InfoRefs(ctx context.Context, owner, repo, service string, stdout io.Writer) (string, error)
 	ProxyUploadPack(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer) error
 	ProxyReceivePack(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer, meta ...repohost.ReceivePackMetadata) error
-	ListBookmarks(ctx context.Context, owner, repo string, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 }
 
 // gitHubMainPullUpdate is the only ref update the bridge accepts.

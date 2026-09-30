@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -297,23 +298,24 @@ func TestListBookmarksReturnsPaginatedJSON(t *testing.T) {
 }
 
 func TestGetBookmarkResolvesOneBookmarkByName(t *testing.T) {
-	// 150 bookmarks: the target sits on the second native page, as main does
-	// on mirrored repositories with hundreds of branches.
-	all := make([]repohost.Bookmark, 0, 150)
-	for i := 0; i < 149; i++ {
-		all = append(all, repohost.Bookmark{Name: "branch-" + strings.Repeat("a", i%5) + string(rune('a'+i%26)), TargetChangeID: "chg", TargetCommitID: "cmt"})
+	bookmarks := make(map[string]repohost.Bookmark, 602)
+	for i := 0; i < 601; i++ {
+		name := fmt.Sprintf("bookmark-%04d", i)
+		bookmarks[name] = repohost.Bookmark{Name: name, TargetCommitID: "other"}
 	}
-	all = append(all, repohost.Bookmark{Name: "feature/x", TargetChangeID: "want-change", TargetCommitID: "want-commit"})
-	var pages []uint32
+	bookmarks["feature/x"] = repohost.Bookmark{Name: "feature/x", TargetChangeID: "want-change", TargetCommitID: "want-commit"}
+	var lookups []string
 	mock := &mockFFI{
-		listBookmarksFn: func(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Bookmark], error) {
-			pages = append(pages, page)
-			start := int((page - 1) * perPage)
-			end := min(start+int(perPage), len(all))
-			if start > len(all) {
-				start = len(all)
+		getBookmarkFn: func(storePath, name string) (*repohost.Bookmark, error) {
+			lookups = append(lookups, name)
+			if bookmark, found := bookmarks[name]; found {
+				return &bookmark, nil
 			}
-			return repohostffi.Paginated[repohost.Bookmark]{Items: all[start:end], TotalCount: len(all)}, nil
+			return nil, nil
+		},
+		listBookmarksFn: func(string, uint32, uint32) (repohostffi.Paginated[repohost.Bookmark], error) {
+			t.Fatal("bookmark lookup must not enumerate pages")
+			return repohostffi.Paginated[repohost.Bookmark]{}, nil
 		},
 	}
 	handler := newTestServerWithMock(t, mock).Handler()
@@ -338,12 +340,84 @@ func TestGetBookmarkResolvesOneBookmarkByName(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected %+v, got %+v", want, got)
 	}
-	if !reflect.DeepEqual(pages, []uint32{1, 2}) {
-		t.Fatalf("expected pages [1 2], got %v", pages)
+	if !reflect.DeepEqual(lookups, []string{"feature/x"}) {
+		t.Fatalf("expected one exact lookup, got %v", lookups)
 	}
 
-	if w := get("/repos/alice%3Ademo/bookmarks/absent"); w.Code != http.StatusNotFound {
-		t.Fatalf("absent bookmark: expected 404, got %d; body=%s", w.Code, w.Body.String())
+	missing := get("/repos/alice%3Ademo/bookmarks/absent")
+	if missing.Code != http.StatusNotFound || !strings.Contains(missing.Body.String(), `"code":"bookmark_not_found"`) {
+		t.Fatalf("absent bookmark: expected specific 404, got %d; body=%s", missing.Code, missing.Body.String())
+	}
+}
+
+func TestPublicBookmarkLookupPreservesEscapedNames(t *testing.T) {
+	names := []string{"feature/deep", "feature%2Fdeep", "feature%252Fdeep", "literal%20space", "literal%ZZ"}
+	var calls []string
+	mock := &mockFFI{getBookmarkFn: func(_ string, name string) (*repohost.Bookmark, error) {
+		calls = append(calls, name)
+		for _, stored := range names {
+			if name == stored {
+				return &repohost.Bookmark{Name: stored, TargetCommitID: "commit:" + stored}, nil
+			}
+		}
+		return nil, nil
+	}, listBookmarksFn: func(string, uint32, uint32) (repohostffi.Paginated[repohost.Bookmark], error) {
+		t.Fatal("must not enumerate bookmarks")
+		return repohostffi.Paginated[repohost.Bookmark]{}, nil
+	}}
+	server := httptest.NewServer(newTestServerWithMock(t, mock).Handler())
+	defer server.Close()
+	client := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, testAuthToken)
+	for _, name := range names {
+		got, err := client.GetBookmark(context.Background(), "alice", "demo", name)
+		if err != nil || got.Name != name || got.TargetCommitID != "commit:"+name {
+			t.Fatalf("lookup %q got=%+v err=%v", name, got, err)
+		}
+	}
+	if !reflect.DeepEqual(calls, names) {
+		t.Fatalf("calls=%v want=%v", calls, names)
+	}
+}
+
+func TestConditionalBookmarkUsesOneExactLookup(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		bookmark *repohost.Bookmark
+		expected string
+		status   int
+	}{
+		{"absent-create", nil, "", http.StatusCreated},
+		{"absent-conflict", nil, "old", http.StatusConflict},
+		{"matching", &repohost.Bookmark{TargetCommitID: "old"}, "old", http.StatusCreated},
+		{"changed", &repohost.Bookmark{TargetCommitID: "new"}, "old", http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lookups, creates := 0, 0
+			mock := &mockFFI{getBookmarkFn: func(string, string) (*repohost.Bookmark, error) { lookups++; return tc.bookmark, nil },
+				listBookmarksFn: func(string, uint32, uint32) (repohostffi.Paginated[repohost.Bookmark], error) {
+					t.Fatal("must not enumerate")
+					return repohostffi.Paginated[repohost.Bookmark]{}, nil
+				},
+				createBookmarkFn: func(_ string, name, _ string) (repohost.Bookmark, error) {
+					creates++
+					return repohost.Bookmark{Name: name}, nil
+				}}
+			body, _ := json.Marshal(map[string]string{"name": "feature", "target_change_id": "change", "expected_commit_id": tc.expected})
+			req := httptest.NewRequest(http.MethodPost, "/repos/alice%3Ademo/bookmarks", bytes.NewReader(body))
+			req.Header.Set("Authorization", validAuth())
+			w := httptest.NewRecorder()
+			newTestServerWithMock(t, mock).Handler().ServeHTTP(w, req)
+			if w.Code != tc.status || lookups != 1 {
+				t.Fatalf("status=%d lookups=%d body=%s", w.Code, lookups, w.Body.String())
+			}
+			wantCreates := 0
+			if tc.status == http.StatusCreated {
+				wantCreates = 1
+			}
+			if creates != wantCreates {
+				t.Fatalf("creates=%d, want %d", creates, wantCreates)
+			}
+		})
 	}
 }
 
@@ -1002,6 +1076,33 @@ func TestGetFileContentRetrieval(t *testing.T) {
 	}
 	if fc["content"] != "package main\n\nfunc main() {}\n" {
 		t.Fatalf("unexpected content: %v", fc["content"])
+	}
+}
+
+func TestFileMissingCodeRequiresNativeMissingPath(t *testing.T) {
+	for _, tc := range []struct {
+		code     string
+		path     string
+		wantCode string
+	}{{"file_not_found", "absent", "file_not_found"}, {"not_found", "directory", ""}} {
+		t.Run(tc.code, func(t *testing.T) {
+			mock := &mockFFI{getFileContentFn: func(string, string, string) (repohost.FileContent, error) {
+				return repohost.FileContent{}, &repohostffi.Error{Code: tc.code, Message: "missing"}
+			}}
+			req := httptest.NewRequest(http.MethodGet, "/repos/alice%3Ademo/file/commit/"+tc.path, nil)
+			req.Header.Set("Authorization", validAuth())
+			w := httptest.NewRecorder()
+			newTestServerWithMock(t, mock).Handler().ServeHTTP(w, req)
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != http.StatusNotFound || body.Code != tc.wantCode {
+				t.Fatalf("status=%d code=%q body=%s", w.Code, body.Code, w.Body.String())
+			}
+		})
 	}
 }
 

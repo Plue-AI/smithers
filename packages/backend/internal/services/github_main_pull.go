@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // A repository whose declared GitHub policy is `mirror: "pull"` has one
@@ -644,24 +645,8 @@ func (s *GitHubMainPullService) readToken(ctx context.Context, repository db.Rep
 }
 
 func (s *GitHubMainPullService) bookmarkCommit(ctx context.Context, owner, repo, name string) (string, error) {
-	const pageSize, maxPages = 100, 100
-	cursor := ""
-	for range maxPages {
-		bookmarks, next, err := s.host.ListBookmarks(ctx, owner, repo, cursor, pageSize)
-		if err != nil {
-			return "", err
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == name {
-				return strings.TrimSpace(bookmark.TargetCommitID), nil
-			}
-		}
-		if next == "" || next == cursor || len(bookmarks) == 0 {
-			return "", nil
-		}
-		cursor = next
-	}
-	return "", fmt.Errorf("bookmark listing exceeded %d pages", maxPages)
+	bookmark, _, err := repohost.LookupBookmark(ctx, s.host, owner, repo, name)
+	return strings.TrimSpace(bookmark.TargetCommitID), err
 }
 
 // gitHubMainPullCommand bounds a git command by the run: after cancellation

@@ -314,6 +314,7 @@ struct WikiRevision {
 
 #[derive(Debug)]
 enum JjError {
+    FileNotFound,
     NotFound(String),
     LandingReceiptMissing,
     BadRequest(String),
@@ -324,6 +325,7 @@ enum JjError {
 
 #[derive(Debug)]
 enum FfiError {
+    FileNotFound,
     WorkspaceSourceMissing,
     LandingReceiptMissing,
     InvalidArgument(String),
@@ -337,6 +339,7 @@ enum FfiError {
 impl FfiError {
     fn code(&self) -> &'static str {
         match self {
+            Self::FileNotFound => "file_not_found",
             Self::LandingReceiptMissing => "landing_receipt_missing",
             Self::WorkspaceSourceMissing => "workspace_source_missing",
             Self::InvalidArgument(_) => "invalid_argument",
@@ -350,6 +353,7 @@ impl FfiError {
 
     fn message(&self) -> &str {
         match self {
+            Self::FileNotFound => "file not found in change",
             Self::LandingReceiptMissing => "landing receipt not found",
             Self::WorkspaceSourceMissing => "workspace source not retained",
             Self::InvalidArgument(msg)
@@ -365,6 +369,7 @@ impl FfiError {
 impl From<JjError> for FfiError {
     fn from(value: JjError) -> Self {
         match value {
+            JjError::FileNotFound => Self::FileNotFound,
             JjError::LandingReceiptMissing => Self::LandingReceiptMissing,
             JjError::BadRequest(msg) => Self::BadRequest(msg),
             JjError::NotFound(msg) => Self::NotFound(msg),
@@ -420,12 +425,11 @@ impl RepoHandle {
     }
 
     fn get_bookmark(&self, name: &str) -> Result<Option<Bookmark>, JjError> {
-        let trimmed_name = name.trim();
-        if trimmed_name.is_empty() {
+        if name.trim().is_empty() {
             return Err(JjError::BadRequest("bookmark name is required".to_string()));
         }
 
-        let ref_name = RefName::new(trimmed_name);
+        let ref_name = RefName::new(name);
         let target = self.repo.view().get_local_bookmark(ref_name);
         let Some(commit_id) = target.added_ids().next() else {
             return Ok(None);
@@ -433,7 +437,7 @@ impl RepoHandle {
         let commit = self.repo.store().get_commit(commit_id).map_err(|err| {
             JjError::Internal(format!("failed to read bookmark target commit: {err}"))
         })?;
-        let name_matcher = StringMatcher::Exact(trimmed_name.to_string());
+        let name_matcher = StringMatcher::Exact(name.to_string());
         let is_tracking_remote = self
             .repo
             .view()
@@ -442,7 +446,7 @@ impl RepoHandle {
             .is_some();
 
         Ok(Some(Bookmark {
-            name: trimmed_name.to_string(),
+            name: name.to_string(),
             target_change_id: commit.change_id().reverse_hex(),
             target_commit_id: commit_id.hex(),
             is_tracking_remote,
@@ -454,7 +458,7 @@ impl RepoHandle {
         name: &str,
         target_change_id: &str,
     ) -> Result<Bookmark, JjError> {
-        if let Some(bookmark) = self.get_bookmark(name)? {
+        if let Some(bookmark) = self.get_bookmark(name.trim())? {
             return Ok(bookmark);
         }
         self.create_bookmark(name, target_change_id)
@@ -1824,7 +1828,11 @@ impl RepoHandle {
             });
         }
 
-        Err(JjError::NotFound("file not found in change".to_string()))
+        if matches!(value.as_resolved(), Some(None)) {
+            Err(JjError::FileNotFound)
+        } else {
+            Err(JjError::NotFound("path is not a resolved file".to_string()))
+        }
     }
 
     fn create_snapshot(&self, change_id: &str) -> Result<SnapshotResult, JjError> {
@@ -4009,6 +4017,23 @@ pub extern "C" fn smithers_read_superproject(
     })
 }
 
+/// Resolve one local bookmark by name; an absent bookmark returns JSON null.
+///
+/// # Safety
+/// The pointer and returned-string ownership contract is the same as
+/// [`smithers_create_bookmark`].
+#[no_mangle]
+pub extern "C" fn smithers_get_bookmark(
+    store_path: *const c_char,
+    name: *const c_char,
+) -> *mut c_char {
+    execute(|| {
+        let handle = open_repo(store_path)?;
+        let name = parse_c_string(name, "name")?;
+        handle.get_bookmark(&name).map_err(FfiError::from)
+    })
+}
+
 /// List bookmarks and return a paginated JSON response string.
 ///
 /// # Safety
@@ -5545,6 +5570,118 @@ mod tests {
         let response = unsafe { take_json(smithers_delete_repo(c_path(&path).as_ptr())) };
         assert_eq!(response["status"], "ok");
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn ffi_directory_file_read_preserves_generic_not_found() {
+        let tmp = TempDir::new().expect("tempdir");
+        let path = repo_path(&tmp);
+        let path_c = c_path(&path);
+        unsafe { take_json(smithers_init_repo(path_c.as_ptr())) };
+        let change = c_string(&create_commit_with_files(
+            &path,
+            "nested directory",
+            &[("directory/file.txt", "present")],
+        ));
+        let result = unsafe {
+            take_json(smithers_get_file_content(
+                path_c.as_ptr(),
+                change.as_ptr(),
+                c_string("directory").as_ptr(),
+            ))
+        };
+        assert_eq!(result["code"], "not_found");
+        let file = unsafe {
+            take_json(smithers_get_file_content(
+                path_c.as_ptr(),
+                change.as_ptr(),
+                c_string("directory/file.txt").as_ptr(),
+            ))
+        };
+        assert_eq!(file["content"], "present");
+    }
+
+    #[test]
+    fn ffi_file_missing_code_requires_a_present_commit() {
+        let tmp = TempDir::new().expect("tempdir");
+        let path = repo_path(&tmp);
+        let path_c = c_path(&path);
+        unsafe {
+            take_json(smithers_auto_init_repo(
+                path_c.as_ptr(),
+                c_string("main").as_ptr(),
+                c_string("demo").as_ptr(),
+            ))
+        };
+        let commit = c_string(&current_commit_id(&path));
+        let present = unsafe {
+            take_json(smithers_get_file_content(
+                path_c.as_ptr(),
+                commit.as_ptr(),
+                c_string("README.md").as_ptr(),
+            ))
+        };
+        assert_eq!(present["content"], "# demo\n");
+        let absent = unsafe {
+            take_json(smithers_get_file_content(
+                path_c.as_ptr(),
+                commit.as_ptr(),
+                c_string("absent").as_ptr(),
+            ))
+        };
+        assert_eq!(absent["code"], "file_not_found");
+        let missing_commit = unsafe {
+            take_json(smithers_get_file_content(
+                path_c.as_ptr(),
+                c_string(&"f".repeat(40)).as_ptr(),
+                c_string("absent").as_ptr(),
+            ))
+        };
+        assert_ne!(missing_commit["code"], "file_not_found");
+        assert_eq!(missing_commit["code"], "not_found");
+        let missing_repo = unsafe {
+            take_json(smithers_get_file_content(
+                c_path(&tmp.path().join("absent-repo")).as_ptr(),
+                commit.as_ptr(),
+                c_string("absent").as_ptr(),
+            ))
+        };
+        assert_eq!(missing_repo["code"], "not_found");
+    }
+
+    #[test]
+    fn ffi_get_bookmark_resolves_among_more_than_500_names() {
+        let tmp = TempDir::new().expect("tempdir");
+        let path = repo_path(&tmp);
+        let path_c = c_path(&path);
+        unsafe { take_json(smithers_init_repo(path_c.as_ptr())) };
+        let handle = open_repo(path_c.as_ptr()).expect("open");
+        let commit_id = CommitId::try_from_hex(current_commit_id(&path)).unwrap();
+        let mut tx = handle.repo.start_transaction();
+        for i in 0..601 {
+            tx.repo_mut().set_local_bookmark_target(
+                RefName::new(&format!("bookmark-{i:04}")),
+                RefTarget::normal(commit_id.clone()),
+            );
+        }
+        pollster::block_on(tx.commit("populate bookmark regression")).unwrap();
+        let spaced = c_string(" bookmark-0600 ");
+        assert_eq!(
+            unsafe { take_json(smithers_get_bookmark(path_c.as_ptr(), spaced.as_ptr())) },
+            serde_json::Value::Null
+        );
+        let name = c_string("bookmark-0600");
+        let got = unsafe { take_json(smithers_get_bookmark(path_c.as_ptr(), name.as_ptr())) };
+        assert_eq!(got["name"], "bookmark-0600");
+        assert_eq!(got["target_commit_id"], commit_id.hex());
+        let absent = c_string("absent");
+        assert_eq!(
+            unsafe { take_json(smithers_get_bookmark(path_c.as_ptr(), absent.as_ptr())) },
+            serde_json::Value::Null
+        );
+        let blank = c_string(" ");
+        let invalid = unsafe { take_json(smithers_get_bookmark(path_c.as_ptr(), blank.as_ptr())) };
+        assert_eq!(invalid["code"], "bad_request");
     }
 
     #[test]

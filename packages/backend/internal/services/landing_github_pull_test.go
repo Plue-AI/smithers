@@ -470,3 +470,16 @@ func TestLandingRecordsTheWorkspaceItsCredentialServes(t *testing.T) {
 	require.NoError(t, s.recordLandingSource(context.Background(), 13))
 	assert.Equal(t, map[int64]string{12: "3f2b6c1e-0000-4000-8000-000000000001"}, q.landingSourceWorkspaces)
 }
+
+func (h bookmarkedLandingRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

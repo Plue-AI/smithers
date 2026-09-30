@@ -44,7 +44,7 @@ type WorkflowSyncRepoHostClient interface {
 }
 
 type workflowBookmarkRepoHostClient interface {
-	ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	repohost.BookmarkReader
 }
 
 // LoadedWorkflowDefinition is a commit-scoped parsed workflow definition ready for persistence or dispatch.
@@ -114,33 +114,18 @@ func (s *WorkflowSyncService) ResolveBookmarkCommit(ctx context.Context, repoID 
 		return "", fmt.Errorf("repo-host bookmark lookup is unavailable")
 	}
 
-	const pageSize = 100
-	cursor := ""
-	seenCursors := map[string]struct{}{"": {}}
-	for {
-		bookmarks, nextCursor, err := bookmarkClient.ListBookmarks(ctx, owner, repository.Name, cursor, pageSize)
-		if err != nil {
-			return "", fmt.Errorf("list repository bookmarks: %w", err)
-		}
-		for _, candidate := range bookmarks {
-			if candidate.Name == bookmark {
-				commitID := strings.TrimSpace(candidate.TargetCommitID)
-				if commitID == "" {
-					return "", fmt.Errorf("bookmark %q has no target commit", bookmark)
-				}
-				return commitID, nil
-			}
-		}
-		nextCursor = strings.TrimSpace(nextCursor)
-		if nextCursor == "" {
-			return "", fmt.Errorf("bookmark %q not found", bookmark)
-		}
-		if _, duplicate := seenCursors[nextCursor]; duplicate {
-			return "", fmt.Errorf("repo-host bookmark pagination repeated cursor %q", nextCursor)
-		}
-		seenCursors[nextCursor] = struct{}{}
-		cursor = nextCursor
+	candidate, found, err := repohost.LookupBookmark(ctx, bookmarkClient, owner, repository.Name, bookmark)
+	if err != nil {
+		return "", fmt.Errorf("read repository bookmark: %w", err)
 	}
+	if !found {
+		return "", fmt.Errorf("bookmark %q not found", bookmark)
+	}
+	commitID := strings.TrimSpace(candidate.TargetCommitID)
+	if commitID == "" {
+		return "", fmt.Errorf("bookmark %q has no target commit", bookmark)
+	}
+	return commitID, nil
 }
 
 // SyncWorkflowsFromCommit discovers, parses, and persists workflow definitions for a commit snapshot.

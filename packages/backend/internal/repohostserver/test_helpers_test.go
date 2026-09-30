@@ -32,6 +32,7 @@ type mockFFI struct {
 	listDocHistoryFn         func(storePath, filePath string, limit uint32) ([]repohost.WikiRevision, error)
 	deleteWikiPageFn         func(storePath, pageName, authorName, authorEmail string) error
 	deleteDocFn              func(storePath, filePath, authorName, authorEmail string) error
+	getBookmarkFn            func(storePath, name string) (*repohost.Bookmark, error)
 	listBookmarksFn          func(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Bookmark], error)
 	createBookmarkFn         func(storePath, name, changeID string) (repohost.Bookmark, error)
 	createBookmarkIfAbsentFn func(storePath, name, changeID string) (repohost.Bookmark, error)
@@ -163,6 +164,13 @@ func (m *mockFFI) DeleteDoc(storePath, filePath, authorName, authorEmail string)
 		return m.deleteDocFn(storePath, filePath, authorName, authorEmail)
 	}
 	return nil
+}
+
+func (m *mockFFI) GetBookmark(storePath, name string) (*repohost.Bookmark, error) {
+	if m.getBookmarkFn != nil {
+		return m.getBookmarkFn(storePath, name)
+	}
+	return nil, nil
 }
 
 func (m *mockFFI) ListBookmarks(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Bookmark], error) {

@@ -17,6 +17,48 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
+// Run separately from fake-library coverage because dlopen binds one process-wide library.
+func TestClientNativeBookmarkLookup(t *testing.T) {
+	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if library == "" {
+		t.Skip("requires built native library")
+	}
+	client := New(library)
+	require.NoError(t, client.Load())
+	path := filepath.Join(t.TempDir(), "repository")
+	_, err := client.AutoInitRepo(path, "main", "lookup")
+	require.NoError(t, err)
+	bookmark, err := client.GetBookmark(path, "main")
+	require.NoError(t, err)
+	require.NotNil(t, bookmark)
+	require.Equal(t, "main", bookmark.Name)
+	require.NotEmpty(t, bookmark.TargetCommitID)
+	absent, err := client.GetBookmark(path, "absent")
+	require.NoError(t, err)
+	require.Nil(t, absent)
+	_, err = client.GetFileContent(path, bookmark.TargetCommitID, "absent")
+	var missingFile *Error
+	require.ErrorAs(t, err, &missingFile)
+	require.Equal(t, "file_not_found", missingFile.Code)
+	require.Equal(t, 404, missingFile.StatusCode())
+	_, err = client.GetFileContent(path, "ffffffffffffffffffffffffffffffffffffffff", "absent")
+	var missingCommit *Error
+	require.ErrorAs(t, err, &missingCommit)
+	require.Equal(t, "not_found", missingCommit.Code)
+	directoryCommit, err := client.CommitDoc(path, "directory/file.md", "present", "Test", "test@example.com", "directory regression")
+	require.NoError(t, err)
+	_, err = client.GetFileContent(path, directoryCommit, "directory")
+	var directoryError *Error
+	require.ErrorAs(t, err, &directoryError)
+	require.Equal(t, "not_found", directoryError.Code)
+	require.Equal(t, 404, directoryError.StatusCode())
+	file, err := client.GetFileContent(path, directoryCommit, "directory/file.md")
+	require.NoError(t, err)
+	require.Equal(t, "present", file.Content)
+	_, err = client.GetBookmark(path, " ")
+	require.Error(t, err)
+}
+
 func TestClient_Cov_LoadDecodeAndMethods(t *testing.T) {
 	require.NotPanics(t, func() { freeCString(nil) })
 
@@ -182,6 +224,15 @@ func TestClient_Cov_LoadDecodeAndMethods(t *testing.T) {
 		TargetBookmark: "main",
 		TargetCommitID: "landed-commit",
 	}, landResult)
+
+	resolvedBookmark, err := client.GetBookmark("store-ok", "feature")
+	if err != nil || resolvedBookmark == nil || resolvedBookmark.Name != "feature" || resolvedBookmark.TargetCommitID != "commit-1" {
+		t.Fatalf("GetBookmark = %+v, %v", resolvedBookmark, err)
+	}
+	_, err = client.GetBookmark("store-ok", "feature\x00other")
+	if err == nil {
+		t.Fatal("GetBookmark must reject NUL name")
+	}
 
 	bookmarks, err := client.ListBookmarks("store-ok", 1, 20)
 	require.NoError(t, err)
@@ -552,6 +603,12 @@ char *smithers_land_change(const char *store_path, const char *change_id, const 
 	char *special = special_response(store_path);
 	if (special != NULL) return special;
 	return format_json1("{\"landed_count\":1,\"target_bookmark\":\"%s\",\"target_commit_id\":\"landed-commit\"}", target_bookmark);
+}
+
+char *smithers_get_bookmark(const char *store_path, const char *name) {
+ char *special = special_response(store_path);
+ if (special != NULL) return special;
+ return format_json1("{\"name\":\"%s\",\"target_change_id\":\"change-1\",\"target_commit_id\":\"commit-1\"}", name);
 }
 
 char *smithers_list_bookmarks(const char *store_path, unsigned int page, unsigned int per_page) {

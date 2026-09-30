@@ -313,3 +313,16 @@ func TestGitHubImportService_ReusedMirrorDoesNotConsumePrivateQuota(t *testing.T
 	assert.Zero(t, repoDB.createCalls)
 	assert.Zero(t, policy.calls)
 }
+
+func (h *privateQuotaImportRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

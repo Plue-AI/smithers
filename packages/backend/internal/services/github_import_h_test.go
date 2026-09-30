@@ -470,7 +470,7 @@ func TestGitHubImport_H_BoundWorkspaceRepoAndBookmarkHelpers(t *testing.T) {
 	require.ErrorContains(t, err, "init local repo")
 
 	_, err = (&GitHubImportService{repoHost: &githubImportHRepoHost{listErr: assert.AnError}}).importedBookmarkTarget(ctx, "alice", "demo", "main")
-	require.ErrorContains(t, err, "list bookmarks")
+	require.ErrorContains(t, err, "read bookmark")
 
 	_, err = (&GitHubImportService{repoHost: &githubImportHRepoHost{bookmarks: []repohost.Bookmark{{Name: "main"}}}}).importedBookmarkTarget(ctx, "alice", "demo", "main")
 	require.ErrorContains(t, err, "imported bookmark not found")
@@ -594,4 +594,17 @@ func TestGitHubImport_H_ObserveFailureNilError(t *testing.T) {
 	metrics := &githubImportHMetrics{}
 	(&GitHubImportService{metrics: metrics}).observeFailure("stage", nil)
 	assert.Equal(t, []string{"stage:error"}, metrics.failures)
+}
+
+func (h *githubImportHRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }

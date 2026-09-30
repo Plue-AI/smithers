@@ -71,6 +71,8 @@ func (s *StaticStorageSetResolver) ResolveStorageRouteKey(context.Context, strin
 
 // Client communicates with the repo-host service.
 type Client struct {
+	immutableFilesMu    sync.Mutex
+	immutableFiles      map[immutableFileKey]*immutableFileRead
 	resolver            StorageSetResolver
 	authToken           string
 	httpClient          *http.Client
@@ -1387,6 +1389,33 @@ func (c *Client) DeleteDoc(ctx context.Context, owner, repo, filePath, authorNam
 		http.StatusNoContent,
 		nil,
 	)
+}
+
+// BookmarkReader resolves one named bookmark without listing repository refs.
+type BookmarkReader interface {
+	GetBookmark(context.Context, string, string, string) (Bookmark, error)
+}
+
+// LookupBookmark distinguishes an absent bookmark from failed storage reads.
+func LookupBookmark(ctx context.Context, host BookmarkReader, owner, repo, name string) (Bookmark, bool, error) {
+	bookmark, err := host.GetBookmark(ctx, owner, repo, name)
+	var status *StatusError
+	if errors.As(err, &status) && status.StatusCode == http.StatusNotFound && status.Code == "bookmark_not_found" {
+		return Bookmark{}, false, nil
+	}
+	return bookmark, err == nil, err
+}
+
+// GetBookmark reads one named bookmark.
+func (c *Client) GetBookmark(ctx context.Context, owner, repo, name string) (Bookmark, error) {
+	defer c.observeOperationDuration("GetBookmark", time.Now())
+	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
+	if err != nil {
+		return Bookmark{}, fmt.Errorf("resolve storage set url: %w", err)
+	}
+	var out Bookmark
+	err = c.doJSON(ctx, http.MethodGet, repoByIDEndpoint(baseURL, owner, repo)+"/bookmarks/"+url.PathEscape(name), nil, http.StatusOK, &out)
+	return out, err
 }
 
 // ListBookmarks lists bookmarks for a repository.

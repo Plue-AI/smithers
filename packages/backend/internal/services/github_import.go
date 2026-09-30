@@ -248,7 +248,7 @@ type GitHubImportRepoHost interface {
 	InitRepo(ctx context.Context, owner, repo, defaultBookmark string, autoInit bool) error
 	DeleteRepo(ctx context.Context, owner, repo string) error
 	ImportRefs(ctx context.Context, owner, repo string) error
-	ListBookmarks(ctx context.Context, owner, repo string, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 	CreateBookmark(ctx context.Context, owner, repo string, req repohost.CreateBookmarkRequest) (repohost.Bookmark, error)
 }
 
@@ -1919,28 +1919,13 @@ func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userI
 	return nil
 }
 
-// bookmarkExists reports whether a bookmark of the given name is present in the
-// mirror, following the same paginated walk as importedBookmarkTarget.
+// bookmarkExists reports whether one named bookmark is present in the mirror.
 func (s *GitHubImportService) bookmarkExists(ctx context.Context, owner, repo, name string) (bool, error) {
-	const pageSize = 100
-	const maxPages = 100
-	cursor := ""
-	for range maxPages {
-		bookmarks, next, err := s.repoHost.ListBookmarks(ctx, owner, repo, cursor, pageSize)
-		if err != nil {
-			return false, fmt.Errorf("list bookmarks: %w", err)
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == name {
-				return true, nil
-			}
-		}
-		if next == "" || next == cursor || len(bookmarks) == 0 {
-			break
-		}
-		cursor = next
+	_, found, err := repohost.LookupBookmark(ctx, s.repoHost, owner, repo, name)
+	if err != nil {
+		return false, fmt.Errorf("read bookmark: %w", err)
 	}
-	return false, nil
+	return found, nil
 }
 
 // createBoundWorkspace starts the imported bookmark's workspace. When the
@@ -1973,29 +1958,14 @@ func (s *GitHubImportService) createBoundWorkspace(ctx context.Context, userID i
 	return workspace, nil
 }
 
-// importedBookmarkTarget resolves the change ID the imported default-branch
-// bookmark points at. Mirrored repos routinely carry hundreds of bookmarks and
-// the list is paginated, so the default branch is not guaranteed to appear on
-// the first page — follow the cursor until it is found or the list is
-// exhausted (bounded to keep a misbehaving cursor from looping forever).
+// importedBookmarkTarget resolves the imported default bookmark in one lookup.
 func (s *GitHubImportService) importedBookmarkTarget(ctx context.Context, owner, repo, bookmarkName string) (string, error) {
-	const pageSize = 100
-	const maxPages = 100
-	cursor := ""
-	for range maxPages {
-		bookmarks, next, err := s.repoHost.ListBookmarks(ctx, owner, repo, cursor, pageSize)
-		if err != nil {
-			return "", fmt.Errorf("list bookmarks: %w", err)
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == bookmarkName && strings.TrimSpace(bookmark.TargetChangeID) != "" {
-				return bookmark.TargetChangeID, nil
-			}
-		}
-		if next == "" || next == cursor || len(bookmarks) == 0 {
-			break
-		}
-		cursor = next
+	bookmark, found, err := repohost.LookupBookmark(ctx, s.repoHost, owner, repo, bookmarkName)
+	if err != nil {
+		return "", fmt.Errorf("read bookmark: %w", err)
+	}
+	if found && strings.TrimSpace(bookmark.TargetChangeID) != "" {
+		return bookmark.TargetChangeID, nil
 	}
 	return "", pkgerrors.NotFound("imported bookmark not found")
 }

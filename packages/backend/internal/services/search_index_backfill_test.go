@@ -163,7 +163,7 @@ func TestSearchIndexBackfill_IndexesUnindexedHeadsOnce(t *testing.T) {
 	result, err := indexer.Backfill(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, SearchIndexBackfillResult{Indexed: 3}, result)
-	require.Equal(t, []string{"acme/alpha", "acme/empty", "acme/gamma"}, host.visited(), "id order; the indexed repository is skipped")
+	require.Equal(t, []string{"acme/alpha", "acme/empty", "acme/empty", "acme/gamma"}, host.visited(), "id order; the indexed repository is skipped")
 	require.Equal(t, map[string]string{"README.md": "acme/alpha@alpha-head"}, q.documents[1])
 	require.Equal(t, map[string]string{"README.md": "acme/gamma@gamma-head"}, q.documents[3])
 	require.Empty(t, q.documents[2])
@@ -175,7 +175,7 @@ func TestSearchIndexBackfill_IndexesUnindexedHeadsOnce(t *testing.T) {
 	result, err = indexer.Backfill(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, SearchIndexBackfillResult{}, result)
-	require.Len(t, host.visited(), 3, "a rerun indexes nothing")
+	require.Len(t, host.visited(), 4, "a rerun indexes nothing")
 }
 
 func TestSearchIndexBackfill_IndexesTheDefaultBookmarkCurrentAtIndexTime(t *testing.T) {
@@ -334,4 +334,17 @@ func TestRunCodeSearchBackfill_ReturnsWithoutDependencies(t *testing.T) {
 			t.Fatalf("%s: backfill worker did not return", name)
 		}
 	}
+}
+
+func (h *backfillHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 1)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }

@@ -37,6 +37,7 @@ typedef char* (*smithers_list_directory_fn)(const char*, const char*, const char
 typedef char* (*smithers_get_conflicts_fn)(const char*, const char*);
 typedef char* (*smithers_land_changes_fn)(const char*, const char*);
 typedef char* (*smithers_land_change_fn)(const char*, const char*, const char*);
+typedef char* (*smithers_get_bookmark_fn)(const char*, const char*);
 typedef char* (*smithers_list_bookmarks_fn)(const char*, uint32_t, uint32_t);
 typedef char* (*smithers_create_bookmark_fn)(const char*, const char*, const char*);
 typedef char* (*smithers_create_bookmark_if_absent_fn)(const char*, const char*, const char*);
@@ -80,6 +81,7 @@ enum smithers_symbol {
 	SYM_land_append,
 	SYM_land_change,
 	SYM_land_changes,
+	SYM_get_bookmark,
 	SYM_list_bookmarks,
 	SYM_list_changes,
 	SYM_list_directory,
@@ -129,6 +131,7 @@ static const char *const smithers_symbol_names[SYM_COUNT] = {
 	"smithers_land_append",
 	"smithers_land_change",
 	"smithers_land_changes",
+	"smithers_get_bookmark",
 	"smithers_list_bookmarks",
 	"smithers_list_changes",
 	"smithers_list_directory",
@@ -370,6 +373,11 @@ static char *smithers_call_read_superproject(const char *store_path, const char 
 	return fn == NULL ? NULL : fn(store_path, revision);
 }
 
+static char *smithers_call_get_bookmark(const char *store_path, const char *name) {
+ smithers_get_bookmark_fn fn = (smithers_get_bookmark_fn)smithers_syms[SYM_get_bookmark];
+ return fn == NULL ? NULL : fn(store_path, name);
+}
+
 static char *smithers_call_list_bookmarks(const char *store_path, uint32_t page, uint32_t per_page) {
 	smithers_list_bookmarks_fn fn = (smithers_list_bookmarks_fn)smithers_syms[SYM_list_bookmarks];
 	return fn == NULL ? NULL : fn(store_path, page, per_page);
@@ -495,7 +503,7 @@ func (e *Error) StatusCode() int {
 	switch e.Code {
 	case "invalid_argument", "bad_request":
 		return 400
-	case "not_found", "landing_receipt_missing", "workspace_source_missing":
+	case "not_found", "file_not_found", "landing_receipt_missing", "workspace_source_missing":
 		return 404
 	case "conflict":
 		return 409
@@ -980,6 +988,16 @@ func (c *Client) ReadSuperproject(storePath, revision string) (repohost.Superpro
 	defer freeCString(storePathC)
 	defer freeCString(revisionC)
 	return decode[repohost.SuperprojectCommit](c, C.smithers_call_read_superproject(storePathC, revisionC))
+}
+
+func (c *Client) GetBookmark(storePath, name string) (*repohost.Bookmark, error) {
+	if err := rejectNUL(storePath, name); err != nil {
+		return nil, err
+	}
+	pathC, nameC := cString(storePath), cString(name)
+	defer freeCString(pathC)
+	defer freeCString(nameC)
+	return decode[*repohost.Bookmark](c, C.smithers_call_get_bookmark(pathC, nameC))
 }
 
 func (c *Client) ListBookmarks(storePath string, page, perPage uint32) (Paginated[repohost.Bookmark], error) {

@@ -271,3 +271,16 @@ func TestGitHubMainPullPushesAPackLargerThanThePostBuffer(t *testing.T) {
 	require.Equal(t, "synced", row.State, row.LastError)
 	assert.Equal(t, tip, f.git(smithers, "rev-parse", "refs/heads/main"))
 }
+
+func (h *gitBackedRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

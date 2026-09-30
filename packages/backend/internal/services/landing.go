@@ -497,7 +497,7 @@ type landingAgentReviewQuerier interface {
 }
 
 type landingBookmarkRepoHost interface {
-	ListBookmarks(ctx context.Context, owner, repo string, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 }
 
 // landingCreateTx is a transaction handle for the coupled CreateLandingRequest +
@@ -2028,21 +2028,12 @@ func (s *LandingService) targetBookmarkRevision(ctx context.Context, owner, repo
 	if !ok {
 		return "", pkgerrors.Internal("target bookmark resolver unavailable")
 	}
-	cursor := ""
-	for {
-		bookmarks, next, err := rh.ListBookmarks(ctx, owner, repo, cursor, 100)
-		if err != nil {
-			return "", mapLandingRepoHostError(err, "failed to resolve target bookmark")
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == target && strings.TrimSpace(bookmark.TargetChangeID) != "" {
-				return bookmark.TargetChangeID, nil
-			}
-		}
-		if next == "" {
-			break
-		}
-		cursor = next
+	bookmark, found, err := repohost.LookupBookmark(ctx, rh, owner, repo, target)
+	if err != nil {
+		return "", mapLandingRepoHostError(err, "failed to resolve target bookmark")
+	}
+	if found && strings.TrimSpace(bookmark.TargetChangeID) != "" {
+		return bookmark.TargetChangeID, nil
 	}
 	return "", pkgerrors.UnprocessableEntity("target bookmark does not exist")
 }

@@ -26,6 +26,7 @@ type FFIClient interface {
 	ListDocHistory(storePath, filePath string, limit uint32) ([]repohost.WikiRevision, error)
 	DeleteWikiPage(storePath, pageName, authorName, authorEmail string) error
 	DeleteDoc(storePath, filePath, authorName, authorEmail string) error
+	GetBookmark(storePath, name string) (*repohost.Bookmark, error)
 	ListBookmarks(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Bookmark], error)
 	CreateBookmark(storePath, name, changeID string) (repohost.Bookmark, error)
 	CreateBookmarkIfAbsent(storePath, name, changeID string) (repohost.Bookmark, error)

@@ -70,7 +70,7 @@ type ChangesetQuerier interface {
 // ChangesetRepoHostClient is the repo-host surface the changeset service needs.
 type ChangesetRepoHostClient interface {
 	GetChange(ctx context.Context, owner, repo, changeID string) (repohost.Change, error)
-	ListBookmarks(ctx context.Context, owner, repo string, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error)
 	LandChanges(ctx context.Context, owner, repo string, req repohost.LandRequest) (repohost.LandResult, error)
 	CreateBookmark(ctx context.Context, owner, repo string, req repohost.CreateBookmarkRequest) (repohost.Bookmark, error)
 	DeleteBookmark(ctx context.Context, owner, repo, name string) error
@@ -558,23 +558,7 @@ func (s *ChangesetService) loadChangeset(ctx context.Context, org db.Organizatio
 }
 
 func (s *ChangesetService) findBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, bool, error) {
-	cursor := ""
-	for i := 0; i < 50; i++ {
-		items, next, err := s.repoHost.ListBookmarks(ctx, owner, repo, cursor, 100)
-		if err != nil {
-			return repohost.Bookmark{}, false, err
-		}
-		for _, b := range items {
-			if b.Name == name {
-				return b, true, nil
-			}
-		}
-		if next == "" {
-			return repohost.Bookmark{}, false, nil
-		}
-		cursor = next
-	}
-	return repohost.Bookmark{}, false, nil
+	return repohost.LookupBookmark(ctx, s.repoHost, owner, repo, name)
 }
 
 func (s *ChangesetService) buildResponse(ctx context.Context, org db.Organization, superproject db.Repository, cs db.Changeset, members []db.ChangesetMember) (ChangesetResponse, error) {

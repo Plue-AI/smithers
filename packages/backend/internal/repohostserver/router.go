@@ -1528,41 +1528,14 @@ func (s *Server) getBookmark(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer unlock()
 
-	bookmark, found, err := s.findBookmark(repoPath, name)
+	bookmark, err := s.ffi.GetBookmark(repoPath, name)
 	if err != nil {
 		return err
 	}
-	if !found {
-		return notFound("bookmark not found")
+	if bookmark == nil {
+		return &appError{StatusCode: http.StatusNotFound, Code: "bookmark_not_found", Message: "bookmark not found"}
 	}
 	return writeJSON(w, http.StatusOK, bookmark)
-}
-
-// bookmarkLookupPageSize and bookmarkLookupMaxPages bound an in-process
-// bookmark lookup over the paginated native listing.
-const (
-	bookmarkLookupPageSize = 100
-	bookmarkLookupMaxPages = 1000
-)
-
-// findBookmark returns the bookmark with the exact name. The caller holds the
-// repository lock, so the listing cannot change between pages.
-func (s *Server) findBookmark(repoPath, name string) (repohost.Bookmark, bool, error) {
-	for page := uint32(1); page <= bookmarkLookupMaxPages; page++ {
-		bookmarks, err := s.ffi.ListBookmarks(repoPath, page, bookmarkLookupPageSize)
-		if err != nil {
-			return repohost.Bookmark{}, false, err
-		}
-		for _, bookmark := range bookmarks.Items {
-			if bookmark.Name == name {
-				return bookmark, true, nil
-			}
-		}
-		if len(bookmarks.Items) == 0 || int(page)*bookmarkLookupPageSize >= bookmarks.TotalCount {
-			return repohost.Bookmark{}, false, nil
-		}
-	}
-	return repohost.Bookmark{}, false, internalError("bookmark listing exceeds lookup bound", nil)
 }
 
 func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
@@ -1595,11 +1568,15 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if req.ExpectedCommitID != nil {
-		bookmark, _, err := s.findBookmark(repoPath, req.Name)
+		bookmark, err := s.ffi.GetBookmark(repoPath, req.Name)
 		if err != nil {
 			return err
 		}
-		if bookmark.TargetCommitID != *req.ExpectedCommitID {
+		currentCommitID := ""
+		if bookmark != nil {
+			currentCommitID = bookmark.TargetCommitID
+		}
+		if currentCommitID != *req.ExpectedCommitID {
 			return conflict("bookmark changed since the operation began")
 		}
 	}
@@ -2012,6 +1989,10 @@ func (s *Server) getFileAtChange(w http.ResponseWriter, r *http.Request) error {
 
 	result, err := s.ffi.GetFileContent(repoPath, chi.URLParam(r, "change_id"), filePath)
 	if err != nil {
+		var ffiErr *repohostffi.Error
+		if errors.As(err, &ffiErr) && ffiErr.Code == "file_not_found" {
+			return &appError{StatusCode: http.StatusNotFound, Code: "file_not_found", Message: ffiErr.Message}
+		}
 		return err
 	}
 	return writeJSON(w, http.StatusOK, result)

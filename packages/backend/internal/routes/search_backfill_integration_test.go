@@ -17,7 +17,7 @@ import (
 )
 
 // backfillRepoHost serves a fixed default-bookmark head and README per
-// repository and counts bookmark reads, i.e. index attempts. Mock exception:
+// repository and counts named bookmark reads plus empty-repository probes. Mock exception:
 // a real repo host needs the Rust FFI library (SMITHERS_FFI_LIBRARY_PATH),
 // absent from the default integration run, and repohost's own suites cover
 // these reads. Postgres, the indexer, and the HTTP search handler are real.
@@ -26,6 +26,16 @@ type backfillRepoHost struct {
 	heads  map[string]string
 	files  map[string]string
 	visits map[string]int
+}
+
+func (h *backfillRepoHost) GetBookmark(_ context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.visits[owner+"/"+repo]++
+	if head := h.heads[owner+"/"+repo]; name == "main" && head != "" {
+		return repohost.Bookmark{Name: name, TargetCommitID: head}, nil
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: http.StatusNotFound, Code: "bookmark_not_found"}
 }
 
 func (h *backfillRepoHost) ListBookmarks(_ context.Context, owner, repo, _ string, _ int) ([]repohost.Bookmark, string, error) {
@@ -125,5 +135,5 @@ func TestCodeSearchBackfillMakesPreexistingRepositorySearchable(t *testing.T) {
 	result, err = indexer.Backfill(ctx)
 	require.NoError(t, err)
 	require.Equal(t, services.SearchIndexBackfillResult{}, result)
-	require.Equal(t, map[string]int{"canary/hello-world": 1, "canary/empty": 1}, host.visitCount(), "a rerun enqueues nothing")
+	require.Equal(t, map[string]int{"canary/hello-world": 1, "canary/empty": 2}, host.visitCount(), "a rerun enqueues nothing")
 }

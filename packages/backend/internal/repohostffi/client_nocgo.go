@@ -55,7 +55,7 @@ func (e *Error) StatusCode() int {
 	switch e.Code {
 	case "invalid_argument", "bad_request":
 		return 400
-	case "not_found", "landing_receipt_missing", "workspace_source_missing":
+	case "not_found", "file_not_found", "landing_receipt_missing", "workspace_source_missing":
 		return 404
 	case "conflict":
 		return 409
@@ -176,6 +176,10 @@ func (c *Client) ComposeSuperproject(storePath, requestJSON string) (repohost.Su
 
 func (c *Client) ReadSuperproject(storePath, revision string) (repohost.SuperprojectCommit, error) {
 	return repohost.SuperprojectCommit{}, ffiUnavailable()
+}
+
+func (c *Client) GetBookmark(storePath, name string) (*repohost.Bookmark, error) {
+	return nil, ffiUnavailable()
 }
 
 func (c *Client) ListBookmarks(storePath string, page, perPage uint32) (Paginated[repohost.Bookmark], error) {

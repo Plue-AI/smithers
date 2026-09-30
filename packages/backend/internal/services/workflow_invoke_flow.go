@@ -42,7 +42,7 @@ type InvokedFlowService struct {
 	dispatcher     InvokedFlowDispatcher
 	secrets        *SecretInjector
 	terminal       WorkflowRunTerminalPublisher
-	sources        repositoryPolicyHost
+	sources        repositorySourceHost
 }
 
 func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces RepositorySetupWorkspace) *InvokedFlowService {
@@ -70,7 +70,7 @@ func (s *InvokedFlowService) SetTerminalPublisher(publisher WorkflowRunTerminalP
 // SetFlowSourceReader gives invocation the repo host it reads the trigger
 // ref's commit and the flow file through, so an unknown flow or ref is
 // refused before a run exists.
-func (s *InvokedFlowService) SetFlowSourceReader(host repositoryPolicyHost) {
+func (s *InvokedFlowService) SetFlowSourceReader(host repositorySourceHost) {
 	s.sources = host
 }
 

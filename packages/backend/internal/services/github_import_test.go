@@ -353,142 +353,61 @@ func TestGitHubImportService_ImportedBookmarkTargetResolvesChangeID(t *testing.T
 	assert.Equal(t, "zz-main", target)
 }
 
-// pagedGitHubImportRepoHost slices a flat bookmark list by the caller's offset
-// cursor and limit, and synthesizes the next cursor as offset+limit exactly
-// like the real repohost client does (the server never returns next_cursor).
-// Recording cursors AND limits lets tests pin both halves of the contract: the
-// service must echo server cursors verbatim, and must never ask for more than
-// the production router's per_page cap of 100 (above that the server 400s).
-type pagedGitHubImportRepoHost struct {
+type namedGitHubImportRepoHost struct {
 	testGitHubImportRepoHost
-	items       []repohost.Bookmark
-	seenCursors []string
-	seenLimits  []int
-}
-
-func (t *pagedGitHubImportRepoHost) ListBookmarks(_ context.Context, _, _ string, cursor string, limit int) ([]repohost.Bookmark, string, error) {
-	t.seenCursors = append(t.seenCursors, cursor)
-	t.seenLimits = append(t.seenLimits, limit)
-	offset := 0
-	if cursor != "" {
-		parsed, err := strconv.Atoi(cursor)
-		if err != nil {
-			return nil, "", err
-		}
-		offset = parsed
-	}
-	if offset >= len(t.items) || limit <= 0 {
-		return nil, "", nil
-	}
-	end := min(offset+limit, len(t.items))
-	next := ""
-	if end < len(t.items) {
-		next = strconv.Itoa(end)
-	}
-	return t.items[offset:end], next, nil
-}
-
-// mirroredBookmarkFixture reproduces the production shape that broke imports:
-// 228 bookmarks with "main" at sorted index 190, behind pages of codex/*
-// branches.
-func mirroredBookmarkFixture() []repohost.Bookmark {
-	items := make([]repohost.Bookmark, 0, 228)
-	for i := range 190 {
-		items = append(items, repohost.Bookmark{
-			Name:           fmt.Sprintf("codex/branch-%03d", i),
-			TargetChangeID: fmt.Sprintf("c-%03d", i),
-		})
-	}
-	items = append(items, repohost.Bookmark{Name: "main", TargetChangeID: "c-main"})
-	for i := range 37 {
-		items = append(items, repohost.Bookmark{
-			Name:           fmt.Sprintf("wip/branch-%03d", i),
-			TargetChangeID: fmt.Sprintf("w-%03d", i),
-		})
-	}
-	return items
-}
-
-func TestGitHubImportService_ImportedBookmarkTargetFollowsPagination(t *testing.T) {
-	// Regression: a mirrored repo with >100 bookmarks put "main" past the
-	// first page and the import failed with "imported bookmark not found".
-	repoHost := &pagedGitHubImportRepoHost{items: mirroredBookmarkFixture()}
-	svc := &GitHubImportService{repoHost: repoHost}
-
-	target, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
-	require.NoError(t, err)
-	assert.Equal(t, "c-main", target)
-	// The service must echo the server's offset cursors verbatim and stop on
-	// the page that contains the bookmark (index 190 → second page of 100).
-	assert.Equal(t, []string{"", "100"}, repoHost.seenCursors)
-	for _, limit := range repoHost.seenLimits {
-		assert.Equal(t, 100, limit, "limit must stay at the repo-host per_page cap; larger values 400 in production")
-	}
-}
-
-func TestGitHubImportService_ImportedBookmarkTargetMissingAfterAllPages(t *testing.T) {
-	items := mirroredBookmarkFixture()
-	// Drop "main"; the walk must visit all three pages, then report not found.
-	items = append(items[:190], items[191:]...)
-	repoHost := &pagedGitHubImportRepoHost{items: items}
-	svc := &GitHubImportService{repoHost: repoHost}
-
-	_, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
-	require.ErrorContains(t, err, "imported bookmark not found")
-	assert.Equal(t, []string{"", "100", "200"}, repoHost.seenCursors)
-}
-
-// The regression crossed the service/client boundary: the service discarded
-// the cursor AND only the client-side synthesized offset cursor (the server
-// never returns next_cursor) makes page 2 reachable at all. Wire the REAL
-// repohost client against a paging server to pin the whole path.
-func TestGitHubImportService_ImportedBookmarkTargetWalksRealClientPagination(t *testing.T) {
-	items := mirroredBookmarkFixture()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
-		// Mirror the production router: per_page above 100 is a 400.
-		if page < 1 || perPage < 1 || perPage > 100 {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		start := min((page-1)*perPage, len(items))
-		end := min(start+perPage, len(items))
-		out := make([]map[string]any, 0, end-start)
-		for _, b := range items[start:end] {
-			out = append(out, map[string]any{"name": b.Name, "target_change_id": b.TargetChangeID})
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"items": out, "total_count": int64(len(items))})
-	}))
-	t.Cleanup(server.Close)
-
-	client := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "test-token")
-	svc := &GitHubImportService{repoHost: client}
-
-	target, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
-	require.NoError(t, err)
-	assert.Equal(t, "c-main", target)
-}
-
-// stuckCursorGitHubImportRepoHost always returns the same non-empty cursor, as
-// a misbehaving server might; the lookup must terminate rather than spin.
-type stuckCursorGitHubImportRepoHost struct {
-	testGitHubImportRepoHost
+	items map[string]repohost.Bookmark
 	calls int
 }
 
-func (t *stuckCursorGitHubImportRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
-	t.calls++
-	return []repohost.Bookmark{{Name: "feat/a", TargetChangeID: "c-a"}}, "stuck", nil
+func (h *namedGitHubImportRepoHost) GetBookmark(_ context.Context, _, _, name string) (repohost.Bookmark, error) {
+	h.calls++
+	if bookmark, ok := h.items[name]; ok {
+		return bookmark, nil
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }
-
-func TestGitHubImportService_ImportedBookmarkTargetStuckCursorTerminates(t *testing.T) {
-	repoHost := &stuckCursorGitHubImportRepoHost{}
-	svc := &GitHubImportService{repoHost: repoHost}
-
-	_, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
+func mirroredBookmarkFixture() []repohost.Bookmark {
+	items := make([]repohost.Bookmark, 0, 602)
+	for i := range 601 {
+		items = append(items, repohost.Bookmark{Name: fmt.Sprintf("branch-%03d", i), TargetChangeID: fmt.Sprintf("c-%03d", i)})
+	}
+	return append(items, repohost.Bookmark{Name: "main", TargetChangeID: "c-main"})
+}
+func TestGitHubImportService_ImportedBookmarkTargetOneLookup(t *testing.T) {
+	items := map[string]repohost.Bookmark{}
+	for _, bookmark := range mirroredBookmarkFixture() {
+		items[bookmark.Name] = bookmark
+	}
+	host := &namedGitHubImportRepoHost{items: items}
+	svc := &GitHubImportService{repoHost: host}
+	target, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
+	require.NoError(t, err)
+	require.Equal(t, "c-main", target)
+	require.Equal(t, 1, host.calls)
+	delete(host.items, "main")
+	_, err = svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
 	require.ErrorContains(t, err, "imported bookmark not found")
-	assert.Equal(t, 2, repoHost.calls)
+	require.Equal(t, 2, host.calls)
+}
+func TestGitHubImportService_ImportedBookmarkTargetRealClientOneLookup(t *testing.T) {
+	items := map[string]repohost.Bookmark{}
+	for _, bookmark := range mirroredBookmarkFixture() {
+		items[bookmark.Name] = bookmark
+	}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		require.Equal(t, "/repos/octo:demo/bookmarks/main", r.URL.Path)
+		require.Empty(t, r.URL.RawQuery)
+		require.NoError(t, json.NewEncoder(w).Encode(items["main"]))
+	}))
+	t.Cleanup(server.Close)
+	client := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "test-token")
+	svc := &GitHubImportService{repoHost: client}
+	target, err := svc.importedBookmarkTarget(context.Background(), "octo", "demo", "main")
+	require.NoError(t, err)
+	require.Equal(t, "c-main", target)
+	require.Equal(t, 1, calls)
 }
 
 func TestGitHubImportService_PublicRepoImportsAndBindingRoundTrips(t *testing.T) {
@@ -1080,4 +999,17 @@ func TestGitHubImportPlanLimitIsTerminal(t *testing.T) {
 	limit := sandboxPlanLimitError(SandboxEntitlement{PlanKey: BillingPlanPro}, "concurrent_sandboxes", 3, BillingPlanMax, "sandbox limit")
 	require.True(t, isTerminalGitHubImportFailure(fmt.Errorf("create bound workspace: %w", limit)))
 	require.False(t, isTerminalGitHubImportFailure(pkgerrors.Internal("temporary upstream failure")))
+}
+
+func (t *testGitHubImportRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := t.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }

@@ -334,3 +334,16 @@ func TestGitHubImportService_FreshImportStillClonesAndImportsRefs(t *testing.T) 
 	assert.True(t, cloneCalled, "the fresh path must still cloneMirror")
 	assert.Equal(t, "importer", repoHost.importRefsOwner, "the fresh path must still ImportRefs")
 }
+
+func (t *refreshSeamRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := t.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

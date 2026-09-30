@@ -103,10 +103,16 @@ func parseFactoryGitHubPolicy(projection []byte) (factoryGitHubPolicy, error) {
 	return policy, nil
 }
 
-// repositoryPolicyHost reads the default bookmark's factory projection.
-type repositoryPolicyHost interface {
-	ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
+// repositorySourceHost reads committed repository source files.
+type repositorySourceHost interface {
+	repohost.BookmarkReader
 	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
+}
+
+// repositoryPolicyHost shares immutable default-bookmark policy projections.
+type repositoryPolicyHost interface {
+	repositorySourceHost
+	GetFileAtCommit(ctx context.Context, owner, repo, commit, path string) (repohost.FileContent, error)
 }
 
 // readRepositoryPolicy is the policy the owner committed to the repository's
@@ -125,35 +131,34 @@ func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner,
 	if !found {
 		return factoryGitHubPolicy{}, nil
 	}
-	projection, _, err := readCommittedText(ctx, host, owner, repo, commit, factoryProjectionPath)
-	if err != nil {
-		return factoryGitHubPolicy{}, err
+	file, err := host.GetFileAtCommit(ctx, owner, repo, commit, factoryProjectionPath)
+	if repohost.IsFileNotFound(err) {
+		return factoryGitHubPolicy{}, nil
 	}
-	return parseFactoryGitHubPolicy([]byte(projection))
+	if err != nil {
+		return factoryGitHubPolicy{}, fmt.Errorf("read %s: %w", factoryProjectionPath, err)
+	}
+	if file.TooLarge || file.Encoding == "base64" {
+		return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " is not readable text")
+	}
+	return parseFactoryGitHubPolicy([]byte(file.Content))
 }
 
 // bookmarkCommit is the commit a bookmark names on the repo host. A missing
 // bookmark is not found; a bookmark naming no commit is an error.
-func bookmarkCommit(ctx context.Context, host repositoryPolicyHost, owner, repo, bookmark string) (string, bool, error) {
-	for cursor := ""; ; {
-		page, next, err := host.ListBookmarks(ctx, owner, repo, cursor, 100)
-		if err != nil {
-			return "", false, fmt.Errorf("resolve %s: %w", bookmark, err)
-		}
-		for _, entry := range page {
-			if entry.Name == bookmark {
-				commit := strings.TrimSpace(entry.TargetCommitID)
-				if commit == "" {
-					return "", false, errors.New(bookmark + " names no commit")
-				}
-				return commit, true, nil
-			}
-		}
-		if next == "" {
-			return "", false, nil
-		}
-		cursor = next
+func bookmarkCommit(ctx context.Context, host repohost.BookmarkReader, owner, repo, bookmark string) (string, bool, error) {
+	entry, found, err := repohost.LookupBookmark(ctx, host, owner, repo, bookmark)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve %s: %w", bookmark, err)
 	}
+	if !found {
+		return "", false, nil
+	}
+	commit := strings.TrimSpace(entry.TargetCommitID)
+	if commit == "" {
+		return "", false, errors.New(bookmark + " names no commit")
+	}
+	return commit, true, nil
 }
 
 // repositoryReviewerAgents are the reviewer agent logins the repository's

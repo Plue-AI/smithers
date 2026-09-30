@@ -737,3 +737,16 @@ func TestInvokeWorkflowReadsTheFlowFileOnTheRepoHost(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT trigger_commit FROM workflow_run_flow_invocations WHERE workflow_run_id=$1`, result.Run.ID).Scan(&triggerCommit))
 	assert.Equal(t, commit, triggerCommit)
 }
+
+func (h invokedFlowTestSources) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}

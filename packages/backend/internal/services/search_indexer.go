@@ -35,6 +35,7 @@ type SearchIndexQuerier interface {
 
 // SearchIndexRepoHostClient defines the repo-host reads used by push indexing.
 type SearchIndexRepoHostClient interface {
+	repohost.BookmarkReader
 	GetRevisionDiff(context.Context, string, string, string, string, string, string) (repohost.ChangeDiff, error)
 	ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error)
 
@@ -136,29 +137,29 @@ func (s *SearchIndexer) indexCurrentHead(ctx context.Context, input SearchIndexP
 	}
 	bookmarkName := strings.TrimSpace(repository.DefaultBookmark)
 	input.CommitSHA = ""
-	cursor := ""
-	hasBookmarks := false
-	for {
-		bookmarks, next, err := s.repoHost.ListBookmarks(ctx, input.Owner, input.RepositoryName, cursor, 100)
+	found := false
+	if bookmarkName != "" {
+		bookmark, present, err := repohost.LookupBookmark(ctx, s.repoHost, input.Owner, input.RepositoryName, bookmarkName)
 		if err != nil {
 			return err
 		}
-		hasBookmarks = hasBookmarks || len(bookmarks) > 0
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == bookmarkName {
-				input.CommitSHA = bookmark.TargetCommitID
-			}
+		found = present
+		if found {
+			input.CommitSHA = bookmark.TargetCommitID
 		}
-		if next == "" {
-			break
-		}
-		if next == cursor {
-			return errors.New("bookmark pagination did not advance")
-		}
-		cursor = next
 	}
-	if input.backfill && input.CommitSHA == "" && hasBookmarks {
-		return fmt.Errorf("default bookmark %q not found", bookmarkName)
+	if input.backfill && input.CommitSHA == "" {
+		hasBookmarks := found
+		if !found {
+			bookmarks, _, err := s.repoHost.ListBookmarks(ctx, input.Owner, input.RepositoryName, "", 1)
+			if err != nil {
+				return err
+			}
+			hasBookmarks = len(bookmarks) > 0
+		}
+		if hasBookmarks {
+			return fmt.Errorf("default bookmark %q not found", bookmarkName)
+		}
 	}
 	previous, err := s.queries.GetCodeSearchIndexedCommit(ctx, input.RepositoryID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

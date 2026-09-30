@@ -35,21 +35,12 @@ func (r repositorySourceFiles) ResolveSourceRevision(ctx context.Context, reposi
 	if len(revision) == 40 && strings.Trim(revision, "0123456789abcdef") == "" {
 		return revision, nil
 	}
-	cursor := ""
-	for page := 0; page < 100; page++ {
-		bookmarks, next, err := r.client.ListBookmarks(ctx, owner, name, cursor, 100)
-		if err != nil {
-			return "", err
-		}
-		for _, bookmark := range bookmarks {
-			if bookmark.Name == revision {
-				return bookmark.TargetCommitID, nil
-			}
-		}
-		if next == "" {
-			break
-		}
-		cursor = next
+	bookmark, found, err := repohost.LookupBookmark(ctx, r.client, owner, name, revision)
+	if err != nil {
+		return "", err
+	}
+	if found {
+		return bookmark.TargetCommitID, nil
 	}
 	return "", fmt.Errorf("bookmark %q is not found", revision)
 }

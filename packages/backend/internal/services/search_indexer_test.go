@@ -320,3 +320,129 @@ func TestSearchIndexerRebuildsAfterWatermarkCommitIsPruned(t *testing.T) {
 	require.Equal(t, "current.txt", queries.upserts[0].FilePath)
 	require.Equal(t, "abc123", queries.indexedCommit)
 }
+
+type boundedSearchBookmarkHost struct {
+	*fakeSearchIndexRepoHost
+	items                  map[string]repohost.Bookmark
+	lookupCalls, listCalls int
+	listErr                error
+	t                      *testing.T
+}
+
+func (h *boundedSearchBookmarkHost) GetBookmark(_ context.Context, _, _, name string) (repohost.Bookmark, error) {
+	h.lookupCalls++
+	if bookmark, ok := h.items[name]; ok {
+		return bookmark, nil
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}
+func (h *boundedSearchBookmarkHost) ListBookmarks(_ context.Context, _, _, cursor string, limit int) ([]repohost.Bookmark, string, error) {
+	h.listCalls++
+	require.Empty(h.t, cursor)
+	require.Equal(h.t, 1, limit)
+	if h.listErr != nil {
+		return nil, "", h.listErr
+	}
+	for _, bookmark := range h.items {
+		return []repohost.Bookmark{bookmark}, "more", nil
+	}
+	return nil, "", nil
+}
+func TestSearchIndexerNamedBookmarkOneLookupBeyond500(t *testing.T) {
+	items := map[string]repohost.Bookmark{}
+	for i := range 601 {
+		name := fmt.Sprintf("branch-%d", i)
+		items[name] = repohost.Bookmark{Name: name, TargetCommitID: name}
+	}
+	items["main"] = repohost.Bookmark{Name: "main", TargetCommitID: "wanted"}
+	host := &boundedSearchBookmarkHost{fakeSearchIndexRepoHost: &fakeSearchIndexRepoHost{}, items: items, t: t}
+	q := newFakeSearchIndexQueries(false)
+	require.NoError(t, NewSearchIndexer(q, host).IndexPush(t.Context(), defaultSearchIndexInput()))
+	require.Equal(t, "wanted", q.indexedCommit)
+	require.Equal(t, 1, host.lookupCalls)
+	require.Zero(t, host.listCalls)
+}
+func TestSearchIndexBackfillMissingDefaultUsesOneExistencePage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		items     map[string]repohost.Bookmark
+		listErr   error
+		failed    bool
+		listCalls int
+	}{
+		{name: "empty", listCalls: 1},
+		{name: "other bookmarks", items: map[string]repohost.Bookmark{"release": {Name: "release", TargetCommitID: "release-head"}}, failed: true, listCalls: 1},
+		{name: "storage failure", listErr: errors.New("unavailable"), failed: true, listCalls: 1},
+		{name: "empty default target", items: map[string]repohost.Bookmark{"trunk": {Name: "trunk"}}, failed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newBackfillQueries(backfillRepo(1, "demo"))
+			host := &boundedSearchBookmarkHost{fakeSearchIndexRepoHost: &fakeSearchIndexRepoHost{}, items: tc.items, listErr: tc.listErr, t: t}
+			result, err := NewSearchIndexer(q, host).Backfill(t.Context())
+			if tc.failed {
+				require.Error(t, err)
+				require.Equal(t, 1, result.Failed)
+				_, ok := q.watermark(1)
+				require.False(t, ok)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 1, result.Indexed)
+				_, ok := q.watermark(1)
+				require.True(t, ok)
+			}
+			require.Equal(t, 1, host.lookupCalls)
+			require.Equal(t, tc.listCalls, host.listCalls)
+		})
+	}
+}
+
+func (h *fakeSearchIndexRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 1)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
+}
+
+type blankDefaultSearchQueries struct{ *backfillQueries }
+
+func (q blankDefaultSearchQueries) GetRepoByID(_ context.Context, id int64) (db.Repository, error) {
+	return db.Repository{ID: id, Name: "demo", DefaultBookmark: " "}, nil
+}
+func TestSearchIndexerBlankDefaultSkipsNamedLookup(t *testing.T) {
+	t.Run("push clears old watermark", func(t *testing.T) {
+		q := newFakeSearchIndexQueries(true)
+		q.repository.DefaultBookmark = " "
+		host := &boundedSearchBookmarkHost{fakeSearchIndexRepoHost: &fakeSearchIndexRepoHost{}, t: t}
+		input := defaultSearchIndexInput()
+		input.Ref = ""
+		require.NoError(t, NewSearchIndexer(q, host).IndexPush(t.Context(), input))
+		require.Empty(t, q.indexedCommit)
+		require.Zero(t, host.lookupCalls)
+		require.Zero(t, host.listCalls)
+	})
+	for _, hasBookmarks := range []bool{false, true} {
+		t.Run(fmt.Sprintf("backfill bookmarks=%t", hasBookmarks), func(t *testing.T) {
+			q := blankDefaultSearchQueries{newBackfillQueries(backfillRepo(1, "demo"))}
+			host := &boundedSearchBookmarkHost{fakeSearchIndexRepoHost: &fakeSearchIndexRepoHost{}, t: t}
+			if hasBookmarks {
+				host.items = map[string]repohost.Bookmark{"main": {Name: "main", TargetCommitID: "head"}}
+			}
+			result, err := NewSearchIndexer(q, host).Backfill(t.Context())
+			if hasBookmarks {
+				require.ErrorContains(t, err, "default bookmark")
+				require.Equal(t, 1, result.Failed)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 1, result.Indexed)
+			}
+			require.Zero(t, host.lookupCalls)
+			require.Equal(t, 1, host.listCalls)
+		})
+	}
+}
