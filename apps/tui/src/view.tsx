@@ -234,7 +234,9 @@ function EntryView(props: EntryProps) {
   const { item } = props
   switch (item.kind) {
     case "user":
-      return <UserMessage text={item.text} queued={item.queued === true} tone={props.tone ?? color.brand} />
+      return (
+        <UserMessage id={item.id} text={item.text} queued={item.queued === true} tone={props.tone ?? color.brand} />
+      )
     case "cell":
       return (
         <CellView
@@ -428,7 +430,9 @@ export function StatusItems(props: {
 }
 
 /** The user's message keeps the composer's shape: a left bar on a filled panel. */
-function UserMessage(props: { readonly text: string; readonly queued: boolean; readonly tone: string }) {
+function UserMessage(
+  props: { readonly id?: string; readonly text: string; readonly queued: boolean; readonly tone: string }
+) {
   return (
     <box
       style={{ border: ["left"], marginTop: 1, marginBottom: 1 }}
@@ -436,7 +440,7 @@ function UserMessage(props: { readonly text: string; readonly queued: boolean; r
       customBorderChars={bar}
     >
       <box style={{ paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1 }} backgroundColor={color.surface}>
-        <text fg={props.queued ? color.muted : color.text}>{props.text}</text>
+        <text {...(props.id === undefined ? {} : { id: `${props.id}:text` })} fg={props.queued ? color.muted : color.text}>{props.text}</text>
         {props.queued ? <text fg={color.faint} style={{ marginTop: 1 }}>steering</text> : null}
       </box>
     </box>

@@ -87,7 +87,7 @@ const seed = (user: string, answer: string, source?: string) => {
   })
   saved.append({ type: "outcome", at: 104, prompt: user, outcome: { _tag: "done", answer } })
 }
-const mount = async (height = 35) => {
+const mount = async (height = 35, width = 140) => {
   const host: Host.Host = {
     cwd,
     judged: false,
@@ -108,12 +108,12 @@ const mount = async (height = 35) => {
         resume={saved.file}
       />,
       // Legacy control bytes cannot distinguish Ctrl+P from Ctrl+Shift+P.
-      { width: 140, height, exitOnCtrlC: false, kittyKeyboard: true }
+      { width, height, exitOnCtrlC: false, kittyKeyboard: true }
     )
     await setImmediate()
   })
   await render()
-  await visibleRow("Alpha answer")
+  if (height > 24) await visibleRow("Alpha answer")
   await visibleRow("Beta answer")
 }
 beforeEach(() => {
@@ -400,3 +400,40 @@ test("starting inspection in a different agent returns to that agent and submits
   expect(inserts(2)).toEqual(["Reply from B"])
   expect(inserts(0)).toEqual([])
 })
+
+test.each([24, 32])(
+  "a scrolled send at 80×%i reveals its text after worker toasts and deferred layout",
+  async (height) => {
+    await mount(height, 80)
+    await command("Coordinate an agent")
+    await delegate("review", "Review one file")
+    await delegate("other", "Other review")
+    await delegate("third", "Third review")
+    await stream(1)
+    await key("ARROW_RIGHT", { ctrl: true })
+    await key("ARROW_RIGHT", { ctrl: true })
+    expect(frame()).toContain("Continue Review one file")
+    await act(async () => {
+      await timerPhase(400)
+    })
+    for (let index = 0; index < 5; index++) await render()
+    await key("\u001b[5~")
+    expect(scroll().scrollHeight).toBeGreaterThan(50)
+    expect(scroll().viewport.height).toBeGreaterThan(1)
+    expect(scroll().scrollTop).toBeLessThan(scroll().scrollHeight - scroll().viewport.height)
+    await type("Reply with exactly: hello")
+    await key("RETURN")
+    await drainDeferredScroll()
+    for (let index = 0; index < 5; index++) {
+      await act(async () => {
+        await timerPhase(100)
+      })
+      await render()
+      expect(frame()).toContain("Reply with exactly: hello")
+    }
+    expect(composer().plainText).toBe("")
+    expect(frame()).toContain("Reply with exactly: hello")
+    expect(inserts(1)).toEqual(["Reply with exactly: hello"])
+    expect(inserts(0)).toEqual([])
+  }
+)

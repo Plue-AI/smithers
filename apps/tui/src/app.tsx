@@ -811,7 +811,7 @@ export function App(props: AppProps) {
   const activeTabs = snapshot.tabs.filter((tab) => Tabs.live(tab.status))
   const sideChat = focusMain && dimensions.width >= 120
   const chatHeight = focusMain && !sideChat ? Math.floor(dimensions.height * 0.55) : dimensions.height
-  const short = chatHeight < 20
+  const short = chatHeight <= 24
   const showSidebar = dimensions.width >= 100 && activeTabs.length > 0 && (!focusMain || sideChat)
   const width = sideChat ? 40 : Math.max(20, Math.min(columnWidth, dimensions.width - 2 - (showSidebar ? 26 : 0)))
   const mainWidth = Math.max(20, dimensions.width - width - (showSidebar ? 26 : 0) - 2)

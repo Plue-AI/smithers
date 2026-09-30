@@ -84,7 +84,13 @@ export const useTranscriptView = (options: {
     if (liveEdge === 0) return
     const follow = () => {
       const box = viewport()
-      if (box !== null) box.scrollTop = box.scrollHeight
+      if (box === null) return
+      box.scrollTop = box.scrollHeight
+      // Short panes can fit only the steering label and trailing padding at
+      // the bottom. Keep the submitted text itself in the viewport.
+      const shown = surface.startsWith("tab:") ? worker(surface.slice(4)) : transcript
+      const message = shown.items.findLast((item) => item.kind === "user")
+      if (message !== undefined) box.scrollChildIntoView(`${message.id}:text`)
     }
     follow()
     const timer = setTimeout(() => {
