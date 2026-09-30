@@ -47,11 +47,28 @@ const fields = (entry: Entry): Array<z.ZodType> =>
     return inner
   })
 
+/** One valid token for a field, positional or option. */
+const tokenFor = (field: z.ZodType): string => field instanceof z.ZodEnum ? String(field.options[0]) : "value"
+
+/**
+ * A valid flag for every option the command requires. `review` requires
+ * `--policy-revision`; without it the call fails option validation, and the
+ * case measures that refusal instead of what happens to the positional.
+ */
+const requiredOptions = (entry: Entry): Array<string> =>
+  Object.entries(entry.options?.shape ?? {}).flatMap(([key, field]) => {
+    const schema = field as z.ZodType
+    if (schema.safeParse(undefined).success) return []
+    const flag = `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`
+    return schema instanceof z.ZodBoolean ? [flag] : [flag, tokenFor(schema)]
+  })
+
 /** One valid token per declared positional, then one surplus token. */
 const argvFor = (path: ReadonlyArray<string>, entry: Entry): Array<string> => [
   ...path,
-  ...fields(entry).map((field) => field instanceof z.ZodEnum ? String(field.options[0]) : "value"),
-  "surplus"
+  ...fields(entry).map(tokenFor),
+  "surplus",
+  ...requiredOptions(entry)
 ]
 
 const lastIsArray = (entry: Entry): boolean => fields(entry).at(-1) instanceof z.ZodArray
