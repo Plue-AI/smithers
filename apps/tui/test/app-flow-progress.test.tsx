@@ -58,7 +58,6 @@ beforeEach(async () => {
   const host: Host.Host = {
     cwd,
     judged: false,
-    compaction: async () => undefined,
     run: (input) => {
       chats.push(input.prompt)
       return { done: chat.promise, cancel: () => chat.resolve({ _tag: "cancelled" }) }

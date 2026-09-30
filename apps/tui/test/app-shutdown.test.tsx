@@ -42,7 +42,7 @@ const { App } = await import(${JSON.stringify(import.meta.resolve("../src/app.ts
 const record = (event) => appendFileSync(${JSON.stringify(eventsFile)}, JSON.stringify(event) + "\\n")
 const gate = Promise.withResolvers()
 const host = {
-  cwd: ${JSON.stringify(root)}, judged: false, compaction: async () => undefined,
+  cwd: ${JSON.stringify(root)}, judged: false,
   run: () => { record("run"); return { done: gate.promise, cancel: () => { record("cancel"); gate.resolve({ _tag: "cancelled" }) } } },
   dispose: async () => {
     record("dispose-start")

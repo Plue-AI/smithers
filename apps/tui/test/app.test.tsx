@@ -145,7 +145,6 @@ beforeEach(() => {
   host = {
     cwd,
     judged: false,
-    compaction: async () => undefined,
     run: (input) => {
       const turn: OwnedTurn = {
         input,

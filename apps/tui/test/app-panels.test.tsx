@@ -78,7 +78,6 @@ beforeEach(async () => {
   const host: Host.Host = {
     cwd,
     judged: false,
-    compaction: async () => undefined,
     run: (input) => {
       const done = Promise.withResolvers<Host.Outcome>()
       turns.push({ input, done })

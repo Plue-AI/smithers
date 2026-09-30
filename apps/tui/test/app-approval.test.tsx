@@ -73,7 +73,6 @@ beforeEach(async () => {
   const host: Host.Host = {
     cwd: join(root, "workspace"),
     judged: false,
-    compaction: async () => undefined,
     run: () => ({ done: gate.promise, cancel: () => gate.resolve({ _tag: "cancelled" }) }),
     dispose: async () => {},
     approvals: {

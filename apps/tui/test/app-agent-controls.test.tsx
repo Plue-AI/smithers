@@ -161,7 +161,6 @@ beforeEach(async () => {
   host = {
     cwd,
     judged: false,
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       const gate = Promise.withResolvers<Host.Outcome>()

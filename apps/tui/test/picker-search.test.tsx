@@ -356,8 +356,15 @@ test("public Search.run turns synchronous process admission refusal into its typ
   }
   expect(thrown).toBeUndefined()
   if (operation === undefined) throw new Error("Expected the public search operation")
-  const outcome = await operation.done
+  const admitted = operation
+  expect(() => {
+    admitted.cancel()
+    admitted.cancel()
+  }).not.toThrow()
+  const outcome = await admitted.done
   expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
   if (outcome._tag !== "failed") throw new Error("Expected a search refusal")
   expect(outcome.message).toContain("ENOTDIR")
+  expect(() => admitted.cancel()).not.toThrow()
+  expect(await admitted.done).toBe(outcome)
 })

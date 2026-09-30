@@ -2492,6 +2492,7 @@ describe("approvals", () => {
   it("print mode never hangs: it runs every call by default and denies when told", () => {
     const run = (approve: string | undefined, args: ReadonlyArray<string> = []) => {
       const cwd = repository()
+      const originalMath = readFileSync(join(cwd, "math.js"), "utf8")
       const env: Record<string, string> = {
         PATH: process.env.PATH ?? "",
         HOME: process.env.HOME ?? "",
@@ -2508,16 +2509,25 @@ describe("approvals", () => {
         // budget ends the run: about 80 s at speed 20. A hang never ends.
         timeout: 150_000
       })
-      return { ...result, ms: Date.now() - started, math: readFileSync(join(cwd, "math.js"), "utf8") }
+      return { ...result, ms: Date.now() - started, originalMath, math: readFileSync(join(cwd, "math.js"), "utf8") }
     }
     const allowed = run(undefined)
     expect(allowed.signal).toBeNull()
-    expect(allowed.stderr).not.toMatch(/denied (bash|edit)/)
+    expect(allowed.status).toBe(0)
+    expect(allowed.stdout).toContain("Fixed")
+    expect(allowed.stderr).toBe("")
     expect(allowed.math).toContain("a + b")
     const denied = run(undefined, ["--approve", "deny"])
     expect(denied.signal).toBeNull()
-    expect(denied.stderr).toMatch(/denied (bash|edit)/)
-    expect(denied.math).toContain("a - b")
+    expect(denied.status).toBe(0)
+    expect(denied.stdout).toBe(
+      "The frame budget of 40 is exhausted. The run stops here; the last transition was a request to continue.\n"
+    )
+    expect(denied.stdout).not.toMatch(/fixed/i)
+    expect(denied.stderr).toBe(
+      "denied bash; SMITHERS_TUI_APPROVE=all allows\ndenied edit; SMITHERS_TUI_APPROVE=all allows\n"
+    )
+    expect(denied.math).toBe(denied.originalMath)
     const refused = run("ask")
     expect(refused.status).toBe(1)
     expect(refused.stderr).toContain("SMITHERS_TUI_APPROVE=ask needs the interactive TUI")

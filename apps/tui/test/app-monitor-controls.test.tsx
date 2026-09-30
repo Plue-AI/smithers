@@ -125,7 +125,6 @@ beforeEach(async () => {
         return gate.promise
       }
     },
-    compaction: async () => undefined,
     dispose: async () => {},
     run: (input) => {
       const turn = {

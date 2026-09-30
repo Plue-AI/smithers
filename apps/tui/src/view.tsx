@@ -6,6 +6,7 @@
  * instead of a boxed border, and a selected row filled with the brand color.
  */
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core"
+import { clip } from "@smthrs/rpc/SubagentCard"
 import type { UserFailure } from "@smthrs/rpc/UserFailure"
 import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
@@ -261,19 +262,6 @@ const rowGlyph = (status: RowStatus): { readonly glyph: string; readonly tone: s
     : { glyph: "·", tone: color.faint }
 /** Rows a card shows; the rest are in its `ui:<id>` view. */
 const cardRows = 5
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
-const clip = (text: string, width: number): string => {
-  if (stringWidth(text) <= width) return text
-  let prefix = ""
-  let used = 0
-  for (const { segment } of graphemes.segment(text)) {
-    const cells = stringWidth(segment)
-    if (used + cells > width - 1) break
-    prefix += segment
-    used += cells
-  }
-  return `${prefix}…`
-}
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - stringWidth(text)))
 
 /** A panel placed in the transcript: title, summary and its first rows, updated in place. Click, or `enter` while focused, opens its view. */
