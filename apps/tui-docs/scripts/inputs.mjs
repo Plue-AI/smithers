@@ -11,16 +11,22 @@ export const walk = (dir) =>
     )
 /**
  * The tracked files under `dir`, absolute and sorted. Declared input rows take
- * their membership from the repository's file index, never a directory walk,
+ * their membership from Git's index or jj's existing snapshot, never a directory walk,
  * so an untracked stray in a dirty checkout cannot enter a row.
  */
-export const tracked = (dir) =>
+export const tracked = (dir, root = repoRoot) =>
   !existsSync(dir)
     ? []
-    : execFileSync("git", ["ls-files", "-z", "--", dir], { cwd: repoRoot, encoding: "utf8", maxBuffer: 1 << 28 })
+    : execFileSync(
+      existsSync(join(root, ".jj")) ? "jj" : "git",
+      existsSync(join(root, ".jj"))
+        ? ["file", "list", "--ignore-working-copy", "--template", "path.display() ++ \"\\0\"", "--", dir]
+        : ["ls-files", "-z", "--", dir],
+      { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }
+    )
       .split("\0")
       .filter((file) => file !== "" && !file.split("/").includes("__pycache__"))
-      .map((file) => join(repoRoot, file))
+      .map((file) => join(root, file))
       .filter((file) => existsSync(file))
       .sort((a, b) => a.localeCompare(b))
 export function runtimeInputs() {

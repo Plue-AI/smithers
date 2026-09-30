@@ -1,0 +1,51 @@
+{
+  "issue": 3281,
+  "scope": "issue fix",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "047400fe72ae5d5d23e8770586a3d59ee2ae1b97d439f083041f7395264606e8",
+  "sourceSha256": {
+    "apps/tui-docs/scripts/inputs.mjs": "a8b0f7263345b358984a053a3d2b82cbbdbf1effd846d1d79a0f7597ccea6c12",
+    "apps/tui-docs/scripts/inputs.d.mts": "15e0f3b198c364c95b1c793f9645c7eeb14e70515003d0c284afd8e98396fde0",
+    "apps/tui-docs/test/recordings.test.ts": "804761ce3728c81a7d02ca427005844e084659357c4a0d339cff8bd08bd4bd4a",
+    "apps/tui-docs/scripts/sync-reference.mjs": "7aa5f2cc0ad318734441b980a43ea760b4cbcc3ed726c6f0fbd68e752becc078"
+  },
+  "generatedSha256": {
+    "apps/site/public/llms-full.txt": "cca82081d43cca5333bae8965a460857f9d789adbd5040d49ee56842f935e5d5",
+    "apps/site/src/content/docs/docs/tui/commands.mdx": "58561e0ab8bc7a7d1bba250d52ec4799ce51bea18b596e1bd45f2da1bea0b4b4",
+    "apps/site/src/content/docs/docs/tui/keys.mdx": "1ad86a91223b47e361ec84775b6da758e0081e198834f848ad795fec8c9f6073"
+  },
+  "archiveSha256": "09aee68c0ee6545cd4b48d2b84db61d0225d091cb959667b6095f1ea818e4114",
+  "rawReceipts": {
+    "smithers-burndown-20260930-3281-llms-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "smithers-burndown-20260930-3281-llms.log": "19445676043f0193959a7a9f8e6944be3f9941c22731a12405943631cd63a98a",
+    "smithers-burndown-20260930-3281-reference.log": "76bc1e26fecf22d201057f335cd276de099e47d7962063ec929353b2d0603f54",
+    "3281-final-focused-coverage.log": "6d61192f4b2d740c7e9f827c7423f272f5f37a9a89dc35155807edbc5612b66f",
+    "3281-final-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3281-final-owning-tests.log": "7e269075f844e5dbfbe3509808fb571ea6a7b730bc80094ef7501a5ca7ceeb14",
+    "3281-final-test-observation.json": "cbfbbb79c5d212ef419f451272d8165d1758e59f5f33c64bf243bf3a911fcf95",
+    "3281-generated-final-owning-tests.log": "7ea7d5303dae8b545c84db18b476905e2489c1a71962f3a86752eb2647be70b7",
+    "3281-live-issue.json": "edb82e5e2486d234038199c9aefe405e56bd12c342c35a8b48b563b9ff1144ce",
+    "3281-owning-types.log": "6c54328f5232f8f6a0085f9ed9a5fb056ed285fc2027c73d8fb4fbca7c819e01",
+    "3281-ready.json": "047400fe72ae5d5d23e8770586a3d59ee2ae1b97d439f083041f7395264606e8",
+    "3281-reference-generator-red.log": "41f77cf5659c551d8e101e48a5a3679e0dfa846e37f995e1b077c8be1523d71f",
+    "3281-source-plan-candidate.log": "1fe64bdd47127c01c62e606b57775340050b84aa19c347911644918ea9c3554d",
+    "3281-source-plan-red.log": "062f763337d1bc8bbd63ae716979193e2d02e773ac63a859a0515a1ec700fdd6",
+    "3281-source-plan-results.json": "75284615fe4145c4998381abb1bc7be594766d8564d409323a1536e211a7d6b1",
+    "3281-stable-public-plan.json": "72c6fc21c9d547a452a79399dee8173b417ba973926343749d7cdf8314cf9670",
+    "3281-stable-public-plan.log": "3774773931719174a3bca0768709945d7e50ac9fd0920c58dcfda74da103aba6"
+  },
+  "qualification": {
+    "publicBoundary": "Node26 packages/smithers/src/bin.ts ci real engine-store:test + :check --jobs2 --no-cache --plan --format json in tiny disposable non-colocated JJ namespace; old helper exit1 Git module_import_failed, candidate exit0 actual test/check/lib plan; permanent regression asserts exact roots/dependency edges/no warnings. Planning only; no engine-store execution claim.",
+    "focused": "12/12 PASS, executed inputs.mjs100% lines/branches/functions",
+    "owningSuite": "Final owning suite after parent canonical sync:reference + site LLMS generation:26/26 PASS; inputs.mjs executed100% lines/branches/functions. Earlier25/26 missing generated retry reference retained red.",
+    "types": "pnpm --filter @smithers/tui-docs check:8files0errors0warnings0hints",
+    "format": "dprint check existing TUI config explicit three-file includes PASS; git diff --check PASS",
+    "inputIdentity": "Final owning observations retain Argv.ts concurrent edit. Subsequent public regression during coordinated short API hold exit0, all selected input before/after hashes stable. Own3paths stable throughout; no compiler freeze claim.",
+    "references": "Authored retry guide mapping only to existing docs/learn/issue-to-main/; generator original No guide page for /retry refusal preserved. Parent ran sync:reference + generate-llms + llms --check PASS; no hand-edited projections."
+  },
+  "limitations": [
+    "Tiny JJ fixture contains helper plus actual engine-store declaration proxy and manifests, shares existing installed node_modules; no whole checkout/install/native rebuild.",
+    "Older packages/smithers/bin/smithers.mjs probes failed unrelated NodeRedis SocketTimeoutError import; current canonical source entry succeeds. Initial invalid fixture Workspace constructor failure retained as setup error, not product red."
+  ],
+  "targetIndex": null
+}

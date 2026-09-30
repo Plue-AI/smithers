@@ -26,6 +26,7 @@ const guides = {
   grep: "/docs/tui/views/",
   smithers: "/docs/learn/run-a-flow/",
   todo: "/docs/learn/issue-to-main/#file-a-todo",
+  retry: "/docs/learn/issue-to-main/",
   devtools: "/docs/learn/devtools/",
   flows: "/docs/learn/run-a-flow/",
   flow: "/docs/learn/run-a-flow/",
