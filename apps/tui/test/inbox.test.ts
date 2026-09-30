@@ -66,7 +66,7 @@ describe("the overview inbox", () => {
     }])
   })
 
-  it("lists what needs the person first, then working trees, then done trees", () => {
+  it("lists what the person can answer first, then working trees, failures, then done trees", () => {
     const sections = rows([
       tab("root", "running"),
       tab("child", "done", { parent: "root" }),
@@ -76,11 +76,77 @@ describe("the overview inbox", () => {
       tab("broke", "failed")
     ], [run("form", "input"), run("going", "running"), run("over", "done")])
     expect(shape(sections)).toEqual([
-      ["needs", ["stuck", "broke", "flow:form"]],
-      ["working", ["root", "  child", "  grand", "flow:going"]],
+      ["needs", ["flow:form"]],
+      ["working", ["root", "  child", "  stuck", "    grand", "flow:going"]],
+      ["failed", ["broke"]],
       ["done", ["old", "flow:over"]]
     ])
-    expect(sections[0]!.rows[0]!.clock).toBe("14:05")
+    // A park waits under Working for its reset, which takes the seat column.
+    expect(sections[1]!.rows[2]).toMatchObject({ group: "working", seat: "", clock: "resets 14:05" })
+    expect(Inbox.count(sections)).toBe(1)
+  })
+
+  it("counts only asks, approvals, forms and driven frames as needing the person", () => {
+    const sections = Inbox.rows({
+      tabs: [
+        tab("quota", "parked", { wakeAt: now + 60_000 }),
+        tab("broke", "failed"),
+        tab("approve", "running"),
+        tab("drive", "waiting", { driver: { by: "you", from: now, messages: 0 } }),
+        tab("wait", "waiting")
+      ],
+      runs: [run("form", "input"), run("gate", "running"), run("park", "parked")],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      approvals: ["approve", "flow:gate"]
+    })
+    expect(shape(sections)).toEqual([
+      ["needs", ["approve", "drive", "flow:form", "flow:gate"]],
+      ["working", ["quota", "wait", "flow:park"]],
+      ["failed", ["broke"]]
+    ])
+    // The chat's own approvals have no row but still count.
+    expect(Inbox.count(sections, 2)).toBe(6)
+    expect(Inbox.count([])).toBe(0)
+  })
+
+  it("files a failure that a later run of the same work finished under Done, and keeps a newer failure", () => {
+    const sections = rows([
+      tab("first", "failed", { title: "Read math.js", startedAt: now - 30_000 }),
+      tab("again", "done", { title: "Read math.js", startedAt: now - 10_000 }),
+      tab("other", "failed", { title: "Read math.js", parent: "root", startedAt: now - 5_000 }),
+      tab("root", "running", { startedAt: now - 60_000 }),
+      tab("later", "failed", { title: "Lint", startedAt: now - 1_000 }),
+      tab("earlier", "done", { title: "Lint", startedAt: now - 20_000 })
+    ], [
+      run("a", "failed", { startedAt: now - 9_000 }),
+      run("b", "done", { flow: "flow-a", startedAt: now - 4_000 }),
+      run("c", "failed", { startedAt: now - 2_000 })
+    ])
+    expect(shape(sections)).toEqual([
+      ["working", ["root"]],
+      ["failed", ["other", "later", "flow:c"]],
+      ["done", ["first", "again", "earlier", "flow:a", "flow:b"]]
+    ])
+    expect(Inbox.superseded(tab("x", "done"), [tab("y", "done")])).toBe(false)
+  })
+
+  it("keeps a closed Failed group to its heading among the keys a person moves over", () => {
+    const sections = rows([tab("run", "running"), tab("broke", "failed"), tab("old", "done")])
+    expect(Inbox.keys(sections, false)).toEqual(["run", Inbox.failedKey, "old"])
+    expect(Inbox.keys(sections, true)).toEqual(["run", Inbox.failedKey, "broke", "old"])
+    expect(Inbox.flat(sections).map((row) => row.key)).toEqual(["run", "old"])
+    expect(Inbox.flat(sections, true).map((row) => row.key)).toEqual(["run", "broke", "old"])
+  })
+
+  it("formats how long an ask has waited and when a park resets", () => {
+    expect(Inbox.waited(0)).toBe("0:00")
+    expect(Inbox.waited(12_900)).toBe("0:12")
+    expect(Inbox.waited(754_000)).toBe("12:34")
+    expect(Inbox.waited(-5)).toBe("0:00")
+    expect(Inbox.resets(new Date(2026, 8, 28, 21, 43).getTime())).toBe("resets 21:43")
   })
 
   it("lists each active monitor under Working with its clock and its watch as the peek", () => {
@@ -141,12 +207,12 @@ describe("the overview inbox", () => {
       tab("kid", "running", { parent: "stuck" }),
       tab("gone", "cancelled"),
       tab("was", "done", { parent: "gone" })
-    ]))).toEqual([["needs", ["stuck"]], ["working", ["kid"]], ["done", ["gone", "  was"]]])
+    ]))).toEqual([["working", ["kid"]], ["failed", ["stuck"]], ["done", ["gone", "  was"]]])
   })
 
-  it("puts parked and failed flows under Needs you and cancelled ones under Done", () => {
+  it("puts parked flows under Working, failed ones under Failed and cancelled ones under Done", () => {
     expect(shape(rows([], [run("p", "parked"), run("f", "failed"), run("c", "cancelled"), run("q", "queued")])))
-      .toEqual([["needs", ["flow:p", "flow:f"]], ["working", ["flow:q"]], ["done", ["flow:c"]]])
+      .toEqual([["working", ["flow:p", "flow:q"]], ["failed", ["flow:f"]], ["done", ["flow:c"]]])
   })
 
   it("leaves a queued row's clock blank and shows no cache figure a provider did not report", () => {
@@ -177,6 +243,8 @@ describe("the overview inbox", () => {
       asks: [ask, { ...ask, id: "ask-2", from: "plan", holder: "root" }]
     })
     expect(shape(shown)).toEqual([["needs", ["impl"]], ["working", ["plan"]]])
+    // Its clock is how long the ask has waited.
+    expect(shown[0]!.rows[0]!.clock).toBe("0:00")
     expect(Inbox.peek(shown[0]!.rows[0]!, () => Transcript.empty)).toEqual([
       "Cookie or bearer?",
       "cookie · bearer",

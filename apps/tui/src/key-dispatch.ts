@@ -18,7 +18,7 @@ import type * as Subagents from "./subagents.ts"
 import * as Tabs from "./tabs.ts"
 import type { Tab } from "./workspace.ts"
 
-/** A flow run's inline form for its missing input. */
+/** A flow run's inline form for its missing input, or the answer form for a worker's ask. */
 export interface FlowForm {
   readonly id: string
   readonly flow: string
@@ -26,6 +26,30 @@ export interface FlowForm {
   readonly draft: Record<string, Form.FieldValue>
   readonly focus: number
   readonly error?: string
+  /** An ask: its whole question, one choice per line, `other…` last; `draft.answer` holds typed words. */
+  readonly ask?: AskChoices
+}
+
+/** An ask's choices and the one under the cursor; without options the answer is typed. */
+export interface AskChoices {
+  readonly question: string
+  readonly options: ReadonlyArray<string>
+  /** Index into `options`; `options.length` is `other…`, where the answer is typed. */
+  readonly choice: number
+}
+
+/** The answer form's lines under the question: the options, then `other…`; none when the answer is typed. */
+export const choices = (ask: AskChoices): ReadonlyArray<string> =>
+  ask.options.length === 0 ? [] : [...ask.options, "other…"]
+
+/** Whether the answer is typed here: no options, or `other…` chosen. */
+export const typed = (ask: AskChoices): boolean => ask.choice >= ask.options.length
+
+/** The answer the form would send now, or undefined while a typed one is blank. */
+export const answerOf = (ask: AskChoices, draft: FlowForm["draft"]): string | undefined => {
+  if (!typed(ask)) return ask.options[ask.choice]
+  const text = String(draft.answer ?? "").trim()
+  return text === "" ? undefined : text
 }
 
 /** Which keys act right now, in the order `handleKey` tries them. */
@@ -279,6 +303,7 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   readonly input: (id: string) => Record<string, unknown> | undefined
   readonly fill: (id: string, payload: Record<string, unknown>) => void
 }) => {
+  if (open.ask !== undefined) return askKey(key, open, open.ask, act)
   const field = open.fields[open.focus]
   const move = (step: number) => {
     key.preventDefault()
@@ -353,6 +378,35 @@ export const checklistKey = (key: KeyEvent, state: { readonly rows: number }, ac
   if (key.name === "down") return move(1)
   if (key.name === "space") return act.toggle()
   if (key.name === "return" || key.name === "kpenter") return act.undo()
+}
+
+/**
+ * Keys in an ask's answer form: arrows or tab move the cursor, enter answers, esc goes
+ * back and leaves the ask open. A typed answer's input takes every other key.
+ */
+const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
+  readonly change: (next: FlowForm | undefined) => void
+  readonly fill: (id: string, payload: Record<string, unknown>) => void
+}) => {
+  const lines = choices(ask).length
+  const choose = (choice: number) => {
+    key.preventDefault()
+    act.change({ ...open, ask: { ...ask, choice }, error: undefined })
+  }
+  if (key.name === "escape") {
+    key.preventDefault()
+    return act.change(undefined)
+  }
+  if (key.name === "return" || key.name === "kpenter") {
+    key.preventDefault()
+    const answer = answerOf(ask, open.draft)
+    if (answer === undefined) return
+    act.change(undefined)
+    return act.fill(open.id, { answer })
+  }
+  if (lines === 0) return
+  if ((key.name === "tab" && !key.shift) || key.name === "down") return choose(Math.min(lines - 1, ask.choice + 1))
+  if ((key.name === "tab" && key.shift) || key.name === "up") return choose(Math.max(0, ask.choice - 1))
 }
 
 /** Keys while a dialog is open: its filter input takes the typing, these move and pick. */

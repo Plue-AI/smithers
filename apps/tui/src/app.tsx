@@ -336,6 +336,8 @@ export function App(props: AppProps) {
       readonly card?: string
       readonly peek?: boolean
       readonly graph?: boolean
+      /** The Failed group shows its rows. */
+      readonly failedOpen?: boolean
     }
   >({ pane: "tree" })
   /** The tab Ctrl+S opened the Summary from, for its way back; cleared once another tab shows. */
@@ -390,21 +392,21 @@ export function App(props: AppProps) {
     formReturn.current = undefined
     if (from === surface) setPanelFocus(true)
   }, [form, surface, setPanelFocus])
-  /** Opens the form for a worker's ask the person holds. */
+  /** Opens the answer form for a worker's ask the person holds: the whole question, then its choices. */
   const openAsk = useCallback((tabId: string) => {
     const ask = workspace.asks.fromPerson(tabId)
     if (ask === undefined) return
-    const fields = Form.formFieldsFor(Asks.schema(ask))
     const title = workspace.snapshot().tabs.find((tab) => tab.id === tabId)?.title ?? tabId
     formReturn.current = panelFocus ? surface : undefined
     setPanelFocus(false)
     changeForm({
       id: `${askForm}${ask.id}`,
-      flow: `◆ ${title} asks: ${ask.question}`,
-      fields,
+      flow: title,
+      fields: [],
+      draft: {},
+      focus: 0,
       // A choice starts on its first option, so Enter alone answers it.
-      draft: Form.draftFrom(fields, ask.options === undefined ? {} : { answer: ask.options[0] }, "json"),
-      focus: 0
+      ask: { question: ask.question, options: ask.options ?? [], choice: 0 }
     })
   }, [workspace, changeForm, panelFocus, surface])
   /** What the cap form offers a worker stopped at its run cap, and its schema; undefined for any other worker. */
@@ -631,12 +633,33 @@ export function App(props: AppProps) {
     }
   }, [revision, runs, cardFlows])
   const tick = spinner[Math.floor(now / 100) % spinner.length]!
+  /**
+   * The Summary overview shows while work exists: Needs you, Working, Failed and Done, then the selected
+   * worker's cards.
+   */
+  const inbox = Inbox.rows({
+    tabs: snapshot.tabs,
+    runs: flowRuns,
+    transcript: workspace.transcript,
+    contextWindow: props.contextWindow,
+    models: props.models,
+    now,
+    asks: workspace.asks.list(),
+    approvals: approvals.map((request) => request.source).filter((source) => source !== "chat"),
+    targets,
+    monitors: monitors.list()
+  })
+  /** `◆N` beside Summary: what the person can answer now, the chat's own approvals included. */
+  const needsCount = Inbox.count(inbox, approvals.filter((request) => request.source === "chat").length)
+  /** The one thing waiting for the person, when it is an ask: `a` answers it from the chat. */
+  const soleAsk = needsCount === 1 ? inbox.find((section) => section.group === "needs")?.rows[0]?.ask : undefined
   const surfaces = Surfaces.chips({
     workspace: snapshot,
     runs: flowRuns,
     plugins: pluginTabs,
     views: uiPanels.filter((panel) => !pluginPanels.includes(panel)),
-    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now)
+    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now, workspace.asks.fromPerson(tab.id)),
+    needs: needsCount
   })
   const clickTab = (id: string) => {
     flushSync(() => {
@@ -796,24 +819,13 @@ export function App(props: AppProps) {
     setPanelFocus,
     width
   })
-  /** The Summary overview shows while work exists: Needs you, Working, Done, then the selected worker's cards. */
-  const inbox = Inbox.rows({
-    tabs: snapshot.tabs,
-    runs: flowRuns,
-    transcript: workspace.transcript,
-    contextWindow: props.contextWindow,
-    models: props.models,
-    now,
-    asks: workspace.asks.list(),
-    targets,
-    monitors: monitors.list()
-  })
-  const inboxRows = Inbox.flat(inbox)
-  const overviewShown = surface === "summary" && inboxRows.length > 0 && !focusMain
+  const inboxRows = Inbox.flat(inbox, overview.failedOpen === true)
+  const inboxKeys = Inbox.keys(inbox, overview.failedOpen === true)
+  const overviewShown = surface === "summary" && inboxKeys.length > 0 && !focusMain
   const overviewSelected = overview.selected === SubagentView.chat ||
-      inboxRows.some((row) => row.key === overview.selected)
+      inboxKeys.includes(overview.selected ?? "")
     ? overview.selected!
-    : inboxRows[0]?.key ?? SubagentView.chat
+    : inboxKeys[0] ?? SubagentView.chat
   const overviewRow = inboxRows.find((row) => row.key === overviewSelected)
   const overviewTab = overviewRow?.worker
   const overviewBranch = overviewTab === undefined ? [] : Tree.branch(snapshot.tabs, overviewTab.id)
@@ -2030,12 +2042,8 @@ export function App(props: AppProps) {
           // Retarget the native input before later bytes in the same terminal
           // read arrive. Advancing only the ref leaves typing on the old field.
           change: (next) => flushSync(() => changeForm(next)),
-          schema: (id) => {
-            if (id.startsWith(capForm)) return capOffer(id.slice(capForm.length))?.schema
-            const ask = id.startsWith(askForm) ? workspace.asks.get(id.slice(askForm.length)) : undefined
-            return ask === undefined ? runs.schema(id) : Asks.schema(ask)
-          },
-          input: (id) => id.startsWith(askForm) || id.startsWith(capForm) ? {} : runs.get(id)?.input,
+          schema: (id) => id.startsWith(capForm) ? capOffer(id.slice(capForm.length))?.schema : runs.schema(id),
+          input: (id) => id.startsWith(capForm) ? {} : runs.get(id)?.input,
           fill: (id, payload) => {
             if (id.startsWith(askForm)) {
               return void workspace.asks.answer(id.slice(askForm.length), String(payload.answer))
@@ -2167,8 +2175,17 @@ export function App(props: AppProps) {
         scroll: (by, page) => reviewScroll.current?.(by, page)
       })
     }
+    // `a` in the chat answers the one ask waiting, once it has been on screen long enough not to take typing.
+    if (
+      key.name === "a" && !key.ctrl && !key.meta && !key.option && !key.shift && text === "" && open === undefined &&
+      surface === "chat" && !panelFocus && soleAsk !== undefined && live.current.approvals.length === 0 &&
+      Date.now() - soleAsk.askedAt >= Approvals.armMs
+    ) {
+      key.preventDefault()
+      return flushSync(() => openAsk(soleAsk.from))
+    }
     if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
-      const ids = [SubagentView.chat, ...inboxRows.map((row) => row.key)]
+      const ids = [SubagentView.chat, ...inboxKeys]
       const overviewWorker = overviewPane === "tree" ? overviewTab : overviewCard
       return Dispatch.overviewKey(key, {
         pane: overviewPane,
@@ -2227,6 +2244,9 @@ export function App(props: AppProps) {
           setOverview((current) => ({ ...current, card: order[keys.indexOf(next)]?.id }))
         },
         open: () => {
+          if (overviewSelected === Inbox.failedKey) {
+            return setOverview((current) => ({ ...current, failedOpen: current.failedOpen !== true }))
+          }
           setOverview((current) => ({ ...current, peek: false, graph: false }))
           if (overviewPane === "tree" && overviewRow?.run !== undefined) return clickTab(`flow:${overviewRow.run.id}`)
           if (overviewRow?.monitor !== undefined || overviewRow?.target !== undefined) return
@@ -2455,6 +2475,11 @@ export function App(props: AppProps) {
         binding.owner !== undefined && (binding.context !== "panel" || binding.owner === ownerOf(surface))
       )
     ]
+    : footerContext === "form" && form?.ask !== undefined
+    ? [
+      ...cardHint("run-form").map((binding) => ({ ...binding, label: "Answer" })),
+      ...cardHint("close-form").map((binding) => ({ ...binding, label: "Back" }))
+    ]
     : footerContext === "form" && form !== undefined
     ? Keys.formHints(form.fields[form.focus]?.kind)
     : footerContext === "picker" && picker?.kind === "flows"
@@ -2474,7 +2499,13 @@ export function App(props: AppProps) {
           !["overview-graph", "overview-open", "overview-pane"].includes(binding.id))
       )
     ]
-    : Keys.hintsFor(footerContext, merged)
+    // `a Answer` follows Summary while the chat's `a` answers the one ask waiting.
+    : Keys.hintsFor(footerContext, merged).flatMap((binding) =>
+      binding.id === "summary" && footerContext === "composer" && soleAsk !== undefined && surface === "chat" &&
+        draft === ""
+        ? [binding, ...cardHint("answer")]
+        : [binding]
+    )
   const meter = AppView.meter(transcript, window)
   // The hints get the row less its padding, the margins, the status items and the meter; the path gives way first.
   const hintColumns = width - 5 -
@@ -2513,7 +2544,9 @@ export function App(props: AppProps) {
     open: filesOpen,
     onOpen: (id) => clickTab(`tab:${id}`),
     onFiles: toggleFiles,
-    onAction: workerAction
+    onAction: workerAction,
+    ask: (id) => workspace.asks.fromPerson(id),
+    ...(soleAsk === undefined ? {} : { answers: soleAsk.from })
   }
   /** Titles from the chat down to a worker's parent, for its breadcrumb. */
   const path = (tab: Tab): ReadonlyArray<string> => {
@@ -2548,6 +2581,7 @@ export function App(props: AppProps) {
                 active={surface}
                 models={props.models}
                 now={now}
+                ask={(id) => workspace.asks.fromPerson(id)}
                 onSelect={clickTab}
               />
             </box>
@@ -2642,12 +2676,13 @@ export function App(props: AppProps) {
                 tabs={snapshot.tabs}
                 asks={workspace.asks.list()}
                 {...(overviewGraph
-                  ? { graph: SubagentView.forest(overviewRow, inboxRows, snapshot.tabs, runs.nodes, now) }
+                  ? { graph: SubagentView.forest(overviewRow, Inbox.flat(inbox, true), snapshot.tabs, runs.nodes, now) }
                   : {})}
                 {...(overview.peek === true && overviewRow !== undefined
                   ? { peek: Inbox.peek(overviewRow, workspace.transcript) }
                   : {})}
                 selected={overviewSelected}
+                failedOpen={overview.failedOpen === true}
                 pane={overviewPane}
                 width={width}
                 cards={{

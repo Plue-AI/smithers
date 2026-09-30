@@ -2,6 +2,7 @@ import { testRender } from "@opentui/react/test-utils"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act, type ReactNode } from "react"
 import stringWidth from "string-width"
+import * as Inbox from "../src/inbox.ts"
 import * as View from "../src/subagent-view.tsx"
 import * as Subagents from "../src/subagents.ts"
 import { color } from "../src/theme.ts"
@@ -240,3 +241,117 @@ for (const width of [18, 80]) {
     expect(opened).toBe(1)
   })
 }
+
+describe("the Summary overview's groups", () => {
+  const sections = (): ReadonlyArray<import("../src/inbox.ts").Section> => [
+    {
+      group: "needs",
+      rows: [{
+        key: "rename",
+        group: "needs",
+        level: 0,
+        worker: tab("rename", { title: "Rename add() in math.js", status: "waiting" }),
+        status: "waiting",
+        name: "Rename add() in math.js",
+        seat: "luna",
+        clock: "0:14",
+        ask: {
+          id: "ask-1",
+          from: "rename",
+          question: "New name for add()?",
+          options: ["sum", "plus"],
+          holder: "",
+          trail: [""],
+          askedAt: 28_000,
+          frames: 0,
+          returned: false
+        }
+      }]
+    },
+    {
+      group: "working",
+      rows: [{
+        key: "remove",
+        group: "working",
+        level: 0,
+        worker: tab("remove", { title: "Add removeItem()", status: "parked" }),
+        status: "parked",
+        name: "Add removeItem()",
+        seat: "",
+        clock: "resets 21:43"
+      }]
+    },
+    {
+      group: "failed",
+      rows: [{
+        key: "strip",
+        group: "failed",
+        level: 0,
+        worker: tab("strip", { title: "Refactor tab strip", status: "failed" }),
+        status: "failed",
+        name: "Refactor tab strip",
+        seat: "luna",
+        clock: "0s"
+      }]
+    }
+  ]
+  const overview = (selected: string, failedOpen: boolean) => {
+    const { cards } = recorder()
+    return (
+      <View.Overview
+        sections={sections()}
+        selected={selected}
+        pane="tree"
+        width={110}
+        cards={cards}
+        tabs={sections().flatMap((section) => section.rows.flatMap((row) => row.worker ?? []))}
+        onSelect={() => {}}
+        review={<text>review</text>}
+        failedOpen={failedOpen}
+      />
+    )
+  }
+
+  it("shows the ask beside Needs you, the park's reset under Working, and Failed closed to its heading", async () => {
+    const frame = (await mount(overview("rename", false), 110, 14)).captureCharFrame()
+    expect(frame).toContain("◆ Needs you 1")
+    expect(frame).toContain("◆ Rename add() in math.js")
+    expect(frame).toContain("◐ Working 1")
+    expect(frame).toMatch(/Add removeItem\(\) +resets 21:43/)
+    expect(frame).toContain("✗ Failed 1 ›")
+    expect(frame).not.toContain("Refactor tab strip")
+    // The selected ask: whose it is, how long it waited, the whole question and its choices.
+    expect(frame).toContain("waiting 0:14 · luna")
+    expect(frame).toContain("New name for add()?")
+    expect(frame).toContain("1 sum  2 plus")
+  })
+
+  it("lists the failures once the Failed group is open", async () => {
+    const frame = (await mount(overview(Inbox.failedKey, true), 110, 14)).captureCharFrame()
+    expect(frame).toContain("✗ Failed 1")
+    expect(frame).not.toContain("Failed 1 ›")
+    expect(frame).toContain("Refactor tab strip")
+  })
+
+  it("draws an ask on a chat card with its question, and a only on the one a answers", async () => {
+    const { cards } = recorder()
+    const ask = sections()[0]!.rows[0]!.ask!
+    const worker = tab("rename", { title: "Rename add() in math.js", status: "waiting" })
+    const lone = { key: "batch:rename", anchor: undefined, at: 0, tabs: [worker] }
+    const answering = { ...cards, ask: () => ask, answers: "rename" }
+    let frame = (await mount(<View.Batch batch={lone} width={70} cards={answering} />, 70, 6)).captureCharFrame()
+    expect(frame).toContain("◆ Rename add() in math.js · waiting 0:14")
+    expect(frame).toContain("New name for add()?  1 sum  2 plus")
+    expect(frame).toContain("a Answer  enter Open")
+    act(() => setup?.renderer.destroy())
+    const other = tab("other", { title: "Other" })
+    const pair = { key: "batch:rename", anchor: undefined, at: 0, tabs: [worker, other] }
+    const asking = { ...cards, ask: (id: string) => id === "rename" ? ask : undefined }
+    frame = (await mount(<View.Batch batch={pair} width={120} cards={asking} />, 120, 10)).captureCharFrame()
+    expect(frame).toContain("◆ Rename add() in math.js · waiting 0:14")
+    expect(frame).toContain("New name for add()?")
+    expect(frame).toContain("enter Open")
+    expect(frame).not.toContain("a Answer")
+    expect(frame).toContain("Other")
+  })
+})

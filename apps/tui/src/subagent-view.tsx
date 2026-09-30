@@ -38,6 +38,60 @@ export interface Cards {
   readonly onOpen: (id: string) => void
   readonly onFiles: (id: string) => void
   readonly onAction: (tab: Tab, action: Tabs.ActionId) => void
+  /** The ask the person holds from a worker: its card shows the question instead of its steps. */
+  readonly ask?: (id: string) => Asks.Ask | undefined
+  /** The worker whose ask `a` answers from here: the only thing waiting for the person. */
+  readonly answers?: string
+}
+
+/** An ask's numbered choices: `1 sum  2 plus  3 other`; blank without options. */
+const numbered = (ask: Asks.Ask): string =>
+  (ask.options ?? []).map((option, index) => `${index + 1} ${option}`).join("  ")
+
+/** An ask's question and numbered choices on one line: `New name for add()?  1 sum  2 plus  3 other`. */
+const askLine = (ask: Asks.Ask): string => numbered(ask) === "" ? ask.question : `${ask.question}  ${numbered(ask)}`
+
+/** Rows an ask's card takes `width` wide: its title, the wrapped question, and how to answer. */
+export const askHeight = (ask: Asks.Ask, width: number): number =>
+  2 + Math.max(1, Math.ceil(stringWidth(askLine(ask)) / Math.max(1, width)))
+
+/** `New name for add()?  1 sum  2 plus  3 other`, then how to answer. */
+function AskLines(props: { readonly tab: Tab; readonly ask: Asks.Ask; readonly cards: Cards }) {
+  const choices = numbered(props.ask)
+  return (
+    <>
+      <text fg={color.text} wrapMode="word">
+        {props.ask.question}
+        {choices === "" ? null : <span fg={color.muted}>{`  ${choices}`}</span>}
+      </text>
+      <text wrapMode="none">
+        {props.cards.answers === props.tab.id
+          ? (
+            <>
+              <span fg={color.text}>a</span>
+              <span fg={color.muted}>{" Answer  "}</span>
+            </>
+          )
+          : null}
+        <span fg={color.text}>enter</span>
+        <span fg={color.muted}>{" Open"}</span>
+      </text>
+    </>
+  )
+}
+
+/** `◆ title · waiting 0:12`. */
+function AskTitle(props: { readonly tab: Tab; readonly ask: Asks.Ask; readonly now: number; readonly width: number }) {
+  const clock = ` · waiting ${Inbox.waited(props.now - props.ask.askedAt)}`
+  return (
+    <text wrapMode="none">
+      <span fg={color.needs}>◆</span>{" "}
+      <strong fg={color.text}>
+        {SubagentCard.clip(tabTitle(props.tab), Math.max(1, props.width - 2 - clock.length))}
+      </strong>
+      <span fg={color.faint}>{clock}</span>
+    </text>
+  )
 }
 
 const chipText = (action: Tabs.Action): string => `[${action.keys[0]} ${action.label}]`
@@ -65,6 +119,22 @@ function CardView(props: {
   const { tab, card, cards } = props
   const inner = Math.max(1, props.width - 1)
   const focused = cards.focused === Subagents.cardKey(tab.id)
+  const ask = cards.ask?.(tab.id)
+  if (ask !== undefined) {
+    return (
+      <box
+        id={Subagents.cardKey(tab.id)}
+        style={{ width: props.width, height: props.height, border: ["left"], flexShrink: 0 }}
+        borderColor={cards.lane(tab.id)}
+        customBorderChars={rail}
+        {...(focused ? { backgroundColor: color.element } : {})}
+        onMouseDown={() => cards.onOpen(tab.id)}
+      >
+        <AskTitle tab={tab} ask={ask} now={cards.now} width={inner} />
+        <AskLines tab={tab} ask={ask} cards={cards} />
+      </box>
+    )
+  }
   const pad = Math.max(0, props.height - card.height)
   const actions = focused ? Tabs.actions(tab) : []
   const chips = fitting(actions, inner - stringWidth(card.footer.text) - 1)
@@ -153,7 +223,14 @@ export function Grid(props: { readonly tabs: ReadonlyArray<Tab>; readonly width:
       open: cards.open.has(tab.id)
     })
   )
-  const heights = SubagentCard.rowHeights(layout, shown.map((card) => card.height))
+  const heights = SubagentCard.rowHeights(
+    layout,
+    shown.map((card, index) => {
+      const ask = cards.ask?.(props.tabs[index]!.id)
+      const width = layout.flat().find((cell) => cell.index === index)?.width ?? props.width
+      return ask === undefined ? card.height : askHeight(ask, width - 1)
+    })
+  )
   return (
     <box>
       {layout.map((row, index) => (
@@ -180,12 +257,32 @@ export function Grid(props: { readonly tabs: ReadonlyArray<Tab>; readonly width:
 
 /**
  * A batch in its parent's transcript: `◐ Running 3 subagents (1/3)`, the ▰ bar, then its cards.
- * One settled worker is headed by its outcome: `■ Add JSDoc · stopped at 6s`.
+ * One settled worker is headed by its outcome: `■ Add JSDoc · stopped at 6s`. A lone worker the
+ * person's answer waits on reads `◆ title · waiting 0:12` over its question instead.
  */
 export function Batch(
   props: { readonly batch: Subagents.Batch; readonly width: number; readonly cards: Cards }
 ) {
   const only = props.batch.tabs.length === 1 ? props.batch.tabs[0]! : undefined
+  const asked = only === undefined ? undefined : props.cards.ask?.(only.id)
+  if (only !== undefined && asked !== undefined) {
+    const focused = props.cards.focused === Subagents.cardKey(only.id)
+    return (
+      <box id={props.batch.key} style={{ marginBottom: 1 }}>
+        <AskTitle tab={only} ask={asked} now={props.cards.now} width={props.width} />
+        <box
+          id={Subagents.cardKey(only.id)}
+          style={{ border: ["left"], flexShrink: 0 }}
+          borderColor={props.cards.lane(only.id)}
+          customBorderChars={rail}
+          {...(focused ? { backgroundColor: color.element } : {})}
+          onMouseDown={() => props.cards.onOpen(only.id)}
+        >
+          <AskLines tab={only} ask={asked} cards={props.cards} />
+        </box>
+      </box>
+    )
+  }
   const header = SubagentCard.header(
     props.batch.tabs.map((tab) => tab.status),
     props.cards.now,
@@ -306,13 +403,13 @@ export const overviewWidths = (
 /** The overview's tree row id for the chat itself. */
 export const chat = "chat"
 
-const groupGlyph: Record<Inbox.Group, string> = { needs: "◆", working: "◐", done: "●" }
+const groupGlyph: Record<Inbox.Group, string> = { needs: "◆", working: "◐", failed: "✗", done: "●" }
 const groupColor = (group: Inbox.Group): string =>
-  group === "needs" ? color.needs : group === "working" ? color.info : color.success
+  group === "needs" ? color.needs : group === "working" ? color.info : group === "failed" ? color.danger : color.success
 
-/** A row's glyph: a needs-you node is `◆` in the needs color, the rest the shared status glyph. */
+/** A row's glyph: a needs-you node is `◆` in the needs color (`⇄` while driven), the rest the shared status glyph. */
 export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string; readonly tone: string } =>
-  row.status === "input" || row.ask !== undefined
+  row.status === "input" || (row.group === "needs" && row.worker?.driver === undefined)
     ? { glyph: "◆", tone: color.needs }
     : row.worker === undefined
     ? Tabs.style(row.status, now)
@@ -461,9 +558,12 @@ export const treeRow = (
 ): { readonly title: string; readonly gap: number; readonly aside: string } => {
   const meter = inner - seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
   const pad = (text: string, width: number) => SubagentCard.clip(text, width - 1).padEnd(width)
-  const aside = `${pad(row.seat, seat)}${pad(row.clock, columns.clock)}${
-    meter === 0 ? "" : SubagentCard.clip(Inbox.meter(row), meter)
-  }`
+  // A clock wider than its column, a park's `resets 21:43`, takes the empty seat column too.
+  const aside = `${
+    row.seat === "" && stringWidth(row.clock) >= columns.clock
+      ? pad(row.clock, seat + columns.clock)
+      : `${pad(row.seat, seat)}${pad(row.clock, columns.clock)}`
+  }${meter === 0 ? "" : SubagentCard.clip(Inbox.meter(row), meter)}`
   const right = seat + columns.clock + meter
   // One space always separates the clipped name from the seat column.
   const title = SubagentCard.clip(row.name, Math.max(1, inner - 2 - lead - right))
@@ -509,6 +609,8 @@ export function Overview(props: {
   readonly graph?: Graph.Node
   /** Open asks: a POC lane lists its own. */
   readonly asks?: ReadonlyArray<Asks.Ask>
+  /** The Failed group shows its rows; closed, only `✗ Failed N ›`. */
+  readonly failedOpen?: boolean
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
 }) {
   const { tree: treeWidth, cards: rightWidth, grid: gridWidth } = overviewWidths(props.width)
@@ -525,7 +627,7 @@ export function Overview(props: {
   useEffect(() => {
     if (props.cards.focused !== undefined) grid.current?.scrollChildIntoView(props.cards.focused)
   }, [props.cards.focused])
-  const row = Inbox.flat(props.sections).find((each) => each.key === props.selected)
+  const row = Inbox.flat(props.sections, props.failedOpen === true).find((each) => each.key === props.selected)
   const selected = row?.worker
   const branch = selected === undefined ? [] : Tree.branch(props.tabs, selected.id)
   const split = selected === undefined ? undefined : Subagents.lanes(props.tabs, selected.id)
@@ -592,15 +694,19 @@ export function Overview(props: {
               <span fg={props.selected === chat ? color.text : color.muted}>Chat</span>
             </text>
           )}
-          {props.sections.map((section) => [
-            <text key={`heading:${section.group}`} wrapMode="none">
-              {" "}
-              <span fg={groupColor(section.group)}>{groupGlyph[section.group]}</span>{" "}
-              <strong fg={color.text}>{Inbox.headings[section.group]}</strong>
-              <span fg={color.faint}>{` ${section.rows.length}`}</span>
-            </text>,
-            ...section.rows.map(nodeRow)
-          ])}
+          {props.sections.map((section) => {
+            const heading = (
+              <text key={`heading:${section.group}`} wrapMode="none">
+                {" "}
+                <span fg={groupColor(section.group)}>{groupGlyph[section.group]}</span>{" "}
+                <strong fg={color.text}>{Inbox.headings[section.group]}</strong>
+                <span fg={color.faint}>{` ${section.rows.length}`}</span>
+                {section.group === "failed" && props.failedOpen !== true ? <span fg={color.muted}>{" ›"}</span> : null}
+              </text>
+            )
+            if (section.group !== "failed") return [heading, ...section.rows.map(nodeRow)]
+            return [line(Inbox.failedKey, heading), ...(props.failedOpen === true ? section.rows.map(nodeRow) : [])]
+          })}
         </scrollbox>
       </box>
       <box
@@ -611,6 +717,16 @@ export function Overview(props: {
       >
         {row === undefined ?
           props.review :
+          row.ask !== undefined && selected !== undefined && props.peek === undefined ?
+          (
+            <AskPane
+              tab={selected}
+              ask={row.ask}
+              seat={row.seat}
+              lane={props.cards.lane(selected.id)}
+              now={props.cards.now}
+            />
+          ) :
           props.peek !== undefined || selected === undefined ?
           <Peek row={row} lines={props.peek ?? []} now={props.cards.now} /> :
           split !== undefined ?
@@ -624,6 +740,35 @@ export function Overview(props: {
               <Grid tabs={branch} width={gridWidth} cards={props.cards} />
             </scrollbox>
           )}
+      </box>
+    </box>
+  )
+}
+
+/** The selected row's ask: whose it is and how long it has waited, then the whole question and its choices. */
+function AskPane(
+  props: {
+    readonly tab: Tab
+    readonly ask: Asks.Ask
+    readonly seat: string
+    readonly lane: string
+    readonly now: number
+  }
+) {
+  const choices = numbered(props.ask)
+  return (
+    <box style={{ flexDirection: "column" }}>
+      <box style={{ border: ["left"], flexShrink: 0 }} borderColor={props.lane} customBorderChars={rail}>
+        <text wrapMode="none">
+          <span fg={color.needs}>◆</span> <strong fg={color.text}>{tabTitle(props.tab)}</strong>
+        </text>
+        <text fg={color.faint} wrapMode="none">
+          {`waiting ${Inbox.waited(props.now - props.ask.askedAt)} · ${props.seat}`}
+        </text>
+      </box>
+      <box style={{ paddingLeft: 1, paddingTop: 1, flexShrink: 0 }}>
+        <text fg={color.text} wrapMode="word">{props.ask.question}</text>
+        {choices === "" ? null : <text fg={color.muted} wrapMode="word">{choices}</text>}
       </box>
     </box>
   )

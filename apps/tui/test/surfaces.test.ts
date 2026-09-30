@@ -227,3 +227,18 @@ test("ctrl+s opens the Summary from a worker tab with that worker selected, and 
   // A `ui:` view (a plugin's tab leaves the strip once hidden) keeps its focus switch, never leaving it.
   expect(Surfaces.summaryKey({ surface: "ui:smithers", main: false, strip })).toEqual({ kind: "focus" })
 })
+
+test("Summary carries ◆N while something waits for the person, and nothing at zero", () => {
+  const strip = (needs?: number) =>
+    Surfaces.chips({
+      workspace: { tabs: [], panels: [] },
+      plugins: [],
+      views: [],
+      runs: [],
+      worker: (worker) => ({ id: `tab:${worker.id}`, label: worker.title }),
+      ...(needs === undefined ? {} : { needs })
+    })[1]
+  expect(strip(2)).toEqual({ id: "summary", label: "Summary", badge: "◆2" })
+  expect(strip(0)).toEqual({ id: "summary", label: "Summary" })
+  expect(strip()).toEqual({ id: "summary", label: "Summary" })
+})

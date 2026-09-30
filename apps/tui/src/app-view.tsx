@@ -13,6 +13,7 @@ import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
 import * as Inbox from "./inbox.ts"
+import * as Dispatch from "./key-dispatch.ts"
 import type { FlowForm } from "./key-dispatch.ts"
 import type * as Keys from "./keys.ts"
 import * as Models from "./models.ts"
@@ -58,6 +59,7 @@ export function FlowFormView(props: {
   readonly onField: (name: string, text: string) => void
 }) {
   const { form } = props
+  if (form.ask !== undefined) return <AskFormView {...props} ask={form.ask} />
   const renderer = useRenderer()
   const question = form.id.startsWith("ask:")
   const available = props.height - (props.compact ? 0 : 3) - (form.error === undefined ? 0 : 1)
@@ -169,6 +171,79 @@ export function FlowFormView(props: {
           )
         })}
         {form.error === undefined ? null : <text fg={color.danger} wrapMode="none">{form.error}</text>}
+      </box>
+    </box>
+  )
+}
+
+/** An ask's answer form: the whole question, then one choice per line under a `>` cursor, or the typed answer. */
+function AskFormView(props: {
+  readonly form: FlowForm
+  readonly ask: Dispatch.AskChoices
+  readonly height: number
+  readonly compact: boolean
+  readonly onField: (name: string, text: string) => void
+}) {
+  const { ask } = props
+  const lines = Dispatch.choices(ask)
+  const typing = Dispatch.typed(ask)
+  const input = (
+    <input
+      selectionOccupancy="boundary"
+      focused
+      value={String(props.form.draft.answer ?? "")}
+      textColor={color.text}
+      backgroundColor={color.surface}
+      focusedBackgroundColor={color.surface}
+      cursorColor={color.brand}
+      style={{ flexGrow: 1 }}
+      onInput={(text: string) => props.onField("answer", text)}
+    />
+  )
+  // The question and a blank row take two rows at least; the choices get the rest, the cursor's in view.
+  const rows = Math.max(1, props.height - (props.compact ? 3 : 6))
+  const start = Math.min(Math.max(0, ask.choice - Math.floor(rows / 2)), Math.max(0, lines.length - rows))
+  return (
+    <box
+      style={{ border: ["left"], marginTop: props.compact ? 0 : 1, flexShrink: 0 }}
+      borderColor={color.brand}
+      customBorderChars={View.bar}
+    >
+      <box
+        style={{
+          paddingLeft: 2,
+          paddingRight: 2,
+          paddingTop: props.compact ? 0 : 1,
+          paddingBottom: props.compact ? 0 : 1
+        }}
+        backgroundColor={color.element}
+      >
+        <text fg={color.text} wrapMode="word">
+          <span fg={color.needs}>{"◆ "}</span>
+          {ask.question}
+        </text>
+        {props.compact ? null : <box style={{ height: 1 }} />}
+        {lines.length === 0
+          ? (
+            <box style={{ flexDirection: "row" }}>
+              <text fg={color.brand} wrapMode="none" style={{ flexShrink: 0 }}>{"> "}</text>
+              {input}
+            </box>
+          )
+          : lines.slice(start, start + rows).map((line, offset) => {
+            const index = start + offset
+            const chosen = index === ask.choice
+            return (
+              <box key={index} style={{ flexDirection: "row" }}>
+                <text fg={chosen ? color.brand : color.muted} wrapMode="none" style={{ flexShrink: 0 }}>
+                  {chosen ? "> " : "  "}
+                </text>
+                {chosen && typing
+                  ? input
+                  : <text fg={chosen ? color.text : color.muted} wrapMode="none">{line}</text>}
+              </box>
+            )
+          })}
       </box>
     </box>
   )

@@ -8,7 +8,9 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type RefObject, useEffect, useRef } from "react"
+import type * as Asks from "./asks.ts"
 import * as Editor from "./editor.ts"
+import * as Inbox from "./inbox.ts"
 import { type Model, seatName } from "./models.ts"
 import { FailureCard } from "./panel-view.tsx"
 import * as Scrubber from "./scrubber.ts"
@@ -28,12 +30,14 @@ export interface Chip {
   readonly tone?: string
   /** `sol · 12.4s`: the model and clock of a worker. */
   readonly detail?: string
+  /** `◆1`: Summary's count of what the person can answer now. */
+  readonly badge?: string
 }
 
 const text = (chip: Chip): string =>
   ` ${chip.glyph === undefined ? "" : `${chip.glyph} `}${chip.label}${
     chip.detail === undefined ? "" : ` ${chip.detail}`
-  } `
+  }${chip.badge === undefined ? "" : ` ${chip.badge}`} `
 
 /** One row of whole tabs around the active one; `‹ 3` and `2 ›` count and open the hidden ones. */
 export function TabStrip(props: {
@@ -74,6 +78,7 @@ export function TabStrip(props: {
               {chip.glyph === undefined ? null : <span fg={chip.tone ?? color.faint}>{chip.glyph}{" "}</span>}
               {selected ? <strong fg={color.brand}>{chip.label}</strong> : <span fg={color.muted}>{chip.label}</span>}
               {chip.detail === undefined ? null : <span fg={color.faint}>{" "}{chip.detail}</span>}
+              {chip.badge === undefined ? null : <span fg={color.needs}>{" "}{chip.badge}</span>}
               {" "}
             </text>
           </box>
@@ -95,19 +100,25 @@ export function TabStrip(props: {
   )
 }
 
-/** Reported model and elapsed time. */
-const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number): string =>
-  `${seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
+/** Reported model and elapsed time; `sol · waiting 0:12` while it asks the person. */
+const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, ask?: Asks.Ask): string =>
+  ask !== undefined
+    ? `${seatName(tab, models)} · waiting ${Inbox.waited(now - ask.askedAt)}`
+    : `${seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
 
-/** A worker's tab chip: glyph, title, model and clock. */
-export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number): Chip => {
-  const { glyph, tone } = Tabs.styleOf(tab, now)
+/** A worker's glyph: `◆` in the needs color while the person holds its ask. */
+export const styleOf = (tab: Tab, now: number, ask?: Asks.Ask): { readonly glyph: string; readonly tone: string } =>
+  ask === undefined ? Tabs.styleOf(tab, now) : { glyph: "◆", tone: color.needs }
+
+/** A worker's tab chip: glyph, title, model and clock, or how long its ask has waited. */
+export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, ask?: Asks.Ask): Chip => {
+  const { glyph, tone } = styleOf(tab, now, ask)
   return {
     id: `tab:${tab.id}`,
     label: tab.title,
     glyph,
     tone,
-    detail: facts(tab, models, now)
+    detail: facts(tab, models, now, ask)
   }
 }
 
@@ -117,12 +128,15 @@ export function WorkerList(props: {
   readonly active: string
   readonly models: ReadonlyArray<Model>
   readonly now: number
+  /** The ask the person holds from a worker. */
+  readonly ask?: (id: string) => Asks.Ask | undefined
   readonly onSelect: (id: string) => void
 }) {
   return (
     <box style={{ flexDirection: "column" }}>
       {props.tabs.map((tab) => {
-        const { glyph, tone } = Tabs.styleOf(tab, props.now)
+        const ask = props.ask?.(tab.id)
+        const { glyph, tone } = styleOf(tab, props.now, ask)
         const selected = props.active === `tab:${tab.id}`
         return (
           <box
@@ -138,7 +152,7 @@ export function WorkerList(props: {
               <span fg={selected ? color.text : color.muted}>{tab.description ?? tab.title}</span>
             </text>
             <text fg={color.faint} wrapMode="none">
-              {facts(tab, props.models, props.now)}
+              {facts(tab, props.models, props.now, ask)}
             </text>
           </box>
         )

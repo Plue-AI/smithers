@@ -41,11 +41,17 @@ export const chips = (input: {
   /** Every other `ui:` view. */
   readonly views: ReadonlyArray<Panels.Panel>
   readonly worker: (tab: Tab) => Chip
+  /** What the person can answer now: `◆N` beside Summary. */
+  readonly needs?: number
 }): ReadonlyArray<Chip> => {
   const { workspace } = input
   return [
     { id: "chat", label: "Chat" },
-    { id: "summary", label: "Summary" },
+    {
+      id: "summary",
+      label: "Summary",
+      ...(input.needs === undefined || input.needs === 0 ? {} : { badge: `◆${input.needs}` })
+    },
     ...input.plugins.map((panel) => ({ id: `ui:${panel.id}`, label: panel.title })),
     ...workspace.tabs.map(input.worker),
     ...input.runs.map((run) => ({

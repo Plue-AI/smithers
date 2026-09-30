@@ -20,9 +20,12 @@ const tab = (id: string, status: Tab["status"], parent?: string): Tab => ({
 })
 const shape = (node: Graph.Node): unknown => [node.key, node.children.map(shape)]
 const rows = (tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Flows.Run> = []) =>
-  Inbox.flat(Inbox.rows({ tabs, runs, transcript: () => Transcript.empty, contextWindow: () => 0, models: [], now }))
+  Inbox.flat(
+    Inbox.rows({ tabs, runs, transcript: () => Transcript.empty, contextWindow: () => 0, models: [], now }),
+    true
+  )
 
-it("draws the whole tree above and below the selected worker, the ones that need the person included", () => {
+it("draws the whole tree above and below the selected worker, the failed ones included", () => {
   const tabs = [
     tab("root", "running"),
     tab("kid", "failed", "root"),

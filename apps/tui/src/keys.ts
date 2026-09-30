@@ -82,6 +82,8 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "mention", keys: ["@"], label: "Mention file", context: "composer", group: "Composer" },
   { id: "shell-input", keys: ["!"], label: "Shell mode", context: "composer", group: "Composer" },
   { id: "cards", keys: ["tab"], label: "Cards", context: "composer", group: "Composer" },
+  // Only while exactly one ask waits for the person, with the composer empty.
+  { id: "answer", keys: ["a"], label: "Answer", context: "composer", group: "Composer" },
 
   { id: "steer", keys: ["enter"], label: "Steer", context: "working", group: "Working" },
   { id: "queue-working", keys: ["alt+enter"], label: "Queue", context: "working", group: "Working" },

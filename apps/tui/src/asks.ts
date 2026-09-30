@@ -5,10 +5,11 @@
  * holder answers with `agent.answer`; one that has not after
  * {@link escalateAfter} frames, or cannot answer (parked, settled, gone, or
  * blocked in an ask of its own), hands the ask one level up, and past the
- * root it reaches the person, who answers through the flow form (`a` in the
- * overview or the worker's tab). Asks live in memory.
+ * root it reaches the person, who answers through the answer form (`a` in
+ * the chat when it is the only one, the overview or the worker's tab). A
+ * park (`ctx.park`) asks the person the same way (`steering.ts`). Asks live
+ * in memory.
  */
-import { Schema } from "effect"
 import { randomUUID } from "node:crypto"
 import type { Tab } from "./workspace.ts"
 
@@ -52,12 +53,6 @@ export const message = (ask: Ask, title: string): string =>
   `Child "${title}" asks (${ask.id}): ${ask.question}${
     ask.options === undefined || ask.options.length === 0 ? "" : ` Options: ${ask.options.join(" | ")}.`
   } Answer with agent.answer({id: "${ask.id}", answer}). Unanswered after ${escalateAfter} of your frames it goes up.`
-
-/** The form an ask opens: a choice among its options, else free text. */
-export const schema = (ask: Pick<Ask, "options">): Schema.Top =>
-  ask.options !== undefined && ask.options.length > 0
-    ? Schema.Struct({ answer: Schema.Literals(ask.options as [string, ...Array<string>]) })
-    : Schema.Struct({ answer: Schema.String.check(Schema.isMinLength(1)) })
 
 type Open = Ask & { readonly settle: (answer: string) => void; readonly refuse: (reason: string) => void }
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test"
-import { Schema } from "effect"
 import * as Asks from "../src/asks.ts"
 import type { Tab } from "../src/workspace.ts"
 
@@ -118,14 +117,5 @@ describe("ctx.help asks", () => {
     controller.abort()
     await expect(answer).rejects.toThrow("Ask withdrawn")
     expect(asks.list()).toEqual([])
-  })
-
-  it("builds a choice form from options, else a free-text one", () => {
-    const choice = Asks.schema({ options: ["a", "b"] })
-    const text = Asks.schema({})
-    expect(Schema.is(choice)({ answer: "a" })).toBe(true)
-    expect(Schema.is(choice)({ answer: "c" })).toBe(false)
-    expect(Schema.is(text)({ answer: "anything" })).toBe(true)
-    expect(Schema.is(text)({ answer: "" })).toBe(false)
   })
 })

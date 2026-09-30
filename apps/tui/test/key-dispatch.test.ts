@@ -1244,3 +1244,75 @@ test("a in a worker tab opens the form for that worker's ask", () => {
   }, panelActs(calls))
   expect(calls).toEqual([["answer", "worker"]])
 })
+
+const askForm = (
+  choice: number,
+  options: ReadonlyArray<string> = ["sum", "plus"],
+  answer?: string
+): Dispatch.FlowForm & { readonly ask: Dispatch.AskChoices } => ({
+  id: "ask:1",
+  flow: "Rename add()",
+  fields: [],
+  draft: answer === undefined ? {} : { answer },
+  focus: 0,
+  ask: { question: "New name for add()?", options, choice }
+})
+const askAct = () => {
+  const seen: { changed: Array<Dispatch.FlowForm | undefined>; filled: Array<Record<string, unknown>> } = {
+    changed: [],
+    filled: []
+  }
+  return {
+    seen,
+    act: {
+      change: (next: Dispatch.FlowForm | undefined) => void seen.changed.push(next),
+      schema: () => {
+        throw new Error("An ask has no schema")
+      },
+      input: () => ({}),
+      fill: (_: string, payload: Record<string, unknown>) => void seen.filled.push(payload)
+    }
+  }
+}
+
+test.each(
+  [
+    ["down", false, 0, 1],
+    ["tab", false, 1, 2],
+    ["down", false, 2, 2],
+    ["up", false, 1, 0],
+    ["tab", true, 0, 0]
+  ] as const
+)("ask form %s shift=%s moves the cursor from %i to %i without wrapping", (name, shift, from, to) => {
+  const { seen, act } = askAct()
+  const event = key(name, { shift })
+  Dispatch.formKey(event, askForm(from), act)
+  expect(seen.changed.map((form) => form?.ask?.choice)).toEqual([to])
+  expect(seen.filled).toEqual([])
+  expect(event.defaultPrevented).toBe(true)
+})
+
+test("an ask form answers the chosen option, a typed other…, and nothing blank; esc keeps the ask", () => {
+  const cases: ReadonlyArray<[Dispatch.FlowForm, Array<Record<string, unknown>>]> = [
+    [askForm(1), [{ answer: "plus" }]],
+    [askForm(2, ["sum", "plus"], "  total "), [{ answer: "total" }]],
+    [askForm(2, ["sum", "plus"], "   "), []],
+    [askForm(0, [], "addAll"), [{ answer: "addAll" }]],
+    [askForm(0, []), []]
+  ]
+  for (const [form, filled] of cases) {
+    const { seen, act } = askAct()
+    Dispatch.formKey(key("return"), form, act)
+    expect(seen.filled).toEqual(filled)
+    expect(seen.changed).toEqual(filled.length === 0 ? [] : [undefined])
+  }
+  const { seen, act } = askAct()
+  Dispatch.formKey(key("escape"), askForm(0), act)
+  expect(seen).toEqual({ changed: [undefined], filled: [] })
+  // A free-text ask has no cursor to move: arrows leave it as it is.
+  const free = askAct()
+  Dispatch.formKey(key("down"), askForm(0, []), free.act)
+  expect(free.seen).toEqual({ changed: [], filled: [] })
+  expect(Dispatch.choices(askForm(0).ask)).toEqual(["sum", "plus", "other…"])
+  expect(Dispatch.choices(askForm(0, []).ask)).toEqual([])
+})
