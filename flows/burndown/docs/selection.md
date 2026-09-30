@@ -15,8 +15,9 @@ use `owner/repo#number`. `needs_will` is retained as triage data; the live
 `candidates(repo, issues, rows, options)` orders boosts first, then unblocked
 issues, severity, effort and descending issue number. Labels override triage
 ranks. It skips claimed, reserved, excluded, epic and human-approval issues,
-plus history marked closed or requiring an operator action. Cooling issues
-still set `pending: true`, so the round waits instead of declaring completion.
+plus history marked closed or requiring an operator action. Every filtered or cooling open issue still sets `pending: true`. Only a current
+`will-only` GitHub label on an unclaimed issue excludes it from completion;
+old history and triage classifications cannot prove an open issue completed.
 Pass `now`, `last` and `retryAfter` in epoch seconds. Pure selection defaults
 `now` to zero; the observer supplies current time. Attempts cool for three hours
 each, capped at twenty-four hours.
@@ -41,7 +42,15 @@ across repositories must use canonical `exclude` keys.
 candidates, bodies, taken)` chooses at most two unblocked, medium-or-lower,
 simple issues sharing a source file with the lead. It orders by overlapping
 file count, effort and ascending issue number. Test files, hard work, critical
-or high severity, architecture and epic companions are excluded.
+or high severity, and blocked companions are excluded.
+
+Will's never-bundle rule sets `bundleable: false` on each candidate whose
+title or label names security, money (billing, pricing, price, credit,
+payment, invoice), merge or landing, an unclear root cause, or cross-package
+design (design, architecture, epic). Such an issue is never a companion and
+never leads a bundle; it runs alone. Burndown is the only dispatcher that
+bundles; `mega-dispatch` and the `Smithers-Ops/dispatch` feeder are retired
+for bundling.
 
 `brief({ repo, lead, extras, others, workdir, landing })` produces the worker's
 instructions. `landing.claimBy` must match the launcher's claim owner;
@@ -52,10 +61,12 @@ and release skipped or failed claims. The queue owns publishing main and
 verified issue closure. This module does not implement landing; that belongs
 to the merge-queue member.
 
-Run the public-boundary tests from the repository root:
+The package test command (`pnpm --dir flows test`) runs selection and brief
+regressions through `test/burndown-selection.test.ts`. Run that entry point
+from the repository root:
 
 ```sh
-node --experimental-strip-types --test flows/burndown/test/issues.test.ts flows/burndown/test/brief.test.ts
+node --experimental-strip-types --test flows/test/burndown-selection.test.ts
 ```
 
 Tests inject the GitHub command at its I/O boundary to avoid network rate limits

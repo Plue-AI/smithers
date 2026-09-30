@@ -93,3 +93,30 @@ test("claim mutations require a successful mine check even after expiry", () => 
   assert.match(text, /"mine":false[^\n]*even[^\n]*expired/)
   assert.match(text, /never[^\n]*takeover/i)
 })
+
+test("Cloud brief delegates GitHub and review to launcher, uses guest lock and retained artifacts", () => {
+  const text = brief({
+    ...options,
+    execution: "cloud",
+    landing: { claimBy: "cloud-42", lockPath: "/tmp/guest/vcs_lock.py" }
+  })
+  assert.ok(!text.includes("gh issue view"))
+  assert.ok(!text.includes("~/Smithers-Ops"))
+  assert.ok(!text.includes("node ~/smithers/scripts/issue-claim"))
+  assert.ok(text.includes("/tmp/guest/vcs_lock.py"))
+  assert.match(text, /launcher.*Fable/)
+  assert.match(text, /artifact/)
+  assert.match(text, /READY <commit-id>/)
+})
+
+test("Cloud prepared commits defer checks to host without claiming guest passes", () => {
+  const text = brief({ ...options, execution: "cloud", tool: "claude", model: "claude-opus-5-5" })
+  assert.ok(!text.includes("Do not report READY before tests pass"))
+  assert.ok(!text.includes("Report READY after your tests pass"))
+  assert.ok(!text.includes("If Fable is out of quota, use Opus"))
+  assert.match(text, /prepared.*launcher Fable.*host queue CI/i)
+  assert.match(text, /never claim guest tests passed/i)
+  assert.match(text, /launcher.*hostname/i)
+  assert.ok(text.includes("Co-Authored-By: Claude Opus"))
+  assert.ok(!text.includes("Co-Authored-By: GPT-6.1 Sol"))
+})

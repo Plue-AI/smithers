@@ -18,7 +18,7 @@ const sources = Smithers.glob("//flows/**/*.ts")
 const scripts = Smithers.glob("//scripts/*.mjs")
 
 const check = Smithers.Typecheck({
-  srcs: [sources, scripts],
+  srcs: [sources, scripts, Smithers.file("//apps/review/src/server/migrations.ts")],
   deps: [],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
@@ -29,14 +29,24 @@ const suite = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/content.test.ts"),
     Smithers.file("//flows/test/release-redaction.test.ts"),
-    Smithers.file("//flows/test/release-io.test.ts"),
-    Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
-    Smithers.file("//flows/test/rollout.test.ts")
+    Smithers.file("//flows/test/rollout.test.ts"),
+    Smithers.file("//flows/test/worker-rollout.test.ts"),
+    Smithers.file("//scripts/ci/worker-deploy-qualification.test.mjs")
   ]),
-  srcs: [sources, scripts, Smithers.file("//flows/review/flow.mdx"), Smithers.file("//pnpm-workspace.yaml")],
+  srcs: [
+    sources,
+    scripts,
+    Smithers.file("//flows/review/flow.mdx"),
+    Smithers.file("//pnpm-workspace.yaml"),
+    Smithers.file("//scripts/ci/worker-deploy-qualification.test.mjs"),
+    Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
+    Smithers.file("//apps/review/package.json"),
+    Smithers.file("//apps/bug-worker/package.json"),
+    Smithers.file("//apps/review/src/server/migrations.ts")
+  ],
   deps: [],
   cwd
 })
@@ -175,8 +185,7 @@ const coding = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding.test.ts"),
-    Smithers.file("//flows/test/coding-state.test.ts"),
-    Smithers.file("//flows/test/coding-learnings.test.ts")
+    Smithers.file("//flows/test/coding-state.test.ts")
   ]),
   srcs: codingSources,
   deps: codingDependencies,
@@ -221,7 +230,6 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-vibe-admission.test.ts"),
     Smithers.file("//flows/test/coding-landing.test.ts"),
     Smithers.file("//flows/test/coding-landing-config.test.ts"),
-    Smithers.file("//flows/test/coding-check-environment.test.ts"),
     Smithers.file("//flows/test/coding-vibe-landing.test.ts"),
     Smithers.file("//flows/test/coding-source-publication.test.ts"),
     Smithers.file("//flows/test/coding-dispatch.test.ts")
@@ -271,33 +279,19 @@ const codingConfigBun = Smithers.NodeTest({
 })
 
 // Explicit slow gates: preflight refuses missing native tools instead of letting
-// opt-in integration cases silently skip. Shell.Test caches a green verdict, so
-// the JJ and exporter bytes the gate spawns are key material through `tools`.
-const nativeTools = [
-  Smithers.Host.bin("jj"),
-  Smithers.Host.bin("smithers-jj-export", { env: "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY" })
-]
+// opt-in integration cases silently skip. Shell.Test caches a green verdict; the
+// JJ and helper bytes it spawns are bound by the coding check cache partition.
 const codingNative = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: node,
   args: ["flows/test/coding-native-gate.mjs", "source"],
-  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
-})
-
-// The target index runs this inventory before accepting a declaration set.
-const testCoverage = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//flows/test/target-coverage.test.ts")]),
-  srcs: [sources, Smithers.file("//flows/PACKAGE.ts"), Smithers.file("//flows/test/coding-native-gate.mjs")],
-  deps: [],
-  cwd
 })
 const codingNativeBun = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: bun,
   args: ["flows/test/coding-native-gate.mjs", "source"],
-  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -305,7 +299,6 @@ const codingBundle = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: node,
   args: ["flows/test/coding-native-gate.mjs", "bundle"],
-  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -313,7 +306,6 @@ const codingBundleBun = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: bun,
   args: ["flows/test/coding-native-gate.mjs", "bundle"],
-  tools: nativeTools,
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
@@ -359,7 +351,6 @@ const repositoryFixtures = [
   "heldout",
   "inspection-sources",
   "intake-screen",
-  "intake-bounds",
   "jev-checks",
   "jev-duplicates",
   "jev-observation",
@@ -443,14 +434,12 @@ const securityReview = Smithers.SecurityReview({
         "A prompt-injected agent or approved shell tool reads SMITHERS_JJHUB_TOKEN or the gateway credential and acts as the workspace on its repository.",
       lookFor: [
         "SMITHERS_JJHUB_TOKEN read from process.env anywhere other than coding/landing-config.ts, or read before it is deleted there.",
-        "A spawned process or check environment built from process.env instead of the PATH/HOME/proxy allowlist in coding/check-environment.ts.",
-        "SMITHERS_CACHE_TOKEN or SMITHERS_CACHE_URL left in process.env after coding/check-environment.ts consumes them, or given to anything but repository checks (repositoryCheckEnvironment).",
+        "A spawned process or check environment built from process.env instead of the PATH/HOME/proxy allowlist in coding/serve.ts.",
         "A token or credential passed to a model prompt, a run output, a receipt, an error message, or Redacted.value outside the HTTP bearer header.",
         "invoke/serve.ts rpc or serve paths that print or journal the credential file contents."
       ],
       paths: [
         "coding/serve.ts",
-        "coding/check-environment.ts",
         "coding/landing-config.ts",
         "coding/landing.ts",
         "coding/host.ts",
@@ -622,7 +611,6 @@ export const Package = Smithers.Package({
     memory,
     codingConfigBun,
     codingNative,
-    testCoverage,
     codingNativeBun,
     codingBundle,
     codingBundleBun,

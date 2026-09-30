@@ -41,6 +41,7 @@ export type Reading = typeof Reading.Type
 type Json = Record<string, any>
 const jsonFile = async (path: string): Promise<Json> => JSON.parse(await readFile(path, "utf8"))
 export interface DiscoveryOptions {
+  onlyIds?: ReadonlyArray<string>
   home?: string
   accountsDir?: string
   excludeEmails?: string
@@ -64,6 +65,7 @@ export async function discoverAccounts(options: DiscoveryOptions = {}) {
     .map((id) => ({ id: id === "codex-default" ? "accounts/codex-default" : id, directory: join(base, id) }))
   candidates.push({ id: "codex-default", directory: join(home, ".codex") })
   for (const { id, directory } of candidates) {
+    if (options.onlyIds !== undefined && !options.onlyIds.includes(id)) continue
     const tool = id.startsWith("claude-") ? "claude" : "codex"
     try {
       const auth = await jsonFile(join(directory, tool === "claude" ? ".claude.json" : "auth.json"))

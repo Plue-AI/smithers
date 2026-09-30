@@ -170,3 +170,37 @@ the backend fix. Deployment and post-release concurrency receipts belong on
 [#2924](https://github.com/smithersai/smithers/issues/2924) and
 [plue#738](https://github.com/smithersai/plue/issues/738). A release or live
 concurrency check remains incomplete until its receipt exists.
+
+## Worker placement and handoff
+
+`flows/burndown/worker/flow.ts` provides the placement dispatcher. Select Cloud
+in the flow payload and configure the launcher's explicit Cloud environment:
+
+```sh
+# SMITHERS_TOKEN is supplied in memory from smithers-dev-cloud-token above.
+export SMITHERS_API_ORIGIN=https://api.jjhub.tech
+export BURNDOWN_REVIEW_ACCOUNT='<selected local Claude account ID>'
+smthrs flow start burndown --data '{"repos":["smithersai/smithers","smithersai/plue"],"placement":"cloud","startAgents":20,"maxAgents":20}' -d
+```
+
+The launcher checks `/api/user` is `smithers-dev` and refreshes each canonical
+repository through `/github/main-pull`, requiring its receipt to match current
+GitHub main before workspace admission. Only the assigned local account is read
+for a coding command. Native Codex 0.159.1 includes `codex-code-mode-host`;
+Claude uses the native 2.1.285 binary. Archive digests are verified against
+published GitHub/npm metadata, and large archives use the guest home cache.
+The Cloud provider defaults guest `HOME` to `/home/developer` and preserves
+explicit child overrides.
+
+Agent credentials travel on SSH stdin and live in temporary guest configs.
+The coding guest receives no reviewer credential: the trusted host runs Fable
+with source-only stdin and tools disabled. Before deletion, committed trees are
+retained on the launcher with before/after bytes, modes and symlink targets.
+Local reconstruction runs under the existing VCS lock and returns local commit
+IDs to the merge queue. Review or reconstruction failure leaves a retained
+artifact and refuses READY. See [Cloud workers](docs/cloud-execution.md).
+
+Deterministic checks cover real command transport, credential redaction,
+interruption cleanup, binary/mode/symlink exports and durable local handoff.
+`BURNDOWN_CLOUD_SMOKE=1` gates the paid sequential native-agent command smoke;
+supply the explicit Cloud environment and the selected test logins locally.

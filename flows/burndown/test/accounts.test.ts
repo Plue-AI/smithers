@@ -351,3 +351,13 @@ test("reserved default account directories retain distinct identities and dedupl
   assert.equal(found.accounts[0]!.id, "accounts/codex-default")
   assert.equal(found.accounts[0]!.directory, directory)
 })
+
+test("selected-account discovery leaves unrelated login directories unread", async (t) => {
+  const f = await fixture(t)
+  await f.login("codex-selected", "selected@test")
+  await mkdir(join(f.accountsDir, "claude-unrelated"))
+  const found = await discoverAccounts({ ...f, onlyIds: ["codex-selected"] })
+  assert.deepEqual(found.accounts.map((account) => account.id), ["codex-selected"])
+  assert.deepEqual(found.skipped, [])
+  assert.deepEqual((await discoverAccounts({ ...f, onlyIds: [] })).accounts, [])
+})

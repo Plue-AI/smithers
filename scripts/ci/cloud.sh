@@ -391,7 +391,7 @@ native_jj_export() {
 gate_tools() {
   case "$1" in
     workspace) echo 'js jj foundry postgres' ;;
-    packages) echo 'js jj foundry postgres' ;;
+    packages) echo 'js jj foundry postgres sshd' ;;
     examples) echo 'js jj' ;;
     scripts) echo 'js jj rust' ;;
     flows) echo 'js' ;;
@@ -441,6 +441,22 @@ gate_tools() {
   esac
 }
 
+# Real SSH integration tests use an isolated daemon, not the system service.
+ensure_sshd() {
+  [ "$(uname -s)" = Linux ] || return 0
+  if [ ! -x /usr/sbin/sshd ]; then apt_install openssh-server; fi
+  if [ ! -x /usr/sbin/sshd ]; then
+    echo "SSH integration requires openssh-server preinstalled, or root/sudo with apt access" >&2
+    return 1
+  fi
+  if [ ! -d /run/sshd ]; then
+    if [ "$(id -u)" -eq 0 ]; then install -d -m 0755 /run/sshd
+    elif command -v sudo >/dev/null 2>&1; then sudo -n install -d -m 0755 /run/sshd
+    else echo "SSH integration requires /run/sshd provisioned by the runner image" >&2; return 1
+    fi
+  fi
+}
+
 # Installs the union of the toolchains the given gates need, once each, in
 # dependency order. This is the whole point of group mode: ensure_js alone is
 # ~11 minutes on a Cloud runner and it used to run once per gate.
@@ -454,7 +470,7 @@ bootstrap_for() {
       esac
     done
   done
-  for tool in js jj foundry rust postgres; do
+  for tool in js jj foundry rust postgres sshd; do
     case "$wanted" in
       *" $tool "*) ;;
       *) continue ;;
@@ -465,6 +481,7 @@ bootstrap_for() {
       foundry) ensure_foundry ;;
       rust) ensure_rust ;;
       postgres) ensure_postgres ;;
+      sshd) ensure_sshd ;;
     esac
   done
 }

@@ -39,6 +39,7 @@ const cand = (n: number, extra = {}) => ({
   severity: 2,
   effort: 1,
   boost: 1,
+  bundleable: true,
   ...extra
 })
 
@@ -107,7 +108,7 @@ test("label severity and effort precedence override triage without weakening cri
   assert.equal(by.get(5)?.effort, 1)
 })
 
-test("every permanent exclusion leaves pending false", () => {
+test("filtered open work stays pending until current Will-only evidence exists", () => {
   for (
     const label of [
       "mega:in-progress",
@@ -120,20 +121,23 @@ test("every permanent exclusion leaves pending false", () => {
       "needs-human-approval"
     ]
   ) {
-    assert.deepEqual(candidates(repo, [issue(1, [label])], []), { candidates: [], pending: false }, label)
+    assert.deepEqual(candidates(repo, [issue(1, [label])], []), { candidates: [], pending: true }, label)
   }
   for (const title of ["Blocked on Will: credential", "EPIC example", "[Epic] migration", "Umbrella migration"]) {
-    assert.deepEqual(candidates(repo, [issue(1, [], title)], []), { candidates: [], pending: false }, title)
+    assert.deepEqual(candidates(repo, [issue(1, [], title)], []), { candidates: [], pending: true }, title)
   }
   for (
     const options of [{ taken: new Set([1]) }, { reserved: new Set([`${repo}#1`]) }, { skip: new Set([`${repo}#1`]) }, {
       history: { [`${repo}#1`]: { closed: true } }
-    }, { history: { [`${repo}#1`]: { willonly: true } } }]
+    }]
   ) {
-    assert.deepEqual(candidates(repo, [issue(1)], [], options), { candidates: [], pending: false })
+    assert.deepEqual(candidates(repo, [issue(1)], [], options), { candidates: [], pending: true })
   }
-  assert.equal(candidates(repo, [issue(1)], [row(1, "medium", "easy", "epic")]).pending, false)
-  for (const n of [2598, 2524, 2523, 2441, 2414, 2765]) assert.equal(candidates(repo, [issue(n)], []).pending, false)
+  assert.equal(candidates(repo, [issue(1)], [row(1, "medium", "easy", "epic")]).pending, true)
+  for (const n of [2598, 2524, 2523, 2441, 2414, 2765]) assert.equal(candidates(repo, [issue(n)], []).pending, true)
+  assert.equal(candidates(repo, [issue(1)], [], { history: { [`${repo}#1`]: { willonly: true } } }).pending, true)
+  assert.equal(candidates(repo, [issue(1, ["will-only"])], []).pending, false)
+  assert.equal(candidates(repo, [issue(1, ["in-progress", "will-only"])], []).pending, true)
   assert.equal(candidates("smithersai/plue", [issue(2598)], []).candidates.length, 1)
 })
 
@@ -565,3 +569,32 @@ const disallowedSelection: SelectOptions = {
   }
 }
 void disallowedSelection
+
+// Will's rule (#2916): security, money, merge/landing, unclear root cause and cross-package design never bundle.
+test("never-bundle classes are neither companions nor bundle leads, by label or title", async () => {
+  const classes: ReadonlyArray<readonly [Array<string>, string]> = [
+    [["security"], "tighten token check"],
+    [[], "Security: redact webhook secret"],
+    [["billing"], "fix invoice rounding"],
+    [[], "Pricing page shows stale plan"],
+    [[], "Credit balance off by one"],
+    [["area:merge-queue"], "retry flaky rebase"],
+    [[], "Lander pushes stale receipt"],
+    [[], "Unclear root cause: runs stall"],
+    [["needs-design"], "share run state"],
+    [[], "Cross-package design for run ids"]
+  ]
+  const issues = [
+    { ...issue(1), body: "apps/a.ts" },
+    { ...issue(2), body: "apps/a.ts" },
+    ...classes.map(([labels, title], i) => ({ ...issue(10 + i, labels, title), body: "apps/a.ts" }))
+  ]
+  const result = await Effect.runPromise(selectCandidates({
+    repos: [repo],
+    triagePath: join(tmpdir(), "burndown-missing-triage.json"),
+    command: async () => JSON.stringify(issues)
+  }))
+  const bundled = result.candidates.filter((bundle) => bundle.extras.length > 0)
+  assert.deepEqual(bundled.map((bundle) => [bundle.lead.n, bundle.extras.map((extra) => extra.n)]), [[2, [1]]])
+  assert.equal(result.candidates.length, 2 + classes.length - 1)
+})

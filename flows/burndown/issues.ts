@@ -35,6 +35,8 @@ export interface Candidate {
   readonly severity: number
   readonly effort: number
   readonly boost: number
+  /** False for Will's never-bundle classes; such an issue runs alone. */
+  readonly bundleable: boolean
 }
 
 export interface History {
@@ -66,6 +68,34 @@ const skipLabels = new Set(["epic", "wontfix", "invalid", "duplicate", "question
 const skipTitle = /^(blocked on will|epic\b|\[?epic|umbrella)/i
 const severityRank: Readonly<Record<string, number>> = { critical: 0, high: 1, medium: 2, low: 3 }
 const effortRank: Readonly<Record<string, number>> = { trivial: 0, easy: 1, hard: 2 }
+/**
+ * Will's never-bundle classes, matched in labels and titles: security, money,
+ * merge/landing, unclear root cause, and cross-package design or architecture.
+ */
+const neverBundle = new RegExp(
+  [
+    "secur",
+    "vulnerab",
+    "\\bcve\\b",
+    "credential",
+    "secret",
+    "billing",
+    "pricing",
+    "\\bprice",
+    "\\bcredits?\\b",
+    "payment",
+    "invoice",
+    "merge",
+    "\\bland(?:s|ed|er|ing)?\\b",
+    "root.?cause",
+    "unclear",
+    "cross.?package",
+    "design",
+    "architecture",
+    "\\bepic\\b"
+  ].join("|"),
+  "i"
+)
 
 export const priority = (rows: ReadonlyArray<TriageRow>): ReadonlyMap<string, readonly [number, number, string]> =>
   new Map(rows.map((row) => [
@@ -104,14 +134,17 @@ export const candidates = (
     const key = issueKey(repo, issue.number)
     const labels = new Set(issue.labels.map((label) => label.name))
     const history = options.history?.[key] ?? {}
+    // Only current GitHub evidence can classify open work as Will-only.
+    // Old history/triage and dispatch filters cannot prove completion.
+    const held = labels.has("in-progress") || labels.has("mega:in-progress")
+    if (labels.has("will-only") && !held) continue
+    pending = true
     if (
       options.taken?.has(issue.number) || (options.reserved ?? RESERVED).has(key)
       || options.skip?.has(key) || labels.has("in-progress") || labels.has("mega:in-progress")
       || Array.from(labels).some((label) => skipLabels.has(label)) || skipTitle.test(issue.title)
       || ranks.get(key)?.[2] === "epic" || history.closed || history.willonly
     ) continue
-    // Cooling work remains pending: a round must wait, rather than declare done.
-    pending = true
     if (now < (history.retryAfter ?? 0)) continue
     const attempts = history.attempts ?? 0
     const cooldown = Math.min(3 * 3600 * Math.max(1, attempts), 24 * 3600)
@@ -131,27 +164,27 @@ export const candidates = (
       blocked: labels.has("blocked-on-will"),
       severity,
       effort,
-      boost: history.boost ? 0 : 1
+      boost: history.boost ? 0 : 1,
+      bundleable: ![issue.title, ...labels].some((text) => neverBundle.test(text))
     })
   }
   return { candidates: out.sort(compare), pending }
 }
 
-/** Bundle at most two simple companions naming the same production source. */
+/** Bundle at most two simple, bundleable companions naming the same production source. */
 export const pick_companions = (
   lead: Candidate,
   cands: ReadonlyArray<Candidate>,
   bodies: ReadonlyMap<number, string>,
   taken: ReadonlySet<number> = new Set()
 ): ReadonlyArray<Candidate> => {
-  if (lead.blocked || lead.effort >= 2 || lead.severity < 2) return []
+  if (!lead.bundleable || lead.blocked || lead.effort >= 2 || lead.severity < 2) return []
   const files = areas(bodies.get(lead.n) ?? "")
   if (files.size === 0) return []
   return cands
     .filter((candidate) =>
       repository(candidate.repo) === repository(lead.repo) && candidate.n !== lead.n && !taken.has(candidate.n)
-      && !candidate.blocked && candidate.effort < 2 && candidate.severity >= 2
-      && !/^\[?(architecture|epic)/i.test(candidate.title)
+      && candidate.bundleable && !candidate.blocked && candidate.effort < 2 && candidate.severity >= 2
     )
     .map((candidate) => ({
       candidate,
