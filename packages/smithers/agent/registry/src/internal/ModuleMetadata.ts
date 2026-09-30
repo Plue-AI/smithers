@@ -54,6 +54,10 @@ interface FlowObject {
 /**
  * One lexical token of module source.
  *
+ * An identifier's `value` is its name with every `\u` escape decoded, so
+ * `requir\u0065` reads as the `require` binding it is. `escaped` marks such
+ * a name: an escaped name is never a keyword. A private name keeps its `#`.
+ *
  * @category models
  * @since 1.0.0-rc.0
  * @private
@@ -63,6 +67,7 @@ export interface Token {
   readonly value: string
   readonly start: number
   readonly end: number
+  readonly escaped?: true
 }
 
 const skipQuoted = (source: string, start: number): number => {
@@ -111,10 +116,19 @@ const skipTrivia = (source: string, start: number): number => {
   return index
 }
 
-/** The keywords a regular expression may follow, rather than a division. */
+/**
+ * The keywords a regular expression may follow, rather than a division.
+ *
+ * `break`, `continue` and `debugger` are here because a `/` after one of them
+ * on the same line is a syntax error, so a `/` that follows one can only begin
+ * a regular expression on the next line, after automatic semicolon insertion.
+ */
 const regexPrecedingKeywords = new Set([
   "await",
+  "break",
   "case",
+  "continue",
+  "debugger",
   "delete",
   "do",
   "else",
@@ -133,19 +147,97 @@ const regexPrecedingPunctuation = new Set(
   ["(", "[", "{", ",", ":", ";", "=", "!", "?", "&", "|", "+", "-", "*", "%", "^", "~", "<", ">"]
 )
 
-const canStartRegex = (previous: Token | undefined): boolean => {
+/** The statements a label may follow. */
+const labelKeywords = new Set(["break", "continue"])
+
+/** The statements whose parenthesized head is followed by a statement, never by an operator. */
+const conditionKeywords = new Set(["if", "while", "for", "with"])
+
+/**
+ * How {@link tokenize} reads a `/` whose meaning the tokens before it do not
+ * settle.
+ *
+ * Two places are ambiguous to a lexer. A `/` that starts a line after a name,
+ * a literal, `)` or `]` is a division in JavaScript, but begins a regular
+ * expression after a TypeScript type annotation (`let x: string` then a line
+ * starting `/re/`). A `/` after `}` begins a regular expression after a block
+ * and is a division after an object literal. `"likely"` reads the first as a
+ * division and the second as a regular expression; `"alternate"` reads each
+ * the other way. A reader that must not miss code reads both.
+ *
+ * @category parsing
+ * @since 1.0.0
+ * @private
+ */
+export type SlashReading = "likely" | "alternate"
+
+interface Context {
+  readonly previous: Token | undefined
+  readonly beforePrevious: Token | undefined
+  readonly beforeThat: Token | undefined
+  /** Whether a line terminator separates the previous token from this one. */
+  readonly lineBreak: boolean
+  /** Whether the previous token is the `)` closing an `if`, `while`, `for` or `with` head. */
+  readonly closesCondition: boolean
+  readonly reading: SlashReading
+}
+
+/** The context of a module's first token. */
+const start: Context = {
+  previous: undefined,
+  beforePrevious: undefined,
+  beforeThat: undefined,
+  lineBreak: false,
+  closesCondition: false,
+  reading: "likely"
+}
+
+/** Whether a name token is a property or private name (`a.return`, `#return`) rather than a keyword. */
+const isPropertyName = (token: Token, before: Token | undefined): boolean =>
+  token.value.startsWith("#") || (before?.kind === "punctuation" && before.value === ".")
+
+const isKeyword = (token: Token | undefined, before: Token | undefined, keywords: ReadonlySet<string>): boolean =>
+  token?.kind === "identifier" && token.escaped === undefined && keywords.has(token.value) &&
+  !isPropertyName(token, before)
+
+const canStartRegex = (context: Context): boolean => {
+  const { beforePrevious, previous } = context
   if (previous === undefined) {
     return true
   }
+  const ambiguousAfterOperand = context.lineBreak && context.reading === "alternate"
   if (previous.kind === "identifier") {
-    return regexPrecedingKeywords.has(previous.value)
+    if (isKeyword(previous, beforePrevious, regexPrecedingKeywords)) {
+      return true
+    }
+    // `break label` and `continue label` end their statement: what follows
+    // them on the next line starts a new one.
+    if (!isPropertyName(previous, beforePrevious) && isKeyword(beforePrevious, context.beforeThat, labelKeywords)) {
+      return true
+    }
+    return ambiguousAfterOperand
   }
   if (previous.kind !== "punctuation") {
+    return ambiguousAfterOperand
+  }
+  // `a++ / b` divides: `++` or `--` directly before a `/` is always postfix.
+  if (
+    (previous.value === "+" || previous.value === "-") &&
+    beforePrevious?.value === previous.value && beforePrevious.end === previous.start
+  ) {
     return false
+  }
+  if (previous.value === ")") {
+    return context.closesCondition || ambiguousAfterOperand
+  }
+  if (previous.value === "]") {
+    return ambiguousAfterOperand
+  }
+  if (previous.value === "}") {
+    return context.reading === "likely"
   }
   return regexPrecedingPunctuation.has(previous.value)
 }
-
 const skipRegex = (source: string, start: number): number => {
   let inCharacterClass = false
   for (let index = start + 1; index < source.length; index++) {
@@ -172,19 +264,74 @@ const skipRegex = (source: string, start: number): number => {
   return source.length - 1
 }
 
-const nextToken = (source: string, start: number, previous: Token | undefined): Token | undefined => {
+const identifierStart = /[\p{ID_Start}$_]/u
+const identifierPart = /[\p{ID_Continue}$\u200C\u200D]/u
+
+/**
+ * The code point a `\u` escape at `index` names and the index after it, or
+ * `undefined` when no escape starts there.
+ */
+const unicodeEscape = (source: string, index: number): { readonly code: number; readonly end: number } | undefined => {
+  if (source[index] !== "\\" || source[index + 1] !== "u") {
+    return undefined
+  }
+  const braced = /^\{([0-9A-Fa-f]{1,6})\}/.exec(source.slice(index + 2, index + 10))
+  if (braced !== null) {
+    const code = Number.parseInt(braced[1]!, 16)
+    return code <= 0x10FFFF ? { code, end: index + 2 + braced[0].length } : undefined
+  }
+  const fixed = /^[0-9A-Fa-f]{4}/.exec(source.slice(index + 2, index + 6))
+  return fixed === null ? undefined : { code: Number.parseInt(fixed[0], 16), end: index + 6 }
+}
+
+/**
+ * The name at `index`, as {@link Token} spells it, or `undefined` when no name
+ * starts there. Names are Unicode (`ID_Start`, `ID_Continue`), may carry `\u`
+ * escapes, and a private name starts with `#`.
+ */
+const readName = (source: string, index: number): Token | undefined => {
+  let end = index
+  let value = ""
+  let escaped = false
+  if (source[end] === "#") {
+    value = "#"
+    end++
+  }
+  for (;;) {
+    const escape = unicodeEscape(source, end)
+    const code = escape?.code ?? source.codePointAt(end)
+    if (code === undefined) {
+      break
+    }
+    const character = String.fromCodePoint(code)
+    const first = end === index || (value === "#" && end === index + 1)
+    if (!(first ? identifierStart : identifierPart).test(character)) {
+      break
+    }
+    value += character
+    if (escape === undefined) {
+      end += character.length
+    } else {
+      escaped = true
+      end = escape.end
+    }
+  }
+  if (value === "" || value === "#") {
+    return undefined
+  }
+  return { kind: "identifier", value, start: index, end, ...(escaped ? { escaped: true as const } : {}) }
+}
+
+const nextToken = (source: string, start: number, context: (index: number) => Context): Token | undefined => {
   const index = skipTrivia(source, start)
   if (index >= source.length) {
     return undefined
   }
 
   const character = source[index]!
-  if (/[A-Za-z_$]/.test(character)) {
-    let end = index + 1
-    while (/[A-Za-z0-9_$]/.test(source[end] ?? "")) {
-      end++
-    }
-    return { kind: "identifier", value: source.slice(index, end), start: index, end }
+  const name = readName(source, index)
+  if (name !== undefined) {
+    return name
   }
   if (/[0-9]/.test(character)) {
     let end = index + 1
@@ -197,7 +344,7 @@ const nextToken = (source: string, start: number, previous: Token | undefined): 
     const end = skipQuoted(source, index) + 1
     return { kind: "string", value: source.slice(index, end), start: index, end }
   }
-  if (character === "/" && canStartRegex(previous)) {
+  if (character === "/" && canStartRegex(context(index))) {
     const end = skipRegex(source, index) + 1
     return { kind: "regex", value: source.slice(index, end), start: index, end }
   }
@@ -212,23 +359,42 @@ const nextToken = (source: string, start: number, previous: Token | undefined): 
  * Exported so {@link module:ModuleClosure} reads import specifiers with the
  * same lexer this module reads declarations with. A second scanner would be a
  * second answer to "is this `import` real code or a word inside a comment",
- * and the two would drift.
+ * and the two would drift. `reading` says how a `/` the tokens cannot settle
+ * is read; see {@link SlashReading}.
  *
  * @category parsing
  * @since 1.0.0-rc.0
  * @private
  */
-export const tokenize = (source: string): ReadonlyArray<Token> => {
+export const tokenize = (source: string, reading: SlashReading = "likely"): ReadonlyArray<Token> => {
   const tokens: Array<Token> = []
-  let previous: Token | undefined
+  // One entry per open `(`: whether it opens an `if`, `while`, `for` or `with` head.
+  const heads: Array<boolean> = []
+  let closesCondition = false
   let offset = 0
+  const context = (index: number): Context => {
+    const previous = tokens.at(-1)
+    return {
+      previous,
+      beforePrevious: tokens.at(-2),
+      beforeThat: tokens.at(-3),
+      lineBreak: previous !== undefined && /[\n\r\u2028\u2029]/.test(source.slice(previous.end, index)),
+      closesCondition,
+      reading
+    }
+  }
   while (offset < source.length) {
-    const token = nextToken(source, offset, previous)
+    const token = nextToken(source, offset, context)
     if (token === undefined) {
       break
     }
+    closesCondition = false
+    if (token.kind === "punctuation" && token.value === "(") {
+      heads.push(isKeyword(tokens.at(-1), tokens.at(-2), conditionKeywords))
+    } else if (token.kind === "punctuation" && token.value === ")") {
+      closesCondition = heads.pop() === true
+    }
     tokens.push(token)
-    previous = token
     offset = token.end
   }
   return tokens
@@ -285,7 +451,7 @@ const findFlowObject = (source: string): FlowObject | undefined => {
 }
 
 const placementFromSource = (source: string): Option.Option<Placement> => {
-  const token = nextToken(source, 0, undefined)
+  const token = nextToken(source, 0, () => start)
   const directive = token?.kind === "string" ? stringLiteral(token.value) : undefined
   switch (directive) {
     case "use client":

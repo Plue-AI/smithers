@@ -124,18 +124,44 @@ export interface StaticSpecifier {
  * — not of an `import()` or `require()` call — as the string token's source
  * range, which is what {@link snapshot} rewrites.
  *
+ * A lexer cannot always tell a division from a regular expression (see
+ * `SlashReading`): a line starting `/` after a TypeScript type annotation
+ * begins a regular expression where the same tokens in JavaScript divide. So
+ * the source is read both ways and every list is their union, with the larger
+ * `opaque` count, so a load either reading exposes is pinned or refused.
+ * Neither reading is a parser: source that mixes both ambiguities can still
+ * mislead both, which is one more reason the pin is not a sandbox. `statics`
+ * come from the likely reading alone, because they locate text to rewrite.
+ *
  * @category parsing
  * @since 1.0.0-rc.0
  * @private
  */
-export const specifiersOf = (source: string): {
+export const specifiersOf = (source: string): Specifiers => {
+  const likely = scan(tokenize(source, "likely"))
+  const alternate = scan(tokenize(source, "alternate"))
+  const union = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) => [
+    ...left,
+    ...right.filter((specifier) => !left.includes(specifier))
+  ]
+  return {
+    relative: union(likely.relative, alternate.relative),
+    opaque: Math.max(likely.opaque, alternate.opaque),
+    absolute: union(likely.absolute, alternate.absolute),
+    bare: union(likely.bare, alternate.bare),
+    statics: likely.statics
+  }
+}
+
+interface Specifiers {
   readonly relative: ReadonlyArray<string>
   readonly opaque: number
   readonly absolute: ReadonlyArray<string>
   readonly bare: ReadonlyArray<string>
   readonly statics: ReadonlyArray<StaticSpecifier>
-} => {
-  const tokens = tokenize(source)
+}
+
+const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
   const relative: Array<string> = []
   const absolute: Array<string> = []
   const bare: Array<string> = []

@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import { fileURLToPath } from "node:url"
 import * as ModuleClosure from "../src/internal/ModuleClosure.ts"
+import { tokenize } from "../src/internal/ModuleMetadata.ts"
 
 const modulesRoot = fileURLToPath(new URL("./fixtures/executable/modules", import.meta.url))
 const platform = Layer.merge(NodeFileSystem.layer, NodePath.layer)
@@ -195,6 +196,131 @@ describe("the specifiers a module states", () => {
     // A specifier with a substitution names nothing the scan can list.
     expect(ModuleClosure.specifiersOf("export * from `./${name}.ts`").absolute).toEqual([])
     expect(ModuleClosure.specifiersOf(`import "\\\\host\\share\\x.ts"`).absolute).toHaveLength(1)
+  })
+})
+
+describe("where a regular expression may start (#3106)", () => {
+  // Each source compiles as JavaScript; `new Function` parses it without
+  // running it. A `'` inside a regular expression the scan misreads as a
+  // division opens a string that swallows the load after it.
+  const compiles = (source: string) => {
+    expect(() => new Function(source), source).not.toThrow()
+  }
+
+  it("reads a line after break, continue or debugger as a new statement", () => {
+    const literal = [
+      `for(;;){ if (c) break\n/'/.test(s); import("./evil.ts"); /'/ }`,
+      `for(;;){ if (c) continue\n/'/.test(s); import("./evil.ts"); /'/ }`,
+      `debugger\n/'/.test(s); import("./evil.ts"); /'/`,
+      `a: for(;;){ if (c) break a\n/'/.test(s); import("./evil.ts"); /'/ }`,
+      `a: for(;;){ if (c) continue a\n/'/.test(s); import("./evil.ts"); /'/ }`
+    ]
+    for (const source of literal) {
+      compiles(source)
+      expect(ModuleClosure.specifiersOf(source), source).toMatchObject({ relative: ["./evil.ts"], opaque: 0 })
+    }
+  })
+
+  it("reads a keyword spelled as a private or property name as a name", () => {
+    const computed = [
+      `class X { #return = 1; run(p) { return this.#return / import(p) / 1 } }`,
+      `class X { #typeof = 1; run(p) { return this.#typeof / import(p) / 1 } }`,
+      `const o = { return: 1 }; o.return / import(p) / 1`,
+      `const o = { return: 1 }; o?.return / import(p) / 1`
+    ]
+    for (const source of computed) {
+      compiles(source)
+      expect(ModuleClosure.specifiersOf(source).opaque, source).toBe(1)
+    }
+  })
+
+  it("reads Unicode and escaped identifiers whole", () => {
+    const computed = [
+      `const éreturn = 2; éreturn / import(p) / 1`,
+      `const \\u{65}return = 2; \\u{65}return / import(p) / 1`,
+      `const \\u0065return = 2; \\u0065return / import(p) / 1`,
+      `const 𝑥return = 2; 𝑥return / import(p) / 1`,
+      `const a\\u200Dreturn = 2; a\\u200Dreturn / import(p) / 1`
+    ]
+    for (const source of computed) {
+      compiles(source)
+      expect(ModuleClosure.specifiersOf(source).opaque, source).toBe(1)
+    }
+    // An escape decodes to the binding it names, so the loader stays a loader.
+    compiles(`const m = requir\\u0065(p)`)
+    expect(ModuleClosure.specifiersOf(`const m = requir\\u0065(p)`).opaque).toBe(1)
+    expect(ModuleClosure.specifiersOf(`const m = \\u{72}equire("./impl.ts")`).relative).toEqual(["./impl.ts"])
+  })
+
+  it("reads a regular expression after an if, while, for or with head", () => {
+    const literal = [
+      `if (c) /'/.test(s); import("./evil.ts"); /'/`,
+      `while (c) /'/.test(s); import("./evil.ts"); /'/`,
+      `for (;;) /'/.test(s); import("./evil.ts"); /'/`,
+      `if ((c)) /'/.test(s); import("./evil.ts"); /'/`,
+      `if (c) {}\n/'/.test(s); import("./evil.ts"); /'/`
+    ]
+    for (const source of literal) {
+      compiles(source)
+      expect(ModuleClosure.specifiersOf(source).relative, source).toEqual(["./evil.ts"])
+    }
+  })
+
+  it("reads a line after a type annotation both ways", () => {
+    // Valid TypeScript: ASI ends `let x: string`, so the next line is a
+    // regular expression. The same tokens in JavaScript divide, so the scan
+    // reads both and keeps what either finds.
+    const typed = `let x: string\n/'/.test(s); import("./evil.ts"); /'/`
+    expect(ModuleClosure.specifiersOf(typed).relative).toEqual(["./evil.ts"])
+    const both = [
+      `const o = {}\n/'/.test(s); import("./evil.ts"); /'/`,
+      `const o = f()\n/'/.test(s); import("./evil.ts"); /'/`,
+      `const o = a[0]\n/'/.test(s); import("./evil.ts"); /'/`,
+      `const o = "s"\n/'/.test(s); import("./evil.ts"); /'/`
+    ]
+    for (const source of both) {
+      expect(ModuleClosure.specifiersOf(source).relative, source).toEqual(["./evil.ts"])
+    }
+    // A load both readings find is listed once.
+    expect(ModuleClosure.specifiersOf(`import "./a.ts"\nconst o = {}\n/x/.test(s)`).relative).toEqual(["./a.ts"])
+  })
+
+  it("still divides where only a division can stand", () => {
+    const divisions = [
+      `let i = 0; i++ / 2; import(p)`,
+      `let i = 0; i-- / 2; import(p)`,
+      `const x = f(a) / 2 / import(p)`,
+      `const x = a[0] / 2 / import(p)`,
+      `const x = ({}) / 2 / import(p)`,
+      `const x = 1 / 2 / import(p)`
+    ]
+    for (const source of divisions) {
+      compiles(source)
+      expect(ModuleClosure.specifiersOf(source).opaque, source).toBe(1)
+    }
+    // `+ +/re/` is two prefix operators before a regular expression.
+    compiles(`const x = + +/'/.source; import("./evil.ts"); /'/`)
+    expect(ModuleClosure.specifiersOf(`const x = + +/'/.source; import("./evil.ts"); /'/`).relative)
+      .toEqual(["./evil.ts"])
+    // Ordinary division beside a string keeps both where they were.
+    const plain = `const half = total / 2; const s = "import(x)"; import "./a.ts"`
+    expect(ModuleClosure.specifiersOf(plain)).toMatchObject({ relative: ["./a.ts"], opaque: 0 })
+  })
+
+  it("reads what is not a name as punctuation", () => {
+    const tokens = (source: string) => tokenize(source).map(({ kind, value }) => `${kind}:${value}`)
+    expect(tokens(`#!x`)).toEqual(["punctuation:#", "punctuation:!", "identifier:x"])
+    expect(tokens(`\\u{110000}`)).toEqual([
+      "punctuation:\\",
+      "identifier:u",
+      "punctuation:{",
+      "number:110000",
+      "punctuation:}"
+    ])
+    expect(tokens(`\\uZZ`)).toEqual(["punctuation:\\", "identifier:uZZ"])
+    expect(tokens(`\\x`)).toEqual(["punctuation:\\", "identifier:x"])
+    expect(tokenize(`a\\u0062`)).toEqual([{ kind: "identifier", value: "ab", start: 0, end: 7, escaped: true }])
+    expect(tokenize(`#p`)).toEqual([{ kind: "identifier", value: "#p", start: 0, end: 2 }])
   })
 })
 

@@ -236,6 +236,38 @@ describe("Discovery", () => {
     expect(second).toEqual(first)
   })
 
+  it("pins a load after automatic semicolon insertion and refuses a computed one behind a keyword-named member (#3106)", async () => {
+    await withTemporaryRoot(async (root) => {
+      const flows: Record<string, string> = {
+        asi: `for (;;) { if (globalThis.c) break\n/'/.test(""); import("../evil.ts"); /'/ }`,
+        private: `class X { #return = 1; run(p) { return this.#return / import(p) / 1 } }`,
+        unicode: `const éreturn = 2; export const run = (p) => éreturn / import(p) / 1`
+      }
+      for (const [name, body] of Object.entries(flows)) {
+        const directory = join(root, name)
+        mkdirSync(directory)
+        writeFileSync(
+          join(directory, "flow.ts"),
+          `${body}\nexport default Flow.make("${name}", { description: "${name} flow" })`
+        )
+      }
+      writeFileSync(join(root, "evil.ts"), "export const evil = 1")
+      const scanned = await scan({ source: "shared", root, naming: "path" })
+      const imports = Object.fromEntries(
+        scanned.entries.map((entry) => [
+          entry.name,
+          entry.body._tag === "Module" ? entry.body.imports?.map(({ path }) => path) : undefined
+        ])
+      )
+
+      expect(imports).toEqual({
+        asi: ["../evil.ts"],
+        private: ["the entry computes the target of 1 import() or require() call(s)"],
+        unicode: ["the entry computes the target of 1 import() or require() call(s)"]
+      })
+    })
+  })
+
   it("keeps shared module receipts per flow and refreshes them on the next scan", async () => {
     await withTemporaryRoot(async (root) => {
       for (const name of ["one", "two"]) {

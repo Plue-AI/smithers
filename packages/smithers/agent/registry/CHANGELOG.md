@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A flow's module closure no longer misses a load hidden behind a misread `/`
+  ([#3106](https://github.com/smithersai/smithers/issues/3106)). The scan reads
+  a regular expression after `break`, `continue`, `debugger`, a label and an
+  `if`/`while`/`for`/`with` head, reads `#return` and `o.return` as names,
+  reads Unicode and `\u`-escaped identifiers whole, and reads a line-leading
+  `/` after an operand, and a `/` after `}`, both ways, pinning or refusing
+  whatever either reading finds.
+
 ### Changed
 
 - A delegating flow's declared `capabilities` are the ceiling of its delegate
