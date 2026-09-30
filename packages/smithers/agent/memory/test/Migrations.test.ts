@@ -186,7 +186,8 @@ describe("memory migrations", () => {
         yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7003`
         const applied = yield* Migrations.run
         const indexes = Dialect.isPostgres(sql) ?
-          yield* sql<NameRow>`SELECT indexname AS name FROM pg_indexes WHERE tablename = 'memory_fts_flow'` :
+          yield* sql<NameRow>`SELECT indexname AS name FROM pg_indexes
+            WHERE schemaname = current_schema() AND tablename = 'memory_fts_flow'` :
           []
         return {
           postgres: Dialect.isPostgres(sql),
