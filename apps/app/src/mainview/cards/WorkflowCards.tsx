@@ -135,6 +135,9 @@ export const WorkflowRunCardBody = ({
       {card.payload.steeringPending === true && !TERMINAL_RUN_PHASES.has(phase) ?
         <p className="smithers-card-note">steering pending · delivered at the next turn</p> :
         null}
+      {card.payload.deadlineAt !== undefined && !TERMINAL_RUN_PHASES.has(phase) ?
+        <p className="smithers-card-note" data-testid={`flow-run-deadline-${runId}`}>Deadline {clockLabel(card.payload.deadlineAt)}</p> :
+        null}
       {/* The run as a trace (spec 06): the card's body for every run kind. Its rows dispatch runs.trace.*. */}
       <RunTraceBody
         admin={admin}

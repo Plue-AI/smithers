@@ -2,6 +2,7 @@
 import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
 import * as Agents from "../src/agents.ts"
+import * as Deadline from "../src/deadline.ts"
 import {
   actions,
   type Card,
@@ -280,6 +281,21 @@ describe("flow runs", () => {
     f.watches[0]!.emit(call("control.run.running", 5))
     expect(f.runs.get("r1")?.status).toBe("running")
     expect(f.runs.get("r1")?.message).toBeUndefined()
+  })
+
+  it("shows the run's approved deadline while it is live, and drops it once it settles", async () => {
+    const f = setup()
+    f.runs.request({ id: "r1", flow: "review", input: {}, by: "user" })
+    await tick()
+    const deadlineAt = Date.now() + 60_000
+    f.watches[0]!.emit({
+      ...call("control.run.running", 1),
+      payload: { factVersion: 1, baseline: "created", run: { runId: "run-1", deadlineAt } }
+    })
+    expect(f.runs.panel("r1").rows[0]).toMatchObject({ id: "deadline", label: `Deadline ${Deadline.label(deadlineAt, Date.now())}` })
+    f.watches[0]!.done.resolve({ kind: "done", answer: "ok" })
+    await tick()
+    expect(f.runs.panel("r1").rows.some((row) => row.id === "deadline")).toBe(false)
   })
 
   describe("a run parked on a budget raise", () => {

@@ -1101,6 +1101,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       waiting: z.string().optional(),
       /** Whether an operator steer is queued for the run. */
       steeringPending: z.boolean().optional(),
+      /** When the run's approved deadline passes, in epoch milliseconds; absent without one. */
+      deadlineAt: z.number().optional(),
       /** Which secondary tab the card shows under the trace; the steps tail by default. */
       facet: z.enum(["steps", "transcript", "events"]).optional(),
       /** A remote facet read, pinned to its original card, account and gateway. */

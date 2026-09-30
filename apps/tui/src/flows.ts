@@ -11,6 +11,7 @@ import * as NodeOutput from "@smthrs/cli/NodeOutput"
 import type { ControlSchema } from "@smthrs/control"
 import * as Form from "@smthrs/ui/flow-form"
 import { Data, Schema } from "effect"
+import * as Deadline from "./deadline.ts"
 import * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
 import * as Lifecycle from "./lifecycle.ts"
@@ -728,7 +729,8 @@ export class FlowRuns {
         details: [{ kind: "code" as const, code: run.answer.slice(0, 200_000) }]
       }]
       : []
-    return { id: `flow:${id}`, title: run.flow, summary, rows: [...act, ...nodes, ...result] }
+    const deadline = Deadline.row(this.events.get(id) ?? [], !Lifecycle.settled(run.status))
+    return { id: `flow:${id}`, title: run.flow, summary, rows: [...act, ...deadline, ...nodes, ...result] }
   }
   read = (id: string) => {
     const run = this.runs.get(id)

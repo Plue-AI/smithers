@@ -17,6 +17,7 @@
   "src/context.ts",
   "src/contributions.ts",
   "src/cursor.ts",
+  "src/deadline.ts",
   "src/drag-scroll.ts",
   "src/editor.ts",
   "src/estimate.ts",
