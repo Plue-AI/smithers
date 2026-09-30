@@ -125,10 +125,10 @@ importers:
         specifier: ^11.17.2
         version: 11.17.2
       react:
-        specifier: ^19.2.8
+        specifier: 19.2.8
         version: 19.2.8
       react-dom:
-        specifier: ^19.2.8
+        specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
       semver:
         specifier: 7.8.5
