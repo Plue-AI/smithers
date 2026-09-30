@@ -13,7 +13,7 @@ import { Control } from "@smthrs/control"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Executable from "@smthrs/registry/Executable"
-import { Effect, Layer, Logger, Schema, Stream } from "effect"
+import { Effect, Layer, Logger, PlatformError, Schema, Stream } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -231,6 +231,62 @@ const planOn = async (
 }
 
 describe("planning a discovered flow on the native host", () => {
+  it.each([
+    [
+      PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "AtomicFileSystem",
+        method: "readFile",
+        description: "Install the native helper or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path"
+      }),
+      "Install the native helper or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path"
+    ],
+    [new Error("opaque host failure"), "Flow source cannot be read"],
+    [
+      PlatformError.systemError({ _tag: "PermissionDenied", module: "AtomicFileSystem", method: "readFile" }),
+      "Flow source cannot be read"
+    ]
+  ])("retains the catalog's designed body refusal before any admission", async (cause, message) => {
+    const root = await project()
+    try {
+      const registry = NodeControl.layerRegistry(root)
+      const modules = Layer.succeed(Executable.Catalog, {
+        executables: [],
+        refused: [
+          new Executable.ExecutableError({
+            code: "body_unavailable",
+            flow: "native",
+            available: [],
+            message: "Flow source cannot be read",
+            cause
+          })
+        ]
+      })
+      const planned = Effect.runPromise(
+        Effect.flatMap(Control.Control, (control) => control.plan({ flowId: "native", input: { value: "planned" } }))
+          .pipe(
+            Effect.provide(
+              NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, undefined, modules)
+            ),
+            Effect.scoped
+          )
+      )
+      await expect(planned).rejects.toMatchObject({
+        _tag: "/control/InvalidInput",
+        issue: `Cannot load flow native: ${message}`
+      })
+      const database = new DatabaseSync(NodeControl.databasePath(root), { readOnly: true })
+      try {
+        expect(database.prepare("SELECT COUNT(*) AS count FROM control_plans").get()).toEqual({ count: 0 })
+        expect(database.prepare("SELECT COUNT(*) AS count FROM flows_runs").get()).toEqual({ count: 0 })
+      } finally {
+        database.close()
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it("answers with the delegate's own keyed nodes and their edges", async () => {
     const root = await project()
     try {

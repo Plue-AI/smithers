@@ -71,7 +71,19 @@ import * as RunCatalog from "@smthrs/sync/RunCatalog"
 import * as SyncAuth from "@smthrs/sync/SyncAuth"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import * as WorkspaceShare from "@smthrs/sync/WorkspaceShare"
-import { Cause, Clock, Context, Effect, Fiber, FileSystem, Layer, Option, SchemaIssue, Scope } from "effect"
+import {
+  Cause,
+  Clock,
+  Context,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  PlatformError,
+  SchemaIssue,
+  Scope
+} from "effect"
 import type { Crypto, Path } from "effect"
 import * as Deferred from "effect/Deferred"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
@@ -737,6 +749,10 @@ export const make = (
     // that has since built its catalog offers the hook, and one that never
     // builds a catalog keeps planning exactly as it did, with no nodes.
     const executable = host.catalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
+    const refusal = host.catalog?.refused.find((entry) => entry.flow === descriptor.name)
+    const refusedMessage = (refusal?.cause instanceof PlatformError.PlatformError
+      ? refusal.cause.reason.description ?? refusal.message
+      : refusal?.message) ?? "No registered executable on this host"
     return {
       flowId: descriptor.name,
       description: descriptor.description,
@@ -750,16 +766,29 @@ export const make = (
       ...(executable?.input === undefined ? {} : {
         // The module adapter constructs this same typed payload with .make
         // at dispatch. Validate that contract before recording an approval.
-        decode: (input: unknown) => Effect.try({
-          try: () => executable.input!.make(input),
-          catch: (cause) => new ControlError.InvalidInput({
-            issue: cause instanceof Error && SchemaIssue.isIssue(cause.cause)
-              ? SchemaIssue.makeFormatterDefault()(cause.cause).split("\n").slice(0, 4).join("\n").slice(0, 800)
-              : Failure.operatorSentence(cause)
+        decode: (input: unknown) =>
+          Effect.try({
+            try: () => executable.input!.make(input),
+            catch: (cause) =>
+              new ControlError.InvalidInput({
+                issue: cause instanceof Error && SchemaIssue.isIssue(cause.cause)
+                  ? SchemaIssue.makeFormatterDefault()(cause.cause).split("\n").slice(0, 4).join("\n").slice(0, 800)
+                  : Failure.operatorSentence(cause)
+              })
           })
-        })
       }),
-      ...(executable === undefined ? {} : { plan: planExecutable(executable, root, host) })
+      ...(executable === undefined
+        ? descriptor.body._tag === "Module" && host.catalog !== undefined
+          ? {
+            plan: () =>
+              Effect.fail(
+                new ControlError.InvalidInput({
+                  issue: `Cannot load flow ${descriptor.name.slice(0, 256)}: ${refusedMessage.slice(0, 800)}`
+                })
+              )
+          }
+          : {}
+        : { plan: planExecutable(executable, root, host) })
     }
   }
 
