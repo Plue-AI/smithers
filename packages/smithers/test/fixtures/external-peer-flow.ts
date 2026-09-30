@@ -111,18 +111,20 @@ export default Flow.make("external-peer", {
   error: Schema.Unknown,
   // EXTERNAL_PEER_ROOT=running keeps the root executing instead of parking (#3073);
   // EXTERNAL_PEER_ROOT=detached completes it while the worker runs on (#3072).
-  body: process.env.EXTERNAL_PEER_ROOT === "running"
-    ? Node.capture(
-      { start: Start.name, hold: Hold.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
-      ({ root }) => Node.andThen(Start.call({ root }), Node.andThen(Hold.call({ root }), Wait.call({})))
-    )
-    : process.env.EXTERNAL_PEER_ROOT === "detached"
-    ? Node.capture(
-      { start: Start.name, done: Done.name, implementationVersion: "external-peer/v1" },
-      ({ root }) => Node.andThen(Start.call({ root }), Done.call({ root }))
-    )
-    : Node.capture(
-      { start: Start.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
-      ({ root }) => Node.andThen(Start.call({ root }), Wait.call({}))
-    )
+  body: Node.capture(
+    { start: Start.name, hold: Hold.name, wait: Wait.name, done: Done.name, implementationVersion: "external-peer/v1" },
+    ({ root }) => {
+      const shape = process.env.EXTERNAL_PEER_ROOT
+      const rest: Node.Node<
+        number,
+        unknown,
+        Action.Requirement<"external-peer/Hold" | "external-peer/Wait" | "external-peer/Done">
+      > = shape === "running"
+        ? Node.andThen(Hold.call({ root }), Wait.call({}))
+        : shape === "detached"
+        ? Done.call({ root })
+        : Wait.call({})
+      return Node.andThen(Start.call({ root }), rest)
+    }
+  )
 })
