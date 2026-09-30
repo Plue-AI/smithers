@@ -1058,6 +1058,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			s.logger.Warn("mythical.backfill_failed", "repository_id", r.row.RepositoryID, "error", err)
 		}
 	}
+	s.completePending(ctx, r, q, s.now())
 	items, err := q.ListMythicalItems(ctx, r.row.RepositoryID, 1000)
 	if err != nil {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
@@ -1112,9 +1113,6 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			return
 		}
 		item = s.deliverNotice(ctx, r, item)
-		if item.State == "landed" && !(item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now)) {
-			item = s.complete(ctx, r, item, step.now)
-		}
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
 			// A finished item's lane is retired even if an earlier release failed.
 			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
@@ -2114,14 +2112,14 @@ func mythicalBranch(item db.MythicalItem) string {
 func (st *mythicalItemStep) proposal(item db.MythicalItem) (string, string) {
 	summary := strings.TrimSpace(item.Summary)
 	title, rest, _ := strings.Cut(summary, "\n")
-	title = strings.TrimSpace(title)
+	title = mythicalNoClosingKeywords(strings.TrimSpace(title))
 	if title == "" {
 		title = item.IssueTitle
 	}
 	if len(title) > 250 {
 		title = title[:250]
 	}
-	body := strings.TrimSpace(rest)
+	body := mythicalNoClosingKeywords(strings.TrimSpace(rest))
 	if item.IssueNumber.Valid {
 		if body != "" {
 			body += "\n\n"
@@ -2132,6 +2130,17 @@ func (st *mythicalItemStep) proposal(item db.MythicalItem) (string, string) {
 	}
 	body += "\n\nOne commit carrying this item's verified change from the repository's mythical stack."
 	return title, strings.TrimSpace(body)
+}
+
+// mythicalClosingKeyword is a GitHub closing keyword before an issue
+// reference, as a pull request body or a commit message on the default
+// branch would close it.
+var mythicalClosingKeyword = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b(\s*:?\s*)((?:[\w.-]+/[\w.-]+)?#\d+|https?://\S+/issues/\d+)`)
+
+// mythicalNoClosingKeywords rewrites every closing reference in text an
+// agent wrote to a plain one, so nothing but complete closes the issue.
+func mythicalNoClosingKeywords(text string) string {
+	return mythicalClosingKeyword.ReplaceAllString(text, "Refs $2")
 }
 
 // follow reads the item's pull request: merged lands it (the fold adopts its
@@ -2169,8 +2178,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	}
 	switch {
 	case pull.Merged:
-		next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", pull.MergeCommit, "landed", ""
-		next.NextAttemptAt = pgtype.Timestamptz{}
+		next = mythicalLanded(next, pull.MergeCommit, st.now)
 	case pull.State == "closed":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "the pull request was closed without merging"
 	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && item.CandidateBase != r.row.TipCommit:
@@ -2498,8 +2506,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge", &mythicalFault{Class: "infra", Tag: "merge", Kind: mythicalFailLanding}, st.now)
 	}
 	next := item
-	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""
-	next.NextAttemptAt = pgtype.Timestamptz{}
+	next = mythicalLanded(next, commit, st.now)
 	return &next
 }
 
@@ -3075,6 +3082,38 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 	return saved
 }
 
+// mythicalLanded lands item at its merge commit and records that its issue
+// is owed the completion evidence (complete), from now.
+func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.MythicalItem {
+	item.PRState, item.PRMergeCommit, item.State, item.Reason = "merged", commit, "landed", ""
+	item.NextAttemptAt = pgtype.Timestamptz{}
+	checks := mythicalChecksOf(item)
+	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
+	item.Checks = checks.encode()
+	return item
+}
+
+// completePending writes the evidence every landed item still owes its
+// issue. They are read apart from the capped listing, so a long history of
+// settled items never hides one.
+func (s *MythicalService) completePending(ctx context.Context, r *mythicalRun, q *db.Queries, now time.Time) {
+	pending, err := q.ListMythicalPendingCompletions(ctx, r.row.RepositoryID)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.Warn("mythical.completions_failed", "repository_id", r.row.RepositoryID, "error", err)
+		}
+		return
+	}
+	for _, item := range pending {
+		if ctx.Err() != nil {
+			return
+		}
+		if !(item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now)) {
+			s.complete(ctx, r, item, now)
+		}
+	}
+}
+
 // mythicalCompletionKeyPrefix keys a landed item's completion notice by its
 // merge commit.
 const mythicalCompletionKeyPrefix = "landed:"
@@ -3097,11 +3136,13 @@ func mythicalNoticeCommentKey(key string) string {
 // Each step that fails is tried again on a later pass.
 func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.MythicalItem, now time.Time) db.MythicalItem {
 	checks := mythicalChecksOf(item)
+	// Only an item the stack itself saw land owes its issue the evidence
+	// (mythicalLanded); one that landed before is left as it is.
 	if s.github == nil || !item.IssueNumber.Valid || item.PRMergeCommit == "" || !r.row.ActorUserID.Valid ||
-		checks.Completion != nil && checks.Completion.Commit == item.PRMergeCommit && checks.Completion.Outcome != "" {
+		checks.Completion == nil || checks.Completion.Outcome != "" {
 		return item
 	}
-	if checks.Completion == nil || checks.Completion.Commit != item.PRMergeCommit {
+	if checks.Completion.Commit != item.PRMergeCommit {
 		checks.Completion = &mythicalCompletion{Commit: item.PRMergeCommit, Since: now}
 	}
 	next := item

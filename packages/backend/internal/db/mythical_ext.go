@@ -327,6 +327,16 @@ func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID in
 	return scanMythicalItems(rows, err)
 }
 
+// ListMythicalPendingCompletions lists the landed items whose issue is
+// still owed its completion evidence: one the stack saw land (a completion
+// recorded) and not yet settled (closed, or never on main).
+func (q *Queries) ListMythicalPendingCompletions(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1 AND state = 'landed'
+		AND checks ? 'completion' AND COALESCE(checks->'completion'->>'outcome', '') = ''
+		ORDER BY issue_number NULLS LAST, created_at`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
 func scanMythicalItems(rows pgx.Rows, err error) ([]MythicalItem, error) {
 	if err != nil {
 		return nil, err

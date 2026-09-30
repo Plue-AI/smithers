@@ -441,16 +441,25 @@ func mythicalCommentMarker(key string) string {
 	return "<!-- smithers:" + strings.ReplaceAll(key, "--", "-") + " -->"
 }
 
-// findComment answers the id of the issue comment carrying marker, 0 when
-// none does; a thread too long to read whole is refused.
+// mythicalCommentPages bounds how many pages of an issue's comments a keyed
+// comment reads for its earlier say.
+const mythicalCommentPages = 10
+
+// findComment answers the id of the comment an App posted carrying marker, 0
+// when none does. A person's comment quoting the marker is never taken for
+// the stack's, and past mythicalCommentPages pages the thread is taken to
+// hold none, so a very long thread gets a new comment rather than none.
 func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRepo, number int64, marker string) (int64, error) {
-	for page := 1; ; page++ {
-		if page > 10 {
-			return 0, errors.New("the issue's comments are too many to read whole")
-		}
+	for page := 1; page <= mythicalCommentPages; page++ {
 		var comments []struct {
 			ID   int64  `json:"id"`
 			Body string `json:"body"`
+			User struct {
+				Type string `json:"type"`
+			} `json:"user"`
+			App *struct {
+				ID int64 `json:"id"`
+			} `json:"performed_via_github_app"`
 		}
 		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments?per_page=100&page=" + strconv.Itoa(page)
 		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &comments)
@@ -461,7 +470,7 @@ func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRe
 			return 0, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue comments")
 		}
 		for _, comment := range comments {
-			if strings.Contains(comment.Body, marker) {
+			if comment.App != nil && comment.User.Type == "Bot" && strings.Contains(comment.Body, marker) {
 				return comment.ID, nil
 			}
 		}
@@ -469,6 +478,7 @@ func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRe
 			return 0, nil
 		}
 	}
+	return 0, nil
 }
 
 func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, key, body string) error {

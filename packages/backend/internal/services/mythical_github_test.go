@@ -321,8 +321,9 @@ func TestMythicalGitHubCommentSaysEachKeyOnce(t *testing.T) {
 	}
 	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 		"GET /repos/o/r/issues/5/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
-			{"id": 41, "body": "a person's comment"},
-			{"id": 42, "body": "Landed on main: old\n\n<!-- smithers:landed:abc -->"},
+			{"id": 40, "body": "quoting <!-- smithers:landed:abc -->", "user": map[string]any{"type": "User"}},
+			{"id": 41, "body": "another App <!-- smithers:landed:abc -->", "user": map[string]any{"type": "User"}, "performed_via_github_app": map[string]any{"id": 9}},
+			{"id": 42, "body": "Landed on main: old\n\n<!-- smithers:landed:abc -->", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 7}},
 		}),
 		"PATCH /repos/o/r/issues/comments/42":                  answer(http.StatusOK, map[string]any{}),
 		"GET /repos/o/r/issues/6/comments?per_page=100&page=1": answer(http.StatusOK, page2),
@@ -331,11 +332,16 @@ func TestMythicalGitHubCommentSaysEachKeyOnce(t *testing.T) {
 		}),
 		"POST /repos/o/r/issues/6/comments":                    answer(http.StatusCreated, map[string]any{}),
 		"GET /repos/o/r/issues/7/comments?per_page=100&page=1": answer(http.StatusBadGateway, map[string]any{}),
+		"POST /repos/o/r/issues/8/comments":                    answer(http.StatusCreated, map[string]any{}),
 	}}
+	for page := 1; page <= mythicalCommentPages+1; page++ {
+		github.routes["GET /repos/o/r/issues/8/comments?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, page2)
+	}
 	api := github.api(t)
 	ctx := context.Background()
-	// A comment carrying the key is edited, never repeated, however the
-	// earlier post was lost from the stack's record.
+	// The App's comment carrying the key is edited, never repeated, however
+	// the earlier post was lost from the stack's record; a person's or
+	// another account's comment quoting the marker is not it.
 	require.NoError(t, api.Comment(ctx, stackRepo, 5, "landed:abc", "Landed on main: new"))
 	assert.Equal(t, []string{
 		"GET /repos/o/r/issues/5/comments?per_page=100&page=1 read-token ",
@@ -350,6 +356,12 @@ func TestMythicalGitHubCommentSaysEachKeyOnce(t *testing.T) {
 	github.calls = nil
 	require.Error(t, api.Comment(ctx, stackRepo, 7, "landed:abc", "x"))
 	assert.Len(t, github.calls, 1, "no write after an unread thread")
+	// A thread longer than the bound is taken to hold no earlier say: a new
+	// comment, never a completion stuck retrying forever.
+	github.calls = nil
+	require.NoError(t, api.Comment(ctx, stackRepo, 8, "landed:abc", "Landed on main: new"))
+	assert.Len(t, github.calls, mythicalCommentPages+1, "reads the bounded pages, then posts")
+	assert.True(t, strings.HasPrefix(github.calls[mythicalCommentPages], "POST /repos/o/r/issues/8/comments "))
 	assert.Equal(t, "<!-- smithers:a-b -->", mythicalCommentMarker("a--b"), "a key never ends the marker early")
 }
 

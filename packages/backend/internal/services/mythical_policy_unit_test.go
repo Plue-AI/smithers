@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -182,4 +183,36 @@ func TestMythicalOnlyTheCompletionNoticeIsKeyed(t *testing.T) {
 	for _, key := range []string{"", "hold:review:abc", "stop:3", "landed"} {
 		require.Empty(t, mythicalNoticeCommentKey(key), "%q posts anew", key)
 	}
+}
+
+func TestMythicalProposalNeutralizesAgentClosingKeywords(t *testing.T) {
+	t.Parallel()
+	st := &mythicalItemStep{}
+	item := db.MythicalItem{IssueNumber: pgtype.Int8{Int64: 7, Valid: true}, IssueTitle: "Add docs",
+		Summary: "📝 docs: fixes #7 docs\n\nCloses #7. Resolves: o/r#8, fixed https://github.com/o/r/issues/9 and closes  #10.\nA fix for #11 stays; prefixes #12 stays."}
+	title, body := st.proposal(item)
+	require.Equal(t, "📝 docs: Refs #7 docs", title)
+	require.Equal(t, "Refs #7. Refs o/r#8, Refs https://github.com/o/r/issues/9 and Refs #10.\nA fix for #11 stays; prefixes #12 stays.\n\nRefs #7\n\n"+
+		"One commit carrying this item's verified change from the repository's mythical stack.", body)
+	require.NotRegexp(t, mythicalClosingKeyword, title+"\n"+body)
+}
+
+func TestMythicalLandedOwesItsIssueTheEvidence(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	item := db.MythicalItem{State: "proposed", Reason: "waiting", NextAttemptAt: pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true},
+		Checks: mythicalChecks{Route: "change"}.encode()}
+	landed := mythicalLanded(item, "fedcba", now)
+	require.Equal(t, "landed", landed.State)
+	require.Equal(t, "merged", landed.PRState)
+	require.Equal(t, "fedcba", landed.PRMergeCommit)
+	require.Empty(t, landed.Reason)
+	require.False(t, landed.NextAttemptAt.Valid, "the evidence is due at once")
+	checks := mythicalChecksOf(landed)
+	require.Equal(t, &mythicalCompletion{Commit: "fedcba", Since: now}, checks.Completion)
+	require.Equal(t, "change", checks.Route, "the rest of the bookkeeping is kept")
+	// An item that landed before the stack owed evidence settles untouched.
+	s := &MythicalService{github: &fakeMythicalGitHub{}}
+	historic := db.MythicalItem{State: "landed", PRMergeCommit: "abc", IssueNumber: pgtype.Int8{Int64: 7, Valid: true}}
+	require.Equal(t, historic, s.complete(context.Background(), &mythicalRun{row: db.MythicalStack{ActorUserID: pgtype.Int8{Int64: 1, Valid: true}}}, historic, now))
 }
