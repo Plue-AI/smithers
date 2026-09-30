@@ -209,7 +209,8 @@ func TestAgentSessionStream_ReplayCallsListMessagesAfterID(t *testing.T) {
 			capturedSessionID = sessionID
 			capturedAfterID = afterID
 			capturedLimit = limit
-			return []services.AgentMessageResponse{
+			rows := []services.AgentMessageResponse{
+				{ID: 100, SessionID: "abc-123", Role: "user", Sequence: 4},
 				{
 					ID:        101,
 					SessionID: "abc-123",
@@ -226,7 +227,14 @@ func TestAgentSessionStream_ReplayCallsListMessagesAfterID(t *testing.T) {
 					Parts:     []services.AgentPartResponse{{PartIndex: 0, Type: "text", Content: map[string]any{"text": "world"}}},
 					CreatedAt: time.Date(2026, 3, 15, 0, 0, 1, 0, time.UTC),
 				},
-			}, nil
+			}
+			var page []services.AgentMessageResponse
+			for _, row := range rows {
+				if row.ID > afterID && len(page) < limit {
+					page = append(page, row)
+				}
+			}
+			return page, nil
 		},
 	}
 

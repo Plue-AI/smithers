@@ -202,12 +202,22 @@ func (h *WikiCollaborationHandler) Stream(w http.ResponseWriter, r *http.Request
 	if refuseRevoked() {
 		return
 	}
-	_, err = h.Service.ListWikiUpdates(r.Context(), actor, owner, repo, slug, page, after)
+	// The same read authorizes the caller and proves the resume cursor: its
+	// revision must still exist, or events after it may have been lost.
+	probe := after
+	if probe > 0 {
+		probe--
+	}
+	known, err := h.Service.ListWikiUpdates(r.Context(), actor, owner, repo, slug, page, probe)
 	if refuseRevoked() {
 		return
 	}
 	if err != nil {
 		writeRouteError(w, r, err)
+		return
+	}
+	if after > 0 && (len(known) == 0 || known[0].Revision != after) {
+		writeRouteError(w, r, pkgerrors.UnknownCursor("wiki revision cursor is not a revision of this page"))
 		return
 	}
 	if repository == nil || h.Broker == nil {

@@ -3,6 +3,7 @@ package sse
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -16,6 +17,10 @@ import (
 // defaultKeepAlive is the keep-alive interval used when a config leaves
 // KeepAlive unset or non-positive.
 const defaultKeepAlive = 15 * time.Second
+
+// defaultRepairInterval is how often a Repair callback runs, matching the
+// durable streams' poll.
+const defaultRepairInterval = 5 * time.Second
 
 // keepAliveInterval returns d, or defaultKeepAlive when d is not positive.
 // time.NewTicker panics on a non-positive duration after the stream is
@@ -56,6 +61,12 @@ type BrokerStreamConfig struct {
 
 	// OnConnect is called after SSE headers are sent, before the event loop.
 	OnConnect func(w http.ResponseWriter, r *http.Request, flusher http.Flusher)
+
+	// Repair runs every RepairInterval on a stream without Durable, so a lost
+	// NOTIFY cannot leave the state it reports stale for the life of the
+	// connection. It must write only what changed since it last wrote.
+	Repair         func(w http.ResponseWriter, r *http.Request, flusher http.Flusher)
+	RepairInterval time.Duration
 
 	// FormatEventID extracts an SSE event ID from the raw NOTIFY payload.
 	FormatEventID func(payload string) string
@@ -177,6 +188,11 @@ func ServeBrokerSSE(w http.ResponseWriter, r *http.Request, cfg BrokerStreamConf
 			if refuseRevoked() {
 				return
 			}
+			var refusal *pkgerrors.APIError
+			if pkgerrors.IsUnknownCursor(err) && stderrors.As(err, &refusal) {
+				pkgerrors.WriteError(w, refusal)
+				return
+			}
 			writeSSEError(w, pkgerrors.CodeSSEUnavailable, "failed to initialize durable SSE stream")
 			return
 		}
@@ -206,8 +222,20 @@ func ServeBrokerSSE(w http.ResponseWriter, r *http.Request, cfg BrokerStreamConf
 	}
 	ticker := time.NewTicker(keepAlive)
 	defer ticker.Stop()
+	var repair <-chan time.Time
+	if cfg.Repair != nil {
+		interval := cfg.RepairInterval
+		if interval <= 0 {
+			interval = defaultRepairInterval
+		}
+		repairTicker := time.NewTicker(interval)
+		defer repairTicker.Stop()
+		repair = repairTicker.C
+	}
 	for {
 		select {
+		case <-repair:
+			cfg.Repair(w, r, flusher)
 		case ev := <-revoked:
 			// The authorization behind this stream is gone: tell the client
 			// why and end the stream. The client must not reconnect with the

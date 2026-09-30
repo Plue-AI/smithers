@@ -34,3 +34,18 @@ owner, as another account and anonymously through the composed backend.
 
 Byte relays are not streams of their own: the workspace desktop relay, workspace
 previews and the model provider proxy forward the upstream connection.
+
+## Resume, lost wakeups and revoked access
+
+`TestLiveStreamResiliencePostgres` drives every stream above that replays past
+events (and the run status and import snapshots) through three failures:
+
+- A `Last-Event-ID` the stream did not issue, or whose record was pruned, is
+  refused with `409` and `details: {"reason":"cursor_unknown","resync":true}`
+  before the stream starts. The client drops its position and reloads; a
+  stream never resumes past events it cannot prove were delivered.
+- A row committed without a wakeup still arrives: durable streams re-read
+  the database every 5 seconds, the run status stream re-reads the run, and
+  the import stream polls. A reconnect catches up from its cursor.
+- Deleting the credential a stream is open under ends it with a `revoked`
+  event, and the credential cannot reopen it.

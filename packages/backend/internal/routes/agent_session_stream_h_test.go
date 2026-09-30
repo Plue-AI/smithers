@@ -26,9 +26,15 @@ func (s *agentSessionStreamCovService) GetSessionForRepo(context.Context, string
 	return nil
 }
 
-func (s *agentSessionStreamCovService) ListMessagesAfterID(context.Context, string, int64, int) ([]services.AgentMessageResponse, error) {
+func (s *agentSessionStreamCovService) ListMessagesAfterID(_ context.Context, _ string, after int64, limit int) ([]services.AgentMessageResponse, error) {
 	s.called = true
-	return s.messages, nil
+	var page []services.AgentMessageResponse
+	for _, message := range s.messages {
+		if message.ID > after && len(page) < limit {
+			page = append(page, message)
+		}
+	}
+	return page, nil
 }
 
 func (s *agentSessionStreamCovService) GetAgentMessageStreamHead(context.Context, string) (int64, error) {
@@ -46,7 +52,7 @@ func TestAgentSessionStream_H_StreamConfigAndReplayBranches(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}
 
-	svc := &agentSessionStreamCovService{messages: []services.AgentMessageResponse{{
+	svc := &agentSessionStreamCovService{messages: []services.AgentMessageResponse{{ID: 21, SessionID: testAgentSessionID, Role: "user", Sequence: 1}, {
 		ID:        22,
 		SessionID: testAgentSessionID,
 		Role:      "assistant",

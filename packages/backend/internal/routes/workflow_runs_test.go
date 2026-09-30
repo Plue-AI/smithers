@@ -303,8 +303,9 @@ func TestWorkflowRunLogsStream_ReplaysMissedLogsOnReconnect(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.NotEmpty(t, store.afterIDs)
-	assert.Equal(t, int64(10), store.afterIDs[0], "replay must resume strictly after Last-Event-ID")
+	require.GreaterOrEqual(t, len(store.afterIDs), 2)
+	assert.Equal(t, int64(9), store.afterIDs[0], "the resume cursor must name a retained log line")
+	assert.Equal(t, int64(10), store.afterIDs[1], "replay must resume strictly after Last-Event-ID")
 }
 
 // ---- Helper Functions ----

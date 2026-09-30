@@ -36,8 +36,14 @@ func TestWorkflowRuns_H_StreamConfigBranches(t *testing.T) {
 			listWorkflowStepsFn: func(context.Context, int64) ([]db.WorkflowStep, error) {
 				return []db.WorkflowStep{{ID: 1}, {ID: 2}}, nil
 			},
-			listWorkflowLogsSinceFn: func(context.Context, int64, int64, int32) ([]db.WorkflowLog, error) {
-				return []db.WorkflowLog{{ID: 6, WorkflowStepID: 1, Sequence: 1, Entry: "replayed"}}, nil
+			listWorkflowLogsSinceFn: func(_ context.Context, _ int64, after int64, _ int32) ([]db.WorkflowLog, error) {
+				var page []db.WorkflowLog
+				for _, row := range []db.WorkflowLog{{ID: 5, WorkflowStepID: 1, Sequence: 1, Entry: "seen"}, {ID: 6, WorkflowStepID: 1, Sequence: 2, Entry: "replayed"}} {
+					if row.ID > after {
+						page = append(page, row)
+					}
+				}
+				return page, nil
 			},
 		},
 		Broker:  &sse.Broker{},

@@ -60,7 +60,7 @@ func (s *IssueEventService) ListIssueStateFacts(ctx context.Context, viewer *db.
 	journal, err := q.GetIssueStateJournal(ctx, repo.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if after > 0 {
-			return IssueStateFactPage{}, pkgerrors.Conflict("issue cursor is ahead of journal")
+			return IssueStateFactPage{}, pkgerrors.UnknownCursor("issue cursor is ahead of journal")
 		}
 		return page, nil
 	}
@@ -68,7 +68,7 @@ func (s *IssueEventService) ListIssueStateFacts(ctx context.Context, viewer *db.
 		return IssueStateFactPage{}, pkgerrors.Internal("read issue journal").WithCause(err)
 	}
 	if after > journal.Head {
-		return IssueStateFactPage{}, pkgerrors.Conflict("issue cursor is ahead of journal")
+		return IssueStateFactPage{}, pkgerrors.UnknownCursor("issue cursor is ahead of journal")
 	}
 	page.Head = journal.Head
 	page.Coverage = NotificationFactCoverage{Kind: journal.CoverageKind, StartedAt: &journal.CoverageStartedAt}

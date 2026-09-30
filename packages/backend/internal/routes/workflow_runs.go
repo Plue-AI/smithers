@@ -123,7 +123,7 @@ func (h *WorkflowRunHandler) WorkflowRunLogsStream(w http.ResponseWriter, r *htt
 // logs when the client reconnects with a Last-Event-ID header.
 func (h *WorkflowRunHandler) replayWorkflowLogs(runID int64) func(http.ResponseWriter, *http.Request, http.Flusher) {
 	stream := h.durableWorkflowLogs(runID)
-	stream.Head = nil
+	stream.Head, stream.Validate = nil, nil
 	return stream.OnConnect
 }
 
@@ -225,34 +225,49 @@ func (h *WorkflowRunHandler) WorkflowRunStatusStream(w http.ResponseWriter, r *h
 
 	channels := []string{fmt.Sprintf("workflow_run_events_%d", runID)}
 
+	// Both callbacks run on the stream's own goroutine, never concurrently.
+	lastStatus, written := "", false
+	snapshot := func(w http.ResponseWriter, r *http.Request, flusher http.Flusher, onlyChanged bool) {
+		current, fetchErr := h.Service.GetWorkflowRun(r.Context(), repo.ID, runID)
+		if fetchErr != nil {
+			if onlyChanged {
+				return
+			}
+			current = run
+		}
+		if onlyChanged && written && current.Status == lastStatus {
+			return
+		}
+		payload, marshalErr := json.Marshal(map[string]any{
+			"run_id": current.ID,
+			"status": current.Status,
+			"source": "snapshot",
+		})
+		if marshalErr != nil {
+			return
+		}
+		lastStatus, written = current.Status, true
+		_, _ = fmt.Fprint(w, sse.FormatEvent(sse.Event{
+			ID:   strconv.FormatInt(run.ID, 10),
+			Type: "status",
+			Data: string(payload),
+		}))
+		flusher.Flush()
+	}
 	cfg := sse.BrokerStreamConfig{
 		Broker:    h.Broker,
 		Channels:  channels,
 		UserID:    user.ID,
 		EventType: "status",
+		// Re-read after the broker subscription is live: a terminal
+		// transition that fired before subscribe is caught here, and any
+		// transition after subscribe arrives as its own event. The repair
+		// read catches a transition whose wakeup was lost.
 		OnConnect: func(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
-			// Re-read after the broker subscription is live: a terminal
-			// transition that fired before subscribe is caught here, and any
-			// transition after subscribe arrives as its own event — no status
-			// falls through the gap.
-			current, fetchErr := h.Service.GetWorkflowRun(r.Context(), repo.ID, runID)
-			if fetchErr != nil {
-				current = run
-			}
-			payload, marshalErr := json.Marshal(map[string]any{
-				"run_id": current.ID,
-				"status": current.Status,
-				"source": "snapshot",
-			})
-			if marshalErr != nil {
-				return
-			}
-			_, _ = fmt.Fprint(w, sse.FormatEvent(sse.Event{
-				ID:   strconv.FormatInt(run.ID, 10),
-				Type: "status",
-				Data: string(payload),
-			}))
-			flusher.Flush()
+			snapshot(w, r, flusher, false)
+		},
+		Repair: func(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
+			snapshot(w, r, flusher, true)
 		},
 	}
 

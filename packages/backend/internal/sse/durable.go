@@ -31,6 +31,10 @@ type DurablePage struct {
 type DurableStream struct {
 	Head func(context.Context) (int64, error)
 	Load func(context.Context, int64, int) (DurablePage, error)
+	// Validate, when set, runs once for a positive Last-Event-ID before the
+	// response starts. It returns pkgerrors.UnknownCursor when the cursor is
+	// not one this stream issued, so a resume never silently skips events.
+	Validate func(context.Context, int64) error
 	// Ephemeral preserves explicitly non-durable control events without IDs.
 	Ephemeral    func(Event) (Event, bool)
 	PollInterval time.Duration
@@ -54,6 +58,13 @@ func (s *DurableStream) OnConnect(w http.ResponseWriter, r *http.Request, f http
 func (s *DurableStream) initialize(r *http.Request) error {
 	if !s.initialized {
 		cursor, err := strconv.ParseInt(strings.TrimSpace(r.Header.Get("Last-Event-ID")), 10, 64)
+		if err == nil && cursor > 0 && s.Validate != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			if err := s.Validate(ctx, cursor); err != nil {
+				return err
+			}
+		}
 		if err != nil || cursor <= 0 {
 			// A nil Head supports one-shot replay callbacks with no fresh subscription.
 			if s.Head == nil {

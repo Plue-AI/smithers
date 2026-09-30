@@ -112,6 +112,10 @@ func (h *IssueEventHandler) IssueStateFactsStream(w http.ResponseWriter, r *http
 			}
 			return 0, nil
 		},
+		Validate: func(ctx context.Context, cursor int64) error {
+			_, err := service.ListIssueStateFacts(ctx, user, owner, name, repo.ID, cursor, 1)
+			return err
+		},
 		Load: func(ctx context.Context, cursor int64, limit int) (sse.DurablePage, error) {
 			page, err := service.ListIssueStateFacts(ctx, user, owner, name, repo.ID, cursor, limit)
 			if err != nil {

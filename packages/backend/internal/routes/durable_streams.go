@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
 )
@@ -12,6 +13,16 @@ import (
 func (h *AgentSessionStreamHandler) durableAgentMessages(sessionID string) *sse.DurableStream {
 	return &sse.DurableStream{
 		Head: func(ctx context.Context) (int64, error) { return h.Service.GetAgentMessageStreamHead(ctx, sessionID) },
+		Validate: func(ctx context.Context, cursor int64) error {
+			rows, err := h.Service.ListMessagesAfterID(ctx, sessionID, cursor-1, 1)
+			if err != nil {
+				return err
+			}
+			if len(rows) == 0 || rows[0].ID != cursor {
+				return pkgerrors.UnknownCursor("agent session cursor is not a message of this session")
+			}
+			return nil
+		},
 		Load: func(ctx context.Context, after int64, limit int) (sse.DurablePage, error) {
 			rows, err := h.Service.ListMessagesAfterID(ctx, sessionID, after, limit)
 			if err != nil {
@@ -43,6 +54,16 @@ func (h *AgentSessionStreamHandler) durableAgentMessages(sessionID string) *sse.
 func (h *WorkflowRunHandler) durableWorkflowLogs(runID int64) *sse.DurableStream {
 	return &sse.DurableStream{
 		Head: func(ctx context.Context) (int64, error) { return h.Service.GetWorkflowLogStreamHead(ctx, runID) },
+		Validate: func(ctx context.Context, cursor int64) error {
+			rows, err := h.Service.ListWorkflowLogsSince(ctx, runID, cursor-1, 1)
+			if err != nil {
+				return err
+			}
+			if len(rows) == 0 || rows[0].ID != cursor {
+				return pkgerrors.UnknownCursor("run log cursor is not a retained log line of this run")
+			}
+			return nil
+		},
 		Load: func(ctx context.Context, after int64, limit int) (sse.DurablePage, error) {
 			rows, err := h.Service.ListWorkflowLogsSince(ctx, runID, after, int32(limit))
 			if err != nil {

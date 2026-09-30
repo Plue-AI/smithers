@@ -77,6 +77,10 @@ func (h *NotificationHandler) NotificationFactsStream(w http.ResponseWriter, r *
 	req.Header.Set("Last-Event-ID", strconv.FormatInt(after, 10))
 	stream := &sse.DurableStream{
 		Head: func(context.Context) (int64, error) { return 0, nil },
+		Validate: func(ctx context.Context, cursor int64) error {
+			_, err := h.Service.ListNotificationFacts(ctx, user.ID, cursor, 1)
+			return err
+		},
 		Load: func(ctx context.Context, cursor int64, limit int) (sse.DurablePage, error) {
 			page, err := h.Service.ListNotificationFacts(ctx, user.ID, cursor, limit)
 			if err != nil {

@@ -75,7 +75,7 @@ func (s *NotificationService) ListNotificationFacts(ctx context.Context, userID,
 	journal, err := q.GetNotificationJournal(ctx, userID)
 	if err == pgx.ErrNoRows {
 		if after > 0 {
-			return NotificationFactPage{}, pkgerrors.Conflict("notification cursor is ahead of journal")
+			return NotificationFactPage{}, pkgerrors.UnknownCursor("notification cursor is ahead of journal")
 		}
 		return page, nil
 	}
@@ -85,7 +85,7 @@ func (s *NotificationService) ListNotificationFacts(ctx context.Context, userID,
 	page.Head = journal.Head
 	page.Coverage = NotificationFactCoverage{Kind: journal.CoverageKind, StartedAt: &journal.CoverageStartedAt}
 	if after > journal.Head {
-		return NotificationFactPage{}, pkgerrors.Conflict("notification cursor is ahead of journal")
+		return NotificationFactPage{}, pkgerrors.UnknownCursor("notification cursor is ahead of journal")
 	}
 	rows, err := q.ListNotificationFacts(ctx, db.ListNotificationFactsParams{UserID: userID, AfterSequence: after, ThroughSequence: journal.Head, PageSize: int32(limit)})
 	if err != nil {
