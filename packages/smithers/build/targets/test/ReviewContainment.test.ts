@@ -156,4 +156,35 @@ describe("model process containment", () => {
       expect(prompt).not.toContain("\n=== CONTEXT FILES (unchanged reference material) ===")
     }
   )
+
+  it("marks a deleted snapshot file inside its encoded body", async () => {
+    const cli = await fakeEngine("claude", false)
+    const report = await Effect.runPromise(LlmLint.review(
+      {
+        workspaceRoot: root,
+        executable: cli.executable,
+        snapshot: [
+          { path: "src/gone.ts", contents: "", changed: true, deleted: true },
+          { path: "src/kept.ts", contents: "export const kept = 1\n", changed: true }
+        ]
+      },
+      {
+        base: "HEAD",
+        include: [Input.glob("src/**/*.ts")],
+        context: [],
+        prompt: "Review source",
+        rubric: "Report defects",
+        engine: "claude",
+        model: "fixture-model",
+        batchSize: 8,
+        failOn: "error"
+      }
+    ))
+    expect(report.files).toEqual(["src/gone.ts", "src/kept.ts"])
+    const prompt = await Fs.readFile(cli.prompt, "utf8")
+    expect(prompt).toContain(`--- CHANGED FILE: "src/gone.ts" ---\n${JSON.stringify({ deleted: true, contents: "" })}`)
+    expect(prompt).toContain(
+      `--- CHANGED FILE: "src/kept.ts" ---\n${JSON.stringify({ contents: "export const kept = 1\n" })}`
+    )
+  })
 })

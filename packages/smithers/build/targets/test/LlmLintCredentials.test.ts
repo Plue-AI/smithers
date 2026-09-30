@@ -117,7 +117,7 @@ it("does not classify source placeholders and environment names as credentials",
     failOn: "error"
   }))
   expect(report.findings).toEqual([])
-  expect(await Fs.readFile(record, "utf8")).toContain(source)
+  expect(await Fs.readFile(record, "utf8")).toContain(JSON.stringify({ contents: source }))
 })
 
 it("masks a mixed-case password without a provider prefix", async () => {

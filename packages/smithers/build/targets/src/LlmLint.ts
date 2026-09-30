@@ -964,7 +964,12 @@ const contextPaths = (
 
 /** Renders one labelled file section of the prompt. */
 const renderFiles = (label: string, files: ReadonlyArray<BatchFile>): string =>
-  files.map((file) => `--- ${label}: ${JSON.stringify(file.path)} ---\n${file.contents}`).join("\n\n")
+  files.map((file) =>
+    `--- ${label}: ${JSON.stringify(file.path)} ---\n${
+      JSON.stringify({ ...(file.deleted ? { deleted: true } : {}), contents: file.contents })
+    }`
+  )
+    .join("\n\n")
 
 /** Renders the deterministic review prompt for one batch. */
 const renderPrompt = (
