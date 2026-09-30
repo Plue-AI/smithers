@@ -6018,7 +6018,7 @@ The string holds no credential, endpoint, or client. At launch the CLI's seat re
 | `gemini:` | `GEMINI_API_KEY`, then `GOOGLE_API_KEY` | Gemini's OpenAI-compatible Chat Completions endpoint. |
 | `cerebras:` | `CEREBRAS_API_KEY` | OpenAI-compatible Chat Completions at Cerebras. |
 
-OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `openai:` seats with connected ChatGPT sign-ins ahead of these credentials. A Claude subscription runs only on your own Claude Code: without `ANTHROPIC_API_KEY`, the Claude aliases `opus` and `fable` run as `claude-code:opus` and `claude-code:fable`.
+OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `openai:` seats with connected ChatGPT sign-ins, and `anthropic:` seats with connected Anthropic API keys, ahead of these credentials. A Claude subscription runs only on your own Claude Code: without `ANTHROPIC_API_KEY` or a connected Anthropic API key, the Claude aliases `opus` and `fable` run as `claude-code:opus` and `claude-code:fable`.
 
 These aliases expand to a full seat; the run records the alias:
 
@@ -49481,7 +49481,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | operator | Absolute path to the `smithers-jj-export` filesystem helper, when it is not in a searched location. | none |
 | `SMITHERS_MEMORY_DB` | operator | Moves the memory store to its own SQLite file, shared by runs of one repository in separate workspaces. | none |
 | `SMITHERS_MODEL_PROXY_URL` | operator | Base URL of a model proxy that fronts the provider routes. | none |
-| `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool of connected ChatGPT sign-ins that signs `openai:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
+| `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool of connected ChatGPT sign-ins and Anthropic API keys that signs `openai:` and `anthropic:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
 | `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. See [TUI configuration](/docs/tui/configuration/) for chat, worker, approval, budget, and conversation settings. | none |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | operator | How long a detached flow launch waits for the detached run's admission line. A value that is not a positive integer is ignored. | none |
 | `SMITHERS_TEST_COMMAND` | operator | The command the `test` flow runs. | none |

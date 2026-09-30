@@ -73,19 +73,37 @@ describe("NodeControl.seatCandidates", () => {
       SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt,anthropic"
     }
     // The pool is asked which routes have accounts when a seat resolves, so a
-    // configured route is offered without a key of the provider's own.
-    // A Claude subscription has no pool route: only Claude Code signs with it.
-    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["luna", "sol"])
+    // configured route is offered without a key of the provider's own: the
+    // anthropic route serves connected Anthropic API keys.
+    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(
+      SeatRouter.seats.filter((id) => ["opus", "fable", "sonnet", "luna", "sol"].includes(id))
+    )
     expect(
       await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" })
     )
       .toEqual(["luna", "sol"])
     // The configured subscription pool takes precedence over stale API-key mode.
-    expect(await ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" }))
+    expect(
+      await ids({
+        ...pool,
+        SMITHERS_ACCOUNT_POOL_KEY: "pool-credential",
+        SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+        SMITHERS_OPENAI_AUTH: "api-key"
+      })
+    )
       .toEqual([
         "luna",
         "sol"
       ])
+    // A route the pool is not offered keeps the host's own key.
+    expect(
+      await ids({
+        ...pool,
+        SMITHERS_ACCOUNT_POOL_KEY: "pool-credential",
+        SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic",
+        OPENAI_API_KEY: "repository-key"
+      })
+    ).toEqual(SeatRouter.seats.filter((id) => ["opus", "fable", "sonnet", "luna", "sol"].includes(id)))
     expect(await ids(pool)).toEqual([])
   })
 

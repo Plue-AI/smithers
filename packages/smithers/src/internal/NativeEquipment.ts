@@ -54,20 +54,29 @@ const openaiAuthVariable = "SMITHERS_OPENAI_AUTH"
 
 /**
  * A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `{base}/provider-pool`)
- * holding connected Codex accounts. `SMITHERS_ACCOUNT_POOL_PROVIDERS` lists the
- * routes (`chatgpt`) the host may take to it and `SMITHERS_ACCOUNT_POOL_KEY`
- * holds the pool credential. Which routes have accounts the pool answers at
+ * holding connected Codex accounts and Anthropic API keys.
+ * `SMITHERS_ACCOUNT_POOL_PROVIDERS` lists the routes (`chatgpt`, `anthropic`)
+ * the host may take to it and `SMITHERS_ACCOUNT_POOL_KEY` holds the pool
+ * credential. Which routes have accounts the pool answers at
  * `GET {pool}/routes`, asked when a seat resolves and remembered briefly, so an
  * account connected after boot serves the next seat: the openai seat then runs
- * in ChatGPT mode against `${pool}/chatgpt`. The pool picks the account per
- * request. A Claude subscription has no pool route: Anthropic lets only Claude
- * Code sign with it, so it is the `claude-code` provider's alone.
+ * in ChatGPT mode against `${pool}/chatgpt`, and the anthropic seat against
+ * `${pool}/anthropic`. The pool picks the account per request. A Claude
+ * subscription is never pooled: Anthropic lets only Claude Code sign with it, so
+ * it is the `claude-code` provider's alone.
  */
 const accountPoolVariable = "SMITHERS_ACCOUNT_POOL_URL"
 const accountPoolKeyVariable = "SMITHERS_ACCOUNT_POOL_KEY"
 const accountPoolRoutesTtlMillis = 30_000
 
-type AccountPoolRoute = "chatgpt"
+type AccountPoolRoute = "chatgpt" | "anthropic"
+
+/**
+ * Whether a configured pool owns its route outright: a ChatGPT seat never falls
+ * back to an ambient key, while an anthropic seat with no connected key keeps
+ * the host's own Anthropic credential.
+ */
+const poolOwnsRoute = (route: AccountPoolRoute): boolean => route === "chatgpt"
 
 interface AccountPool {
   readonly origin: string
@@ -190,7 +199,9 @@ export const seatResolver = (
  */
 const aliasSeat = async (declared: string, host: Providers.Host): Promise<string> => {
   const seat = Providers.expandSeat(declared)
-  return seat !== declared && seat.startsWith("anthropic:") && (await credential("anthropic", host))._tag === "Refused"
+  return seat !== declared && seat.startsWith("anthropic:") &&
+      accountPoolOf(host.environment)?.routes.includes("anthropic") !== true &&
+      (await credential("anthropic", host))._tag === "Refused"
     ? `claude-code:${declared}`
     : seat
 }
@@ -296,12 +307,16 @@ const credential = async (provider: string, host: Providers.Host): Promise<Crede
 
 /**
  * The account pool route a provider's seats may take: `chatgpt` for the openai
- * seat unless `SMITHERS_OPENAI_AUTH` pins it to its key or names no valid mode.
+ * seat unless `SMITHERS_OPENAI_AUTH` pins it to its key or names no valid mode,
+ * and `anthropic` for the anthropic seat behind a configured pool.
  */
 const poolRouteOf = (
   provider: string,
   environment: Readonly<Record<string, string | undefined>>
 ): AccountPoolRoute | undefined => {
+  if (provider === "anthropic") {
+    return origin(Environment_.read(environment, accountPoolVariable)) === undefined ? undefined : "anthropic"
+  }
   if (provider !== "openai") return undefined
   if (origin(Environment_.read(environment, accountPoolVariable)) !== undefined) return "chatgpt"
   const configured = Environment_.read(environment, openaiAuthVariable)
@@ -314,9 +329,9 @@ const providerSeats = (
 ): SeatResolver.Service => {
   const pool = accountPoolOf(environment)
   let served: { readonly until: number; readonly routes: ReadonlyArray<string> } | undefined
-  // A configured pool owns this route. An empty or unavailable pool refuses
-  // resolution unless provisioning names a platform fallback. It never falls
-  // through to an ambient provider key.
+  // A configured pool owns the chatgpt route. An empty or unavailable pool
+  // refuses resolution unless provisioning names a platform fallback. It never
+  // falls through to an ambient provider key (see poolOwnsRoute).
   const pooled = (route: AccountPoolRoute, modelId: string) =>
     Effect.gen(function*() {
       if (pool === undefined || !pool.routes.includes(route)) return undefined
@@ -349,6 +364,14 @@ const providerSeats = (
           return yield* new Seat.SeatUnresolved({ seat, message: "The subscription pool configuration is incomplete." })
         }
         const accounts = poolRoute === undefined ? undefined : yield* pooled(poolRoute, modelId)
+        if (accounts !== undefined && poolRoute === "anthropic") {
+          return yield* seatOf(
+            Route.anthropic({ apiKey: Redacted.make(accounts.key), baseUrl: `${accounts.origin}/anthropic` }),
+            executor,
+            seat,
+            modelId
+          )
+        }
         if (accounts !== undefined) {
           return yield* seatOf(
             OpenAIChatGPT.make({
@@ -362,7 +385,11 @@ const providerSeats = (
         }
         const platformFallback = environment.SMITHERS_CODING_FALLBACK_MODEL === seat &&
           Endpoint.proxyOrigin(provider, environment) !== undefined
-        if (pool !== undefined && poolRoute !== undefined && !platformFallback) {
+        if (
+          pool !== undefined && poolRoute !== undefined && pool.routes.includes(poolRoute) &&
+          poolOwnsRoute(poolRoute) &&
+          !platformFallback
+        ) {
           return yield* new Seat.SeatUnresolved({
             seat,
             message: "The configured subscription pool has no available account for this seat."
@@ -567,7 +594,7 @@ export const seatCandidates = async (host: Providers.Host): Promise<ReadonlyArra
     // A route the pool is configured for is offered: the pool is asked which
     // routes have accounts when the seat resolves.
     const route = poolRouteOf(provider, host.environment)
-    if (pool !== undefined && route !== undefined) return pool.routes.includes(route)
+    if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return true
     return (await credential(provider, host))._tag !== "Refused"
   }))
   return SeatRouter.seats.filter((_, index) => available[index])

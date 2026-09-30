@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,12 +21,13 @@ import (
 )
 
 // The provider account pool route. Workspaces' and managed Flow hosts'
-// (a box's coding host) ChatGPT model calls reach here (POST
-// /provider-pool/chatgpt/codex/responses: connected Codex sign-ins) with the
+// (a box's coding host) model calls reach here (POST
+// /provider-pool/chatgpt/codex/responses: connected Codex sign-ins; POST
+// /provider-pool/anthropic/v1/messages: connected Anthropic API keys) with the
 // workspace's pool credential or the host's model credential instead of a
-// provider key; GET /provider-pool/routes tells the guest whether the route
-// has connected accounts right now. There is no Anthropic route: a Claude
-// subscription runs only on the user's own Claude Code (#2777). The handler
+// provider key; GET /provider-pool/routes tells the guest which routes have
+// connected accounts right now. A Claude subscription is never pooled: it runs
+// only on the user's own Claude Code (#2777). The handler
 // asks the pool for the next account per request, and on a usage limit or a
 // refused credential records it and tries the next account before anything
 // reaches the caller. Provider tokens never leave this process.
@@ -105,7 +107,7 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 // serveRoutes lists the routes with connected accounts in the caller's
-// scope, limited or not: {"routes":["chatgpt"]}. A guest asks
+// scope, limited or not: {"routes":["anthropic","chatgpt"]}. A guest asks
 // when it resolves a seat, so an account connected after boot serves the next
 // seat without a restart.
 func (h *ProviderPoolHandler) serveRoutes(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +128,7 @@ func (h *ProviderPoolHandler) serveRoutes(w http.ResponseWriter, r *http.Request
 			routes = append(routes, name)
 		}
 	}
+	slices.Sort(routes)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string][]string{"routes": routes})
@@ -190,6 +193,11 @@ func ProviderPoolAuth(userAuth func(http.Handler) http.Handler) func(http.Handle
 				return
 			}
 			r.Header.Del("Cookie")
+			// userAuth reads bearer credentials only.
+			if r.Header.Get("Authorization") == "" {
+				r.Header.Set("Authorization", "Bearer "+poolBearer(r))
+			}
+			r.Header.Del("X-Api-Key")
 			if strings.HasPrefix(poolBearer(r), flowhost.ModelCredentialPrefix) {
 				next.ServeHTTP(w, r)
 				return
@@ -199,13 +207,17 @@ func ProviderPoolAuth(userAuth func(http.Handler) http.Handler) func(http.Handle
 	}
 }
 
-// poolBearer is the request's bearer credential, or "".
+// poolBearer is the request's pool credential, or "": a bearer token, or the
+// x-api-key header an Anthropic Messages client sends its key in.
 func poolBearer(r *http.Request) string {
 	scheme, token, _ := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
-	if !strings.EqualFold(scheme, "bearer") {
-		return ""
+	if strings.EqualFold(scheme, "bearer") {
+		return strings.TrimSpace(token)
 	}
-	return strings.TrimSpace(token)
+	if r.Header.Get("Authorization") == "" {
+		return strings.TrimSpace(r.Header.Get("X-Api-Key"))
+	}
+	return ""
 }
 
 const (
@@ -224,7 +236,8 @@ type modelPoolRoute struct {
 }
 
 var modelPoolRoutes = map[string]modelPoolRoute{
-	"chatgpt": {pool: services.ProviderConnectionProviderCodex, path: "codex/responses", upstream: "https://chatgpt.com/backend-api"},
+	"chatgpt":   {pool: services.ProviderConnectionProviderCodex, path: "codex/responses", upstream: "https://chatgpt.com/backend-api"},
+	"anthropic": {pool: services.ProviderConnectionProviderClaude, path: "v1/messages", upstream: "https://api.anthropic.com"},
 }
 
 var modelPoolClient = &http.Client{
@@ -311,13 +324,23 @@ func (h *ProviderPoolHandler) sendPooled(ctx context.Context, provider string, r
 	}
 	out := http.Header{}
 	copyProviderPoolHeaders(out, in)
-	for _, name := range []string{"Originator", "Session_id", "Version", "Conversation_id"} {
-		if value := in.Get(name); value != "" {
-			out.Set(name, value)
+	if route.pool == services.ProviderConnectionProviderClaude {
+		// A claude connection is an Anthropic API key (#2777).
+		for _, name := range []string{"Anthropic-Version", "Anthropic-Beta"} {
+			if value := in.Get(name); value != "" {
+				out.Set(name, value)
+			}
 		}
+		out.Set("X-Api-Key", conn.AccessToken)
+	} else {
+		for _, name := range []string{"Originator", "Session_id", "Version", "Conversation_id"} {
+			if value := in.Get(name); value != "" {
+				out.Set(name, value)
+			}
+		}
+		out.Set("Authorization", "Bearer "+conn.AccessToken)
+		out.Set("Chatgpt-Account-Id", conn.AccountID)
 	}
-	out.Set("Authorization", "Bearer "+conn.AccessToken)
-	out.Set("Chatgpt-Account-Id", conn.AccountID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(upstream, "/")+"/"+route.path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

@@ -124,10 +124,11 @@ func TestWorkspaceProviderPoolProvisioning(t *testing.T) {
 					assert.Equal(t, "provider-pool-workspace-"+workspace.ID, minted[0].Name)
 					assert.Equal(t, ProviderPoolTokenScopes(workspace.RepositoryID, workspace.ID), minted[0].Scopes)
 					assert.Contains(t, profile, "export "+ProviderPoolURLEnvName+"='"+poolTestBaseURL+ProviderPoolPath+"'")
-					assert.Contains(t, profile, "export "+ProviderPoolProvidersEnvName+"='chatgpt'")
+					assert.Contains(t, profile, "export "+ProviderPoolProvidersEnvName+"='chatgpt,anthropic'")
 					assert.Equal(t, []string{ProviderPoolKeyEnvName}, policy.SecretNames(), "the pool key is the only credential; no provider token is bound")
 					for _, secret := range policy.Secrets {
 						assert.Equal(t, []string{"api.example.test"}, secret.Hosts, "the pool key is bound to the API host only")
+						assert.Equal(t, []string{"authorization", "x-api-key"}, secret.MatchHeaders, "Anthropic clients send the pool key as x-api-key")
 					}
 					assert.NotContains(t, profile, "SMITHERS_OPENAI_AUTH", "ChatGPT mode is the guest's per-seat choice")
 					assert.NotContains(t, files, "/root/.codex/auth.json", "no provider session file enters the guest")
@@ -244,14 +245,14 @@ func TestWorkspaceProviderPoolPrecedenceIsPerProvider(t *testing.T) {
 				vars[variable.Name] = variable.Value
 			}
 			assert.Empty(t, pool.calls)
+			// The repository's own key keeps its seat; the pool is offered
+			// only the other provider's route.
 			if key == "OPENAI_API_KEY" {
-				// The repository keys the one pool seat itself: no pool is
-				// offered, and an Anthropic key never has a pool route (#2777).
-				assert.NotContains(t, vars, ProviderPoolProvidersEnvName)
-				assert.NotContains(t, binding.egress.SecretNames(), ProviderPoolKeyEnvName)
+				assert.Equal(t, "anthropic", vars[ProviderPoolProvidersEnvName])
 			} else {
 				assert.Equal(t, "chatgpt", vars[ProviderPoolProvidersEnvName])
 			}
+			assert.Contains(t, binding.egress.SecretNames(), ProviderPoolKeyEnvName)
 		})
 	}
 }

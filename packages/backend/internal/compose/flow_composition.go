@@ -52,7 +52,8 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	// With subscription connections allowed, managed coding hosts also
 	// reach the account pool: the binding user's connected Codex (ChatGPT)
-	// accounts, per request. A Claude subscription has no pool (#2777).
+	// accounts and Anthropic API keys, per request. A Claude subscription is
+	// never pooled (#2777).
 	accountPoolURL := ""
 	if cfg.FeatureFlags.SubscriptionConnections {
 		accountPoolURL = productAPIURL + services.ProviderPoolPath

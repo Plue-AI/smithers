@@ -22,12 +22,13 @@ const (
 	// credentials are confined away from the /api surface.
 	ProviderPoolPath = "/provider-pool"
 	// ProviderPoolURLEnvName names the pool origin for the guest's model
-	// routes (NativeEquipment): ${SMITHERS_ACCOUNT_POOL_URL}/chatgpt.
+	// routes (NativeEquipment): ${SMITHERS_ACCOUNT_POOL_URL}/chatgpt and
+	// ${SMITHERS_ACCOUNT_POOL_URL}/anthropic.
 	ProviderPoolURLEnvName = flowhost.AccountPoolURLEnv
 	// ProviderPoolKeyEnvName holds the guest's pool credential as an
 	// egress-proxy placeholder, bound for the API host only.
 	ProviderPoolKeyEnvName = flowhost.AccountPoolKeyEnv
-	// ProviderPoolProvidersEnvName lists the routes ("chatgpt") the guest may
+	// ProviderPoolProvidersEnvName lists the routes ("chatgpt,anthropic") the guest may
 	// take to the pool: a provider the repository keys itself
 	// keeps that key. Which of them have connected accounts the guest asks
 	// the pool (GET /provider-pool/routes) when it resolves a seat, so an
@@ -42,10 +43,11 @@ const (
 type providerPoolSeat struct{ seat, route string }
 
 // providerPoolSeats are the guest seats a pool serves: the OpenAI seat in
-// ChatGPT mode for Codex accounts. A Claude subscription has no pool route
-// (#2777).
+// ChatGPT mode for Codex accounts, and the Anthropic seat for connected
+// Anthropic API keys. A Claude subscription is never pooled (#2777).
 var providerPoolSeats = []providerPoolSeat{
 	{"OPENAI_API_KEY", "chatgpt"},
+	{"ANTHROPIC_API_KEY", "anthropic"},
 }
 
 // providerPoolGuestRoutes lists the pool routes whose seat the repository
@@ -120,7 +122,8 @@ func (s *WorkspaceService) bindWorkspaceProviderPool(ctx context.Context, worksp
 	if err != nil {
 		return pkgerrors.Internal("mint workspace provider pool credential").WithCause(err)
 	}
-	binding.bind(sandbox.EgressProxySecret{Name: ProviderPoolKeyEnvName, Value: token.Plaintext, Hosts: []string{host}, MatchHeaders: []string{"authorization"}})
+	// Anthropic Messages clients send the pool key as x-api-key.
+	binding.bind(sandbox.EgressProxySecret{Name: ProviderPoolKeyEnvName, Value: token.Plaintext, Hosts: []string{host}, MatchHeaders: []string{"authorization", "x-api-key"}})
 	binding.setEnv(ProviderPoolURLEnvName, strings.TrimRight(base, "/")+ProviderPoolPath)
 	binding.setEnv(ProviderPoolProvidersEnvName, strings.Join(routes, ","))
 	return nil

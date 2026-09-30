@@ -102,8 +102,8 @@ func (s fakeScopes) Scope(ctx context.Context, bearer string) (int64, int64, boo
 }
 
 type providerCall struct {
-	auth, account, path string
-	body                map[string]any
+	auth, account, path, apiKey, version string
+	body                                 map[string]any
 }
 
 // accountUpstream answers per bearer token: the status and body configured
@@ -113,12 +113,17 @@ func accountUpstream(t *testing.T, calls *[]providerCall, answers map[string]fun
 	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		call := providerCall{auth: r.Header.Get("Authorization"), account: r.Header.Get("Chatgpt-Account-Id"), path: r.URL.Path}
+		call := providerCall{auth: r.Header.Get("Authorization"), account: r.Header.Get("Chatgpt-Account-Id"), path: r.URL.Path,
+			apiKey: r.Header.Get("X-Api-Key"), version: r.Header.Get("Anthropic-Version")}
 		_ = json.Unmarshal(raw, &call.body)
 		mu.Lock()
 		*calls = append(*calls, call)
 		mu.Unlock()
-		if answer, ok := answers[strings.TrimPrefix(call.auth, "Bearer ")]; ok {
+		key := strings.TrimPrefix(call.auth, "Bearer ")
+		if key == "" {
+			key = call.apiKey
+		}
+		if answer, ok := answers[key]; ok {
 			answer(w)
 			return
 		}
@@ -265,11 +270,64 @@ func TestProviderPool_ChatGPTAccountsAndPaths(t *testing.T) {
 	calls = nil
 	rec = proxyRequest(t, h, "/provider-pool/chatgpt/backend-api/accounts", `{"model":"x"}`, workspaceContext())
 	assert.Equal(t, http.StatusNotFound, rec.Code, "only the inference path is served with an account")
-	// #2777: there is no Anthropic route, whatever accounts exist.
-	anthropic := poolHandler(&fakePool{pooled: true, limited: map[string]time.Time{}, accounts: []services.ResolvedProviderConnection{{ConnectionID: "k", Provider: "claude", Kind: "api_key", AccessToken: "sk-ant-api03-k"}}}, upstream.URL)
-	rec = proxyRequest(t, anthropic, "/provider-pool/anthropic/v1/messages", `{"model":"claude-sonnet-4-6","messages":[]}`, workspaceContext())
+	rec = proxyRequest(t, h, "/provider-pool/claude/v1/messages", `{"model":"x"}`, workspaceContext())
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.JSONEq(t, `{"error":{"type":"not_found_error","message":"Unknown provider."}}`, rec.Body.String())
+	assert.Empty(t, calls)
+}
+
+func claudeKeys(ids ...string) []services.ResolvedProviderConnection {
+	var out []services.ResolvedProviderConnection
+	for _, id := range ids {
+		out = append(out, services.ResolvedProviderConnection{ConnectionID: id, Provider: "claude", Kind: "api_key", AccessToken: "sk-ant-api03-" + id})
+	}
+	return out
+}
+
+// #2792: a connected Anthropic API key serves the anthropic route, signed as
+// x-api-key; the pool credential never reaches Anthropic.
+func TestProviderPool_AnthropicAPIKeys(t *testing.T) {
+	var calls []providerCall
+	upstream := accountUpstream(t, &calls, map[string]func(http.ResponseWriter){
+		"sk-ant-api03-a": func(w http.ResponseWriter) {
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`)
+		},
+		"sk-ant-api03-b": func(w http.ResponseWriter) { w.WriteHeader(http.StatusUnauthorized) },
+		"sk-ant-api03-c": func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"type":"message","content":[]}`)
+		},
+	})
+	pool := &fakePool{pooled: true, limited: map[string]time.Time{}, accounts: claudeKeys("a", "b", "c")}
+	h := &ProviderPoolHandler{Pool: pool, Scopes: fakeScopes{ok: true}, Upstreams: map[string]string{"anthropic": upstream.URL}}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider-pool/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[]}`)).WithContext(workspaceContext())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Api-Key", "smithers_pooltoken")
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"type":"message","content":[]}`, rec.Body.String())
+	require.Len(t, calls, 3, "a limited key and a refused key each hand the call to the next")
+	for i, id := range []string{"a", "b", "c"} {
+		assert.Equal(t, "/v1/messages", calls[i].path)
+		assert.Equal(t, "sk-ant-api03-"+id, calls[i].apiKey)
+		assert.Empty(t, calls[i].auth, "no bearer reaches Anthropic")
+		assert.Empty(t, calls[i].account)
+		assert.Equal(t, "2023-06-01", calls[i].version)
+		assert.Equal(t, "claude-sonnet-4-6", calls[i].body["model"])
+	}
+	assert.WithinDuration(t, time.Now().Add(2*time.Minute), pool.limited["a"], 10*time.Second)
+	assert.Equal(t, []string{"b"}, pool.rejected, "an API key refused once needs a new key")
+	assert.Empty(t, pool.refreshed, "an API key has nothing to refresh")
+
+	calls = nil
+	rec = proxyRequest(t, h, "/provider-pool/anthropic/v1/complete", `{"model":"x"}`, workspaceContext())
+	assert.Equal(t, http.StatusNotFound, rec.Code, "only the Messages path is served with a key")
 	assert.Empty(t, calls)
 }
 
@@ -310,19 +368,27 @@ func TestProviderPool_RefusesWithoutAWorkspaceCredentialOrAPool(t *testing.T) {
 		return req
 	}())
 	assert.Empty(t, via, "a managed host's model credential is verified by the scope, not the user auth")
-	for name, header := range map[string][2]string{
-		"a cookie alone":     {"Cookie", "session=abc"},
-		"an x-api-key alone": {"X-Api-Key", "smithers_pooltoken"},
-	} {
-		rec = httptest.NewRecorder()
-		auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal(name + " never authenticates") })).
-			ServeHTTP(rec, func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, responsesPath, nil)
-				req.Header.Set(header[0], header[1])
-				return req
-			}())
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, name)
-	}
+	rec = httptest.NewRecorder()
+	auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("a cookie alone never authenticates") })).
+		ServeHTTP(rec, func() *http.Request {
+			req := httptest.NewRequest(http.MethodPost, responsesPath, nil)
+			req.Header.Set("Cookie", "session=abc")
+			return req
+		}())
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	// An Anthropic Messages client sends the pool key as x-api-key; the user
+	// auth reads it as the bearer it is, and it goes no further.
+	via = ""
+	rec = httptest.NewRecorder()
+	auth(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer smithers_pooltoken", r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get("X-Api-Key"))
+	})).ServeHTTP(rec, func() *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/provider-pool/anthropic/v1/messages", nil)
+		req.Header.Set("X-Api-Key", "smithers_pooltoken")
+		return req
+	}())
+	assert.Equal(t, "user", via)
 }
 
 func TestProviderPool_RoutesListsProvidersWithAccountsNow(t *testing.T) {
@@ -338,14 +404,14 @@ func TestProviderPool_RoutesListsProvidersWithAccountsNow(t *testing.T) {
 	}
 	rec := get(workspaceContext())
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"routes":[]}`, rec.Body.String(), "a Claude API key has no pool route (#2777)")
+	assert.JSONEq(t, `{"routes":["anthropic"]}`, rec.Body.String(), "a connected Anthropic API key serves the anthropic route (#2792)")
 
 	// The first Codex account, connected while the guest runs, is listed on
 	// the next ask: no restart.
 	pool.mu.Lock()
 	pool.accounts = append(pool.accounts, codexAccounts("c")...)
 	pool.mu.Unlock()
-	assert.JSONEq(t, `{"routes":["chatgpt"]}`, get(workspaceContext()).Body.String())
+	assert.Equal(t, `{"routes":["anthropic","chatgpt"]}`+"\n", get(workspaceContext()).Body.String(), "routes are listed in order")
 
 	h.Scopes = fakeScopes{ok: false}
 	assert.Equal(t, http.StatusForbidden, get(workspaceContext()).Code)

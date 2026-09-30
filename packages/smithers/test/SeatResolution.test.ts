@@ -482,27 +482,57 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     seat: string
   ) => Effect.scoped(NodeControl.seatResolver(environment, executor).resolve(seat))
 
-  it("sends ChatGPT-mode openai seats to the pool and every other provider, anthropic included, direct", async () => {
+  it("sends ChatGPT-mode openai and anthropic seats to the pool and every other provider direct", async () => {
     const { asked, executor } = poolExecutor(() => ["anthropic", "chatgpt"])
     const resolver = NodeControl.seatResolver(pooled, executor)
     const anthropic = await Effect.runPromise(Effect.scoped(resolver.resolve("anthropic:claude-sonnet-4-6")))
     const openai = await Effect.runPromise(Effect.scoped(resolver.resolve("openai:gpt-6-luna")))
     const cerebras = await Effect.runPromise(Effect.scoped(resolver.resolve("cerebras:qwen-3.8-27b")))
 
-    expect((await prepared(anthropic, anthropic.modelId)).url).toBe(
-      "https://cloud.example.test/model-proxy/anthropic/v1/messages"
-    )
+    // A connected Anthropic API key signs the seat at the pool; the host
+    // sends only the pool credential, never the metered key.
+    const messages = await prepared(anthropic, anthropic.modelId)
+    expect(messages.url).toBe("https://cloud.example.test/provider-pool/anthropic/v1/messages")
+    expect(JSON.stringify(messages)).not.toContain("metered-token")
     const chatgpt = await prepared(openai, openai.modelId)
     expect(chatgpt.url).toBe("https://cloud.example.test/provider-pool/chatgpt/codex/responses")
     expect(chatgpt.publicHeaders.originator).toBe("codex_cli_rs")
     expect((await prepared(cerebras, cerebras.modelId)).url).toBe(
       "https://cloud.example.test/model-proxy/cerebras/v1/chat/completions"
     )
-    expect(JSON.stringify(await prepared(anthropic, anthropic.modelId))).not.toContain("pool-token")
     expect(asked).toEqual([{
       url: "https://cloud.example.test/provider-pool/routes",
       authorization: "Bearer pool-token"
     }])
+  })
+
+  it("keeps an anthropic seat on the host's own key while the pool has no Anthropic key, without a restart", async () => {
+    let routes: ReadonlyArray<string> = ["chatgpt"]
+    const { executor } = poolExecutor(() => routes)
+    const before = await Effect.runPromise(resolveWith(pooled, executor, "anthropic:claude-sonnet-4-6"))
+    expect((await prepared(before, before.modelId)).url).toBe(
+      "https://cloud.example.test/model-proxy/anthropic/v1/messages"
+    )
+    // No platform key either: the seat refuses rather than borrowing another route.
+    const { ANTHROPIC_API_KEY: _metered, SMITHERS_MODEL_PROXY_URL: _proxy, ...keyless } = pooled
+    await expect(Effect.runPromise(resolveWith(keyless, executor, "anthropic:claude-sonnet-4-6"))).rejects
+      .toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnresolved" })
+
+    routes = ["anthropic", "chatgpt"]
+    const after = await Effect.runPromise(resolveWith(keyless, executor, "anthropic:claude-sonnet-4-6"))
+    expect((await prepared(after, after.modelId)).url).toBe(
+      "https://cloud.example.test/provider-pool/anthropic/v1/messages"
+    )
+  })
+
+  it("resolves the Claude aliases at the pool instead of Claude Code", async () => {
+    const { executor } = poolExecutor(() => ["anthropic"])
+    const { ANTHROPIC_API_KEY: _metered, SMITHERS_MODEL_PROXY_URL: _proxy, ...keyless } = pooled
+    const opus = await Effect.runPromise(resolveWith(keyless, executor, "opus"))
+    expect(opus.id).toBe("opus")
+    expect((await prepared(opus, opus.modelId)).url).toBe(
+      "https://cloud.example.test/provider-pool/anthropic/v1/messages"
+    )
   })
 
   it("refuses an empty pool without API-key fallback, then uses a newly connected account", async () => {
@@ -521,12 +551,13 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     expect(asked).toHaveLength(2)
   })
 
-  it("keeps anthropic seats on their key beside a pool, and never asks without the pool key", async () => {
+  it("keeps a repository's own key on a route the pool is not offered, and never asks without the pool key", async () => {
     const { asked, executor } = poolExecutor(() => ["anthropic", "chatgpt"])
+    // The backend offers only the routes the repository does not key itself.
     const anthropic = await Effect.runPromise(resolveWith(
       {
         SMITHERS_ACCOUNT_POOL_URL: pool,
-        SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic,chatgpt",
+        SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
         SMITHERS_ACCOUNT_POOL_KEY: "pool-token",
         ANTHROPIC_API_KEY: "repository-key"
       },
@@ -534,6 +565,18 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
       "anthropic:claude-sonnet-4-6"
     ))
     expect((await prepared(anthropic, anthropic.modelId)).url).toBe("https://api.anthropic.com/v1/messages")
+    const openai = await Effect.runPromise(resolveWith(
+      {
+        SMITHERS_ACCOUNT_POOL_URL: pool,
+        SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic",
+        SMITHERS_ACCOUNT_POOL_KEY: "pool-token",
+        OPENAI_API_KEY: "repository-key"
+      },
+      executor,
+      "openai:gpt-6-luna"
+    ))
+    expect((await prepared(openai, openai.modelId)).url).toBe("https://api.openai.com/v1/responses")
+    expect(asked).toEqual([])
     await expect(Effect.runPromise(resolveWith(
       { SMITHERS_ACCOUNT_POOL_URL: pool, SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt", OPENAI_API_KEY: "repository-key" },
       executor,
