@@ -606,34 +606,6 @@
       },
       {
         "kind": "file",
-        "path": "patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__aws@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__axiom@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__cloudflare@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__core@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
-        "path": "patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch"
-      },
-      {
-        "kind": "file",
         "path": "pnpm-lock.yaml"
       },
       {
@@ -17437,6 +17409,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/devtools.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/drag-scroll.ts"
       },
       {
@@ -18134,6 +18110,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/harness/src/internal/supervision.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/src/internal/unfinishedWork.ts"
       },
       {
         "kind": "file",
@@ -20205,6 +20185,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/build/targets/src/internal/PrivateStore.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/build/targets/src/internal/ReviewBatches.ts"
       },
       {
@@ -20305,6 +20289,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/control/src/ScopedToken.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/control/src/SqlControlRuntime.ts"
       },
       {
@@ -20370,6 +20358,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/control/src/migrations/0005_signal_principals.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/src/migrations/0006_run_principals.ts"
       },
       {
         "kind": "file",
@@ -23049,6 +23041,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/gateway/src/RunDevTools.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/gateway/src/RunTrace.ts"
       },
       {
@@ -23565,6 +23561,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/cli/TokenCommands.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/commands/Bug.ts"
       },
       {
@@ -23765,10 +23765,6 @@
       },
       {
         "kind": "file",
-        "path": "packages/smithers/src/internal/NativeControl.ts-e"
-      },
-      {
-        "kind": "file",
         "path": "packages/smithers/src/internal/NativeControlDatabase.ts"
       },
       {
@@ -23786,6 +23782,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/NodeWorkspaceObservation.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/ReleasedChildResume.ts"
       },
       {
         "kind": "file",
@@ -23858,6 +23858,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/backend/Process.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/ProductApi.ts"
       },
       {
         "kind": "file",
@@ -28621,6 +28625,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-learnings.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-local-landing.test.ts"
       },
       {
         "kind": "glob",
