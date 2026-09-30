@@ -25,6 +25,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   let ownership = { mine: true, holder: { host: hostname() } }
   const starts: Array<{ assignment: unknown; options: unknown }> = []
   let pollResult: unknown = undefined
+  let pollDefect = false
   let pollFailure = false
   let accountReadings: Array<unknown> = []
   const queue: Array<{ results: unknown; workers: unknown }> = []
@@ -47,7 +48,11 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
           return `execution-${starts.length}`
         }),
       poll: () =>
-        pollResult !== undefined ? Effect.succeed(pollResult) : pollFailure
+        pollDefect ?
+          Effect.die(new Error("SQLite busy while reading running worker")) :
+          pollResult !== undefined ?
+          Effect.succeed(pollResult) :
+          pollFailure
           ? Effect.fail({ _tag: "FlowExecutionNotFound", executionId: "missing-worker" })
           : Effect.succeed({ _tag: "None" })
     }
@@ -221,6 +226,25 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       )
     } finally {
       pollResult = undefined
+    }
+  })
+
+  test("transient worker store defects retain the running worker and never release its claims", async () => {
+    const running = { assignment, executionId: "still-running-store-busy", startedAt: Date.now() - 1000 }
+    const state = { ...initial(), inFlight: [running] }
+    pollDefect = true
+    claims.length = 0
+    try {
+      const seen = await invoke(Observe.name, { state }) as typeof Observe.successSchema.Type
+      assert.deepEqual(seen.inFlight, [running])
+      assert.deepEqual(seen.finished, [])
+      const settled = await settle(state, seen as never)
+      assert.equal(settled.done, false)
+      assert.deepEqual(settled.next.inFlight, [running])
+      assert.deepEqual(settled.next.history, {})
+      assert.equal(claims.some((args) => args[1] === "release"), false)
+    } finally {
+      pollDefect = false
     }
   })
 
@@ -615,6 +639,25 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       if (previous === undefined) delete process.env.BURNDOWN_LAND
       else process.env.BURNDOWN_LAND = previous
     }
+  })
+
+  test("public READY seeds require canonical repository identity while configured short names remain supported", async () => {
+    const { default: Burndown } = await import("../burndown/flow.ts")
+    const short = {
+      ...ready,
+      assignment: {
+        ...assignment,
+        repo: "smithers",
+        lead: { ...assignment.lead, repo: "smithers" },
+        extras: assignment.extras.map((extra) => ({ ...extra, repo: "smithers" }))
+      }
+    }
+    assert.throws(() => Schema.decodeUnknownSync(Burndown.payloadSchema)({ repos: ["smithers"], ready: [short] }))
+  })
+
+  test("canonical READY seeds are admitted for configured short repository names", async () => {
+    const { default: Burndown } = await import("../burndown/flow.ts")
+    assert.doesNotThrow(() => Schema.decodeUnknownSync(Burndown.payloadSchema)({ repos: ["smithers"], ready: [ready] }))
   })
 
   test("public READY seed rejects inconsistent worker identities and incomplete issue bundles", async () => {

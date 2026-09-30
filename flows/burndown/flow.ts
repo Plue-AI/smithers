@@ -7,6 +7,7 @@ import { Flow, Interpreter, Sleep } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Layer, Schema } from "effect"
 import { layer as roundActions } from "./host.ts"
+import { repository } from "./issues.ts"
 import { Pace } from "./pace.ts"
 import { Round, RoundError } from "./round.ts"
 import { Ready } from "./schema.ts"
@@ -24,13 +25,16 @@ export default Flow.make("burndown", {
     maxAgents: Schema.optional(Schema.Number),
     tickMinutes: Schema.optional(Schema.Number)
   }).check(
-    Schema.makeFilter(({ repos, ready }) => (ready ?? []).every((member) => repos.includes(member.assignment.repo)), {
-      message: "READY assignment repository must be included in repos"
-    })
+    Schema.makeFilter(
+      ({ repos, ready }) => (ready ?? []).every((member) => repos.map(repository).includes(member.assignment.repo)),
+      {
+        message: "READY assignment repository must be included in repos"
+      }
+    )
   ),
   success: Schema.String,
   error: RoundError,
-  body: Node.capture({ version: "burndown/v2" }, ({ maxAgents, placement, ready, repos, startAgents, tickMinutes }: {
+  body: Node.capture({ version: "burndown/v3" }, ({ maxAgents, placement, ready, repos, startAgents, tickMinutes }: {
     readonly repos: ReadonlyArray<string>
     readonly ready?: ReadonlyArray<Ready> | undefined
     readonly placement?: "local" | "cloud" | undefined

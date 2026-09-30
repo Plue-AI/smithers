@@ -12,7 +12,7 @@ import { InFlight, LandReport, Observation, PacePlan, RoundState, Settlement } f
 
 /** Reads issues, claims, worker results and live account usage. */
 export const Observe = Action.make("burndown/observe", {
-  implementationVersion: "burndown/observe/v4",
+  implementationVersion: "burndown/observe/v5",
   payload: { state: RoundState },
   success: Observation,
   error: Schema.String,

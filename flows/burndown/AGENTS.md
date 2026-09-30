@@ -2,11 +2,13 @@
 
 The public flow accepts full READY assignment/result pairs for standalone-worker
 recovery through the existing merge queue. A READY bundle belongs to one configured
-repository; reject inconsistent repository identities before admission. Never edit
+repository; require owner/name assignment identities and resolve configured short
+names through the existing issue selection contract before admission. Never edit
 engine state by hand.
 READY and quarantined members retain assignment, result, and claim identity
 across rounds. Incomplete READY bundles enter quarantine, never landing. Missing
-worker executions retain failure diagnostics and retry cooldown. Completion
+worker executions retain failure diagnostics and retry cooldown. Poll defects
+keep the worker running and its claims held; cancellation remains cancellation. Completion
 requires both queues to drain. Repair keeps the
 original claim owner and uses a new execution key for each attempt. Refresh
 held claims only after checking ownership and hostname; never take over another

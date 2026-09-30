@@ -85,6 +85,15 @@ const observe = (state: RoundState) =>
     for (const item of state.inFlight) {
       const polled = yield* Worker.poll(item.executionId).pipe(Effect.exit)
       if (Exit.isFailure(polled)) {
+        if (Cause.hasInterrupts(polled.cause)) return yield* Effect.failCause(polled.cause)
+        const failure = Cause.findErrorOption(polled.cause)
+        if (Option.isNone(failure) || failure.value._tag !== "@smthrs/flow/FlowExecutionNotFound") {
+          still.push(item)
+          yield* Effect.logWarning(
+            `burndown: poll unavailable for ${item.executionId}: ${Cause.pretty(polled.cause).slice(-2000)}`
+          )
+          continue
+        }
         finished.push({
           key: item.assignment.key,
           status: "failed",
@@ -465,7 +474,7 @@ const settle = (
   })
 
 export const layer = Layer.mergeAll(
-  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v4" }),
+  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v5" }),
   Launch.toLayer(({ observation, plan, state }) => launch(state, observation, plan.launches), {
     implementationVersion: "burndown/launch/v3"
   }),
