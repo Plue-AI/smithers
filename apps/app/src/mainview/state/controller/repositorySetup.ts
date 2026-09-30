@@ -284,12 +284,21 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
     if (held !== undefined && !fresh) return held
     const current = () => selected !== undefined && !ctx.disposed && !shared.disposed && epoch() === accountEpoch
       && observationScope()?.key === selected.key && shared.registrationReads.get(key) === work
+    /*
+     * The row's `registration` is the host's last verified answer and outlives
+     * a re-read in flight, a failed re-read and an unavailable registry, so a
+     * window-focus refresh or a transient outage never blanks a verified job
+     * or reopens the checklist; `state` and `error` describe the latest read.
+     * A first read that fails leaves no registration: unknown is never Off.
+     */
     const publish = (state: "requested" | "completed" | "failed", registration?: SetupRecoveryResponse["registration"], error?: string) => {
       if (!current() || selected === undefined) return
+      const id = repositoryJobObservationId(login, repo, selected.selectedWorkspaceId, job)
+      const retained = ctx.store.collections.repositoryJobObservations.get(id)?.registration
+      const verified = registration?.state === "known" ? registration : retained?.state === "known" ? retained : registration
       ctx.store.dispatch({ type: "repository-job.observed", actor: "system", observation: {
-        id: repositoryJobObservationId(login, repo, selected.selectedWorkspaceId, job),
-        owner: login, repo, job, selectedWorkspaceId: selected.selectedWorkspaceId, state,
-        ...(registration === undefined ? {} : { registration }), ...(error === undefined ? {} : { error })
+        id, owner: login, repo, job, selectedWorkspaceId: selected.selectedWorkspaceId, state,
+        ...(verified === undefined ? {} : { registration: verified }), ...(error === undefined ? {} : { error })
       } })
     }
     const work = (async () => {

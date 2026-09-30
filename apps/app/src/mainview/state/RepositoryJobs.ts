@@ -51,10 +51,15 @@ export const repositoryJobState = (setup: Pick<RepositorySetup, "revision" | "ac
 export const repositoryJobObservationId = (owner: string, repo: string, selectedWorkspaceId: string | null, job: RepositoryJob): string =>
   JSON.stringify([owner.toLowerCase(), repo, selectedWorkspaceId, job])
 
+/**
+ * The host's verified registrations in scope. A row's registration is its
+ * last verified answer and stays readable while a re-read is in flight or
+ * failed; a row the host never answered has none and reads as unknown.
+ */
 const knownRegistrations = (observations: Iterable<RepositoryJobObservation>, repo: string, owner: string | null, selectedWorkspaceId: string | null, requireMatchingBox = true) =>
   [...observations].flatMap(row => {
     if (owner === null || row.owner.toLowerCase() !== owner.toLowerCase() || row.repo !== repo
-      || row.selectedWorkspaceId !== selectedWorkspaceId || row.state !== "completed" || row.registration?.state !== "known") return []
+      || row.selectedWorkspaceId !== selectedWorkspaceId || row.registration?.state !== "known") return []
     const policy = row.registration.active ?? row.registration.trial
     if (requireMatchingBox && selectedWorkspaceId !== null && policy !== undefined && policy.workspaceId !== selectedWorkspaceId) return []
     return [{ job: row.job, registration: row.registration }]

@@ -44,11 +44,16 @@ test("cards alone cannot claim current registration state", () => {
   expect(repositoryJobStates([], [issuesCard], REPO, OWNER)).toEqual({})
 })
 
-test("pending and failed observations do not imply Off", () => {
+test("unanswered observations do not imply Off; a retained verified registration keeps its label", () => {
   const row = observed("review", initialSetup(REPO, "review", OWNER))
-  expect(repositoryJobStates([{ ...row, state: "requested" }], [], REPO, OWNER)).toEqual({})
-  expect(repositoryJobStates([{ ...row, state: "failed", error: "Unavailable" }], [], REPO, OWNER)).toEqual({})
+  const { registration: _unread, ...unanswered } = row
+  expect(repositoryJobStates([{ ...unanswered, state: "requested" }], [], REPO, OWNER)).toEqual({})
+  expect(repositoryJobStates([{ ...unanswered, state: "failed", error: "Unavailable" }], [], REPO, OWNER)).toEqual({})
+  expect(repositoryJobStates([{ ...row, registration: { state: "unavailable", error: "Registry unavailable" } }], [], REPO, OWNER)).toEqual({})
   expect(repositoryJobStates([row], [], REPO, OWNER)).toEqual({ review: "Off" })
+  // A re-read in flight or failed keeps reading the host's last verified answer.
+  expect(repositoryJobStates([{ ...row, state: "requested" }], [], REPO, OWNER)).toEqual({ review: "Off" })
+  expect(repositoryJobStates([{ ...row, state: "failed", error: "Unavailable" }], [], REPO, OWNER)).toEqual({ review: "Off" })
 })
 
 test("only verified registrations count as completed repository jobs", () => {

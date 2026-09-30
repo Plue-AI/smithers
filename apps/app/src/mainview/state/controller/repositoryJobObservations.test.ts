@@ -3,7 +3,7 @@ import { initialSetup, RepositoryJobSchema, setupCandidate, type RepositoryJob, 
 import { createAppController } from "../AppController"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, silentAgent, waitFor } from "../TestFixtures"
-import { repositoryJobStates } from "../RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobStates, repositoryJobWorkspace } from "../RepositoryJobs"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 import { createRepositorySetupController } from "./repositorySetup"
@@ -258,6 +258,55 @@ test("forced refresh retains one read per job and replaces completed state witho
     expect(t.calls.filter(read => read.job === "issues")).toHaveLength(2)
     expect([...t.store.collections.cards.values()]).toEqual([])
   } finally { await t.close() }
+})
+
+test("a re-read in flight or failed keeps the last verified registration until the host answers again", async () => {
+  let phase: "verified" | "held" | "outage" | "changed" | "unavailable" = "verified"
+  const gate = Promise.withResolvers<void>()
+  const t = await fixture(async read => {
+    const mode = phase
+    if (mode === "held") await gate.promise
+    if (mode === "outage") return Response.json({ message: "Controlled host outage" }, { status: 503 })
+    if (mode === "unavailable" && read.job === "ci") return Response.json({ ...known(read), registration: { state: "unavailable", error: "Registry unavailable" } })
+    // The stored candidate matches its digest, so the checklist's registered set reads it.
+    return Response.json({ ...known(read), registration: registration(read.job, !((mode === "changed" || mode === "unavailable") && read.job === "issues"), initialSetup(repo, read.job, owner).revision) })
+  })
+  const enabled = { issues: "Enabled", review: "Enabled", ci: "Enabled", feature: "Enabled", chores: "Enabled" }
+  const registered = () => [...registeredRepositoryJobs(t.rows(), repo, owner)].sort()
+  try {
+    t.controller.subscribeRepositoryJobs()
+    await waitFor(() => t.rows().length === 5 && t.rows().every(row => row.state === "completed"))
+    expect(t.labels()).toEqual(enabled)
+    // A window-focus refresh neither blanks the buttons nor reopens the checklist while the host answers.
+    phase = "held"
+    t.controller.refreshRepositoryJobs()
+    await waitFor(() => t.rows().every(row => row.state === "requested"))
+    expect(t.labels()).toEqual(enabled)
+    expect(registered()).toEqual([...jobs].sort())
+    expect(repositoryJobWorkspace(t.rows(), repo, owner)).toEqual({ workspaceId })
+    gate.resolve()
+    await waitFor(() => t.rows().every(row => row.state === "completed"))
+    // A transient outage records its error on every row and keeps the verified answer.
+    phase = "outage"
+    t.controller.refreshRepositoryJobs()
+    await waitFor(() => t.rows().every(row => row.state === "failed"))
+    expect(t.rows().every(row => row.error !== undefined)).toBe(true)
+    expect(t.labels()).toEqual(enabled)
+    expect(registered()).toEqual([...jobs].sort())
+    expect(repositoryJobWorkspace(t.rows(), repo, owner)).toEqual({ workspaceId })
+    // The next verified answer replaces the retained one and clears the error.
+    phase = "changed"
+    t.controller.refreshRepositoryJobs()
+    await waitFor(() => t.rows().every(row => row.state === "completed"))
+    expect(t.labels()).toEqual({ ...enabled, issues: "Paused" })
+    expect(t.rows().every(row => row.error === undefined)).toBe(true)
+    // An unavailable registry keeps the verified answer and records why.
+    phase = "unavailable"
+    t.controller.refreshRepositoryJobs()
+    await waitFor(() => t.rows().every(row => row.state === "completed") && t.rows().find(row => row.job === "ci")?.error === "Registry unavailable")
+    expect(t.labels()).toEqual({ ...enabled, issues: "Paused" })
+    expect(registered()).toEqual([...jobs].sort())
+  } finally { gate.resolve(); await t.close() }
 })
 
 test("active registrations take precedence over trials and known absence alone produces Off", async () => {
