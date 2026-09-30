@@ -763,8 +763,16 @@ func mythicalReviewVerdict(output string) string {
 	case "approve", "request-changes":
 		return verdict
 	}
-	return "failed: the review's first line was not a verdict"
+	return "failed: " + mythicalReviewUnread
 }
+
+// The review failures Smithers states itself, which a held review's reason
+// and issue comment name. A review run's own failure is named only as
+// failed: its typed fault's tag stays on the review, off the issue.
+const (
+	mythicalReviewUnread   = "the review's first line was not a verdict"
+	mythicalReviewTooLarge = "the change is too large to review"
+)
 
 // mythicalCancelled is the outcome of a run a person cancelled: the item
 // stops, never relaunches.
@@ -2246,7 +2254,12 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 	case review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped):
 		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped; a person decides", nil, st.now), false, nil
 	case strings.HasPrefix(review.Verdict, "failed"):
-		return mythicalHold(item, "review:"+item.PRHead, "the review of this head failed ("+strings.TrimPrefix(review.Verdict, "failed: ")+"); a person decides", nil, st.now), false, nil
+		reason := "the review of this head failed; a person decides"
+		switch detail := strings.TrimPrefix(review.Verdict, "failed: "); detail {
+		case mythicalReviewUnread, mythicalReviewTooLarge:
+			reason = "the review of this head failed (" + detail + "); a person decides"
+		}
+		return mythicalHold(item, "review:"+item.PRHead, reason, nil, st.now), false, nil
 	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
 		return st.merge(ctx, item), false, nil
 	}
@@ -2354,7 +2367,7 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	checks := mythicalChecksOf(item)
 	checks.Review = &mythicalReview{Head: item.PRHead}
 	if len(diff) > mythicalReviewBytes {
-		checks.Review.Verdict = "failed: the change is too large to review"
+		checks.Review.Verdict = "failed: " + mythicalReviewTooLarge
 		next.Checks = checks.encode()
 		return &next, false, nil
 	}

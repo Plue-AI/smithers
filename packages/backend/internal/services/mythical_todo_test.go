@@ -1772,6 +1772,12 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
 				o.project(request, jobs.StateCompleted, "run-review-unread", `"not a verdict"`)
 			}},
+		// A review run's own failure is typed: the issue hears that it
+		// failed, never its fault's internal tag (#2783).
+		{name: "failed run", reason: "the review of this head failed; a person decides",
+			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
+				o.fail(request, "run-review-failed", "factory", "coding/Error/stalled", "")
+			}},
 		{name: "cancelled", reason: "the review of this head was stopped; a person decides",
 			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
 				o.project(request, jobs.StateCancelled, "run-review-cancelled", "")
