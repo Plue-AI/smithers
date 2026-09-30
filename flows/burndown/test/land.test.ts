@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
+import { mkdirSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -14,6 +15,16 @@ import {
   landingScript,
   reviewProgram
 } from "../land.ts"
+
+// The embedded review discovers `claude-N` accounts under the host home; give the landing script a private
+// account root so these tests never depend on the developer machine's ~/.smithers/accounts.
+function withReviewAccounts(script: string, root: string) {
+  const home = join(root, "review-home")
+  mkdirSync(join(home, ".smithers/accounts/claude-1"), { recursive: true })
+  const source = 'join(homedir(), ".smithers/accounts")'
+  assert.ok(script.includes(source))
+  return script.replace(source, `join(${JSON.stringify(home)}, ".smithers/accounts")`)
+}
 
 // Substitute only external CLIs: package discovery and subprocess ordering run in real temporary repositories.
 async function fixture(t: test.TestContext, paths: Record<string, string>) {
@@ -1116,7 +1127,7 @@ async function completeLandingFixture(t: test.TestContext) {
     runLanding(extra: Record<string, string> = {}, issue = 1) {
       return spawnSync(
         "sh",
-        ["-c", landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] })],
+        ["-c", withReviewAccounts(landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] }), f.root)],
         {
           cwd: f.root,
           env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, ...extra },
@@ -1418,7 +1429,7 @@ async function realLandingFixture(t: test.TestContext, advancedMain = false) {
         "sh",
         [
           "-c",
-          landingScript({ key: candidateKey, repo: "smithersai/smithers", commits: [{ issue: 1, commit: candidate }] })
+          withReviewAccounts(landingScript({ key: candidateKey, repo: "smithersai/smithers", commits: [{ issue: 1, commit: candidate }] }), f.root)
         ],
         {
           cwd: f.root,
@@ -1805,7 +1816,7 @@ test("large green check and review logs stay on disk without exceeding landing o
   )
   const result = await runLandingProcess("sh", [
     "-c",
-    landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
+    withReviewAccounts(landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] }), f.root)
   ], {
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog },
