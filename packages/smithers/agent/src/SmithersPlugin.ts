@@ -127,11 +127,6 @@ export const knowledge = {
     { name: "Agent step", about: "AgentAction.make from @smthrs/agent runs a typed model step inside a flow." },
     { name: "Run", about: "npx smthrs flow start <name> --data '{...}' --detached, then smthrs runs show <run>." },
     {
-      name: "VCS",
-      about:
-        "The repository is jj-colocated: use jj (jj st, jj diff, jj describe, jj new), never git commands that write."
-    },
-    {
       name: "Checks",
       about: "pnpm --filter <package> test and typecheck; after docs edits pnpm docs:sync then pnpm docs:check."
     }
@@ -165,7 +160,7 @@ export const brief = [
   "You work with Smithers: durable flows for long-running coding agents. Flows are TypeScript (flows/<name>/flow.ts, Flow.make from @smthrs/flow) or Markdown (flow.mdx).",
   `Key packages: ${knowledge.packages.map((fact) => fact.name).join(", ")}.`,
   "The CLI is `npx smthrs <verb>`: flow list|show|plan|start, runs list|show|logs|output|cancel|resume, generate flow, test, docs, tui.",
-  "Use jj, not git, to inspect or commit. For package facts, CLI flags, and the authoring recipe call ctx.call(\"smithers.guide\", { topic }) with packages, cli, authoring, or all."
+  "For package facts, CLI flags, and the authoring recipe call ctx.call(\"smithers.guide\", { topic }) with packages, cli, authoring, or all."
 ].join("\n")
 
 /**

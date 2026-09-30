@@ -148,13 +148,18 @@ describe("context", () => {
     expect(system).not.toContain("Use pnpm")
   })
 
-  it("tells a turn in a jj checkout to use jj, and says nothing of jj elsewhere", () => {
-    const root = mkdtempSync(join(tmpdir(), "tui-jj-"))
+  it("tells every turn the repository's version control, the nearest repository deciding", () => {
+    const root = mkdtempSync(join(tmpdir(), "tui-vcs-"))
     const nested = join(root, "apps", "tui")
     mkdirSync(nested, { recursive: true })
-    expect(Context.system(nested, [])).not.toContain(Context.jjRule)
+    const told = () => Context.system(nested, []).filter((part) => part.includes(" jj") || part.includes(" git"))
+    expect(told()).toEqual([Context.noVcsRule])
+    mkdirSync(join(root, ".git"))
+    expect(told()).toEqual([Context.gitRule])
     mkdirSync(join(root, ".jj"))
-    expect(Context.system(nested, [])).toContain(Context.jjRule)
+    expect(told()).toEqual([Context.jjRule])
+    mkdirSync(join(root, "apps", ".git"))
+    expect(Context.vcs(nested)).toBe("git")
   })
 
   it("tells the next turn about earlier exchanges and shell commands", () => {

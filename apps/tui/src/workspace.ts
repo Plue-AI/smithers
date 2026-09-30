@@ -12,7 +12,7 @@ import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Agents from "./agents.ts"
 import * as Asks from "./asks.ts"
 import * as Budget from "./budget.ts"
-import type * as Context from "./context.ts"
+import * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
 import type * as Host from "./host.ts"
@@ -1129,7 +1129,9 @@ export class Workspace {
             : `→ memory ${recalled.kept} in · ${recalled.withheld} withheld`
         )
         // The brief is frozen for the session: every launch on it passes these bytes, so the prefix caches.
-        brief = [SmithersPlugin.brief, recalled?.text ?? ""].filter((part) => part !== "").join("\n\n")
+        brief = [SmithersPlugin.brief, Context.vcsRule(this.options.host.cwd), recalled?.text ?? ""].filter((part) =>
+          part !== ""
+        ).join("\n\n")
         writeFileSync(file, brief, { mode: 0o600 })
       }
       const now = this.tabs.get(tab.id)

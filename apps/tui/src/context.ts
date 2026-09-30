@@ -50,12 +50,25 @@ export const instructionFiles = (cwd: string, home = homedir()): ReadonlyArray<s
 export const jjRule =
   "This repository is managed by jj. Reading with git is fine, but never run git commands that write the index, refs or history (add, commit, stash, reset, rebase, checkout, restore); use jj instead, such as jj restore <path> to restore a file."
 
-/** Whether `cwd` sits inside a jj workspace. */
-export const jjManaged = (cwd: string): boolean => {
+/** Said to every turn in a git repository without jj, so no turn probes for jj. */
+export const gitRule = "This repository is managed by git, not jj."
+
+/** Said to every turn outside any repository. */
+export const noVcsRule = "This directory is not in a git or jj repository."
+
+/** The version control `cwd` sits in: the nearest ancestor holding `.jj` or `.git` decides. */
+export const vcs = (cwd: string): "jj" | "git" | undefined => {
   for (let directory = resolve(cwd);; directory = dirname(directory)) {
-    if (existsSync(join(directory, ".jj"))) return true
-    if (dirname(directory) === directory) return false
+    if (existsSync(join(directory, ".jj"))) return "jj"
+    if (existsSync(join(directory, ".git"))) return "git"
+    if (dirname(directory) === directory) return undefined
   }
+}
+
+/** The one line every turn is told about the repository's version control. */
+export const vcsRule = (cwd: string): string => {
+  const found = vcs(cwd)
+  return found === "jj" ? jjRule : found === "git" ? gitRule : noVcsRule
 }
 
 const text = (entry: Entry): string =>
@@ -84,12 +97,12 @@ export const compactable = (history: ReadonlyArray<Entry>, tokens: number): numb
 export const instructions = (cwd: string): ReadonlyArray<{ readonly path: string; readonly text: string }> =>
   instructionFiles(cwd).map((path) => ({ path, text: readFileSync(path, "utf8") }))
 
-/** The host's own system text: the working directory, the jj rule and the conversation. */
+/** The host's own system text: the working directory, its version control and the conversation. */
 export const system = (cwd: string, history: ReadonlyArray<Entry>): Array<string> => {
   const parts = [
     `You are a coding agent working in ${cwd}. Read before you change, keep edits small, and verify with the repository's own commands. Paths are relative to ${cwd}.`
   ]
-  if (jjManaged(cwd)) parts.push(jjRule)
+  parts.push(vcsRule(cwd))
   if (history.length > 0) {
     parts.push(
       "The conversation so far, oldest first:\n\n" + history.map(text).join("\n\n")

@@ -145,6 +145,10 @@ describe("SmithersPlugin", () => {
       expect(SmithersPlugin.knowledge.cli.some((fact) => fact.name.startsWith(`smthrs ${verb}`))).toBe(true)
       expect(SmithersPlugin.brief).toContain(verb)
     }
-    expect(SmithersPlugin.brief).toContain("jj")
+  })
+
+  it("never names a version control system: the host says which one the repository uses", () => {
+    const taught = [SmithersPlugin.brief, ...Object.values(SmithersPlugin.knowledge).flat().map((fact) => fact.about)]
+    for (const text of taught) expect(text).not.toMatch(/\b(jj|git)\b/)
   })
 })

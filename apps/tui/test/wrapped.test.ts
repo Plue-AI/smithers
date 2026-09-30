@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import * as Context from "../src/context.ts"
 import type * as Host from "../src/host.ts"
 import { Workspace } from "../src/workspace.ts"
 import * as Wrapped from "../src/wrapped.ts"
@@ -232,7 +233,8 @@ it("runs a Claude Code worker on its session with memory and the shared brief, a
   expect(workspace.hijack("c", "you")).toBe(true)
   const tui = await workspace.handedOver("c")
   const brief = readFileSync(tab().harness!.brief!, "utf8")
-  expect(brief).toBe(`${SmithersPlugin.brief}\n\nREMEMBER for Fix the session.`)
+  // A temporary directory is in no repository, and the brief says so.
+  expect(brief).toBe(`${SmithersPlugin.brief}\n\n${Context.noVcsRule}\n\nREMEMBER for Fix the session.`)
   expect(tui).toEqual({
     command: "claude",
     args: ["--resume", session, "--append-system-prompt", brief, "--permission-mode", "bypassPermissions"]
