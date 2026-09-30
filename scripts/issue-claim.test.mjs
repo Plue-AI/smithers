@@ -461,6 +461,57 @@ else console.log(JSON.stringify({ state: "open", labels: [] }))
     return fake
   }
 
+  it("claims, then posts a --body-file receipt verbatim with the release folded in and closes, through the real CLI", () => {
+    const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
+    try {
+      const store = join(dir, "issue.json")
+      writeFileSync(store, JSON.stringify({ state: "open", labels: [], comments: [] }))
+      const fake = join(dir, "gh")
+      writeFileSync(fake, `#!/usr/bin/env node
+const fs = require("node:fs")
+const args = process.argv.slice(2)
+const store = ${JSON.stringify(store)}
+const issue = JSON.parse(fs.readFileSync(store, "utf8"))
+const save = () => fs.writeFileSync(store, JSON.stringify(issue))
+const path = args.find((a) => a.startsWith("repos/"))
+const field = (name) => { const at = args.findIndex((a, i) => args[i - 1] === "-f" && a.startsWith(name + "=")); return at < 0 ? undefined : args[at].slice(name.length + 1) }
+if (args.includes("PATCH")) { issue.state = field("state"); save(); console.log("{}") }
+else if (args.includes("DELETE")) { issue.labels = issue.labels.filter((l) => l !== "in-progress"); save(); console.log("{}") }
+else if (path.endsWith("/labels/in-progress")) console.log("{}")
+else if (/issues\\/\\d+\\/labels$/.test(path)) { issue.labels.push(field("labels[]")); save(); console.log("[]") }
+else if (path.endsWith("/comments") && args.includes("-f")) { issue.comments.push({ body: field("body"), created_at: new Date().toISOString() }); save(); console.log("{}") }
+else if (path.endsWith("/comments?per_page=100")) console.log(JSON.stringify([issue.comments]))
+else if (path.endsWith("/events?per_page=100")) console.log("[[]]")
+else console.log(JSON.stringify({ state: issue.state, labels: issue.labels.map((name) => ({ name })) }))
+`, { mode: 0o755 })
+      const env = { ...process.env, ISSUE_CLAIM_GH: fake, ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "0" }
+      const script = new URL("./issue-claim.mjs", import.meta.url).pathname
+      const cliRun = (...argv) => {
+        try { return { status: 0, out: JSON.parse(execFileSync(process.execPath, [script, ...argv], { env, encoding: "utf8" })) } }
+        catch (error) { return { status: error.status, out: JSON.parse(error.stdout) } }
+      }
+      assert.equal(cliRun("claim", "smithers#2941", "--by", "agent-a").out.action, "claimed")
+      const claim = JSON.parse(readFileSync(store, "utf8")).comments[0].body
+      assert.ok(claim.startsWith(`Claimed by agent-a on ${HOST} at `), claim)
+      const [, at, expires] = claim.match(/ at (\S+); expires (\S+)$/)
+      assert.equal(Date.parse(expires) - Date.parse(at), 6 * 3600_000)
+      // A rival on this host is refused while the claim is live, and nothing is written.
+      const refused = cliRun("claim", "smithers#2941", "--by", "agent-b")
+      assert.deepEqual([refused.status, refused.out.action, refused.out.holder.by], [2, "refused", "agent-a"])
+      assert.equal(JSON.parse(readFileSync(store, "utf8")).comments.length, 1)
+      const receipt = "## Receipt\n\nLanded `abc123` on main.\n\n    indented = kept\n- a=b @file --close\n"
+      writeFileSync(join(dir, "receipt.md"), receipt)
+      const done = cliRun("comment", "smithers#2941", "--by", "agent-a", "--body-file", join(dir, "receipt.md"), "--release", "--note", "landed abc123", "--close")
+      assert.deepEqual([done.status, done.out.action, done.out.released, done.out.closed], [0, "commented", true, true])
+      const issue = JSON.parse(readFileSync(store, "utf8"))
+      assert.equal(issue.comments.length, 2, "one receipt comment carries the release")
+      assert.ok(issue.comments[1].body.startsWith(receipt.trim() + "\n\nReleased by agent-a on "), issue.comments[1].body)
+      assert.ok(issue.comments[1].body.endsWith(": landed abc123"))
+      assert.deepEqual([issue.labels, issue.state], [[], "closed"])
+      assert.equal(cliRun("check", "smithers#2941", "--by", "agent-b").out.free, true)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
   it("shares one throttle across concurrent processes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
     try {
