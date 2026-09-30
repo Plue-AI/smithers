@@ -92,3 +92,24 @@ Ship in this order:
 4. The Jev-judged signals, only after the calibration corpus exists.
 
 Do not buy or build a per-file authorship classifier.
+
+## 5. Calibration status (#3150)
+
+Harness landed; the fitted anchors are **not** shipped. `SIGNALS` in `flows/register-repository/cleanup.ts` stays `deterministic-v0` / `hybrid-v0`.
+
+**Method.** `flows/register-repository/calibration/`: `generate.ts` (seeded corpus), `fit.ts` (human p90 per language and size band; logistic regression with weights on the simplex, scaled to the deterministic 55; AUROC; precision at p90), `run.ts` (rewrites `corpus.json` and `fit.json`). Rerun: `node --experimental-strip-types flows/register-repository/calibration/run.ts`. Every third case per stratum and label is held out. Tests: `flows/test/registration-calibration.test.ts` (a rerun matches the artifacts within 1e-3; held-out AUROC at least 0.95; weights non-negative and sum to 55).
+
+**Artifacts.** `corpus.json` (300 synthetic cases: 4 languages x 3 bands x 12 human, 8 agent, 5 hybrid; S1-S5 values), `fit.json` (anchors, weights, AUROC: train 0.992, held-out 0.987, hybrid vs human 0.797).
+
+**Limitations.**
+- The corpus is synthetic. Values are drawn from log-normals with assumed per-label multiples of a human baseline; it is not recorded from repositories. Its AUROC shows the harness recovers the generating model, not that S1-S5 separate real agent code from human code. Do not publish it as benchmark evidence.
+- S6-S10 are Jev-judged and are not in the corpus.
+- No hand review of findings, so the 70% precision cut is unapplied; `precisionAtP90` counts repositories above the pooled p90, not findings.
+- Per-stratum human sets are small (8 training cases), so p90 anchors are noisy.
+
+**Remaining for #3150.**
+- [ ] Record S1-S5 from about 300 real public repositories (human frozen before 2022-06, AIDev agent, Smithers factory, hybrid) into `corpus.json`, with commit SHAs.
+- [ ] Record S6-S10 judgments for them.
+- [ ] Hand-review 50 findings per signal; drop signals under 70%.
+- [ ] Refit, validate on held-out repositories, publish AUROC and precision with the method.
+- [ ] Ship `calibrated-v1` in `SIGNALS`, keeping old labels in the schema union.
