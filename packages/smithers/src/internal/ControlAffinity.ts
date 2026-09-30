@@ -16,9 +16,11 @@ interface Options {
 }
 
 const ParkedOwner = Schema.Struct({ parkedBy: Schema.optionalKey(Schema.String), updatedAt: Schema.Number })
+const ControlFlow = Schema.Struct({ flowId: Schema.String })
 const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
 const decodePark = Schema.decodeUnknownOption(Schema.fromJsonString(ParkedOwner))
 const decodeOwner = Schema.decodeUnknownOption(Schema.fromJsonString(Ownership.OwnerId))
+const decodeFlow = Schema.decodeUnknownOption(Schema.fromJsonString(ControlFlow))
 
 /**
  * A released engine row does not release its separate control claim.
@@ -55,6 +57,18 @@ export const make =
       let state = yield* decodeState(native.stateJson)
       if (state.cancellation !== undefined) return true
       const released = native.status === "suspended" && state.result === undefined
+      // The approved module of an `agent/run` root is one attached child of the
+      // root's own session, not work the root spawned. While this process holds
+      // the root's control claim, re-driving the root re-drives that child with it.
+      const own = state
+      const engine = engineRuns
+      const ownModule = (root: string, control: RunStore.RunRow) =>
+        Effect.gen(function*() {
+          if (own.parentExecutionId !== root || own.onParentExit !== "cancel") return false
+          if (Option.getOrUndefined(decodeFlow(control.stateJson))?.flowId !== own.flowName) return false
+          const rootState = yield* decodeState((yield* engine.get(root)).stateJson)
+          return rootState.flowName === "agent/run" && rootState.parentExecutionId === undefined
+        })
       const seen = new Set([runId])
       for (;;) {
         const parent = state.parentExecutionId ?? native.parentRunId
@@ -65,6 +79,7 @@ export const make =
         if (control !== undefined) {
           if (control.status !== "suspended") {
             if (released && control.status === "running" && control.owner !== null && sameProcess(control.owner)) {
+              if (yield* ownModule(parent, control)) return true
               return yield* canRetryReleased?.(runId, parent) ?? Effect.succeed(false)
             }
             return yield* admitsRunning(control)

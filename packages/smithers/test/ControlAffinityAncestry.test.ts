@@ -404,3 +404,112 @@ it.effect("silently denies absent or malformed parked ownership instead of loggi
       expect(logs).toHaveLength(0)
     })
   ))
+
+/**
+ * A configured host that re-drives an `agent/run` root it claimed re-drives
+ * that root's approved module with it (#3144). Everything the module spawned
+ * keeps the explicit retry fence, as does any other shape of child.
+ */
+const moduleTree = (
+  runs: RunStore.Service,
+  engineRuns: RunStore.Service,
+  options: {
+    readonly rootFlow?: string
+    readonly moduleFlow?: string
+    readonly onParentExit?: "cancel" | "detach"
+    readonly releaseWorker?: boolean
+    readonly owner?: Ownership.OwnerId
+    readonly parked?: boolean
+  } = {}
+) =>
+  Effect.gen(function*() {
+    const owner = options.owner ?? claimant
+    yield* runs.create("root", JSON.stringify({ runId: "root", flowId: "native", status: "running" }))
+    const now = yield* Clock.currentTimeMillis
+    expect((yield* runs.claimAndOwn("root", yield* runs.get("root"), owner, now))._tag).toBe("Activated")
+    if (options.parked === true) {
+      expect(
+        (yield* runs.transitionOwned(
+          "root",
+          owner,
+          "suspended",
+          JSON.stringify({ flowId: "native", parkedBy: JSON.stringify(owner), updatedAt: now })
+        ))._tag
+      ).toBe("Transitioned")
+    }
+    yield* engineRuns.create(
+      "root",
+      JSON.stringify({ version: 1, flowName: options.rootFlow ?? "agent/run", payload: {} })
+    )
+    const release = (id: string, state: object) =>
+      Effect.gen(function*() {
+        yield* engineRuns.create(id, JSON.stringify(state))
+        expect((yield* engineRuns.claimAndOwn(id, yield* engineRuns.get(id), claimant, now))._tag).toBe("Activated")
+        expect((yield* engineRuns.transitionOwned(id, claimant, "suspended", JSON.stringify(state)))._tag).toBe(
+          "Transitioned"
+        )
+      })
+    const module = {
+      version: 1,
+      flowName: options.moduleFlow ?? "native",
+      payload: {},
+      parentExecutionId: "root",
+      onParentExit: options.onParentExit ?? "cancel"
+    }
+    if (options.releaseWorker === true) {
+      yield* engineRuns.create("module", JSON.stringify(module))
+      yield* release("worker", {
+        version: 1,
+        flowName: "native/Worker",
+        payload: {},
+        parentExecutionId: "module",
+        onParentExit: "cancel"
+      })
+    } else {
+      yield* release("module", module)
+    }
+  })
+
+it.effect("re-drives the released approved module of the agent/run root this process is driving", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* moduleTree(runs, engineRuns)
+      const canRetryReleased = vi.fn(() => Effect.succeed(false))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("module")).toBe(true)
+      expect(canRetryReleased).not.toHaveBeenCalled()
+    })
+  ))
+
+it.effect.each(
+  [
+    ["a worker the module spawned", { releaseWorker: true }, "worker"],
+    ["a detached child", { onParentExit: "detach" as const }, "module"],
+    ["a child of another flow than the approved one", { moduleFlow: "other" }, "module"],
+    ["a child of a root that is not agent/run", { rootFlow: "native" }, "module"]
+  ] as const
+)("keeps the explicit retry fence for %s", ([, options, id]) =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* moduleTree(runs, engineRuns, options)
+      const canRetryReleased = vi.fn(() => Effect.succeed(false))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })(id)).toBe(false)
+      expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith(id, "root")
+    })
+  ))
+
+it.effect("keeps the fence when the root is parked or claimed by another process", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* moduleTree(runs, engineRuns, { parked: true })
+      const canRetryReleased = vi.fn(() => Effect.succeed(false))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("module")).toBe(false)
+      expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith("module", "root")
+    })
+  ).pipe(Effect.andThen(stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* moduleTree(runs, engineRuns, { owner: peer })
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("module")).toBe(false)
+      expect(canRetryReleased).not.toHaveBeenCalled()
+    })
+  ))))
