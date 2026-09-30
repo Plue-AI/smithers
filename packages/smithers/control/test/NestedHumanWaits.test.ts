@@ -248,6 +248,7 @@ describe("a human wait parked on a nested execution", () => {
           return yield* Flow.suspend(instance)
         }))
 
+      const runs = yield* RunStore.RunStore
       for (const parentId of ["parent-A", "parent-B"]) {
         yield* flowRuntime.execute(SharedParent, {
           executionId: parentId,
@@ -255,11 +256,16 @@ describe("a human wait parked on a nested execution", () => {
           discard: true,
           suspendedRetryPolicy: quietFollower
         })
-        yield* TestDatabase.until(
-          state.waitingTree(parentId).pipe(
-            Effect.map((rows) => rows.some((row) => row.runId === "shared-approval"))
-          )
-        )
+        // `discard: true` answers at admission (#2932). The child parks first
+        // and the parent a few writes later, so wait for the parent's own park
+        // too: a reader in between sees a running or bare parked parent.
+        yield* TestDatabase.until(Effect.gen(function*() {
+          const parent = yield* runs.get(parentId)
+          const tree = yield* state.waitingTree(parentId)
+          return parent.status === "suspended" &&
+            tree.some((row) => row.runId === parentId) &&
+            tree.some((row) => row.runId === "shared-approval")
+        }))
       }
       const parents = (yield* state.runParents("shared-approval")).map((edge) => edge.parentId)
       const reads = yield* Effect.forEach(parents, (id) => AgentSession.readExecution(id))

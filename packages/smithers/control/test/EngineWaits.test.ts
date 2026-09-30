@@ -222,15 +222,25 @@ const waitingOn = (
     return yield* waitingOn(runId, deferredName, attempts - 1)
   })
 
-/** Starts the gated flow and returns once it is parked on its wait point. */
+/**
+ * Starts the gated flow and returns once it is parked on its wait point.
+ *
+ * `execute` with `discard: true` answers at durable admission and the engine
+ * drives the run afterwards (`Flow.start` contract, #2932), so the park is
+ * observed rather than assumed. SQLite's synchronous driver usually parks the
+ * run before the caller resumes; PostgreSQL never does.
+ */
 const parkedRun = (runId: string, name: string) =>
   Effect.gen(function*() {
     yield* Gated.execute({ name }, { executionId: runId, discard: true })
     const state = yield* DurableEngineState.DurableEngineState
+    const runs = yield* RunStore.RunStore
+    yield* TestDatabase.until(Effect.gen(function*() {
+      const row = yield* runs.get(runId)
+      return row.status === "suspended" && Option.isSome(yield* state.waiting(runId))
+    }))
     const waiting = yield* state.waiting(runId)
     if (Option.isNone(waiting)) return yield* Effect.die(`run ${runId} did not park`)
-    const runs = yield* RunStore.RunStore
-    yield* TestDatabase.until(runs.get(runId).pipe(Effect.map((row) => row.status === "suspended")))
     return waiting.value
   })
 
