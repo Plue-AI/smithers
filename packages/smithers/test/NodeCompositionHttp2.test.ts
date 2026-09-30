@@ -13,22 +13,43 @@ const observed = vi.hoisted(() => ({
   evaluatorEntered: undefined as (() => void) | undefined
 }))
 
-vi.mock("@effect/platform-node/NodeHttpClient", async (importOriginal) => {
-  // Supply TLS options to real Undici Agents for the local HTTP/2 fixture.
-  const original = await importOriginal<typeof import("@effect/platform-node/NodeHttpClient")>()
-  const { Effect } = await import("effect")
-  const { Agent } = await import("@effect/platform-node/Undici")
-  return {
-    ...original,
-    makeDispatcher: Effect.acquireRelease(
-      Effect.sync(() => {
-        const agent = new Agent({ allowH2: true, connect: { rejectUnauthorized: false } })
-        observed.agents.push(agent)
-        return agent
-      }),
-      (agent) => Effect.promise(() => agent.destroy())
-    )
+vi.mock("@smthrs/platform-node/EgressHttpClient", async (importOriginal) => {
+  // EgressHttpClient owns the dispatcher now. Keep its real composition and
+  // proxy selection, injecting only TLS/H2 options for this self-signed peer.
+  const original = await importOriginal<typeof import("@smthrs/platform-node/EgressHttpClient")>()
+  const { createRequire } = await import("node:module")
+  const require = createRequire(import.meta.url)
+  // Resolve the actual CJS constructor object from the owning package, so its
+  // lazy dynamic import uses this same instrumented dependency instance.
+  const undici: typeof import("@effect/platform-node/Undici") = createRequire(
+    require.resolve("@smthrs/platform-node/EgressHttpClient")
+  )("undici/index.js")
+  class FixtureAgent extends undici.EnvHttpProxyAgent {
+    destructionCompleted = false
+    constructor(options: ConstructorParameters<typeof undici.EnvHttpProxyAgent>[0]) {
+      super({ ...options, allowH2: true, connect: { rejectUnauthorized: false } })
+      const agent = this
+      observed.agents.push({
+        destroy: () => agent.destroy(),
+        get destroyed() {
+          return agent.destructionCompleted
+        }
+      })
+    }
+    override destroy(): Promise<void>
+    override destroy(error: Error | null): Promise<void>
+    override destroy(callback: () => void): void
+    override destroy(error: Error | null, callback: () => void): void
+    override destroy(error?: Error | null | (() => void), callback?: () => void): Promise<void> | void {
+      if (typeof error === "function") return super.destroy(error)
+      if (callback !== undefined) return super.destroy(error ?? null, callback)
+      return super.destroy(error ?? null).then(() => {
+        this.destructionCompleted = true
+      })
+    }
   }
+  undici.EnvHttpProxyAgent = FixtureAgent
+  return original
 })
 
 vi.mock("@smthrs/model/RequestExecutor", async (importOriginal) => {

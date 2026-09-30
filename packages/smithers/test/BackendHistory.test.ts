@@ -13,9 +13,11 @@ import {
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
+import { Client } from "../src/internal/backend/Client.ts"
 import {
   checkDuration,
   groupOf,
+  history,
   itemLine,
   machineLine,
   outOfLanes,
@@ -291,6 +293,7 @@ const serve = async (handler: Handler) => {
   )
   return {
     requests,
+    client: new Client({ environment: env }),
     close: () => {
       server.closeAllConnections()
       return new Promise<void>((resolve) => server.close(() => resolve()))
@@ -363,12 +366,20 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     ]
     let read = 0
     let events: ServerResponse | undefined
+    let connected!: () => void
+    const streamReady = new Promise<void>((resolve) => {
+      connected = resolve
+    })
     const f = await serve((req, res) => {
       if (req.method === "POST" && req.url === "/api/repos/owner/repo/issues") return json(res, { number: 12 }, 201)
       if (req.url === "/api/repos/owner/repo/mythical/events") {
-        res.writeHead(200, { "content-type": "text/event-stream" })
-        res.write(": connected\n\n")
-        events = res
+        // Exercise an actual stream connection that takes longer than the hint delay.
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/event-stream" })
+          res.write(": connected\n\n")
+          events = res
+          connected()
+        }, 100)
         return
       }
       const rows = moves[Math.min(read, moves.length - 1)]!
@@ -379,7 +390,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         // Each read is followed by the stack's next move and its hint.
         // Two hints in one write: the second waits as pending for the next wait.
         const hint = `event: mythical\ndata: {"generation":${read},"kind":"item"}\n\n`
-        setTimeout(() => events?.write(hint + hint), 20)
+        setTimeout(() => void streamReady.then(() => events!.write(hint + hint)), 20)
         return
       }
       json(res, { message: "unexpected" }, 404)
@@ -514,29 +525,39 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("lands a proposed TODO at the head it read, through the land route", async () => {
+  it("binds the retained landing handler to its observed head while the public command remains unavailable", async () => {
     const head = "c".repeat(40)
     const pullRequest = { number: 40, url: "https://github.com/owner/repo/pull/40", state: "open", head }
     const f = await serve((req, res) => {
       if (req.method === "POST") return json(res, item("proposed", { pullRequest, automerge: true }), 202)
-      if (req.url?.endsWith("/items/13")) return json(res, item("running", { id: "33333333-3333-4333-8333-333333333333" }))
-      if (req.url?.endsWith("/items/14")) return json(res, item("proposed", { pullRequest: { ...pullRequest, head: undefined } }))
+      if (req.url?.endsWith("/items/13")) {
+        return json(res, item("running", { id: "33333333-3333-4333-8333-333333333333" }))
+      }
+      if (req.url?.endsWith("/items/14")) {
+        return json(res, item("proposed", { pullRequest: { ...pullRequest, head: undefined } }))
+      }
       items(req, res, [item("proposed", { pullRequest })])
     })
     try {
-      const landed = await f.run(["history", "land", "#12"])
-      expect(landed.code, landed.error).toBe(0)
-      expect(landed.output).toContain("#12 Fix login · PR open")
+      // The backend endpoint is deferred under #3059. Preserve the internal
+      // handler's wire contract without advertising or pretending to serve it.
+      const invoke = (issue: string) => history["history land"]!(f.client, { issue }, { repo: "owner/repo" })
+      const landed = await invoke("#12")
+      expect(itemLine(landed as Record<string, unknown>)).toContain("#12 Fix login · PR open")
       for (const ref of ["13", "14"]) {
-        const refused = await f.run(["history", "land", ref])
-        expect(refused.code, ref).not.toBe(0)
-        expect(refused.output + refused.error).toContain(`#${ref} has no open pull request to land`)
+        await expect(invoke(ref)).rejects.toMatchObject({
+          code: "not_landable",
+          message: `#${ref} has no open pull request to land`
+        })
       }
-      const missing = await f.run(["history", "land", "99"])
-      expect(missing.output + missing.error).toContain("#99 is not in the history")
+      await expect(invoke("99")).rejects.toMatchObject({ code: "not_found", message: "#99 is not in the history" })
       expect(f.requests.filter((r) => r.method === "POST").map((r) => `${r.url} ${r.body}`)).toEqual([
         `/api/repos/owner/repo/mythical/items/${ID}/land {"head":"${head}"}`
       ])
+      const count = f.requests.length
+      const unavailable = await f.run(["history", "land", "#12"])
+      expect(unavailable.code).not.toBe(0)
+      expect(f.requests).toHaveLength(count)
     } finally {
       await f.close()
     }
