@@ -367,6 +367,32 @@ describe("approval: \"required\" through the public CLI", { timeout: 60_000 }, (
     expect(await workspace.calls()).toContain(`tag ${workspace.config} 127.0.0.1:5999/fixture:${approvedHead}`)
   })
 
+  for (const tags of [["one", "two"], "[S.Stamp.commit, \"fixed\"]"] as const) {
+    it(`grants exactly the revision the run checks at planning and again before pushing ${JSON.stringify(tags)}`, async () => {
+      const workspace = await fixture(typeof tags === "string" ? tags : [...tags])
+      git(workspace.root, ["init", "-q"])
+      commit(workspace.root, "first")
+      const memory = memoryStore()
+      const revision = await approvalRevision("//:push", { workspace: workspace.root }, {
+        environment: workspace.environment
+      })
+      const again = await approvalRevision("//:push", { workspace: workspace.root }, {
+        environment: workspace.environment
+      })
+      memory.approve(revision.label, revision.digest)
+      const result = await serve(workspace.root, ["//:push"], {
+        environment: workspace.environment,
+        approvals: memory.store
+      })
+
+      expect(again).toEqual(revision)
+      expect(result.exitCode, `${result.output}${result.logs}`).toBe(0)
+      // Planning asks once and the pre-push recheck asks again, both for the granted revision.
+      expect(memory.asked).toEqual([revision, revision])
+      expect(pushes(await workspace.calls())).toHaveLength(2)
+    })
+  }
+
   it("refuses a buildTime stamp, which no approval can name", async () => {
     const workspace = await fixture("[S.Stamp.buildTime]")
     const memory = memoryStore()

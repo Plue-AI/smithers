@@ -165,6 +165,10 @@ describe("Docker.Push through the public CLI", () => {
       const granted = await smthrs(root, ["approvals", "grant", "//:push", "--json"])
       expect(granted.status, granted.output).toBe(0)
       expect(JSON.parse(granted.output)).toMatchObject({ label: "//:push", receipt: "Accepted" })
+      // The run plans the same revision the grant named.
+      const revision = (JSON.parse(granted.output) as { readonly revision: string }).revision
+      const planned = await smthrs(root, ["target", "//:push", "--plan"])
+      expect(planned.output).toContain(revision)
 
       const ran = await smthrs(root, ["target", "//:push"])
       expect(ran.status, ran.output).toBe(0)
