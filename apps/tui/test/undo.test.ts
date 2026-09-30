@@ -588,6 +588,20 @@ describe("undo", () => {
     expect(get(cwd, "a.ts")).toBe("one\n")
   })
 
+  it("removes a created file once when a saved receipt spells it two ways", async () => {
+    const cwd = scratch()
+    put(cwd, "n.ts", "two\n")
+    const edit = { ...forged("write", Changes.patch("./n.ts", null, "one\n")!), identity: "edit" }
+    const shell = { ...forged("bash", Changes.patch("n.ts", "one\n", "two\n")!), identity: "shell" }
+    const plan = await Undo.plan(cwd, [cellOf(edit, shell)]) as Undo.Plan
+    expect(Undo.chosen(plan, Undo.ready(plan)).map((file) => [file.path, file.next])).toEqual([
+      ["./n.ts", null],
+      ["n.ts", null]
+    ])
+    expect(await Undo.commit(cwd, Undo.chosen(plan, Undo.ready(plan)))).toBeUndefined()
+    expect(existsSync(join(cwd, "n.ts"))).toBe(false)
+  })
+
   it("undoes neither patch when a saved receipt spells one file two ways and the newer is refused", async () => {
     const cwd = scratch()
     put(cwd, "a.ts", "y\n".repeat(20_000))

@@ -353,10 +353,12 @@ const modeOf = async (path: string): Promise<number | undefined> => {
 /** Writes the files; refuses if one moved since `plan` read it, and rolls back on an IO error. */
 export const commit = async (
   cwd: string,
-  files: ReadonlyArray<File>,
+  spelled: ReadonlyArray<File>,
   read: (path: string) => Promise<string | null | undefined> = Changes.read,
   write: typeof put = put
 ): Promise<Failure | undefined> => {
+  // One write per file: a saved receipt may spell it `./a.ts` and `a.ts`, both planned to the same content.
+  const files = [...new Map(spelled.map((file) => [resolve(cwd, file.path), file])).values()]
   const escaped = [...new Set(files.map((file) => file.path))].filter((path) => outside(cwd, path))
   if (escaped.length > 0) return { _tag: "Outside", paths: escaped.sort() }
   const moved: Array<string> = []
