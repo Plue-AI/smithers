@@ -741,6 +741,9 @@ export const restore = (records: ReadonlyArray<Record>): {
         break
       case "flow-command-dispatched":
         flowCommands.delete(record.id)
+        if (flows.get(record.id)?.pendingCommand && flows.get(record.id)?.status === "requested") {
+          flows.delete(record.id)
+        }
         break
       case "run":
         transcript = Transcript.run(transcript, {

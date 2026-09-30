@@ -477,7 +477,9 @@ With declared flows, the home screen lists them with their keys; a click runs
 one. A directory without flows keeps the quiet home screen.
 
 A direct call is saved and shown as requested before discovery; restart resumes a
-call still waiting for discovery. A person’s run shows in Chat as the line they
+call still waiting for discovery. Open and Stop work during discovery; stopping
+prevents dispatch. Invalid arguments and admission refusals stay on the saved
+failed card. Reissue an unadmitted command to try again. A person’s run shows in Chat as the line they
 typed and a host-owned card that updates in place: `◌ sum` until it launches,
 then its clock, then
 `✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · <why>` or

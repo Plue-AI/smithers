@@ -1265,3 +1265,70 @@ describe("flows the warm host loaded", () => {
     expect(f.runs.get(id)).toMatchObject({ status: "failed", message: "Restart to load late." })
   })
 })
+
+describe("discovery command lifecycle", () => {
+  const command = (id: string): Session.FlowCommand => ({
+    id,
+    flow: "review",
+    argument: `number=${id}`,
+    request: `/flow review number=${id}`,
+    at: 123
+  })
+  it("keeps discovery placeholders out of seats so admission respects command order beyond the seat limit", async () => {
+    const fixture = fake()
+    fixture.auto.start = false
+    const records: Array<Session.Record> = []
+    const commands = Array.from({ length: 5 }, (_, index) => command(String(index)))
+    const runs = new FlowRuns({ port: fixture.port, persist: (record) => records.push(record), commands })
+    expect(runs.snapshot().map((run) => run.id)).toEqual(["0", "1", "2", "3", "4"])
+    expect(runs.busy).toBe(true)
+    for (const command of commands) {
+      const admitted = runs.request({ id: command.id, flow: command.flow, input: { number: command.id }, by: "user" })
+      expect(admitted.status).toBe(Number(command.id) < 3 ? "requested" : "queued")
+    }
+    await tick()
+    expect(fixture.starts).toHaveLength(3)
+    expect(runs.snapshot().filter((run) => run.status === "queued").map((run) => run.id)).toEqual(["3", "4"])
+    for (let index = 0; index < 3; index++) fixture.starts[index]!.resolve(`run-${index}`)
+    await tick()
+    fixture.watches[0]!.done.resolve({ kind: "done", answer: "first" })
+    await tick()
+    expect(runs.get("3")!.status).toBe("requested")
+    expect(runs.get("4")!.status).toBe("queued")
+    expect(fixture.starts).toHaveLength(4)
+    runs.cancel("3")
+    fixture.starts[3]!.resolve("run-3")
+    await tick()
+    fixture.watches[3]!.done.resolve({ kind: "cancelled" })
+    await tick()
+    fixture.starts[4]!.resolve("run-4")
+    await tick()
+    for (const watch of fixture.watches) watch.done.resolve({ kind: "done", answer: "settled" })
+    await runs.dispose()
+  })
+  it("restores canceled and failed undispatched commands without advertising or admitting a retry with empty input", async () => {
+    const fixture = fake()
+    const records: Array<Session.Record> = []
+    const runs = new FlowRuns({
+      port: fixture.port,
+      persist: (record) => records.push(record),
+      commands: [command("stop"), command("bad")]
+    })
+    runs.cancel("stop")
+    runs.rejectCommand("bad", "Invalid JSON")
+    for (const id of ["stop", "bad"]) {
+      expect(actions(runs.get(id))).toEqual({ retry: false, continue: false, stop: false })
+      expect(() => runs.retry(id)).toThrow("Only a failed, stopped, or parked run can be retried")
+      records.push({ type: "flow-command-dispatched", id })
+    }
+    const restored = Session.restore(records)
+    expect(restored.flows).toHaveLength(2)
+    const next = new FlowRuns({ port: fixture.port, persist: () => {}, restored: restored.flows })
+    expect(next.snapshot().map((run) => run.status)).toEqual(["cancelled", "failed"])
+    expect(next.busy).toBe(false)
+    expect(next.panel("bad").summary).toBe("Invalid JSON")
+    expect(fixture.calls).toEqual([])
+    await runs.dispose()
+    await next.dispose()
+  })
+})

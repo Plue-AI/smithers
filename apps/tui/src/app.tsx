@@ -193,7 +193,10 @@ export function App(props: AppProps) {
   const workspaceRef = useRef<Workspace | undefined>(undefined)
   const makeWorkspace = (restoredTabs?: Snapshot) =>
     new Workspace({
-      occupied: (id) => runsRef.current?.has(id) ?? false,
+      occupied: (id) => {
+        const run = runsRef.current?.get(id)
+        return run !== undefined && !(run.pendingCommand && run.status === "requested")
+      },
       host: props.host,
       workerSeat: props.workerSeat ?? props.seat,
       history: () => entries.current,
@@ -217,6 +220,7 @@ export function App(props: AppProps) {
       occupied: (id) => workspaceRef.current?.has(id) ?? false,
       port: props.flows,
       persist: writer.current.append,
+      commands: restored.current?.flowCommands,
       restored: restored.current?.flows
     })
   )
@@ -367,18 +371,7 @@ export function App(props: AppProps) {
   const [flowCommands, setFlowCommands] = useState<ReadonlyArray<Session.FlowCommand>>(
     restored.current?.flowCommands ?? []
   )
-  const flowRuns: ReadonlyArray<FlowRun> = [
-    ...runs.snapshot(),
-    ...flowCommands.filter((command) => !runs.has(command.id) && !workspace.has(command.id)).map((command) => ({
-      id: command.id,
-      flow: command.flow,
-      by: "user" as const,
-      input: {},
-      requested: command.argument,
-      status: "requested" as const,
-      startedAt: command.at
-    }))
-  ]
+  const flowRuns: ReadonlyArray<FlowRun> = runs.snapshot()
   /** Opens a run's form for its missing input. */
   const openForm = useCallback((id: string) => {
     const run = runs.get(id)
@@ -1305,7 +1298,7 @@ export function App(props: AppProps) {
   const undoBlocked = () => {
     const current = live.current
     return current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined ||
-      workspace.busy || runs.busy || flowCommands.length > 0
+      workspace.busy || runs.busy
   }
 
   /** Marks the undone files of `plan` in the transcript, the session file and the context. */
@@ -1411,6 +1404,7 @@ export function App(props: AppProps) {
       occupied: (id) => workspaceRef.current?.has(id) ?? false,
       port: props.flows,
       persist: writer.current.append,
+      commands: state.flowCommands,
       restored: state.flows
     })
     setRuns(nextRuns)
@@ -1462,7 +1456,7 @@ export function App(props: AppProps) {
   /** `/new` and `/resume` wait for a turn, a `!cmd`, an undo, workers and flow runs, from any door. */
   const occupied = () =>
     live.current.turn !== undefined || live.current.shell !== undefined || live.current.undoing !== undefined ||
-    workspace.busy || runs.busy || flowCommands.length > 0
+    workspace.busy || runs.busy
 
   /** Places a run a person started in the chat, with the line they typed, and keeps it on the conversation. */
   const showRun = (id: string, title: string, request?: string) => {
@@ -1503,14 +1497,36 @@ export function App(props: AppProps) {
       if (!current || runsRef.current !== runs || workspaceRef.current !== workspace) return
       for (const command of flowCommands) {
         const listed = runs.listed().find((each) => each.name === command.flow)
-        if (runs.has(command.id) || workspace.has(command.id)) {
-          // Admission persisted before a crash; retire only its pending dispatch.
-        } else if (listed !== undefined && Extension.isAgent(listed)) {
-          startAgent(command.flow, command.argument.trim(), command.id)
-        } else {
-          const parsed = parseArgs(command.argument)
-          if ("error" in parsed) setStatus(parsed.error, "warning")
-          else startRun(command.flow, parsed.input, command.request, command.id)
+        try {
+          const pending = runs.get(command.id)
+          if (
+            (pending !== undefined && (!pending.pendingCommand || pending.status !== "requested")) ||
+            workspace.has(command.id)
+          ) {
+            // Admission or cancellation persisted before a crash; retire only its pending dispatch.
+            if (workspace.has(command.id)) runs.dispatched(command.id)
+          } else if (listed !== undefined && Extension.isAgent(listed)) {
+            const prompt = command.argument.trim() || listed.description || command.flow
+            workspace.request({
+              id: command.id,
+              title: prompt.replace(/\s+/g, " ").slice(0, 60),
+              prompt,
+              agent: command.flow,
+              by: "user"
+            })
+            runs.dispatched(command.id)
+            setSurface((current) => current === `flow:${command.id}` ? `tab:${command.id}` : current)
+          } else {
+            const parsed = parseArgs(command.argument)
+            if ("error" in parsed) runs.rejectCommand(command.id, parsed.error)
+            else {
+              runs.request({ id: command.id, flow: command.flow, input: parsed.input, by: "user" })
+              userRuns.current.add(command.id)
+              showRun(command.id, command.flow, command.request)
+            }
+          }
+        } catch (error) {
+          runs.rejectCommand(command.id, Failures.line("flow", error))
         }
         writer.current.append({ type: "flow-command-dispatched", id: command.id })
       }
@@ -1631,6 +1647,7 @@ export function App(props: AppProps) {
         const at = Date.now()
         const command = { id: `${flow}-${crypto.randomUUID()}`, flow, argument: rest, request: text.trim(), at }
         writer.current.append({ type: "flow-command", command })
+        runs.pending(command)
         setTranscript((current) =>
           Transcript.run(current, {
             surface: `flow:${command.id}`,
@@ -2418,7 +2435,8 @@ export function App(props: AppProps) {
       return Dispatch.overviewKey(key, {
         pane: overviewPane,
         worker: overviewWorker,
-        monitor: overviewRow?.monitor?.id
+        monitor: overviewRow?.monitor?.id,
+        run: overviewPane === "tree" && flowActions(overviewRow?.run).stop ? overviewRow?.run?.id : undefined
       }, {
         close: () =>
           flushSync(() => {
@@ -2428,6 +2446,7 @@ export function App(props: AppProps) {
           }),
         release: () => flushSync(() => setPanelFocus(false)),
         stopMonitor: (id) => actRef.current({ act: "monitor", id }),
+        stopRun: runs.cancel,
         pane: () => {
           if (
             overviewRow?.run === undefined && overviewRow?.monitor === undefined && overviewRow?.target === undefined
@@ -2734,7 +2753,7 @@ export function App(props: AppProps) {
     : footerContext === "overview"
     // `d` and `u` act on a settled worker; a monitor has no cards, graph or view to open.
     ? [
-      ...(overviewRow?.monitor === undefined ? [] : cardHint("stop")),
+      ...(overviewRow?.monitor !== undefined || flowActions(overviewRow?.run).stop ? cardHint("stop") : []),
       ...(overviewRow?.target === undefined ? [] : [...cardHint("overview-approve"), ...cardHint("overview-deny")]),
       ...(canDiff(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-diff") : []),
       ...(canUndo(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-undo") : []),

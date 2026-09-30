@@ -156,6 +156,8 @@ export interface Run {
   readonly requested: string
   readonly status: Lifecycle.Status
   readonly runId?: string
+  /** A slash command never admitted to execution, including its saved stop or refusal. */
+  readonly pendingCommand?: true
   /** When the current attempt began: a retry or resume restarts it. */
   readonly startedAt: number
   /** When the control plane started the attempt, after any queue, input or approval wait. */
@@ -246,7 +248,7 @@ const active = (run: Run) => running(run) || run.status === "input"
  * approves its open request and resumes it, in place of Resume.
  */
 export const actions = (run: Run | undefined): { retry: boolean; continue: boolean; stop: boolean } => ({
-  retry: run !== undefined && (run.status === "failed" || run.status === "cancelled"),
+  retry: run !== undefined && !run.pendingCommand && (run.status === "failed" || run.status === "cancelled"),
   continue: run?.status === "parked",
   stop: run !== undefined && (active(run) || run.status === "queued" || run.status === "parked")
 })
@@ -362,13 +364,14 @@ export class FlowRuns {
       occupied?: (id: string) => boolean
       port?: Port | undefined
       persist: (record: Session.Record) => void
+      commands?: ReadonlyArray<Session.FlowCommand> | undefined
       restored?: ReadonlyArray<Run> | undefined
     }
   ) {
     this.runs = new Lifecycle.Pool<Run>({
       name: "flow",
       seats,
-      holdsSeat: active,
+      holdsSeat: (run) => !run.pendingCommand && active(run),
       persist: (run) => options.persist({ type: "flow", run }),
       admit: (run) => {
         const attempt = this.attempt(run.id)
@@ -377,11 +380,12 @@ export class FlowRuns {
       }
     })
     for (const run of options.restored ?? []) {
-      // Anything unsettled, including statuses older builds wrote, resumes as interrupted.
-      if (!Lifecycle.settled(run.status)) {
+      // Unadmitted commands resume discovery; other unfinished runs are interrupted.
+      if (!Lifecycle.settled(run.status) && !run.pendingCommand) {
         this.runs.move({ ...run, message: interrupted, failure: undefined, endedAt: Date.now() }, "fail")
       } else this.runs.adopt(run)
     }
+    for (const command of options.commands ?? []) this.pending(command)
   }
   /** Idempotent background host opening, independent of request acknowledgments. */
   warm = (): void => {
@@ -532,6 +536,32 @@ export class FlowRuns {
     this.attempts.set(id, next)
     return next
   }
+  /** Discovery is work too: its persisted run supports the same Open and Stop controls. */
+  pending = (command: Session.FlowCommand): void => {
+    if (this.runs.has(command.id) || this.options.occupied?.(command.id)) return
+    this.runs.put({
+      id: command.id,
+      flow: command.flow,
+      by: "user",
+      input: {},
+      requested: command.argument,
+      startedAt: command.at,
+      status: "requested",
+      pendingCommand: true
+    })
+  }
+  /** A worker admission replaces its discovery placeholder. */
+  dispatched = (id: string): void => {
+    if (!this.runs.get(id)?.pendingCommand) return
+    this.runs.forget(id)
+    this.changed()
+  }
+  /** Keep a durable refusal before the pending dispatch is retired. */
+  rejectCommand = (id: string, failure: string): void => {
+    const run = this.runs.get(id)
+    if (run === undefined || run.status === "cancelled") return
+    this.runs.move({ ...run, endedAt: Date.now(), message: failure, failure }, "fail")
+  }
   request = (request: Request): { id: string; status: Run["status"] } => {
     if (this.closed) throw new TabError("closed", "Session closed")
     if (this.options.port === undefined) throw new TabError("flows_unavailable", "Flows unavailable")
@@ -540,7 +570,11 @@ export class FlowRuns {
     }
     if (this.unloaded(request.flow)) throw unloaded(request.flow)
     const requested = JSON.stringify(request.input)
-    const existing = request.id === undefined ? undefined : this.runs.get(request.id)
+    let existing = request.id === undefined ? undefined : this.runs.get(request.id)
+    if (existing?.pendingCommand && existing.status === "requested") {
+      this.runs.forget(existing.id)
+      existing = undefined
+    }
     if (existing !== undefined) {
       if (existing.flow !== request.flow || existing.requested !== requested) {
         throw new Error("Request id already belongs to another request")

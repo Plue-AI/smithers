@@ -245,9 +245,11 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly worker: Tab | undefined
   /** The selected monitor's id. */
   readonly monitor?: string | undefined
+  readonly run?: string | undefined
 }, act: {
   readonly close: () => void
   readonly stopMonitor: (id: string) => void
+  readonly stopRun?: (id: string) => void
   readonly release: () => void
   readonly pane: () => void
   readonly tree: (step: -1 | 1) => void
@@ -291,6 +293,7 @@ export const overviewKey = (key: KeyEvent, state: {
     if (Keys.bindingFor(key, "panel")?.id === "stop") act.stopMonitor(state.monitor)
     return
   }
+  if (state.run !== undefined && Keys.bindingFor(key, "panel")?.id === "stop") return act.stopRun?.(state.run)
   const worker = state.worker
   const binding = worker === undefined ? undefined : workerBinding(key)
   const action = binding === undefined || worker === undefined ? undefined : Tabs.actionFor(binding, worker)

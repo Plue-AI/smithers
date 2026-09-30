@@ -263,6 +263,9 @@ test("/flow <agent> before discovery persists and shows its request, then dispat
   expect(JSON.stringify(records())).toContain("/flow review Check math.js")
   expect(frame()).toContain("/flow review Check math.js")
   expect(frame()).toMatch(/review.*requested/)
+  await key("TAB")
+  await key("RETURN")
+  expect(frame()).toContain("Requested.")
   await act(async () => {
     gate.resolve(listed)
     await setImmediate()
@@ -270,6 +273,8 @@ test("/flow <agent> before discovery persists and shows its request, then dispat
   await waitFor(() => bodies.length === 1)
   expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Check math.js", agent: { name: "review" } })
   expect(records().filter((record) => record.type === "run")).toEqual([])
+  await waitFor(() => frame().includes("Subagent"))
+  expect(frame()).not.toContain("Unknown run")
 })
 
 test("an undiscovered /flow request survives restart and ignores the old discovery without duplicating agent admission", async () => {
@@ -402,6 +407,8 @@ test("recovery retires an agent request admitted before its dispatch receipt wit
   await mount(file)
   await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
   expect(Session.restore(Session.load(file)).workspace.tabs).toHaveLength(1)
+  expect(Session.restore(Session.load(file)).flows).toEqual([])
+  expect(frame()).not.toContain("Working")
   expect(Session.restore(Session.load(file)).workspace.tabs[0]!.id).toBe(admitted.id)
   expect(bodies).toHaveLength(1)
   expect(turns).toHaveLength(1)
@@ -574,4 +581,134 @@ test("Stop confirmation cannot follow a failed worker into its retry", async () 
   expect(cancellations).toEqual([])
   expect(tabs().at(-1)!.tab.status).toBe("running")
   expect(frame()).not.toContain("Stop Retry review?")
+})
+
+test("an unresolved discovery run opens from Chat, restores, stops, and never dispatches afterward", async () => {
+  const stale = await remountUndiscovered()
+  let starts = 0
+  flows = {
+    ...flows,
+    start: async () => {
+      starts++
+      return "unexpected"
+    }
+  }
+  await command("/flow module a=1")
+  const file = Session.list(cwd)[0]!.file
+  const requested = Session.restore(Session.load(file)).flows[0]!
+  expect(requested).toMatchObject({ status: "requested", pendingCommand: true })
+  await key("TAB")
+  await key("RETURN")
+  expect(frame()).toContain("Requested.")
+  expect(frame()).not.toContain("Unknown run")
+  expect(frame()).toMatch(/x.*Stop/)
+
+  const current = await remountUndiscovered(file)
+  await key("TAB")
+  await key("RETURN")
+  expect(frame()).toContain("Requested.")
+  await key("x")
+  expect(frame()).toContain("Stopped.")
+  expect(frame()).not.toMatch(/r.*Retry/)
+  expect(Session.restore(Session.load(file)).flows[0]).toMatchObject({ status: "cancelled", pendingCommand: true })
+  await act(async () => {
+    stale.resolve(listed)
+    current.resolve(listed)
+    await setImmediate()
+  })
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  expect(starts).toBe(0)
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  await mount(file, 80, 24)
+  expect(frame()).toContain("■ module")
+  expect(Session.restore(Session.load(file)).flows).toHaveLength(1)
+  expect(Session.restore(Session.load(file)).flows[0]!.status).toBe("cancelled")
+  expect(starts).toBe(0)
+  await command("/new")
+  expect(frame()).not.toContain("Stop running work first")
+  expect(frame()).not.toContain("/flow module a=1")
+})
+
+test("Summary stops unresolved discovery while Chat remains usable and cancellation survives reload before discovery", async () => {
+  const stale = await remountUndiscovered()
+  await command("/flow review Check math.js")
+  const file = Session.list(cwd)[0]!.file
+  await key("s", { ctrl: true })
+  await key("DOWN")
+  expect(frame()).toMatch(/x.*Stop/)
+  await key("x")
+  expect(Session.restore(Session.load(file)).flows[0]!.status).toBe("cancelled")
+  await key("ESCAPE")
+  await command("Explain this directory")
+  await waitFor(() => turns.length === 1)
+  const stoppedId = Session.restore(Session.load(file)).flows[0]!.id
+  expect(() => turns[0]!.input.runtime!.delegate!({ id: stoppedId, title: "Other work", prompt: "Other work" }))
+    .toThrow("Request id already belongs to a flow run")
+  turns[0]!.gate.resolve({ _tag: "done", answer: "Directory answer" })
+  await waitFor(() => records().some((record) => record.type === "outcome" && record.outcome._tag === "done"))
+  expect(frame()).toContain("Explain this directory")
+  const current = await remountUndiscovered(file)
+  expect(frame()).toContain("■ review")
+  await act(async () => {
+    stale.resolve(listed)
+    current.resolve(listed)
+    await setImmediate()
+  })
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  expect(bodies).toEqual([])
+  expect(turns).toHaveLength(1)
+  expect(Session.restore(Session.load(file)).flows[0]).toMatchObject({ status: "cancelled", pendingCommand: true })
+})
+
+test("dispatch parsing failure stays on its Chat card after toast expiry and session restoration", async () => {
+  await command("/flow module {oops")
+  const file = Session.list(cwd)[0]!.file
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  const failed = Session.restore(Session.load(file)).flows[0]!
+  expect(failed).toMatchObject({ flow: "module", status: "failed", failure: "Invalid JSON" })
+  await waitFor(() => frame().includes("Invalid JSON"))
+  expect(frame()).toContain("✗ module")
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 4300))
+  })
+  await render()
+  expect(frame()).toContain("Invalid JSON")
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  await mount(file, 80, 24)
+  expect(frame()).toContain("✗ module")
+  expect(frame()).toContain("Invalid JSON")
+  expect(Session.restore(Session.load(file)).flows[0]).toEqual(failed)
+  expect(Session.restore(Session.load(file)).flowCommands).toEqual([])
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+}, 10000)
+
+test("a dispatch admission refusal persists its failed outcome before retiring discovery", async () => {
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  flows = { ...flows, warm: async () => {}, loaded: async () => ({ flows: [], refused: [] }) }
+  mkdirSync(join(cwd, "flows"), { recursive: true })
+  await mount(undefined, 80, 24)
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  })
+  await command("/flow module a=1")
+  const file = Session.list(cwd)[0]!.file
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  const failed = Session.restore(Session.load(file)).flows[0]!
+  expect(failed).toMatchObject({ status: "failed", failure: "Restart to load module." })
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  await mount(file, 80, 24)
+  expect(frame()).toContain("Restart to load module.")
+  expect(frame()).toContain("✗ module")
+  expect(Session.restore(Session.load(file)).flows[0]).toEqual(failed)
 })

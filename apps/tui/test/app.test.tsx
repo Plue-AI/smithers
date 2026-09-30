@@ -406,7 +406,10 @@ test("background flow launch acknowledges durably while both launch and remote c
   expect(starts).toEqual([{}])
   expect(watches).toEqual([])
   const flowRecords = () => records().filter((record) => record.type === "flow").map((record) => record.run)
-  expect(flowRecords().map((run) => run.status)).toEqual(["requested"])
+  expect(flowRecords().map((run) => ({ status: run.status, pendingCommand: run.pendingCommand }))).toEqual([
+    { status: "requested", pendingCommand: true },
+    { status: "requested", pendingCommand: undefined }
+  ])
   await type("Chat during launch")
   expect(await draw()).toContain("Chat during launch")
   await enter()
@@ -651,10 +654,16 @@ test("required flow input parks in a visible form and only valid submission reac
   await waitFor(() => starts.length === 1)
   expect(starts).toEqual([{ title: "Review the build" }])
   expect(turns).toHaveLength(0)
-  expect(records().filter((record) => record.type === "flow").map((record) => record.run.status)).toEqual([
-    "requested",
-    "input",
-    "requested"
+  expect(
+    records().filter((record) => record.type === "flow").map((record) => ({
+      status: record.run.status,
+      pendingCommand: record.run.pendingCommand
+    }))
+  ).toEqual([
+    { status: "requested", pendingCommand: true },
+    { status: "requested", pendingCommand: undefined },
+    { status: "input", pendingCommand: undefined },
+    { status: "requested", pendingCommand: undefined }
   ])
 })
 

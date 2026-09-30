@@ -181,7 +181,11 @@ test("/flow on a flow added after launch says Restart to load instead of No flow
   await press("RETURN")
   await waitFor(() => frame().includes("Restart to load echo-label."))
   expect(frame()).not.toContain("No flow named")
-  expect(records().filter((record) => record.type === "flow")).toEqual([])
+  expect(Session.restore(records()).flows).toMatchObject([{
+    flow: "echo-label",
+    status: "failed",
+    failure: "Restart to load echo-label."
+  }])
 })
 
 test("a flow form shows every field and its choices, with no estimate toast", async () => {
