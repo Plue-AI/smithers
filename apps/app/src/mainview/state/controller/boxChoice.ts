@@ -18,7 +18,10 @@ export const refuseOrPickBox = (
 ): string | { readonly value: string } => {
   if (ctx.commandActor !== "user" || renderFlowForm === undefined) return refusal.error
   if (refusal.choices !== undefined) {
-    const rendered = renderFlowForm({ name: "box.select", args: flowArgs("box.select", act), via: "user" })
+    // A caller may also carry continuation metadata; box.select accepts only this act's fields.
+    const rendered = renderFlowForm({ name: "box.select", args: flowArgs("box.select", {
+      repo: act.repo, flow: act.flow, args: act.args
+    }), via: "user" })
     return rendered === undefined ? refusal.error : { value: formRenderedText(rendered.missing) }
   }
   if (refusal.noBox === true && openTitle !== undefined) {

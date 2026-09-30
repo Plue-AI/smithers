@@ -189,6 +189,7 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../LocalAuthPanel.tsx": ["onSubmit={submit}", "close(event.currentTarget.ownerDocument)", "onClick: () => auth.open()"],
   // Bootstrap recovery runs before a controller exists. Backend selection
   // stays in the boot adapter; its credential must never enter a command journal.
+  "../AppRoot.tsx": ["onClick={() => window.location.reload()}"], // saved-store failure blocks the command journal; Reload reopens storage
   "../StartupError.tsx": [
     "onClick={useSmithersHere}", "onClick={() => window.location.reload()}", "onClick: () => window.location.reload()",
     "onClick={() => setChoosing(true)}", "await switchBackend(origin, token)"
@@ -199,7 +200,7 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/WorkflowCards.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
-  "../SubagentGrid.tsx": ["setFilesOpen("], // a card's files list is a disclosure with no address
+  "../SubagentGrid.tsx": ["setFilesOpen(", "onClick={onOpen}"], // files and earlier-batch rows are local disclosures
 }
 
 const routesThroughRegistry = (context: string): boolean =>
@@ -292,6 +293,7 @@ describe("launch-law parity: every affordance is a command", () => {
       // +1 (Librarian L5): the Wiki pane's Graph button, the button door of wiki.graph.
       "../AgentMark.tsx": 1, // A persona that resolves to an agent profile is a door to the roster.
       "../App.tsx": 4, // -1: the shell has four handlers; main's five-count baseline was already stale.
+      "../AppRoot.tsx": 1, // saved-store recovery Reload, with no writable command journal.
       "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 4,
@@ -299,7 +301,7 @@ describe("launch-law parity: every affordance is a command", () => {
     "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
-    "../SubagentGrid.tsx": 6, // + the ctrl+s overview (#2190): its tree rows and its close
+    "../SubagentGrid.tsx": 7, // + the ctrl+s overview (#2190), plus earlier-batch disclosure
       "../FlowsSurface.tsx": 2,
       "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
@@ -428,8 +430,8 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
-      // THE FORM LAW (flow-forms.md): the generic form's Cancel (card.dismiss) and Submit (form.submit); fields commit on blur/change.
-      "../cards/FlowFormCards.tsx": 2,
+      // THE FORM LAW (flow-forms.md): Cancel (card.dismiss), Submit (form.submit), and the retained PR Review (form.submit); fields commit on blur/change.
+      "../cards/FlowFormCards.tsx": 3,
       // The plan card's one door, in its two states: Run once a plan exists, Plan again once one was refused.
       "../cards/FlowPlanCard.tsx": 2,
       // The run graph's bar: back to the turns, and the camera switch.
