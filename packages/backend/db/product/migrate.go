@@ -121,6 +121,7 @@ var migrationRegistry = []migrationSpec{
 	{83, "migrations/0083_organization_visibility_private_default.sql"},
 	{84, "migrations/0084_named_workspaces.sql"},
 	{85, "migrations/0085_model_usage_bound_tokens.sql"},
+	{86, "migrations/0086_model_usage_created_at.sql"},
 }
 
 type migration struct {

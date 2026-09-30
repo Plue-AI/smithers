@@ -9,9 +9,10 @@ The database authority is not read-only. Admission persists usage projections
 and may apply an idempotent monthly credit grant.
 
 `Usage` reports complete values. Private adapters can embed `ProductUsage` and
-override the private-repository count, storage totals, sandbox reservations,
-and counted resumes where private allocations contribute. A private repository
-whose creation is reserved but not yet published counts toward the cap. A storage allocation represented by both
+override the repository and private-repository counts, storage totals, sandbox
+reservations, and counted resumes where private allocations contribute. A
+repository whose creation is reserved but not yet published counts toward the
+repository cap, and toward the private-repository cap when private. A storage allocation represented by both
 pending and final deletion records must count once. Preserve deleted-repository
 owner tombstones, gateway reservations, and agent/workspace deduplication.
 

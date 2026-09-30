@@ -334,7 +334,7 @@ func TestWorkflowRunService_CancelRun_CompletesGitHubCheckRunForActiveRun(t *tes
 	assert.Equal(t, "demo", call.repo)
 	assert.Equal(t, int64(1234), call.checkRunID)
 	assert.Equal(t, "completed", call.update.Status)
-	assert.Equal(t, "neutral", call.update.Conclusion)
+	assert.Equal(t, "cancelled", call.update.Conclusion)
 	require.NotNil(t, call.update.Output)
 	assert.Equal(t, "Workflow cancelled", call.update.Output.Title)
 	assert.Contains(t, call.update.Output.Summary, "run #7")
