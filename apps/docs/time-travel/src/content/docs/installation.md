@@ -62,8 +62,8 @@ a caller never names.
 `@smthrs/time-travel/package.json` is exported.
 
 The root entry point is a browser contract: it bundles with no `node:` built-in,
-including `SqlTimeTravelStore`, which needs a SQLite-speaking `SqlClient` rather
-than a Node binding.
+including `SqlTimeTravelStore`, which needs an injected SQLite or PostgreSQL
+`SqlClient` rather than a Node binding.
 
 ## Reaching the service through the umbrella
 

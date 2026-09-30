@@ -21,7 +21,7 @@ const program = Effect.gen(function*() {
 | Import                                   | Source                                                                                                                                      | Notes                                                                                |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `@smthrs/time-travel`                    | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/index.ts)                           | The barrel is a browser-contract entry point and bundles without a `node:` built-in. |
-| `@smthrs/time-travel/SqlTimeTravelStore` | [src/SqlTimeTravelStore.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/SqlTimeTravelStore.ts) | SQLite dialect only. Any SQLite-speaking `SqlClient` runs it.                        |
+| `@smthrs/time-travel/SqlTimeTravelStore` | [src/SqlTimeTravelStore.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/SqlTimeTravelStore.ts) | Runs on an injected SQLite or PostgreSQL `SqlClient`.                                |
 
 The barrel exports `TimeTravel` and `ReadOnlyTimeTravel` flat, and
 the other modules as namespaces. It re-exports the rest of the `TimeTravel`
@@ -426,7 +426,7 @@ lineageId?, payload, eventType? }`. `MemoryState` is the whole world as
 
 ## SqlTimeTravelStore
 
-The durable store, SQLite dialect only.
+The durable store, over an injected SQLite or PostgreSQL `SqlClient`.
 
 ```ts
 const migrate: Effect<void, unknown, SqlClient>
@@ -555,12 +555,12 @@ as its identity, classification, and reason, never as the effect's `input`,
 
 ## Limits
 
-- The durable store is SQLite dialect only. Its DDL uses `typeof()` and
-  `json_valid` CHECK constraints, and its reads use `json_extract` with `$`
-  paths, so any SQLite-speaking `SqlClient` runs it and nothing else does.
-  PostgreSQL and PGlite are unsupported. Archive writes use strict `INSERT`
-  keyed by `(run_id, generation, seq)`; a collision rolls back the archive
-  transaction.
+- The durable store runs on the SQL client it is given, SQLite or PostgreSQL.
+  The client's dialect selects its CHECK constraints, JSON extraction, and
+  recursive lineage queries; the migration rungs are the same on both. Other
+  dialects, including MySQL, are unsupported. Archive writes use strict
+  `INSERT` keyed by `(run_id, generation, seq)`; a collision rolls back the
+  archive transaction.
 - Journal reads page at 100 entries by default. `pageSize` is a throughput knob
   and never changes a derived answer.
 - Every read is capped by `maxHistoryEntries`. The default is 100,000 entries;

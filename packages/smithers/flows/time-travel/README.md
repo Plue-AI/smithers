@@ -14,7 +14,7 @@ read, `fork` branches, and `rewind` truncates. Each acts at a _frame_, a point
 in the run's committed journal, and none of them re-executes anything.
 
 The service folds the journal a run already wrote, so a replay costs nothing
-and cannot change the run. It ships in-memory and SQLite state stores, and it
+and cannot change the run. It ships an in-memory store and a SQL store for SQLite or PostgreSQL, and it
 reads the effect-boundary evidence that decides whether a rewind is safe.
 
 ## Install
@@ -106,7 +106,8 @@ discarded future cannot answer them.
 
 ## Limits
 
-- The SQL store is SQLite dialect only. PostgreSQL and PGlite are unsupported.
+- The SQL store runs on an injected SQLite or PostgreSQL `SqlClient`. Other
+  dialects, including MySQL, are unsupported.
 - Journal reads page at 100 entries by default; `pageSize` is a throughput knob
   and never changes a derived answer.
 - Every read is capped by `maxHistoryEntries`: the prefix a replay folds, or

@@ -182,10 +182,10 @@ recurring ones:
 failure. The original cause is attached.
 
 **What to change.** Read the cause. One specific case is worth naming: the
-durable store is SQLite dialect only, so pointing it at PostgreSQL or MySQL
-fails on the DDL. Its CHECK constraints use `typeof()` and `json_valid`, and
-its reads use `json_extract`. Archive writes use strict `INSERT` keyed by
-`(run_id, generation, seq)`; a collision rolls back the archive transaction.
+durable store supports SQLite and PostgreSQL clients only, so pointing it at
+another dialect, such as MySQL, fails on the DDL. Archive writes use strict
+`INSERT` keyed by `(run_id, generation, seq)`; a collision rolls back the
+archive transaction.
 
 ## A fork re-executed a sealed step
 

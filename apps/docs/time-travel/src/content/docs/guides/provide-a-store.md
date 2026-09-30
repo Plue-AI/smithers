@@ -57,12 +57,13 @@ handoff decisions. Descendant and archive queries probe these indexes for
 each reachable parent run. Migration `5003` adds them to existing databases;
 building `SqlTimeTravelStore` applies that same recorded rung.
 
-**The store is SQLite dialect only.** Its DDL uses `typeof()` and `json_valid`
-CHECK constraints, and its reads use `json_extract` with `$` paths. Any
-SQLite-speaking `SqlClient` runs it, whether wa-sqlite, libsql, or the Node or
-Bun built-in. PostgreSQL and MySQL are unsupported; a portable dialect would
-require a redesign. Archive writes use strict `INSERT` keyed by
-`(run_id, generation, seq)`; a collision rolls back the archive transaction.
+**The store runs on SQLite or PostgreSQL.** It uses the `SqlClient` the
+composition injects, and that client's dialect selects the CHECK constraints,
+JSON extraction, and recursive lineage queries; the migration rungs are the
+same on both. `@smthrs/database` provides the SQLite and PostgreSQL
+adapters. Other dialects, including MySQL, are unsupported. Archive writes use
+strict `INSERT` keyed by `(run_id, generation, seq)`; a collision rolls back
+the archive transaction.
 
 ## Run the migrations on the shared ladder
 
