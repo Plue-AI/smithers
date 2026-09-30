@@ -140,10 +140,16 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 // catalog's metered proxy with a per-binding credential (#2187).
 func codingHostEnvironment(role topology) map[string]string {
 	environment := make(map[string]string)
-	for _, name := range []string{"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "SMITHERS_JJ_PATH"} {
-		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-			environment[name] = value
-		}
+	// The API image carries the helper at a different path from the workspace
+	// guest. Passing its own path to a hosted child makes the child exit before
+	// opening the readiness port. Local hosts still use the operator's path.
+	if role.hosted() {
+		environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = services.WorkspaceJJExportGuestPath
+	} else if value := strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")); value != "" {
+		environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SMITHERS_JJ_PATH")); value != "" {
+		environment["SMITHERS_JJ_PATH"] = value
 	}
 	if !role.hosted() {
 		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"

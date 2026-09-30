@@ -1,6 +1,10 @@
 package compose
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+)
 
 // A Flow host shares its workspace (and, in microVM mode, its guest user)
 // with repository commands, so its environment must never carry a provider
@@ -12,11 +16,16 @@ func TestFlowHostsCarryNoProviderKeyInAnyTopology(t *testing.T) {
 	for _, name := range names {
 		t.Setenv(name, "set-by-operator")
 	}
-	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "/opt/smithers/bin/smithers-jj-export")
+	apiHelper := "/usr/local/lib/smithers/smithers-jj-export"
+	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", apiHelper)
 	for _, role := range []topology{localTopology, hostedAPITopology, hostedWorkerTopology} {
 		environment := codingHostEnvironment(role)
-		if environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] != "/opt/smithers/bin/smithers-jj-export" {
-			t.Errorf("%+v coding host lost the packaged Rust helper path", role)
+		wantHelper := apiHelper
+		if role.hosted() {
+			wantHelper = services.WorkspaceJJExportGuestPath
+		}
+		if environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] != wantHelper {
+			t.Errorf("%+v coding host helper = %q, want %q", role, environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"], wantHelper)
 		}
 		for _, name := range names {
 			if _, ok := environment[name]; ok {
@@ -27,6 +36,15 @@ func TestFlowHostsCarryNoProviderKeyInAnyTopology(t *testing.T) {
 	local := codingHostEnvironment(localTopology)
 	if local["SMITHERS_CODING_LOCAL_OWNER"] != "1" {
 		t.Fatal("local coding host lost its local owner mode")
+	}
+	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "")
+	if _, ok := codingHostEnvironment(localTopology)["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]; ok {
+		t.Fatal("local coding host invented a helper path")
+	}
+	for _, role := range []topology{hostedAPITopology, hostedWorkerTopology} {
+		if got := codingHostEnvironment(role)["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]; got != services.WorkspaceJJExportGuestPath {
+			t.Errorf("%+v coding host helper without an API path = %q, want guest path", role, got)
+		}
 	}
 }
 

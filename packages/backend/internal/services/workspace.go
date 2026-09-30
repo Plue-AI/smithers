@@ -116,9 +116,12 @@ const (
 	// Smoke-run logs for the two staged binaries. The bootstrap templates name
 	// these paths literally; the artifact tests redirect them to a temp dir and
 	// assert the constants stay in step with the rendered script.
-	workspaceCodingHostSmokeLog  = "/tmp/smithers-workspace-coding-host-smoke.log"
-	workspaceJJExportSmokeLog    = "/tmp/smithers-workspace-jj-export-smoke.log"
-	workspaceJJExportPath        = "/usr/local/bin/smithers-jj-export"
+	workspaceCodingHostSmokeLog = "/tmp/smithers-workspace-coding-host-smoke.log"
+	workspaceJJExportSmokeLog   = "/tmp/smithers-workspace-jj-export-smoke.log"
+	workspaceJJExportPath       = "/usr/local/bin/smithers-jj-export"
+	// WorkspaceJJExportGuestPath is the executable installed by every workspace
+	// bootstrap. Hosted Flow hosts run inside that guest, not in the API image.
+	WorkspaceJJExportGuestPath   = workspaceJJExportPath
 	workspaceJJExportB64Path     = workspaceArtifactCurrent + "/smithers-workspace-jj-export.b64"
 	workspaceJJExportBinaryEnv   = "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"
 	workspaceDefaultJJExportPath = "/usr/local/lib/smithers/smithers-jj-export"
