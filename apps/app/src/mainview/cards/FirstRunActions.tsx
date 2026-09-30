@@ -2,23 +2,38 @@ import type { RepositoryJob } from "@smthrs/rpc/RepositorySetup"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useController } from "../ControllerContext"
 import { dynamicFlowAction, flowAction } from "../flows/FlowAction"
+import { repositoryFlowName } from "../flows/entries/flow"
 import { unmetRequirements,visible,type CatalogItem,type CommandState } from "../flows/registry"
 import { accountOwnerOf } from "../state/AccountOwner"
 import { activeCatalogRepositoryId, activeRepositoryId } from "../state/RepoContext"
 import { repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
+import type { RepositoryFlow } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import "./FirstRunActions.css"
 
 /** Recommendation policy projects real commands; the full catalog stays in Chat. */
 export const FIRST_RUN_JOBS = ["issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup"] as const
 
-export function firstRunGroups(commands: readonly CatalogItem[], state: CommandState) {
+export function firstRunGroups(commands: readonly CatalogItem[], state: CommandState, featuredFlows: ReadonlyArray<RepositoryFlow> = []) {
   const catalog = visible(commands)
-  const flows = FIRST_RUN_JOBS.flatMap(name => {
+  const available = (name: string) => {
     const flow = catalog.find(item => item.name === name)
-    return flow && unmetRequirements(flow, state).length === 0 ? [flow] : []
+    return flow && unmetRequirements(flow, state).length === 0 ? flow : undefined
+  }
+  const jobs = FIRST_RUN_JOBS.flatMap(name => {
+    const flow = available(name)
+    return flow === undefined ? [] : [flow]
   })
-  return flows.length ? [{ namespace: "repository", flows }] : []
+  // A repository's featured rows already have executable slash leaves. The
+  // workflow identity keeps a row colliding with an app command out of sight.
+  const featured = featuredFlows.filter(row => row.featured).flatMap(row => {
+    const flow = available(repositoryFlowName(row.id))
+    return flow?.workflow === row.id ? [flow] : []
+  })
+  return [
+    ...(jobs.length ? [{ namespace: "repository", label: "Repository jobs", flows: jobs }] : []),
+    ...(featured.length ? [{ namespace: "featured", label: "Featured flows", flows: featured }] : [])
+  ]
 }
 
 /** A configured job reads its state; a job with none is still its own name. */
@@ -46,10 +61,11 @@ const JobPicture = ({ flow }: { flow: string }) => {
   return picture === undefined ? null : <svg className="first-run-picture" viewBox="0 0 100 60" aria-hidden="true" dangerouslySetInnerHTML={{ __html: picture }} />
 }
 
-export function FirstRunActionsCard({ commands, state, repo, jobStates, onRunCommand: dispatchFlow, onDismiss }: {
+export function FirstRunActionsCard({ commands, state, repo, featuredFlows = [], jobStates, onRunCommand: dispatchFlow, onDismiss }: {
   commands: readonly CatalogItem[]
   state: CommandState
   repo?: string
+  featuredFlows?: ReadonlyArray<RepositoryFlow>
   jobStates?: Partial<Record<RepositoryJob, string>>
   onRunCommand: RunDynamicCommand
   onDismiss: () => void
@@ -60,12 +76,13 @@ export function FirstRunActionsCard({ commands, state, repo, jobStates, onRunCom
     dispatchFlow(flow, args)
   }
   // A job with a recorded state is one the person has set up: it checks off (Will, 2026-09-20).
-  const done = (flow: string) => jobState(jobStates, flow) !== null
   return <section className="first-run-actions" data-testid="first-run-actions" aria-label="Learn how to">
     <header><h2>Learn how to</h2><button type="button" aria-label="Dismiss" {...flowAction(onRunCommand, "app.first-run.dismiss")}>×</button></header>
-    {firstRunGroups(commands, state).map(group => <section key={group.namespace} aria-label="Repository jobs">
-      {group.flows.map(flow => <button type="button" key={flow.name} data-done={done(flow.name) || undefined} {...dynamicFlowAction(onRunCommand, flow.name, repo)}>
-        <JobPicture flow={flow.name} />{flow.summary}{jobState(jobStates, flow.name)}</button>)}
+    {firstRunGroups(commands, state, featuredFlows).map(group => <section key={group.namespace} aria-label={group.label}>
+      {group.flows.map(flow => <button type="button" key={flow.name}
+        data-done={group.namespace === "repository" && jobState(jobStates, flow.name) !== null || undefined}
+        {...dynamicFlowAction(onRunCommand, flow.name, repo)}>
+        <JobPicture flow={flow.name} />{flow.summary}{group.namespace === "repository" ? jobState(jobStates, flow.name) : null}</button>)}
     </section>)}
   </section>
 }
@@ -82,13 +99,15 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
   const { data: cards } = useLiveQuery(collections.cards)
   useLiveQuery(collections.repositories)
   // Repository flow leaves change with this collection.
-  useLiveQuery(collections.repositoryFlows)
+  const { data: repositoryCatalogs } = useLiveQuery(collections.repositoryFlows)
   const session = sessions[0]
   if (session?.dismissed ?? controller.store.session().firstRunDismissed) return null
   const identity = identities[0]
-  const repo = session?.repositoryEntry?.repo ?? activeRepositoryId(controller.store) ?? undefined
+  const repo = activeRepositoryId(controller.store) ?? controller.repositoryFlows?.()?.repo ?? session?.repositoryEntry?.repo ?? undefined
   const owner = accountOwnerOf(identity) ?? null
+  const featuredFlows = repo === undefined ? [] : repositoryCatalogs.find(row => row.id === repo)?.flows ?? []
   return <FirstRunActionsCard commands={commands ?? controller.commands.all()}
+    featuredFlows={featuredFlows}
     repo={repo} jobStates={repo === undefined ? undefined : repositoryJobStates(cards, repo, owner)} state={{
     surface: session?.surface ?? "chat", typing: session?.phase === "responding", plugins: session?.plugins,
     signedOut: identity?.state === "signed-out", admin: identity?.admin === true,

@@ -211,6 +211,7 @@ export const repositoryFlowLeaves = (
       flow({
         name,
         summary: row.summary ?? firstLine(row.description),
+        workflow: row.id,
         runtime: ["cloud"],
         requires: ["signed-in"],
         args: "[owner/repo] [JSON object]",

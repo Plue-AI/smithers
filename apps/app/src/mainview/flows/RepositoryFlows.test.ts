@@ -23,6 +23,7 @@ import { visibleItems } from "./Commands"
 import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
 import { loadBox } from "../state/TestFixtures"
+import { firstRunGroups, FIRST_RUN_JOBS } from "../cards/FirstRunActions"
 
 setDefaultTimeout(30_000)
 
@@ -166,10 +167,24 @@ const treeNames = (rows: ReturnType<Awaited<ReturnType<typeof ready>>["controlle
   rows.map((entry) => (entry.kind === "flow" ? entry.flow.name : entry.kind === "namespace" ? `${entry.namespace.id}/` : `note:${entry.text}`))
 
 describe("the repository's flows are slash leaves", () => {
+  test("the first-run choices match only the registered featured leaves", async () => {
+    const { controller, store } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
+    try {
+      const state = { surface: "chat" as const, typing: false, signedOut: false, hasConnectors: true, admin: false }
+      expect(firstRunGroups(controller.commands.all(), state, controller.repositoryFlows()?.flows ?? [])
+        .flatMap(group => group.flows.map(flow => flow.name)))
+        .toEqual([...FIRST_RUN_JOBS, "review", "lint"])
+    } finally {
+      await controller.dispose()
+      await store.dispose?.()
+    }
+  })
+
   test("every projection row is a leaf, featured first, with the projection's summary; a `/` in an id is a namespace dot; a declared name keeps its flow", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
     expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
     expect(controller.commands.find("review")?.metadata.summary).toBe("Review the change.")
+    expect(controller.commands.find("review")?.metadata.workflow).toBe("review")
     // A null summary falls back to the description's first line, never the whole description.
     expect(controller.commands.find("lint")?.metadata.summary).toBe("Runs lint.")
     // `create-flow/clarify` lists under the synthesized create-flow namespace.

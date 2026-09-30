@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client"
 import { ControllerContext } from "../ControllerContext"
 import { createAppController, type AppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
+import type { RepositoryFlow } from "../state/AppState"
 import { FIRST_RUN_JOBS,FirstRunActions,FirstRunActionsCard,firstRunGroups } from "./FirstRunActions"
 
 GlobalRegistrator.register()
@@ -16,6 +17,9 @@ const commands = [...FIRST_RUN_JOBS.map((name, index) => ({ name, summary: jobTi
   { name: "issues.list", summary: "List issues" }, { name: "admin.health", summary: "Diagnostics" },
   { name: "chat.stop", summary: "Stop" }]
 const state = { surface: "chat" as const, typing: false, signedOut: true, hasConnectors: false, admin: false }
+const featured = (id: string, isFeatured = true): RepositoryFlow => ({
+  id, description: `Run ${id}`, summary: `${id} summary`, featured: isFeatured, model: null, modelInvocable: true
+})
 
 test("first run projects five repository jobs without diagnostic or empty-context actions", () => {
   expect(firstRunGroups(commands, state).flatMap(group => group.flows.map(flow => flow.name))).toEqual([...FIRST_RUN_JOBS])
@@ -28,6 +32,93 @@ test("missing or unavailable jobs are not invented; registry requirements still 
     { name: "feature.setup", summary: "Build a feature", requires: ["repo-source"] }]
   expect(firstRunGroups(flows, state)).toEqual([])
   expect(firstRunGroups(flows, { ...state, signedOut: false, publicRepo: true }).flatMap(group => group.flows.map(flow => flow.name))).toEqual(["ci.setup", "feature.setup"])
+})
+
+test("first run offers only executable repository-declared featured flows", () => {
+  const rows = [featured("lint"), featured("review"), featured("create-flow/clarify"), featured("release-notes", false), featured("flow.list")]
+  const catalog = [
+    ...commands,
+    { name: "lint", summary: "Lint this repository", workflow: "lint", requires: ["signed-in"] },
+    { name: "review", summary: "Review this repository", workflow: "review", requires: ["signed-in"] },
+    { name: "create-flow.clarify", summary: "Clarify a flow", workflow: "create-flow/clarify", requires: ["signed-in"] },
+    { name: "release-notes", summary: "Draft notes", workflow: "release-notes" },
+    { name: "flow.list", summary: "List the flows on your workspace", requires: ["signed-in"] },
+    { name: "hidden", summary: "Hidden", workflow: "hidden", hidden: true }
+  ]
+  expect(firstRunGroups(catalog, state, rows).map(group => group.namespace)).toEqual(["repository"])
+  const groups = firstRunGroups(catalog, { ...state, signedOut: false }, rows)
+  expect(groups.map(group => group.namespace)).toEqual(["repository", "featured"])
+  expect(groups.flatMap(group => group.flows.map(flow => flow.name))).toEqual([
+    ...FIRST_RUN_JOBS, "lint", "review", "create-flow.clarify"
+  ])
+  expect(firstRunGroups(catalog, { ...state, signedOut: false }, []).map(group => group.namespace)).toEqual(["repository"])
+  expect(firstRunGroups(catalog.filter(item => item.name !== "review"), { ...state, signedOut: false }, rows)
+    .flatMap(group => group.flows.map(flow => flow.name))).not.toContain("review")
+})
+
+test("featured buttons keep the selected repository and keyboard semantics without setup state", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const calls: Array<[string, string | undefined]> = []
+  const catalog = [
+    ...commands,
+    { name: "review", summary: "Review the change", workflow: "review", requires: ["signed-in"] },
+  ]
+  flushSync(() => root.render(<FirstRunActionsCard commands={catalog} state={{ ...state, signedOut: false }} repo="will/demo"
+    featuredFlows={[featured("review")]} jobStates={{ review: "Paused" }}
+    onRunCommand={(name, args) => calls.push([name, args])} onDismiss={() => {}} />))
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>('section[aria-label="Featured flows"] > button')]
+  expect(buttons.map(button => [button.dataset.flow, button.textContent])).toEqual([["review", "Review the change"]])
+  expect(buttons[0]?.dataset.done).toBeUndefined()
+  expect(buttons.every(button => button.type === "button" && button.tabIndex === 0 && !button.disabled)).toBe(true)
+  for (const button of buttons) button.click()
+  expect(calls).toEqual([["review", "will/demo"]])
+  flushSync(() => root.unmount())
+})
+
+test("the live first-run card follows the selected repository's featured projection", async () => {
+  const data = new Map<string, string>()
+  const store = await createAppStore({ kind: "localStorage", storage: {
+    getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) },
+  } })
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const catalog = [...commands, { name: "review", summary: "Review the change", workflow: "review", requires: ["signed-in"] }]
+  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, commands: { all: () => catalog },
+    runCommand: () => {}, dismissFirstRun: () => {} } as unknown as AppController}><FirstRunActions /></ControllerContext>))
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } }).isPersisted.promise
+    expect(store.session().repositoryEntry?.repo).toBe("will/demo")
+    render()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+    await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "will/demo", flows: [featured("review")] }).isPersisted.promise
+    expect(store.collections.repositoryFlows.get("will/demo")?.flows.map(row => row.id)).toEqual(["review"])
+    await new Promise(resolve => setTimeout(resolve, 20))
+    render()
+    expect(host.querySelector('[data-testid="first-run-actions"]')).not.toBeNull()
+    expect(host.querySelector('[data-flow="review"]')).not.toBeNull()
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
+      { id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null },
+      { id: "other/repo", org: "other", ownerKind: "user", name: "repo", head: null }
+    ] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "other/repo" }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    render()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "will/demo" }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    render()
+    expect(host.querySelector('[data-flow="review"]')).not.toBeNull()
+    await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "will/demo", flows: [] }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    render()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+  } finally {
+    flushSync(() => root.unmount())
+    await store.dispose?.()
+  }
 })
 
 test("job buttons use short registry labels and native keyboard semantics", () => {

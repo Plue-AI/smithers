@@ -120,9 +120,10 @@ export interface FlowMetadata {
    */
   readonly hosts?: ReadonlyArray<AppBootstrap["host"]>
   /**
-   * The repository flow this door launches when that is not the flow itself
-   * (`issue.implement` runs `coding/request`). The app home reads a tile's
-   * last result by it (cards/RepositoryHomeCard.tsx); nothing else does.
+   * The repository flow this door launches (`issue.implement` runs
+   * `coding/request`; a repository leaf names itself). The app home reads a tile's
+   * last result by it (cards/RepositoryHomeCard.tsx); the first-run card uses
+   * it to match featured projection rows to executable repository leaves.
    */
   readonly workflow?: string
   /**
