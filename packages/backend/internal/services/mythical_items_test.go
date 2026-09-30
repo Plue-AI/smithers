@@ -1091,7 +1091,7 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	item := submit(31, map[string]string{"src/fix.ts": "fix\n", ".github/workflows/extra.yml": "on: push\n"})
 	require.Equal(t, "blocked", item.State)
 	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/extra.yml", item.Reason)
-	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "protected_paths"}, mythicalChecksOf(item).Fault, "only a person lifts it")
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "protected_paths", Kind: "stopped"}, mythicalChecksOf(item).Fault, "only a person lifts it")
 	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")

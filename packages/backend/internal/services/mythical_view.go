@@ -91,6 +91,9 @@ type MythicalItemView struct {
 	// ReviewHeld is whether a proposed TODO waits on a review of its current
 	// head that did not finish; a person may retry it (RetryItem).
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
+	// Failure is why the item stopped or retries, typed; Reason is then its
+	// sentence (mythicalFailureOf), never an error's text.
+	Failure *MythicalFailureView `json:"failure,omitempty"`
 	// CostNanos is the settled platform-key model cost of the item's lanes,
 	// in USD nanos; pending calls and pooled subscription calls count for none.
 	CostNanos   int64                    `json:"costNanos,omitempty"`
@@ -402,6 +405,9 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
 		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
 		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source == "issue" && mythicalReviewHeld(item), DependsOn: []string{}}
+	if failure, sentence := mythicalFailureOf(item); failure != nil {
+		row.Failure, row.Reason = failure, sentence
+	}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
 	}

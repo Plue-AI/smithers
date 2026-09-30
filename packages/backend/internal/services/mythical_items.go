@@ -929,7 +929,7 @@ type mythicalItemStep struct {
 func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
 	checks := mythicalChecksOf(item)
 	if launched := checks.Launches - checks.LaunchBase; launched >= mythicalLaunchBound {
-		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "launch_bound"},
+		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "launch_bound", Kind: mythicalFailStopped},
 			fmt.Sprintf("it launched %d runs, the bound for one TODO, which usually means something went wrong", launched))
 	}
 	if st.policy == nil {
@@ -1177,10 +1177,17 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 }
 
 // retry sends an item back to a lane, or blocks it after the last attempt.
-func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.MythicalItem {
+// fault is the typed failure it retries after, nil for a retry no run's
+// failure caused (a conflict, a moved stack); the issue hears its sentence,
+// never the reason's diagnostic text.
+func mythicalRetry(item db.MythicalItem, reason string, fault *mythicalFault, now time.Time) *db.MythicalItem {
 	next := item
 	checks := mythicalChecksOf(item)
 	checks.Outages = 0
+	said := mythicalSentence(reason)
+	if fault != nil {
+		checks.Fault, said = fault, fault.sentence()
+	}
 	switch {
 	case item.Attempt < mythicalAttempts:
 		checks.Replans++
@@ -1189,12 +1196,12 @@ func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 		// Both replans failed too: the work continues once more on the last
 		// plan, marked very hard, and the issue hears it.
 		checks.VeryHard = true
-		checks.notice("very-hard", "This TODO is very hard: "+reason+". Smithers continues the last plan once.")
+		checks.notice("very-hard", "This TODO is very hard. "+said+". Smithers continues the last plan once.")
 		next.State, next.Reason = "retrying", mythicalVeryHard+reason
 		next.Attempt = item.Attempt - 1 // start runs this last attempt again
 	default:
-		checks.Fault = &mythicalFault{Class: "factory", Tag: "very_hard"}
-		checks.notice("blocked:very-hard", "Smithers stopped this TODO: it is very hard ("+reason+"). Press Retry on it in Smithers to go on.")
+		checks.Fault = &mythicalFault{Class: "factory", Tag: "very_hard", Kind: mythicalFailPlan}
+		checks.notice("blocked:very-hard", "Smithers stopped this TODO: it is very hard. "+said+". Press Retry on it in Smithers to go on.")
 		next.State, next.Reason = "blocked", mythicalVeryHard+reason
 		next.Checks = checks.encode()
 		return &next
@@ -1208,44 +1215,39 @@ func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 // and a stopped failure block the item for a person, an outage runs the
 // attempt again without spending it, and anything else is the plan's
 // failure (mythicalRetry).
-func mythicalFailure(item db.MythicalItem, what, outcome string, now time.Time) *db.MythicalItem {
+// The typed failure is recorded on the item, so its card reads the fault,
+// never prose; failed is the kind of the step's own failure (plan or
+// checks), and the next launch clears it (commit).
+func mythicalFailure(item db.MythicalItem, what, failed, outcome string, now time.Time) *db.MythicalItem {
+	fault := mythicalOutcomeFault(failed, outcome)
 	switch {
 	case outcome == mythicalCancelled:
-		return mythicalStop(item, mythicalFault{Class: "user", Tag: "cancelled"}, "the run was cancelled")
+		return mythicalStop(item, fault, "the run was cancelled")
 	case strings.HasPrefix(outcome, mythicalStopped):
-		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalStopped), ": ")
-		return mythicalStop(item, mythicalFault{Class: class, Tag: tag}, what+" "+outcome)
+		return mythicalStop(item, fault, what+" "+outcome)
 	case strings.HasPrefix(outcome, mythicalOutage):
-		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalOutage), ": ")
-		return mythicalTyped(mythicalOutageRetry(item, what+" "+outcome, now), mythicalFault{Class: class, Tag: tag})
+		return mythicalOutageRetry(item, what+" "+outcome, fault, now)
 	default:
-		return mythicalTyped(mythicalRetry(item, what+" "+outcome, now), mythicalFault{Class: "factory", Tag: strings.TrimPrefix(outcome, "failed: ")})
+		return mythicalRetry(item, what+" "+outcome, &fault, now)
 	}
-}
-
-// mythicalTyped records the typed failure an item retries after, so its
-// card reads the fault class, never prose; a stop keeps its own fault, and
-// the next launch clears it (commit).
-func mythicalTyped(next *db.MythicalItem, fault mythicalFault) *db.MythicalItem {
-	if next.State == "blocked" {
-		return next
-	}
-	checks := mythicalChecksOf(*next)
-	checks.Fault = &fault
-	next.Checks = checks.encode()
-	return next
 }
 
 // mythicalStop blocks an item for a person with its typed fault and one
-// comment on its issue.
+// comment on its issue, which says the fault's sentence; reason is the
+// item's diagnostic.
 func mythicalStop(item db.MythicalItem, fault mythicalFault, reason string) *db.MythicalItem {
 	next := item
 	checks := mythicalChecksOf(item)
 	checks.Fault = &fault
-	checks.notice("blocked:"+fault.Class+":"+fault.Tag, "Smithers stopped this TODO: "+reason+".")
+	checks.notice("blocked:"+fault.Class+":"+fault.Tag, "Smithers stopped this TODO. "+fault.sentence()+".")
 	next.State, next.Reason, next.Checks = "blocked", reason, checks.encode()
 	return &next
 }
+
+// mythicalGitHubUnreached is the reason of an item waiting because GitHub
+// could not be reached for its repository; a second pass that still cannot
+// reach it counts an outage (propose).
+const mythicalGitHubUnreached = "GitHub could not be reached for this repository"
 
 // mythicalVeryHard prefixes the reason of an item whose every attempt's plan
 // failed (mythicalRetry).
@@ -1259,15 +1261,16 @@ const mythicalOutage = "outage: "
 // an outage is never the plan's failure, so the next prompt does not say the
 // work failed. Past mythicalOutageBound consecutive outages it parks the
 // item for a person, not the TODO's fault.
-func mythicalOutageRetry(item db.MythicalItem, outcome string, now time.Time) *db.MythicalItem {
+func mythicalOutageRetry(item db.MythicalItem, outcome string, fault mythicalFault, now time.Time) *db.MythicalItem {
 	checks := mythicalChecksOf(item)
 	checks.Outages++
 	if checks.Outages > mythicalOutageBound {
 		stopped := item
 		stopped.Checks = checks.encode()
-		return mythicalStop(stopped, mythicalFault{Class: "policy", Tag: "outages"},
+		return mythicalStop(stopped, mythicalFault{Class: "policy", Tag: "outages", Kind: fault.kind()},
 			fmt.Sprintf("Smithers could not run it after %d tries (%s); not the TODO's fault", checks.Outages, outcome))
 	}
+	checks.Fault = &fault
 	next := item
 	next.State = "retrying"
 	next.Attempt = item.Attempt - 1 // start runs this same attempt again
@@ -1305,18 +1308,21 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 	}
 	*count++
 	outcome := mythicalOutage + "infra: " + reason
+	fault := mythicalFault{Class: "infra", Tag: tag}
+	fault.Kind = fault.kind()
 	if *count > mythicalOutageBound {
 		parked := item
 		parked.Checks = checks.encode()
-		stopped := fmt.Sprintf("Smithers could not go on after %d tries (%s); not the TODO's fault", *count, outcome)
+		bound := mythicalFault{Class: "policy", Tag: "outages", Kind: fault.Kind}
 		if item.State == "proposed" {
-			return mythicalHold(parked, "outages:"+item.PRHead, stopped, now)
+			// The hold's reason is the card's and the issue's: its sentence.
+			return mythicalHold(parked, "outages:"+item.PRHead, bound.sentence(), now)
 		}
-		return mythicalStop(parked, mythicalFault{Class: "policy", Tag: "outages"}, stopped)
+		return mythicalStop(parked, bound, fmt.Sprintf("Smithers could not go on after %d tries (%s); not the TODO's fault", *count, outcome))
 	}
 	next := item
 	next.Reason = outcome + "; this is not the TODO's fault, Smithers retries it"
-	checks.Fault = &mythicalFault{Class: "infra", Tag: tag}
+	checks.Fault = &fault
 	next.Checks = checks.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(min(time.Duration(1<<*count)*time.Minute, time.Hour)), Valid: true}
 	return &next
@@ -1345,13 +1351,13 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			next.Checks = checks.encode()
 			return &next, false, nil
 		default:
-			return mythicalFailure(item, "the lane's request ended", outcome, st.now), false, nil
+			return mythicalFailure(item, "the lane's request ended", mythicalFailPlan, outcome, st.now), false, nil
 		}
 	case "delivering":
 		if item.VibeOutcome == "" || item.VibeOutcome == "submitted" {
 			return nil, false, nil
 		}
-		return mythicalFailure(item, "delivering the result ended", item.VibeOutcome, st.now), false, nil
+		return mythicalFailure(item, "delivering the result ended", mythicalFailPlan, item.VibeOutcome, st.now), false, nil
 	case "integrating":
 		return st.integrate(ctx, item)
 	case "verifying":
@@ -1363,7 +1369,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			next.CandidateVerified, next.State, next.Reason = true, "proposing", ""
 			return &next, false, nil
 		default:
-			return mythicalFailure(item, "checks on the rebased result ended", outcome, st.now), false, nil
+			return mythicalFailure(item, "checks on the rebased result ended", mythicalFailChecks, outcome, st.now), false, nil
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
@@ -1731,7 +1737,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	if refused, err := st.protectedChanges(ctx, item); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	} else if len(refused) > 0 {
-		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "protected_paths"},
+		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "protected_paths", Kind: mythicalFailStopped},
 			"a maintainer changes protected paths: "+strings.Join(refused, ", ")), false, nil
 	}
 	if err := s.pin(ctx, r, item.CandidateHead); err != nil {
@@ -1740,7 +1746,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	next := item
 	if item.CandidateBase == r.row.TipCommit {
 		if !item.CandidateVerified {
-			return mythicalRetry(item, "the candidate on the tip was never verified", st.now), false, nil
+			return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
 		}
 		integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
 		next.Integration, next.State, next.Reason = integration, "proposing", ""
@@ -1751,10 +1757,10 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	var conflict *errMythicalConflict
 	switch {
 	case errors.Is(err, errMythicalRewrite):
-		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", st.now), false, nil
+		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
 		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), st.now)
+		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
 		retried.Integration = integration
 		return retried, false, nil
 	case err != nil:
@@ -1768,7 +1774,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			next.State, next.Reason = "blocked", "the stack moved; request this change again on the current tip"
 			return &next, false, nil
 		}
-		return mythicalRetry(item, "the rebased result has no checks to run; re-planning on the new tip", st.now), false, nil
+		return mythicalRetry(item, "the rebased result has no checks to run; re-planning on the new tip", nil, st.now), false, nil
 	}
 	if err := s.pin(ctx, r, rebased); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
@@ -1850,7 +1856,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	s, r := st.s, st.r
 	next := item
 	if !item.CandidateVerified {
-		return mythicalRetry(item, "the candidate was never verified", st.now), nil
+		return mythicalRetry(item, "the candidate was never verified", nil, st.now), nil
 	}
 	if s.github == nil || !r.row.ActorUserID.Valid {
 		return nil, nil
@@ -1864,10 +1870,11 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		st.gh, st.ghErr = &gh, err
 	}
 	if st.ghErr != nil {
-		if item.State == "waiting" && item.Reason == st.ghErr.Error() {
-			return mythicalInfraOutage(item, "github", item.Reason, st.now), nil
+		if item.State == "waiting" && item.Reason == mythicalGitHubUnreached {
+			return mythicalInfraOutage(item, "github", st.ghErr.Error(), st.now), nil
 		}
-		next.State, next.Reason = "waiting", st.ghErr.Error()
+		s.logger.Warn("mythical.github_unreached", "item", uuidString(item.ID), "error", st.ghErr)
+		next.State, next.Reason = "waiting", mythicalGitHubUnreached
 		return &next, nil
 	}
 	gh := *st.gh
@@ -2068,6 +2075,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	if answered := mythicalChecksOf(next); answered.GitHubOutages > 0 {
 		answered.GitHubOutages = 0
+		if answered.Fault != nil && answered.Fault.Tag == "github" {
+			// GitHub answers again: the outage it retried after is over.
+			answered.Fault = nil
+		}
 		next.Checks = answered.encode()
 	}
 	switch {
@@ -2135,7 +2146,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
 	case review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped):
-		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped ("+review.Verdict+"); a person decides", st.now), false, nil
+		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped; a person decides", st.now), false, nil
 	case strings.HasPrefix(review.Verdict, "failed"):
 		return mythicalHold(item, "review:"+item.PRHead, "the review of this head failed ("+strings.TrimPrefix(review.Verdict, "failed: ")+"); a person decides", st.now), false, nil
 	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
@@ -2331,7 +2342,8 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	}
 	applier, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, automergeLabel)
 	if err != nil {
-		return mythicalLater(item, "the issue's labels could not be read as they stand ("+err.Error()+"); retrying", st.now)
+		s.logger.Warn("mythical.labels_unread", "item", uuidString(item.ID), "error", err)
+		return mythicalLater(item, "the issue's labels could not be read as they stand; retrying", st.now)
 	}
 	policy, err := s.stackPolicy(ctx, st.r.row.RepositoryID)
 	if err != nil {
@@ -2358,7 +2370,8 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		checks := mythicalChecksOf(item)
 		todo, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, todoLabel)
 		if err != nil {
-			return mythicalLater(item, "the issue's labels could not be read as they stand ("+err.Error()+"); retrying", st.now)
+			s.logger.Warn("mythical.labels_unread", "item", uuidString(item.ID), "error", err)
+			return mythicalLater(item, "the issue's labels could not be read as they stand; retrying", st.now)
 		}
 		isTodo := todo.present()
 		if isTodo && checks.AutoTodo == "" {
@@ -2385,7 +2398,8 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	}
 	commit, err := s.github.Merge(ctx, gh, item.PRNumber.Int64, item.PRHead)
 	if err != nil {
-		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge ("+err.Error()+")", st.now)
+		s.logger.Warn("mythical.merge_refused", "item", uuidString(item.ID), "error", err)
+		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge", st.now)
 	}
 	next := item
 	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""
@@ -3031,10 +3045,13 @@ type mythicalCIWait struct {
 // holds for a person: GitHub Actions stops a job at 6 hours.
 const mythicalCIWaitBound = 6 * time.Hour
 
-// mythicalFault is one typed failure of an item.
+// mythicalFault is one typed failure of an item: whose fault it was
+// (Class), its typed error (Tag) and the step that failed (Kind,
+// mythical_failure.go).
 type mythicalFault struct {
 	Class string `json:"class"`
 	Tag   string `json:"tag"`
+	Kind  string `json:"kind,omitempty"`
 }
 
 // bounded reports whether the item stopped at a bound a person lifts.

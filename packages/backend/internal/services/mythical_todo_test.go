@@ -329,11 +329,11 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	}
 	item := o.item(90)
 	assert.Equal(t, "it launched 12 runs, the bound for one TODO, which usually means something went wrong", item.Reason)
-	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound"}, mythicalChecksOf(item).Fault)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound", Kind: "stopped"}, mythicalChecksOf(item).Fault)
 	launched := len(o.launcher.requests)
 	o.wake()
 	assert.Len(t, o.launcher.requests, launched, "nothing more launches")
-	assert.Equal(t, []string{"#90 Smithers stopped this TODO: it launched 12 runs, the bound for one TODO, which usually means something went wrong."}, o.github.comments)
+	assert.Equal(t, []string{"#90 Smithers stopped this TODO. It reached its run limit."}, o.github.comments)
 	assert.NotContains(t, o.github.comments[0], "SMITHERS_", "the issue names no operator setting")
 
 	// A run cannot lift the bound; a person can, and a maintainer's todo can.
@@ -472,7 +472,7 @@ func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	o.wake()
 	item = o.item(96)
 	assert.Equal(t, "blocked", item.State)
-	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages"}, mythicalChecksOf(item).Fault)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages", Kind: "runtime"}, mythicalChecksOf(item).Fault)
 	assert.Contains(t, item.Reason, "Smithers could not run it after 7 tries")
 	assert.Contains(t, item.Reason, "not the TODO's fault")
 }
@@ -487,8 +487,8 @@ func TestMythicalCheckInfraFaultPreservesPlanAttempt(t *testing.T) {
 		wantFault          mythicalFault
 		wantEarlierAttempt bool
 	}{
-		{"check infrastructure", "infra", "coding/Error/check_infra", 0, mythicalFault{Class: "infra", Tag: "coding/Error/check_infra"}, false},
-		{"real red check", "factory", "coding/Error/fast_gate", 1, mythicalFault{Class: "factory", Tag: "coding/Error/fast_gate"}, true},
+		{"check infrastructure", "infra", "coding/Error/check_infra", 0, mythicalFault{Class: "infra", Tag: "coding/Error/check_infra", Kind: "runtime"}, false},
+		{"real red check", "factory", "coding/Error/fast_gate", 1, mythicalFault{Class: "factory", Tag: "coding/Error/fast_gate", Kind: "plan"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o := newMythicalOrchestration(t)
@@ -537,7 +537,7 @@ func TestMythicalUnreadableRequestPreservesPlanAttempt(t *testing.T) {
 		assert.Equal(t, i+1, mythicalChecksOf(item).Outages)
 		assert.Zero(t, mythicalChecksOf(item).Replans)
 		assert.False(t, mythicalChecksOf(item).VeryHard)
-		assert.Equal(t, &mythicalFault{Class: "factory", Tag: "coding/request/outcome_unreadable"}, mythicalChecksOf(item).Fault)
+		assert.Equal(t, &mythicalFault{Class: "factory", Tag: "coding/request/outcome_unreadable", Kind: "runtime"}, mythicalChecksOf(item).Fault)
 		assert.Equal(t, "the lane's request ended outage: factory: coding/request/outcome_unreadable; this is not the TODO's fault, Smithers retries it", item.Reason)
 		o.wake()
 		resumed := o.item(280)
@@ -1024,7 +1024,7 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 	assert.Contains(t, payload.Prompt, "Keep the title")
 	o.wake()
 	require.Equal(t, "blocked", o.item(72).State)
-	assert.Contains(t, o.github.comments, "#72 Smithers stopped this TODO: it is very hard (the lane's request ended failed: coding/Error/stalled). Press Retry on it in Smithers to go on.")
+	assert.Contains(t, o.github.comments, "#72 Smithers stopped this TODO: it is very hard. This attempt did not produce a working change. Press Retry on it in Smithers to go on.")
 }
 
 // With no maintainers list committed, a person with write access still
@@ -1189,13 +1189,13 @@ func TestMythicalDeliveryLaunchesCountTowardTheBound(t *testing.T) {
 	}
 	item := o.item(301)
 	checks := mythicalChecksOf(item)
-	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound"}, checks.Fault)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound", Kind: "stopped"}, checks.Fault)
 	assert.Len(t, o.launcher.requests, 12, "six requests and six deliveries")
 	assert.EqualValues(t, 12, checks.Launches)
 	assert.Equal(t, 6, checks.Outages)
 	o.wake()
 	assert.Len(t, o.launcher.requests, 12, "nothing more launches")
-	assert.Equal(t, []string{"#301 Smithers stopped this TODO: it launched 12 runs, the bound for one TODO, which usually means something went wrong."}, o.github.comments)
+	assert.Equal(t, []string{"#301 Smithers stopped this TODO. It reached its run limit."}, o.github.comments)
 }
 
 // failingLanes cannot provision a lane.
@@ -1227,9 +1227,10 @@ func TestMythicalPreAdmissionOutageParks(t *testing.T) {
 	o.wake()
 	item = o.item(321)
 	assert.Equal(t, "blocked", item.State)
-	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages"}, mythicalChecksOf(item).Fault)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages", Kind: "provisioning"}, mythicalChecksOf(item).Fault)
 	o.wake()
-	assert.Equal(t, []string{"#321 Smithers stopped this TODO: Smithers could not go on after 7 tries (outage: infra: no lane workspace: provisioning is down); not the TODO's fault."}, o.github.comments)
+	assert.Equal(t, []string{"#321 Smithers stopped this TODO. Smithers could not set up a lane after repeated tries."}, o.github.comments,
+		"the issue hears the typed reason, never the provider's error")
 	assert.Empty(t, o.launcher.requests)
 }
 
@@ -1417,7 +1418,7 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 	o.answerReviews(`"approve"`)
 	item := o.item(371)
 	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "the issue's labels could not be read as they stand (GitHub's label history trails the issue's labels; read again later); retrying", item.Reason)
+	assert.Equal(t, "the issue's labels could not be read as they stand; retrying", item.Reason)
 	assert.Empty(t, o.github.merges, "a label gone from the issue never merges on its history")
 }
 
@@ -1565,15 +1566,15 @@ func TestMythicalFollowOutageHolds(t *testing.T) {
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, 1, mythicalChecksOf(item).GitHubOutages, "GitHub's outages count apart from the review's")
 	assert.Zero(t, mythicalChecksOf(item).Outages)
-	assert.Equal(t, &mythicalFault{Class: "infra", Tag: "github"}, mythicalChecksOf(item).Fault)
+	assert.Equal(t, &mythicalFault{Class: "infra", Tag: "github", Kind: "landing"}, mythicalChecksOf(item).Fault)
 	assert.WithinDuration(t, time.Now().Add(2*time.Minute), item.NextAttemptAt.Time, 30*time.Second, "it backs off")
 	for range 7 {
 		o.wake()
 	}
 	item = o.item(391)
 	assert.Equal(t, "proposed", item.State, "the pull request stays open for a person")
-	assert.Contains(t, item.Reason, "Smithers could not go on after")
-	assert.Contains(t, o.github.comments[len(o.github.comments)-1], "#391 Smithers is holding this TODO: Smithers could not go on after 7 tries")
+	assert.Equal(t, "GitHub did not answer after repeated tries", item.Reason)
+	assert.Equal(t, "#391 Smithers is holding this TODO: GitHub did not answer after repeated tries.", o.github.comments[len(o.github.comments)-1])
 }
 
 // A person's retry of a TODO stopped with its pull request open keeps that
@@ -1632,7 +1633,7 @@ func TestMythicalReviewAdmissionParksAtTheOutageBound(t *testing.T) {
 		o.wake()
 	}
 	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "a recovered dispatcher launches nothing for this head")
-	assert.Equal(t, []string{"#401 Smithers is holding this TODO: Smithers could not go on after 7 tries (outage: infra: the review could not be launched: dispatch unavailable); not the TODO's fault."},
+	assert.Equal(t, []string{"#401 Smithers is holding this TODO: Smithers could not set up a lane after repeated tries."},
 		o.github.comments, "one comment for the park")
 }
 
@@ -1767,11 +1768,11 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
 				o.project(request, jobs.StateCompleted, "run-review-unread", `"not a verdict"`)
 			}},
-		{name: "cancelled", reason: "the review of this head was stopped (cancelled); a person decides",
+		{name: "cancelled", reason: "the review of this head was stopped; a person decides",
 			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
 				o.project(request, jobs.StateCancelled, "run-review-cancelled", "")
 			}},
-		{name: "stopped", reason: "the review of this head was stopped (stopped: user: flows/model/ModelError/authentication); a person decides",
+		{name: "stopped", reason: "the review of this head was stopped; a person decides",
 			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
 				o.fail(request, "run-review-stopped", "user", "flows/model/ModelError/authentication", "")
 			}},

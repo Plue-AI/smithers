@@ -97,9 +97,9 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 			// The last replan failed: one very hard continuation on it.
 			want.State, want.Reason, want.Attempt = "retrying", "very hard: new failure", attempt-1
 			want.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(30 * time.Second), Valid: true}
-			want.Checks = json.RawMessage(`{"notice":{"key":"very-hard","body":"This TODO is very hard: new failure. Smithers continues the last plan once."},"veryHard":true}`)
+			want.Checks = json.RawMessage(`{"notice":{"key":"very-hard","body":"This TODO is very hard. New failure. Smithers continues the last plan once."},"veryHard":true}`)
 		}
-		got := mythicalRetry(item, "new failure", now)
+		got := mythicalRetry(item, "new failure", nil, now)
 		require.Equal(t, &want, got, "attempt %d", attempt)
 		require.Equal(t, before, item)
 		got.Reason = "caller changes returned value"
