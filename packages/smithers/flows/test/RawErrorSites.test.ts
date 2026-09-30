@@ -60,7 +60,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
     "guest bundle started without its paths; a host programming error reported by the guest's exit"
   ],
   ["step-cache/src/RemoteCacheStore.ts", 1, "unreachable namespace escape (KeyDigest excludes separators); a defect"],
-  ["sync/src/SyncClient.ts", 1, "an invalid restored cursor; its catch returns a tagged SyncError"],
   ["sync/src/test/TestSocket.ts", 1, testSupport]
 ]
 

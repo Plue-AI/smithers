@@ -836,30 +836,29 @@ const service = (client: Client, { bootstrapLimit, maxFrameBytes }: Resolved): E
                 // cancellation gap. Durable state/cursor atomicity belongs to
                 // the consumer's own transaction, not to this mask.
                 const receipt = yield* restore(onResync(resync))
-                const applied = yield* Effect.try({
-                  try: () => {
-                    // A receipt that omits its generation restored the floor's
-                    // history, which the refusal names. The previous cursor's
-                    // generation is no substitute: a fresh client has none,
-                    // and a rewind since then has replaced it.
-                    const captured = {
-                      runId: receipt.runId,
-                      afterSeq: receipt.afterSeq,
-                      generation: receipt.generation ?? refusedGeneration
-                    }
-                    if (
-                      !Schema.is(RunCursor)(captured) || captured.runId !== runId || captured.afterSeq < checkpointSeq
-                    ) {
-                      throw new Error("Invalid restored cursor")
-                    }
-                    return captured
-                  },
-                  catch: () =>
-                    new SyncError({
-                      code: "invalid_request",
-                      message: "Recovery must return the restored run cursor at or above its compaction floor"
-                    })
+                const restoredCursor = () =>
+                  new SyncError({
+                    code: "invalid_request",
+                    message: "Recovery must return the restored run cursor at or above its compaction floor"
+                  })
+                // A receipt that omits its generation restored the floor's
+                // history, which the refusal names. The previous cursor's
+                // generation is no substitute: a fresh client has none,
+                // and a rewind since then has replaced it.
+                const captured = yield* Effect.try({
+                  try: () => ({
+                    runId: receipt.runId,
+                    afterSeq: receipt.afterSeq,
+                    generation: receipt.generation ?? refusedGeneration
+                  }),
+                  catch: restoredCursor
                 })
+                if (
+                  !Schema.is(RunCursor)(captured) || captured.runId !== runId || captured.afterSeq < checkpointSeq
+                ) {
+                  return yield* Effect.fail(restoredCursor())
+                }
+                const applied = captured
                 if (applied.generation === undefined) {
                   return yield* Effect.fail(
                     new SyncError({
