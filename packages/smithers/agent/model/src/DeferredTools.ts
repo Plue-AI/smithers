@@ -74,7 +74,9 @@ const isAnthropicDeferredModel = (modelId: string): boolean => ANTHROPIC_DEFERRE
 // HTTP 200 and called the deferred tool, and with the search items removed the
 // model called the loader again instead. The api.openai.com probe could not
 // run (the key had no credits), so the API-key entries rest on the guide. The
-// recorded responses live in test/fixtures/gpt6-deferred-probe.json.
+// recorded responses live in test/fixtures/gpt6-deferred-probe.json. That probe
+// covered gpt-6-sol, gpt-6-astra and gpt-6-luna; gpt-6.1-sol is listed here on
+// the guide alone and has never been probed on the ChatGPT backend.
 const OPENAI_DEFERRED_MODELS = new Set([
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -85,6 +87,7 @@ const OPENAI_DEFERRED_MODELS = new Set([
   "gpt-5.6-luna",
   "gpt-6.1-sol",
   "gpt-6-sol",
+  "gpt-6-astra",
   "gpt-6-luna"
 ])
 
@@ -94,8 +97,8 @@ const isOpenAiDeferredModel = (modelId: string): boolean => OPENAI_DEFERRED_MODE
 // that backend belong here (see the GPT-6 note above). GPT-5.x was never
 // probed there, so it keeps the portable lowering on this route.
 const CHATGPT_DEFERRED_MODELS = new Set([
-  "gpt-6.1-sol",
   "gpt-6-sol",
+  "gpt-6-astra",
   "gpt-6-luna"
 ])
 

@@ -239,16 +239,12 @@ interface ProbeRecord {
   }
 }
 
-// Live responses recorded 2026-09-24 against the ChatGPT-subscription backend.
-// The fixture stays as recorded; its `gpt-6-astra` seat is the one now named
-// `gpt-6.1-sol`, so the records are read under the current id.
-const renamedSeats: Readonly<Record<string, string>> = { "gpt-6-astra": "gpt-6.1-sol" }
+// Live responses recorded 2026-09-24 against the ChatGPT-subscription backend,
+// read exactly as recorded: gpt-6-astra, gpt-6-sol and gpt-6-luna. No probe has
+// exercised gpt-6.1-sol on that backend.
 const probe = (JSON.parse(
   readFileSync(new URL("./fixtures/gpt6-deferred-probe.json", import.meta.url), "utf8")
-) as { readonly records: ReadonlyArray<ProbeRecord> }).records.map((record) => ({
-  ...record,
-  model: renamedSeats[record.model] ?? record.model
-}))
+) as { readonly records: ReadonlyArray<ProbeRecord> }).records
 
 const called = (record: ProbeRecord): ReadonlyArray<string> =>
   record.outcome.output.filter((item) => item.type === "function_call").map((item) => item.name ?? "")
@@ -288,7 +284,7 @@ const probeRequest = (modelId: string): ModelRequest =>
   })
 
 describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
-  const gpt6 = ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"] as const
+  const gpt6 = ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna"] as const
 
   it("allowlists exactly the GPT-6 ids whose native probe called the deferred tool", () => {
     const probed = [...new Set(probe.map((record) => record.model))].sort()
@@ -320,5 +316,25 @@ describe("GPT-6 deferred tools against the 2026-09-24 live probe", () => {
       )
       expect(body.input.map((item) => ("type" in item ? item.type : item.role))).toEqual(native?.sent.input_types)
     }
+  })
+
+  it("keeps the unprobed gpt-6.1-sol off the ChatGPT route's native wire and on the API-key list", () => {
+    expect(DeferredTools.supportsDeferred("openai-responses-chatgpt", "gpt-6.1-sol")).toBe(false)
+    expect(OpenAIResponses.chatgptProtocol.supportsDeferred("gpt-6.1-sol")).toBe(false)
+    expect(DeferredTools.supportsDeferred("openai-responses", "gpt-6.1-sol")).toBe(true)
+    // Asked for native, the ChatGPT route still lowers it portably: the deferred
+    // tool travels as an ordinary function, with no tool-search items.
+    const portable = Effect.runSync(
+      OpenAIResponses.chatgptProtocol.body.from(probeRequest("gpt-6.1-sol"), { native: true })
+    )
+    const native = Effect.runSync(
+      OpenAIResponses.chatgptProtocol.body.from(probeRequest("gpt-6-sol"), { native: true })
+    )
+    expect(JSON.stringify(portable)).not.toContain("tool_search")
+    expect(JSON.stringify(portable)).not.toContain("defer_loading")
+    expect(JSON.stringify(native)).toContain("defer_loading")
+    // The API-key route follows OpenAI's guide for it.
+    const api = Effect.runSync(OpenAIResponses.protocol.body.from(probeRequest("gpt-6.1-sol"), { native: true }))
+    expect(JSON.stringify(api)).toContain("defer_loading")
   })
 })
