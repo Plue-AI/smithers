@@ -16,6 +16,7 @@ import * as Checkpoints from "../src/migrations/0002_checkpoints.ts"
 import * as StartupIndex from "../src/migrations/0003_startup_index.ts"
 import * as Dedup from "../src/migrations/0004_dedup.ts"
 import * as RunEventType from "../src/migrations/0005_run_event_type.ts"
+import * as Consensus from "../src/migrations/0006_consensus.ts"
 
 describe("migration modules", () => {
   it("registers an Effect for every migration in the set", () => {
@@ -25,7 +26,8 @@ describe("migration modules", () => {
       "0002_checkpoints",
       "0003_startup_index",
       "0004_dedup",
-      "0005_run_event_type"
+      "0005_run_event_type",
+      "0006_consensus"
     ])
     for (const [, migration] of entries) {
       expect(typeof migration.pipe).toBe("function")
@@ -38,6 +40,8 @@ describe("migration modules", () => {
     expect("default" in StartupIndex).toBe(false)
     expect("default" in Dedup).toBe(false)
     expect("default" in RunEventType).toBe(false)
+    expect("default" in Consensus).toBe(false)
+    expect(typeof Consensus.consensus.pipe).toBe("function")
     expect(typeof RunEventType.runEventType.pipe).toBe("function")
     expect(typeof Dedup.dedup.pipe).toBe("function")
     expect(typeof Initial.initial.pipe).toBe("function")

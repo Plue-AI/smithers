@@ -447,13 +447,14 @@ export type Compacted = typeof Compacted.Type
  *   overflow policies for telemetry, where `Dropped` receipts and
  *   `drop-oldest` evictions are acceptable.
  *
- * `emitDurable` is fenced on the run's persisted ownership: the caller hands
- * over its `OwnerId`, the durable insert only commits while `flows_runs`
- * still records that owner, and a reclaimed run fails the write with a
- * `fence_lost` error. The fence is mandatory on the lifecycle channel: a
- * lifecycle write is what advances a run, and a zombie owner must not advance
- * anything. The one escape is {@link Service.emitDurableUnfenced}, for the
- * rare admission that is genuinely ownerless.
+ * `emitDurable` is fenced on the run's ownership as arbitrated by the
+ * injected `Consensus` strategy: the caller hands over its `OwnerId`, the
+ * durable insert only commits while that strategy still records the owner as
+ * holding the run, and a reclaimed run fails the write with a `fence_lost`
+ * error. The fence is mandatory on the lifecycle channel: a lifecycle write is
+ * what advances a run, and a zombie owner must not advance anything. The one
+ * escape is {@link Service.emitDurableUnfenced}, for the rare admission that
+ * is genuinely ownerless.
  *
  * @category models
  * @since 0.1.0
@@ -577,10 +578,10 @@ export interface Service {
    * otherwise the write fails with `checkpoint_invalid`. Re-checkpointing an
    * uncompacted `seq` replaces its state: last writer wins.
    *
-   * The write is fenced on the run's persisted ownership, exactly as
-   * `emitDurable` is: a reclaimed run fails with `fence_lost`. The fence is
-   * mandatory: a zombie owner must not replace replay state behind a live
-   * successor.
+   * The write is fenced on the run's ownership through the consensus
+   * strategy, exactly as `emitDurable` is: a reclaimed run fails with
+   * `fence_lost`. The fence is mandatory: a zombie owner must not replace
+   * replay state behind a live successor.
    */
   readonly checkpoint: (options: CheckpointOptions, owner: OwnerId) => Effect.Effect<Checkpoint, JournalError>
   /**

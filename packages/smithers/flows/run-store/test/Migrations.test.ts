@@ -1,6 +1,7 @@
 /**
  * The run store owns `flows_runs` and `flows_attempts` and reserves migration
- * id block 1000; see `docs/pages/concepts/journal.md`.
+ * id block 1000. Its runner installs the journal's set first, because the SQL
+ * `RunStore` fences through the journal's consensus lease table.
  */
 import { describe, expect, it } from "@effect/vitest"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
@@ -39,6 +40,10 @@ describe("run-store migrations", () => {
 
       expect(master.filter((row) => row.type === "table").map((row) => row.name).sort()).toEqual([
         "flows_attempts",
+        "flows_consensus_leases",
+        "flows_journal_checkpoints",
+        "flows_journal_dedup",
+        "flows_journal_events",
         "flows_migrations",
         "flows_run_changes",
         "flows_run_source",
@@ -58,13 +63,16 @@ describe("run-store migrations", () => {
       expect(attemptsSql).toMatch(/FOREIGN KEY \(run_id\) REFERENCES flows_runs ?\(run_id\)/)
     }))
 
-  it.effect("reserves its own migration id block so ids cannot collide", () =>
+  it.effect("reserves its own migration id block above the journal's so ids cannot collide", () =>
     Effect.gen(function*() {
       const applied = yield* (Migrations.run.pipe(Effect.provide(TestDatabase.layer)))
-      expect(applied).toEqual([[1001, "run-store_initial"], [1002, "run-store_lineage"], [
-        1003,
-        "run-store_execution_revisions"
-      ], [1004, "run-store_waiting_request"]])
+      expect(applied.map(([id]) => id)).toEqual([1, 2, 3, 4, 5, 6, 1001, 1002, 1003, 1004])
+      expect(applied.filter(([id]) => id >= 1000)).toEqual([
+        [1001, "run-store_initial"],
+        [1002, "run-store_lineage"],
+        [1003, "run-store_execution_revisions"],
+        [1004, "run-store_waiting_request"]
+      ])
     }))
 
   for (const missing of ["owner_host_id", "owner_pid", "owner_nonce", "heartbeat_at_ms"] as const) {

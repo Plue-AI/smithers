@@ -2,6 +2,9 @@ import { describe, expect, it } from "@effect/vitest"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import type * as Consensus from "@smthrs/journal/Consensus"
+import * as JournalMigrations from "@smthrs/journal/Migrations"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { Effect, Layer, Result } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { execFileSync } from "node:child_process"
@@ -16,10 +19,13 @@ import * as RunStore from "../src/RunStore.ts"
 const owner = { hostId: "driver", pid: 42, nonce: "one" }
 const onFile = <A, E>(
   filename: string,
-  effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter>
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter | Consensus.Consensus>
 ) =>
   Effect.scoped(
-    effect.pipe(Effect.provide(Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))))
+    effect.pipe(
+      Effect.provide(SqlConsensus.layer),
+      Effect.provide(Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename })))
+    )
   )
 
 describe("durable execution revisions", () => {
@@ -31,7 +37,7 @@ describe("durable execution revisions", () => {
         yield* onFile(
           filename,
           Effect.gen(function*() {
-            yield* DatabaseMigrations.run([{
+            yield* DatabaseMigrations.run([JournalMigrations.set, {
               ...Migrations.set,
               migrations: { "0001_initial": initial, "0002_lineage": lineage }
             }])

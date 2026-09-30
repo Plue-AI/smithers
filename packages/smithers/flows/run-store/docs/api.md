@@ -663,14 +663,16 @@ const LivenessEvidence: Schema.Struct<{
 }>
 ```
 
-| Kind                           | Accepted when                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                           |
-| `cross-host-unreachable-stale` | The hosts differ.                                                               |
-| `lease-expired`                | Any host. The store verifies this claim itself against the persisted heartbeat. |
+| Kind                           | Accepted when                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------- |
+| `same-host-pid-dead`           | The observer and the recorded owner share a `hostId`.                              |
+| `cross-host-unreachable-stale` | The hosts differ.                                                                  |
+| `lease-expired`                | Any host. The strategy verifies this claim itself against the persisted heartbeat. |
 
-`checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe cannot
-be replayed into a later decision.
+Defined by [`@smthrs/journal`](/api/journal)'s `Consensus`, because steal
+requires staleness plus liveness evidence in every strategy, and re-exported
+here. `checkedAtMs` must equal the consuming call's `nowMs` exactly, so a probe
+cannot be replayed into a later decision.
 
 ### LivenessProbe, LivenessContext, LivenessCheck
 
@@ -732,8 +734,9 @@ stranding that host's runs forever. Node hosts only.
 const heartbeatLoop: (runId: string, owner: OwnerId) => Effect<never, never, RunStore>
 ```
 
-Pulses every `heartbeatInterval` on the injected `Clock` and interrupts itself
-when the fence is gone, so race it against the owned work with
+Pulses every `heartbeatInterval` on the injected `Clock`, each pulse renewing
+the `Consensus` strategy's lease through `RunStore.heartbeat`, and interrupts
+itself when the fence is gone, so race it against the owned work with
 `Effect.raceFirst`. A heartbeat outcome other than `Updated` is durable evidence
 and interrupts immediately. An independent deadline bounds failing or stalled
 writes by `heartbeatWriteTolerance` and interrupts the pending write at expiry.
@@ -789,9 +792,12 @@ const layer: Layer<never, MigrationError | SqlError, SqlClient.SqlClient>
 `set` owns `flows_runs`, `flows_attempts`, `flows_run_source`, and
 `flows_run_changes` under the namespace `run-store` and
 reserves migration id block 1000, so its ids can never collide with another
-package's. Compose `set` with the other storage packages' sets and run them in
-one pass rather than layering several migrators;
-[`@smthrs/engine-store`](/api/engine-store) already does.
+package's. `run` and `layer` install [`@smthrs/journal`](/api/journal)'s set
+ahead of it, because the SQL `RunStore` arbitrates ownership through the
+journal's `SqlConsensus` and its `flows_consensus_leases` table. Compose `set`
+with the other storage packages' sets and run them in one pass rather than
+layering several migrators; [`@smthrs/engine-store`](/api/engine-store)
+already does.
 
 The schema enforces the ownership invariants as SQL `CHECK` constraints, so no
 writer, including one issuing raw SQL, can leave a half-owned row behind.
@@ -809,10 +815,11 @@ human tasks use it to publish the prompt, answer kind, and attempt budget.
 
 ## Heartbeat
 
-`@smthrs/run-store/Heartbeat` is a leaf module holding the four lease durations
-and the one place they are related. `RunStore` needs the staleness cutoff and
-`Ownership` needs all four, and `Ownership` imports `RunStore`, so neither could
-own them without the other restating them.
+`@smthrs/run-store/Heartbeat` is a leaf module re-exporting the four lease
+durations from [`@smthrs/journal`](/api/journal)'s `Consensus`, where every
+strategy judges staleness against them. `RunStore` needs the staleness cutoff
+and `Ownership` needs all four, and `Ownership` imports `RunStore`, so neither
+could own them without the other restating them.
 
 | Constant                  | Value      | What it governs                                                                     |
 | ------------------------- | ---------- | ----------------------------------------------------------------------------------- |

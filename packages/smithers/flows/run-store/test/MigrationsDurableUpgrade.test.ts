@@ -3,6 +3,9 @@ import { DurableWriter } from "@smthrs/database"
 import * as Dialect from "@smthrs/database/Dialect"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import type * as Consensus from "@smthrs/journal/Consensus"
+import * as JournalMigrations from "@smthrs/journal/Migrations"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { Effect, Exit, Layer, Option } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -17,8 +20,8 @@ const database = (filename: string) => Layer.provideMerge(DurableWriter.layer(),
 
 const withDatabase = <A, E>(
   filename: string,
-  effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter>
-) => Effect.scoped(effect.pipe(Effect.provide(database(filename))))
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter | Consensus.Consensus>
+) => Effect.scoped(effect.pipe(Effect.provide(SqlConsensus.layer), Effect.provide(database(filename))))
 
 const initialSet: DatabaseMigrations.MigrationSet = {
   namespace: Migrations.set.namespace,
@@ -37,7 +40,7 @@ describe("run-store durable migration upgrade", () => {
           yield* withDatabase(
             filename,
             Effect.gen(function*() {
-              yield* DatabaseMigrations.run([initialSet])
+              yield* DatabaseMigrations.run([JournalMigrations.set, initialSet])
               const sql = yield* Effect.service(SqlClient.SqlClient)
               yield* sql`
             INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
@@ -67,7 +70,9 @@ describe("run-store durable migration upgrade", () => {
             }
           }
           const interrupted = yield* Effect.exit(
-            Effect.scoped(DatabaseMigrations.run([interruptedSet]).pipe(Effect.provide(database(filename))))
+            Effect.scoped(
+              DatabaseMigrations.run([JournalMigrations.set, interruptedSet]).pipe(Effect.provide(database(filename)))
+            )
           )
           expect(Exit.isFailure(interrupted)).toBe(true)
 
@@ -83,7 +88,7 @@ describe("run-store durable migration upgrade", () => {
             })
           )
           expect(beforeUpgrade.columns.map((column) => column.name)).not.toContain("lineage_id")
-          expect(beforeUpgrade.applied.map((row) => row.migration_id)).toEqual([1001])
+          expect(beforeUpgrade.applied.map((row) => row.migration_id)).toEqual([1, 2, 3, 4, 5, 6, 1001])
 
           const upgraded = yield* withDatabase(
             filename,

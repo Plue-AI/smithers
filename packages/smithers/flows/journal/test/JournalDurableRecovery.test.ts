@@ -24,6 +24,7 @@ import { Input, type RunId, type Seq, type SourceId, type SourceSeq } from "../s
 import * as Migrations from "../src/Migrations.ts"
 import type { OwnerId } from "../src/OwnerId.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const runId = (value: string): RunId => value as RunId
 const sourceId = (value: string): SourceId => value as SourceId
@@ -41,25 +42,11 @@ const options: SqlJournal.SqlJournalOptions = { capacity: 64, overflow: "reject"
 
 const owner: OwnerId = { hostId: "host-a", pid: 42, nonce: "nonce-a" }
 
-/**
- * The `flows_runs` columns the fence reads, plus the running-owner row, written
- * through a throwaway connection to the same file.
- */
+/** The run's lease row, written through a throwaway connection to the same file. */
 const claim = (filename: string, run: RunId) =>
   Effect.scoped(
     Effect.provide(
-      Effect.gen(function*() {
-        const sql = yield* Effect.service(SqlClient.SqlClient)
-        yield* sql`CREATE TABLE flows_runs (
-          run_id TEXT PRIMARY KEY,
-          status TEXT NOT NULL,
-          owner_host_id TEXT,
-          owner_pid INTEGER,
-          owner_nonce TEXT
-        )`
-        yield* sql`INSERT INTO flows_runs (run_id, status, owner_host_id, owner_pid, owner_nonce)
-          VALUES (${run}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
-      }),
+      Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => Leases.hold(sql, run, owner)),
       migrated(filename)
     )
   )

@@ -61,6 +61,18 @@ export * as Journal from "./Journal.ts"
 export * as SqlJournal from "./SqlJournal.ts"
 
 /**
+ * @category services
+ * @since 1.0.0
+ */
+export * as Consensus from "./Consensus.ts"
+
+/**
+ * @category layers
+ * @since 1.0.0
+ */
+export * as SqlConsensus from "./SqlConsensus.ts"
+
+/**
  * @category metrics
  * @since 0.1.0
  */

@@ -11,17 +11,17 @@ The full error schema is in the [API reference](./api.md). Every Smithers error
 code across every package, this one's included, is listed under
 [`@smthrs/journal` error codes](/docs/reference/errors/#smthrsjournal).
 
-## sink_failed with "no such table: flows_runs"
+## sink_failed with "consensus guard failed"
 
 **What happened.** A fenced write, meaning `emitDurable`, `checkpoint`, or
-`compact`, tried to read `flows_runs` and the table does not exist.
+`compact`, asked the consensus strategy whether the owner still holds the run
+and the strategy could not answer: with `SqlConsensus`, its
+`flows_consensus_leases` table is missing or the database refused the read.
 
-**What to change.** `flows_runs` belongs to
-[`@smthrs/run-store`](/api/run-store), so a composition that installed only the
-journal's migrations has no table for the fence to read. Install
-`RunStoreMigrations.set` alongside `JournalMigrations.set`, or take
-`@smthrs/engine-store/Migrations`'s `sets`, which is the whole durable schema
-in dependency order. See
+**What to change.** Run the journal's migration set before building the
+journal, or take `@smthrs/engine-store/Migrations`'s `sets`, which is the
+whole durable schema in dependency order. A strategy failure is never
+reported as `fence_lost`. See
 [Installation](./installation.md#what-a-fenced-write-needs).
 
 This is a composition problem, not a race. It is `sink_failed` rather than

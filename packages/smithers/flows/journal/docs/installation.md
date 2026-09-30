@@ -84,14 +84,14 @@ composing an engine rather than a standalone journal.
 
 ## What a fenced write needs
 
-`emitDurable`, `checkpoint`, and `compact` gate their write on a `flows_runs`
-row that still names the supplied owner. That table belongs to
-[`@smthrs/run-store`](/api/run-store), so a composition that installs only the
-journal's migrations has no table for the fence to read, and all three fail
-with `sink_failed` carrying `no such table: flows_runs`.
+`emitDurable`, `checkpoint`, and `compact` gate their write on the `Consensus`
+strategy the journal was built with. `SqlJournal.layer` fences through
+`SqlConsensus`, whose lease table the journal's own migrations create, so the
+fenced channel needs nothing beyond this package's migration set; an owner
+takes the run through the strategy's `claim` and `activate`, which
+[`@smthrs/run-store`](/api/run-store) drives for a durable run.
 
-Install `@smthrs/run-store`'s migration set alongside the journal's whenever
-you intend to write on the fenced channel. `emitLossy`, `emitDurableUnfenced`,
+`emitLossy`, `emitDurableUnfenced`,
 `entries`, `stream`, `project`, and `flush` read no table but the journal's
 own, so a standalone journal serves them without run-store.
 

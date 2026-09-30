@@ -10,8 +10,9 @@
  * @since 0.1.0
  */
 
+import { LivenessEvidence } from "@smthrs/journal/Consensus"
 import { OwnerId } from "@smthrs/journal/OwnerId"
-import { Clock, Duration, Effect, Schema } from "effect"
+import { Clock, Duration, Effect } from "effect"
 import { heartbeatInterval, heartbeatStaleAfter, heartbeatWriteTolerance } from "./Heartbeat.ts"
 import { RunStore } from "./RunStore.ts"
 
@@ -26,37 +27,30 @@ export {
   OwnerId
 }
 
-/**
- * Evidence that the owner in an exact run snapshot is no longer live.
- *
- * Two of the three kinds are collected outside the store: `same-host-pid-dead`
- * is a local process probe, and `cross-host-unreachable-stale` is a
- * reachability judgement the deployment makes. `lease-expired` is different —
- * it asserts only that the persisted heartbeat is older than the staleness
- * cutoff, which is the one claim the store can check for itself, and `steal`
- * checks it: the write refuses any row whose `heartbeat_at_ms` is still inside
- * the window. It is therefore accepted from a claimant on any host, while the
- * other two stay bound to the host relation that makes them meaningful.
- * The observation must carry the exact instant supplied to the consuming
- * operation: `checkedAtMs` must equal that operation's `nowMs`. A caller that
- * probes at T and calls at T+1 is refused and must build fresh evidence.
- *
- * @since 0.1.0
- * @category models
- */
-export const LivenessEvidence = Schema.Struct({
-  expectedOwner: OwnerId,
-  checkedAtMs: Schema.Number,
-  kind: Schema.Literals(["same-host-pid-dead", "cross-host-unreachable-stale", "lease-expired"])
-})
-
-/**
- * Evidence that the owner in an exact run snapshot is no longer live.
- *
- * @since 0.1.0
- * @category models
- */
-export type LivenessEvidence = typeof LivenessEvidence.Type
+export {
+  /**
+   * Evidence that the owner in an exact run snapshot is no longer live.
+   *
+   * Defined by `@smthrs/journal`'s `Consensus`, because R5 — steal requires
+   * staleness plus liveness evidence — is a consensus rule every strategy
+   * validates. Two of the three kinds are collected outside the store:
+   * `same-host-pid-dead` is a local process probe, and
+   * `cross-host-unreachable-stale` is a reachability judgement the deployment
+   * makes. `lease-expired` is different — it asserts only that the persisted
+   * heartbeat is older than the staleness cutoff, which is the one claim the
+   * strategy can check for itself, and `steal` checks it: the takeover
+   * refuses any lease whose heartbeat is still inside the window. It is
+   * therefore accepted from a claimant on any host, while the other two stay
+   * bound to the host relation that makes them meaningful. The observation
+   * must carry the exact instant supplied to the consuming operation:
+   * `checkedAtMs` must equal that operation's `nowMs`. A caller that probes
+   * at T and calls at T+1 is refused and must build fresh evidence.
+   *
+   * @since 0.1.0
+   * @category models
+   */
+  LivenessEvidence
+}
 
 /**
  * Evidence-factory signature a composition uses for ownership arbitration.
@@ -271,6 +265,11 @@ export {
  * Runs heartbeats until the persisted ownership fence is lost, then interrupts
  * itself. Race this effect with owned work so structured concurrency
  * interrupts the work when ownership disappears.
+ *
+ * Each pulse drives the injected `Consensus` strategy's `heartbeat` through
+ * `RunStore.heartbeat`, which renews the strategy's lease and mirrors the
+ * recorded stamp onto the run row in the same transaction. Heartbeats are
+ * lease evidence, never journal events.
  *
  * Pulses are delayed by `heartbeatInterval` and read the Effect `Clock`, so the
  * loop is fully driveable with `TestClock`.

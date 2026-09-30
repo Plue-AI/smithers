@@ -2,23 +2,23 @@
  * The ownership fence under a real takeover, across two real connections to one
  * file-backed SQLite database.
  *
- * `JournalFence.test.ts` proves the `WHERE EXISTS` predicate against a
- * hand-made in-memory `flows_runs` fixture with a single connection, where
- * ownership never changes *while* an append is in flight. That is the case the
- * fence exists for: a zombie owner already inside its write path when a
- * successor takes the run. This suite opens that window deterministically —
- * the stale writer parks on the threshold of its write transaction, the
- * successor commits the ownership change and its own entry on a second
- * connection, and the stale writer is then released into a database that has
- * moved on.
+ * `JournalFence.test.ts` proves the strategy's guard against an in-memory
+ * lease row with a single connection, where ownership never changes *while*
+ * an append is in flight. That is the case the fence exists for: a zombie
+ * owner already inside its write path when a successor takes the run. This
+ * suite opens that window deterministically — the stale writer parks on the
+ * threshold of its write transaction, the successor commits the ownership
+ * change and its own entry on a second connection, and the stale writer is
+ * then released into a database that has moved on.
  *
- * `flows_runs` belongs to `@smthrs/run-store`, which depends on this
- * package, so the columns the fence reads are stood up here as a fixture — the
- * same contract `JournalFence.test.ts` asserts.
+ * The lease lives in `flows_consensus_leases`, which this package's own
+ * migrations create, so the takeover is written as the lease row the
+ * `SqlConsensus` guard reads — the same contract `JournalFence.test.ts`
+ * asserts.
  *
  * Prior art: Temporal's shard `rangeID` fencing
  * (`reference/temporal/service/history/shard/context_impl.go`,
- * `renewRangeLocked`), reduced to one SQL predicate.
+ * `renewRangeLocked`), reduced to one guard read in the append transaction.
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter, layer as writerLayer } from "@smthrs/database/DurableWriter"
@@ -33,6 +33,7 @@ import { Input, type RunId, type SourceId, type SourceSeq } from "../src/Journal
 import * as Migrations from "../src/Migrations.ts"
 import type { OwnerId } from "../src/OwnerId.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const runId = (value: string): RunId => value as RunId
 const sourceId = (value: string): SourceId => value as SourceId
@@ -60,25 +61,10 @@ const withTempFile = <A, E>(body: (filename: string) => Effect.Effect<A, E>): Ef
     (directory) => Effect.promise(() => rm(directory, { recursive: true, force: true }))
   )
 
-/** The `flows_runs` columns the fenced append's `WHERE EXISTS` reads. */
-const fenceTable = Layer.effectDiscard(Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`CREATE TABLE IF NOT EXISTS flows_runs (
-    run_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    owner_host_id TEXT,
-    owner_pid INTEGER,
-    owner_nonce TEXT
-  )`
-}))
-
 const migrated = (filename: string) =>
   Layer.provideMerge(
-    fenceTable,
-    Layer.provideMerge(
-      Migrations.layer,
-      Layer.provideMerge(writerLayer(), NodeDatabase.layer({ filename }))
-    )
+    Migrations.layer,
+    Layer.provideMerge(writerLayer(), NodeDatabase.layer({ filename }))
   )
 
 /**
@@ -158,12 +144,7 @@ describe("SqlJournal durable fencing across connections", () => {
           Effect.gen(function*() {
             yield* onOwnConnection(
               filename,
-              Effect.flatMap(
-                Effect.service(SqlClient.SqlClient),
-                (sql) =>
-                  sql`INSERT INTO flows_runs (run_id, status, owner_host_id, owner_pid, owner_nonce)
-                      VALUES (${run}, 'running', ${stale.hostId}, ${stale.pid}, ${stale.nonce})`
-              )
+              Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => Leases.hold(sql, run, stale))
             )
 
             const reached = yield* Deferred.make<void>()
@@ -173,7 +154,7 @@ describe("SqlJournal durable fencing across connections", () => {
 
             // The stale owner enters its fenced append — input validated,
             // sequence allocated — and parks on the threshold of its write
-            // transaction, still holding the run per `flows_runs`.
+            // transaction, still holding the run per its lease.
             const appending = yield* Effect.forkChild(
               Effect.flip(zombie.emitDurable(input(sourceId("zombie"), 0, { decision: "stale" }), stale)),
               { startImmediately: true }
@@ -184,15 +165,7 @@ describe("SqlJournal durable fencing across connections", () => {
             // commit while the stale writer is parked mid-append.
             yield* onOwnConnection(
               filename,
-              Effect.flatMap(
-                Effect.service(SqlClient.SqlClient),
-                (sql) =>
-                  sql`UPDATE flows_runs
-                      SET owner_host_id = ${successor.hostId},
-                          owner_pid = ${successor.pid},
-                          owner_nonce = ${successor.nonce}
-                      WHERE run_id = ${run}`
-              )
+              Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => Leases.hold(sql, run, successor))
             )
             const survivor = yield* winner.emitDurable(
               input(sourceId("successor"), 0, { decision: "took-over" }),
@@ -237,12 +210,7 @@ describe("SqlJournal durable fencing across connections", () => {
           Effect.gen(function*() {
             yield* onOwnConnection(
               filename,
-              Effect.flatMap(
-                Effect.service(SqlClient.SqlClient),
-                (sql) =>
-                  sql`INSERT INTO flows_runs (run_id, status, owner_host_id, owner_pid, owner_nonce)
-                      VALUES (${run}, 'running', ${successor.hostId}, ${successor.pid}, ${successor.nonce})`
-              )
+              Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => Leases.hold(sql, run, successor))
             )
             const zombie = yield* connection(filename)
 

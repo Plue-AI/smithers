@@ -8,6 +8,7 @@ import { Journal } from "../src/Journal.ts"
 import { Input, type RunId, type SourceId, type SourceSeq } from "../src/JournalEvent.ts"
 import * as Migrations from "../src/Migrations.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const run = "auto-run" as RunId
 const other = "other-run" as RunId
@@ -244,11 +245,7 @@ describe("automatic compaction maintenance", () => {
         const service = yield* Journal
         const sql = yield* SqlClient.SqlClient
         const owner = { hostId: "compactor", pid: 1, nonce: "owner" }
-        yield* sql`CREATE TABLE flows_runs (
-          run_id TEXT PRIMARY KEY, status TEXT NOT NULL,
-          owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT
-        )`
-        yield* sql`INSERT INTO flows_runs VALUES (${run}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+        yield* Leases.hold(sql, run, owner)
         const receipt = yield* service.emitDurableUnfenced(input(0))
         yield* service.checkpoint({ runId: run, seq: receipt.seq, state: null }, owner)
         // Floor reads now run outside admission, so parking one cannot prove

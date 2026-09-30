@@ -75,11 +75,12 @@ const securityReview = Smithers.SecurityReview({
       threat:
         "A stale or rival process on the same database appends events or overwrites checkpoints of a run another process now owns, corrupting its replay.",
       lookFor: [
-        "An INSERT into flows_journal_events or flows_journal_checkpoints on an Owned fence that is not guarded by the owner_host_id, owner_pid, owner_nonce predicate in the same transaction.",
+        "An INSERT into flows_journal_events or flows_journal_checkpoints, or a compaction DELETE, on an Owned fence that is not preceded by Consensus.guard inside the same write transaction.",
+        "A SqlConsensus lease statement whose owner or claim predicate omits one of owner_host_id, owner_pid, owner_nonce (or the claim tuple and claimed_at_ms), or a steal that skips the heartbeat staleness cutoff.",
         "A public method that reaches the Unfenced fence without being emitDurableUnfenced or a documented internal path.",
         "Owner fields matched loosely (empty hostId or nonce accepted as a wildcard)."
       ],
-      paths: ["src/SqlJournal.ts", "src/OwnerId.ts"]
+      paths: ["src/SqlJournal.ts", "src/OwnerId.ts", "src/Consensus.ts", "src/SqlConsensus.ts"]
     },
     {
       id: "sql-parameterization",

@@ -51,7 +51,9 @@
     "./index": "./src/index.ts",
     "./test/Notifying": "./src/test/Notifying.ts",
     "./test/TestJournal": "./src/test/TestJournal.ts",
-    "./JournalGeneration": "./src/JournalGeneration.ts"
+    "./JournalGeneration": "./src/JournalGeneration.ts",
+    "./Consensus": "./src/Consensus.ts",
+    "./SqlConsensus": "./src/SqlConsensus.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -221,6 +223,26 @@
         "require": {
           "types": "./dist/cjs/JournalGeneration.d.ts",
           "default": "./dist/cjs/JournalGeneration.js"
+        }
+      },
+      "./Consensus": {
+        "import": {
+          "types": "./dist/esm/Consensus.d.ts",
+          "default": "./dist/esm/Consensus.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Consensus.d.ts",
+          "default": "./dist/cjs/Consensus.js"
+        }
+      },
+      "./SqlConsensus": {
+        "import": {
+          "types": "./dist/esm/SqlConsensus.d.ts",
+          "default": "./dist/esm/SqlConsensus.js"
+        },
+        "require": {
+          "types": "./dist/cjs/SqlConsensus.d.ts",
+          "default": "./dist/cjs/SqlConsensus.js"
         }
       }
     }
