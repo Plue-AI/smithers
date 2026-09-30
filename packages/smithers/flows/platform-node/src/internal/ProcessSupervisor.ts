@@ -20,7 +20,7 @@ import { tmpdir } from "node:os"
 import { join, parse, resolve } from "node:path"
 import * as Tls from "node:tls"
 import { standardFdsOf } from "./PipedProcess.ts"
-import type { Policy, System } from "./ProcessCleanup.ts"
+import type { Policy, Snapshot, System } from "./ProcessCleanup.ts"
 import { source } from "./SupervisorProgram.ts"
 import { resolveJobExecutable, WindowsProcessJob } from "./WindowsProcessJob.ts"
 
@@ -76,6 +76,48 @@ export const failure = (method: string, command: string, cause: unknown): Platfo
     cause: error
   })
 }
+
+/**
+ * The observation behind an unverified cleanup, in the message itself: a
+ * failure report usually shows only the message, and whether the receipt, the
+ * kernel or the snapshot was missing decides host load versus a live survivor.
+ * @private
+ * @since 1.0.0
+ */
+export const unverifiedCleanup = (
+  control: {
+    readonly fault: unknown
+    readonly cleanupFailed: boolean
+    readonly cleanupAcknowledged: boolean
+    readonly targetDone: boolean
+  },
+  cleanupRequired: boolean,
+  vacant: boolean,
+  observed: Snapshot | undefined
+): string =>
+  [
+    `target exited: ${control.targetDone}`,
+    `cleanup receipt: ${
+      control.cleanupFailed
+        ? "failed"
+        : !cleanupRequired
+        ? "not required"
+        : control.cleanupAcknowledged
+        ? "acknowledged"
+        : "missing"
+    }`,
+    `group vacant: ${vacant}`,
+    observed === undefined
+      ? "group snapshot: unavailable"
+      : `group members: ${
+        observed.members.length === 0
+          ? "none"
+          : observed.members.map((member) => `${member.pid} ${member.zombie ? "zombie" : "live"}`).join(", ")
+      }; host group ${observed.ownGroup}`,
+    ...(control.fault === undefined
+      ? []
+      : [`fault: ${String((control.fault as { message?: unknown })?.message ?? control.fault)}`])
+  ].join("; ")
 
 const promise = <A>() => {
   let resolve!: (value: A) => void
@@ -539,18 +581,22 @@ export const prepare = (
             failure(
               "kill",
               command.command,
-              new Error("Process cleanup could not be verified; its ledger record is retained", {
-                cause: {
-                  fault: control.fault,
-                  cleanupFailed: control.cleanupFailed,
-                  cleanupRequired: requireCleanupReceipt,
-                  cleanupAcknowledged: control.cleanupAcknowledged,
-                  targetDone: control.targetDone,
-                  groupVacant: vacant,
-                  ownerObserved: observed !== undefined,
-                  members: observed?.members
+              new Error(
+                "Process cleanup could not be verified; its ledger record is retained " +
+                  `(${unverifiedCleanup(control, requireCleanupReceipt, vacant, observed)})`,
+                {
+                  cause: {
+                    fault: control.fault,
+                    cleanupFailed: control.cleanupFailed,
+                    cleanupRequired: requireCleanupReceipt,
+                    cleanupAcknowledged: control.cleanupAcknowledged,
+                    targetDone: control.targetDone,
+                    groupVacant: vacant,
+                    ownerObserved: observed !== undefined,
+                    members: observed?.members
+                  }
                 }
-              })
+              )
             )
           )
         }

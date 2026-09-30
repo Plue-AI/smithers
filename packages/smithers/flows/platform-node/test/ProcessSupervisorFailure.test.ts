@@ -583,6 +583,41 @@ describe("failed process preparation", () => {
   }
 })
 
+describe("unverified cleanup report", () => {
+  const control = { fault: undefined, cleanupFailed: false, cleanupAcknowledged: false, targetDone: true }
+  it("names the receipt state, the kernel answer and each observed member", () => {
+    const snapshot = {
+      ownGroup: 700,
+      members: [{ pid: 901, startedAtMs: 1, zombie: true }, { pid: 902, startedAtMs: 2, zombie: false }]
+    }
+    expect(Supervisor.unverifiedCleanup(control, true, false, snapshot)).toBe(
+      "target exited: true; cleanup receipt: missing; group vacant: false; group members: 901 zombie, 902 live; host group 700"
+    )
+    expect(Supervisor.unverifiedCleanup({ ...control, cleanupAcknowledged: true }, true, false, undefined)).toBe(
+      "target exited: true; cleanup receipt: acknowledged; group vacant: false; group snapshot: unavailable"
+    )
+    expect(Supervisor.unverifiedCleanup({ ...control, targetDone: false }, false, true, { ownGroup: 700, members: [] }))
+      .toBe(
+        "target exited: false; cleanup receipt: not required; group vacant: true; group members: none; host group 700"
+      )
+  })
+
+  it("reports a failed receipt with its fault, whether an Error, a frame or a string", () => {
+    const failed = { ...control, cleanupFailed: true }
+    expect(Supervisor.unverifiedCleanup({ ...failed, fault: new Error("escaped child") }, true, false, undefined))
+      .toBe(
+        "target exited: true; cleanup receipt: failed; group vacant: false; group snapshot: unavailable; fault: escaped child"
+      )
+    expect(
+      Supervisor.unverifiedCleanup({ ...failed, fault: { type: "fault", message: "frame" } }, true, false, undefined)
+    )
+      .toMatch(/; fault: frame$/)
+    expect(Supervisor.unverifiedCleanup({ ...failed, fault: "closed" }, true, false, undefined)).toMatch(
+      /; fault: closed$/
+    )
+  })
+})
+
 describe("failed process shutdown", () => {
   it("waits for a real empty-group observation after a transient host probe outage", async () => {
     const host = fixture({ snapshotUnavailableAfterExitMs: 800 })
@@ -732,6 +767,7 @@ describe("failed process shutdown", () => {
         expect(Exit.isFailure(result.outcome)).toBe(true)
         if (Exit.isFailure(result.outcome)) {
           expect(String(result.outcome.cause)).toContain("cleanup could not be verified")
+          expect(String(result.outcome.cause)).toMatch(/group vacant: false; group members: .*; host group \d+/)
         }
         expect(result.live).toHaveLength(1)
         expect(host.unrefs).toBe(1)

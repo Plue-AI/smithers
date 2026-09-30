@@ -260,7 +260,11 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
         Effect.exit
       )
       expect(Exit.isFailure(result)).toBe(true)
-      expect(String(Exit.isFailure(result) ? result.cause : "")).toContain("Process cleanup could not be verified")
+      const cause = String(Exit.isFailure(result) ? result.cause : "")
+      expect(cause).toContain("Process cleanup could not be verified")
+      // The report names what was missing, not only that something was.
+      expect(cause).toContain("group vacant: false; group snapshot: unavailable")
+      expect(cause).toMatch(/target exited: true; cleanup receipt: (not required|acknowledged)/)
       expect(probes).toBeGreaterThan(1)
       expect(yield* ledger.live).toHaveLength(1)
     }))
