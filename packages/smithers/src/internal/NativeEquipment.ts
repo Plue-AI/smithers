@@ -376,6 +376,7 @@ const providerSeats = (
             return yield* seatOf(
               Route.openaiChatCompatible({
                 id: provider,
+                providerName: provider === "gemini" ? "gcp.gemini" : provider,
                 // A provider the model proxy fronts honors SMITHERS_MODEL_PROXY_URL.
                 baseUrl: Object.hasOwn(Endpoint.providerOrigins, provider)
                   ? Endpoint.providerOrigin(provider as Endpoint.ProxiedProvider, environment)
@@ -438,6 +439,7 @@ const providerSeats = (
           ? seatOf(
             Route.openaiResponsesCompatible({
               id: "openrouter",
+              providerName: "openrouter",
               baseUrl: Endpoint.providerOrigin("openrouter", environment),
               apiKey: Redacted.make(key)
             }),
@@ -449,6 +451,7 @@ const providerSeats = (
           ? seatOf(
             Route.openaiChatCompatible({
               id: "openai",
+              providerName: "openai",
               baseUrl: environment.SMITHERS_OPENAI_COMPATIBLE_BASE_URL,
               apiKey: Redacted.make(key)
             }),

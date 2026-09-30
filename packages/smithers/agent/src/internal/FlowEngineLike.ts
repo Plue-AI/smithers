@@ -305,7 +305,7 @@ export const recordModelStep = (
       Effect.suspend(() => {
         attemptUsage = {}
         return Stream.runCollect(
-          silent(model.stream(input).pipe(Model.withGenAiSpan(input))).pipe(Stream.tap((event) =>
+          silent(model.stream(input).pipe(Model.withGenAiSpan(input, model.providerName))).pipe(Stream.tap((event) =>
             Effect.sync(() => {
               if (event.type !== "usage") return
               const { type: _type, ...usage } = event

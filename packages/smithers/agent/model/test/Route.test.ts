@@ -60,6 +60,7 @@ describe("Route.prepare", () => {
     const bodySchema = Schema.Struct({ limit: Schema.NumberFromString })
     const body = { limit: 8 }
     const route = Route.make({
+      providerName: "openai",
       id: "codec-probe",
       protocol: Protocol.make({
         ...protocol,
@@ -86,6 +87,7 @@ describe("Route.prepare", () => {
       )
     })
     const route = Route.make({
+      providerName: "openai",
       id: "codec-constraint",
       protocol: Protocol.make({
         ...protocol,
@@ -109,6 +111,7 @@ describe("Route.prepare", () => {
   it("is deterministic and excludes credentials from the sealed-step view", async () => {
     const key = "test-secret-api-key"
     const route = Route.make({
+      providerName: "openai",
       id: "test-route",
       protocol,
       endpoint: endpoint({ url: "https://example.test", path: "/v1/responses" }),
@@ -143,6 +146,7 @@ describe("Route.prepare", () => {
     const prepare = (headers: Readonly<Record<string, string>>) =>
       Effect.runPromise(Route.prepare(
         Route.make({
+          providerName: "openai",
           id: "header-order",
           protocol,
           endpoint: endpoint({ url: "https://example.test" }),
@@ -160,6 +164,7 @@ describe("Route.prepare", () => {
 
   it("rejects credential-bearing headers before they can enter the prepared view", async () => {
     const route = Route.make({
+      providerName: "openai",
       id: "unsafe",
       protocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -175,6 +180,7 @@ describe("Route.prepare", () => {
 
   it("rejects password headers before they can enter the prepared view", async () => {
     const route = Route.make({
+      providerName: "openai",
       id: "unsafe-password",
       protocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -197,6 +203,7 @@ describe("Route.prepare", () => {
       }
     })
     const route = Route.make({
+      providerName: "openai",
       id: "invalid-body",
       protocol: invalidProtocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -279,6 +286,7 @@ describe("Route.prepare", () => {
     const encoded = await Effect.runPromise(
       Route.prepare(
         Route.make({
+          providerName: "openai",
           id: "throwing",
           protocol: throwing,
           endpoint: endpoint({ url: "https://example.test" }),
@@ -300,6 +308,7 @@ describe("Route.prepare", () => {
       Effect.runPromise(
         Route.prepare(
           Route.make({
+            providerName: "openai",
             id: "reshaped-array",
             protocol: Protocol.make({
               ...protocol,
@@ -343,6 +352,7 @@ describe("Route.prepare", () => {
     const error = await Effect.runPromise(
       Route.prepare(
         Route.make({
+          providerName: "openai",
           id: "missing-schema-issue",
           protocol: malformedProtocol,
           endpoint: endpoint({ url: "https://example.test" }),
@@ -411,7 +421,12 @@ describe("Route.prepare", () => {
         await Effect.runPromise(
           Route.prepare(
             Result.getOrThrow(
-              Route.openaiChatCompatible({ id: "golden-chat", baseUrl: "https://compatible.test", apiKey: key })
+              Route.openaiChatCompatible({
+                providerName: "openai",
+                id: "golden-chat",
+                baseUrl: "https://compatible.test",
+                apiKey: key
+              })
             ),
             golden
           )
@@ -429,6 +444,7 @@ describe("Route.prepare", () => {
 
   it("keeps OpenAI-compatible routes on the portable protocol surface", async () => {
     const compatible = Result.getOrThrow(Route.openaiResponsesCompatible({
+      providerName: "openai",
       id: "groq",
       baseUrl: "https://api.groq.com/openai",
       apiKey: Redacted.make("compatible-secret")
@@ -448,6 +464,7 @@ describe("Route.prepare", () => {
     for (const baseUrl of [origin, trailingOrigin]) {
       expect(
         Result.getOrThrow(Route.openaiResponsesCompatible({
+          providerName: "openai",
           id: "openrouter-responses",
           baseUrl,
           apiKey: key
@@ -455,6 +472,7 @@ describe("Route.prepare", () => {
       ).toBe("https://openrouter.ai/api/v1/responses")
       expect(
         Result.getOrThrow(Route.openaiChatCompatible({
+          providerName: "openai",
           id: "openrouter-chat",
           baseUrl,
           apiKey: key
@@ -466,6 +484,7 @@ describe("Route.prepare", () => {
   it("keeps the explicitly named compatible routes on their documented surfaces", async () => {
     const key = Redacted.make("compatible-secret")
     const responses = Result.getOrThrow(Route.openaiResponsesCompatible({
+      providerName: "openai",
       id: "responses-compatible",
       baseUrl: "https://compatible.test",
       apiKey: key,
@@ -477,6 +496,7 @@ describe("Route.prepare", () => {
     expect(responses.headers).toEqual({ "x-provider": "compatible" })
 
     const chat = Result.getOrThrow(Route.openaiChatCompatible({
+      providerName: "openai",
       id: "chat-compatible",
       baseUrl: "https://compatible.test",
       apiKey: key,
@@ -488,6 +508,7 @@ describe("Route.prepare", () => {
     })
 
     const plainChat = Result.getOrThrow(Route.openaiChatCompatible({
+      providerName: "openai",
       id: "chat-compatible-plain",
       baseUrl: "https://compatible.test",
       apiKey: key
@@ -495,12 +516,20 @@ describe("Route.prepare", () => {
     expect(JSON.parse((await Effect.runPromise(Route.prepare(plainChat, request))).bodyText))
       .not.toHaveProperty("response_format")
 
-    expect(Route.openaiResponsesCompatible({ id: "bad", baseUrl: "ftp://compatible.test", apiKey: key }))
+    expect(
+      Route.openaiResponsesCompatible({
+        providerName: "openai",
+        id: "bad",
+        baseUrl: "ftp://compatible.test",
+        apiKey: key
+      })
+    )
       .toMatchObject({ _tag: "Failure" })
   })
 
   it("mounts the live Chat Completions route on compatible provider base paths", async () => {
     const groq = Result.getOrThrow(Route.openaiChatCompatible({
+      providerName: "openai",
       id: "groq-chat",
       baseUrl: "https://api.groq.com/openai",
       apiKey: Redacted.make("compatible-secret")
@@ -511,6 +540,7 @@ describe("Route.prepare", () => {
     expect(groq.endpoint.url).toBe("https://api.groq.com/openai/v1/chat/completions")
 
     const gemini = Result.getOrThrow(Route.openaiChatCompatible({
+      providerName: "openai",
       id: "gemini-chat",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
       apiKey: Redacted.make("compatible-secret")
@@ -525,6 +555,7 @@ describe("Route.prepare", () => {
 
   it("carries an OpenAI-compatible deployment's own headers and rejects an unusable base URL", async () => {
     const withHeaders = Result.getOrThrow(Route.openaiResponsesCompatible({
+      providerName: "openai",
       id: "vllm",
       baseUrl: "https://vllm.test/",
       apiKey: Redacted.make("compatible-secret"),
@@ -537,6 +568,7 @@ describe("Route.prepare", () => {
     expect(prepared.publicHeaders).toEqual({ "content-type": "application/json", "x-tenant": "acme" })
 
     const invalid = Route.openaiResponsesCompatible({
+      providerName: "openai",
       id: "broken",
       baseUrl: "not a url",
       apiKey: Redacted.make("compatible-secret")
@@ -628,6 +660,7 @@ describe("Route.prepare", () => {
       }
     })
     const route = Route.make({
+      providerName: "openai",
       id: "uncanonical",
       protocol: uncanonical,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -652,6 +685,7 @@ describe("Route.prepare", () => {
       }
     })
     const route = Route.make({
+      providerName: "openai",
       id: "uncanonical-nested",
       protocol: uncanonical,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -741,6 +775,7 @@ describe("Route.prepare", () => {
         })
     })
     const route = Route.make({
+      providerName: "openai",
       id: "classified",
       protocol: classifiedProtocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -786,6 +821,7 @@ describe("Route.prepare", () => {
       }
     })
     const config = Route.make({
+      providerName: "openai",
       id: "failing",
       protocol: failingProtocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -861,6 +897,7 @@ const routeOf = <Body, Frame, Event, State>(
   }
 ): Route.Route<Body, Frame, Event, State> =>
   Route.make({
+    providerName: "openai",
     id: "streamed",
     protocol: input.protocol,
     endpoint: endpoint({ url: "https://example.test" }),
@@ -1002,6 +1039,7 @@ describe("Route.stream", () => {
       Effect.scoped(
         Route.toModel(
           Route.make({
+            providerName: "openai",
             id: "snapshot",
             protocol: observing,
             endpoint: endpoint({ url: "https://example.test" }),
@@ -1106,7 +1144,14 @@ describe("Route.stream terminal events", () => {
     [
       "openai-chat-completions",
       () =>
-        Result.getOrThrow(Route.openaiChatCompatible({ id: "compat", baseUrl: "https://compat.test", apiKey: key })),
+        Result.getOrThrow(
+          Route.openaiChatCompatible({
+            providerName: "openai",
+            id: "compat",
+            baseUrl: "https://compat.test",
+            apiKey: key
+          })
+        ),
       [
         "{\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
         "{\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}",
@@ -1166,6 +1211,7 @@ describe("Route.stream credential safety", () => {
           const executor = yield* RequestExecutor.makeWith(RequestExecutor.fixed(client))
           const model = yield* Route.toModel(
             Route.make({
+              providerName: "openai",
               id: "traced",
               protocol,
               endpoint: endpoint({ url: "https://example.test" }),
@@ -1258,6 +1304,7 @@ describe("Route.stream credential safety", () => {
     const error = await drainOverHttp(
       Result.getOrThrow(
         Route.openaiChatCompatible({
+          providerName: "openai",
           id: "compatible",
           baseUrl: "https://provider.test/v1",
           apiKey: Redacted.make(credential)
@@ -1274,6 +1321,7 @@ describe("Route.stream credential safety", () => {
 
   it.each([200, 401])("redacts custom Auth header echoes over HTTP %s", async (status) => {
     const route = Route.make({
+      providerName: "openai",
       ...Result.getOrThrow(Route.openai({ apiKey: Redacted.make(credential) })),
       auth: Auth.apiKeyHeader("Ocp-Apim-Subscription-Key", Redacted.make(credential))
     })
@@ -1302,6 +1350,7 @@ describe("Route.stream credential safety", () => {
       stream: { ...protocol.stream, step: () => Effect.fail(leaked) }
     })
     const route = Route.make({
+      providerName: "openai",
       id: "leaking",
       protocol: leaking,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -1390,6 +1439,7 @@ describe("Route.stream refresh", () => {
 
   const withAuth = (auth: Auth.Auth) =>
     Route.make({
+      providerName: "openai",
       id: "refreshing",
       protocol,
       endpoint: endpoint({ url: "https://example.test" }),
@@ -1419,6 +1469,7 @@ describe("Route.stream refresh", () => {
       attempt === 1 ? Effect.fail(refusal()) : Effect.succeed(sseResponse(["{}"]))
     )
     const route = Route.make({
+      providerName: "openai",
       ...withAuth(auth),
       protocol: Protocol.make({
         ...protocol,

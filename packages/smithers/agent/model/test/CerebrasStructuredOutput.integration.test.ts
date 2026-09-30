@@ -42,6 +42,7 @@ const Capital = Schema.Struct({ city: Schema.String })
 const route = (structuredOutput?: OpenAIChatCompletions.StructuredOutput) =>
   Route.openaiChatCompatible({
     id: "cerebras",
+    providerName: "cerebras",
     baseUrl: BASE_URL,
     path: "/chat/completions",
     apiKey: Redacted.make(apiKey ?? ""),

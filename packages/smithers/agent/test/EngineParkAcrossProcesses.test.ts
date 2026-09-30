@@ -22,6 +22,7 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlLive, ControlRuntime, ControlSchema, SqlControlRuntime } from "@smthrs/control"
+import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
@@ -195,6 +196,8 @@ const host = (
   owner: Ownership.OwnerId,
   engineHost = "engine-park-host",
   options: {
+    readonly beforeResume?: (runId: string) => Effect.Effect<void>
+    readonly resumed?: Deferred.Deferred<void>
     readonly adoptsAtOnce?: boolean
     readonly agent?: Agent.Service
     readonly boundary?: Layer.Layer<StepBoundary.Service>
@@ -225,6 +228,12 @@ const host = (
     limits: { memoryBytes: 64 * 1024 * 1024, steps: 5_000_000 },
     maxFrames: 4
   }).pipe(
+    Layer.provide(Layer.effect(FlowRuntime.FlowRuntime, Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
+      ...runtime,
+      resume: (...args: Parameters<typeof runtime.resume>) => runtime.resume(...args).pipe(
+        Effect.ensuring(options.resumed === undefined ? Effect.void : Deferred.succeed(options.resumed, void 0))
+      )
+    })))),
     Layer.provide(
       Layer.mergeAll(
         options.agent === undefined ? Agent.layer : Layer.succeed(Agent.Agent)(options.agent),
@@ -265,7 +274,12 @@ const host = (
     Layer.provideMerge(
       bindControl.pipe(Layer.provideMerge(
         Layer.mergeAll(
-          SqlControlRuntime.layer({ owner, flows: controlFlows }).pipe(Layer.orDie),
+          Layer.effect(ControlRuntime.ControlRuntime, Effect.map(ControlRuntime.ControlRuntime, (runtime) => ({
+            ...runtime,
+            resume: (runId: string) => (options.beforeResume?.(runId) ?? Effect.void).pipe(
+              Effect.andThen(runtime.resume(runId))
+            )
+          }))).pipe(Layer.provide(SqlControlRuntime.layer({ owner, flows: controlFlows }).pipe(Layer.orDie))),
           NotificationQueue.layer,
           registryLayer
         )
@@ -461,6 +475,50 @@ const settledEngineRow = async (root: string, runId: string): Promise<EngineRow 
 }
 
 describe("an agent execution quarantined by the durable engine", () => {
+  it("fences a delegated resume when a peer quarantines after its wait precheck", async () => {
+    const root = makeRoot()
+    const runId = await Effect.runPromise(Effect.gen(function*() {
+      const id = yield* launch
+      const runtime = yield* ControlRuntime.ControlRuntime
+      yield* awaitStatus(runtime, id, "parked")
+      return id
+    }).pipe(Effect.provide(host(root, hostOwner)), Effect.scoped, Effect.orDie))
+    expect(readEngineRun(root, runId)?.waiting_reason).toBe("timer")
+    const resumed = Deferred.makeUnsafe<void>()
+    let quarantines = 0
+    await Effect.runPromise(Effect.gen(function*() {
+      const executor = yield* ControlExecutor.ControlExecutor
+      expect(yield* executor.resumeRun({ runId })).toBe("resuming")
+      yield* Deferred.await(resumed)
+    }).pipe(Effect.provide(host(root, secondOwner, "quarantine-race", {
+      resumed,
+      beforeResume: (id) => Effect.sync(() => {
+        quarantines++
+        const database = new DatabaseSync(join(root, "engine.db"))
+        try {
+          database.prepare("UPDATE flows_runs SET waiting_reason = 'quarantine', waiting_token = 'peer-corruption' WHERE run_id = ?").run(id)
+        } finally {
+          database.close()
+        }
+      })
+    })), Effect.scoped, Effect.orDie))
+    expect(quarantines).toBe(1)
+    expect(readEngineRun(root, runId)?.status).toBe("suspended")
+    expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
+    expect(readEngineRun(root, runId)?.waiting_token).toBe("peer-corruption")
+    expect(notes).toEqual([])
+    const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+    try {
+      const consent = database.prepare(`SELECT COUNT(*) AS count FROM flows_journal
+        WHERE run_id = ? AND event_type = 'flows.engine.run-decision'
+        AND json_extract(payload_json, '$.decision') = 'wake-scheduled'
+        AND json_extract(payload_json, '$.reason') = 'operator'`).get(runId)
+      expect(consent).toEqual({ count: 0 })
+    } finally {
+      database.close()
+    }
+  }, 120_000)
+
   it("replays a corrupted succeeded attempt, parks both records, then recovers its saved outcome", async () => {
     const root = makeRoot()
     let dispatches = 0

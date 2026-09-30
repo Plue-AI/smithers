@@ -55,10 +55,19 @@ export const withRoute = <A>(
           )
       )
     case "openai-responses":
-      return Result.map(Route.openaiResponsesCompatible({ id: plan.protocol, baseUrl: plan.baseUrl, apiKey }), visit)
+      return Result.map(
+        Route.openaiResponsesCompatible({ id: plan.protocol, providerName: "openai", baseUrl: plan.baseUrl, apiKey }),
+        visit
+      )
     case "openai-chat":
       return Result.map(
-        Route.openaiChatCompatible({ id: plan.protocol, baseUrl: plan.baseUrl, path: plan.path, apiKey }),
+        Route.openaiChatCompatible({
+          id: plan.protocol,
+          providerName: "openai",
+          baseUrl: plan.baseUrl,
+          path: plan.path,
+          apiKey
+        }),
         visit
       )
     case "evaluation":

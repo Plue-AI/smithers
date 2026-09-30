@@ -67,6 +67,7 @@ export const make = (input: {
     (endpoint) =>
       Route.make({
         id: "openai-chatgpt",
+        providerName: "openai",
         protocol: OpenAIResponses.chatgptProtocol,
         endpoint,
         auth: input.auth,

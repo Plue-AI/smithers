@@ -778,3 +778,13 @@ retry directives in SSE do not terminate the response or discard later events.
 The model test suite uses local fixtures by default. Live evaluator, Gemini,
 and Cerebras cases require `SMITHERS_LIVE_MODEL_TESTS=1` and their matching
 provider key. An ambient key alone does not enable provider traffic.
+
+## Chat span provider
+
+Routes declare `providerName` independently of their route id and protocol.
+`Route.anthropic` declares `anthropic`; `Route.openai` and `OpenAIChatGPT.make`
+declare `openai`. Custom routes and compatible constructors require an explicit
+OpenTelemetry provider name, such as `gcp.gemini` or `openrouter`.
+`Route.toModel` carries that name to the agent chat span as `gen_ai.provider.name`.
+Custom model implementations can declare `providerName`; provider-neutral test
+models omit it. Prompt and response content remain absent from spans.

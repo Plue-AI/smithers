@@ -50,6 +50,7 @@ const body = (route: Route.Route<OpenAIChatCompletions.Body, string, never, neve
 const configured = (structuredOutput?: OpenAIChatCompletions.StructuredOutput) =>
   Result.getOrThrow(Route.openaiChatCompatible({
     id: "cerebras",
+    providerName: "cerebras",
     baseUrl: "https://api.cerebras.ai",
     apiKey: Redacted.make("test-key"),
     ...(structuredOutput === undefined ? {} : { structuredOutput })

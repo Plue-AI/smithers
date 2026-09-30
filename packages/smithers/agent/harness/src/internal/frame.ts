@@ -630,7 +630,10 @@ const lastCheck = (calls: ReadonlyArray<ObservedCall>): CompletionClaim.Check | 
 
 /**
  * The demands a completion's own measurements produce, in precedence order —
- * `FailedCall`, `UnobservedCall`, then the four below — or nothing. Every fact read here was taken by the frame that is
+ * `FailedCall`, `UnobservedCall`, then the three below — or nothing. The
+ * `UnmovedTree` demand is not one of them: an unmoved tree is the right tree
+ * for a question, so it is issued only when the claim brake reads the
+ * completion as unsupported. See `judgeCompletion`. Every fact read here was taken by the frame that is
  * completing or by an earlier one, so this is a pure function of the state
  * and the accounting and it is what `judgeCompletion` consults first.
  *
@@ -681,26 +684,6 @@ const measuredDemand = (
         note: UnobservedCall.demand(unread),
         keeps: true,
         spent: { unobservedDemands: state.unobservedDemands + 1 }
-      }
-    }
-  }
-  if (state.unmovedDemands < state.unmovedCap) {
-    const unmoved = UnmovedTree.find({
-      opened: facts.openingDigest,
-      digest: workspaceDigest,
-      elsewhere: facts.remoteMutations
-    })
-    if (unmoved !== undefined) {
-      return {
-        event: new AgentEvent.UnmovedDemanded({
-          eventType: eventType.unmovedDemanded,
-          openedDigest: unmoved.opened,
-          currentDigest: unmoved.closed,
-          nextFrame
-        }),
-        note: UnmovedTree.demand(unmoved),
-        keeps: true,
-        spent: { unmovedDemands: state.unmovedDemands + 1 }
       }
     }
   }
@@ -772,7 +755,10 @@ const measuredDemand = (
  * four caps:
  *
  * 1. `UnmovedTree`: the tree it is completing on is the tree it opened on, so
- *    there is no change for any evidence to be about;
+ *    there is no change for any evidence to be about. This one is not read
+ *    alone: a question is answered on the tree it was asked on, so it is
+ *    issued only where the claim brake (5) found the completion unsupported,
+ *    and then in the brake's place;
  * 2. `UnresolvedFailure`: a check over this exact tree reported a failing exit
  *    status and the run answered it with a different reading of the same
  *    subject rather than with the check itself;
@@ -894,17 +880,17 @@ export const judgeCompletion = (
       recallTask
     )
     const check = lastCheck(calls)
+    const unmovedTree = UnmovedTree.find({
+      opened: facts.openingDigest,
+      digest: workspaceDigest,
+      elsewhere: facts.remoteMutations
+    })
     const reading = yield* read({
       task,
       claim: CompletionClaim.prose(claim),
       // The `UnmovedTree` fact, read the other way round. An unmeasured tree
-      // reads as moved, which is the reading that asks for nothing: the
-      // brake above owns the unmoved case and has already passed on it.
-      treeMoved: UnmovedTree.find({
-        opened: facts.openingDigest,
-        digest: workspaceDigest,
-        elsewhere: facts.remoteMutations
-      }) === undefined,
+      // reads as moved, which is the reading that asks for nothing.
+      treeMoved: unmovedTree === undefined,
       checksRun: facts.reported,
       callsRun: facts.callLedger.map((entry) => ({
         flow: entry.flow,
@@ -919,12 +905,21 @@ export const judgeCompletion = (
     // One bounce while the cap and a frame allow it; the verdict after that,
     // and only over the readings the verdict is about.
     const bounced = found !== undefined && room && state.claimDemands < state.claimCap
+    // An unmoved tree alone is not a demand: a read-only question is answered
+    // on exactly the tree it was asked on, and bouncing that answer discarded
+    // correct replies (#2937). The tree fact names what is missing only when
+    // this reading found the claim unsupported, and then its wording is the
+    // more precise of the two, so it takes the bounce while its cap lasts and
+    // the reading is journaled beside it as one that did not demand.
+    const unmoved = found !== undefined && room && state.unmovedDemands < state.unmovedCap
+      ? unmovedTree
+      : undefined
     // The third way a reading comes out, stated on the event because nothing
     // downstream can derive it: a reading that neither stands nor hands the
     // frame back is the one that ends the run, and a projection that could not
     // tell it from a reading that stood wrote no card for it. See
     // `AgentEvent.ClaimDemanded.refused`.
-    const refused = found !== undefined && !bounced && CompletionClaim.unrecorded(found)
+    const refused = found !== undefined && !bounced && unmoved === undefined && CompletionClaim.unrecorded(found)
     const event = new AgentEvent.ClaimDemanded({
       eventType: eventType.claimDemanded,
       complete: reading.complete,
@@ -932,7 +927,7 @@ export const judgeCompletion = (
       invented: reading.invented,
       latencyMs: reading.latencyMs,
       ...(reading.usage === undefined ? {} : { usage: reading.usage }),
-      demanded: bounced,
+      demanded: bounced && unmoved === undefined,
       refused,
       currentDigest: workspaceDigest,
       nextFrame
@@ -950,7 +945,7 @@ export const judgeCompletion = (
       questions: CompletionClaim.classifier.questions,
       answers: reading.asked.answers,
       latencyMs: reading.latencyMs,
-      acted: bounced || refused,
+      acted: bounced || refused || unmoved !== undefined,
       decidedBy: "jev"
     })
     // The per-sentence reading, journaled as its own decision because it is
@@ -966,11 +961,28 @@ export const judgeCompletion = (
       questions: reading.sentences.questions,
       answers: reading.sentences.answers,
       latencyMs: reading.sentences.latencyMs,
-      acted: bounced || refused,
+      acted: bounced || refused || unmoved !== undefined,
       decidedBy: "jev"
     })
     if (found === undefined) {
       return { observed: event, demand: undefined, unproven: undefined, decision, sentenceDecision }
+    }
+    if (unmoved !== undefined) {
+      return {
+        ...handBack({
+          event: new AgentEvent.UnmovedDemanded({
+            eventType: eventType.unmovedDemanded,
+            openedDigest: unmoved.opened,
+            currentDigest: unmoved.closed,
+            nextFrame
+          }),
+          note: UnmovedTree.demand(unmoved),
+          keeps: !CompletionClaim.unrecorded(found),
+          spent: { unmovedDemands: state.unmovedDemands + 1 }
+        }, decision),
+        observed: event,
+        sentenceDecision
+      }
     }
     if (bounced) {
       return {

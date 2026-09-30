@@ -20,6 +20,8 @@ const contextWindows: ReadonlyArray<readonly [RegExp, number]> = [
   [/^claude-(?:(?:opus|sonnet)-5(?:-[0-9]{1,2})?|opus-4-[678]|sonnet-4-6)$/i, 1_000_000],
   [/^claude-(?:fable|mythos)-5(?:-[0-9]+)*$/i, 1_000_000],
   [/claude/i, 200_000],
+  // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+  [/^gpt-6\.1-sol$/i, 1_050_000],
   // Codex's own model catalog lists gpt-6-* and gpt-5.6-* with one window.
   [/gpt-[56]/i, 400_000],
   [/gpt-4\.1/i, 1_000_000],

@@ -55,6 +55,8 @@ export interface PreparedRequest {
  */
 export interface Config<Body, Frame, Event, State> {
   readonly id: string
+  /** OpenTelemetry provider name; independent of route identity and wire protocol. */
+  readonly providerName: string
   readonly protocol: Protocol.Protocol<Body, Frame, Event, State>
   readonly endpoint: Endpoint.Endpoint
   readonly auth: Auth.Auth
@@ -382,7 +384,7 @@ export const toModel = <Body, Frame, Event, State>(
 ): Effect.Effect<Model.Model, never, RequestExecutor.RequestExecutor> =>
   Effect.gen(function*() {
     const executor = yield* RequestExecutor.RequestExecutor
-    return Model.make({ stream: (request) => stream(config, executor, request) })
+    return Model.make({ providerName: config.providerName, stream: (request) => stream(config, executor, request) })
   })
 
 /**
@@ -423,6 +425,7 @@ export const anthropic = (
     (endpoint) =>
       make({
         id: "anthropic",
+        providerName: "anthropic",
         protocol: AnthropicMessages.protocol,
         endpoint,
         auth: Auth.apiKeyHeader("x-api-key", input.apiKey ?? Redacted.make("")),
@@ -458,6 +461,7 @@ export const openai = (
     (endpoint) =>
       make({
         id: "openai",
+        providerName: "openai",
         protocol: OpenAIResponses.protocol,
         endpoint,
         auth: Auth.bearer(input.apiKey),
@@ -486,6 +490,7 @@ export const openai = (
 export const openaiResponsesCompatible = (
   input: {
     readonly id: string
+    readonly providerName: string
     readonly baseUrl: string
     readonly apiKey: Auth.Redacted<string>
     readonly headers?: Readonly<Record<string, string>>
@@ -502,6 +507,7 @@ export const openaiResponsesCompatible = (
   Result.map(Endpoint.make({ url: input.baseUrl, path: "/v1/responses" }), (endpoint) =>
     make({
       id: input.id,
+      providerName: input.providerName,
       protocol: { ...OpenAIResponses.protocol, supportsDeferred: () => false },
       endpoint,
       auth: Auth.bearer(input.apiKey),
@@ -529,6 +535,7 @@ export const openaiResponsesCompatible = (
 export const openaiChatCompatible = (
   input: {
     readonly id: string
+    readonly providerName: string
     readonly baseUrl: string
     readonly path?: string | undefined
     readonly apiKey: Auth.Redacted<string>
@@ -546,6 +553,7 @@ export const openaiChatCompatible = (
   Result.map(Endpoint.make({ url: input.baseUrl, path: input.path ?? "/v1/chat/completions" }), (endpoint) =>
     make({
       id: input.id,
+      providerName: input.providerName,
       protocol: OpenAIChatCompletions.protocolWith(
         input.structuredOutput === undefined ? {} : { structuredOutput: input.structuredOutput }
       ),

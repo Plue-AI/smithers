@@ -22,7 +22,9 @@ const routes = [
   [
     "chat",
     Route.toModel(
-      Result.getOrThrow(Route.openaiChatCompatible({ id: "chat", baseUrl: "https://example.test", apiKey }))
+      Result.getOrThrow(
+        Route.openaiChatCompatible({ id: "chat", providerName: "openai", baseUrl: "https://example.test", apiKey })
+      )
     )
   ]
 ] as const

@@ -83,3 +83,7 @@ serve OpenAI and `codex:` seats and their aliases. The vendor CLI owns login
 validation and execution. An unknown account, missing subscription
 login, or incompatible seat fails with `SeatUnresolved` naming the account.
 The resolved seat retains the complete declared ID for journaling.
+
+Login status is cached for 30 seconds. After signing in or out, retry seat
+resolution once that cache expires; execution still reports authentication
+failures from the selected account.

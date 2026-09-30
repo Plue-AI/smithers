@@ -13,3 +13,7 @@ select `CLAUDE_CONFIG_DIR`; Codex accounts select `CODEX_HOME` with
 Pinned seats bypass ambient API keys, pools, and proxies. Unknown accounts,
 missing logins, and incompatible seats fail with `SeatUnresolved` naming the
 account. The declared seat ID remains unchanged in the journal.
+
+Login status is cached for 30 seconds. After signing in or out, retry seat
+resolution once that cache expires; execution still reports authentication
+failures from the selected account.

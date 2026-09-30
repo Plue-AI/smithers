@@ -7,7 +7,7 @@
  * therefore claims the request succeeded whatever the request did. A TUI
  * coordinator did exactly this: `agent.delegate` failed with "Three workers
  * are active", the same cell's `ctx.done("Delegated the estimation system
- * design to codex astra.")` ran anyway, and the user was told work was running
+ * design to codex sol.")` ran anyway, and the user was told work was running
  * that never started.
  */
 import { ModelRequest } from "@smthrs/model"

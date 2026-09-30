@@ -30,6 +30,7 @@ describe("Responses usage admitted by the budget", () => {
     const address = server.address() as { port: number }
     const route = Result.getOrThrow(Route.openaiResponsesCompatible({
       id: "budget-compatible",
+      providerName: "openai",
       baseUrl: `http://127.0.0.1:${address.port}`,
       apiKey: Redacted.make("placeholder")
     }))

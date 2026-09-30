@@ -33,6 +33,9 @@ export type ModelFailure = ModelError | PermissionRequired | PermissionDenied | 
  * @slop
  */
 export interface Model {
+  /** OpenTelemetry provider name declared by the deployment. */
+  readonly providerName?: string
+
   /** Streams model progress; cancellation is fiber interruption only. */
   readonly stream: (request: ModelRequest) => Stream.Stream<ModelEvent, ModelFailure>
 }
@@ -83,7 +86,7 @@ export const makeNoop = (overrides: Partial<Model> = {}): Model =>
  * Wraps one model call in an OpenTelemetry GenAI client span.
  *
  * The span is named `chat <model>` and carries `gen_ai.operation.name`,
- * `gen_ai.request.model`, the provider's `gen_ai.usage.input_tokens` and
+ * `gen_ai.request.model`, the declared `gen_ai.provider.name`, the provider's `gen_ai.usage.input_tokens` and
  * `gen_ai.usage.output_tokens` as they stream in, and
  * `gen_ai.response.finish_reasons` from the settlement. Prompt and response
  * content never reach the span.
@@ -92,7 +95,8 @@ export const makeNoop = (overrides: Partial<Model> = {}): Model =>
  * @since 1.0.0
  */
 export const withGenAiSpan =
-  (request: ModelRequest) => <E, R>(stream: Stream.Stream<ModelEvent, E, R>): Stream.Stream<ModelEvent, E, R> =>
+  (request: ModelRequest, providerName?: string) =>
+  <E, R>(stream: Stream.Stream<ModelEvent, E, R>): Stream.Stream<ModelEvent, E, R> =>
     stream.pipe(
       Stream.tap((event) => {
         switch (event.type) {
@@ -112,7 +116,11 @@ export const withGenAiSpan =
       }),
       Stream.withSpan(`chat ${request.modelId}`, {
         kind: "client",
-        attributes: { "gen_ai.operation.name": "chat", "gen_ai.request.model": request.modelId }
+        attributes: {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.request.model": request.modelId,
+          ...(providerName === undefined ? {} : { "gen_ai.provider.name": providerName })
+        }
       })
     )
 

@@ -499,6 +499,72 @@ const stack = <ROut, RIn>(
     Layer.provideMerge(NodeCrypto.layer)
   )
 
+describe("AgentAction completion value types", () => {
+  const Output = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null])
+  const Typed = AgentAction.make("agent/test/TypedCompletion", {
+    payload: {},
+    output: Output,
+    seat: "anthropic:test-model",
+    prompt: () => "Return the requested value.",
+    corrections: 0
+  })
+  const TypedFlow = Flow.make("agent/test/TypedCompletionFlow", {
+    payload: {},
+    success: Output,
+    error: AgentAction.AgentFailure,
+    body: () => Typed.call({})
+  })
+
+  it.each(["12", "true", "null", '\"hello\"', "", " 12 ", 12, true, false, null])(
+    "preserves the type and contents passed to ctx.done (%j)",
+    async (value) => {
+      const requests: Array<string> = []
+      const result = await Effect.runPromise(
+        TypedFlow.execute({}, { executionId: `typed-completion-${JSON.stringify(value)}` }).pipe(
+          Effect.provide(stack(
+            Layer.mergeAll(Typed.layer, Interpreter.layer(TypedFlow)),
+            host,
+            scripted([`ctx.done(${JSON.stringify(value)})`], requests)
+          ))
+        )
+      )
+      expect(result).toBe(value)
+      expect(requests).toHaveLength(1)
+    }
+  )
+
+  it.each(["", "12"])("reports the string refinement for ctx.done(%j)", async (value) => {
+    const NonEmpty = AgentAction.make("agent/test/RefinedCompletion", {
+      payload: {},
+      output: Schema.String.check(Schema.isMinLength(3)),
+      seat: "anthropic:test-model",
+      prompt: () => "Return at least three characters.",
+      corrections: 0
+    })
+    const RefinedFlow = Flow.make("agent/test/RefinedCompletionFlow", {
+      payload: {},
+      success: Schema.String,
+      error: AgentAction.AgentFailure,
+      body: () => NonEmpty.call({})
+    })
+    const result = await Effect.runPromise(Effect.result(
+      RefinedFlow.execute({}, { executionId: `refined-completion-${JSON.stringify(value)}` }).pipe(
+        Effect.provide(stack(
+          Layer.mergeAll(NonEmpty.layer, Interpreter.layer(RefinedFlow)),
+          host,
+          scripted([answering(value)], [])
+        ))
+      )
+    ))
+    expect(result._tag).toBe("Failure")
+    const failure = result._tag === "Failure" ? result.failure : undefined
+    expect(failure).toMatchObject({
+      _tag: "/harness/StructuredOutputFailure",
+      issues: [{ code: "constraint", path: "", message: "Expected a value with a length of at least 3" }]
+    })
+  })
+})
+
 describe("AgentAction human approval channel", () => {
   it.each([undefined, false, true])("arms the host's declared approval channel (%s)", async (approvalChannel) => {
     const armed: Array<boolean> = []
@@ -1876,7 +1942,7 @@ describe("AgentAction seat auto", () => {
       const routed: Array<Evaluator.Request> = []
       const requests: Record<string, Array<string>> = {}
       const seen: Array<AgentEvent.AgentEvent> = []
-      // Opus and Astra have no backup here; Fable fails over to Astra.
+      // Opus and Sol have no backup here; Fable fails over to Sol.
       const catalog = SeatRouter.layer({
         candidates: Effect.succeed(["opus", "fable", "sol"]),
         variants: SeatRouter.defaultVariants
@@ -1911,7 +1977,7 @@ describe("AgentAction seat auto", () => {
       requests["fable"]!.find((prompt) => prompt.includes("Independent answers"))!
 
     it("runs its members in parallel on their own seats, then the merger on their answers", async () => {
-      // Opus and Astra are refused at the same time, and both park.
+      // Opus and Sol are refused at the same time, and both park.
       const { exit, replayCalls, replayed, requests, routed, seen } = await run(
         {
           opus: { answer: review("opus"), refuse: "once" },

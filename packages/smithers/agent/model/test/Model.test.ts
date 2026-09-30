@@ -1,7 +1,9 @@
-import { Effect, Schema, Stream, Tracer } from "effect"
+import { Effect, Redacted, Result, Schema, Stream, Tracer } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Model from "../src/Model.ts"
 import { ModelError } from "../src/ModelError.ts"
+import * as RequestExecutor from "../src/RequestExecutor.ts"
+import * as Route from "../src/Route.ts"
 
 describe("ModelError", () => {
   it("round-trips all stable codes and classifies retryability", () => {
@@ -145,6 +147,65 @@ describe("Model.withGenAiSpan", () => {
     })
     expect(span.status._tag).toBe("Ended")
   })
+
+  it.each(["anthropic", "openai", "gcp.gemini"])(
+    "records the configured %s provider on chat spans",
+    async (providerName) => {
+      const { spans, tracer } = collect()
+      await Effect.runPromise(
+        Stream.runDrain(Stream.empty.pipe(Model.withGenAiSpan(request, providerName))).pipe(
+          Effect.provideService(Tracer.Tracer, tracer)
+        )
+      )
+      expect(spans[0]!.attributes.get("gen_ai.provider.name")).toBe(providerName)
+      expect(spans[0]!.attributes.get("gen_ai.request.model")).toBe("model")
+    }
+  )
+
+  it("keeps the provider on a failed chat span", async () => {
+    const { spans, tracer } = collect()
+    const error = new ModelError({ code: "authentication", message: "Invalid credential" })
+    const exit = await Effect.runPromiseExit(
+      Stream.runDrain(Stream.fail(error).pipe(Model.withGenAiSpan(request, "anthropic"))).pipe(
+        Effect.provideService(Tracer.Tracer, tracer)
+      )
+    )
+    expect(exit._tag).toBe("Failure")
+    expect(spans[0]!.attributes.get("gen_ai.provider.name")).toBe("anthropic")
+    expect(spans[0]!.status._tag === "Ended" && spans[0]!.status.exit._tag).toBe("Failure")
+  })
+
+  it("does not infer a provider for a neutral model stub", async () => {
+    const { spans, tracer } = collect()
+    const model = Model.makeNoop({ stream: () => Stream.empty })
+    await Effect.runPromise(
+      Stream.runDrain(model.stream(request).pipe(Model.withGenAiSpan(request))).pipe(
+        Effect.provideService(Tracer.Tracer, tracer)
+      )
+    )
+    expect(spans[0]!.attributes.has("gen_ai.provider.name")).toBe(false)
+  })
+
+  it.each(["responses", "chat"])(
+    "carries deployment provider identity through a compatible %s route into the model service",
+    async (protocol) => {
+      const input = {
+        id: "deployment-blue",
+        providerName: "gcp.gemini",
+        baseUrl: "https://provider.example",
+        apiKey: Redacted.make("unused")
+      }
+      const toModel = protocol === "responses"
+        ? Route.toModel(Result.getOrThrow(Route.openaiResponsesCompatible(input)))
+        : Route.toModel(Result.getOrThrow(Route.openaiChatCompatible(input)))
+      const model = await Effect.runPromise(
+        toModel.pipe(Effect.provideService(RequestExecutor.RequestExecutor, {
+          execute: () => Effect.die("metadata construction must not execute a request")
+        }))
+      )
+      expect(model.providerName).toBe("gcp.gemini")
+    }
+  )
 
   it("omits the response id a provider did not report", async () => {
     const { spans, tracer } = collect()

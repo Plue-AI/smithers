@@ -63,15 +63,15 @@ groups, machine output, and local-only features.
 `Audience` is also available from `@smthrs/cli/Audience`. It re-exports the
 shared build/control presentation policy, without acquiring runtime services.
 
-| Export | Purpose |
-| --- | --- |
-| `Mode` | Explicit `auto`, `human`, or `agent` selection. |
-| `Options` | Injected environment, stream capabilities, format, MCP, and verbosity choices. |
-| `Policy` | Audience, selection source, matched harness names, result encoding policy, progress mode, and prompt capability. |
-| `Marker`, `markers` | Source-verified runtime marker registry; no credential or installation probing. |
-| `resolve(options?)` | Pure audience and presentation resolution; evidence contains names, never environment values. |
-| `fromArguments(argv, options?)` | Resolves presentation flags without loading a workspace. |
-| `incurArguments(argv, policy)` | Selects structured Incur formatting for agent-owned terminals; logs default to incremental JSONL. |
+| Export                          | Purpose                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `Mode`                          | Explicit `auto`, `human`, or `agent` selection.                                                                  |
+| `Options`                       | Injected environment, stream capabilities, format, MCP, and verbosity choices.                                   |
+| `Policy`                        | Audience, selection source, matched harness names, result encoding policy, progress mode, and prompt capability. |
+| `Marker`, `markers`             | Source-verified runtime marker registry; no credential or installation probing.                                  |
+| `resolve(options?)`             | Pure audience and presentation resolution; evidence contains names, never environment values.                    |
+| `fromArguments(argv, options?)` | Resolves presentation flags without loading a workspace.                                                         |
+| `incurArguments(argv, policy)`  | Selects structured Incur formatting for agent-owned terminals; logs default to incremental JSONL.                |
 
 Explicit selection overrides detection, and MCP always remains machine-clean.
 This policy affects rendering only, not approvals or permissions. See
@@ -82,13 +82,13 @@ This policy affects rendering only, not approvals or permissions. See
 The retained Effect CLI compatibility tree, used by hidden flat aliases.
 New hosts should use `Cli.makeCli` for the unified public surface.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `cli` | `Command` | The root command: every shipped verb with a handler, every removed verb and flag as a hidden refusal. |
-| `migrationCli` | `Command` | Local migration inspection tree, composed without opening execution databases. |
-| `doctorCli` | `Command` | Local diagnostics tree using the discovery snapshot without opening execution databases. |
-| `signalKey` | `(runId: string, payload: SignalPayload) => string` | The idempotency key of one signal delivery: `cli:signal:<run-id>:<digest>`. The payload digest is part of the key because two different signals to one run are two mutations. |
-| `latestSequence` | `<E, R>(events: Stream<{ sequence: number }, E, R>) => Effect<number \| undefined, E, R>` | The greatest sequence in a stream, folded without retaining history. Stream failures are preserved, so a caller never substitutes a weaker cursor after a failed read. |
+| Export           | Signature                                                                                 | Meaning                                                                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli`            | `Command`                                                                                 | The root command: every shipped verb with a handler, every removed verb and flag as a hidden refusal.                                                                         |
+| `migrationCli`   | `Command`                                                                                 | Local migration inspection tree, composed without opening execution databases.                                                                                                |
+| `doctorCli`      | `Command`                                                                                 | Local diagnostics tree using the discovery snapshot without opening execution databases.                                                                                      |
+| `signalKey`      | `(runId: string, payload: SignalPayload) => string`                                       | The idempotency key of one signal delivery: `cli:signal:<run-id>:<digest>`. The payload digest is part of the key because two different signals to one run are two mutations. |
+| `latestSequence` | `<E, R>(events: Stream<{ sequence: number }, E, R>) => Effect<number \| undefined, E, R>` | The greatest sequence in a stream, folded without retaining history. Stream failures are preserved, so a caller never substitutes a weaker cursor after a failed read.        |
 
 Run-control handlers use `Control` for local and remote execution. Local
 diagnostic and filesystem commands retain their documented remote refusals.
@@ -97,12 +97,12 @@ diagnostic and filesystem commands retain their documented remote refusals.
 
 The transport-neutral composition.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Config` | interface | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`). Host options are supplied in code, not decoded from CLI flags. |
-| `Engine` | interface | `runtime` and `journal`: where a local composition's runs and events are recorded. The journal is required, not optional. |
-| `engineMemory` | `Engine` | A deterministic runtime over an in-memory SQLite journal. Nothing it records survives the process. |
-| `layer` | `(config, registry?, engine?, executor?) => Layer<Control, never, HttpClient \| RpcSerialization \| Socket>` | Local `Control` when `config.remote` is unset, the RPC client otherwise. Also supplies `ExecutorOwnership`. |
+| Export         | Signature                                                                                                    | Meaning                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Config`       | interface                                                                                                    | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`). Host options are supplied in code, not decoded from CLI flags. |
+| `Engine`       | interface                                                                                                    | `runtime` and `journal`: where a local composition's runs and events are recorded. The journal is required, not optional.                                                                                                                                             |
+| `engineMemory` | `Engine`                                                                                                     | A deterministic runtime over an in-memory SQLite journal. Nothing it records survives the process.                                                                                                                                                                    |
+| `layer`        | `(config, registry?, engine?, executor?) => Layer<Control, never, HttpClient \| RpcSerialization \| Socket>` | Local `Control` when `config.remote` is unset, the RPC client otherwise. Also supplies `ExecutorOwnership`.                                                                                                                                                           |
 
 `executor` must be passed here rather than provided from outside, because
 `ControlLive` resolves it with `Effect.serviceOption` while its own layer is
@@ -139,60 +139,60 @@ still release the workspace. Deletion failures fail release. See the
 
 The Node composition for the command tree.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Environment` | `Environment.Source` | The environment shape configuration helpers read. |
-| `ServerOptions` | `ListenOptions & { disablePreemptiveShutdown?, listen? }` | Node listen options, with the explicit non-loopback opt-in. |
-| `makeConfig` | `(args, environment, cwd) => Application.Config` | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file. |
-| `configFromArguments` | `(args) => Effect<Application.Config, CliError.UsageError>` | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory. |
-| `config` | `Effect<Application.Config, CliError.UsageError>` | `makeConfig` applied to the ambient process, with the throw converted into a typed failure. |
-| `workspaceSshPrefix` | `(environment, reference, signal?) => Promise<Array<string>>` | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling. |
-| `projectSources` | `(root: string) => ReadonlyArray<Descriptor.Source>` | The one flow source a local CLI discovers: `<root>/flows`, named by path. |
-| `layerHostPlatform` | `Layer` | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it. |
-| `layerGrantStore` | `(root: string) => Layer<GrantStore>` | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced. |
-| `layerGuardedPlatform` | `(root: string, grants?) => Layer` | The kernel-guarded platform over one workspace root. Every filesystem operation is resolved, authorized, re-resolved, and executed relative to a pinned root descriptor. |
-| `layerObserver` | `(root: string, options?: WorkspaceObservation.Options) => Layer<WorkspaceObservation.Observer>` | The workspace observer a run's mutation accounting is measured with. Options can omit exact host-owned runtime paths. |
-| `layerRegistry` | `(root: string) => Layer<Registry>` | Flow discovery from `<root>/flows`. A missing directory discovers nothing; any other failure is a startup defect. |
-| `databasePath` | `(root: string) => string` | `<root>/.flows/control.db`. |
-| `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
-| `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
-| `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
-| `layerSeatEvaluator` | layer | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback. |
-| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
-| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat. |
-| `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |
-| `testRunner`, `testFlows`, `checkpointStore` | constructors | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`. |
-| `rebuildableTransport` | constructor | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns. |
-| `environmentDispatcher`, `layerRebuildableRequestExecutor` | constructor, layer | The Undici connection pool an environment's proxy settings describe, and the model transport built over it. The executor throws the pool away after three consecutive transport failures and builds another, which is the only repair for a session the provider destroyed. Node hosts share this pool lifecycle. `RequestExecutor.layer` over a plain client cannot replace anything. |
-| `ModuleRegistration` | `Layer<Executable.Catalog, never, host registration services>` | Optional trusted native module registrations; see [native module hosts](guides/native-module-host.md) for authority and single-executor requirements. |
-| `layerExecutor` | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`. |
-| `layerControl` | `(config, registry?, engine?, modules?) => Layer` | `Control` alone, over the registry and engine you supply. |
-| `layerOutput` | `Layer<Output>` | Deterministic rendering that also publishes its status as `process.exitCode`. |
-| `layer` | `(config, modules?) => Layer` | The complete command-handler environment. This is the production layer for `smthrs`. |
-| `layerMemory` | `(root, engine?) => Layer<MemoryStore>` | The durable memory store over the control database. |
-| `layerMemoryRemote` | `Layer<MemoryStore>` | The store a `--remote` invocation gets: none, said out loud. |
-| `layerServer` | `(auth, options?) => Layer` | The control HTTP and WebSocket router on a scoped Node server. A non-loopback host without `listen: true` is rejected synchronously. |
-| `layerGateway` | `(health, options, root, engine, journal?) => Layer` | The whole workspace gateway on one socket. |
-| `layerServerBearerAuth`, `layerServerNoopAuth` | `(options?) => Layer` | The two authentication choices for `layerServer`. |
-| `CompositionRootsAreComplete` | type | A compile-time assertion that the executor and both control compositions owe nothing. |
+| Export                                                     | Signature                                                                                                                                                                                                                                     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Environment`                                              | `Environment.Source`                                                                                                                                                                                                                          | The environment shape configuration helpers read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `ServerOptions`                                            | `ListenOptions & { disablePreemptiveShutdown?, listen? }`                                                                                                                                                                                     | Node listen options, with the explicit non-loopback opt-in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `makeConfig`                                               | `(args, environment, cwd) => Application.Config`                                                                                                                                                                                              | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `configFromArguments`                                      | `(args) => Effect<Application.Config, CliError.UsageError>`                                                                                                                                                                                   | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `config`                                                   | `Effect<Application.Config, CliError.UsageError>`                                                                                                                                                                                             | `makeConfig` applied to the ambient process, with the throw converted into a typed failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `workspaceSshPrefix`                                       | `(environment, reference, signal?) => Promise<Array<string>>`                                                                                                                                                                                 | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `projectSources`                                           | `(root: string) => ReadonlyArray<Descriptor.Source>`                                                                                                                                                                                          | The one flow source a local CLI discovers: `<root>/flows`, named by path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerHostPlatform`                                        | `Layer`                                                                                                                                                                                                                                       | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerGrantStore`                                          | `(root: string) => Layer<GrantStore>`                                                                                                                                                                                                         | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `layerGuardedPlatform`                                     | `(root: string, grants?) => Layer`                                                                                                                                                                                                            | The kernel-guarded platform over one workspace root. Every filesystem operation is resolved, authorized, re-resolved, and executed relative to a pinned root descriptor.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `layerObserver`                                            | `(root: string, options?: WorkspaceObservation.Options) => Layer<WorkspaceObservation.Observer>`                                                                                                                                              | The workspace observer a run's mutation accounting is measured with. Options can omit exact host-owned runtime paths.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerRegistry`                                            | `(root: string) => Layer<Registry>`                                                                                                                                                                                                           | Flow discovery from `<root>/flows`. A missing directory discovers nothing; any other failure is a startup defect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `databasePath`                                             | `(root: string) => string`                                                                                                                                                                                                                    | `<root>/.flows/control.db`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `executionDatabasePath`                                    | `(root: string) => string`                                                                                                                                                                                                                    | `<root>/.flows/engine.db`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EngineDurable`                                            | `Application.Engine & { stores }`                                                                                                                                                                                                             | The durable engine plus the shared database seam other stores hang off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `engineDurable`                                            | `(root: string, registry?, authority?) => EngineDurable`                                                                                                                                                                                      | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerSeatEvaluator`                                       | layer                                                                                                                                                                                                                                         | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback.                  |
+| `seatResolver`, `layerSeatResolver`                        | constructor, layer                                                                                                                                                                                                                            | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
+| `seatCandidates`, `layerSeatCatalog`                       | constructor, layer                                                                                                                                                                                                                            | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat.                                                                                                                                                                                                                                                      |
+| `supervisorStance`                                         | `(environment) => "careful" \| "paranoid"`                                                                                                                                                                                                    | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `testRunner`, `testFlows`, `checkpointStore`               | constructors                                                                                                                                                                                                                                  | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`.                                                                                                                                                                                                                                                                                                                                                              |
+| `rebuildableTransport`                                     | constructor                                                                                                                                                                                                                                   | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `environmentDispatcher`, `layerRebuildableRequestExecutor` | constructor, layer                                                                                                                                                                                                                            | The Undici connection pool an environment's proxy settings describe, and the model transport built over it. The executor throws the pool away after three consecutive transport failures and builds another, which is the only repair for a session the provider destroyed. Node hosts share this pool lifecycle. `RequestExecutor.layer` over a plain client cannot replace anything.                                                                                                                                                                                                     |
+| `ModuleRegistration`                                       | `Layer<Executable.Catalog, never, host registration services>`                                                                                                                                                                                | Optional trusted native module registrations; see [native module hosts](guides/native-module-host.md) for authority and single-executor requirements.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerExecutor`                                            | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`.                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerControl`                                             | `(config, registry?, engine?, modules?) => Layer`                                                                                                                                                                                             | `Control` alone, over the registry and engine you supply.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerOutput`                                              | `Layer<Output>`                                                                                                                                                                                                                               | Deterministic rendering that also publishes its status as `process.exitCode`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `layer`                                                    | `(config, modules?) => Layer`                                                                                                                                                                                                                 | The complete command-handler environment. This is the production layer for `smthrs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerMemory`                                              | `(root, engine?) => Layer<MemoryStore>`                                                                                                                                                                                                       | The durable memory store over the control database.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `layerMemoryRemote`                                        | `Layer<MemoryStore>`                                                                                                                                                                                                                          | The store a `--remote` invocation gets: none, said out loud.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `layerServer`                                              | `(auth, options?) => Layer`                                                                                                                                                                                                                   | The control HTTP and WebSocket router on a scoped Node server. A non-loopback host without `listen: true` is rejected synchronously.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerGateway`                                             | `(health, options, root, engine, journal?) => Layer`                                                                                                                                                                                          | The whole workspace gateway on one socket.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `layerServerBearerAuth`, `layerServerNoopAuth`             | `(options?) => Layer`                                                                                                                                                                                                                         | The two authentication choices for `layerServer`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `CompositionRootsAreComplete`                              | type                                                                                                                                                                                                                                          | A compile-time assertion that the executor and both control compositions owe nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Output
 
 Deterministic rendering, and the status a process exits on.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Format` | `"human" \| "json"` | Indented, or compact. Member order is UTF-16 code-unit order in both. |
-| `Rendered` | `{ text: string; exitCode: number }` | Text ready for stdout, with the status the process should publish. |
-| `Service` | `{ render: (value, format) => Effect<Rendered, RenderingError> }` | The rendering service handlers consume. |
-| `Output` | `Context.Service` | The service key, `/cli/Output`. |
-| `make` | `() => Service` | Builds the service for a platform layer or a focused test. |
-| `layer` | `Layer<Output>` | The default layer, with no exit-code transfer. |
-| `renderValue` | `(value: unknown) => RenderValue` | Marks caller-controlled data as output, never as a receipt. A wrapped value always exits 0. |
-| `exitCode` | `(value: unknown) => number` | The status one value implies. Only a validated `ControlSchema.Receipt` returns nonzero. |
-| `maximumDepth` | `128` | Maximum object and array nesting in one render. |
-| `maximumMembers` | `10_000` | Maximum enumerable data members in one render. |
-| `maximumOutputBytes` | `4 * 1024 * 1024` | Maximum UTF-8 bytes in one rendered document. |
+| Export               | Signature                                                         | Meaning                                                                                     |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `Format`             | `"human" \| "json"`                                               | Indented, or compact. Member order is UTF-16 code-unit order in both.                       |
+| `Rendered`           | `{ text: string; exitCode: number }`                              | Text ready for stdout, with the status the process should publish.                          |
+| `Service`            | `{ render: (value, format) => Effect<Rendered, RenderingError> }` | The rendering service handlers consume.                                                     |
+| `Output`             | `Context.Service`                                                 | The service key, `/cli/Output`.                                                             |
+| `make`               | `() => Service`                                                   | Builds the service for a platform layer or a focused test.                                  |
+| `layer`              | `Layer<Output>`                                                   | The default layer, with no exit-code transfer.                                              |
+| `renderValue`        | `(value: unknown) => RenderValue`                                 | Marks caller-controlled data as output, never as a receipt. A wrapped value always exits 0. |
+| `exitCode`           | `(value: unknown) => number`                                      | The status one value implies. Only a validated `ControlSchema.Receipt` returns nonzero.     |
+| `maximumDepth`       | `128`                                                             | Maximum object and array nesting in one render.                                             |
+| `maximumMembers`     | `10_000`                                                          | Maximum enumerable data members in one render.                                              |
+| `maximumOutputBytes` | `4 * 1024 * 1024`                                                 | Maximum UTF-8 bytes in one rendered document.                                               |
 
 Rendering snapshots inert plain data and refuses executable or unbounded
 structures before any output is written, with a stable code and the path of the
@@ -203,22 +203,22 @@ first refusing member. See
 
 Interactive terminal rendering, with a plain-line fallback.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `brand` | `string` | The line `intro` prints when a verb gives it no title: `smthrs <version>`. |
-| `Check` | `{ name, level: "ok" \| "warn" \| "fail", detail }` | One line of a checklist. |
-| `Spinner` | interface | `start`, `message`, `stop`, `cancel`, `error`. Imperative by nature; the Effect boundary sits around the whole span. |
-| `StreamOptions`, `Streamed` | interfaces | How a streamed list is labelled and settled, and what the scan produced. |
-| `PickOptions`, `ConfirmOptions` | interfaces | How a pick and a confirmation are presented. `ConfirmOptions.nonInteractive` is required, because the safe answer differs per question. |
-| `Service` | interface | `interactive`, `text`, `intro`, `outro`, `note`, `info`, `success`, `step`, `warn`, `error`, `checklist`, `spinner`, `streamSuggestions`, `pickSuggestion`, `confirm`. |
-| `Ui` | `Context.Service` | The service key, `/cli/Ui`. |
-| `Options` | `{ output, input?, interactive }` | The streams and the interactivity decision one service is built on. |
-| `isInteractive` | `(output, input, environment) => boolean` | Both streams are terminals, `CI` is not `"true"`, and `TERM` is not `dumb`. |
-| `make` | `(options: Options) => Service` | Builds a service on explicit streams. |
-| `layer` | `(environment) => Layer<Ui>` | Builds one on the process streams. |
-| `prompting` | `Effect<Service>` | Uses a supplied service, or prompts on stderr whenever stdin is a terminal, keeping stdout available for documents. |
-| `current` | `Effect<Service>` | The provided service, or a fallback on the process streams. |
-| `renderChecklist` | `(title, checks, { interactive, columns? }) => string` | The pure checklist rendering `smthrs doctor` prints. Non-interactive output is byte-identical to `Doctor.render`. |
+| Export                          | Signature                                              | Meaning                                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brand`                         | `string`                                               | The line `intro` prints when a verb gives it no title: `smthrs <version>`.                                                                                             |
+| `Check`                         | `{ name, level: "ok" \| "warn" \| "fail", detail }`    | One line of a checklist.                                                                                                                                               |
+| `Spinner`                       | interface                                              | `start`, `message`, `stop`, `cancel`, `error`. Imperative by nature; the Effect boundary sits around the whole span.                                                   |
+| `StreamOptions`, `Streamed`     | interfaces                                             | How a streamed list is labelled and settled, and what the scan produced.                                                                                               |
+| `PickOptions`, `ConfirmOptions` | interfaces                                             | How a pick and a confirmation are presented. `ConfirmOptions.nonInteractive` is required, because the safe answer differs per question.                                |
+| `Service`                       | interface                                              | `interactive`, `text`, `intro`, `outro`, `note`, `info`, `success`, `step`, `warn`, `error`, `checklist`, `spinner`, `streamSuggestions`, `pickSuggestion`, `confirm`. |
+| `Ui`                            | `Context.Service`                                      | The service key, `/cli/Ui`.                                                                                                                                            |
+| `Options`                       | `{ output, input?, interactive }`                      | The streams and the interactivity decision one service is built on.                                                                                                    |
+| `isInteractive`                 | `(output, input, environment) => boolean`              | Both streams are terminals, `CI` is not `"true"`, and `TERM` is not `dumb`.                                                                                            |
+| `make`                          | `(options: Options) => Service`                        | Builds a service on explicit streams.                                                                                                                                  |
+| `layer`                         | `(environment) => Layer<Ui>`                           | Builds one on the process streams.                                                                                                                                     |
+| `prompting`                     | `Effect<Service>`                                      | Uses a supplied service, or prompts on stderr whenever stdin is a terminal, keeping stdout available for documents.                                                    |
+| `current`                       | `Effect<Service>`                                      | The provided service, or a fallback on the process streams.                                                                                                            |
+| `renderChecklist`               | `(title, checks, { interactive, columns? }) => string` | The pure checklist rendering `smthrs doctor` prints. Non-interactive output is byte-identical to `Doctor.render`.                                                      |
 
 A cancelled `text` or `pickSuggestion` is `None` and a cancelled `confirm` is `false`.
 `text` requires a nonblank value; in a non-interactive session it returns `None` without reading stdin.
@@ -229,14 +229,14 @@ not a signal.
 
 The failures the command-line projection adds on top of the control plane's.
 
-| Export | Exits | Raised when |
-| --- | --- | --- |
-| `UsageError` | 2 | The invocation is wrong: an unparseable flag value, a payload that does not match its schema, an argument outside the accepted set. Carries no cause. |
-| `UnsupportedError` | 1 | The invocation is spelled correctly and this projection cannot perform it: a removed verb or flag, a reserved system flow, a local-only operation asked of a `--remote` composition. |
-| `ResourceLimitError` | 1 | A correct read would exceed a published bound. Carries `operation`, `subject`, `limit`, and `unit`. Both labels are inert, so the failure is safe to print over MCP. |
-| `RenderingError` | 1 | Caller-controlled output was not inert bounded data. Carries a stable `code`, the `path` of the first refusing member, and a message. |
-| `CliError` | | The union of the four. |
-| `exitCode` | | `(error: CliError) => number`. 2 for a usage error, 1 otherwise. |
+| Export               | Exits | Raised when                                                                                                                                                                          |
+| -------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `UsageError`         | 2     | The invocation is wrong: an unparseable flag value, a payload that does not match its schema, an argument outside the accepted set. Carries no cause.                                |
+| `UnsupportedError`   | 1     | The invocation is spelled correctly and this projection cannot perform it: a removed verb or flag, a reserved system flow, a local-only operation asked of a `--remote` composition. |
+| `ResourceLimitError` | 1     | A correct read would exceed a published bound. Carries `operation`, `subject`, `limit`, and `unit`. Both labels are inert, so the failure is safe to print over MCP.                 |
+| `RenderingError`     | 1     | Caller-controlled output was not inert bounded data. Carries a stable `code`, the `path` of the first refusing member, and a message.                                                |
+| `CliError`           |       | The union of the four.                                                                                                                                                               |
+| `exitCode`           |       | `(error: CliError) => number`. 2 for a usage error, 1 otherwise.                                                                                                                     |
 
 Statuses 3, 130, and 143 belong to run outcomes rather than failures, and come
 from `Output.exitCode`.
@@ -245,13 +245,13 @@ from `Output.exitCode`.
 
 The shipped command catalog.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Verb` | `{ name, help, aliases, flowId?, builtin? }` | One shipped command. `aliases` are accepted by the parser and hidden from `--help`. `flowId` names the reserved system flow when the control catalog reserves one. |
-| `shipped` | `ReadonlyArray<Verb>` | Every command that ships. |
-| `subcommands` | `ReadonlyArray<Verb>` | `shipped` minus the built-in ones, which is every verb the command tree registers. |
-| `names` | `ReadonlyArray<string>` | Every shipped command name. |
-| `find` | `(name: string) => Verb \| undefined` | One shipped verb by name. |
+| Export        | Signature                                    | Meaning                                                                                                                                                            |
+| ------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Verb`        | `{ name, help, aliases, flowId?, builtin? }` | One shipped command. `aliases` are accepted by the parser and hidden from `--help`. `flowId` names the reserved system flow when the control catalog reserves one. |
+| `shipped`     | `ReadonlyArray<Verb>`                        | Every command that ships.                                                                                                                                          |
+| `subcommands` | `ReadonlyArray<Verb>`                        | `shipped` minus the built-in ones, which is every verb the command tree registers.                                                                                 |
+| `names`       | `ReadonlyArray<string>`                      | Every shipped command name.                                                                                                                                        |
+| `find`        | `(name: string) => Verb \| undefined`        | One shipped verb by name.                                                                                                                                          |
 
 `completions` is the only `builtin` entry: `effect/unstable/cli` provides it as
 the global `--completions <shell>` flag rather than as a subcommand.
@@ -260,188 +260,188 @@ the global `--completions <shell>` flag rather than as a subcommand.
 
 The removal surface.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `migrationUrl` | `string` | The base every removal message links into. |
-| `RemovedVerb`, `removedVerbs` | `{ name, group, reason, subcommands? }` | Every verb removed in 1.0.0-rc.0, grouped by what it belonged to. |
-| `RemovedFlag`, `removedFlags` | `{ parent, flag, reason, anchor }` | Every removed flag, declared hidden on the command that used to carry it. `parent: ""` names the shared globals. |
-| `message`, `flagMessage` | `(...) => string` | The removal sentence for a verb, and for a flag. |
-| `verbError`, `flagError` | `(...) => UnsupportedError` | Those sentences as failures. |
-| `findFlag` | `(parent, flag) => RemovedFlag` | One removed flag, so a handler cannot cite the wrong entry. |
-| `refusal` | `(args: ReadonlyArray<string>) => UnsupportedError \| undefined` | The refusal for one raw argv, matched before the parser runs, so a removed verb never opens a database on its way to being refused. |
-| `isReservedFlow` | `(flowId: string) => boolean` | Whether an id starts with `system/`. |
-| `reservedFlowError` | `(verb, flowId) => UnsupportedError` | The refusal for one. |
+| Export                        | Signature                                                        | Meaning                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `migrationUrl`                | `string`                                                         | The base every removal message links into.                                                                                          |
+| `RemovedVerb`, `removedVerbs` | `{ name, group, reason, subcommands? }`                          | Every verb removed in 1.0.0-rc.0, grouped by what it belonged to.                                                                   |
+| `RemovedFlag`, `removedFlags` | `{ parent, flag, reason, anchor }`                               | Every removed flag, declared hidden on the command that used to carry it. `parent: ""` names the shared globals.                    |
+| `message`, `flagMessage`      | `(...) => string`                                                | The removal sentence for a verb, and for a flag.                                                                                    |
+| `verbError`, `flagError`      | `(...) => UnsupportedError`                                      | Those sentences as failures.                                                                                                        |
+| `findFlag`                    | `(parent, flag) => RemovedFlag`                                  | One removed flag, so a handler cannot cite the wrong entry.                                                                         |
+| `refusal`                     | `(args: ReadonlyArray<string>) => UnsupportedError \| undefined` | The refusal for one raw argv, matched before the parser runs, so a removed verb never opens a database on its way to being refused. |
+| `isReservedFlow`              | `(flowId: string) => boolean`                                    | Whether an id starts with `system/`.                                                                                                |
+| `reservedFlowError`           | `(verb, flowId) => UnsupportedError`                             | The refusal for one.                                                                                                                |
 
 ## Project
 
 Where an invocation decides it is running.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `root` | `(explicit, cwd, exists?) => string` | `--root`, else the nearest ancestor that anchors a project, else the invocation directory. |
-| `legacyRoot` | `(explicit, cwd, exists?) => string` | The same walk anchored on 0.x markers, for `smthrs migrate`. |
-| `legacyMarkers` | `ReadonlyArray<string>` | `.smithers`, `smithers.db`, and its WAL and shared-memory files. |
-| `stateDirectory`, `logDirectory`, `logFile`, `flowsDirectory` | `(root, ...) => string` | `.flows/`, `.flows/logs/`, `.flows/logs/<run-id>.log`, and `flows/`. |
-| `legacyState` | `(cwd, exists?) => ReadonlyArray<string>` | 0.x markers beside a project, skipping any directory that already holds `.flows/`. The notice's input. |
-| `legacyDatabases` | `(cwd, exists?) => ReadonlyArray<string>` | Every 0.x `smithers.db` beside a project, not gated on `.flows/`. The report's and the refusal's input. |
-| `legacyNotice` | `(path: string) => string` | The one-line stderr notice. |
-| `ProjectRoot`, `MigrationRoot`, `LegacyState` | `Context.Reference` | The three answers, as services. |
-| `layer` | `(projectRoot, migrationRoot) => Layer` | Provides all three. The 0.x sample is taken while the layers are described, before anything creates `.flows/`. |
-| `assertRoot` | `(projectRoot: string) => void` | Throws `UsageError` if the selected root is not an accessible directory, before a command creates durable state. |
+| Export                                                        | Signature                                 | Meaning                                                                                                          |
+| ------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `root`                                                        | `(explicit, cwd, exists?) => string`      | `--root`, else the nearest ancestor that anchors a project, else the invocation directory.                       |
+| `legacyRoot`                                                  | `(explicit, cwd, exists?) => string`      | The same walk anchored on 0.x markers, for `smthrs migrate`.                                                     |
+| `legacyMarkers`                                               | `ReadonlyArray<string>`                   | `.smithers`, `smithers.db`, and its WAL and shared-memory files.                                                 |
+| `stateDirectory`, `logDirectory`, `logFile`, `flowsDirectory` | `(root, ...) => string`                   | `.flows/`, `.flows/logs/`, `.flows/logs/<run-id>.log`, and `flows/`.                                             |
+| `legacyState`                                                 | `(cwd, exists?) => ReadonlyArray<string>` | 0.x markers beside a project, skipping any directory that already holds `.flows/`. The notice's input.           |
+| `legacyDatabases`                                             | `(cwd, exists?) => ReadonlyArray<string>` | Every 0.x `smithers.db` beside a project, not gated on `.flows/`. The report's and the refusal's input.          |
+| `legacyNotice`                                                | `(path: string) => string`                | The one-line stderr notice.                                                                                      |
+| `ProjectRoot`, `MigrationRoot`, `LegacyState`                 | `Context.Reference`                       | The three answers, as services.                                                                                  |
+| `layer`                                                       | `(projectRoot, migrationRoot) => Layer`   | Provides all three. The 0.x sample is taken while the layers are described, before anything creates `.flows/`.   |
+| `assertRoot`                                                  | `(projectRoot: string) => void`           | Throws `UsageError` if the selected root is not an accessible directory, before a command creates durable state. |
 
 ## Environment
 
 The closed set of variables rc.0 reads.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Name`, `names` | `{ name, purpose }` | Every `SMITHERS_*` variable the CLI reads, with what it is for. |
-| `Source` | `Readonly<Record<string, string \| undefined>>` | The shape this module reads. `process.env` satisfies it. |
-| `read` | `(environment, name) => string \| undefined` | One name. An empty value is treated exactly like an unset one. |
-| `readInteger` | `(environment, name) => number \| undefined` | One name as a positive integer. The whole value must be digits, so `30s` is ignored rather than read as 30. |
-| `unsupportedBackendMessage` | `string` | The whole refusal sentence, fixed by the release policy. |
-| `unsupportedBackend` | `(value) => string \| undefined` | The refusal, or `undefined` for `sqlite`, empty, and unset. |
-| `ambientWorkingDirectory` | `() => string` | The process directory. Belongs only in explicit process-backed service defaults; project operations take their root as an argument. |
+| Export                      | Signature                                       | Meaning                                                                                                                             |
+| --------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Name`, `names`             | `{ name, purpose }`                             | Every `SMITHERS_*` variable the CLI reads, with what it is for.                                                                     |
+| `Source`                    | `Readonly<Record<string, string \| undefined>>` | The shape this module reads. `process.env` satisfies it.                                                                            |
+| `read`                      | `(environment, name) => string \| undefined`    | One name. An empty value is treated exactly like an unset one.                                                                      |
+| `readInteger`               | `(environment, name) => number \| undefined`    | One name as a positive integer. The whole value must be digits, so `30s` is ignored rather than read as 30.                         |
+| `unsupportedBackendMessage` | `string`                                        | The whole refusal sentence, fixed by the release policy.                                                                            |
+| `unsupportedBackend`        | `(value) => string \| undefined`                | The refusal, or `undefined` for `sqlite`, empty, and unset.                                                                         |
+| `ambientWorkingDirectory`   | `() => string`                                  | The process directory. Belongs only in explicit process-backed service defaults; project operations take their root as an argument. |
 
 ## ExecutorOwnership
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `ExecutorOwnership` | `Context.Reference<boolean>` | Whether this process drives accepted runs. Defaults to `false`, so a composition that forgets to declare it refuses to wait rather than waiting forever. |
-| `layer` | `(ownsExecutor: boolean) => Layer` | Declares it for one command scope. `Application.layer` supplies it from what it actually built. |
+| Export              | Signature                          | Meaning                                                                                                                                                  |
+| ------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutorOwnership` | `Context.Reference<boolean>`       | Whether this process drives accepted runs. Defaults to `false`, so a composition that forgets to declare it refuses to wait rather than waiting forever. |
+| `layer`             | `(ownsExecutor: boolean) => Layer` | Declares it for one command scope. `Application.layer` supplies it from what it actually built.                                                          |
 
 ## Detached
 
 The `flow start -d` launch.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `admissionVariable` | `"SMITHERS_INTERNAL_DETACHED_ADMISSION"` | The nonce the parent passes to the child. |
-| `defaultTimeoutMs` | `30_000` | How long the parent waits for the admission line. |
-| `defaultTerminationGraceMs` | `2_000` | How long a terminated child gets before it is killed. |
-| `admissionLine` | `(nonce, runId) => string` | The line the child writes once the run row is durable. |
-| `admittedRunId` | `(tail, nonce) => string \| undefined` | Accepts only IDs matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` from this nonce's admission line. An unsafe ID returns `undefined`. |
-| `logTail` | `(file, maxBytes?) => string` | The end of a log file. |
-| `terminate` | `(...) => Promise<...>` | Ends a child that never reached admission. |
-| `Launched`, `Rejected`, `Options` | interfaces | The two outcomes of a launch, and its inputs. |
-| `launch` | `(options) => Promise<Launched \| Rejected>` | Spawns the child and waits for admission. |
-| `isLaunched` | `(result) => result is Launched` | Which outcome it was. |
-| `discard` | `(rejected: Rejected) => void` | Cleans up after a rejection. |
+| Export                            | Signature                                    | Meaning                                                                                                                          |
+| --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `admissionVariable`               | `"SMITHERS_INTERNAL_DETACHED_ADMISSION"`     | The nonce the parent passes to the child.                                                                                        |
+| `defaultTimeoutMs`                | `30_000`                                     | How long the parent waits for the admission line.                                                                                |
+| `defaultTerminationGraceMs`       | `2_000`                                      | How long a terminated child gets before it is killed.                                                                            |
+| `admissionLine`                   | `(nonce, runId) => string`                   | The line the child writes once the run row is durable.                                                                           |
+| `admittedRunId`                   | `(tail, nonce) => string \| undefined`       | Accepts only IDs matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` from this nonce's admission line. An unsafe ID returns `undefined`. |
+| `logTail`                         | `(file, maxBytes?) => string`                | The end of a log file.                                                                                                           |
+| `terminate`                       | `(...) => Promise<...>`                      | Ends a child that never reached admission.                                                                                       |
+| `Launched`, `Rejected`, `Options` | interfaces                                   | The two outcomes of a launch, and its inputs.                                                                                    |
+| `launch`                          | `(options) => Promise<Launched \| Rejected>` | Spawns the child and waits for admission.                                                                                        |
+| `isLaunched`                      | `(result) => result is Launched`             | Which outcome it was.                                                                                                            |
+| `discard`                         | `(rejected: Rejected) => void`               | Cleans up after a rejection.                                                                                                     |
 
 ## Doctor
 
 Readiness as one report.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Level` | `"ok" \| "warn" \| "fail"` | A `warn` stops nothing; a `fail` will stop the next command. |
-| `Check`, `Report` | `{ name, level, detail }`, `{ root, checks }` | The report is data. `--json` prints it verbatim. |
-| `minimumNode` | `"26.4.0"` | The floor the durable engine requires. |
-| `supportedNodeRange` | `">=26.4.0"` | The Node range supported by the CLI's runtime dependencies. |
-| `satisfiesNode` | `(version, minimum?) => boolean` | Whether a Node version is supported and clears an optional higher floor. |
-| `Options` | interface | Every host fact is a parameter, so the report is deterministic in a test. |
-| `inspect` | `(options) => Report` | Runs every check. |
-| `render` | `(report) => string` | One line per check. |
-| `failed` | `(report) => boolean` | Whether any check failed, which decides the command's status. |
+| Export               | Signature                                     | Meaning                                                                   |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| `Level`              | `"ok" \| "warn" \| "fail"`                    | A `warn` stops nothing; a `fail` will stop the next command.              |
+| `Check`, `Report`    | `{ name, level, detail }`, `{ root, checks }` | The report is data. `--json` prints it verbatim.                          |
+| `minimumNode`        | `"26.4.0"`                                    | The floor the durable engine requires.                                    |
+| `supportedNodeRange` | `">=26.4.0"`                                  | The Node range supported by the CLI's runtime dependencies.               |
+| `satisfiesNode`      | `(version, minimum?) => boolean`              | Whether a Node version is supported and clears an optional higher floor.  |
+| `Options`            | interface                                     | Every host fact is a parameter, so the report is deterministic in a test. |
+| `inspect`            | `(options) => Report`                         | Runs every check.                                                         |
+| `render`             | `(report) => string`                          | One line per check.                                                       |
+| `failed`             | `(report) => boolean`                         | Whether any check failed, which decides the command's status.             |
 
 ## Forensics
 
 Read-only projections of a run's events. Nothing here opens a database, so
 `--remote` renders exactly what a local run renders.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Refusal` | `{ message, count }` | One refused flow call, aggregated by message. |
-| `Digest` | interface | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
-| `digest` | `(events) => Digest` | Computes it. Missing or malformed fields become optional or zero values rather than failing. |
-| `renderDiagnosis` | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands. |
-| `eventLine` | `(event) => string` | One follow-mode line. |
-| `renderTranscript` | `(events) => string` | The turn-by-turn transcript `smthrs runs logs` prints. |
-| `shellQuote` | `(value) => string` | Quotes a value for the card's copy-paste commands. |
+| Export             | Signature                 | Meaning                                                                                                                  |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                            |
+| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
+| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                             |
+| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands.                                     |
+| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                    |
+| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                   |
+| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                       |
 
 ## NodeOutput
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `resultNodeId` | `"result"` | The conventional node id of a flow's final output. |
-| `Node` | interface | One registered node output. |
-| `project` | `(events) => ReadonlyArray<Node>` | The node-output projection of a run's events. |
-| `find` | `(...)` | One node by id. |
-| `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
-| `render` | `(node) => string` | One node's human rendering. |
+| Export         | Signature                          | Meaning                                             |
+| -------------- | ---------------------------------- | --------------------------------------------------- |
+| `resultNodeId` | `"result"`                         | The conventional node id of a flow's final output.  |
+| `Node`         | interface                          | One registered node output.                         |
+| `project`      | `(events) => ReadonlyArray<Node>`  | The node-output projection of a run's events.       |
+| `find`         | `(...)`                            | One node by id.                                     |
+| `notFound`     | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
+| `render`       | `(node) => string`                 | One node's human rendering.                         |
 
 ## CloudSession
 
 The signed-in Smithers Cloud session for hosts other than the CLI (the terminal UI reads the factory's issue list with it). The token and origin come from where `smthrs auth login` and `smthrs config` put them.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Cloud` | interface | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
-| `signedIn` | `(env) => Promise<Cloud \| undefined>` | The session, or undefined without an origin or a login. |
-| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it. |
+| Export       | Signature                                 | Meaning                                                                                                                           |
+| ------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `Cloud`      | interface                                 | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
+| `signedIn`   | `(env) => Promise<Cloud \| undefined>`    | The session, or undefined without an origin or a login.                                                                           |
+| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it.                                                  |
 
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `serverName` | `"smithers"` | The registered server name. |
-| `codexConfigString` | `(text: string) => string` | A TOML basic string for Codex overrides; refuses malformed Unicode. |
-| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
-| `find` | `(id) => Agent \| undefined` | One agent by id. |
-| `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
-| `Wired` | `{ agent, path, status, reason? }` | What one wiring attempt did. |
-| `addMcp` | `(agent, home?, environment?) => Wired` | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
-| `manualInstructions` | `(targets?) => string` | What to do by hand when every write failed. |
+| Export               | Signature                                  | Meaning                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `serverName`         | `"smithers"`                               | The registered server name.                                                                                                                                                                            |
+| `codexConfigString`  | `(text: string) => string`                 | A TOML basic string for Codex overrides; refuses malformed Unicode.                                                                                                                                    |
+| `Agent`, `agents`    | `{ id, mcpConfig }`                        | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`).                                                                                                   |
+| `find`               | `(id) => Agent \| undefined`               | One agent by id.                                                                                                                                                                                       |
+| `launchCommand`      | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner.                                                                              |
+| `Wired`              | `{ agent, path, status, reason? }`         | What one wiring attempt did.                                                                                                                                                                           |
+| `addMcp`             | `(agent, home?, environment?) => Wired`    | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
+| `manualInstructions` | `(targets?) => string`                     | What to do by hand when every write failed.                                                                                                                                                            |
 
 ## Serve
 
 The gateway bind rule and its banner.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `loopbackHosts` | `["127.0.0.1", "::1", "localhost"]` | The addresses that need no opt-in. |
-| `defaultBind` | `{ host: "127.0.0.1", port: 3000 }` | The default. |
-| `Mount`, `mounts` | `{ protocol, path, serves }` | Every route the gateway hosts, in banner order. The banner is rendered from this list, so it cannot advertise a 404. |
-| `isLoopback` | `(host) => boolean` | Whether a host needs the opt-in. |
-| `Bind` | `{ host, port, listen, credential }` | What the verb was asked to do. |
-| `refuse` | `(bind) => UnsupportedError \| undefined` | The refusal for a bind that is not allowed. Non-loopback needs both `--listen` and a bearer token. |
-| `workspaceHash` | `(root) => string` | 16 hex characters of the SHA-256 of the resolved root. The path itself is never published. |
-| `health` | `(root) => GatewayServer.Health` | What `GET /health` answers. |
-| `banner` | `(bind) => string` | The line printed once the server is listening. |
-| `GatewayHost`, `GatewayHostService` | `Context.Service` | The already-composed Node gateway, supplied by the platform composition so serving reuses the open control database. |
-| `host` | `(bind, root) => Effect` | Hosts the gateway until the process is interrupted. |
+| Export                              | Signature                                 | Meaning                                                                                                              |
+| ----------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `loopbackHosts`                     | `["127.0.0.1", "::1", "localhost"]`       | The addresses that need no opt-in.                                                                                   |
+| `defaultBind`                       | `{ host: "127.0.0.1", port: 3000 }`       | The default.                                                                                                         |
+| `Mount`, `mounts`                   | `{ protocol, path, serves }`              | Every route the gateway hosts, in banner order. The banner is rendered from this list, so it cannot advertise a 404. |
+| `isLoopback`                        | `(host) => boolean`                       | Whether a host needs the opt-in.                                                                                     |
+| `Bind`                              | `{ host, port, listen, credential }`      | What the verb was asked to do.                                                                                       |
+| `refuse`                            | `(bind) => UnsupportedError \| undefined` | The refusal for a bind that is not allowed. Non-loopback needs both `--listen` and a bearer token.                   |
+| `workspaceHash`                     | `(root) => string`                        | 16 hex characters of the SHA-256 of the resolved root. The path itself is never published.                           |
+| `health`                            | `(root) => GatewayServer.Health`          | What `GET /health` answers.                                                                                          |
+| `banner`                            | `(bind) => string`                        | The line printed once the server is listening.                                                                       |
+| `GatewayHost`, `GatewayHostService` | `Context.Service`                         | The already-composed Node gateway, supplied by the platform composition so serving reuses the open control database. |
+| `host`                              | `(bind, root) => Effect`                  | Hosts the gateway until the process is interrupted.                                                                  |
 
 ## Init
 
 `smthrs init`.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `ignoreRule` | `".flows/"` | The line added to `.gitignore`. |
-| `IgnoreStatus` | `"created" \| "updated" \| "unchanged" \| "skipped"` | What happened to that file. |
-| `isRepository`, `ensureIgnored` | `(root, ...) => ...` | Whether the directory is a repository, and the ignore write. |
-| `nameProblem`, `isValidName` | `(name) => ...` | Why a flow name is rejected, and whether it is. |
-| `defaultName` | `(root) => string` | The slug of the project directory, or `flow`. |
-| `Seat`, `defaultSeat` | `{ seat, variable, resolved }` | The seat the scaffold declares, chosen from the same provider keys `doctor` reports. A directory with no key still gets a `model:` line, so the launch refuses by naming the key instead of leaving a run nothing drives. |
-| `template` | `(name, seat) => string` | The scaffolded `flow.mdx`: markdown, so it needs no build step in the directory `init` just created. |
-| `Scaffolded`, `scaffold` | `(root, name, environment) => Scaffolded` | Writes `flows/<name>/flow.mdx` and creates `.flows/`. An existing flow file is left exactly as it is. |
+| Export                          | Signature                                            | Meaning                                                                                                                                                                                                                   |
+| ------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ignoreRule`                    | `".flows/"`                                          | The line added to `.gitignore`.                                                                                                                                                                                           |
+| `IgnoreStatus`                  | `"created" \| "updated" \| "unchanged" \| "skipped"` | What happened to that file.                                                                                                                                                                                               |
+| `isRepository`, `ensureIgnored` | `(root, ...) => ...`                                 | Whether the directory is a repository, and the ignore write.                                                                                                                                                              |
+| `nameProblem`, `isValidName`    | `(name) => ...`                                      | Why a flow name is rejected, and whether it is.                                                                                                                                                                           |
+| `defaultName`                   | `(root) => string`                                   | The slug of the project directory, or `flow`.                                                                                                                                                                             |
+| `Seat`, `defaultSeat`           | `{ seat, variable, resolved }`                       | The seat the scaffold declares, chosen from the same provider keys `doctor` reports. A directory with no key still gets a `model:` line, so the launch refuses by naming the key instead of leaving a run nothing drives. |
+| `template`                      | `(name, seat) => string`                             | The scaffolded `flow.mdx`: markdown, so it needs no build step in the directory `init` just created.                                                                                                                      |
+| `Scaffolded`, `scaffold`        | `(root, name, environment) => Scaffolded`            | Writes `flows/<name>/flow.mdx` and creates `.flows/`. An existing flow file is left exactly as it is.                                                                                                                     |
 
 ## Suggest
 
 `smthrs suggest`: read the project, stream the ways Smithers can help, and
 implement the one the operator picks.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Implementation` | `{ kind, suggestion, followUp?, files, command, notes }` | What one implementation wrote, and which of the three briefs it answered. |
-| `Outcome`, `outcomeDocument`, `exitStatus` | | The result of one pass, its `--json` document, and its status: 130 when cancelled, 0 otherwise. |
-| `Implement` | `(brief: string) => Effect<Implemented, Error>` | The seam the agent is called through. |
-| `Options`, `run` | `(options) => Effect<Outcome, CliError>` | The order the scan, the pick, and the implementation happen in. |
-| `isDirectory` | `(path) => boolean` | Whether the target is a directory. |
-| `suggestionDocument`, `seatDocument` | | The `--json` documents for one suggestion and the chosen seat. |
-| `introLine`, `streamLabel`, `wroteNote` | | The three human lines. |
+| Export                                     | Signature                                                | Meaning                                                                                         |
+| ------------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Implementation`                           | `{ kind, suggestion, followUp?, files, command, notes }` | What one implementation wrote, and which of the three briefs it answered.                       |
+| `Outcome`, `outcomeDocument`, `exitStatus` |                                                          | The result of one pass, its `--json` document, and its status: 130 when cancelled, 0 otherwise. |
+| `Implement`                                | `(brief: string) => Effect<Implemented, Error>`          | The seam the agent is called through.                                                           |
+| `Options`, `run`                           | `(options) => Effect<Outcome, CliError>`                 | The order the scan, the pick, and the implementation happen in.                                 |
+| `isDirectory`                              | `(path) => boolean`                                      | Whether the target is a directory.                                                              |
+| `suggestionDocument`, `seatDocument`       |                                                          | The `--json` documents for one suggestion and the chosen seat.                                  |
+| `introLine`, `streamLabel`, `wroteNote`    |                                                          | The three human lines.                                                                          |
 
 The implementation writes under the project root and never commits: the grant
 store denies `.git/` and `.flows/`, and there is no process-spawn grant at all.
@@ -450,41 +450,41 @@ store denies `.git/` and `.flows/`, and there is no process-spawn grant at all.
 
 Which seats this machine can run.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Candidate`, `order` | | The seats considered, in preference order. |
-| `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
-| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
-| `CodexLogin`, `codexLogin`, `codexModel` | `(environment) => Promise<CodexLogin \| undefined>` | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused. |
-| `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
-| `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
-| `Chosen`, `chooseSeat` | | The seat picked, and why. |
-| `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
-| `defaultSeat` | `Record<Candidate, string>` | The seat string each candidate resolves to. |
-| `starterSeats` | `ReadonlyArray<readonly [variable: string, seat: string]>` | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes. |
-| `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` | | The two refusals, and the sentence that names what to set. |
+| Export                                            | Signature                                                          | Meaning                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Candidate`, `order`                              |                                                                    | The seats considered, in preference order.                                                                                                                                                                                                                                                                                                      |
+| `Detection`, `detect`                             | `(host) => ReadonlyArray<Detection>`                               | What this machine has, from host facts passed in.                                                                                                                                                                                                                                                                                               |
+| `ClaudeCodeLogin`, `claudeCodeLogin`              | `(environment) => Promise<ClaudeCodeLogin \| undefined>`           | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `CodexLogin`, `codexLogin`, `codexModel`          | `(environment) => Promise<CodexLogin \| undefined>`                | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused.                                                                                                                                                                                                                        |
+| `claudeCode`                                      | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`.                                                                                                                                                                                                                                       |
+| `claudeCodeSeats`, `claudeCodeModel`              |                                                                    | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one.                                                                                                                                                                                                                                                         |
+| `Chosen`, `chooseSeat`                            |                                                                    | The seat picked, and why.                                                                                                                                                                                                                                                                                                                       |
+| `compatible`, `compatibleKey`                     |                                                                    | The provider compatibility table and its lookup.                                                                                                                                                                                                                                                                                                |
+| `defaultSeat`                                     | `Record<Candidate, string>`                                        | The seat string each candidate resolves to.                                                                                                                                                                                                                                                                                                     |
+| `starterSeats`                                    | `ReadonlyArray<readonly [variable: string, seat: string]>`         | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes.                                                                                                                                                                                                                    |
+| `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` |                                                                    | The two refusals, and the sentence that names what to set.                                                                                                                                                                                                                                                                                      |
 
 ## Gc
 
 Retention.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `defaultRetention` | `"30d"` | The default `--older-than`. |
-| `duration` | `(value) => number \| undefined` | A duration string as milliseconds. `0s` is not a retention policy and is refused. |
-| `databases` | `(root) => ReadonlyArray<string>` | The files a sweep opens. |
-| `Failure`, `failureMessage` | | A database the sweep could not open, and the sentence naming them. |
-| `Sweep`, `sweep` | `(root, { olderThan, dryRun }) => Effect<Sweep>` | The pass, and what it deleted or would delete. |
+| Export                      | Signature                                        | Meaning                                                                           |
+| --------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `defaultRetention`          | `"30d"`                                          | The default `--older-than`.                                                       |
+| `duration`                  | `(value) => number \| undefined`                 | A duration string as milliseconds. `0s` is not a retention policy and is refused. |
+| `databases`                 | `(root) => ReadonlyArray<string>`                | The files a sweep opens.                                                          |
+| `Failure`, `failureMessage` |                                                  | A database the sweep could not open, and the sentence naming them.                |
+| `Sweep`, `sweep`            | `(root, { olderThan, dryRun }) => Effect<Sweep>` | The pass, and what it deleted or would delete.                                    |
 
 ## Memory, mirrors, and credentials
 
-| Module | Export summary |
-| --- | --- |
-| `Legacy` | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against. |
+| Module         | Export summary                                                                                                                                                                                                                                                                                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Legacy`       | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against.                                                                                                                      |
 | `ClaudeMirror` | The Claude Code plugin mirror protocol: `contract`, `subscriptionsPath`, `subscriptionTtlMs`, `Subscription`, `readSubscriptions`, `subscribe`, `unsubscribe`, `MirrorNode`, `Frame`, `frame`, `defaultMaxOutputChars`, `terminalStatuses`, `isTerminal`, `Transition`, `notableKinds`, `transition`. |
-| `Update` | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing. |
-| `Bug` | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered. |
-| `Version` | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start. |
+| `Update`       | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing.                                                               |
+| `Bug`          | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered.      |
+| `Version`      | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start.                                                                                                     |
 
 ## The executable
 
@@ -503,3 +503,13 @@ The per-command reference is generated from `--help` and lives on smithers.sh:
 [`smthrs flow`](/cli/flow), [`smthrs runs`](/cli/runs), [`smthrs run`](/cli/run),
 and the rest. This page documents the library surface used to compose or embed
 that executable.
+
+## ExecutionEnvironment
+
+`ExecutionEnvironment` shares saved local, SSH, and Cloud command locations between
+CLI consumers. `list/get/add/remove` read and update the private location registry;
+`plan(profile, argv, source, options)` assembles a command, and `run` executes it with
+inherited I/O and returns its exit status. A `Profile` supplies `name`, `transport`,
+`directory`, optional `destination`, and optional `home`. `Options` selects a
+terminal, cancellation signal, or loopback port forwarding for an SSH profile. Tool credentials remain
+managed by tools on the execution machine.

@@ -3730,6 +3730,7 @@ describe("CellTurn unmoved workspace", () => {
       readonly maxFrames?: number
       readonly unmovedCap?: number
       readonly readOnlyCap?: number
+      readonly evaluator?: Layer.Layer<Evaluator.Evaluator>
     } = {}
   ) =>
     run({
@@ -3749,8 +3750,21 @@ describe("CellTurn unmoved workspace", () => {
       flows: [shell, editor],
       script: cells.map(emits),
       calls,
-      tree: "a.py=base"
+      tree: "a.py=base",
+      evaluator: overrides.evaluator ?? describing
     })
+
+  /**
+   * Jev reading the tree fact: a claim of a change over an unmoved tree is
+   * unsupported, and every other sentence (an answer, "nothing to change")
+   * is what the record shows. Bounced, not refused: below `inventedAt`.
+   */
+  const describing = Evaluator.layerScripted((request) => {
+    const state = request.state as { readonly claim: string; readonly treeMoved: boolean }
+    return !state.treeMoved && /chang(ed|e)\b|pass/.test(state.claim) && !/nothing/.test(state.claim)
+      ? { complete: { probability: 0.4 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
+      : { complete: { probability: 0.95 }, overclaims: { probability: 0.02 }, invented: { probability: 0.02 } }
+  })
 
   /** A frame that reads and asks for another. */
   const reading = `await ctx.call("bash", { mode: "unhermetic", command: "read a.py" })
@@ -3762,6 +3776,73 @@ describe("CellTurn unmoved workspace", () => {
      console.log("checked")`
 
   const done = (output: string) => `ctx.done(${JSON.stringify(output)})`
+
+  it("returns a read-only answer on the tree it was asked on, with no demand and no extra request", async () => {
+    // #2937: a factual question read one file and answered it. The tree never
+    // moved because nothing was asked to move it, and the unmoved demand used
+    // to bounce that answer before the claim judge ran, spending the request
+    // budget on a frame the run did not need.
+    const { events, model, failure } = await completing(
+      [reading, done("Fix an issue: issue.implement; Review a PR: prs.triage")],
+      [{ _tag: "Success", value: null }]
+    )
+
+    expect(failure).toBeUndefined()
+    expect(of(events, "unmoved-demanded")).toEqual([])
+    expect(of(events, "claim-demanded")).toEqual([
+      expect.objectContaining({ demanded: false, refused: false })
+    ])
+    expect(model.recorder.requests).toHaveLength(2)
+    expect(of(events, "resolved")[0]?.message.content).toEqual([
+      expect.objectContaining({ text: "Fix an issue: issue.implement; Review a PR: prs.triage" })
+    ])
+  })
+
+  it("names the unmoved tree only for a claim the judge read as unsupported", async () => {
+    const { events } = await completing(
+      [done("changed the redirect to keep the query string"), done("re-read it: nothing to change")],
+      []
+    )
+
+    // The judge's reading is journaled as one that did not itself demand;
+    // the unmoved demand carries the bounce, in its more precise words.
+    expect(of(events, "claim-demanded")[0]).toMatchObject({ demanded: false, refused: false })
+    expect(of(events, "unmoved-demanded")).toHaveLength(1)
+    expect(of(events, "resolved")[0]?.message.content).toEqual([
+      expect.objectContaining({ text: "re-read it: nothing to change" })
+    ])
+  })
+
+  it("still refuses an invented edit on an unmoved tree once no bounce is left", async () => {
+    const inventing = Evaluator.layerScripted(() => ({
+      complete: { probability: 0.2 },
+      overclaims: { probability: 0.95 },
+      invented: { probability: 0.95 }
+    }))
+    const { events, failure } = await completing(
+      [done("changed a.py and the suite passes"), done("changed a.py and the suite passes")],
+      [],
+      { evaluator: inventing }
+    )
+
+    expect(of(events, "unmoved-demanded")).toHaveLength(1)
+    expect(failure).toMatchObject({ code: "claim_unproven" })
+    expect(of(events, "resolved")).toEqual([])
+  })
+
+  it("fails an unjudged answer as completion_unjudged rather than letting the tree decide", async () => {
+    const { events, failure } = await completing(
+      [done("the answer to your question is 42")],
+      [],
+      { evaluator: Evaluator.layerUnavailable() }
+    )
+
+    expect(of(events, "unmoved-demanded")).toEqual([])
+    expect(failure).toMatchObject({
+      code: "completion_unjudged",
+      message: expect.stringContaining("the answer to your question is 42")
+    })
+  })
 
   it("bounces one completion whose run never moved the tree it was handed", async () => {
     const { events, model } = await completing(
