@@ -339,6 +339,7 @@ func TestSmithersMetrics_ObserveCrossCuttingOperations(t *testing.T) {
 	m := routes.NewSmithersMetrics()
 	m.ObserveLandingOperation("land")
 	m.SetLandingQueueDepth(4)
+	m.SetCodeSearchBacklog(3, 120.5)
 	m.ObserveAuthOperation("github_oauth", "success")
 	m.ObserveAuthOperation("siwe", "failure")
 	m.ObserveWorkspaceLifecycle("create", "success")
@@ -354,6 +355,8 @@ func TestSmithersMetrics_ObserveCrossCuttingOperations(t *testing.T) {
 
 	assert.Contains(t, output, `smithers_landing_operations_total{operation="land"} 1`)
 	assert.Contains(t, output, "smithers_landing_queue_depth 4")
+	assert.Contains(t, output, "smithers_code_search_backlog_repositories 3")
+	assert.Contains(t, output, "smithers_code_search_backlog_oldest_age_seconds 120.5")
 	assert.Contains(t, output, `smithers_auth_operations_total{method="github_oauth",result="success"} 1`)
 	assert.Contains(t, output, `smithers_auth_operations_total{method="siwe",result="failure"} 1`)
 	assert.Contains(t, output, `smithers_workspace_lifecycle_total{action="create",result="success"} 1`)

@@ -1303,11 +1303,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Info("linear integration enabled")
 	}
 
+	searchIndexer := services.NewSearchIndexer(queries, repoHostClient, pool)
 	pushHookHandler := &routes.InternalPushHookHandler{
 		RepoResolver:   queries,
 		Dispatcher:     webhookDispatcher,
 		ConfigSync:     configSyncService,
-		SearchIndex:    services.NewSearchIndexer(queries, repoHostClient, pool),
+		SearchIndex:    searchIndexer,
 		ChangeRecorder: changeService,
 		Events:         queries,
 	}
@@ -1656,7 +1657,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		})
 		// #2237: case variants of reserved refs that predate their refusal
 		// block the canonical refs; the repair is idempotent.
-		launchWorker(func() { services.RunRefCaseCollisionRepair(workerCtx, queries, repoHostClient) })
+		// #1866: then index repositories that predate push indexing or whose
+		// first index failed; the watermark makes reruns no-ops. Repair runs
+		// first so a legacy-cased default bookmark is not indexed as empty.
+		launchWorker(func() {
+			services.RunRefCaseCollisionRepair(workerCtx, queries, repoHostClient)
+			services.RunCodeSearchBackfill(workerCtx, searchIndexer, services.CodeSearchBackfillInterval)
+		})
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
 	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {

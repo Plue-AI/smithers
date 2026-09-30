@@ -604,6 +604,15 @@ func (m *SmithersMetrics) SetLandingQueueDepth(n int) {
 	m.HTTP.LandingQueueDepth.Set(float64(n))
 }
 
+// SetCodeSearchBacklog updates the code-search backlog gauges.
+func (m *SmithersMetrics) SetCodeSearchBacklog(repositories int, oldestAgeSeconds float64) {
+	if m == nil {
+		return
+	}
+	m.HTTP.CodeSearchBacklogRepositories.Set(float64(repositories))
+	m.HTTP.CodeSearchBacklogOldestAgeSeconds.Set(oldestAgeSeconds)
+}
+
 // ObserveAuthOperation records an authentication operation by method and result.
 func (m *SmithersMetrics) ObserveAuthOperation(method, result string) {
 	if m == nil {

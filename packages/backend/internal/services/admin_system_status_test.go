@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 type fakeStatusPinger struct{ err error }
@@ -32,6 +34,10 @@ func (f fakeStatusRuntime) GetActiveAgentSessionOldestAgeSeconds(context.Context
 
 func (f fakeStatusRuntime) GetLandingQueueDepth(context.Context) (int64, error) {
 	return f.landing, f.landingErr
+}
+
+func (f fakeStatusRuntime) GetCodeSearchBacklog(context.Context) (db.GetCodeSearchBacklogRow, error) {
+	return db.GetCodeSearchBacklogRow{}, nil
 }
 
 type fakeStatusSSE int

@@ -21,11 +21,12 @@ const (
 )
 
 // SearchIndexQuerier defines the database operations needed to maintain the
-// code-search index after repository pushes.
+// code-search index after repository pushes and during backfill.
 type SearchIndexQuerier interface {
 	GetCodeSearchIndexedCommit(context.Context, int64) (string, error)
 	SetCodeSearchIndexedCommit(context.Context, db.SetCodeSearchIndexedCommitParams) error
 	DeleteCodeSearchDocumentsExceptPaths(context.Context, db.DeleteCodeSearchDocumentsExceptPathsParams) error
+	ListCodeSearchUnindexedRepositories(context.Context, db.ListCodeSearchUnindexedRepositoriesParams) ([]db.ListCodeSearchUnindexedRepositoriesRow, error)
 
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	UpsertCodeSearchDocument(ctx context.Context, arg db.UpsertCodeSearchDocumentParams) (db.UpsertCodeSearchDocumentRow, error)
@@ -48,6 +49,11 @@ type SearchIndexPushInput struct {
 	RepositoryName string
 	Ref            string
 	CommitSHA      string
+
+	// backfill leaves a repository that has bookmarks but lacks its default
+	// one unindexed, so it stays in the backlog instead of being recorded as
+	// empty (for example a legacy-cased default awaiting ref repair).
+	backfill bool
 }
 
 // SearchIndexer maintains code_search_documents from repository push events.
@@ -93,7 +99,12 @@ func (s *SearchIndexer) IndexPush(ctx context.Context, input SearchIndexPushInpu
 	if normalizeCodeSearchBookmark(input.Ref) != strings.TrimSpace(repository.DefaultBookmark) {
 		return nil
 	}
+	return s.indexRepository(ctx, input)
+}
 
+// indexRepository indexes the repository's current default-bookmark head under
+// the per-repository indexing lock.
+func (s *SearchIndexer) indexRepository(ctx context.Context, input SearchIndexPushInput) error {
 	if s.pool != nil {
 		tx, err := s.pool.Begin(ctx)
 		if err != nil {
@@ -104,7 +115,7 @@ func (s *SearchIndexer) IndexPush(ctx context.Context, input SearchIndexPushInpu
 			return err
 		}
 		worker := &SearchIndexer{queries: &serializedSearchQueries{SearchIndexQuerier: db.New(tx)}, repoHost: s.repoHost}
-		if err = worker.indexCurrentHead(ctx, input, repository.DefaultBookmark); err != nil {
+		if err = worker.indexCurrentHead(ctx, input); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -112,19 +123,27 @@ func (s *SearchIndexer) IndexPush(ctx context.Context, input SearchIndexPushInpu
 	lock := &s.locks[input.RepositoryID%int64(len(s.locks))]
 	lock.Lock()
 	defer lock.Unlock()
-	return s.indexCurrentHead(ctx, input, repository.DefaultBookmark)
+	return s.indexCurrentHead(ctx, input)
 }
 
-func (s *SearchIndexer) indexCurrentHead(ctx context.Context, input SearchIndexPushInput, bookmarkName string) error {
-	// Re-read the actual bookmark under the indexing lock. An old push callback
-	// can only index the current head, never overwrite it with an older snapshot.
+func (s *SearchIndexer) indexCurrentHead(ctx context.Context, input SearchIndexPushInput) error {
+	// Re-read the default bookmark and its head under the indexing lock. An old
+	// push callback or backfill page can only index the current head, never
+	// overwrite it with an older snapshot or a former default bookmark.
+	repository, err := s.queries.GetRepoByID(ctx, input.RepositoryID)
+	if err != nil {
+		return fmt.Errorf("load repository: %w", err)
+	}
+	bookmarkName := strings.TrimSpace(repository.DefaultBookmark)
 	input.CommitSHA = ""
 	cursor := ""
+	hasBookmarks := false
 	for {
 		bookmarks, next, err := s.repoHost.ListBookmarks(ctx, input.Owner, input.RepositoryName, cursor, 100)
 		if err != nil {
 			return err
 		}
+		hasBookmarks = hasBookmarks || len(bookmarks) > 0
 		for _, bookmark := range bookmarks {
 			if bookmark.Name == bookmarkName {
 				input.CommitSHA = bookmark.TargetCommitID
@@ -137,6 +156,9 @@ func (s *SearchIndexer) indexCurrentHead(ctx context.Context, input SearchIndexP
 			return errors.New("bookmark pagination did not advance")
 		}
 		cursor = next
+	}
+	if input.backfill && input.CommitSHA == "" && hasBookmarks {
+		return fmt.Errorf("default bookmark %q not found", bookmarkName)
 	}
 	previous, err := s.queries.GetCodeSearchIndexedCommit(ctx, input.RepositoryID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

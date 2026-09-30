@@ -46,6 +46,10 @@ func (f *fakeSearchIndexQueries) DeleteCodeSearchDocumentsExceptPaths(context.Co
 	return nil
 }
 
+func (f *fakeSearchIndexQueries) ListCodeSearchUnindexedRepositories(context.Context, db.ListCodeSearchUnindexedRepositoriesParams) ([]db.ListCodeSearchUnindexedRepositoriesRow, error) {
+	return nil, nil
+}
+
 func (f *fakeSearchIndexQueries) HasCodeSearchDocumentsForRepo(context.Context, int64) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -58,6 +58,7 @@ func TestMetrics_Cov_NilReceiverNoops(t *testing.T) {
 		m.ObserveRunnerCacheHit("hit")
 		m.ObserveLandingOperation("land")
 		m.SetLandingQueueDepth(9)
+		m.SetCodeSearchBacklog(1, 2)
 		m.ObserveAuthOperation("github", "success")
 		m.ObserveWorkspaceLifecycle("resume", "success")
 		m.ObserveMirrorAttempt("success")

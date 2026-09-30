@@ -288,6 +288,27 @@ func (q *Queries) DeleteCodeSearchDocumentsExceptPaths(ctx context.Context, arg 
 	return err
 }
 
+const getCodeSearchBacklog = `-- name: GetCodeSearchBacklog :one
+SELECT COUNT(*)::bigint AS repositories,
+       COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(r.created_at)), 0)::double precision AS oldest_age_seconds
+FROM repositories r
+WHERE NOT EXISTS (SELECT 1 FROM code_search_index_state s WHERE s.repository_id = r.id)
+`
+
+type GetCodeSearchBacklogRow struct {
+	Repositories     int64   `json:"repositories"`
+	OldestAgeSeconds float64 `json:"oldest_age_seconds"`
+}
+
+// Runtime gauge: repositories without a code-search watermark and the age of
+// the oldest one; zeros when every repository is indexed.
+func (q *Queries) GetCodeSearchBacklog(ctx context.Context) (GetCodeSearchBacklogRow, error) {
+	row := q.db.QueryRow(ctx, getCodeSearchBacklog)
+	var i GetCodeSearchBacklogRow
+	err := row.Scan(&i.Repositories, &i.OldestAgeSeconds)
+	return i, err
+}
+
 const getCodeSearchIndexedCommit = `-- name: GetCodeSearchIndexedCommit :one
 SELECT commit_id FROM code_search_index_state WHERE repository_id = $1
 `
@@ -312,6 +333,52 @@ func (q *Queries) HasCodeSearchDocumentsForRepo(ctx context.Context, repositoryI
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const listCodeSearchUnindexedRepositories = `-- name: ListCodeSearchUnindexedRepositories :many
+SELECT r.id,
+       r.name,
+       COALESCE(o.name, u.username, '')::text AS owner_slug
+FROM repositories r
+LEFT JOIN users u ON u.id = r.user_id
+LEFT JOIN organizations o ON o.id = r.org_id
+WHERE r.id > $1::bigint
+  AND NOT EXISTS (SELECT 1 FROM code_search_index_state s WHERE s.repository_id = r.id)
+ORDER BY r.id
+LIMIT $2::int
+`
+
+type ListCodeSearchUnindexedRepositoriesParams struct {
+	AfterID  int64 `json:"after_id"`
+	RowLimit int32 `json:"row_limit"`
+}
+
+type ListCodeSearchUnindexedRepositoriesRow struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	OwnerSlug string `json:"owner_slug"`
+}
+
+// Backfill: repositories without a code-search watermark, in id order after
+// the cursor so one sweep visits each repository at most once.
+func (q *Queries) ListCodeSearchUnindexedRepositories(ctx context.Context, arg ListCodeSearchUnindexedRepositoriesParams) ([]ListCodeSearchUnindexedRepositoriesRow, error) {
+	rows, err := q.db.Query(ctx, listCodeSearchUnindexedRepositories, arg.AfterID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCodeSearchUnindexedRepositoriesRow{}
+	for rows.Next() {
+		var i ListCodeSearchUnindexedRepositoriesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.OwnerSlug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const searchCodeFTS = `-- name: SearchCodeFTS :many

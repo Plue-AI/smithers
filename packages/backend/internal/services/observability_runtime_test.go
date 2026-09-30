@@ -18,6 +18,7 @@ type fakeRuntimeMetricsStore struct {
 	activeSessions int64
 	oldestSession  float64
 	landingDepth   int64
+	backlog        db.GetCodeSearchBacklogRow
 }
 
 func (f *fakeRuntimeMetricsStore) CountActiveAgentSessions(context.Context) (int64, error) {
@@ -32,11 +33,17 @@ func (f *fakeRuntimeMetricsStore) GetLandingQueueDepth(context.Context) (int64, 
 	return f.landingDepth, nil
 }
 
+func (f *fakeRuntimeMetricsStore) GetCodeSearchBacklog(context.Context) (db.GetCodeSearchBacklogRow, error) {
+	return f.backlog, nil
+}
+
 type fakeRuntimeMetricsObserver struct {
 	mu             sync.Mutex
 	activeSessions float64
 	oldestSession  float64
 	landingDepth   float64
+	backlog        float64
+	backlogOldest  float64
 	sets           int
 }
 
@@ -61,6 +68,19 @@ func (f *fakeRuntimeMetricsObserver) SetLandingQueueDepth(n int) {
 	f.sets++
 }
 
+func (f *fakeRuntimeMetricsObserver) SetCodeSearchBacklog(repositories int, oldestAgeSeconds float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backlog, f.backlogOldest = float64(repositories), oldestAgeSeconds
+	f.sets++
+}
+
+func (f *fakeRuntimeMetricsObserver) backlogSnapshot() (repositories, oldest float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.backlog, f.backlogOldest
+}
+
 func (f *fakeRuntimeMetricsObserver) snapshot() (active, oldest, landing float64, sets int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -80,14 +100,15 @@ func runCollector(ctx context.Context, store RuntimeMetricsStore, observer Runti
 func TestRuntimeMetricsCollector_CollectsCurrentState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	store := &fakeRuntimeMetricsStore{activeSessions: 7, oldestSession: 1860, landingDepth: 3}
+	store := &fakeRuntimeMetricsStore{activeSessions: 7, oldestSession: 1860, landingDepth: 3, backlog: db.GetCodeSearchBacklogRow{Repositories: 4, OldestAgeSeconds: 900}}
 	observer := &fakeRuntimeMetricsObserver{}
 	done := runCollector(ctx, store, observer, time.Hour, time.Second)
 
 	// The first refresh runs immediately, not after the first interval.
 	require.Eventually(t, func() bool {
 		active, oldest, landing, _ := observer.snapshot()
-		return active == 7 && oldest == 1860 && landing == 3
+		backlog, backlogOldest := observer.backlogSnapshot()
+		return active == 7 && oldest == 1860 && landing == 3 && backlog == 4 && backlogOldest == 900
 	}, time.Second, 5*time.Millisecond)
 	cancel()
 	select {
@@ -104,7 +125,7 @@ func TestRuntimeMetricsCollector_RefreshesEveryInterval(t *testing.T) {
 	done := runCollector(ctx, &fakeRuntimeMetricsStore{}, observer, 5*time.Millisecond, time.Second)
 	require.Eventually(t, func() bool {
 		_, _, _, sets := observer.snapshot()
-		return sets >= 9 // three gauges, at least three refreshes
+		return sets >= 12 // four gauge refreshes, at least three polls
 	}, time.Second, 5*time.Millisecond)
 	cancel()
 	<-done

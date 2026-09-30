@@ -466,6 +466,28 @@ SELECT commit_id FROM code_search_index_state WHERE repository_id = $1;
 INSERT INTO code_search_index_state (repository_id, commit_id) VALUES ($1, $2)
 ON CONFLICT (repository_id) DO UPDATE SET commit_id = EXCLUDED.commit_id;
 
+-- name: ListCodeSearchUnindexedRepositories :many
+-- Backfill: repositories without a code-search watermark, in id order after
+-- the cursor so one sweep visits each repository at most once.
+SELECT r.id,
+       r.name,
+       COALESCE(o.name, u.username, '')::text AS owner_slug
+FROM repositories r
+LEFT JOIN users u ON u.id = r.user_id
+LEFT JOIN organizations o ON o.id = r.org_id
+WHERE r.id > sqlc.arg(after_id)::bigint
+  AND NOT EXISTS (SELECT 1 FROM code_search_index_state s WHERE s.repository_id = r.id)
+ORDER BY r.id
+LIMIT sqlc.arg(row_limit)::int;
+
+-- name: GetCodeSearchBacklog :one
+-- Runtime gauge: repositories without a code-search watermark and the age of
+-- the oldest one; zeros when every repository is indexed.
+SELECT COUNT(*)::bigint AS repositories,
+       COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(r.created_at)), 0)::double precision AS oldest_age_seconds
+FROM repositories r
+WHERE NOT EXISTS (SELECT 1 FROM code_search_index_state s WHERE s.repository_id = r.id);
+
 -- name: DeleteCodeSearchDocumentsExceptPaths :exec
 DELETE FROM code_search_documents
 WHERE repository_id = sqlc.arg(repository_id)

@@ -23,6 +23,7 @@ type RuntimeMetricsObserver interface {
 	SetActiveAgentSessions(n float64)
 	SetActiveAgentSessionOldestAgeSeconds(n float64)
 	SetLandingQueueDepth(n int)
+	SetCodeSearchBacklog(repositories int, oldestAgeSeconds float64)
 }
 
 // RuntimeMetricsStore reads the current state backing runtime gauges. The
@@ -31,6 +32,7 @@ type RuntimeMetricsStore interface {
 	CountActiveAgentSessions(ctx context.Context) (int64, error)
 	GetActiveAgentSessionOldestAgeSeconds(ctx context.Context) (float64, error)
 	GetLandingQueueDepth(ctx context.Context) (int64, error)
+	GetCodeSearchBacklog(ctx context.Context) (db.GetCodeSearchBacklogRow, error)
 }
 
 // RuntimeMetricsInterval is how often the worker refreshes runtime gauges.
@@ -100,6 +102,13 @@ func collectRuntimeMetrics(ctx context.Context, store RuntimeMetricsStore, obser
 		n, err := store.GetLandingQueueDepth(ctx)
 		if err == nil {
 			observer.SetLandingQueueDepth(int(n))
+		}
+		return err
+	})
+	run("code_search_backlog", func(ctx context.Context) error {
+		backlog, err := store.GetCodeSearchBacklog(ctx)
+		if err == nil {
+			observer.SetCodeSearchBacklog(int(backlog.Repositories), backlog.OldestAgeSeconds)
 		}
 		return err
 	})

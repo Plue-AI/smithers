@@ -47,6 +47,12 @@ type HTTPMetrics struct {
 	// LandingQueueDepth tracks the depth of the landing queue.
 	LandingQueueDepth prometheus.Gauge
 
+	// CodeSearchBacklogRepositories counts repositories without a code-search watermark.
+	CodeSearchBacklogRepositories prometheus.Gauge
+
+	// CodeSearchBacklogOldestAgeSeconds tracks the age of the oldest unindexed repository.
+	CodeSearchBacklogOldestAgeSeconds prometheus.Gauge
+
 	// AuthOperationsTotal counts authentication operations by method and result.
 	AuthOperationsTotal *prometheus.CounterVec
 
@@ -148,6 +154,14 @@ func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
 			Name: "smithers_landing_queue_depth",
 			Help: "Current depth of the landing queue.",
 		}),
+		CodeSearchBacklogRepositories: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "smithers_code_search_backlog_repositories",
+			Help: "Repositories whose default bookmark has no code-search index yet.",
+		}),
+		CodeSearchBacklogOldestAgeSeconds: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "smithers_code_search_backlog_oldest_age_seconds",
+			Help: "Age of the oldest repository without a code-search index; zero when none.",
+		}),
 		AuthOperationsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "smithers_auth_operations_total",
@@ -180,6 +194,8 @@ func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
 			m.ValidationRejectionsTotal,
 			m.LandingOperationsTotal,
 			m.LandingQueueDepth,
+			m.CodeSearchBacklogRepositories,
+			m.CodeSearchBacklogOldestAgeSeconds,
 			m.AuthOperationsTotal,
 			m.WorkspaceLifecycleTotal,
 		)
