@@ -6,6 +6,22 @@
 
 import { Control } from "@smthrs/control"
 import { Effect } from "effect"
+import * as CliError from "../CliError.ts"
+
+/**
+ * The refusal for a run listing that answered some other kind of page: the
+ * control plane broke its own contract, so the operator is told it is not
+ * their fault.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const unexpectedRunList = (): CliError.Refused =>
+  new CliError.Refused({
+    fault: "bug",
+    code: "run_list_unexpected",
+    message: "The run list came back in an unexpected shape. Not your fault."
+  })
 
 /**
  * Collects every page before cancelling, keeping one Control service for the
@@ -20,7 +36,7 @@ export const cancelAll = () =>
     let cursor: string | undefined
     do {
       const page = yield* control.list({ _tag: "runs", ...(cursor === undefined ? {} : { cursor }) })
-      if (page._tag !== "runs") throw new Error("Expected durable runs")
+      if (page._tag !== "runs") return yield* Effect.fail(unexpectedRunList())
       ids.push(
         ...page.items.filter((run) => !["completed", "failed", "cancelled"].includes(run.status)).map((run) =>
           run.runId

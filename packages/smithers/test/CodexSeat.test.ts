@@ -331,6 +331,12 @@ process.stdin.on('data', x => prompt += x); process.stdin.on('end', () => { fs.w
       .toThrow(expect.objectContaining({ code: "invalid_provider_output" }))
   })
 
+  it.each(["null", "[]", "42"])("refuses a JSONL line that is %s rather than an event object", (line) => {
+    expect(() => CodexCode.parse(line)).toThrow(
+      expect.objectContaining({ code: "invalid_provider_output", message: "Codex returned invalid JSONL" })
+    )
+  })
+
   it("refuses duplicate session announcements and events after the completed turn", () => {
     for (const events of [[success[0], ...success], [...success, { type: "turn.started" }]]) {
       expect(() => CodexCode.parse(events.map((event) => JSON.stringify(event)).join("\n")))

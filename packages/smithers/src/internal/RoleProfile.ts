@@ -101,6 +101,10 @@ const bytes = (text: string): number => Buffer.byteLength(text, "utf8")
 const refused = (message: string): CliError.Refused =>
   new CliError.Refused({ fault: "user", code: "role_profile_refused", message })
 
+/** A composition step that broke the profile's own bookkeeping, not the operator's input. */
+const broken = (message: string): CliError.Refused =>
+  new CliError.Refused({ fault: "bug", code: "role_profile_broken", message: `${message}. Not your fault.` })
+
 const capped = (part: string, text: string, cap: number): string => {
   if (bytes(text) > cap) throw refused(`${part} is ${bytes(text)} bytes; the cap is ${cap}`)
   return text
@@ -237,7 +241,7 @@ export const forRun = (
       // checks above describe errors; the guarded service owns race safety.
       const logical = resolve(root, relative(base, path))
       const exact = Capability.patternFromCapability(Capability.make("fs:read", logical))
-      if (Option.isNone(exact)) return yield* Effect.fail(new Error("profile path cannot be granted exactly"))
+      if (Option.isNone(exact)) return yield* Effect.fail(broken("The role profile file could not be granted exactly"))
       // The envelope above grants a checkout-relative resource; the kernel
       // authorizes its absolute logical path. Translate only this checked file.
       texts.set(path, yield* fs.readFileString(logical).pipe(CapabilitySet.attenuate([exact.value])))
@@ -251,7 +255,7 @@ export const forRun = (
         commonFile: resolve(base, common),
         read: (path) => {
           const text = texts.get(path)
-          if (text === undefined) throw new Error("profile file was not captured")
+          if (text === undefined) throw broken("The role profile file was not read before composing")
           return text
         }
       }).system

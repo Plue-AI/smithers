@@ -32,6 +32,7 @@ import {
 } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import * as CliError from "./CliError.ts"
 import { errorCode } from "./internal/ErrorCode.ts"
 import * as Failure from "./internal/Failure.ts"
 
@@ -347,6 +348,10 @@ const releaseLock = (lockPath: string, token: string): void => {
   }
 }
 
+/** A Codex registration step that failed: Codex is the dependency at fault. */
+const codexRefused = (code: string, message: string): CliError.Refused =>
+  new CliError.Refused({ fault: "dependency", code, message })
+
 /** Register through Codex's configuration writer and verify its discovery result. */
 const registerCodex = (
   path: string,
@@ -365,19 +370,28 @@ const registerCodex = (
     })
     if (result.error !== undefined) {
       const code = errorCode(result.error)
-      throw new Error(`codex could not be started${code === undefined ? "" : ` (${code})`}`, { cause: result.error })
+      throw codexRefused("codex_unavailable", `codex could not be started${code === undefined ? "" : ` (${code})`}`)
     }
     if (result.status !== 0) {
-      // Codex's stderr is its own text; it stays the cause, not the reason.
-      throw new Error(`codex mcp ${args[0]} failed (${result.signal ?? `exit ${result.status}`})`, {
-        cause: result.stderr
-      })
+      // Codex's stderr is its own text, never the reason an operator reads.
+      throw codexRefused(
+        "codex_mcp_failed",
+        `codex mcp ${args[0]} failed (${result.signal ?? `exit ${result.status}`})`
+      )
     }
     return result.stdout
   }
   const discoversEntry = (): boolean => {
-    const servers: unknown = JSON.parse(run(["list", "--json"]))
-    if (!Array.isArray(servers)) throw new Error("codex mcp list returned an invalid server list")
+    const listed = run(["list", "--json"])
+    let servers: unknown
+    try {
+      servers = JSON.parse(listed)
+    } catch {
+      servers = undefined
+    }
+    if (!Array.isArray(servers)) {
+      throw codexRefused("codex_mcp_list_invalid", "codex mcp list returned an invalid server list")
+    }
     return servers.some((server: unknown) => {
       if (server === null || typeof server !== "object") return false
       if (!("name" in server) || server.name !== serverName || !("enabled" in server) || server.enabled !== true) {
@@ -392,7 +406,12 @@ const registerCodex = (
   }
   if (discoversEntry()) return { agent: "codex", path, status: "unchanged" }
   run(["add", serverName, "--", entry.command, ...entry.args])
-  if (!discoversEntry()) throw new Error("Codex did not discover the enabled Smithers MCP server after registration")
+  if (!discoversEntry()) {
+    throw codexRefused(
+      "codex_mcp_not_discovered",
+      "Codex did not discover the enabled Smithers MCP server after registration"
+    )
+  }
   return { agent: "codex", path, status: "written" }
 }
 

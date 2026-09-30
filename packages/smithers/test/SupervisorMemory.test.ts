@@ -431,3 +431,20 @@ describe("SupervisorMemory", () => {
     )
   }, 60_000)
 })
+
+describe("SupervisorMemory.memoryDatabase", () => {
+  it("refuses as a tagged bug when neither SMITHERS_MEMORY_DB nor the workspace stores are given", () => {
+    let thrown: unknown
+    try {
+      SupervisorMemory.memoryDatabase({ environment: {}, database: () => Layer.empty as never })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(CliError.Refused)
+    expect(thrown).toMatchObject({
+      fault: "bug",
+      code: "memory_store_missing",
+      message: "Smithers has no memory store for this workspace. Not your fault."
+    })
+  })
+})

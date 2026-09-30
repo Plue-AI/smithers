@@ -314,3 +314,42 @@ describe("registering the MCP server", () => {
     expect(Agents.manualInstructions(["codex"])).not.toContain("mcpServers")
   })
 })
+
+describe("registering with Codex", () => {
+  /** A `codex` on PATH that answers `mcp list --json` with `listed` and exits `status` for `mcp add`. */
+  const fakeCodex = (listed: string, status = 0): NodeJS.ProcessEnv => {
+    const bin = home()
+    const script = join(bin, "codex")
+    writeFileSync(
+      script,
+      `#!/bin/sh\nif [ "$2" = "list" ]; then printf '%s' '${listed}'; exit 0; fi\necho "codex internals: token=abc123" >&2\nexit ${status}\n`
+    )
+    chmodSync(script, 0o755)
+    return { PATH: bin, HOME: home() }
+  }
+
+  it.each([
+    ["codex is missing", { PATH: "/nonexistent", HOME: "/nonexistent" }, "codex could not be started (ENOENT)"],
+    ["mcp add fails", undefined, "codex mcp add failed (exit 3)"],
+    ["the server list is not JSON", "not json", "codex mcp list returned an invalid server list"],
+    ["the server list is not an array", "{}", "codex mcp list returned an invalid server list"],
+    [
+      "the entry is not discovered after add",
+      "[]",
+      "Codex did not discover the enabled Smithers MCP server after registration"
+    ]
+  ])("reports a failed registration when %s with a Codex sentence, never Codex's own text", (_, input, reason) => {
+    const environment = typeof input === "object"
+      ? input
+      : input === undefined
+      ? fakeCodex("[]", 3)
+      : fakeCodex(input)
+    const directory = home()
+    const wired = Agents.addMcp(Agents.find("codex")!, directory, {
+      ...environment,
+      CODEX_HOME: join(directory, ".codex")
+    })
+    expect(wired).toMatchObject({ agent: "codex", status: "failed", reason })
+    expect(wired.reason).not.toMatch(/token|abc123|internals/)
+  })
+})

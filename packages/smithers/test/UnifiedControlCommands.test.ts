@@ -532,7 +532,9 @@ describe("unified control dispatch", () => {
       .mockReturnValueOnce(Effect.succeed({ _tag: "flows", items: [] }))
     const result = await invoke(["runs", "cancel-all", "--json"])
     expect(result.codes).toEqual([1])
-    expect(result.stdout).toContain("Expected durable runs")
+    expect(result.stdout).toContain("run_list_unexpected")
+    expect(result.stdout).toContain("The run list came back in an unexpected shape. Not your fault.")
+    expect(result.stdout).not.toContain("Expected durable runs")
     expect(ports.invoke).not.toHaveBeenCalled()
     expect(ports.cancel).not.toHaveBeenCalled()
   })
@@ -604,7 +606,9 @@ describe("unified control dispatch", () => {
     ports.list.mockReturnValue(Effect.succeed({ _tag: "flows", items: [] }))
     const result = await invoke(["approvals", "list", "--json"])
     expect(result.codes).toEqual([1])
-    expect(result.stdout).toContain("Expected durable runs")
+    expect(result.stdout).toContain("run_list_unexpected")
+    expect(result.stdout).toContain("The run list came back in an unexpected shape. Not your fault.")
+    expect(result.stdout).not.toContain("Expected durable runs")
   })
 
   it.each([

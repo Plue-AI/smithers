@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Bridge from "../src/cli/ControlBridge.ts"
 import * as CliError from "../src/CliError.ts"
+import * as Failure from "../src/internal/Failure.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 import * as Serve from "../src/Serve.ts"
 import { invokeCanonical } from "./fixtures/invokeCanonical.ts"
@@ -169,7 +170,10 @@ describe("the serve command", () => {
     expect(Exit.isFailure(refused) && Cause.squash(refused.cause)).toBeInstanceOf(CliError.UnsupportedError)
 
     const missing = await Effect.runPromiseExit(Serve.host(bind(), "/work"))
-    expect(Exit.isFailure(missing) && String(Cause.squash(missing.cause))).toContain("gateway host is missing")
+    const defect = Exit.isFailure(missing) ? Cause.squash(missing.cause) : undefined
+    expect(defect).toBeInstanceOf(CliError.Refused)
+    expect(defect).toMatchObject({ fault: "bug", code: "gateway_host_missing" })
+    expect(Failure.operatorSentence(defect)).toBe("This smthrs build cannot serve the gateway. Not your fault.")
   })
 
   it("omits an empty bearer credential from the gateway options", async () => {

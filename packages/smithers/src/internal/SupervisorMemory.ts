@@ -109,7 +109,11 @@ export const memoryDatabase = (input: {
 }): Layer.Layer<DurableWriter.DurableWriter | SqlClient> => {
   const file = Environment.read(input.environment, "SMITHERS_MEMORY_DB")
   if (file === undefined && input.stores === undefined) {
-    throw new Error("SupervisorMemory.layer needs SMITHERS_MEMORY_DB or the workspace stores")
+    throw new CliError.Refused({
+      fault: "bug",
+      code: "memory_store_missing",
+      message: "Smithers has no memory store for this workspace. Not your fault."
+    })
   }
   return file === undefined ? input.stores! : input.database(file).pipe(
     Layer.tap((context) =>

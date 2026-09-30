@@ -54,6 +54,14 @@ export { localRoot } from "../Project.ts"
 const refused = (fault: CliError.Fault, code: string, message: string): CliError.Refused =>
   new CliError.Refused({ fault, code, message })
 
+/** The journal answered the same page twice, so reading on would never end. */
+const stalledPagination = (): CliError.Refused =>
+  refused(
+    "bug",
+    "history_pagination_stalled",
+    "The run history stopped advancing while it was being read. Not your fault."
+  )
+
 const requireDatabase = (root: string): string => {
   const file = NodeControl.executionDatabasePath(root)
   if (!DatabaseLocation.exists(file)) throw refused("user", "history_missing", `No execution history at ${file}`)
@@ -136,7 +144,7 @@ const resolvePosition = (runId: string, options: Options) =>
       }
       const tail = page.entries.at(-1)?.seq
       if (!page.hasMore || tail === undefined || (options.sequence !== undefined && tail >= options.sequence)) break
-      if (after !== undefined && tail <= after) throw new Error("History pagination did not advance")
+      if (after !== undefined && tail <= after) throw stalledPagination()
       after = tail
     }
     const sequence = options.sequence ?? target?.seq
@@ -203,7 +211,7 @@ export const preview = async (root: string, runId: string, options: Options, sig
         }
         const tail = page.entries.at(-1)?.seq
         if (!page.hasMore || tail === undefined) break
-        if (tail <= after) throw new Error("History pagination did not advance")
+        if (tail <= after) throw stalledPagination()
         after = tail
       }
       const effects = yield* EffectBoundary.fromEntries(entries)

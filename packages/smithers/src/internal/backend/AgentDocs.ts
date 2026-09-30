@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import * as CliError from "../../CliError.ts"
 import * as Failure from "../Failure.ts"
 import { auth } from "./Auth.ts"
 import { APIError, object, refusalOf, str, type Values } from "./Client.ts"
@@ -113,7 +114,13 @@ export const ask: Handler = async (c, a, o) => {
     if (response.status === 304 && text) {
       status = { url, status: "fresh", source: "cache", fetchedAt: metadata.fetchedAt }
     } else {
-      if (!response.ok) throw new Error(`Docs server answered HTTP ${response.status}`)
+      if (!response.ok) {
+        throw new CliError.Refused({
+          fault: "dependency",
+          code: "docs_unavailable",
+          message: `the docs server answered HTTP ${response.status}`
+        })
+      }
       text = await c.text(response, 32 * 1024 * 1024)
       metadata = {
         url,

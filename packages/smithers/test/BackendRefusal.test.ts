@@ -210,4 +210,15 @@ describe("agent ask context fields", () => {
     const value = object(await ask(c, { prompt: "anything" }, {}))
     expect(object(value.docs_status).warning).toBe("Docs refresh failed")
   })
+
+  it("names the docs server's HTTP status as a tagged dependency refusal", async () => {
+    const { c } = await fixture()
+    vi.spyOn(c, "exec").mockResolvedValue("")
+    vi.spyOn(c, "repo").mockImplementation(() => {
+      throw new UsageError({ message: "Expected OWNER/REPO or a clone URL" })
+    })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream trace", { status: 503 })))
+    const value = object(await ask(c, { prompt: "anything" }, {}))
+    expect(object(value.docs_status).warning).toBe("Docs refresh failed: the docs server answered HTTP 503")
+  })
 })

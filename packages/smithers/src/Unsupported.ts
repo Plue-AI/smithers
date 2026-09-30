@@ -410,6 +410,12 @@ export const flagError = (removedFlag: RemovedFlag): CliError.UnsupportedError =
  */
 export const findFlag = (parent: string, flag: string): RemovedFlag => {
   const found = removedFlags.find((entry) => entry.parent === parent && entry.flag === flag)
-  if (found === undefined) throw new Error(`No removed flag ${parent} --${flag} is declared`)
+  if (found === undefined) {
+    throw new CliError.Refused({
+      fault: "bug",
+      code: "removed_flag_undeclared",
+      message: `smthrs has no removal notice for ${parent} --${flag}. Not your fault.`
+    })
+  }
   return found
 }

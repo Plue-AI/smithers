@@ -29,6 +29,7 @@
 
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import { Effect, Option, Stream } from "effect"
+import * as CliError from "../CliError.ts"
 
 /**
  * Runs one read-only command in `cwd` and answers its stdout, or nothing.
@@ -86,7 +87,16 @@ export const spawnReader: Reader = (file, args, cwd) =>
       Stream.runForEach(child.stdout, (chunk) =>
         Effect.suspend(() => {
           bytes += chunk.byteLength
-          if (bytes > 1_000_000) return Effect.fail(new Error("revision output exceeded its limit"))
+          if (bytes > 1_000_000) {
+            return Effect.fail(
+              new CliError.ResourceLimitError({
+                operation: "revision read",
+                subject: file,
+                limit: 1_000_000,
+                unit: "bytes"
+              })
+            )
+          }
           text += decoder.decode(chunk, { stream: true })
           return Effect.void
         })),

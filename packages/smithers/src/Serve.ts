@@ -219,7 +219,13 @@ export const host = (bind: Bind, root: string) =>
     if (refusal !== undefined) return yield* Effect.fail(refusal)
     const gateway = yield* Effect.serviceOption(GatewayHost)
     if (Option.isNone(gateway)) {
-      return yield* Effect.die(new Error("The Node gateway host is missing from the CLI composition"))
+      return yield* Effect.die(
+        new CliError.Refused({
+          fault: "bug",
+          code: "gateway_host_missing",
+          message: "This smthrs build cannot serve the gateway. Not your fault."
+        })
+      )
     }
     yield* gateway.value.launch(health(root), {
       host: bind.host,

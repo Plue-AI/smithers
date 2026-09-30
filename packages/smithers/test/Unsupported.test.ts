@@ -197,7 +197,18 @@ describe("every removed flag", () => {
   })
 
   it("refuses to look up a flag the contract does not list", () => {
-    expect(() => Unsupported.findFlag("up", "invented")).toThrow(/No removed flag/)
+    let thrown: unknown
+    try {
+      Unsupported.findFlag("up", "invented")
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(CliError.Refused)
+    expect(thrown).toMatchObject({
+      fault: "bug",
+      code: "removed_flag_undeclared",
+      message: "smthrs has no removal notice for up --invented. Not your fault."
+    })
   })
 })
 

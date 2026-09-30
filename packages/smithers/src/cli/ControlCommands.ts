@@ -12,7 +12,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import * as CliError from "../CliError.ts"
-import { cancelAll } from "../commands/CancelAll.ts"
+import { cancelAll, unexpectedRunList } from "../commands/CancelAll.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
 import * as Globals from "../commands/Globals.ts"
 import * as Forensics from "../Forensics.ts"
@@ -533,7 +533,7 @@ export const pendingApprovals = (runId?: string) =>
         filters: { status: "waiting-approval", ...(runId ? { runId } : {}) },
         ...(cursor ? { cursor } : {})
       })
-      if (page._tag !== "runs") throw new Error("Expected durable runs")
+      if (page._tag !== "runs") return yield* Effect.fail(unexpectedRunList())
       runs.push(...page.items)
       cursor = page.nextCursor
     } while (cursor !== undefined)
