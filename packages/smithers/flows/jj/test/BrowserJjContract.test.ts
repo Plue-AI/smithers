@@ -68,11 +68,11 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj over flows_jj.wasm", () => {
   it.effect("snapshots the working copy and diffs between snapshots", () =>
     Effect.gen(function*() {
       write("note.txt", "first\n")
-      const { changeId: first } = yield* (jj.snapshot("first commit"))
+      const { commitId: first } = yield* (jj.snapshot("first commit"))
       expect(first).toMatch(/^[a-z0-9]+$/)
 
       write("note.txt", "second\n")
-      const { changeId: second } = yield* (jj.snapshot("second commit"))
+      const { commitId: second } = yield* (jj.snapshot("second commit"))
       expect(second).not.toBe(first)
 
       const diff = yield* (jj.diff(first, second))

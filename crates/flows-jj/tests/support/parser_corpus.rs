@@ -8,7 +8,7 @@ pub fn next(state: &mut u32) -> u32 {
 
 pub fn request(seed: u32, index: u32) -> Value {
     let text = format!("seed {seed} case {index} \"\\\n\0文件🚀");
-    match index % 7 {
+    match index % 8 {
         0 => json!({"op":"init","root":text}),
         1 => json!({"op":"snapshot","root":text,"message":format!("message {text}")}),
         2 => json!({"op":"restore","root":text,"changeId":format!("revision {text}")}),
@@ -19,7 +19,8 @@ pub fn request(seed: u32, index: u32) -> Value {
             json!({"op":"workspaceAdd","root":text,"name":format!("name {text}"),"path":format!("path {text}")})
         }
         5 => json!({"op":"workspaceForget","root":text,"name":format!("name {text}")}),
-        _ => json!({"op":"status","root":text}),
+        6 => json!({"op":"status","root":text}),
+        _ => json!({"op":"opRestore","root":text,"operationId":format!("operation {text}")}),
     }
 }
 
@@ -27,7 +28,7 @@ pub fn request(seed: u32, index: u32) -> Value {
 /// parser rejection before passing it to the dispatching ABI.
 pub fn rejected(seed: u32, index: u32) -> Vec<u8> {
     let mut value = request(seed, index);
-    match (index / 7) % 10 {
+    match (index / 8) % 10 {
         0 => {
             value.as_object_mut().unwrap().remove("root");
         }

@@ -171,7 +171,7 @@ fn generated_hostile_abi_campaign() {
             let first =
                 call(json!({"op":"snapshot","root":root,"message":format!("generated {index}")}));
             assert_eq!(first.as_object().unwrap().len(), 1);
-            assert_eq!(first["ok"].as_object().unwrap().len(), 2);
+            assert_eq!(first["ok"].as_object().unwrap().len(), 3);
             assert!(
                 first["ok"]["commitId"]
                     .as_str()
@@ -179,13 +179,17 @@ fn generated_hostile_abi_campaign() {
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit())
             );
-            let id = first["ok"]["changeId"].as_str().unwrap();
-            assert_eq!(id.len(), 12);
-            assert!(id.bytes().all(|byte| (b'k'..=b'z').contains(&byte)));
+            let id = first["ok"]["commitId"].as_str().unwrap();
+            assert_eq!(id.len(), 128);
+            assert!(id.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            let change = first["ok"]["changeId"].as_str().unwrap();
+            assert_eq!(change.len(), 12);
+            assert!(change.bytes().all(|byte| (b'k'..=b'z').contains(&byte)));
+            assert_eq!(first["ok"]["operationId"].as_str().unwrap().len(), 128);
             fs::write(root.join("generated.txt"), format!("{before}changed\n")).unwrap();
             let second = call(json!({"op":"snapshot","root":root}));
             assert_eq!(second.as_object().unwrap().len(), 1);
-            assert_eq!(second["ok"].as_object().unwrap().len(), 2);
+            assert_eq!(second["ok"].as_object().unwrap().len(), 3);
             assert!(
                 second["ok"]["commitId"]
                     .as_str()
@@ -193,9 +197,11 @@ fn generated_hostile_abi_campaign() {
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit())
             );
-            let other = second["ok"]["changeId"].as_str().unwrap();
-            assert_eq!(other.len(), 12);
-            assert!(other.bytes().all(|byte| (b'k'..=b'z').contains(&byte)));
+            let other = second["ok"]["commitId"].as_str().unwrap();
+            assert_eq!(other.len(), 128);
+            assert!(other.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            assert_eq!(second["ok"]["changeId"], first["ok"]["changeId"]);
+            assert_ne!(second["ok"]["operationId"], first["ok"]["operationId"]);
             assert_ne!(id, other);
             let diff = call(json!({"op":"diff","root":root,"from":id,"to":other}));
             assert_eq!(diff, json!({"ok":{"diff":expected_diff(&before)}}));

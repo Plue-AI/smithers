@@ -255,17 +255,19 @@ it(
         fs.writeFileSync(join(host, "repo", "generated.txt"), before)
         const first = call({ op: "snapshot", root, message: `generated ${index}` })
         expect(Object.keys(first)).toEqual(["ok"])
-        expect(Object.keys(first.ok)).toEqual(["commitId", "changeId"])
+        expect(Object.keys(first.ok)).toEqual(["commitId", "changeId", "operationId"])
         expect(first.ok.commitId).toMatch(/^[0-9a-f]{128}$/)
         expect(first.ok.changeId).toMatch(/^[k-z]{12}$/)
         fs.writeFileSync(join(host, "repo", "generated.txt"), `${before}changed\n`)
         const second = call({ op: "snapshot", root })
         expect(Object.keys(second)).toEqual(["ok"])
-        expect(Object.keys(second.ok)).toEqual(["commitId", "changeId"])
+        expect(Object.keys(second.ok)).toEqual(["commitId", "changeId", "operationId"])
         expect(second.ok.commitId).toMatch(/^[0-9a-f]{128}$/)
         expect(second.ok.changeId).toMatch(/^[k-z]{12}$/)
-        expect(second.ok.changeId).not.toBe(first.ok.changeId)
-        const diff = call({ op: "diff", root, from: first.ok.changeId, to: second.ok.changeId })
+        expect(second.ok.changeId).toBe(first.ok.changeId)
+        expect(first.ok.operationId).toMatch(/^[0-9a-f]{128}$/)
+        expect(second.ok.operationId).not.toBe(first.ok.operationId)
+        const diff = call({ op: "diff", root, from: first.ok.commitId, to: second.ok.commitId })
         expect(diff).toEqual({ ok: { diff: expectedDiff(before) } })
         const rejected = call({ op: "restore", root, changeId: "kkkkkkkkkkkk" })
         expect(rejected).toEqual({
@@ -275,7 +277,7 @@ it(
             message: "revision \"kkkkkkkkkkkk\" doesn't exist"
           }
         })
-        const restore = call({ op: "restore", root, changeId: first.ok.changeId })
+        const restore = call({ op: "restore", root, changeId: first.ok.commitId })
         expect(restore).toEqual({ ok: {} })
         const restoredText = fs.readFileSync(join(host, "repo", "generated.txt"), "utf8")
         expect(restoredText).toBe(before)
@@ -283,7 +285,7 @@ it(
         const revisits = []
         for (let turn = 0; turn < 3; turn++) {
           const target = ((seed + index) >>> turn) & 1
-          const changeId = target === 0 ? first.ok.changeId : second.ok.changeId
+          const changeId = target === 0 ? first.ok.commitId : second.ok.commitId
           const response = call({ op: "restore", root, changeId })
           expect(response).toEqual({ ok: {} })
           const text = fs.readFileSync(join(host, "repo", "generated.txt"), "utf8")

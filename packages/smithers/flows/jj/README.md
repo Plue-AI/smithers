@@ -56,7 +56,7 @@ const program = Effect.gen(function*() {
 Effect.runPromise(program)
 ```
 
-On Node and Bun, `snapshot(message)` captures the working copy without closing,
+On every backend, `snapshot(message)` captures the working copy without closing,
 describing, or opening a change, so the user's log gains no commit per
 snapshot. It returns `{ commitId, changeId, operationId }`: `commitId` is the
 durable handle to store and restore, `changeId` is the display name and moves
@@ -187,10 +187,11 @@ const program = Effect.gen(function*() {
 }).pipe(Effect.provide(BrowserJj.layer({ fs, wasm, root: "/repo" })))
 ```
 
-Seven of the nine operations work there, with real change ids and a real
-operation log. `revert` and `opRestore` have no operation in the compiled
-module and report `not_installed`; its snapshot still closes a change and
-reports no operation id. The backend also diverges from the command line in ways worth
+Eight of the nine operations work there, with real change ids and a real
+operation log. `revert` reports `not_installed`. Snapshot captures the current
+change without describing or closing it and includes `operationId`;
+`opRestore` restores the repository view while preserving remote and Git state,
+and refuses changes to other workspaces. The backend also diverges from the command line in ways worth
 reading before you assume parity: repositories use jj's Simple backend with no
 git interop, only `snapshot` creates a missing repository while `status`,
 `diff`, and `restore` refuse one with `unknown` and write nothing, real

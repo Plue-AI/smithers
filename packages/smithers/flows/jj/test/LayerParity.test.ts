@@ -40,6 +40,8 @@ const jjInstalled = (() => {
 
 /** Every failure both backends can be asked for, and the code both must give. */
 const table: ReadonlyArray<readonly [string, (jj: Jj) => Effect.Effect<unknown, unknown>, JjErrorCode]> = [
+  ["an empty operation revision", (jj) => jj.opRestore!(""), "invalid_ref"],
+  ["a malformed operation revision", (jj) => jj.opRestore!("--help"), "invalid_ref"],
   ["an empty restore revision", (jj) => jj.restore(""), "invalid_ref"],
   ["an empty diff revision", (jj) => jj.diff("@", ""), "invalid_ref"],
   ["a revision that does not resolve", (jj) => jj.restore("nosuchchangeid"), "invalid_ref"],
@@ -91,6 +93,58 @@ describe.skipIf(!jjInstalled || wasmBytes === undefined)("Jj layer parity", () =
         fsModule.rmSync(browserHost, { recursive: true, force: true })
       }
     }), { timeout })
+
+  it.effect(
+    "snapshots preserve @ and operation restore rolls back only an unchanged workspace graph",
+    () =>
+      Effect.gen(function*() {
+        const repository = fsModule.mkdtempSync(join(tmpdir(), "flows-jj-operation-node-"))
+        const browserHost = fsModule.mkdtempSync(join(tmpdir(), "flows-jj-operation-wasm-"))
+        fsModule.mkdirSync(join(browserHost, "repo"))
+        try {
+          execFileSync("jj", ["git", "init", repository], { stdio: "ignore" })
+          const node = yield* Effect.provide(Jj, budgeted(NodeJj.layerAt(repository)))
+          const browserOptions = { wasm: wasmBytes!, fs: rootedSyncFs(browserHost), root: "/repo" }
+          const browser = yield* Effect.provide(Jj, BrowserJj.layer(browserOptions))
+          for (
+            const [label, jj, files, lane] of [
+              ["node", node, repository, join(repository, "..", "operation-lane-" + repository.split("/").at(-1))],
+              ["wasm", browser, join(browserHost, "repo"), "/lane"]
+            ] as const
+          ) {
+            fsModule.writeFileSync(join(files, "keep.txt"), "before\n")
+            const before = yield* jj.snapshot("--help")
+            expect(before.operationId).toMatch(/^[0-9a-f]+$/)
+            expect(yield* jj.snapshot("opaque label")).toEqual(before)
+            yield* jj.workspaceAdd("other", lane, before.commitId)
+            fsModule.writeFileSync(join(files, "keep.txt"), "after\n")
+            fsModule.writeFileSync(join(files, "added.txt"), "new\n")
+            const after = yield* jj.snapshot()
+            expect(after.changeId, label).toBe(before.changeId)
+            expect(after.commitId, label).not.toBe(before.commitId)
+            expect(after.operationId, label).not.toBe(before.operationId)
+            expect(yield* codeOf(jj, (value) => value.opRestore!(before.operationId!))).toBe("conflict")
+            expect(fsModule.readFileSync(join(files, "keep.txt"), "utf8")).toBe("after\n")
+            yield* jj.workspaceForget("other")
+            yield* jj.opRestore!(before.operationId!)
+            expect(fsModule.readFileSync(join(files, "keep.txt"), "utf8")).toBe("before\n")
+            expect(fsModule.existsSync(join(files, "added.txt"))).toBe(false)
+            const restored = yield* jj.snapshot()
+            expect(restored.commitId, label).toBe(before.commitId)
+            expect(restored.changeId, label).toBe(before.changeId)
+            expect(restored.operationId, label).not.toBe(before.operationId)
+            if (label === "node") fsModule.rmSync(lane, { recursive: true, force: true })
+          }
+          const reloaded = yield* Effect.provide(Jj, BrowserJj.layer(browserOptions))
+          expect((yield* reloaded.snapshot()).changeId).toBe((yield* browser.snapshot()).changeId)
+          expect(fsModule.readFileSync(join(browserHost, "repo/keep.txt"), "utf8")).toBe("before\n")
+        } finally {
+          fsModule.rmSync(repository, { recursive: true, force: true })
+          fsModule.rmSync(browserHost, { recursive: true, force: true })
+        }
+      }),
+    { timeout }
+  )
 
   it.effect("classifies the same failures identically on the CLI and wasm layers", () =>
     Effect.gen(function*() {

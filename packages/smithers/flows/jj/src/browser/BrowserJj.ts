@@ -585,7 +585,8 @@ const create = (options: BrowserJjOptions): {
         Effect.flatMap((ok) =>
           Effect.all({
             commitId: stringField("snapshot", "jj snapshot", ok, "commitId"),
-            changeId: stringField("snapshot", "jj snapshot", ok, "changeId")
+            changeId: stringField("snapshot", "jj snapshot", ok, "changeId"),
+            operationId: stringField("snapshot", "jj snapshot", ok, "operationId")
           })
         )
       ),
@@ -676,12 +677,10 @@ const create = (options: BrowserJjOptions): {
             })
           )
       ),
-    // The frozen rc.0 wasm ABI has no revert or operation-restore operation,
-    // and its snapshot reports no operation id. The methods remain present
-    // and fail explicitly so feature detection never depends on an optional
-    // property disappearing.
+    // Revert remains explicitly unsupported; operation restore crosses the ABI.
     revert: () => withoutReactor("revert", "jj revert", fail("revert", "jj revert")),
-    opRestore: () => withoutReactor("opRestore", "jj op restore", fail("opRestore", "jj op restore"))
+    opRestore: (operationId) =>
+      Effect.asVoid(invoke("opRestore", "jj op restore", { op: "opRestore", root, operationId }))
   })
   return { jj, dispose }
 }

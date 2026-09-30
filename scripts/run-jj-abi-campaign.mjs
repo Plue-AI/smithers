@@ -65,12 +65,14 @@ export const verifyCampaign = (native, wasm, configuration, wasmSha256) => {
       assert.equal(operation.index, index)
       for (const snapshot of [operation.first, operation.second]) {
         assert.deepEqual(Object.keys(snapshot), ["ok"])
-        assert.deepEqual(Object.keys(snapshot.ok).sort(), ["changeId", "commitId"])
+        assert.deepEqual(Object.keys(snapshot.ok).sort(), ["changeId", "commitId", "operationId"])
         assert.match(snapshot.ok.changeId, /^[k-z]{12}$/)
         assert.match(snapshot.ok.commitId, /^[0-9a-f]{128}$/)
+        assert.match(snapshot.ok.operationId, /^[0-9a-f]{128}$/)
       }
-      assert.notEqual(operation.first.ok.changeId, operation.second.ok.changeId)
+      assert.equal(operation.first.ok.changeId, operation.second.ok.changeId)
       assert.notEqual(operation.first.ok.commitId, operation.second.ok.commitId)
+      assert.notEqual(operation.first.ok.operationId, operation.second.ok.operationId)
       assert.deepEqual(operation.diff, { ok: { diff: expectedDiff(before) } })
       assert.deepEqual(operation.failure, { err: { code: "invalid_ref", command: "jj restore --from kkkkkkkkkkkk", message: 'revision "kkkkkkkkkkkk" doesn\'t exist' } })
       assert.deepEqual(operation.restore, { ok: {} })

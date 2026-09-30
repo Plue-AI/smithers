@@ -90,19 +90,21 @@ fn full_roundtrip_through_the_abi() {
     // SimpleBackend commit ids are BLAKE2b-512: 128 hex characters.
     assert_eq!(commit_id.len(), 128);
     assert!(commit_id.bytes().all(|byte| byte.is_ascii_hexdigit()));
-    assert_eq!(value["ok"].as_object().unwrap().len(), 2);
+    assert_eq!(value["ok"].as_object().unwrap().len(), 3);
 
     // snapshot without message is valid (optional field).
     fs::write(root.join("a.txt"), "alpha two\n").unwrap();
     let value = call(&json!({"op": "snapshot", "root": root_str}));
-    let s2 = value["ok"]["changeId"]
+    let s2 = value["ok"]["commitId"]
         .as_str()
         .expect("changeId")
         .to_owned();
-    assert_ne!(s2, change_id);
+    assert_ne!(s2, commit_id);
+    assert_eq!(value["ok"]["changeId"].as_str().unwrap(), change_id);
+    assert_eq!(value["ok"]["operationId"].as_str().unwrap().len(), 128);
 
     // diff → {"ok":{"diff":"..."}}
-    let value = call(&json!({"op": "diff", "root": root_str, "from": change_id, "to": s2}));
+    let value = call(&json!({"op": "diff", "root": root_str, "from": commit_id, "to": s2}));
     let diff = value["ok"]["diff"].as_str().expect("diff");
     assert!(diff.contains("diff --git a/a.txt b/a.txt"), "{diff}");
     assert!(diff.contains("-alpha"), "{diff}");

@@ -88,10 +88,12 @@ fn dispatch(request: &Request) -> Result<OkPayload, OpError> {
             let ops::Snapshot {
                 commit_id,
                 change_id,
+                operation_id,
             } = ops::snapshot(Path::new(root), message.as_deref())?;
             Ok(OkPayload::Snapshot {
                 commit_id,
                 change_id,
+                operation_id,
             })
         }
         Request::Restore { root, change_id } => {
@@ -108,6 +110,10 @@ fn dispatch(request: &Request) -> Result<OkPayload, OpError> {
         }
         Request::WorkspaceForget { root, name } => {
             ops::workspace_forget(Path::new(root), name)?;
+            Ok(OkPayload::Unit {})
+        }
+        Request::OpRestore { root, operation_id } => {
+            ops::op_restore(Path::new(root), operation_id)?;
             Ok(OkPayload::Unit {})
         }
         Request::Status { root } => {
@@ -223,8 +229,9 @@ mod tests {
                 Response::Ok(OkPayload::Snapshot {
                     commit_id: text.into(),
                     change_id: text.into(),
+                    operation_id: text.into(),
                 }),
-                json!({"ok": {"commitId": text, "changeId": text}}),
+                json!({"ok": {"commitId": text, "changeId": text, "operationId": text}}),
             ),
             (
                 Response::Ok(OkPayload::Diff { diff: text.into() }),
@@ -357,7 +364,7 @@ mod tests {
         std::fs::write(root.join("note.txt"), "before\n").unwrap();
         let first = request(json!({"op": "snapshot", "root": root, "message": "first"}));
         let first_id = first["ok"]["commitId"].as_str().unwrap();
-        assert_eq!(first["ok"].as_object().unwrap().len(), 2);
+        assert_eq!(first["ok"].as_object().unwrap().len(), 3);
         assert_eq!(first_id.len(), 128);
 
         std::fs::write(root.join("note.txt"), "after\n").unwrap();
@@ -396,13 +403,17 @@ mod tests {
             status["ok"]["status"]
                 .as_str()
                 .unwrap()
-                .contains("M note.txt\n")
+                .contains("A note.txt\n")
         );
 
         let lane = temp.path().join("lane");
         assert_eq!(
             request(json!({"op": "workspaceAdd", "root": root, "name": "lane", "path": lane})),
             json!({"ok": {}})
+        );
+        assert_eq!(
+            request(json!({"op":"restore", "root":lane, "changeId":second_id})),
+            json!({"ok":{}})
         );
         assert_eq!(std::fs::read(lane.join("note.txt")).unwrap(), b"after\n");
         assert_eq!(

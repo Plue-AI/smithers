@@ -43,6 +43,10 @@ pub enum Request {
     Status {
         root: String,
     },
+    OpRestore {
+        root: String,
+        operation_id: String,
+    },
 }
 
 impl Request {
@@ -53,11 +57,7 @@ impl Request {
     pub fn command(&self) -> String {
         match self {
             Self::Init { .. } => "jj init".into(),
-            Self::Snapshot { message: None, .. } => "jj describe --quiet && jj new --quiet".into(),
-            Self::Snapshot {
-                message: Some(message),
-                ..
-            } => format!("jj describe -m {message:?} --quiet && jj new --quiet"),
+            Self::Snapshot { .. } => "jj snapshot".into(),
             Self::Restore { change_id, .. } => format!("jj restore --from {change_id}"),
             Self::Diff { from, to, .. } => format!("jj diff --from {from} --to {to} --git"),
             Self::WorkspaceAdd { name, path, .. } => {
@@ -65,12 +65,13 @@ impl Request {
             }
             Self::WorkspaceForget { name, .. } => format!("jj workspace forget {name}"),
             Self::Status { .. } => "jj status".into(),
+            Self::OpRestore { operation_id, .. } => format!("jj op restore {operation_id}"),
         }
     }
 }
 
 /// The `ok` payload of a response. Serialized untagged: `snapshot` returns
-/// `{"commitId":"...","changeId":"..."}` (restore by `commitId`; `changeId`
+/// `{"commitId":"...","changeId":"...","operationId":"..."}` (restore by `commitId`; `changeId`
 /// is display only), `diff` returns `{"diff":"..."}`, `status` returns
 /// `{"status":"..."}`, everything else returns `{}`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -81,6 +82,8 @@ pub enum OkPayload {
         commit_id: String,
         #[serde(rename = "changeId")]
         change_id: String,
+        #[serde(rename = "operationId")]
+        operation_id: String,
     },
     Diff {
         diff: String,
@@ -117,21 +120,18 @@ mod tests {
     fn every_request_command_uses_the_public_cli_shape() {
         let cases = [
             (r#"{"op":"init","root":"/repo"}"#, "jj init"),
-            (
-                r#"{"op":"snapshot","root":"/repo"}"#,
-                "jj describe --quiet && jj new --quiet",
-            ),
+            (r#"{"op":"snapshot","root":"/repo"}"#, "jj snapshot"),
             (
                 r#"{"op":"snapshot","root":"/repo","message":null}"#,
-                "jj describe --quiet && jj new --quiet",
+                "jj snapshot",
             ),
             (
                 r#"{"op":"snapshot","root":"/repo","message":""}"#,
-                "jj describe -m \"\" --quiet && jj new --quiet",
+                "jj snapshot",
             ),
             (
                 r#"{"op":"snapshot","root":"/repo","message":"line\n\"quoted\" 雪"}"#,
-                "jj describe -m \"line\\n\\\"quoted\\\" 雪\" --quiet && jj new --quiet",
+                "jj snapshot",
             ),
             (
                 r#"{"op":"restore","root":"/repo","changeId":"ab-12"}"#,
@@ -154,6 +154,10 @@ mod tests {
                 "jj workspace forget other",
             ),
             (r#"{"op":"status","root":"/repo"}"#, "jj status"),
+            (
+                r#"{"op":"opRestore","root":"/repo","operationId":"abc"}"#,
+                "jj op restore abc",
+            ),
         ];
         for (json, command) in cases {
             let request: Request = serde_json::from_str(json).unwrap();
@@ -188,8 +192,9 @@ mod tests {
                 Response::Ok(OkPayload::Snapshot {
                     commit_id: "c雪".into(),
                     change_id: "x".into(),
+                    operation_id: "op".into(),
                 }),
-                json!({"ok": {"commitId": "c雪", "changeId": "x"}}),
+                json!({"ok": {"commitId": "c雪", "changeId": "x", "operationId": "op"}}),
             ),
             (
                 Response::Ok(OkPayload::Diff {

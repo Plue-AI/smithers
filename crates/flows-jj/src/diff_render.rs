@@ -673,7 +673,7 @@ operation.username = "flows"
 
         let status = crate::ops::status(&root).unwrap();
         assert!(!status.contains('\u{1b}'), "{status:?}");
-        assert_eq!(status.lines().count(), 2, "{status}");
+        assert_eq!(status.lines().count(), 3, "{status}");
     }
 
     #[test]

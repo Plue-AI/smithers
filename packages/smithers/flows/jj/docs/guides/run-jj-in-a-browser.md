@@ -8,10 +8,15 @@ sidebar:
 A tab cannot spawn the `jj` binary. It can run jj-lib itself: the library is
 compiled to `wasm32-wasip1` and shipped in this package as
 `wasm/flows_jj.wasm`, and `BrowserJj` runs it over the WASI preview 1 shim this
-package also ships, on whatever synchronous filesystem the page mounts. Seven
-of the eight contract operations work there, with real change ids and a real
-operation log. The eighth, `revert`, has no operation in the compiled ABI and
+package also ships, on whatever synchronous filesystem the page mounts. Eight
+of the nine contract operations work there, with real change ids and a real
+operation log. `revert` has no operation in the compiled ABI and
 reports `not_installed`.
+
+Snapshot captures the current change without describing or closing it and
+returns `{ commitId, changeId, operationId }`. `opRestore(operationId)` restores
+the repository view and working-copy files, preserves current remote and Git
+state, and refuses changes to other workspaces since the captured operation.
 
 ## Compose the layer
 

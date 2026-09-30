@@ -192,16 +192,16 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
   })
 
   describe("snapshot with no changes", () => {
-    it.effect("closes the (empty) current change and opens another with a distinct id", () =>
+    it.effect("retains the current change and operation when no bytes changed", () =>
       Effect.gen(function*() {
         const host = freshHost()
         const jj = yield* jjFor(host)
         write(host, "a.txt", "alpha\n")
-        const { changeId: first } = yield* (jj.snapshot("has a file"))
-        // Nothing changed since: the snapshot still succeeds and moves on.
-        const { changeId: second } = yield* (jj.snapshot())
-        expect(second).toMatch(/^[k-z]{12}$/)
-        expect(second).not.toBe(first)
+        const firstSnapshot = yield* jj.snapshot("has a file")
+        const secondSnapshot = yield* jj.snapshot()
+        expect(secondSnapshot).toEqual(firstSnapshot)
+        const first = firstSnapshot.commitId
+        const second = secondSnapshot.commitId
         // Both are restorable states carrying the same tree.
         expect(yield* (jj.diff(first, second))).toBe("")
         yield* (jj.restore(first))
@@ -221,15 +221,15 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
         write(host, spaced, "spaced v1\n")
         write(host, deep, "deep v1\n")
         write(host, unicode, "unicode v1\n")
-        const { changeId: s1 } = yield* (jj.snapshot("awkward paths"))
+        const { commitId: s1 } = yield* (jj.snapshot("awkward paths"))
 
         write(host, unicode, "unicode v2\n")
         fsModule.unlinkSync(join(host, "repo", spaced))
         const status = yield* (jj.status())
-        expect(status).toContain(`D ${spaced}`)
-        expect(status).toContain(`M ${unicode}`)
+        expect(status).not.toContain(spaced)
+        expect(status).toContain(`A ${unicode}`)
 
-        const { changeId: s2 } = yield* (jj.snapshot("mutated"))
+        const { commitId: s2 } = yield* (jj.snapshot("mutated"))
         const diff = yield* (jj.diff(s1, s2))
         expect(diff).toContain(`diff --git a/${unicode} b/${unicode}`)
         expect(diff).toContain("-unicode v1")
@@ -295,11 +295,11 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
           base += `line ${i} abcdefghijklmnopqrstuvwxyz 0123456789\n`
         }
         write(host, "big.txt", base)
-        const { changeId: s1 } = yield* (jj.snapshot("big v1"))
+        const { commitId: s1 } = yield* (jj.snapshot("big v1"))
 
         const extended = base + "tail-marker\n"
         write(host, "big.txt", extended)
-        const { changeId: s2 } = yield* (jj.snapshot("big v2"))
+        const { commitId: s2 } = yield* (jj.snapshot("big v2"))
 
         const diff = yield* (jj.diff(s1, s2))
         expect(diff).toContain("+tail-marker")
@@ -320,11 +320,11 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
         const host = freshHost()
         const jj = yield* jjFor(host)
         write(host, "thing", "i am a file\n")
-        const { changeId: fileState } = yield* (jj.snapshot("thing is a file"))
+        const { commitId: fileState } = yield* (jj.snapshot("thing is a file"))
 
         fsModule.unlinkSync(join(host, "repo", "thing"))
         write(host, "thing/inner.txt", "i am inside\n")
-        const { changeId: dirState } = yield* (jj.snapshot("thing is a directory"))
+        const { commitId: dirState } = yield* (jj.snapshot("thing is a directory"))
         expect(fsModule.statSync(join(host, "repo", "thing")).isDirectory()).toBe(true)
 
         yield* (jj.restore(fileState))
@@ -349,7 +349,7 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
             const secretPath = join(host, "repo", target)
             fsModule.mkdirSync(dirname(secretPath), { recursive: true })
             fsModule.writeFileSync(secretPath, "SYNTHETIC_PRIVATE_TOKEN_314159\n")
-            const { changeId: before } = yield* jj.snapshot("before link")
+            const { commitId: before } = yield* jj.snapshot("before link")
             const metadata = join(host, "repo", ".jj")
             // Compare every durable file, including unreachable objects: a clean
             // diff alone would miss target bytes written before a failed commit.
@@ -382,7 +382,7 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
             expect(fsModule.existsSync(join(host, "lane"))).toBe(false)
             fsModule.unlinkSync(secretPath)
             fsModule.unlinkSync(link)
-            const { changeId: after } = yield* jj.snapshot("link removed")
+            const { commitId: after } = yield* jj.snapshot("link removed")
             expect(yield* jj.diff(before, after)).toBe("")
           }),
         { timeout }
@@ -436,7 +436,7 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
         expect(status.length).toBeGreaterThan(0)
         // The repo is consistent afterwards: the snapshot resolves and restores.
         write(host, "x.txt", "mutated\n")
-        yield* (jj.restore(snap.changeId))
+        yield* (jj.restore(snap.commitId))
         expect(read(host, "x.txt")).toBe("x\n")
       }), { timeout })
   })

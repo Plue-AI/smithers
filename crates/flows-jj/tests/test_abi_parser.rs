@@ -27,6 +27,9 @@ fn fields(request: Request) -> Value {
             json!({"op":"workspaceForget","root":root,"name":name})
         }
         Request::Status { root } => json!({"op":"status","root":root}),
+        Request::OpRestore { root, operation_id } => {
+            json!({"op":"opRestore","root":root,"operationId":operation_id})
+        }
     }
 }
 

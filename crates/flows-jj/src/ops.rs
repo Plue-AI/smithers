@@ -228,68 +228,90 @@ pub fn init(root: &Path) -> Result<(), OpError> {
     Ok(())
 }
 
-/// The CLOSED change a [`snapshot`] recorded.
-///
-/// `commit_id` is the restore pointer: a full hex commit id is content
-/// addressed, so no later rewrite (a `squash` into it, a `describe`, an
-/// `abandon`) can change the tree it names, and jj still resolves it once the
-/// commit is hidden. `change_id` is the change's human identity; a rewrite
-/// moves it to the new commit, so it is display metadata only.
+/// The current change captured by [`snapshot`], without describing or closing it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Snapshot {
     pub commit_id: String,
     pub change_id: String,
+    pub operation_id: String,
 }
 
-/// `snapshot`: describe the current change (setting `message` when given),
-/// remember its commit id and short change id, then open a fresh empty change
-/// on top — `jj describe [-m message] --quiet && jj new --quiet`. Returns the
-/// CLOSED commit: the state callers later `restore` to.
-pub fn snapshot(root: &Path, message: Option<&str>) -> Result<Snapshot, OpError> {
+/// Captures the working copy in place. The message is journal metadata only.
+pub fn snapshot(root: &Path, _message: Option<&str>) -> Result<Snapshot, OpError> {
+    let settings = user_settings()?;
+    let (mut workspace, mut repo) = load(&settings, root)?;
+    let commit = snapshot_working_copy(&mut workspace, &mut repo)?;
+    Ok(Snapshot {
+        commit_id: commit.id().hex(),
+        change_id: short_change_id(&commit),
+        operation_id: repo.op_id().hex(),
+    })
+}
+
+/// Restores the repository view while preserving remote tracking and other workspaces.
+pub fn op_restore(root: &Path, operation_id: &str) -> Result<(), OpError> {
+    if operation_id.is_empty()
+        || !operation_id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(OpError::invalid_ref("not an operation id"));
+    }
+    let prefix = HexPrefix::try_from_hex(operation_id)
+        .ok_or_else(|| OpError::invalid_ref("not an operation id"))?;
     let settings = user_settings()?;
     let (mut workspace, mut repo) = load(&settings, root)?;
     let name = workspace.workspace_name().to_owned();
-    let mut commit = snapshot_working_copy(&mut workspace, &mut repo)?;
-
-    if let Some(message) = message
-        && commit.description() != message
+    let commit = snapshot_working_copy(&mut workspace, &mut repo)?;
+    let id = match repo
+        .op_store()
+        .resolve_operation_id_prefix(&prefix)
+        .block_on()
+        .map_err(OpError::unknown_source)?
     {
-        let mut tx = repo.start_transaction();
-        let mut_repo = tx.repo_mut();
-        mut_repo
-            .rewrite_commit(&commit)
-            .set_description(message)
-            .write()
-            .block_on()?;
-        mut_repo.rebase_descendants().block_on()?;
-        repo = tx
-            .commit(format!("describe commit {}", commit.id().hex()))
-            .block_on()?;
-        commit = wc_commit(&repo, &name)?;
-    }
-
-    let closed = Snapshot {
-        commit_id: commit.id().hex(),
-        change_id: short_change_id(&commit),
+        PrefixResolution::SingleMatch(id) => id,
+        PrefixResolution::NoMatch => {
+            return Err(OpError::invalid_ref("operation does not resolve"));
+        }
+        PrefixResolution::AmbiguousMatch => {
+            return Err(OpError::invalid_ref("operation id is ambiguous"));
+        }
     };
-
+    let operation = repo
+        .loader()
+        .load_operation(&id)
+        .block_on()
+        .map_err(OpError::unknown_source)?;
+    let target = repo.reload_at(&operation).block_on()?;
+    let now = repo.view().store_view();
+    let mut view = target.view().store_view().clone();
+    let other_now: std::collections::BTreeMap<_, _> = now
+        .wc_commit_ids
+        .iter()
+        .filter(|(workspace, _)| *workspace != &name)
+        .collect();
+    let other_then: std::collections::BTreeMap<_, _> = view
+        .wc_commit_ids
+        .iter()
+        .filter(|(workspace, _)| *workspace != &name)
+        .collect();
+    if other_now != other_then || !view.wc_commit_ids.contains_key(&name) {
+        return Err(OpError::conflict("workspace(s) changed after operation"));
+    }
+    view.remote_views = now.remote_views.clone();
+    view.git_refs = now.git_refs.clone();
+    view.git_head = now.git_head.clone();
     let mut tx = repo.start_transaction();
-    let mut_repo = tx.repo_mut();
-    let new_commit = mut_repo
-        .new_commit(vec![commit.id().clone()], commit.tree())
-        .write()
+    tx.repo_mut().merge_index(&target)?;
+    tx.repo_mut().set_view(view);
+    repo = tx
+        .commit(format!("restore to operation {}", id.hex()))
         .block_on()?;
-    mut_repo.edit(name, &new_commit).block_on()?;
-    // `edit` may abandon the previous working-copy commit; transactions
-    // assert that any such rewrite has been propagated before committing.
-    mut_repo.rebase_descendants().block_on()?;
-    repo = tx.commit("new empty commit").block_on()?;
-    let old_tree = commit.tree();
+    let restored = wc_commit(&repo, &name)?;
     workspace
-        .check_out(repo.op_id().clone(), Some(&old_tree), &new_commit)
+        .check_out(repo.op_id().clone(), Some(&commit.tree()), &restored)
         .block_on()?;
-
-    Ok(closed)
+    Ok(())
 }
 
 /// `restore`: put the working-copy files back to `change_id`'s tree —
@@ -585,12 +607,32 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("repo");
         init(&root).unwrap();
-        let mut saved = Vec::new();
-        for index in 0..17 {
-            saved.push(snapshot(&root, Some(&format!("change {index}"))).unwrap());
-        }
         let settings = user_settings().unwrap();
-        let (workspace, repo) = load(&settings, &root).unwrap();
+        let (workspace, mut repo) = load(&settings, &root).unwrap();
+        let mut saved = Vec::new();
+        // Ambiguity needs distinct visible changes; snapshots intentionally keep @.
+        for index in 0..17 {
+            let mut tx = repo.start_transaction();
+            let commit = tx
+                .repo_mut()
+                .new_commit(
+                    vec![repo.store().root_commit_id().clone()],
+                    repo.store().empty_merged_tree(),
+                )
+                .set_description(format!("branch {index}"))
+                .write()
+                .block_on()
+                .unwrap();
+            repo = tx
+                .commit(format!("create branch {index}"))
+                .block_on()
+                .unwrap();
+            saved.push(Snapshot {
+                commit_id: commit.id().hex(),
+                change_id: short_change_id(&commit),
+                operation_id: repo.op_id().hex(),
+            });
+        }
         let current = wc_commit(&repo, workspace.workspace_name()).unwrap();
 
         for (label, prefixes) in [
@@ -949,7 +991,7 @@ mod tests {
         let root = temp.path().join("repo");
         init(&root).unwrap();
         std::fs::write(root.join("base.txt"), "base\n").unwrap();
-        snapshot(&root, Some("base")).unwrap();
+        let saved = snapshot(&root, Some("base")).unwrap();
 
         let lane = temp.path().join("lane");
         let empty_name = workspace_add(&root, "", lane.to_str().unwrap()).unwrap_err();
@@ -971,6 +1013,7 @@ mod tests {
 
         std::fs::create_dir(&lane).unwrap();
         workspace_add(&root, "lane", lane.to_str().unwrap()).unwrap();
+        restore(&lane, &saved.commit_id).unwrap();
         assert_eq!(std::fs::read(lane.join("base.txt")).unwrap(), b"base\n");
         let duplicate = temp.path().join("duplicate");
         let error = workspace_add(&root, "lane", duplicate.to_str().unwrap()).unwrap_err();
@@ -986,6 +1029,7 @@ mod tests {
         assert!(repo.view().get_wc_commit_id(&lane_name).is_none());
         workspace_forget(&root, "lane").unwrap();
         workspace_add(&root, "lane", duplicate.to_str().unwrap()).unwrap();
+        restore(&duplicate, &saved.commit_id).unwrap();
         assert_eq!(
             std::fs::read(duplicate.join("base.txt")).unwrap(),
             b"base\n"

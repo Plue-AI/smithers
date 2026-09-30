@@ -46,7 +46,7 @@ const flip = (
 
 /** Every string field any operation extracts, so one module serves all six. */
 const OK_ALL =
-  "{\"ok\":{\"commitId\":\"0a1b2c\",\"changeId\":\"qpvuntsm\",\"diff\":\"diff --git\",\"status\":\"clean\"}}"
+  "{\"ok\":{\"commitId\":\"0a1b2c\",\"changeId\":\"qpvuntsm\",\"operationId\":\"op123\",\"diff\":\"diff --git\",\"status\":\"clean\"}}"
 
 describe("BrowserJj over the fake ABI module", () => {
   it.effect("instantiates lazily, runs _initialize once, and reuses the instance", () =>
@@ -78,8 +78,12 @@ describe("BrowserJj over the fake ABI module", () => {
         onStderr: (text) => stderr.push(text)
       }
       const jj = yield* (Effect.provide(Jj, BrowserJj.layer(options)))
-      expect(yield* (jj.snapshot("checkpoint"))).toEqual({ commitId: "0a1b2c", changeId: "qpvuntsm" })
-      expect(yield* (jj.snapshot())).toEqual({ commitId: "0a1b2c", changeId: "qpvuntsm" })
+      expect(yield* (jj.snapshot("checkpoint"))).toEqual({
+        commitId: "0a1b2c",
+        changeId: "qpvuntsm",
+        operationId: "op123"
+      })
+      expect(yield* (jj.snapshot())).toEqual({ commitId: "0a1b2c", changeId: "qpvuntsm", operationId: "op123" })
       yield* (jj.restore("qpvuntsm"))
       expect(yield* (jj.diff("qpvuntsm", "zzzzzzzz"))).toBe("diff --git")
       yield* (jj.workspaceAdd("lane", "/lane1"))
@@ -90,10 +94,7 @@ describe("BrowserJj over the fake ABI module", () => {
         code: "not_installed",
         command: "jj revert"
       })
-      expect(yield* (Effect.flip(jj.opRestore!("0a1b2c")))).toMatchObject({
-        code: "not_installed",
-        command: "jj op restore"
-      })
+      yield* jj.opRestore!("0a1b2c")
       expect(stderr.slice(1).map((request) => JSON.parse(request))).toEqual([
         { op: "snapshot", root: "/repo", message: "checkpoint" },
         { op: "snapshot", root: "/repo" },
@@ -101,7 +102,8 @@ describe("BrowserJj over the fake ABI module", () => {
         { op: "diff", root: "/repo", from: "qpvuntsm", to: "zzzzzzzz" },
         { op: "workspaceAdd", root: "/repo", name: "lane", path: "/lane1" },
         { op: "workspaceForget", root: "/repo", name: "lane" },
-        { op: "status", root: "/repo" }
+        { op: "status", root: "/repo" },
+        { op: "opRestore", root: "/repo", operationId: "0a1b2c" }
       ])
     }))
 

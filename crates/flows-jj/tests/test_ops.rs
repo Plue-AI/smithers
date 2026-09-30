@@ -130,34 +130,28 @@ fn init_creates_repo_and_is_idempotent() {
 }
 
 #[test]
-fn snapshot_returns_change_id_and_opens_fresh_change() {
+fn snapshot_retains_current_change_and_reports_operation() {
     let (_temp, root) = temp_root();
     ops::init(&root).unwrap();
-    // Repository creation is explicit.
+    let current = current_change_id(&root);
     write(&root, "a.txt", "alpha\n");
     let first = ops::snapshot(&root, Some("first")).unwrap();
     assert_commit_id(&first.commit_id);
-    let id1 = first.change_id;
-    assert_change_id(&id1);
-
-    // The closed change keeps the files; the fresh change on top is empty.
-    let status = ops::status(&root).unwrap();
-    assert!(
-        status.starts_with("The working copy has no changes.\n"),
-        "unexpected status: {status:?}"
-    );
-    let current_id = status.trim_end().rsplit(' ').next().unwrap();
-    assert_change_id(current_id);
-    assert_ne!(current_id, id1, "snapshot must open a fresh change");
-
-    // Snapshotting again (no edits) closes the fresh change and opens another.
-    let id2 = ops::snapshot(&root, None).unwrap().change_id;
-    assert_change_id(&id2);
-    assert_ne!(id2, id1);
-    assert_eq!(
-        id2, current_id,
-        "second snapshot closes the change status reported"
-    );
+    assert_change_id(&first.change_id);
+    assert_eq!(first.change_id, current);
+    assert_eq!(current_change_id(&root), current);
+    assert_eq!(description(&root, &current), "");
+    assert_eq!(first.operation_id.len(), 128);
+    assert!(first.operation_id.bytes().all(|b| b.is_ascii_hexdigit()));
+    let second = ops::snapshot(&root, None).unwrap();
+    assert_eq!(second.commit_id, first.commit_id);
+    assert_eq!(second.change_id, first.change_id);
+    assert_eq!(second.operation_id, first.operation_id);
+    write(&root, "a.txt", "beta\n");
+    let edited = ops::snapshot(&root, Some("--help")).unwrap();
+    assert_ne!(edited.commit_id, first.commit_id);
+    assert_ne!(edited.operation_id, first.operation_id);
+    assert_eq!(edited.change_id, current);
 }
 
 #[test]
@@ -395,6 +389,45 @@ fn diff_rename_shows_as_delete_plus_add() {
     assert!(diff.contains("deleted file mode 100644"), "{diff}");
 }
 
+fn open_change(root: &Path) {
+    let mut config = StackedConfig::with_defaults();
+    config.add_layer(ConfigLayer::parse(ConfigSource::User, USER_CONFIG).unwrap());
+    let settings = UserSettings::from_config(config).unwrap();
+    let mut workspace = Workspace::load(
+        &settings,
+        root,
+        &default_backend_factories(),
+        &default_working_copy_factories(),
+    )
+    .unwrap();
+    let repo = workspace.repo_loader().load_at_head().block_on().unwrap();
+    let current = repo
+        .store()
+        .get_commit(
+            repo.view()
+                .get_wc_commit_id(workspace.workspace_name())
+                .unwrap(),
+        )
+        .unwrap();
+    let mut tx = repo.start_transaction();
+    let next = tx
+        .repo_mut()
+        .new_commit(vec![current.id().clone()], current.tree())
+        .write()
+        .block_on()
+        .unwrap();
+    tx.repo_mut()
+        .edit(workspace.workspace_name().to_owned(), &next)
+        .block_on()
+        .unwrap();
+    tx.repo_mut().rebase_descendants().block_on().unwrap();
+    let repo = tx.commit("test: open a child change").block_on().unwrap();
+    workspace
+        .check_out(repo.op_id().clone(), Some(&current.tree()), &next)
+        .block_on()
+        .unwrap();
+}
+
 #[test]
 fn status_reflects_working_copy_changes() {
     let (_temp, root) = temp_root();
@@ -402,6 +435,7 @@ fn status_reflects_working_copy_changes() {
     write(&root, "a.txt", "alpha\n");
     write(&root, "b.txt", "bravo\n");
     ops::snapshot(&root, Some("baseline")).unwrap();
+    open_change(&root);
 
     write(&root, "a.txt", "alpha two\n");
     fs::remove_file(root.join("b.txt")).unwrap();
@@ -430,6 +464,7 @@ fn workspace_add_and_forget() {
     ops::init(&root).unwrap();
     write(&root, "a.txt", "alpha\n");
     ops::snapshot(&root, Some("base")).unwrap();
+    open_change(&root);
 
     let lane = temp.path().join("lane1");
     ops::workspace_add(&root, "lane1", lane.to_str().unwrap()).unwrap();
@@ -461,43 +496,122 @@ fn workspace_add_and_forget() {
 }
 
 #[test]
-fn snapshot_sets_description_on_closed_change() {
+fn snapshot_messages_never_change_description_or_open_a_change() {
     let (_temp, root) = temp_root();
     ops::init(&root).unwrap();
-    write(&root, "a.txt", "alpha\n");
-    let s1 = ops::snapshot(&root, Some("the message")).unwrap().change_id;
-    assert_eq!(description(&root, &s1), "the message");
-
-    // The message lands on the change that closed, not on the fresh one
-    // opened over it.
-    let fresh = current_change_id(&root);
-    assert_ne!(fresh, s1);
-    assert_eq!(description(&root, &fresh), "");
-
-    // The described change was committed: it resolves and restores.
-    write(&root, "a.txt", "changed\n");
-    ops::restore(&root, &s1).unwrap();
-    assert_eq!(read(&root, "a.txt"), "alpha\n");
+    let current = current_change_id(&root);
+    for message in [Some("the message"), None, Some(""), Some("--help")] {
+        write(&root, "a.txt", format!("{message:?}"));
+        let saved = ops::snapshot(&root, message).unwrap();
+        assert_eq!(saved.change_id, current);
+        assert_eq!(description(&root, &saved.change_id), "");
+    }
 }
 
 #[test]
-fn snapshot_describes_only_the_change_it_closes() {
+fn op_restore_rolls_back_working_copy_and_survives_reload() {
     let (_temp, root) = temp_root();
     ops::init(&root).unwrap();
-    write(&root, "a.txt", "alpha\n");
-    let described = ops::snapshot(&root, Some("the message")).unwrap().change_id;
+    write(&root, "f", "before");
+    let before = ops::snapshot(&root, Some("opaque")).unwrap();
+    write(&root, "f", "after");
+    write(&root, "added", "later");
+    let after = ops::snapshot(&root, None).unwrap();
+    ops::op_restore(&root, &before.operation_id).unwrap();
+    assert_eq!(read(&root, "f"), "before");
+    assert!(!root.join("added").exists());
+    let restored = ops::snapshot(&root, None).unwrap();
+    assert_eq!(restored.commit_id, before.commit_id);
+    assert_eq!(restored.change_id, before.change_id);
+    assert_ne!(restored.operation_id, before.operation_id);
+    ops::op_restore(&root, &after.operation_id).unwrap();
+    assert_eq!(read(&root, "f"), "after");
+    assert_eq!(read(&root, "added"), "later");
+}
 
-    // `None` describes nothing and leaves earlier descriptions alone.
-    write(&root, "b.txt", "beta\n");
-    let undescribed = ops::snapshot(&root, None).unwrap().change_id;
-    assert_eq!(description(&root, &undescribed), "");
-    assert_eq!(description(&root, &described), "the message");
+#[test]
+fn op_restore_refuses_bad_refs_and_other_workspace_changes() {
+    let (_temp, root) = temp_root();
+    ops::init(&root).unwrap();
+    write(&root, "f", "before");
+    let before = ops::snapshot(&root, None).unwrap();
+    for invalid in [
+        "",
+        "not-an-operation",
+        "@",
+        "ABC",
+        "ffffffffffffffffffffffffffffffff",
+    ] {
+        assert_eq!(
+            ops::op_restore(&root, invalid).unwrap_err().code,
+            ErrorCode::InvalidRef
+        );
+        assert_eq!(read(&root, "f"), "before");
+    }
+    let lane = root.parent().unwrap().join("other-lane");
+    ops::workspace_add(&root, "other", lane.to_str().unwrap()).unwrap();
+    assert_eq!(
+        ops::op_restore(&root, &before.operation_id)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(read(&root, "f"), "before");
+    assert!(lane.join(".jj").exists());
+}
 
-    // An empty message is still a message: it sets an empty description.
-    write(&root, "c.txt", "gamma\n");
-    let emptied = ops::snapshot(&root, Some("")).unwrap().change_id;
-    assert_eq!(description(&root, &emptied), "");
-    assert_eq!(description(&root, &described), "the message");
+#[test]
+fn op_restore_preserves_current_remote_and_git_metadata() {
+    let (_temp, root) = temp_root();
+    ops::init(&root).unwrap();
+    write(&root, "f", "before");
+    let before = ops::snapshot(&root, None).unwrap();
+    write(&root, "f", "after");
+    ops::snapshot(&root, None).unwrap();
+    let mut config = StackedConfig::with_defaults();
+    config.add_layer(ConfigLayer::parse(ConfigSource::User, USER_CONFIG).unwrap());
+    let settings = UserSettings::from_config(config).unwrap();
+    let workspace = Workspace::load(
+        &settings,
+        &root,
+        &default_backend_factories(),
+        &default_working_copy_factories(),
+    )
+    .unwrap();
+    let repo = workspace.repo_loader().load_at_head().block_on().unwrap();
+    let current = repo
+        .view()
+        .get_wc_commit_id(workspace.workspace_name())
+        .unwrap()
+        .clone();
+    let mut view = repo.view().store_view().clone();
+    let target = jj_lib::op_store::RefTarget::normal(current);
+    let remote = jj_lib::op_store::RemoteRef {
+        target: target.clone(),
+        state: jj_lib::op_store::RemoteRefState::Tracked,
+    };
+    let mut remote_view = jj_lib::op_store::RemoteView::default();
+    remote_view.bookmarks.insert("main".into(), remote.clone());
+    remote_view.tags.insert("v1".into(), remote);
+    view.remote_views.insert("origin".into(), remote_view);
+    view.git_refs
+        .insert("refs/heads/main".into(), target.clone());
+    view.git_head = target;
+    let expected = view.clone();
+    let mut tx = repo.start_transaction();
+    tx.repo_mut().set_view(view);
+    tx.commit("record remote and Git metadata")
+        .block_on()
+        .unwrap();
+
+    ops::op_restore(&root, &before.operation_id).unwrap();
+    assert_eq!(read(&root, "f"), "before");
+    let restored = workspace.repo_loader().load_at_head().block_on().unwrap();
+    let restored_view = restored.view().store_view();
+    assert_eq!(restored_view.remote_views, expected.remote_views);
+    assert_eq!(restored_view.git_refs, expected.git_refs);
+    assert_eq!(restored_view.git_head, expected.git_head);
+    assert_ne!(restored_view.wc_commit_ids, expected.wc_commit_ids);
 }
 
 /// Folds the working copy into `snapshot`'s closed commit, the way an agent's
@@ -552,6 +666,7 @@ fn restore_by_commit_id_survives_a_rewrite_of_the_snapshot_change() {
     ops::init(&root).unwrap();
     write(&root, "f", "a");
     let snapshot = ops::snapshot(&root, None).unwrap();
+    open_change(&root);
 
     write(&root, "f", "b");
     squash_working_copy_into(&root, &snapshot.commit_id);

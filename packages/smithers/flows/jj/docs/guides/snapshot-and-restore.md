@@ -21,7 +21,7 @@ const before = Effect.gen(function*() {
 })
 ```
 
-On Node and Bun, `snapshot` captures the working copy into the current change
+On every backend, `snapshot` captures the working copy into the current change
 without closing it, describing it, or opening a new one, so repeated snapshots
 add no commits to your log. It returns three ids:
 
@@ -34,8 +34,9 @@ add no commits to your log. It returns three ids:
   edits, and an `abandon` makes it stop resolving. Show it to people; never
   restore to it.
 - `operationId` names the jj operation that recorded the capture. Pass it to
-  `opRestore` to put the whole repository back, bookmarks and rebases
-  included. The browser layer does not report it.
+  `opRestore` to restore local repository state, including bookmarks and rebases.
+  Current remote and Git metadata stay intact; changes to another workspace
+  make the restore fail.
 
 Journal rows written before 1.0.0-rc.2 hold a change id. Change ids are reverse
 hex (`k-z`) and commit ids are hex (`0-9a-f`), so both still resolve unchanged
@@ -51,10 +52,8 @@ const unnamed = Effect.gen(function*() {
 })
 ```
 
-The message is optional. Node and Bun never run `jj describe` for a snapshot,
-with or without one: the engine keeps its label in the journal. The browser
-layer writes a supplied message as the change description and runs no describe
-without one.
+The message is optional. Every backend leaves the change description intact,
+with or without one: the engine keeps its label in the journal.
 
 ## Undo the whole point: restore
 
