@@ -402,6 +402,8 @@ export const MythicalItemSchema = z.object({
   route: MythicalTodoRouteSchema.optional(),
   /** Whether a person took over one of the item's runs. */
   humanEdited: z.boolean().optional(),
+  /** Whether a proposed TODO waits on an unfinished review of its current head, which a person may retry. */
+  reviewHeld: z.boolean().optional(),
   /** The settled platform-key model cost of the item's lanes, in USD nanos; pending and pooled subscription calls carry none. */
   costNanos: z.number().int().nonnegative().optional(),
   pullRequest: MythicalPullRequestSchema.optional(),

@@ -2519,7 +2519,10 @@ func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64
 // attempts. A rejected item's pull request was closed by its owner, and a
 // declined item was declined by the planner: retrying either is a person's
 // decision (middleware.RequirePerson). A run may retry a blocked item. A
-// skipped item is not retried: admission (labels, approval) decides it.
+// skipped item is not retried: admission (labels, approval) decides it. A
+// proposed TODO held on its review (mythicalReviewHeld) is retried by a
+// person too: the review of its current head runs again, with its bounds
+// lifted, and the pull request stays as it is.
 func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
 	id, err := uuid.Parse(itemID)
 	if err != nil {
@@ -2534,8 +2537,24 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 		if err != nil {
 			return MythicalItemView{}, err
 		}
+		if item.Source == "issue" && mythicalReviewHeld(item) {
+			if err := middleware.RequirePerson(ctx, "retry the review of a TODO"); err != nil {
+				return MythicalItemView{}, err
+			}
+			saved, err := q.SaveMythicalItem(ctx, mythicalRetryReview(item))
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return MythicalItemView{}, err
+			}
+			if stack, err := q.GetMythicalStack(ctx, repositoryID); err == nil {
+				s.itemChanged(ctx, q, stack, saved.ID)
+			}
+			return mythicalItemView(saved), nil
+		}
 		if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
-			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item is retried")
+			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item, or a TODO held on its review, is retried")
 		}
 		// A person, never a run, retries past a bound.
 		// A typed stop (a bound, a cancel, very hard, a defect) is a person's
@@ -2581,6 +2600,43 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 		return mythicalItemView(saved), nil
 	}
 	return MythicalItemView{}, pkgerrors.Conflict("the item changed concurrently; retry")
+}
+
+// mythicalReviewHeld reports whether a proposed item waits for a person
+// because the review of its current head did not finish (gate, review): it
+// was stopped, cancelled or failed, or it could not run after repeated
+// outages. A head pushed outside Smithers is held for a person's decision
+// about the head itself, not its review, and is not retried here.
+func mythicalReviewHeld(item db.MythicalItem) bool {
+	checks := mythicalChecksOf(item)
+	if item.State != "proposed" || checks.ForeignHead != "" {
+		return false
+	}
+	if checks.Outages > mythicalOutageBound {
+		return true
+	}
+	review := checks.Review
+	if review == nil || review.Head != item.PRHead {
+		return false
+	}
+	return review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped) ||
+		strings.HasPrefix(review.Verdict, "failed")
+}
+
+// mythicalRetryReview is a held review retried by a person: the head's
+// review is forgotten, so the next pass reviews it again, and every bound
+// counts again from now. The hold's comments are forgotten too, so a hold
+// after this retry says so again.
+func mythicalRetryReview(item db.MythicalItem) db.MythicalItem {
+	next := item
+	next.Reason, next.NextAttemptAt = "", pgtype.Timestamptz{}
+	checks := mythicalChecksOf(item)
+	checks.Review = nil
+	checks.resume()
+	held := []string{"review:" + item.PRHead, "review-outages:" + item.PRHead, "outages:" + item.PRHead}
+	checks.Noticed = slices.DeleteFunc(checks.Noticed, func(key string) bool { return slices.Contains(held, key) })
+	next.Checks = checks.encode()
+	return next
 }
 
 // ObserveGitHubEvent admits an issue event for every stack whose repository's

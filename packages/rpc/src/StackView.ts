@@ -68,7 +68,8 @@ export const itemStateLabel = (item: MythicalItem): string => {
  * @since 1.0.0
  */
 export const retryable = (item: MythicalItem): boolean =>
-  item.issue !== undefined && (item.state === "blocked" || item.state === "rejected" || item.state === "declined")
+  item.issue !== undefined &&
+  (item.state === "blocked" || item.state === "rejected" || item.state === "declined" || item.reviewHeld === true)
 
 /**
  * `#12 Title` for an issue; a chat item is named by the stack change it made, else its id.

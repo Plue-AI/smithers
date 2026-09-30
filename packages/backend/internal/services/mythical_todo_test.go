@@ -19,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -1750,4 +1751,122 @@ func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
 	assert.Equal(t, "running", o.item(511).State)
 	assert.Equal(t, "integrating", o.item(512).State, "the verification waits for a lane under the lowered cap")
 	assert.Empty(t, o.launcher.byFlow("coding/verify"))
+}
+
+// A TODO held on a review of its current head that did not finish (stopped,
+// cancelled, failed) is retried by a person from Smithers: its head is
+// reviewed again, and a second hold says so again. A run may not retry it
+// (#2793).
+func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
+	for i, tc := range []struct {
+		name   string
+		answer func(o *mythicalOrchestration, request flowdispatch.LaunchRequest)
+		reason string
+	}{
+		{name: "failed", reason: "the review of this head failed (the review's first line was not a verdict); a person decides",
+			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
+				o.project(request, jobs.StateCompleted, "run-review-unread", `"not a verdict"`)
+			}},
+		{name: "cancelled", reason: "the review of this head was stopped (cancelled); a person decides",
+			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
+				o.project(request, jobs.StateCancelled, "run-review-cancelled", "")
+			}},
+		{name: "stopped", reason: "the review of this head was stopped (stopped: user: flows/model/ModelError/authentication); a person decides",
+			answer: func(o *mythicalOrchestration, request flowdispatch.LaunchRequest) {
+				o.fail(request, "run-review-stopped", "user", "flows/model/ModelError/authentication", "")
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			ctx := context.Background()
+			number := int64(810 + i)
+			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Held review", State: "open",
+				TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+			o.propose(number, fmt.Sprintf("held-%d.md", number))
+			tc.answer(o, o.launcher.last(mythicalReviewFlow))
+			o.wake()
+			held := o.item(number)
+			require.Equal(t, "proposed", held.State)
+			require.Equal(t, tc.reason, held.Reason)
+			assert.True(t, mythicalItemView(held).ReviewHeld, "Smithers offers Retry")
+			reviews := len(o.launcher.byFlow(mythicalReviewFlow))
+			o.wake()
+			assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "without a retry the head is not reviewed again")
+			hold := fmt.Sprintf("#%d Smithers is holding this TODO: %s.", number, tc.reason)
+			assert.Equal(t, []string{hold}, o.github.comments)
+
+			_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(held.ID))
+			requireRunCredentialRefused(t, err)
+			view, err := o.service.RetryItem(ctx, o.repoID, uuidString(held.ID))
+			require.NoError(t, err)
+			assert.Equal(t, "proposed", view.State)
+			assert.Empty(t, view.Reason)
+			assert.False(t, view.ReviewHeld)
+			retried := o.item(number)
+			assert.Equal(t, held.PRNumber, retried.PRNumber, "the pull request is kept")
+			assert.Equal(t, held.PRHead, retried.PRHead)
+			o.wake()
+			require.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews+1, "the same head is reviewed again")
+			assert.Equal(t, held.PRHead, mythicalChecksOf(o.item(number)).Review.Head)
+
+			tc.answer(o, o.launcher.last(mythicalReviewFlow))
+			o.wake()
+			assert.Equal(t, tc.reason, o.item(number).Reason)
+			o.wake()
+			assert.Equal(t, []string{hold, hold}, o.github.comments, "a hold after the retry says so again")
+		})
+	}
+}
+
+// A review parked after repeated outages is retried by a person with its
+// outage allowance restored; a proposed TODO whose review is not held, or
+// whose head moved outside Smithers, is not retried (#2793).
+func TestMythicalPersonRetriesAReviewParkedByOutages(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 820, Title: "Parked", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(820, "eight-twenty.md")
+	running := o.item(820)
+	_, err := o.service.RetryItem(ctx, o.repoID, uuidString(running.ID))
+	requireMythicalConflict(t, err)
+	assert.False(t, mythicalItemView(running).ReviewHeld)
+
+	o.fail(o.launcher.last(mythicalReviewFlow), "review-down", "infra", "flows/InfraInterrupt", "")
+	o.launcher.mu.Lock()
+	o.launcher.fail = 20
+	o.launcher.mu.Unlock()
+	for range 10 {
+		o.wake()
+	}
+	o.launcher.mu.Lock()
+	o.launcher.fail = 0
+	o.launcher.mu.Unlock()
+	parked := o.item(820)
+	require.Equal(t, "the review of this head could not run after repeated tries; not the TODO's fault", parked.Reason)
+	require.True(t, mythicalItemView(parked).ReviewHeld)
+	reviews := len(o.launcher.byFlow(mythicalReviewFlow))
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(parked.ID))
+	require.NoError(t, err)
+	assert.Zero(t, mythicalChecksOf(o.item(820)).Outages, "the outage allowance counts again from the retry")
+	o.wake()
+	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews+1, "the recovered dispatcher reviews the head")
+
+	// A head pushed outside Smithers is a person's decision about the head.
+	moved := o.item(820)
+	checks := mythicalChecksOf(moved)
+	checks.ForeignHead = "f00d"
+	checks.Outages = mythicalOutageBound + 1
+	moved.Checks = checks.encode()
+	_, err = o.service.queries().SaveMythicalItem(ctx, moved)
+	require.NoError(t, err)
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(moved.ID))
+	requireMythicalConflict(t, err)
+}
+
+func requireMythicalConflict(t *testing.T, err error) {
+	t.Helper()
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusConflict, apiErr.Status, apiErr.Message)
 }

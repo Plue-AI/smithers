@@ -167,6 +167,13 @@ describe("the History card", () => {
     expect(render({ snapshot: { stack: chat, error: null } })).not.toContain('data-flow="history.retry"')
   })
 
+  test("a TODO held on its review offers Retry; an open one under review does not", () => {
+    const held = { ...STACK, items: [item("i10", "proposed", { reviewHeld: true }), item("i11", "proposed")] }
+    const retries = [...render({ snapshot: { stack: held, error: null } }).matchAll(/data-flow="history.retry" data-flow-args="([^"]+)"/g)]
+      .map((match) => match[1])
+    expect(retries).toEqual([`i10 ${REPO}`])
+  })
+
   test("absent offers Bootstrap until a request is pending; frozen states its reason", () => {
     const absent = { ...STACK, state: "absent" as const, items: [], changes: [], lanes: [] }
     expect(render({ snapshot: { stack: absent, error: null } })).toContain(`data-flow="history.bootstrap" data-flow-args="${REPO}"`)
