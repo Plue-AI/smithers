@@ -385,7 +385,7 @@ describe("the card grid", () => {
     expect(lines[2]).toContain("├ Read auth/login.ts ✓")
     expect(lines[3]).toContain("└ Editing login.ts…")
     // The rows of the shorter card pad so both footers share a line.
-    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[alt+x Stop\] ▌42s · GPT-6 Sol +waiting/)
+    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[alt\+x Stop\] ▌42s · GPT-6 Sol +waiting/)
     expect(lines[5]?.trim()).toBe("")
     // A short last row stretches across the width.
     expect(lines[6]).toMatch(/^▌● docs/)
