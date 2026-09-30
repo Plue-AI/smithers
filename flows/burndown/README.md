@@ -70,7 +70,12 @@ Every directory `~/.smithers/accounts/{claude,codex}-*` with a login is an
 account; `~/.codex` is `codex-default`. Accounts sharing an email share a limit
 and count once. `BURNDOWN_EXCLUDE_EMAILS` lists logins the flow must never use
 (for example the operator's own Claude session). A new login needs no code
-change; a missing one is skipped.
+change; a missing one is skipped. To print every account's live usage and
+skipped logins as JSON:
+
+```sh
+node --experimental-strip-types flows/burndown/accounts.ts
+```
 
 Cloud placement, authentication, review, and commit handoff are described in
 [Cloud workers](docs/cloud-execution.md).

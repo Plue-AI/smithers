@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 import { readdir, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 export const Account = Schema.Struct({
@@ -199,4 +200,11 @@ export async function readAccounts(
   options: UsageOptions = {}
 ): Promise<Array<Reading>> {
   return Promise.all(accounts.map((account) => readUsage(account, options)))
+}
+
+// Meter CLI: `node --experimental-strip-types flows/burndown/accounts.ts` prints every
+// discovered account's live usage and every skipped login as JSON. Tokens are never printed.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { accounts, skipped } = await discoverAccounts()
+  process.stdout.write(`${JSON.stringify({ readings: await readAccounts(accounts), skipped }, null, 2)}\n`)
 }

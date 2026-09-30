@@ -1,10 +1,13 @@
 import { Schema } from "effect"
 import assert from "node:assert/strict"
+import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import {
   Account,
   accountEnv,
@@ -456,4 +459,32 @@ test("Claude polling replaces a stale capped reading with healthy idle usage", a
   assert.deepEqual(reset.usage!.windows[0], { name: "five_hour", used: 0, resetsAt: null, durationHours: 5 })
   assert.deepEqual(reset.usage!.windows[1], capped.usage!.windows[1])
   assert.equal(capped.usage!.windows[0]!.used, 100, "polling leaves the previous reading intact")
+})
+
+test("meter CLI prints readings and skipped logins without tokens or network", async (t) => {
+  const f = await fixture(t)
+  await mkdir(join(f.accountsDir, "codex-1"))
+  await writeFile(
+    join(f.accountsDir, "codex-1", "auth.json"),
+    JSON.stringify({ tokens: { id_token: jwt("meter@test"), access_token: "secret-token-value" } })
+  )
+  await mkdir(join(f.accountsDir, "claude-broken"))
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    "--experimental-strip-types",
+    "--no-warnings",
+    fileURLToPath(new URL("../accounts.ts", import.meta.url))
+  ], { env: { ...process.env, HOME: f.home, BURNDOWN_ACCOUNTS_DIR: f.accountsDir, BURNDOWN_EXCLUDE_EMAILS: "" } })
+  const report = JSON.parse(stdout)
+  assert.equal(report.readings.length, 1)
+  const [reading] = report.readings
+  Schema.decodeUnknownSync(Reading)(reading)
+  assert.equal(reading.account.email, "meter@test")
+  assert.equal(reading.usage, null)
+  assert.deepEqual(reading.error, {
+    _tag: "NoToken",
+    accountId: "codex-1",
+    message: "No ChatGPT account id available"
+  })
+  assert.deepEqual(report.skipped.map((s: { id: string }) => s.id).sort(), ["claude-broken", "codex-default"])
+  assert.ok(!stdout.includes("secret-token-value"))
 })
