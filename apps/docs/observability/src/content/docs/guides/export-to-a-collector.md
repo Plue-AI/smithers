@@ -91,6 +91,26 @@ on `localhost`, `127.0.0.0/8`, or `[::1]`. Non-credential headers such as a
 tenant id work on any endpoint. The check reads header names only, so use
 `https://` for every remote collector.
 
+Fetch redirects are refused, including same-origin redirects. Configure the
+collector's final URL. Other HTTP transports must refuse redirects themselves.
+For fetch options such as `credentials: "omit"`, provide
+`FetchHttpClient.RequestInit` around the whole exporting effect:
+
+```ts
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+
+const outcome = program.pipe(
+  Effect.provide(telemetry),
+  Effect.provideService(FetchHttpClient.RequestInit, { credentials: "omit" }),
+  Effect.scoped
+)
+```
+
+Options supplied only to the inner HTTP-client layer are replaced by the
+redirect policy. Ambient options are retained except `redirect`, which is
+always `"manual"`. Redirect responses fail export through the existing failure
+handling below; they never forward credentials or signal bodies.
+
 ## Control the cadence and the flush
 
 `exportInterval` sets how often all three signals batch and post. Omitted, each

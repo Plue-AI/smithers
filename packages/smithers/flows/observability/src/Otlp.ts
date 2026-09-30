@@ -162,10 +162,27 @@ const boundedClient = Layer.effect(
         // layerJson always supplies a Uint8Array body with a byte length.
         const bytes = (request.body as HttpBody.Uint8Array).contentLength
         if (bytes > maxRequestBytes) return discard("oversized", request, bytes)
-        return requestEffect.pipe(
-          Effect.timeoutOrElse({ duration: requestTimeout, orElse: () => discard("stalled", request, bytes) }),
+        // Fetch must expose redirects before any credential or signal body
+        // leaves the configured endpoint, even when the caller enables follow.
+        const confinedRequest = Effect.flatMap(Effect.serviceOption(FetchHttpClient.RequestInit), (init) =>
+          requestEffect.pipe(
+            Effect.provideService(FetchHttpClient.RequestInit, {
+              ...Option.getOrUndefined(init),
+              redirect: "manual"
+            })
+          ))
+        return confinedRequest.pipe(
+          Effect.timeoutOrElse({
+            duration: requestTimeout,
+            orElse: () =>
+              discard("stalled", request, bytes)
+          }),
           permits.withPermitsIfAvailable(1),
-          Effect.flatMap(Option.match({ onNone: () => discard("saturated", request, bytes), onSome: Effect.succeed }))
+          Effect.flatMap(Option.match({
+            onNone: () =>
+              discard("saturated", request, bytes),
+            onSome: Effect.succeed
+          }))
         )
       }))
   })
@@ -310,6 +327,10 @@ export interface Options {
  * client (re-exported by `@smthrs/platform-node`), a browser or test
  * hands it something else. Use {@link layerFetch} when the host's global
  * `fetch` is good enough. On Node 26 and every browser it is.
+ * Fetch redirects are refused. Supply `FetchHttpClient.RequestInit` around
+ * the whole exporting effect to retain other fetch options; options scoped
+ * only to the supplied client's layer are replaced by the redirect policy.
+ * Other HTTP transports must independently refuse automatic redirects.
  *
  * @category layers
  * @since 0.1.0
