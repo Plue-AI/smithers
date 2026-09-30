@@ -127,16 +127,12 @@ describe("smthrs egress", () => {
     })
   })
 
-  it("writes nothing when the host is already allowed", async () => {
+  it("writes an already allowed host's list unchanged, so the running sandboxes reload it", async () => {
     const b = await backend({ domains: ["*.example.com"], sandboxes: ["sb-1"] })
     const result = await b.run(["egress", "allow", "*.EXAMPLE.com"])
     expect(result.code, result.output).toBe(0)
-    expect(b.seen).toEqual([read])
-    expect(JSON.parse(result.output)).toEqual({
-      allow_domains: ["*.example.com"],
-      updated_at: "2026-09-30T11:00:00Z",
-      reloads: []
-    })
+    expect(b.seen).toEqual([read, { ...read, method: "PUT", body: { allow_domains: ["*.example.com"] } }])
+    expect(JSON.parse(result.output).reloads).toEqual([{ sandbox_id: "sb-1", reloaded: true }])
   })
 
   it("denies an allowed host by writing the list without it; the last one empties the list", async () => {

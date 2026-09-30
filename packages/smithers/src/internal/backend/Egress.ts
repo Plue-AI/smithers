@@ -32,10 +32,9 @@ export const egress: Record<string, Handler> = {
   "egress list": (c, _a, o) => ProductApi.getApiReposOwnerRepoEgressPolicy(c, { path: target(c, o) }),
   "egress allow": async (c, a, o) => {
     const path = target(c, o), wanted = host(a.host)
-    const current = await ProductApi.getApiReposOwnerRepoEgressPolicy(c, { path })
-    // Already allowed: nothing is written and no sandbox reloads.
-    if (current.allow_domains.includes(wanted)) return { ...current, reloads: [] }
-    return replace(c, path, [...current.allow_domains, wanted])
+    const { allow_domains } = await ProductApi.getApiReposOwnerRepoEgressPolicy(c, { path })
+    // A host already listed is written again: the write is what reloads the running sandboxes.
+    return replace(c, path, allow_domains.includes(wanted) ? allow_domains : [...allow_domains, wanted])
   },
   "egress deny": async (c, a, o) => {
     const path = target(c, o), unwanted = host(a.host)
