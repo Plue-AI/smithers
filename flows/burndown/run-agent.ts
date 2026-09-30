@@ -106,9 +106,9 @@ export const agentArgv = (assignment: Assignment, workdir: string): ReadonlyArra
 
 const limitPattern = /usage limit|rate limit|hit your limit|limit reached|429 Too Many Requests/i
 
-/** Only the CLI's completed assistant channel can report queue results. */
-const finalReport = (tool: Assignment["tool"], output: string): { readonly text?: string; readonly failure?: string } => {
+const cliOutput = (output: string) => {
   const records: Array<Record<string, unknown>> = []
+  const diagnostics: Array<string> = []
   try {
     const value = JSON.parse(output)
     if (value && typeof value === "object" && !Array.isArray(value)) records.push(value)
@@ -117,9 +117,17 @@ const finalReport = (tool: Assignment["tool"], output: string): { readonly text?
       try {
         const value = JSON.parse(line)
         if (value && typeof value === "object" && !Array.isArray(value)) records.push(value)
-      } catch { /* Plain diagnostic lines are never reports. */ }
+      } catch { diagnostics.push(line) }
     }
   }
+  return { records, diagnostics: diagnostics.join("\n") }
+}
+
+/** Only the CLI's completed assistant channel can report queue results. */
+const finalReport = (
+  tool: Assignment["tool"],
+  records: ReadonlyArray<Record<string, unknown>>
+): { readonly text?: string; readonly failure?: string } => {
   if (tool === "claude") {
     const result = records.filter((record) => record.type === "result").at(-1)
     return result?.subtype === "success" && result.is_error === false && typeof result.result === "string"
@@ -156,13 +164,16 @@ export const parseReport = (
   agentHours: number,
   diagnostics = ""
 ): WorkerResult => {
-  const final = finalReport(assignment.tool, output)
+  const parsed = cliOutput(output)
+  const final = finalReport(assignment.tool, parsed.records)
   const report = final.text
   const notes = `${exitCode !== 0 ? output : report ?? output}\n${diagnostics}`.slice(-2000)
   const result = (status: WorkerResult["status"], commits: WorkerResult["commits"] = [], why = ""): WorkerResult => ({
     key: assignment.key, status, commits, notes: `${notes}${why ? `\n${why}` : ""}`, agentHours
   })
-  if (exitCode !== 0) return result(limitPattern.test(output + diagnostics) ? "limited" : "failed")
+  if (exitCode !== 0) {
+    return result(limitPattern.test(`${final.failure ?? ""}\n${parsed.diagnostics}\n${diagnostics}`) ? "limited" : "failed")
+  }
   if (report === undefined) {
     return result(final.failure !== undefined && limitPattern.test(final.failure + diagnostics) ? "limited" : "failed", [],
       "No completed final assistant report")

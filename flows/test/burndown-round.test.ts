@@ -603,7 +603,12 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       const services = Interpreter.layerWithImplementations(Burndown, implementations).pipe(
         Layer.provideMerge(Interpreter.layer(Round).pipe(Layer.provide(implementations))),
         Layer.provideMerge(FlowEngine.layerMemory),
-        Layer.provideMerge(NodeCrypto.layer)
+        Layer.provideMerge(NodeCrypto.layer),
+        Layer.provideMerge(
+          RunAgent.toLayer(() => Effect.die("READY recovery must not launch a worker"), {
+            implementationVersion: "burndown/run-agent/v6"
+          }).pipe(Layer.provide(Action.layerImplementations))
+        )
       )
       const completed = await Effect.runPromise(
         Burndown.execute({ repos: [assignment.repo], ready: [ready] }, { executionId: "public-ready-recovery" }).pipe(

@@ -35,7 +35,7 @@ const account: Account = {
 // A fake control API makes workspace lifecycle deterministic; real subprocesses
 // exercise CommandSandbox stdin, temporary guest config and cleanup together.
 for (const tool of ["codex", "claude"] as const) {
-  test(`Cloud placement injects ${tool} login on stdin and deletes configs/workspace`, async () => {
+  test(`Cloud placement injects ${tool} login on stdin and cleans scoped configs while retaining unexported workspace`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "burndown-cloud-"))
     const secret = "private-token-fixture"
     const calls: Array<string> = []
@@ -926,7 +926,7 @@ test("Cloud storage failures refuse READY before reconstruction", async () => {
 test("Cloud export failure retains report and workspace for recovery", async () => {
   const dir = await mkdtemp(join(tmpdir(), "burndown-export-recovery-"))
   const sha = "a".repeat(40)
-  const calls: string[] = []
+  const calls: Array<string> = []
   let guestExecuted = false
   try {
     await Effect.runPromise(
@@ -1003,7 +1003,7 @@ for (const tool of ["codex", "claude"] as const) {
       const dir = await mkdtemp(join(tmpdir(), "burndown-retained-cleanup-"))
       const sha = "a".repeat(40)
       const model = tool === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5"
-      const calls: string[] = []
+      const calls: Array<string> = []
       let reconstructed = false
       try {
         await Effect.runPromise(
@@ -1081,7 +1081,7 @@ for (const tool of ["codex", "claude"] as const) {
 
 test("Cloud grant failure is redacted and allows cleanup before guest execution", async () => {
   const dir = await mkdtemp(join(tmpdir(), "burndown-grant-failure-"))
-  const calls: string[] = []
+  const calls: Array<string> = []
   try {
     await Effect.runPromise(
       Effect.gen(function*() {
@@ -1118,6 +1118,93 @@ test("Cloud grant failure is redacted and allows cleanup before guest execution"
       }).pipe(Effect.provide(NodeServices.layer))
     )
     assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("Cloud replayed READY report preserves workspace without a new guest command", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-replayed-ready-"))
+  const sha = "a".repeat(40)
+  const calls: Array<string> = []
+  try {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = yield* makeCloudPlacement({
+          spawner,
+          workdir: dir,
+          artifactDirectory: dir,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          api: {
+            request: async (method) => {
+              calls.push(method)
+              return { id: "ws-replayed", status: "running" }
+            },
+            sshPrefix: async () => []
+          }
+        }).machine(assignment, account)
+        yield* Effect.gen(function*() {
+          // Acquiring the public provider scope reconnects the persisted worker;
+          // it must not require replaying the expensive guest execution command.
+          const guest = yield* ChildProcessSpawner
+          yield* guest.string(ChildProcess.make("sh", ["-c", "true"]))
+          const exit = yield* Effect.exit(machine.handoff!({
+            key: assignment.key,
+            status: "ready",
+            commits: [{ issue: 42, commit: sha }],
+            notes: "",
+            agentHours: 0
+          }, () => Effect.fail("export unavailable")))
+          assert.equal(exit._tag, "Failure")
+          const recovery = JSON.parse(yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8")))
+          assert.deepEqual(recovery.result, { status: "ready", commits: [{ issue: 42, commit: sha }] })
+          assert.equal(recovery.workspaceId, "ws-replayed")
+        }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+    assert.deepEqual(calls, ["POST", "GET"], "reported committed code must survive a replayed export failure")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("Cloud Git diagnostics redact the coding credential from the local command envelope", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-credential-diagnostic-"))
+  const secret = "opaque-coding-login-fixture"
+  const sha = "a".repeat(40)
+  try {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = yield* makeCloudPlacement({
+          spawner,
+          artifactDirectory: dir,
+          install: false,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          credential: async () => ({ auth: { tokens: { access_token: secret } } })
+        }).machine(assignment, account)
+        yield* machine.command!("true")
+        const exit = yield* Effect.exit(machine.handoff!({
+          key: assignment.key,
+          status: "ready",
+          commits: [{ issue: 42, commit: sha }],
+          notes: "",
+          agentHours: 0
+        }, () => Effect.succeed("#git-error:128:" + Buffer.from("fatal: " + secret).toString("base64"))))
+        assert.equal(exit._tag, "Failure")
+        assert.ok(!JSON.stringify(exit).includes(secret))
+        assert.match(JSON.stringify(exit), /\[redacted\]/)
+        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+        assert.ok(!raw.includes(secret))
+        assert.match(raw, /\[redacted\]/)
+        const recovery = JSON.parse(raw)
+        assert.equal(recovery.failure.stage, "metadata")
+        assert.equal(recovery.failure.kind, "git")
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

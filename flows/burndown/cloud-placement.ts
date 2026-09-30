@@ -246,6 +246,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
       let commandRequested = false
       let grantAcquired = false
       let retained = false
+      let reportedWork = false
       let stage = "launch"
       const recovery: Record<string, unknown> = {
         version: 1,
@@ -272,7 +273,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
       }
       const api: CloudSandbox.WorkspaceApi = {
         request: async (method, path, body, signal) => {
-          if (method === "DELETE" && !retained && commandRequested && grantAcquired) {
+          if (method === "DELETE" && !retained && (reportedWork || (commandRequested && grantAcquired))) {
             recovery.cleanup = "preserved"
             await save()
             return undefined
@@ -357,6 +358,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         logFile: false,
         handoff: (result: WorkerResult, read: ReadCommand) =>
           Effect.gen(function*() {
+            reportedWork = result.status !== "closed" || result.commits.length > 0
             recovery.phase = "reported"
             recovery.result = {
               status: result.status,

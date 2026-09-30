@@ -9,6 +9,7 @@ limited even when the CLI exits zero; limit words in a successful report or tool
 output do not override a successful final result.
 Codex transient errors can recover when the same turn completes successfully;
 a failed turn cannot recover without a new turn.
+Quota classification ignores structured tool output even when the process fails.
 
 READY accepts full commit IDs in assigned issue order, or explicit
 `READY #<issue> <commit>` mappings. Explicit mappings reserve their issues before
