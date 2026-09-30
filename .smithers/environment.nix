@@ -317,6 +317,18 @@ in
 
   programs.nix-ld.libraries = playwrightLibraries;
 
+  # `Docker.Service` targets (the PostgreSQL databases behind the backend,
+  # history and cache suites) run `docker` against a local daemon whose image
+  # store is containerd's, which is what PACKAGE.ts `CiToolchain.Docker` asks
+  # for. Images are pulled by digest through the sandbox's egress proxy. The
+  # workspace user (`developer` in plue's base module) reaches the socket
+  # through the `docker` group.
+  virtualisation.docker = {
+    enable = true;
+    daemon.settings.features.containerd-snapshotter = true;
+  };
+  users.users.developer.extraGroups = [ "docker" ];
+
   # Those SSH tests and cloud.sh name the Debian path `/usr/sbin/sshd` and need
   # the privilege-separation directory `/run/sshd`, neither of which NixOS has.
   systemd.tmpfiles.rules = [

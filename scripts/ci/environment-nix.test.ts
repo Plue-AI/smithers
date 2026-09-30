@@ -183,11 +183,9 @@ const provided: Record<string, RegExp> = {
   postgres: /pkgs\.postgresql_18\b/,
   bwrap: /pkgs\.bubblewrap\b/,
   sshd: /pkgs\.openssh\b[\s\S]*L\+ \/usr\/sbin\/sshd/,
+  docker: /virtualisation\.docker = \{\s*enable = true;[\s\S]*containerd-snapshotter = true;/,
   rg: /^\s*# ripgrep|ripgrep/m,
 }
-
-/** Tools an index rule executes that the image does not provide yet. */
-const imageGaps = new Set(["docker"])
 
 /** The tools each target-index rule needs; a new rule fails until it is listed. */
 const ruleTools: Record<string, string[]> = {
@@ -211,14 +209,15 @@ describe("the Cloud machine carries every tool the checks execute", () => {
     expect(unknown).toEqual([])
   })
 
-  test("every tool an index rule executes is in the image, or a named gap", () => {
+  test("every tool an index rule executes is in the image, ", () => {
     const needed = new Set(index.flatMap((target) => ruleTools[target.rule] ?? []))
-    const missing = [...needed].filter((tool) => !imageGaps.has(tool) && !(provided[tool]?.test(environment) ?? false))
+    const missing = [...needed].filter((tool) => !(provided[tool]?.test(environment) ?? false))
     expect(missing).toEqual([])
-    for (const gap of imageGaps) {
-      expect(provided[gap]).toBeUndefined()
-      expect(needed.has(gap)).toBe(true)
-    }
+    expect(needed.has("docker")).toBe(true)
+    // The image store PACKAGE.ts declares is the one the daemon is set to.
+    expect(only(rootPackage, /CiToolchain\.Docker\(\{ imageStore: "([^"]+)" \}\)/, "Docker in PACKAGE.ts")).toBe(
+      "containerd"
+    )
   })
 
   test("every toolchain cloud.sh gates on is in the image", () => {
