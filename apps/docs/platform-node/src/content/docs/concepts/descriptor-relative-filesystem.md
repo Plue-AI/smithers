@@ -63,21 +63,29 @@ writing over it, and a non-recursive `makeDirectory` on it stay refused.
 
 ## Which operations it covers
 
-Thirteen operations can be expressed as one descriptor-relative request, and
+Fifteen operations can be expressed as one descriptor-relative request, and
 those are the ones the adapter implements:
 
 ```text
 readFile  readFileString  writeFile  writeFileString  exists  stat
 readLink  realPath  makeDirectory  readDirectory  remove  rename  glob
+chmod  chown
 ```
 
+`chmod` and `chown` change metadata through the descriptor of the resolved
+target (`fchmod`, `fchown`), never through a path. They refuse a symbolic link,
+a hard-linked file and the workspace root, a mode outside `0` to `0o7777`, and
+an owner below `-1`; `-1` leaves a `uid` or `gid` unchanged. The change is
+synced before the call returns. A refusal arrives as a typed failure and the
+target keeps its previous mode and owner.
+
 Everything else on Effect's `FileSystem` surface returns a live handle or a
-stream that Node cannot open relative to a pinned descriptor: `open`, `stream`,
-`sink`, `watch`, `copy`, `copyFile`, `link`, `symlink`, `access`, `chmod`,
-`chown`, `truncate`, `utimes`, and the `makeTemp*` family. Under the kernel
-decorator each of those fails closed with a typed `PermissionDenied` rather
-than silently reverting to a path-based call. A program that needs them reaches
-for the raw `NodeHost.NodeFileSystem` outside the capability boundary.
+stream that Node cannot open relative to a pinned descriptor: `open`, `stream`, `sink`, `watch`, `copy`,
+`copyFile`, `link`, `symlink`, `access`, `truncate`, `utimes`, and the `makeTemp*` family.
+Under the kernel decorator each of those fails closed with a typed
+`PermissionDenied` rather than silently reverting to a path-based call. A
+program that needs them reaches for the raw `NodeHost.NodeFileSystem` outside
+the capability boundary.
 
 Wrapping that raw layer directly also fails closed, because it carries no
 atomic extension for the kernel to call.
