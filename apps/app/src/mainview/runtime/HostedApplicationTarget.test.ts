@@ -1,17 +1,22 @@
-import { readFileSync } from "node:fs"
 import { expect, test } from "bun:test"
-import { applicationTarget } from "../../../../site/src/lib/applicationTarget"
-import { APPLICATION_TARGET_META, loadApplicationTarget } from "./ApplicationTargetRuntime"
+import type { ApplicationTargetDocument } from "@smthrs/rpc/ApplicationTarget"
 import { createApplicationClient } from "./ApplicationClient"
+import { APPLICATION_TARGET_META, loadApplicationTarget } from "./ApplicationTargetRuntime"
 
-test("both hosted document entrypoints select session-auth web-Plue and the canonical user route", async () => {
-  for (const layout of ["Base", "AppShell"]) {
-    const source = readFileSync(new URL(`../../../../site/src/layouts/${layout}.astro`, import.meta.url), "utf8")
-    expect(source).toContain('name="smithers-application-target" content={JSON.stringify(applicationTarget)}')
-  }
+// The hosted site's document; the site's own test pins that both layouts emit it.
+const hosted = {
+  apiVersion: 1,
+  mode: "web-plue",
+  apiOrigin: "",
+  auth: { kind: "session" },
+  cors: "same-origin",
+  developerExternal: false
+} satisfies ApplicationTargetDocument
+
+test("a hosted document selects session-auth web-Plue and the canonical user route", async () => {
   const target = await loadApplicationTarget({
     document: { querySelector: ((selector: string) => selector === `meta[name="${APPLICATION_TARGET_META}"]`
-      ? { content: JSON.stringify(applicationTarget) } : null) as Document["querySelector"] }, pageOrigin: "https://canary.smithers.sh"
+      ? { content: JSON.stringify(hosted) } : null) as Document["querySelector"] }, pageOrigin: "https://canary.smithers.sh"
   })
   const calls: Array<{ path: string; credentials: RequestCredentials | undefined }> = []
   const client = createApplicationClient(target, { pageOrigin: "https://canary.smithers.sh", fetchImpl: async (input, init) => {

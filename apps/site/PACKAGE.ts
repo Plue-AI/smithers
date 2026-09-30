@@ -392,12 +392,16 @@ const catalogPublicationTest = Smithers.Shell.Test({
   ]
 })
 
-/** The home page imports the app's chunk and stylesheets only from its own origin. */
+/** The home page imports the app's chunk and stylesheets only from its own origin; both layouts publish the hosted application target. */
 const sameOriginUrlTest = Smithers.Shell.Test({
-  shell: "node --test apps/site/scripts/same-origin-url.test.mjs",
+  shell: "node --test apps/site/scripts/same-origin-url.test.mjs apps/site/scripts/application-target.test.mjs",
   data: [
     Smithers.file("scripts/same-origin-url.test.mjs"),
+    Smithers.file("scripts/application-target.test.mjs"),
     Smithers.file("src/lib/sameOriginUrl.ts"),
+    Smithers.file("src/lib/applicationTarget.ts"),
+    Smithers.file("src/layouts/Base.astro"),
+    Smithers.file("src/layouts/AppShell.astro"),
     Smithers.file("src/pages/index.astro")
   ]
 })

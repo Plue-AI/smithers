@@ -16002,7 +16002,23 @@
       },
       {
         "kind": "file",
+        "path": "apps/site/scripts/application-target.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "apps/site/src/lib/sameOriginUrl.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/lib/applicationTarget.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/layouts/Base.astro"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/layouts/AppShell.astro"
       },
       {
         "kind": "file",
