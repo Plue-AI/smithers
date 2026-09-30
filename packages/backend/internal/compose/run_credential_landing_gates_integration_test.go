@@ -54,6 +54,11 @@ func (h gateTestRepoHost) GetFileAtChange(_ context.Context, _, _, changeID, pat
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: http.StatusNotFound}
 }
 
+// GetFileAtCommit serves the same files by the commit a bookmark names.
+func (h gateTestRepoHost) GetFileAtCommit(ctx context.Context, owner, repo, commit, path string) (repohost.FileContent, error) {
+	return h.GetFileAtChange(ctx, owner, repo, commit, path)
+}
+
 func (h gateTestRepoHost) ListDirectory(context.Context, string, string, string, string, string, int) ([]repohost.TreeEntry, error) {
 	return nil, &repohost.StatusError{StatusCode: http.StatusNotFound}
 }
@@ -63,6 +68,20 @@ func (h gateTestRepoHost) ListBookmarks(context.Context, string, string, string,
 		{Name: "main", TargetChangeID: "mainchangezzzzzz", TargetCommitID: "9999999999999999999999999999999999999999"},
 		{Name: "release", TargetChangeID: "releasechangezzz", TargetCommitID: "8888888888888888888888888888888888888888"},
 	}, "", nil
+}
+
+// GetBookmark reads one bookmark the way the landing gate resolves its target.
+func (h gateTestRepoHost) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	items, _, err := h.ListBookmarks(ctx, owner, repo, "", 100)
+	if err != nil {
+		return repohost.Bookmark{}, err
+	}
+	for _, bookmark := range items {
+		if bookmark.Name == name {
+			return bookmark, nil
+		}
+	}
+	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: http.StatusNotFound, Code: "bookmark_not_found"}
 }
 
 // landingGateFixture is a repository with two people and one commit per
