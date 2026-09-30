@@ -6,8 +6,8 @@
  * is executed by the `smithers-jj-export` helper the adapter spawns. The extension being
  * *present* is all the barrel suite asserts, and nothing in this package had
  * ever run it, so this suite executes it once against the adapter the Bun
- * bundle actually installs: a guarded read, write, and rename, plus one
- * symlink-swap refusal.
+ * bundle actually installs: a guarded read, write, and rename, plus the
+ * symlink refusals.
  *
  * The Node coverage lane and the Bun compatibility lane both run this file,
  * so each runtime must start the helper and complete the guarded operations.
@@ -122,27 +122,36 @@ describe("BunFileSystem under the kernel guard", () => {
       }
     }), 30_000)
 
-  it.live("refuses to traverse a symlink that leaves the boundary root", () =>
+  it.live("refuses to traverse a symlink, whether or not it leaves the boundary root", () =>
     Effect.gen(function*() {
       const enclosing = temporaryDirectory()
       try {
         const root = join(enclosing, "workspace")
         const outside = join(enclosing, "outside")
-        mkdirSync(root)
+        mkdirSync(join(root, "real"), { recursive: true })
         mkdirSync(outside)
         writeFileSync(join(outside, "victim.txt"), "outside")
+        writeFileSync(join(root, "real", "kept.txt"), "inside")
         symlinkSync(outside, join(root, "escape"))
+        symlinkSync(join(root, "real"), join(root, "alias"))
 
-        const failure = yield* Effect.flip(
-          Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString(join(root, "escape", "victim.txt"))).pipe(
-            Effect.provide(guarded(root))
+        const read = (path: string) =>
+          Effect.flip(
+            Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString(path)).pipe(Effect.provide(guarded(root)))
           )
-        )
 
-        // A path-based filesystem would have followed the link and returned the
-        // bytes; the descriptor-relative helper refuses the component instead.
-        expect(failure).toMatchObject({ reason: { _tag: "BadResource" } })
+        // A path-based filesystem would have followed either link and returned
+        // the bytes. Authorization resolves the outside target and denies it
+        // before the helper runs, as the kernel's confinement contract states.
+        expect(yield* read(join(root, "escape", "victim.txt"))).toMatchObject({
+          reason: { _tag: "PermissionDenied" }
+        })
+        // A link to a directory inside the root passes authorization; the
+        // descriptor-relative helper then refuses the component instead of
+        // following it.
+        expect(yield* read(join(root, "alias", "kept.txt"))).toMatchObject({ reason: { _tag: "BadResource" } })
         expect(readFileSync(join(root, "escape", "victim.txt"), "utf8")).toBe("outside")
+        expect(readFileSync(join(root, "alias", "kept.txt"), "utf8")).toBe("inside")
       } finally {
         rmSync(enclosing, { recursive: true, force: true })
       }
