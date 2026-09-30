@@ -48,6 +48,7 @@ import { Action, DurableDeferred, Flow, HumanTask, Interpreter } from "@smthrs/f
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -85,23 +86,25 @@ export const tokenFor = (executionId: string, attempt: number): DurableDeferred.
 
 ## 3. Ask and watch the run park
 
-Build one engine per drive over the same SQLite file, as in [Crash and resume a run](/docs/tutorials/crash-and-resume/), and add a helper that reads back which attempt the engine says the question is open on. A human task declares its own park, so the run's waiting row carries the `approval` reason and the token of the attempt that is waiting. Add to `release.ts`:
+Build one engine per drive over the same SQLite file, as in [Crash and resume a run](/docs/tutorials/crash-and-resume/), and add a helper that waits for the run to park on a later attempt and reads back which attempt the engine says the question is open on. A human task declares its own park, so the run's waiting row carries the `approval` reason and the token of the attempt that is waiting. Add to `release.ts`:
 
 ```ts title="release.ts"
-const parkedAttempt = (executionId: string, attempts: number) =>
+const parkedAttempt = (executionId: string, attempts: number, after: number) =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
     const row = yield* state.waiting(executionId)
-    if (Option.isNone(row)) return yield* Effect.die(`the run "${executionId}" is not parked`)
+    if (Option.isNone(row)) return 0
     const { reason, token } = row.value
-    if (reason !== "approval" || token === null) {
-      return yield* Effect.die(`the run "${executionId}" is not waiting on an answer`)
-    }
+    if (reason !== "approval" || token === null) return 0
     for (let attempt = 1; attempt <= attempts; attempt++) {
       if (tokenFor(executionId, attempt) === token) return attempt
     }
     return yield* Effect.die(`the run "${executionId}" parked on a token no attempt owns`)
-  })
+  }).pipe(
+    Effect.repeat({ until: (attempt) => attempt > after, schedule: Schedule.spaced(10) }),
+    Effect.timeout(30_000),
+    Effect.orDie
+  )
 
 export interface Summary {
   readonly result: unknown
@@ -122,12 +125,12 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 0))
       }).pipe(Effect.provide(engine("worker-a")))
     )
 ```
 
-With `discard: true`, `execute` returns once the park is durable, and the run waits at waiting-approval: its row reads parked with the `approval` waiting reason and the current attempt's token. A human task is the one wait that routinely outlives the process holding it; a reviewer answers tomorrow, and whatever asked them is long gone.
+With `discard: true`, `execute` returns once the run is admitted and scheduled, so `parkedAttempt` polls the waiting row until the park is durable, and the run waits at waiting-approval: its row reads parked with the `approval` waiting reason and the current attempt's token. A human task is the one wait that routinely outlives the process holding it; a reviewer answers tomorrow, and whatever asked them is long gone.
 
 Two different waits answer to two different tools. A plan approval, or an in-run ask raised through the control plane, journals a `control.approval.requested` event whose `payload` field is the exact argument for [`smthrs approvals approve`](/docs/reference/cli/approvals/); [Plan, approve, run](/docs/guides/plan-approve-run/) walks that gate end to end. A `system/human-task` wait is different: the run parks with the `approval` waiting reason and the attempt's token, and the only thing that completes it is `HumanTask.answer` against that exact token (`packages/smithers/flows/flow/src/HumanTask.ts`). `smthrs approvals approve` does not resolve a human-task token, which is why this tutorial answers programmatically and keeps the whole lifecycle in one file.
 
@@ -135,7 +138,7 @@ Two different waits answer to two different tools. A plan approval, or an in-run
 
 ## 4. Refuse an answer and re-ask
 
-A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive replays the recorded answer, refuses it, and parks on the second attempt's wait point, because a durable deferred keeps its first completion and re-asking needs a wait point that has none. Add after phase one:
+A `confirm` accepts only a boolean, so a prose answer is refused. `resume` re-drives the parked run. The re-drive replays the recorded answer, refuses it, and parks on the second attempt's wait point, because a durable deferred keeps its first completion and re-asking needs a wait point that has none. Add after phase one:
 
 ```ts title="release.ts"
     // Phase two: answer attempt one with prose, which a confirm cannot
@@ -143,8 +146,8 @@ A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive r
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* HumanTask.answer({ token: tokenFor(executionId, 1), value: "yes, ship it" })
-        yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        yield* Release.resume(executionId)
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 1))
       }).pipe(Effect.provide(engine("worker-b")))
     )
 ```

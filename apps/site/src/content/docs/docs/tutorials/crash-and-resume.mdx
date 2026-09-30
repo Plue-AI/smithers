@@ -43,10 +43,13 @@ A paused run resumes from its run card: [Steer or stop](/docs/learn/watch-an-age
 The flow reviews a document, and its one declared step does the assessing. Create `review.ts` with the imports this file needs and both declarations:
 
 ```ts title="review.ts"
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -119,13 +122,18 @@ Build an engine layer per drive, then run the first drive. Each drive builds its
 
     // Phase one: run until the deferred, suspend, and drop the engine.
     yield* Effect.scoped(
-      Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("review-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 ```
 
-`DurableDeferred.await` finds no recorded completion, so the engine suspends the run and releases its claim. With `discard: true`, `execute` returns once the suspension is durable rather than waiting out the wait. When the `Effect.scoped` block ends, the engine layer is released: that is the crash this tutorial simulates, one process boundary over one SQLite file.
+`DurableDeferred.await` finds no recorded completion, so the engine suspends the run and releases its claim. With `discard: true`, `execute` returns once the run is admitted and scheduled, not once it has parked, so the drive polls the run's waiting row until the suspension is durable. When the `Effect.scoped` block ends, the engine layer is released: that is the crash this tutorial simulates, one process boundary over one SQLite file.
 
 
 ## 4. Resume from durable state

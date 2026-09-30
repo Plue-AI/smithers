@@ -95,7 +95,7 @@ Every operation fails as a `TimeTravelError` discriminated by a closed `code`, s
 
 ## Limits and why they exist
 
-Every read is capped by `maxHistoryEntries` (default 100,000), so one call's cost is bounded rather than a function of the journal's length; `pageSize` is a throughput knob and never changes a derived answer. The durable store is the SQLite dialect only. The engine is the producer of everything the service reads: anchors reach the snapshot tables through a projection of journal records, so the engine never writes this package's tables and the dependency arrow stays one way.
+Every read is capped by `maxHistoryEntries` (default 100,000), so one call's cost is bounded rather than a function of the journal's length; `pageSize` is a throughput knob and never changes a derived answer. The durable store runs on an injected SQLite or PostgreSQL client. The engine is the producer of everything the service reads: anchors reach the snapshot tables through a projection of journal records, so the engine never writes this package's tables and the dependency arrow stays one way.
 
 ## Related
 
