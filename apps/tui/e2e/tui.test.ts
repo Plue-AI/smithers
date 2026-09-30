@@ -2455,7 +2455,7 @@ describe("approvals", () => {
     expect(screen).not.toMatch(/┃[ \t]+n[ \t]*$/m)
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toBe("export const add = (a, b) => a - b\n")
     await tui.press(key.ctrlO)
-    await tui.until((screen) => screen.includes("Denied"), 10_000, "denied call")
+    await tui.until((screen) => screen.includes("Not approved."), 10_000, "denied call")
   }, 90_000)
 
   it("never eats typing, and answers once the editor is empty", async () => {
