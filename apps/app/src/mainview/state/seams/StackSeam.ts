@@ -708,7 +708,10 @@ export const createStackSeam = (
       try {
         return await untilTodoSettled(repo, id, progress)
       } finally { shared.followed.delete(id) }
-    })().catch((error: unknown) => ({ ok: false as const, detail: cloudUnreachable(error).error }))
+    })().catch((error: unknown) => {
+      try { ctx.report?.(`stack.todo.follow ${repo}`, error) } catch { /* Diagnostics must not strand the filing. */ }
+      return { ok: false as const, detail: "Smithers lost track of this TODO. Open History to see its state." }
+    })
       .then(async (outcome) => {
         clearTimeout(timer)
         shared.filings.delete(claim)

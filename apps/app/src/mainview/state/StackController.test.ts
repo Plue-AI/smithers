@@ -532,6 +532,58 @@ test("a refused filing fails on the card and its notice, and Retry files it agai
   await waitFor(() => todoToasts(store).some(row => row.status === "ok" && row.detail === "landed"))
 })
 
+test("a rejected TODO filing request stays retryable instead of claiming the TODO was filed", async () => {
+  const { store, controller, fake } = await setup()
+  fake.set(snapshot(1, []))
+  fake.handlers.set(`POST ${BASE}/todos`, async () => { throw new TypeError("private transport diagnostic") })
+  await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))
+  await waitFor(() => todoToasts(store)[0]?.status === "failed")
+  expect(todoToasts(store)[0]?.detail).toBe("Could not reach Smithers Cloud. Nothing answered at all — that's the connection, not something you did. Try it again.")
+  expect(todoToasts(store)[0]?.action).toMatchObject({ flow: "history.todo", label: "Retry" })
+  expect(stackCard(store)?.payload.todos).toHaveLength(1)
+})
+
+test("an unexpected TODO follow failure keeps its diagnostic out of the notice", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const fake = cloud()
+  const reports: string[] = []
+  let failTodoWrite = false
+  const guarded = new Proxy(store, {
+    get(target, property, receiver) {
+      if (property !== "dispatch") return Reflect.get(target, property, receiver)
+      return (transition: Parameters<AppStore["dispatch"]>[0]) => {
+        if (failTodoWrite && transition.type === "card.upsert" && transition.card.kind === "stack"
+          && transition.card.payload.todos?.some((row) => row.item === "i3")) {
+          failTodoWrite = false
+          throw new Error("private TODO follow diagnostic")
+        }
+        return target.dispatch(transition)
+      }
+    }
+  })
+  const controller = createAppController(guarded, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "redirect", sandbox: null },
+    fetchImpl: fake.fetchImpl,
+    toastDebounceMs: 20,
+    clientErrors: { report: (_kind, error) => reports.push(String(error)), reported: () => reports.length }
+  })
+  await signIn(store)
+  fake.set(snapshot(1, []))
+  fake.handlers.set(`POST ${BASE}/todos`, async () => {
+    failTodoWrite = true
+    return filed("i3", "Fix the footer")
+  })
+  await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))
+  await waitFor(() => todoToasts(store)[0]?.status === "failed")
+  expect(todoToasts(store)[0]?.detail).toBe("Smithers lost track of this TODO. Open History to see its state.")
+  expect(todoToasts(store)[0]?.action).toBeUndefined()
+  expect(fake.writes).toHaveLength(1)
+  expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("private TODO follow diagnostic")
+  expect(reports).toHaveLength(1)
+  expect(reports[0]).toContain("private TODO follow diagnostic")
+  expect(reports[0]).toContain(`stack.todo.follow ${REPO}`)
+})
+
 test("a TODO the factory stops settles failed with the stop's words and Retry", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(1, [item("i5", "queued")]))
