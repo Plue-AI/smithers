@@ -644,7 +644,7 @@ func (s *RepoService) finishDurableRepositoryProvision(
 	case findErr != nil:
 		return db.Repository{}, errors.Internal("failed to inspect repository provisioning retry")
 	default:
-		if err := authorizePrivateRepoThenCommit(ctx, s.billing, ownerType, ownerID, !wanted.IsPublic, func(commitCtx context.Context) error {
+		if err := authorizeRepoCreateThenCommit(ctx, s.billing, ownerType, ownerID, !wanted.IsPublic, func(commitCtx context.Context) error {
 			reserved, reserveErr := s.provisioning.Reserve(commitCtx, wanted)
 			if reserveErr != nil {
 				return reserveErr
@@ -868,7 +868,7 @@ func (s *RepoService) CreateRepo(
 		NotBefore:       requestStartedAt,
 	}
 	var repo db.Repository
-	err := authorizePrivateRepoThenCommit(ctx, s.billing, BillingOwnerTypeUser, user.ID, !isPublic, func(commitCtx context.Context) error {
+	err := authorizeRepoCreateThenCommit(ctx, s.billing, BillingOwnerTypeUser, user.ID, !isPublic, func(commitCtx context.Context) error {
 		var createErr error
 		repo, createErr = s.queries.CreateRepo(commitCtx, createParams)
 		adopted := false
@@ -1028,7 +1028,7 @@ func (s *RepoService) CreateOrgRepo(
 		NotBefore:       requestStartedAt,
 	}
 	var repo db.Repository
-	err = authorizePrivateRepoThenCommit(ctx, s.billing, BillingOwnerTypeOrg, org.ID, !isPublic, func(commitCtx context.Context) error {
+	err = authorizeRepoCreateThenCommit(ctx, s.billing, BillingOwnerTypeOrg, org.ID, !isPublic, func(commitCtx context.Context) error {
 		var createErr error
 		repo, createErr = s.queries.CreateOrgRepo(commitCtx, createParams)
 		adopted := false
@@ -1224,7 +1224,7 @@ func (s *RepoService) ForkRepo(ctx context.Context, actor *db.User, owner, repo 
 	// across both the DB insert and storage compensation so concurrent creates
 	// observe only a successfully provisioned repository.
 	var forkedRepo db.Repository
-	err = authorizePrivateRepoThenCommit(ctx, s.billing, BillingOwnerTypeUser, actor.ID, !sourceRepo.IsPublic, func(commitCtx context.Context) error {
+	err = authorizeRepoCreateThenCommit(ctx, s.billing, BillingOwnerTypeUser, actor.ID, !sourceRepo.IsPublic, func(commitCtx context.Context) error {
 		var createErr error
 		forkedRepo, createErr = s.queries.CreateForkRepo(commitCtx, createParams)
 		adopted := false

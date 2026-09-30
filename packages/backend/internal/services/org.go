@@ -204,6 +204,12 @@ type OrgService struct {
 	queries        OrgQuerier
 	dispatcher     webhooks.Dispatcher
 	seatReconciler func(ctx context.Context, orgID int64) error
+	billing        BillingPolicy
+}
+
+// SetBillingPolicy wires the policy that caps the organizations one user owns.
+func (s *OrgService) SetBillingPolicy(policy BillingPolicy) {
+	s.billing = policy
 }
 
 // SetSeatReconciler wires the billing seat reconciler (BillingService.
@@ -378,6 +384,28 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 		return db.Organization{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Organization", Field: "visibility", Code: "invalid"})
 	}
 
+	params := db.CreateOrganizationParams{
+		Name:        name,
+		LowerName:   strings.ToLower(name),
+		Description: req.Description,
+		Visibility:  visibility,
+	}
+	var org db.Organization
+	err := authorizeOrgCreateThenCommit(ctx, s.billing, actor.ID, func(commitCtx context.Context) error {
+		var createErr error
+		org, createErr = s.createOrgWithOwner(commitCtx, actor.ID, params)
+		return createErr
+	})
+	if err != nil {
+		return db.Organization{}, err
+	}
+	s.dispatchOrganizationEvent(ctx, org.ID, actor, "created")
+	return org, nil
+}
+
+// createOrgWithOwner creates the organization and its first owner, atomically
+// when a transaction manager is configured.
+func (s *OrgService) createOrgWithOwner(ctx context.Context, ownerID int64, params db.CreateOrganizationParams) (db.Organization, error) {
 	if s.txManager != nil {
 		tx, err := s.txManager.BeginCreateTx(ctx)
 		if err != nil {
@@ -385,12 +413,7 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 		}
 		defer rollbackOrgTx(ctx, tx)
 
-		org, err := tx.CreateOrganization(ctx, db.CreateOrganizationParams{
-			Name:        name,
-			LowerName:   strings.ToLower(name),
-			Description: req.Description,
-			Visibility:  visibility,
-		})
+		org, err := tx.CreateOrganization(ctx, params)
 		if err != nil {
 			if isUniqueViolation(err) {
 				return db.Organization{}, pkgerrors.Conflict("organization name already exists")
@@ -400,7 +423,7 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 
 		_, err = tx.AddOrgMember(ctx, db.AddOrgMemberParams{
 			OrganizationID: org.ID,
-			UserID:         actor.ID,
+			UserID:         ownerID,
 			Role:           "owner",
 		})
 		if err != nil {
@@ -410,16 +433,10 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 		if err := tx.Commit(ctx); err != nil {
 			return db.Organization{}, pkgerrors.Internal("failed to commit organization creation").WithCause(err)
 		}
-		s.dispatchOrganizationEvent(ctx, org.ID, actor, "created")
 		return org, nil
 	}
 
-	org, err := s.queries.CreateOrganization(ctx, db.CreateOrganizationParams{
-		Name:        name,
-		LowerName:   strings.ToLower(name),
-		Description: req.Description,
-		Visibility:  visibility,
-	})
+	org, err := s.queries.CreateOrganization(ctx, params)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return db.Organization{}, pkgerrors.Conflict("organization name already exists")
@@ -429,15 +446,37 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 
 	_, err = s.queries.AddOrgMember(ctx, db.AddOrgMemberParams{
 		OrganizationID: org.ID,
-		UserID:         actor.ID,
+		UserID:         ownerID,
 		Role:           "owner",
 	})
 	if err != nil {
 		return db.Organization{}, pkgerrors.Internal("failed to add creator as organization owner").WithCause(err)
 	}
-
-	s.dispatchOrganizationEvent(ctx, org.ID, actor, "created")
 	return org, nil
+}
+
+// authorizeOrgCreateThenCommit admits one organization owned by userID. A nil
+// policy, or one without OrgCreateAuthorizer, runs commit ungated.
+func authorizeOrgCreateThenCommit(ctx context.Context, policy BillingPolicy, userID int64, commit func(context.Context) error) error {
+	creator, ok := policy.(OrgCreateAuthorizer)
+	if !ok {
+		return commit(ctx)
+	}
+	called := false
+	err := creator.AuthorizeOrgCreateCommitted(ctx, userID, func(commitCtx context.Context) error {
+		if called {
+			return pkgerrors.Internal("organization commit called more than once")
+		}
+		called = true
+		return commit(commitCtx)
+	})
+	if err != nil {
+		return err
+	}
+	if !called {
+		return pkgerrors.Internal("organization was not committed")
+	}
+	return nil
 }
 
 func (s *OrgService) GetOrg(ctx context.Context, viewer *db.User, orgName string) (db.Organization, error) {

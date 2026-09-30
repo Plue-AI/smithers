@@ -45,6 +45,8 @@ type billingQuerierMock struct {
 	listBillingSubscriptionsByAccountFn func(context.Context, int64) ([]db.BillingSubscription, error)
 	claimStripeProcessedEventFn         func(context.Context, db.ClaimStripeProcessedEventParams) (string, error)
 	countPrivateReposByOwnerFn          func(context.Context, db.CountPrivateReposByOwnerParams) (int64, error)
+	countReposByOwnerFn                 func(context.Context, db.CountReposByOwnerParams) (int64, error)
+	countOrgsOwnedByUserFn              func(context.Context, int64) (int64, error)
 	sumStorageBytesByOwnerFn            func(context.Context, db.SumStorageBytesByOwnerParams) (int64, error)
 	sumStorageBytesByRepositoryFn       func(context.Context, int64) (int64, error)
 	sumWorkflowMinutesByOwnerFn         func(context.Context, db.SumWorkflowMinutesByOwnerParams) (int64, error)
@@ -291,6 +293,20 @@ func (m *billingQuerierMock) ListBillingUsageCountersByOwnerAndPeriod(_ context.
 func (m *billingQuerierMock) CountPrivateReposByOwner(ctx context.Context, arg db.CountPrivateReposByOwnerParams) (int64, error) {
 	if m.countPrivateReposByOwnerFn != nil {
 		return m.countPrivateReposByOwnerFn(ctx, arg)
+	}
+	return 0, nil
+}
+
+func (m *billingQuerierMock) CountReposByOwner(ctx context.Context, arg db.CountReposByOwnerParams) (int64, error) {
+	if m.countReposByOwnerFn != nil {
+		return m.countReposByOwnerFn(ctx, arg)
+	}
+	return 0, nil
+}
+
+func (m *billingQuerierMock) CountOrganizationsOwnedByUser(ctx context.Context, userID int64) (int64, error) {
+	if m.countOrgsOwnedByUserFn != nil {
+		return m.countOrgsOwnedByUserFn(ctx, userID)
 	}
 	return 0, nil
 }

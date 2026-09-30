@@ -1332,7 +1332,7 @@ func (s *GitHubImportService) reserveDurableImportRepository(
 		wanted.ImportJobID = job.ID
 		wanted.ImportJobClaimToken = job.ClaimToken
 		var reserved repositoryProvisioningOperation
-		err = authorizePrivateRepoThenCommit(ctx, s.billing, billingOwnerType, billingOwnerID, true, func(commitCtx context.Context) error {
+		err = authorizeRepoCreateThenCommit(ctx, s.billing, billingOwnerType, billingOwnerID, true, func(commitCtx context.Context) error {
 			var reserveErr error
 			reserved, reserveErr = s.provisioning.Reserve(commitCtx, wanted)
 			return reserveErr
@@ -2078,7 +2078,7 @@ func (s *GitHubImportService) ensureLocalRepoFromCandidates(ctx context.Context,
 			billingOwnerType, billingOwnerID = BillingOwnerTypeOrg, owner.OrgID.Int64
 		}
 		var created db.Repository
-		err = authorizePrivateRepoThenCommit(ctx, s.billing, billingOwnerType, billingOwnerID, true, func(commitCtx context.Context) error {
+		err = authorizeRepoCreateThenCommit(ctx, s.billing, billingOwnerType, billingOwnerID, true, func(commitCtx context.Context) error {
 			var createErr error
 			created, createErr = s.createImportRepoRow(commitCtx, owner, createParams)
 			adopted := false

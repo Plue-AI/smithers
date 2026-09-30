@@ -98,7 +98,7 @@ func (s *RepoService) createProductRepository(ctx context.Context, wanted produc
 		if exact {
 			err = run(ctx)
 		} else {
-			err = authorizePrivateRepoThenCommit(ctx, s.billing, ownerType, ownerID, !wanted.IsPublic, run)
+			err = authorizeRepoCreateThenCommit(ctx, s.billing, ownerType, ownerID, !wanted.IsPublic, run)
 			if err != nil {
 				// The matching reservation may have appeared after the first read.
 				// Its row already consumes quota, so finish that same operation.
