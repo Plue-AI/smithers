@@ -53,6 +53,24 @@ test("receipt recovery is automatic even when publication identity is missing", 
   expect(guide).not.toContain("Nothing rolls back automatically")
 })
 
+test("the retired legacy runbook defers rollback and recovery to the current guide", () => {
+  const legacy = readFileSync(new URL("../docs/legacy-worker-deploy.md", import.meta.url), "utf8")
+  expect(legacy).not.toContain("writes no fresh receipt")
+  expect(legacy).not.toContain("Nothing rolls back automatically")
+  expect(legacy.match(/^### Receipt version IDs and recovery$/gm)).toBeNull()
+  expect(legacy).toContain("`../DEPLOY.md` \"Rollback\"")
+})
+
+test("the recovery guide tells an operator what every rollout status leaves live", () => {
+  const runtime = readFileSync(new URL("../../../flows/rollout/runtime.ts", import.meta.url), "utf8")
+  const union = runtime.split("interface RolloutReceipt")[1]!.split("previous:")[0]!
+  const statuses = [...union.matchAll(/"([a-z-]+)"/g)].map(([, status]) => status!)
+  expect(statuses).toContain("rollback-failed")
+  const recovery = guide.split("### Receipt version IDs and recovery")[1]!.split(/^### /m)[0]!
+  for (const status of statuses) expect(recovery).toContain(`\`${status}\``)
+  expect(recovery).toContain("bun x wrangler deployments list")
+})
+
 test("the deploy tool is this package's wrangler, and the guide names it", () => {
   const pin = manifest.devDependencies.wrangler
   expect(pin).toMatch(/^\^?4\./)

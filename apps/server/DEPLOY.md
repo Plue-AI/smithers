@@ -206,13 +206,32 @@ describes the provider limitations.
 
 Before publication, `deploy-receipts/rollout/latest.json` records the exact
 previous version, captured Worker identity and baseline checks. Atomic updates
-retain publication,
-failed checks, rollback outcome and re-verification, with timestamped copies.
-The existing deployment receipt embeds the final rollout receipt. A missing
-`Current Version ID` after publication triggers restoration too. An unreadable
-previous build stamp writes a `refused` receipt without publishing. Dry runs
-publish and restore nothing; they still run CN-18 and configured CN-23, record
-the results and fail on a red check.
+retain publication, failed checks, rollback outcome and re-verification, with
+timestamped copies. The deployment receipt (`deploy-receipts/latest.json`)
+embeds the final rollout receipt as `rollout`. A missing `Current Version ID`
+after publication triggers restoration too. An unreadable previous build stamp
+writes a `refused` receipt without publishing. Dry runs publish and restore
+nothing; they still run CN-18 and configured CN-23, record the results and fail
+on a red check.
+
+Read the live version from `rollout.status`, not from the exit code or an older
+receipt:
+
+| `rollout.status` | Live version | `wranglerVersionId` |
+| --- | --- | --- |
+| `passed` | candidate | candidate |
+| `failed` | candidate; only CN-18 or CN-23 failed | candidate |
+| `refused` | previous; nothing published | `null` |
+| `rolled-back` | previous, restored and re-verified | previous |
+| `rollback-failed` | unknown | `null` |
+| `captured`, `prepared`, `publishing`, `checking`, `restoring` | unknown; the process stopped | no deployment receipt |
+
+A deploy that exits before capture (interlock refusal, red preflight) publishes
+nothing and writes no receipt. When the live version is unknown, or no receipt
+from this run exists, run `bun x wrangler deployments list` from `apps/server`
+and compare the live version with `rollout.previous` and `rollout.candidate`.
+Fix forward by landing on `main`; break glass with
+`bun x wrangler rollback <rollout.previous.version>`.
 
 `scripts/deploy.ts` is the current Actions entry and calls the same policy as
 `flows/rollout/flow.ts`. Self-hosters use `executionLayer` from
