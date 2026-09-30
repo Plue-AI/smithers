@@ -1,0 +1,10 @@
+0a8c003e3f0abca1d538cd286402d77e9c83fc7387731d941a5be5fa22ab5f6f  apps/tui/src/app-view.tsx
+35c87f45e53f692460141aca0685fa10f85d565065030a2dc5b4a7c283077ec3  apps/tui/src/app.tsx
+9dca6d426d04a01b7bf93875f666cefcc24e84f52f30dc1c2ebe724589004a8f  apps/tui/test/app-view.test.tsx
+f8022158f1515572aecfea5d843ed894d1247d46274c0af6d3e4cd1795320010  apps/tui/e2e/help.test.ts
+65a756fc3f0849c74b432ebe88a5e3cda6eec77c32bc4aada716edde458ec687  apps/tui/e2e/tabs-fixture.tsx
+1f90ddbb3dd3fb5fe0a7539e19fdbeaddba8a4ba9ce99f1746f8d2de99093f6d  packages/smithers/create-app/template/default/package.json
+3919cf20eee4f0a1d0b56322117211b114d5d70181318fa1d2e38e4f6cd051b1  packages/smithers/create-app/template/default/test/page.test.ts
+d03ac38ec5460b3e4ef8cddb81d0e94f80f5d9bc6711ff53153874d1bf26f402  packages/smithers/create-app/template/default/vitest.config.ts
+78a00a92c8ae7ae6ba7300b0bf2b1331db764830526d655dd0c1057240478186  packages/smithers/create-app/template/default/flows/chat/fixtures/answer.json
+35157eff04175eed55fe1bbc8764b50fdbd866eb1f1f46e6f6905defc7031ab7  packages/smithers/create-app/test/templateTestingDependencies.test.ts

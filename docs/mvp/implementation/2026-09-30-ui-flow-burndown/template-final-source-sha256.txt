@@ -1,0 +1,5 @@
+1f90ddbb3dd3fb5fe0a7539e19fdbeaddba8a4ba9ce99f1746f8d2de99093f6d  packages/smithers/create-app/template/default/package.json
+d03ac38ec5460b3e4ef8cddb81d0e94f80f5d9bc6711ff53153874d1bf26f402  packages/smithers/create-app/template/default/vitest.config.ts
+3919cf20eee4f0a1d0b56322117211b114d5d70181318fa1d2e38e4f6cd051b1  packages/smithers/create-app/template/default/test/page.test.ts
+78a00a92c8ae7ae6ba7300b0bf2b1331db764830526d655dd0c1057240478186  packages/smithers/create-app/template/default/flows/chat/fixtures/answer.json
+35157eff04175eed55fe1bbc8764b50fdbd866eb1f1f46e6f6905defc7031ab7  packages/smithers/create-app/test/templateTestingDependencies.test.ts

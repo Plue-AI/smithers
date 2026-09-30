@@ -40,6 +40,7 @@
     "typescript": "7.0.2",
     "vite": "^8.2.2",
     "vitest": "5.0.0",
+    "happy-dom": "20.13.2",
     "wrangler": "^4.129.0",
     "@effect/platform-node": "4.0.0-rc.115",
     "@effect/platform-node-shared": "4.0.0-rc.115",

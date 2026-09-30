@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
-import type { AppCard, TurnFrame } from "@smthrs/create-app/ui"
+import { definePane, type AppCard, type TurnFrame } from "@smthrs/create-app/ui"
 import * as Schema from "effect/Schema"
 import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
-import { definePane } from "../../../src/ui.ts"
 import Page from "../app/page.tsx"
 
 vi.mock("../routes.ui.gen.ts", () => ({
