@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -62,8 +63,34 @@ func (b *registrationResumes) ResumeWorkspace(context.Context, string, int64, in
 	return services.WorkspaceResponse{}, nil
 }
 
+// requireRegistrationToolchain names what the source host needs before it can
+// start: Node 26.4 or newer on PATH (older Node cannot load the workspace's
+// TypeScript sources) and the workspace's installed dependencies, which live
+// in node_modules beside the root and inside packages/smithers. Without them
+// the host dies at import time and the test times out with an opaque error.
+func requireRegistrationToolchain(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command("node", "-p", "process.versions.node").Output()
+	if err != nil {
+		testdb.Unavailable(t, fmt.Errorf("registration host needs node >=26.4.0 on PATH: %w", err))
+		return
+	}
+	var major, minor int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d.%d", &major, &minor); err != nil || major < 26 || (major == 26 && minor < 4) {
+		testdb.Unavailable(t, fmt.Errorf("registration host needs node >=26.4.0 on PATH, found %s", strings.TrimSpace(string(out))))
+		return
+	}
+	for _, dir := range []string{"../../../../node_modules/@smthrs", "../../../smithers/node_modules"} {
+		if _, err := os.Stat(dir); err != nil {
+			testdb.Unavailable(t, fmt.Errorf("registration host needs the installed workspace dependencies (missing %s): run pnpm install --frozen-lockfile", filepath.Clean(dir)))
+			return
+		}
+	}
+}
+
 func startRegistrationHost(t *testing.T, root string) (*runtimebridge.Client, func()) {
 	t.Helper()
+	requireRegistrationToolchain(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
