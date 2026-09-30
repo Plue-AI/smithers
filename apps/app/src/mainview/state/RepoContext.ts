@@ -270,11 +270,12 @@ export const gatewayBindingFor = (store: AppStore, repo: string, runId?: string)
 
 /**
  * The box this repository's reviewed jobs (and the trigger registrar) run on:
- * the one their setups recorded, else the repository's default box.
+ * the one their setups recorded, else the human's selected box, else the
+ * repository's default box.
  */
 export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBinding => {
   const recorded = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
-  return recorded === undefined ? defaultBoxBinding(store, repo) : { workspaceId: recorded }
+  return recorded === undefined ? selectedBoxBinding(store, repo) ?? defaultBoxBinding(store, repo) : { workspaceId: recorded }
 }
 
 /**

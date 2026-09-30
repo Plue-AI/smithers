@@ -23,6 +23,14 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
+  test("a box chooser keeps authoring and prototype prose distinct from the selected repository", () => {
+    roundTrip("flow.create", { description: "Compare owner/other with today", repo: "will/flows" },
+      '{"description":"Compare owner/other with today","repo":"will/flows"}',
+      { description: "Compare owner/other with today", repo: "will/flows" })
+    roundTrip("feature.prototype", { request: "Inspect owner/other first", repo: "will/flows" },
+      '{"request":"Inspect owner/other first","repo":"will/flows"}',
+      { request: "Inspect owner/other first", repo: "will/flows" })
+  })
   test("change.request carries its pushed source ref through a box chooser continuation", () => {
     roundTrip("change.request", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" },
       "Fix the flaky check from:topic owner/repo", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" })
