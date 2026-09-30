@@ -837,3 +837,44 @@ test.each(["chat", "worker"] as const)(
     }
   }
 )
+
+test("expanded failure diagnostics expose their clipped ends through keyboard inspection", async () => {
+  await act(async () => setup!.renderer.resize(80, 24))
+  await delegate(turns[0]!.input, {
+    ...request,
+    prompt: Array.from({ length: 40 }, (_, i) => `transcript ${i}`).join("\n")
+  })
+  await finish(1, {
+    _tag: "failed",
+    message: "Review refused",
+    detail: Array.from({ length: 35 }, (_, i) => i === 34 ? "ROOT_CAUSE" : `diagnostic ${i}`).join("\n")
+  })
+  await key("s", { ctrl: true })
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  const transcriptBottom = frame()
+  await key("\x1b[5~")
+  expect(frame()).not.toBe(transcriptBottom)
+  expect(frame()).not.toContain("diagnostic 0")
+  await key("o", { ctrl: true })
+  expect(frame()).not.toContain("ROOT_CAUSE")
+  await key("k", { ctrl: true })
+  await key("END")
+  expect(frame()).not.toContain("ROOT_CAUSE")
+  await closePalette()
+  await key("END")
+  expect(frame()).toContain("ROOT_CAUSE")
+  await key("HOME")
+  expect(frame()).toContain("diagnostic 0")
+  expect(frame()).not.toContain("ROOT_CAUSE")
+  for (let i = 0; i < 12; i++) await key("\x1b[6~")
+  expect(frame()).toContain("ROOT_CAUSE")
+  await key("HOME")
+  for (let i = 0; i < 40; i++) await key("ARROW_DOWN", { shift: true })
+  expect(frame()).toContain("ROOT_CAUSE")
+  for (let i = 0; i < 40; i++) await key("ARROW_UP", { shift: true })
+  expect(frame()).toContain("diagnostic 0")
+  await key("END")
+  for (let i = 0; i < 12; i++) await key("\x1b[5~")
+  expect(frame()).toContain("diagnostic 0")
+})

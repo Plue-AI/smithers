@@ -229,6 +229,7 @@ export function WorkerView(props: {
   readonly tone: string
   readonly width: number
   readonly expanded: boolean
+  readonly failureScrollRef?: RefObject<ScrollBoxRenderable | null>
   readonly height?: number
   readonly onAction: (action: Tabs.ActionId) => void
   /** The transcript item the run timeline's playhead is on. */
@@ -300,6 +301,7 @@ export function WorkerView(props: {
       {tab.status === "failed" ?
         (
           <scrollbox
+            ref={props.failureScrollRef}
             style={{
               maxHeight: Math.max(2, Math.floor((props.height ?? 20) / 3)),
               flexShrink: 0,

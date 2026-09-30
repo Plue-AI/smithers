@@ -887,6 +887,7 @@ export function App(props: AppProps) {
   /** The overview takes the keys, except while the conversation review has them. */
   const overviewKeys = overviewShown && panelFocus &&
     !(overviewSelected === SubagentView.chat && overviewPane === "cards")
+  const failureScroll = useRef<ScrollBoxRenderable | null>(null)
   const panelScroll = useRef<((direction: number) => void) | undefined>(undefined)
   const lastCtrlC = useRef(0)
   useEffect(() => Log.subscribe((message) => setStatus(message, "danger")), [setStatus])
@@ -2199,6 +2200,24 @@ export function App(props: AppProps) {
       )
       return
     }
+    if (
+      expanded && workerTab?.status === "failed" && reviewTab === undefined &&
+      open === undefined && liveForm.current === undefined && completing === undefined &&
+      live.current.approvals.length === 0 && !key.ctrl && !key.meta && !key.option &&
+      (["pageup", "pagedown", "home", "end"].includes(key.name) ||
+        (key.shift && (key.name === "up" || key.name === "down")))
+    ) {
+      key.preventDefault()
+      const box = failureScroll.current
+      if (box !== null) {
+        if (key.name === "home") box.scrollTo(0)
+        else if (key.name === "end") box.scrollTop = box.scrollHeight
+        else if (key.name === "pageup" || key.name === "pagedown") {
+          box.scrollBy(key.name === "pageup" ? -1 : 1, "viewport")
+        } else box.scrollBy(key.name === "up" ? -1 : 1)
+      }
+      return
+    }
     if (workerTab !== undefined && open === undefined && activeInspection === undefined && reviewTab === undefined) {
       // A row selection never turns printable input into an agent command.
       if (Dispatch.typing(key) !== undefined) {
@@ -2867,6 +2886,7 @@ export function App(props: AppProps) {
                   tone={lane(workerTab.id)}
                   width={width}
                   expanded={expanded}
+                  failureScrollRef={failureScroll}
                   height={chatHeight - 4}
                   onAction={(action) => workerAction(workerTab, action)}
                   jump={workerJump(workerTab.id)}
