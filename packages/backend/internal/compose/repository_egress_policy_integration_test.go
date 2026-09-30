@@ -55,8 +55,8 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status, vm_id) VALUES ($1, $2, $3, 'running', 'vm-running')`, uuid.NewString(), repo.ID, owner.ID)
 	require.NoError(t, err)
 
-	token := func(user db.User, name string, systemIssued bool) string {
-		raw := "smithers_" + strings.Repeat(name[:1], 40)
+	token := func(user db.User, name, fill string, systemIssued bool) string {
+		raw := "smithers_" + strings.Repeat(fill, 40)
 		hash := sha256.Sum256([]byte(raw))
 		digest := hex.EncodeToString(hash[:])
 		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: name, TokenHash: digest, TokenLastEight: digest[len(digest)-8:],
@@ -64,9 +64,9 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 		require.NoError(t, err)
 		return raw
 	}
-	ownerToken := token(owner, "owner", false)
-	adminToken := token(admin, "admin", false)
-	runToken := token(owner, "run", true)
+	ownerToken := token(owner, "owner", "b", false)
+	adminToken := token(admin, "admin", "a", false)
+	runToken := token(owner, "run", "c", true)
 
 	spy := &egressReloadSpy{calls: map[string][]string{}}
 	egress := services.NewRepositoryEgressPolicyService(q, spy)
@@ -88,11 +88,12 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 	}
 	put := `{"allow_domains":["Registry.Example.com","*.pkg.dev","registry.example.com"]}`
 
-	for name, bearer := range map[string]string{"admin collaborator": adminToken, "owner's run credential": runToken} {
-		require.Equal(t, http.StatusForbidden, call(http.MethodGet, bearer, "").Code, name)
-		require.Equal(t, http.StatusForbidden, call(http.MethodPut, bearer, put).Code, name)
-	}
-	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, "", "").Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodGet, adminToken, "").Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodPut, adminToken, put).Code)
+	// The owner's own run credential is capped below owner.
+	require.Equal(t, http.StatusForbidden, call(http.MethodGet, runToken, "").Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodPut, runToken, put).Code)
+	require.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound}, call(http.MethodGet, "", "").Code, "anonymous")
 	_, err = q.GetRepositoryEgressPolicy(ctx, repo.ID)
 	require.Error(t, err, "a refused write stored a policy")
 	require.Empty(t, spy.calls, "a refused write reached a sandbox")

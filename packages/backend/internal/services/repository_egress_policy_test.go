@@ -231,3 +231,33 @@ func TestWorkspaceEgressProxyCarriesTheRepositoryAllowlist(t *testing.T) {
 	_, err = service.workspaceEgressProxy(ctx, 7, "")
 	require.ErrorContains(t, err, "read the repository egress policy")
 }
+
+// An agent sandbox is created with its repository's allowlist, and a policy
+// that cannot be read refuses the sandbox instead of creating it without.
+func TestAgentDispatchSendsTheRepositoryAllowlist(t *testing.T) {
+	t.Parallel()
+	var created sandbox.CreateRequest
+	client := &mockSandboxVMClient{createVMFn: func(_ context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+		created = req
+		return sandbox.CreateResult{ID: "vm-listed"}, nil
+	}}
+	store := &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{42: {RepositoryID: 42, AllowDomains: []string{"registry.example.com"}}}}
+	dispatch := newEgressDispatch(t, client)
+	dispatch.svc.sandboxConfig.ModelSeats = nil
+	dispatch.svc.egressAllowDomains = NewRepositoryEgressPolicyService(store, nil)
+	require.NoError(t, dispatch.buildServiceSpec())
+	require.NoError(t, dispatch.injectSecrets())
+	require.NoError(t, dispatch.createVM())
+	require.NotNil(t, created.EgressProxy)
+	assert.Equal(t, []string{"registry.example.com"}, created.EgressProxy.AllowDomains)
+
+	created = sandbox.CreateRequest{}
+	store.getErr = stdErrors.New("database down")
+	failing := newEgressDispatch(t, client)
+	failing.svc.sandboxConfig.ModelSeats = nil
+	failing.svc.egressAllowDomains = NewRepositoryEgressPolicyService(store, nil)
+	require.NoError(t, failing.buildServiceSpec())
+	require.NoError(t, failing.injectSecrets())
+	require.Error(t, failing.createVM())
+	assert.Nil(t, created.EgressProxy, "no sandbox was created without its owner's list")
+}
