@@ -2,10 +2,13 @@ import * as Filegroup from "@smthrs/targets/Filegroup"
 import * as Target from "@smthrs/targets/Target"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { docsText } from "../../site/scripts/docs-text.mjs"
+import { launchOptions } from "../scripts/browser.mjs"
 import { runtimeInputs, tracked } from "../scripts/inputs.mjs"
 import { parseScripts } from "../scripts/scripts.mjs"
 import { providerFixture } from "../scripts/provider-fixture.mjs"
@@ -159,4 +162,29 @@ test("source inputs are the tracked files: an untracked stray never enters the r
   const indexed = new Set(execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: 1 << 28 }).toString().split("\0"))
   for (const file of before) assert(indexed.has(file), `input ${file} is not a tracked file`)
   assert.deepEqual(before, [...before].sort(), "inputs stay sorted")
+})
+
+test("recording browser: CHROME_BIN, then macOS Chrome, then chromium on PATH, then Playwright", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tui-docs-chromium-"))
+  try {
+    const empty = join(dir, "empty"), folder = join(dir, "folder"), bin = join(dir, "bin")
+    mkdirSync(join(folder, "chromium"), { recursive: true })
+    for (const [path, mode] of [[join(empty, "chromium"), 0o644], [join(bin, "chromium"), 0o755]] as const) {
+      mkdirSync(join(path, ".."), { recursive: true })
+      writeFileSync(path, "#!/bin/sh\n")
+      chmodSync(path, mode)
+    }
+    const PATH = ["", empty, folder, bin].join(delimiter)
+    assert.deepEqual(launchOptions({ CHROME_BIN: "/opt/chrome", PATH }, "linux"), { headless: true, executablePath: "/opt/chrome" })
+    assert.deepEqual(launchOptions({ PATH }, "darwin"), {
+      headless: true,
+      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    })
+    // A non-executable `chromium` and a `chromium/` directory earlier on PATH are skipped.
+    assert.deepEqual(launchOptions({ PATH }, "linux"), { headless: true, executablePath: join(bin, "chromium") })
+    assert.deepEqual(launchOptions({ PATH: [empty, folder].join(delimiter) }, "linux"), { headless: true })
+    assert.deepEqual(launchOptions({}, "linux"), { headless: true })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
