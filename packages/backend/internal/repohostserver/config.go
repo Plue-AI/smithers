@@ -41,6 +41,9 @@ type Config struct {
 	// ReceivePackMaxDuration caps one push while it holds the repository's
 	// write lock; zero takes repohost.DefaultReceivePackMaxDuration.
 	ReceivePackMaxDuration time.Duration
+	// MaxConcurrentUploadPacks caps the fetches and clones whose pack git
+	// builds at once; zero takes defaultMaxConcurrentUploadPacks.
+	MaxConcurrentUploadPacks int
 }
 
 func (c Config) receivePackMaxDuration() time.Duration {
@@ -48,6 +51,20 @@ func (c Config) receivePackMaxDuration() time.Duration {
 		return c.ReceivePackMaxDuration
 	}
 	return repohost.DefaultReceivePackMaxDuration
+}
+
+// defaultMaxConcurrentUploadPacks bounds the packs repo-host builds at once.
+// git pack-objects holds 150-300 MB for a clone of a large repository, for
+// tens of seconds; with no bound, a burst of clones and their retries ran
+// more than a dozen at once and the pod ran out of memory
+// (smithersai/smithers#3070).
+const defaultMaxConcurrentUploadPacks = 4
+
+func (c Config) maxConcurrentUploadPacks() int {
+	if c.MaxConcurrentUploadPacks > 0 {
+		return c.MaxConcurrentUploadPacks
+	}
+	return defaultMaxConcurrentUploadPacks
 }
 
 func LoadConfig() (Config, error) {

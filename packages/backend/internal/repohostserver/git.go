@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -159,6 +160,16 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	args := []string{command, "--stateless-rpc", gitDir}
 	cmd := streamGitCommandContext(ctx, "git", args...)
 	cmd.Env = gitServiceEnv(command, maxInputSize, viewer, false)
+	// git builds a fetch's pack in a pack-objects child and indexes a push in
+	// an index-pack child. Ending the request ends its whole process group:
+	// killing only git left a clone's pack-objects running for minutes,
+	// holding its memory (smithersai/smithers#3070).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// A child that keeps git's stdout or stderr open after git exits (a
+	// push's index-pack inherits stderr) would hold Wait, and so the group
+	// kill below, until it exits: give it one idle interval.
+	cmd.WaitDelay = gitRPCIdleTimeout
 
 	// exec copies the body into git's stdin and Wait owns that pipe, so a git
 	// that exits before the body ends is not a failure (#2266). A push past
@@ -199,6 +210,9 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	}()
 
 	waitErr := cmd.Wait()
+	// A child that outlives git, as pack-objects does when git dies on a
+	// closed connection, goes with it.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	// Signal EOF to the drain goroutine.
 	_ = pw.CloseWithError(waitErr)
 

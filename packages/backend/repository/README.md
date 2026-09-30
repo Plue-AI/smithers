@@ -53,3 +53,10 @@ clock (`SMITHERS_RECEIVE_PACK_MAX_DURATION`, e.g. `10m`;
 `ReceivePackMaxDuration`), however steadily it trickles in. Past it the push
 is stopped with 408, nothing changes, and the lock is released. The API
 gives its git receive-pack route the same read deadline.
+
+## Fetch concurrency
+
+repo-host builds at most 4 fetch or clone packs at once
+(`MaxConcurrentUploadPacks`). A fetch past the bound waits for a slot before
+it takes the repository lock, and gets 504 if its request ends first. A
+fetch or push that ends stops every git process it started.

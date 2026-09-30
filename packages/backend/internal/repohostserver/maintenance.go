@@ -61,8 +61,11 @@ func disableAutoMaintenance(ctx context.Context, gitDir string) error {
 // maintenanceCommandContext builds maintenance git processes.
 var maintenanceCommandContext = exec.CommandContext
 
-// packRefsArgs packs loose refs when git's heuristic calls for it.
-var packRefsArgs = []string{"pack-refs", "--auto", "--all"}
+// packRefsArgs packs every loose ref. It names only options the repo-host
+// image's git (Debian bookworm's 2.39) knows: that git refuses
+// `pack-refs --auto`, and a failed pack-refs skips gc, so no repository was
+// ever repacked (smithersai/smithers#3070).
+var packRefsArgs = []string{"pack-refs", "--all"}
 
 // gcArgs runs gc, in the foreground, when git's default thresholds (which the
 // repository config turned off) call for it.

@@ -23,6 +23,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/sync/semaphore"
 
 	jjmiddleware "github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -64,6 +65,8 @@ type Server struct {
 	// stopHolds stops checking repositories held for orphaned maintenance
 	// (orphaned_maintenance.go).
 	stopHolds context.CancelFunc
+	// uploadPacks admits Config.MaxConcurrentUploadPacks upload-packs at once.
+	uploadPacks *semaphore.Weighted
 }
 
 type loadableFFIClient interface {
@@ -164,13 +167,14 @@ func NewWithFFI(cfg Config, ffi FFIClient) (*Server, error) {
 
 	logger := slog.New(jjmiddleware.NewGCPJSONHandler(os.Stdout, slog.LevelInfo))
 	server := &Server{
-		config:     cfg,
-		ffi:        ffi,
-		metrics:    metrics,
-		locks:      newRepoLocker(),
-		refExports: newRefExportCache(),
-		logger:     logger,
-		httpClient: pushHookClient(),
+		config:      cfg,
+		ffi:         ffi,
+		metrics:     metrics,
+		locks:       newRepoLocker(),
+		refExports:  newRefExportCache(),
+		logger:      logger,
+		httpClient:  pushHookClient(),
+		uploadPacks: semaphore.NewWeighted(int64(cfg.maxConcurrentUploadPacks())),
 	}
 	server.pushOutbox = newPushHookOutbox(server)
 	server.reapOrphanedMaintenance()
@@ -1077,6 +1081,14 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	if err := s.syncGitRefs(r.Context(), repoPath, gitDir); err != nil {
 		return err
 	}
+
+	// git holds hundreds of megabytes while it builds a large repository's
+	// pack, so only a bounded number build at once. The slot comes before the
+	// repository lock: a waiting clone never holds off the repository's writers.
+	if err := s.uploadPacks.Acquire(r.Context(), 1); err != nil {
+		return &appError{StatusCode: http.StatusGatewayTimeout, Message: "request ended while waiting to build a pack", Cause: err}
+	}
+	defer s.uploadPacks.Release(1)
 
 	unlockRead, err := s.locks.RLock(r.Context(), repoPath)
 	if err != nil {

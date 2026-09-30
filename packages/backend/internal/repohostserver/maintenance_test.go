@@ -134,8 +134,7 @@ func TestReceivePackRunsNoAutoGCAndQueuesMaintenance(t *testing.T) {
 
 // taggedBlobCount is how many loose blobs writeTaggedBlobs writes. git
 // estimates loose objects from objects/17 alone: gc --auto runs once that
-// directory holds more than gc.auto/256 (27 for the default 6700). pack-refs
-// --auto packs at 16 loose refs while packed-refs is small.
+// directory holds more than gc.auto/256 (27 for the default 6700).
 const taggedBlobCount = 40
 
 // writeTaggedBlobs writes taggedBlobCount loose blobs, each tagged, so they
@@ -214,6 +213,44 @@ func TestMaintenancePacksRefsAndObjects(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(packed), fmt.Sprintf("refs/tags/b%d\n", taggedBlobCount-1))
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
+}
+
+// The repo-host image ships Debian bookworm's git 2.39, whose pack-refs
+// knows only --all, --prune and --no-prune and exits 129 on anything else.
+// Maintenance must still pack refs and objects with that git: with
+// `pack-refs --auto` every pass failed before gc, so production repositories
+// kept thousands of loose objects and dozens of packs, and each clone's
+// pack-objects grew until the pod ran out of memory (smithersai/smithers#3070).
+func TestMaintenancePacksWithTheImagesGit(t *testing.T) {
+	requireNativeLaneTools(t)
+	// The shim is PATH's first entry, and runs the next git on the rest.
+	shim := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"subcommand=\n" +
+		"for arg in \"$@\"; do\n" +
+		"\tif [ \"$subcommand\" = pack-refs ]; then\n" +
+		"\t\tcase \"$arg\" in --all | --prune | --no-prune) ;; *) echo \"error: unknown option $arg\" >&2; exit 129 ;; esac\n" +
+		"\tfi\n" +
+		"\t[ \"$arg\" = pack-refs ] && subcommand=pack-refs\n" +
+		"done\n" +
+		"PATH=${PATH#*" + string(os.PathListSeparator) + "} exec git \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(shim, "git"), []byte(script), 0o755))
+	t.Setenv("PATH", shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	srv := newTestServer(t)
+	repoPath := srv.config.RepoPath("alice", "demo")
+	gitDir := jjInit(t, repoPath)
+	require.NoError(t, disableAutoMaintenance(context.Background(), gitDir))
+	writeTaggedBlobs(t, gitDir)
+	require.Error(t, exec.Command("git", "--git-dir", gitDir, "pack-refs", "--auto", "--all").Run(), "the shim must refuse what git 2.39 refuses")
+
+	srv.maintainRepository(context.Background(), repoPath, nil)
+	after := countObjects(t, gitDir)
+	require.Zero(t, after["count"], after)
+	require.NotZero(t, after["packs"], after)
+	loose, err := filepath.Glob(filepath.Join(gitDir, "refs", "tags", "b*"))
+	require.NoError(t, err)
+	require.Empty(t, loose)
 }
 
 // Maintenance holds the repository lock for its whole run, so a writer's
