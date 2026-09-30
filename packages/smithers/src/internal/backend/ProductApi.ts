@@ -87,6 +87,8 @@ export type SandboxEntitlement = {
   hours_per_day: number
   seconds_used_today: number
   day_resets_at: string
+  concurrent_children?: number
+  child_max_ttl_secs?: number
 }
 
 /** Endpoint-specific JSON response. */

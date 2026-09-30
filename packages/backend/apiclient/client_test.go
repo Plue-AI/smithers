@@ -177,3 +177,33 @@ func TestRawJSONRoundTrips(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &decoded))
 	assert.Len(t, decoded, 3)
 }
+
+func TestUndeclaredMembersSurviveARoundTrip(t *testing.T) {
+	client, _ := server(t, http.StatusOK, "application/json",
+		`{"id":5,"issue_id":2,"user_id":3,"commenter":"alice","body":"hi","type":"comment","origin":"app",`+
+			`"created_at":"2026-09-29T10:00:00Z","updated_at":"2026-09-29T10:00:00Z","reactions":[{"emoji":"+1"}],"edited":true}`)
+	comment, err := client.PatchAPIReposOwnerRepoIssuesCommentsID(context.Background(), "o", "r", "5")
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), comment.ID)
+	assert.Equal(t, "alice", comment.Commenter)
+	assert.Equal(t, map[string]json.RawMessage{"reactions": json.RawMessage(`[{"emoji":"+1"}]`), "edited": json.RawMessage(`true`)}, comment.AdditionalProperties)
+
+	encoded, err := json.Marshal(comment)
+	require.NoError(t, err)
+	var members map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &members))
+	assert.JSONEq(t, `[{"emoji":"+1"}]`, string(members["reactions"]))
+	assert.JSONEq(t, `"alice"`, string(members["commenter"]))
+
+	// A declared member wins over an extra of the same name, and no extras
+	// leaves the field nil.
+	comment.AdditionalProperties = map[string]json.RawMessage{"commenter": json.RawMessage(`"mallory"`)}
+	encoded, err = json.Marshal(comment)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(encoded, &members))
+	assert.JSONEq(t, `"alice"`, string(members["commenter"]))
+	var plain apiclient.IssueComment
+	require.NoError(t, json.Unmarshal([]byte(`{"id":1,"origin":"app"}`), &plain))
+	assert.Nil(t, plain.AdditionalProperties)
+	require.Error(t, json.Unmarshal([]byte(`{"id":"one"}`), &plain))
+}

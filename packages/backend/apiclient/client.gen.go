@@ -110,6 +110,40 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return nil
 }
 
+// splitAdditional stores the members of data not named in declared in *extra.
+func splitAdditional(data []byte, extra *map[string]json.RawMessage, declared ...string) error {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	for _, name := range declared {
+		delete(all, name)
+	}
+	if len(all) == 0 {
+		all = nil
+	}
+	*extra = all
+	return nil
+}
+
+// joinAdditional encodes value with the members of extra it does not already have.
+func joinAdditional(value any, extra map[string]json.RawMessage) ([]byte, error) {
+	data, err := json.Marshal(value)
+	if err != nil || len(extra) == 0 {
+		return data, err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return nil, err
+	}
+	for name, raw := range extra {
+		if _, ok := all[name]; !ok {
+			all[name] = raw
+		}
+	}
+	return json.Marshal(all)
+}
+
 // AppBootstrap is generated from docs/api/openapi.yaml.
 type AppBootstrap struct {
 	APIVersion   int64           `json:"apiVersion"`
@@ -182,6 +216,8 @@ type SandboxEntitlement struct {
 	HoursPerDay         int64     `json:"hours_per_day"`
 	SecondsUsedToday    int64     `json:"seconds_used_today"`
 	DayResetsAt         time.Time `json:"day_resets_at"`
+	ConcurrentChildren  *int64    `json:"concurrent_children,omitempty"`
+	ChildMaxTTLSecs     *int64    `json:"child_max_ttl_secs,omitempty"`
 }
 
 // AnyJSON — Endpoint-specific JSON response.
@@ -192,17 +228,33 @@ type IssueCommentOrigin string
 
 // IssueComment is generated from docs/api/openapi.yaml.
 type IssueComment struct {
-	IdempotencyKey *string                    `json:"idempotency_key,omitempty"`
-	Persona        map[string]json.RawMessage `json:"persona,omitempty"`
-	ID             int64                      `json:"id"`
-	IssueID        int64                      `json:"issue_id"`
-	UserID         int64                      `json:"user_id"`
-	Commenter      string                     `json:"commenter"`
-	Body           string                     `json:"body"`
-	Type           string                     `json:"type"`
-	Origin         IssueCommentOrigin         `json:"origin"`
-	CreatedAt      time.Time                  `json:"created_at"`
-	UpdatedAt      time.Time                  `json:"updated_at"`
+	IdempotencyKey       *string                    `json:"idempotency_key,omitempty"`
+	Persona              map[string]json.RawMessage `json:"persona,omitempty"`
+	ID                   int64                      `json:"id"`
+	IssueID              int64                      `json:"issue_id"`
+	UserID               int64                      `json:"user_id"`
+	Commenter            string                     `json:"commenter"`
+	Body                 string                     `json:"body"`
+	Type                 string                     `json:"type"`
+	Origin               IssueCommentOrigin         `json:"origin"`
+	CreatedAt            time.Time                  `json:"created_at"`
+	UpdatedAt            time.Time                  `json:"updated_at"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members IssueComment does not declare in AdditionalProperties.
+func (v *IssueComment) UnmarshalJSON(data []byte) error {
+	type plain IssueComment
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "idempotency_key", "persona", "id", "issue_id", "user_id", "commenter", "body", "type", "origin", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of IssueComment.
+func (v IssueComment) MarshalJSON() ([]byte, error) {
+	type plain IssueComment
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // IssueLastComment — The issue's newest comment.
@@ -216,19 +268,35 @@ type IssueLastComment struct {
 
 // Issue is generated from docs/api/openapi.yaml.
 type Issue struct {
-	IdempotencyKey *string                    `json:"idempotency_key,omitempty"`
-	Kind           string                     `json:"kind"`
-	Visibility     string                     `json:"visibility"`
-	ID             int64                      `json:"id"`
-	Number         int64                      `json:"number"`
-	Title          string                     `json:"title"`
-	Body           string                     `json:"body"`
-	State          string                     `json:"state"`
-	Author         map[string]json.RawMessage `json:"author"`
-	CommentCount   int64                      `json:"comment_count"`
-	LastComment    json.RawMessage            `json:"last_comment"`
-	CreatedAt      time.Time                  `json:"created_at"`
-	UpdatedAt      time.Time                  `json:"updated_at"`
+	IdempotencyKey       *string                    `json:"idempotency_key,omitempty"`
+	Kind                 string                     `json:"kind"`
+	Visibility           string                     `json:"visibility"`
+	ID                   int64                      `json:"id"`
+	Number               int64                      `json:"number"`
+	Title                string                     `json:"title"`
+	Body                 string                     `json:"body"`
+	State                string                     `json:"state"`
+	Author               map[string]json.RawMessage `json:"author"`
+	CommentCount         int64                      `json:"comment_count"`
+	LastComment          json.RawMessage            `json:"last_comment"`
+	CreatedAt            time.Time                  `json:"created_at"`
+	UpdatedAt            time.Time                  `json:"updated_at"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members Issue does not declare in AdditionalProperties.
+func (v *Issue) UnmarshalJSON(data []byte) error {
+	type plain Issue
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "idempotency_key", "kind", "visibility", "id", "number", "title", "body", "state", "author", "comment_count", "last_comment", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of Issue.
+func (v Issue) MarshalJSON() ([]byte, error) {
+	type plain Issue
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // LinearTeam is generated from docs/api/openapi.yaml.
@@ -397,42 +465,106 @@ type SandboxEgressAuditEntry struct {
 
 // MultiWorkflowRunsResponse is generated from docs/api/openapi.yaml.
 type MultiWorkflowRunsResponse struct {
-	WorkflowRuns []MultiWorkflowRun `json:"workflow_runs"`
+	WorkflowRuns         []MultiWorkflowRun         `json:"workflow_runs"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiWorkflowRunsResponse does not declare in AdditionalProperties.
+func (v *MultiWorkflowRunsResponse) UnmarshalJSON(data []byte) error {
+	type plain MultiWorkflowRunsResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "workflow_runs")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiWorkflowRunsResponse.
+func (v MultiWorkflowRunsResponse) MarshalJSON() ([]byte, error) {
+	type plain MultiWorkflowRunsResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiWorkflowRun is generated from docs/api/openapi.yaml.
 type MultiWorkflowRun struct {
-	ID                   int64      `json:"id"`
-	RepositoryID         int64      `json:"repository_id"`
-	WorkflowDefinitionID int64      `json:"workflow_definition_id"`
-	Status               string     `json:"status"`
-	TriggerEvent         string     `json:"trigger_event"`
-	TriggerRef           string     `json:"trigger_ref"`
-	TriggerCommitSHA     string     `json:"trigger_commit_sha"`
-	CheckRunID           *int64     `json:"check_run_id,omitempty"`
-	CheckRunURL          *string    `json:"check_run_url,omitempty"`
-	StartedAt            *time.Time `json:"started_at,omitempty"`
-	CompletedAt          *time.Time `json:"completed_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                   int64                      `json:"id"`
+	RepositoryID         int64                      `json:"repository_id"`
+	WorkflowDefinitionID int64                      `json:"workflow_definition_id"`
+	Status               string                     `json:"status"`
+	TriggerEvent         string                     `json:"trigger_event"`
+	TriggerRef           string                     `json:"trigger_ref"`
+	TriggerCommitSHA     string                     `json:"trigger_commit_sha"`
+	CheckRunID           *int64                     `json:"check_run_id,omitempty"`
+	CheckRunURL          *string                    `json:"check_run_url,omitempty"`
+	StartedAt            *time.Time                 `json:"started_at,omitempty"`
+	CompletedAt          *time.Time                 `json:"completed_at,omitempty"`
+	CreatedAt            time.Time                  `json:"created_at"`
+	UpdatedAt            time.Time                  `json:"updated_at"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiWorkflowRun does not declare in AdditionalProperties.
+func (v *MultiWorkflowRun) UnmarshalJSON(data []byte) error {
+	type plain MultiWorkflowRun
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "id", "repository_id", "workflow_definition_id", "status", "trigger_event", "trigger_ref", "trigger_commit_sha", "check_run_id", "check_run_url", "started_at", "completed_at", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiWorkflowRun.
+func (v MultiWorkflowRun) MarshalJSON() ([]byte, error) {
+	type plain MultiWorkflowRun
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiWorkflowStepsResponse is generated from docs/api/openapi.yaml.
 type MultiWorkflowStepsResponse struct {
-	Steps []MultiWorkflowStep `json:"steps"`
+	Steps                []MultiWorkflowStep        `json:"steps"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiWorkflowStepsResponse does not declare in AdditionalProperties.
+func (v *MultiWorkflowStepsResponse) UnmarshalJSON(data []byte) error {
+	type plain MultiWorkflowStepsResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "steps")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiWorkflowStepsResponse.
+func (v MultiWorkflowStepsResponse) MarshalJSON() ([]byte, error) {
+	type plain MultiWorkflowStepsResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiWorkflowStep is generated from docs/api/openapi.yaml.
 type MultiWorkflowStep struct {
-	ID            int64      `json:"id"`
-	WorkflowRunID int64      `json:"workflow_run_id"`
-	Name          string     `json:"name"`
-	Position      int64      `json:"position"`
-	Status        string     `json:"status"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                   int64                      `json:"id"`
+	WorkflowRunID        int64                      `json:"workflow_run_id"`
+	Name                 string                     `json:"name"`
+	Position             int64                      `json:"position"`
+	Status               string                     `json:"status"`
+	StartedAt            *time.Time                 `json:"started_at,omitempty"`
+	CompletedAt          *time.Time                 `json:"completed_at,omitempty"`
+	CreatedAt            time.Time                  `json:"created_at"`
+	UpdatedAt            time.Time                  `json:"updated_at"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiWorkflowStep does not declare in AdditionalProperties.
+func (v *MultiWorkflowStep) UnmarshalJSON(data []byte) error {
+	type plain MultiWorkflowStep
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "id", "workflow_run_id", "name", "position", "status", "started_at", "completed_at", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiWorkflowStep.
+func (v MultiWorkflowStep) MarshalJSON() ([]byte, error) {
+	type plain MultiWorkflowStep
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // IssueStateFact is generated from docs/api/openapi.yaml.
@@ -551,48 +683,112 @@ type MultiNotificationListResponse = []MultiNotification
 
 // MultiNotification is generated from docs/api/openapi.yaml.
 type MultiNotification struct {
-	ID         int64                        `json:"id"`
-	SourceType *string                      `json:"source_type,omitempty"`
-	SourceID   json.RawMessage              `json:"source_id,omitempty"`
-	Subject    json.RawMessage              `json:"subject"`
-	Body       *string                      `json:"body,omitempty"`
-	Status     *string                      `json:"status,omitempty"`
-	Unread     *bool                        `json:"unread,omitempty"`
-	Reason     *string                      `json:"reason,omitempty"`
-	Repository *MultiNotificationRepository `json:"repository,omitempty"`
-	CreatedAt  *time.Time                   `json:"created_at,omitempty"`
-	UpdatedAt  *time.Time                   `json:"updated_at,omitempty"`
-	ReadAt     *time.Time                   `json:"read_at,omitempty"`
-	LastReadAt *time.Time                   `json:"last_read_at,omitempty"`
+	ID                   int64                        `json:"id"`
+	SourceType           *string                      `json:"source_type,omitempty"`
+	SourceID             json.RawMessage              `json:"source_id,omitempty"`
+	Subject              json.RawMessage              `json:"subject"`
+	Body                 *string                      `json:"body,omitempty"`
+	Status               *string                      `json:"status,omitempty"`
+	Unread               *bool                        `json:"unread,omitempty"`
+	Reason               *string                      `json:"reason,omitempty"`
+	Repository           *MultiNotificationRepository `json:"repository,omitempty"`
+	CreatedAt            *time.Time                   `json:"created_at,omitempty"`
+	UpdatedAt            *time.Time                   `json:"updated_at,omitempty"`
+	ReadAt               *time.Time                   `json:"read_at,omitempty"`
+	LastReadAt           *time.Time                   `json:"last_read_at,omitempty"`
+	AdditionalProperties map[string]json.RawMessage   `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiNotification does not declare in AdditionalProperties.
+func (v *MultiNotification) UnmarshalJSON(data []byte) error {
+	type plain MultiNotification
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "id", "source_type", "source_id", "subject", "body", "status", "unread", "reason", "repository", "created_at", "updated_at", "read_at", "last_read_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiNotification.
+func (v MultiNotification) MarshalJSON() ([]byte, error) {
+	type plain MultiNotification
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiNotificationRepository is generated from docs/api/openapi.yaml.
 type MultiNotificationRepository struct {
-	FullName *string `json:"full_name,omitempty"`
+	FullName             *string                    `json:"full_name,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiNotificationRepository does not declare in AdditionalProperties.
+func (v *MultiNotificationRepository) UnmarshalJSON(data []byte) error {
+	type plain MultiNotificationRepository
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "full_name")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiNotificationRepository.
+func (v MultiNotificationRepository) MarshalJSON() ([]byte, error) {
+	type plain MultiNotificationRepository
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiNotificationSubject is generated from docs/api/openapi.yaml.
 type MultiNotificationSubject struct {
-	Title string  `json:"title"`
-	URL   *string `json:"url,omitempty"`
-	Type  *string `json:"type,omitempty"`
+	Title                string                     `json:"title"`
+	URL                  *string                    `json:"url,omitempty"`
+	Type                 *string                    `json:"type,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiNotificationSubject does not declare in AdditionalProperties.
+func (v *MultiNotificationSubject) UnmarshalJSON(data []byte) error {
+	type plain MultiNotificationSubject
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "title", "url", "type")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiNotificationSubject.
+func (v MultiNotificationSubject) MarshalJSON() ([]byte, error) {
+	type plain MultiNotificationSubject
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiGitHubImportJob is generated from docs/api/openapi.yaml.
 type MultiGitHubImportJob struct {
-	ImportJobID    string                          `json:"importJobId"`
-	RepoOwner      string                          `json:"repoOwner"`
-	RepoName       string                          `json:"repoName"`
-	TargetBookmark string                          `json:"target_bookmark"`
-	WorkspaceID    *string                         `json:"workspace_id,omitempty"`
-	Workspace      json.RawMessage                 `json:"workspace,omitempty"`
-	Status         string                          `json:"status"`
-	Stage          string                          `json:"stage"`
-	Counts         MultiGitHubImportJobCounts      `json:"counts"`
-	Error          *string                         `json:"error,omitempty"`
-	Repository     *MultiGitHubImportJobRepository `json:"repository,omitempty"`
-	CreatedAt      time.Time                       `json:"created_at"`
-	UpdatedAt      time.Time                       `json:"updated_at"`
+	ImportJobID          string                          `json:"importJobId"`
+	RepoOwner            string                          `json:"repoOwner"`
+	RepoName             string                          `json:"repoName"`
+	TargetBookmark       string                          `json:"target_bookmark"`
+	WorkspaceID          *string                         `json:"workspace_id,omitempty"`
+	Workspace            json.RawMessage                 `json:"workspace,omitempty"`
+	Status               string                          `json:"status"`
+	Stage                string                          `json:"stage"`
+	Counts               MultiGitHubImportJobCounts      `json:"counts"`
+	Error                *string                         `json:"error,omitempty"`
+	Repository           *MultiGitHubImportJobRepository `json:"repository,omitempty"`
+	CreatedAt            time.Time                       `json:"created_at"`
+	UpdatedAt            time.Time                       `json:"updated_at"`
+	AdditionalProperties map[string]json.RawMessage      `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiGitHubImportJob does not declare in AdditionalProperties.
+func (v *MultiGitHubImportJob) UnmarshalJSON(data []byte) error {
+	type plain MultiGitHubImportJob
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "importJobId", "repoOwner", "repoName", "target_bookmark", "workspace_id", "workspace", "status", "stage", "counts", "error", "repository", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiGitHubImportJob.
+func (v MultiGitHubImportJob) MarshalJSON() ([]byte, error) {
+	type plain MultiGitHubImportJob
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiGitHubImportJobCounts is generated from docs/api/openapi.yaml.
@@ -616,68 +812,180 @@ type MultiGitHubImportCount struct {
 
 // MultiSSETicketResponse is generated from docs/api/openapi.yaml.
 type MultiSSETicketResponse struct {
-	Ticket string `json:"ticket"`
+	Ticket               string                     `json:"ticket"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiSSETicketResponse does not declare in AdditionalProperties.
+func (v *MultiSSETicketResponse) UnmarshalJSON(data []byte) error {
+	type plain MultiSSETicketResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "ticket")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiSSETicketResponse.
+func (v MultiSSETicketResponse) MarshalJSON() ([]byte, error) {
+	type plain MultiSSETicketResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingOverview is generated from docs/api/openapi.yaml.
 type MultiBillingOverview struct {
-	Sandbox          *SandboxEntitlement       `json:"sandbox,omitempty"`
-	OwnerType        string                    `json:"owner_type"`
-	OwnerID          *int64                    `json:"owner_id,omitempty"`
-	OwnerName        string                    `json:"owner_name"`
-	PlanKey          string                    `json:"plan_key"`
-	BillingInterval  string                    `json:"billing_interval"`
-	StripeConfigured bool                      `json:"stripe_configured"`
-	Account          json.RawMessage           `json:"account,omitempty"`
-	Subscription     json.RawMessage           `json:"subscription,omitempty"`
-	Entitlements     []MultiBillingEntitlement `json:"entitlements,omitempty"`
-	UsagePeriodStart *time.Time                `json:"usage_period_start,omitempty"`
-	UsagePeriodEnd   *time.Time                `json:"usage_period_end,omitempty"`
-	Usage            []MultiBillingUsage       `json:"usage"`
+	Sandbox              *SandboxEntitlement        `json:"sandbox,omitempty"`
+	OwnerType            string                     `json:"owner_type"`
+	OwnerID              *int64                     `json:"owner_id,omitempty"`
+	OwnerName            string                     `json:"owner_name"`
+	PlanKey              string                     `json:"plan_key"`
+	BillingInterval      string                     `json:"billing_interval"`
+	StripeConfigured     bool                       `json:"stripe_configured"`
+	Account              json.RawMessage            `json:"account,omitempty"`
+	Subscription         json.RawMessage            `json:"subscription,omitempty"`
+	Entitlements         []MultiBillingEntitlement  `json:"entitlements,omitempty"`
+	UsagePeriodStart     *time.Time                 `json:"usage_period_start,omitempty"`
+	UsagePeriodEnd       *time.Time                 `json:"usage_period_end,omitempty"`
+	Usage                []MultiBillingUsage        `json:"usage"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingOverview does not declare in AdditionalProperties.
+func (v *MultiBillingOverview) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingOverview
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "sandbox", "owner_type", "owner_id", "owner_name", "plan_key", "billing_interval", "stripe_configured", "account", "subscription", "entitlements", "usage_period_start", "usage_period_end", "usage")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingOverview.
+func (v MultiBillingOverview) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingOverview
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingAccount is generated from docs/api/openapi.yaml.
 type MultiBillingAccount struct {
-	StripeCustomerID    *string    `json:"stripe_customer_id,omitempty"`
-	StripeCustomerEmail *string    `json:"stripe_customer_email,omitempty"`
-	StripeCustomerName  *string    `json:"stripe_customer_name,omitempty"`
-	CreatedAt           *time.Time `json:"created_at,omitempty"`
-	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
+	StripeCustomerID     *string                    `json:"stripe_customer_id,omitempty"`
+	StripeCustomerEmail  *string                    `json:"stripe_customer_email,omitempty"`
+	StripeCustomerName   *string                    `json:"stripe_customer_name,omitempty"`
+	CreatedAt            *time.Time                 `json:"created_at,omitempty"`
+	UpdatedAt            *time.Time                 `json:"updated_at,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingAccount does not declare in AdditionalProperties.
+func (v *MultiBillingAccount) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingAccount
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "stripe_customer_id", "stripe_customer_email", "stripe_customer_name", "created_at", "updated_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingAccount.
+func (v MultiBillingAccount) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingAccount
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingSubscription is generated from docs/api/openapi.yaml.
 type MultiBillingSubscription struct {
-	StripeSubscriptionID *string    `json:"stripe_subscription_id,omitempty"`
-	StripePriceID        *string    `json:"stripe_price_id,omitempty"`
-	PlanKey              string     `json:"plan_key"`
-	BillingInterval      string     `json:"billing_interval"`
-	Status               string     `json:"status"`
-	Quantity             int64      `json:"quantity"`
-	TrialEnd             *time.Time `json:"trial_end,omitempty"`
-	CurrentPeriodStart   *time.Time `json:"current_period_start,omitempty"`
-	CurrentPeriodEnd     *time.Time `json:"current_period_end,omitempty"`
-	CancelAtPeriodEnd    bool       `json:"cancel_at_period_end"`
-	CanceledAt           *time.Time `json:"canceled_at,omitempty"`
+	StripeSubscriptionID *string                    `json:"stripe_subscription_id,omitempty"`
+	StripePriceID        *string                    `json:"stripe_price_id,omitempty"`
+	PlanKey              string                     `json:"plan_key"`
+	BillingInterval      string                     `json:"billing_interval"`
+	Status               string                     `json:"status"`
+	Quantity             int64                      `json:"quantity"`
+	TrialEnd             *time.Time                 `json:"trial_end,omitempty"`
+	CurrentPeriodStart   *time.Time                 `json:"current_period_start,omitempty"`
+	CurrentPeriodEnd     *time.Time                 `json:"current_period_end,omitempty"`
+	CancelAtPeriodEnd    bool                       `json:"cancel_at_period_end"`
+	CanceledAt           *time.Time                 `json:"canceled_at,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingSubscription does not declare in AdditionalProperties.
+func (v *MultiBillingSubscription) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingSubscription
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "stripe_subscription_id", "stripe_price_id", "plan_key", "billing_interval", "status", "quantity", "trial_end", "current_period_start", "current_period_end", "cancel_at_period_end", "canceled_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingSubscription.
+func (v MultiBillingSubscription) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingSubscription
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingEntitlement is generated from docs/api/openapi.yaml.
 type MultiBillingEntitlement struct {
-	FeatureKey   string    `json:"feature_key"`
-	Active       bool      `json:"active"`
-	LastSyncedAt time.Time `json:"last_synced_at"`
+	FeatureKey           string                     `json:"feature_key"`
+	Active               bool                       `json:"active"`
+	LastSyncedAt         time.Time                  `json:"last_synced_at"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingEntitlement does not declare in AdditionalProperties.
+func (v *MultiBillingEntitlement) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingEntitlement
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "feature_key", "active", "last_synced_at")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingEntitlement.
+func (v MultiBillingEntitlement) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingEntitlement
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingUsage is generated from docs/api/openapi.yaml.
 type MultiBillingUsage struct {
-	MetricKey        string `json:"metric_key"`
-	IncludedQuantity int64  `json:"included_quantity"`
-	ConsumedQuantity int64  `json:"consumed_quantity"`
-	OverageQuantity  int64  `json:"overage_quantity"`
+	MetricKey            string                     `json:"metric_key"`
+	IncludedQuantity     int64                      `json:"included_quantity"`
+	ConsumedQuantity     int64                      `json:"consumed_quantity"`
+	OverageQuantity      int64                      `json:"overage_quantity"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingUsage does not declare in AdditionalProperties.
+func (v *MultiBillingUsage) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingUsage
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "metric_key", "included_quantity", "consumed_quantity", "overage_quantity")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingUsage.
+func (v MultiBillingUsage) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingUsage
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // MultiBillingSessionResult is generated from docs/api/openapi.yaml.
 type MultiBillingSessionResult struct {
-	URL string `json:"url"`
+	URL                  string                     `json:"url"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members MultiBillingSessionResult does not declare in AdditionalProperties.
+func (v *MultiBillingSessionResult) UnmarshalJSON(data []byte) error {
+	type plain MultiBillingSessionResult
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "url")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of MultiBillingSessionResult.
+func (v MultiBillingSessionResult) MarshalJSON() ([]byte, error) {
+	type plain MultiBillingSessionResult
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // ErrorDetail is generated from docs/api/openapi.yaml.
@@ -690,15 +998,31 @@ type ErrorDetail struct {
 
 // Error is generated from docs/api/openapi.yaml.
 type Error struct {
-	Code           *string       `json:"code,omitempty"`
-	Fault          *string       `json:"fault,omitempty"`
-	PlanKey        *string       `json:"plan_key,omitempty"`
-	LimitKind      *string       `json:"limit_kind,omitempty"`
-	UpgradePlanKey *string       `json:"upgrade_plan_key,omitempty"`
-	Message        string        `json:"message"`
-	Errors         []ErrorDetail `json:"errors,omitempty"`
-	RequestID      *string       `json:"request_id,omitempty"`
-	Retryable      *bool         `json:"retryable,omitempty"`
+	Code                 *string                    `json:"code,omitempty"`
+	Fault                *string                    `json:"fault,omitempty"`
+	PlanKey              *string                    `json:"plan_key,omitempty"`
+	LimitKind            *string                    `json:"limit_kind,omitempty"`
+	UpgradePlanKey       *string                    `json:"upgrade_plan_key,omitempty"`
+	Message              string                     `json:"message"`
+	Errors               []ErrorDetail              `json:"errors,omitempty"`
+	RequestID            *string                    `json:"request_id,omitempty"`
+	Retryable            *bool                      `json:"retryable,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members Error does not declare in AdditionalProperties.
+func (v *Error) UnmarshalJSON(data []byte) error {
+	type plain Error
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "code", "fault", "plan_key", "limit_kind", "upgrade_plan_key", "message", "errors", "request_id", "retryable")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of Error.
+func (v Error) MarshalJSON() ([]byte, error) {
+	type plain Error
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // SSHKey is generated from docs/api/openapi.yaml.
@@ -867,33 +1191,97 @@ type GetAPIUserGithubAppInstallationsInstallationIDResponseReposItem struct {
 
 // GetAPIUserGithubReposOwnerRepoPullsNumberResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubReposOwnerRepoPullsNumberResponse struct {
-	Number  int64                                                  `json:"number"`
-	State   string                                                 `json:"state"`
-	Title   string                                                 `json:"title"`
-	Body    *string                                                `json:"body,omitempty"`
-	Draft   *bool                                                  `json:"draft,omitempty"`
-	Merged  *bool                                                  `json:"merged,omitempty"`
-	HTMLURL *string                                                `json:"html_url,omitempty"`
-	User    *GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser `json:"user,omitempty"`
-	Head    *GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead `json:"head,omitempty"`
-	Base    *GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase `json:"base,omitempty"`
+	Number               int64                                                  `json:"number"`
+	State                string                                                 `json:"state"`
+	Title                string                                                 `json:"title"`
+	Body                 *string                                                `json:"body,omitempty"`
+	Draft                *bool                                                  `json:"draft,omitempty"`
+	Merged               *bool                                                  `json:"merged,omitempty"`
+	HTMLURL              *string                                                `json:"html_url,omitempty"`
+	User                 *GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser `json:"user,omitempty"`
+	Head                 *GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead `json:"head,omitempty"`
+	Base                 *GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase `json:"base,omitempty"`
+	AdditionalProperties map[string]json.RawMessage                             `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIUserGithubReposOwnerRepoPullsNumberResponse does not declare in AdditionalProperties.
+func (v *GetAPIUserGithubReposOwnerRepoPullsNumberResponse) UnmarshalJSON(data []byte) error {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "number", "state", "title", "body", "draft", "merged", "html_url", "user", "head", "base")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIUserGithubReposOwnerRepoPullsNumberResponse.
+func (v GetAPIUserGithubReposOwnerRepoPullsNumberResponse) MarshalJSON() ([]byte, error) {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser struct {
-	Login *string `json:"login,omitempty"`
+	Login                *string                    `json:"login,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser does not declare in AdditionalProperties.
+func (v *GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser) UnmarshalJSON(data []byte) error {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "login")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser.
+func (v GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser) MarshalJSON() ([]byte, error) {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseUser
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead struct {
-	Ref *string `json:"ref,omitempty"`
-	SHA *string `json:"sha,omitempty"`
+	Ref                  *string                    `json:"ref,omitempty"`
+	SHA                  *string                    `json:"sha,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead does not declare in AdditionalProperties.
+func (v *GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead) UnmarshalJSON(data []byte) error {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "ref", "sha")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead.
+func (v GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead) MarshalJSON() ([]byte, error) {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseHead
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase struct {
-	Ref *string `json:"ref,omitempty"`
-	SHA *string `json:"sha,omitempty"`
+	Ref                  *string                    `json:"ref,omitempty"`
+	SHA                  *string                    `json:"sha,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase does not declare in AdditionalProperties.
+func (v *GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase) UnmarshalJSON(data []byte) error {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "ref", "sha")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase.
+func (v GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase) MarshalJSON() ([]byte, error) {
+	type plain GetAPIUserGithubReposOwnerRepoPullsNumberResponseBase
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // PostAPIUserKeysBody is generated from docs/api/openapi.yaml.

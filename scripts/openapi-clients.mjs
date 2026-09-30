@@ -391,6 +391,11 @@ class GoTypes {
       if (optional && !type.startsWith("*") && !this.nilable(value)) type = `*${type}`
       fields.push([field, type, `\`json:"${property}${optional ? ",omitempty" : ""}"\``])
     }
+    // Members the schema allows but does not declare survive a round trip.
+    const extra = schema.additionalProperties !== undefined && schema.additionalProperties !== false && fields.length > 0
+    let extraField = "AdditionalProperties"
+    while (used.has(extraField)) extraField = `${extraField}_`
+    if (extra) fields.push([extraField, "map[string]json.RawMessage", "`json:\"-\"`"])
     const lines = [
       `// ${name} ${description === undefined ? "is generated from docs/api/openapi.yaml." : goComment(description)}`
     ]
@@ -403,6 +408,26 @@ class GoTypes {
     lines.push(`type ${name} struct {`)
     for (const [field, type, tag] of fields) lines.push(`\t${field.padEnd(nameWidth)} ${type.padEnd(typeWidth)} ${tag}`)
     lines.push("}")
+    if (extra) {
+      const declared = Object.keys(schema.properties).map(goString).join(", ")
+      lines.push(
+        "",
+        `// UnmarshalJSON keeps the members ${name} does not declare in ${extraField}.`,
+        `func (v *${name}) UnmarshalJSON(data []byte) error {`,
+        `\ttype plain ${name}`,
+        "\tif err := json.Unmarshal(data, (*plain)(v)); err != nil {",
+        "\t\treturn err",
+        "\t}",
+        `\treturn splitAdditional(data, &v.${extraField}, ${declared})`,
+        "}",
+        "",
+        `// MarshalJSON writes ${extraField} beside the declared members of ${name}.`,
+        `func (v ${name}) MarshalJSON() ([]byte, error) {`,
+        `\ttype plain ${name}`,
+        `\treturn joinAdditional(plain(v), v.${extraField})`,
+        "}"
+      )
+    }
     return lines.join("\n")
   }
 
@@ -554,7 +579,10 @@ export const go = (document) => {
     ")",
     ""
   ]
-  const helpers = /optionalBody\(/.test(text) ? [optionalBody] : []
+  const helpers = [
+    ...(/optionalBody\(/.test(text) ? [optionalBody] : []),
+    ...(/splitAdditional\(/.test(text) ? [additional] : [])
+  ]
   return `${[...header, runtime, ...helpers, text].join("\n")}\n`
 }
 
@@ -563,6 +591,41 @@ const optionalBody = `func optionalBody[T any](body *T) any {
 		return nil
 	}
 	return body
+}
+`
+
+const additional = `// splitAdditional stores the members of data not named in declared in *extra.
+func splitAdditional(data []byte, extra *map[string]json.RawMessage, declared ...string) error {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	for _, name := range declared {
+		delete(all, name)
+	}
+	if len(all) == 0 {
+		all = nil
+	}
+	*extra = all
+	return nil
+}
+
+// joinAdditional encodes value with the members of extra it does not already have.
+func joinAdditional(value any, extra map[string]json.RawMessage) ([]byte, error) {
+	data, err := json.Marshal(value)
+	if err != nil || len(extra) == 0 {
+		return data, err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return nil, err
+	}
+	for name, raw := range extra {
+		if _, ok := all[name]; !ok {
+			all[name] = raw
+		}
+	}
+	return json.Marshal(all)
 }
 `
 

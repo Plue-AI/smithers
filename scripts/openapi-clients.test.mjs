@@ -166,6 +166,19 @@ test("operations whose names collide are refused", () => {
   assert.throws(() => go(document(paths)), /operationId get-a-b has the same Go name as another operation/)
 })
 
+test("Go structs keep members an open schema does not declare", () => {
+  const text = go(document({}, {
+    Open: { type: "object", additionalProperties: true, properties: { name: { type: "string" }, additional_properties: { type: "string" } } },
+    Closed: { type: "object", properties: { name: { type: "string" } } }
+  }))
+  assert.match(text, /type Open struct \{\n\tName                  \*string                    `json:"name,omitempty"`\n\tAdditionalProperties  \*string                    `json:"additional_properties,omitempty"`\n\tAdditionalProperties_ map\[string\]json\.RawMessage `json:"-"`\n\}/)
+  assert.match(text, /func \(v \*Open\) UnmarshalJSON\(data \[\]byte\) error \{\n\ttype plain Open\n\tif err := json\.Unmarshal\(data, \(\*plain\)\(v\)\); err != nil \{\n\t\treturn err\n\t\}\n\treturn splitAdditional\(data, &v\.AdditionalProperties_, "name", "additional_properties"\)\n\}/)
+  assert.match(text, /func \(v Open\) MarshalJSON\(\) \(\[\]byte, error\) \{\n\ttype plain Open\n\treturn joinAdditional\(plain\(v\), v\.AdditionalProperties_\)\n\}/)
+  assert.match(text, /func splitAdditional\(/)
+  assert.doesNotMatch(text, /func \(v \*Closed\) UnmarshalJSON/)
+  assert.doesNotMatch(go(document({}, { Closed: { type: "object", properties: { name: { type: "string" } } } })), /splitAdditional/)
+})
+
 test("a schema that shadows a runtime declaration is refused", () => {
   assert.throws(() => go(document({}, { Client: { type: "object", properties: { a: { type: "string" } } } })), /Go type Client is declared twice/)
 })
