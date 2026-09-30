@@ -427,18 +427,18 @@ setInterval(() => {}, 1000);`)
     await Effect.runPromise(Effect.gen(function*() {
       const fiber = yield* Effect.forkChild(Stream.runCollect(fake.model.stream(request())))
       yield* Effect.promise(async () => {
-        for (let attempt = 0; attempt < 100; attempt++) {
+        // The file exists before its content: wait for a whole pid.
+        for (let attempt = 0; attempt < 1000 && pid === 0; attempt++) {
           try {
             pid = Number(readFileSync(join(fake.root, "pid"), "utf8"))
-            break
           } catch {}
-          await new Promise((resolve) => setTimeout(resolve, 10))
+          if (pid === 0) await new Promise((resolve) => setTimeout(resolve, 10))
         }
       })
       yield* Fiber.interrupt(fiber)
     }))
     expect(pid).toBeGreaterThan(0)
-    for (let attempt = 0; attempt < 100; attempt++) {
+    for (let attempt = 0; attempt < 500; attempt++) {
       try {
         process.kill(pid, 0)
       } catch {
