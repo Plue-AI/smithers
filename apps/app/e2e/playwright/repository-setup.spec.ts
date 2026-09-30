@@ -93,6 +93,25 @@ test("setup preview offers all five jobs, keeps prompt edits and fits 320px", as
   await page.screenshot({ path: testInfo.outputPath("setup-preview-320.png"), fullPage: true })
 })
 
+test("a fresh visitor's job buttons take a real pointer click and boot throws nothing (#1646)", async ({ page }) => {
+  const errors: string[] = []
+  page.on("pageerror", error => errors.push(error.message))
+  await bootstrap(page, false)
+  await open(page)
+  const button = page.getByRole("button", { name: "Handle issues", exact: true })
+  await expect(button).toBeEnabled()
+  // Nothing (overlay, entrance layer, pointer-events) may sit over the button's centre.
+  const covered = await button.evaluate(node => {
+    const box = node.getBoundingClientRect()
+    const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    return top === null || !node.contains(top)
+  })
+  expect(covered).toBe(false)
+  await button.click()
+  await expect(page.getByTestId("setup-issues")).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test("Chat summons at the top over setup and closes with keyboard or an outside press", async ({ page }, testInfo) => {
   await bootstrap(page, false)
   await open(page)
