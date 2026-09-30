@@ -163,15 +163,16 @@ export const layer = (
             environment.http_proxy ?? environment.HTTP_PROXY,
             environment.https_proxy ?? environment.HTTPS_PROXY
           ]
+          // The record is read per request, and a live one such as NodeHost's
+          // `process.env` can name an unparsable proxy after the shared pool
+          // was built from it; that is a refusal here, never a thrown URL error.
           const validProxies = proxies.every((proxy) => {
             if (!proxy) return true
             try {
               return ["http:", "https:"].includes(new URL(proxy).protocol)
-              /* v8 ignore start -- the shared proxy agent already refused an unparsable proxy URL when this client was built */
             } catch {
               return false
             }
-            /* v8 ignore stop */
           })
           if (!validProxies) {
             return yield* Effect.fail(
@@ -198,11 +199,9 @@ export const layer = (
               connect: {
                 lookup: (_hostname, options, callback) => {
                   const candidates = options.family
-                    ? /* v8 ignore next -- Undici does not request a pinned family through this public client */ addresses
-                      .filter((item) => item.family === options.family)
+                    ? addresses.filter((item) => item.family === options.family)
                     : addresses
                   const first = candidates[0]
-                  /* v8 ignore next -- validated snapshots are nonempty and Undici does not pin a family */
                   if (first === undefined) return callback(new Error("No approved address for family"), "", 4)
                   if (options.all) callback(null, candidates)
                   else callback(null, first.address, first.family)
@@ -238,9 +237,7 @@ export const layer = (
                 ? Effect.promise(() => pinned.destroy())
                 // close prevents reuse immediately, but lets the active body drain.
                 : Effect.sync(() => {
-                  void pinned.close().catch(
-                    /* v8 ignore next -- close rejects only an agent that is already destroyed */ () => pinned.destroy()
-                  )
+                  void pinned.close().catch(() => pinned.destroy())
                 })
             ))
           })

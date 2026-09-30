@@ -334,6 +334,79 @@ describe("authorized destination connections", () => {
     }
   })
 
+  it("refuses a pinned request once the live environment names an unparsable proxy", async () => {
+    // NodeHost hands this client `process.env`, which the process may change
+    // after the shared pool was built from it. The pinned route reads the
+    // record per request, so a proxy that no longer parses is a typed refusal.
+    const proxy = await listen()
+    const origin = await listen()
+    try {
+      const environment: Record<string, string | undefined> = { HTTP_PROXY: proxy.url }
+      const result = await Effect.runPromise(
+        Effect.result(Effect.flatMap(HttpClient.HttpClient, (client) => {
+          environment.HTTP_PROXY = "http://[unterminated"
+          return client.get(`${origin.url}/pinned`)
+        })).pipe(
+          Effect.provideService(Destination, { origin: origin.url, addresses: ["127.0.0.1"] }),
+          Effect.provide(EgressHttpClient.layer(environment))
+        )
+      )
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
+          _tag: "HttpClientError",
+          reason: { _tag: "TransportError", description: "Pinned HTTP requests require HTTP or HTTPS proxies" }
+        })
+      }
+      expect(origin.seen).toEqual([])
+      expect(proxy.seen).toEqual([])
+    } finally {
+      await origin.close()
+      await proxy.close()
+    }
+  })
+
+  it("answers a requested address family from the approved snapshot, and refuses one it lacks", async () => {
+    // Node asks the lookup for one family when the connect options name one.
+    // This client's options name none, so the case adds `family` to the pinned
+    // agent's connect options: the answer is still an approved address, and a
+    // family the snapshot lacks is refused rather than widened.
+    const undici = (await import("undici/index.js")).default
+    const Original = undici.EnvHttpProxyAgent
+    let family: 4 | 6 = 4
+    undici.EnvHttpProxyAgent = class extends Original {
+      constructor(options: ConstructorParameters<typeof Original>[0]) {
+        const connect = options?.connect
+        super(
+          connect === undefined || typeof connect === "function"
+            ? options
+            : { ...options, connect: { ...connect, family } as typeof connect }
+        )
+      }
+    }
+    const origin = await listen((_, response) => response.end("v4"))
+    try {
+      const url = `http://families.invalid:${origin.port}`
+      // The first approved address is IPv6, where nothing listens.
+      const chosen = await pinnedReach({}, `${url}/v4`, { origin: url, addresses: ["::1", "127.0.0.1"] })
+      expect(chosen._tag).toBe("Success")
+      if (chosen._tag === "Success") expect(await Effect.runPromise(chosen.success.text)).toBe("v4")
+      family = 6
+      const refused = await pinnedReach({}, `${url}/v6`, { origin: url, addresses: ["127.0.0.1"] })
+      expect(refused._tag).toBe("Failure")
+      if (refused._tag === "Failure") {
+        expect(refused.failure).toMatchObject({
+          _tag: "HttpClientError",
+          reason: { _tag: "TransportError", cause: { message: "No approved address for family" } }
+        })
+      }
+      expect(origin.seen).toEqual(["GET /v4"])
+    } finally {
+      undici.EnvHttpProxyAgent = Original
+      await origin.close()
+    }
+  })
+
   it("uses the approved IP for an unresolvable hostname and strips caller transport headers", async () => {
     let received: IncomingMessage["headers"] = {}
     const origin = await listen((request, response) => {
@@ -535,6 +608,43 @@ describe("pinned agent ownership under interruption", () => {
         true
       ])
       expect(origin.seen).toEqual([])
+    } finally {
+      undici.EnvHttpProxyAgent = Original
+      await origin.close()
+    }
+  })
+})
+
+describe("pinned agent release after a response", () => {
+  it("destroys a pinned agent whose close fails, closing its connection", async () => {
+    // Undici's close rejects only an agent that is already destroyed, which
+    // nothing does before a successful exit. If one fails anyway, the agent is
+    // destroyed rather than left holding its connection, and the rejection is
+    // handled rather than escaping as an unhandled one.
+    const undici = (await import("undici/index.js")).default
+    const Original = undici.EnvHttpProxyAgent
+    const agents: Array<InstanceType<typeof Original>> = []
+    undici.EnvHttpProxyAgent = class extends Original {
+      constructor(options: ConstructorParameters<typeof Original>[0]) {
+        super(options)
+        agents.push(this)
+      }
+      override close(_callback?: () => void): Promise<void> {
+        return Promise.reject(new Error("close refused"))
+      }
+    }
+    const origin = await listen()
+    try {
+      const url = `http://close-refused.invalid:${origin.port}`
+      const result = await pinnedReach({}, url, { origin: url, addresses: ["127.0.0.1"] })
+      expect(result._tag).toBe("Success")
+      if (result._tag === "Success") expect(result.success.status).toBe(204)
+      expect(origin.connections).toHaveLength(1)
+      await closesPromptly(origin.connections[0]!)
+      // The shared pool is the first agent; the second is the request's pinned one.
+      expect(agents).toHaveLength(2)
+      expect((agents[1] as unknown as { readonly destroyed: boolean }).destroyed).toBe(true)
+      expect(origin.seen).toEqual(["GET /"])
     } finally {
       undici.EnvHttpProxyAgent = Original
       await origin.close()
