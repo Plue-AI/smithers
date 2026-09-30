@@ -1,6 +1,9 @@
 package flowhost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -182,6 +185,88 @@ func TestCatalogRefusesDatabaseCredentials(t *testing.T) {
 		_, err := validateCatalog(catalog)
 		require.ErrorContains(t, err, "database configuration "+name)
 		assert.NotContains(t, err.Error(), "secret")
+	}
+}
+
+// A host keeps its journals in its workspace's own database only through
+// HostLaunch.Journal (#2099): never from a catalog or a start's environment,
+// never another workspace's database, and never the backend's own database.
+func TestBuildProcessSpecGivesTheHostOnlyItsWorkspaceJournal(t *testing.T) {
+	workspace := "0f1e2d3c-4b5a-4968-8776-655443322110"
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: workspace, CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+		ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID,
+		PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID,
+		RepositoryID: 5, UserID: 9, WorkspaceID: workspace, CatalogKey: CatalogCoding,
+		ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest,
+		SourceRevision: authority.SourceRevision, OwnerGeneration: 7, State: "starting"}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	sqlite, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, paths, 4317)
+	require.NoError(t, err)
+	assert.NotContains(t, sqlite.Environment, "SMITHERS_POSTGRES_URL")
+	// A SQLite host's identity is unchanged by the journal field, so enabling
+	// the code path alone never restarts a live host.
+	before, _ := json.Marshal(struct {
+		BindingID, WorkspaceID, Artifact, Revision string
+		Generation                                 int64
+		Catalog                                    Catalog
+		Repository                                 string
+	}{binding.ID, workspace, binding.RuntimeArtifactDigest, binding.SourceRevision, 7, catalog, authority.Repository})
+	digest := sha256.Sum256(before)
+	assert.Equal(t, "flow-host:"+hex.EncodeToString(digest[:]), sqlite.Identity)
+
+	journals := &PostgresJournals{address: mustURL(t, "postgres://journal.internal:5432/?sslmode=disable"), key: journalTestKey}
+	journal, err := journals.Describe(workspace)
+	require.NoError(t, err)
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer", Journal: journal}
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, journal.URL, spec.Environment["SMITHERS_POSTGRES_URL"])
+	assert.Equal(t, "flows", spec.Environment["SMITHERS_POSTGRES_SCHEMA"])
+	assert.NotContains(t, spec.Environment, "SMITHERS_BACKEND")
+	assert.Contains(t, spec.Args, "--state-dir", "artifacts and native state stay in the state directory")
+	assert.NotEqual(t, sqlite.Identity, spec.Identity, "moving the journal restarts the host")
+	password, _ := mustURL(t, journal.URL).User.Password()
+	assert.NotContains(t, spec.Identity, password)
+	rotated, err := (&PostgresJournals{address: journals.address, key: []byte(strings.Repeat("r", 32))}).Describe(workspace)
+	require.NoError(t, err)
+	launch.Journal = rotated
+	withRotated, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, spec.Identity, withRotated.Identity, "the credential is not identity")
+
+	other, err := journals.Describe("1f1e2d3c-4b5a-4968-8776-655443322110")
+	require.NoError(t, err)
+	backendDatabase := journal
+	backendDatabase.URL = strings.Replace(journal.URL, "/"+journal.Name, "/smithers", 1)
+	otherRole := journal
+	otherRole.URL = strings.Replace(journal.URL, journal.Name+":", other.Name+":", 1)
+	noPassword := journal
+	noPassword.URL = "postgres://" + journal.Name + "@journal.internal:5432/" + journal.Name
+	schemaSelected := journal
+	schemaSelected.URL = journal.URL + "&schema=public"
+	wrongSchema := journal
+	wrongSchema.Schema = "public"
+	wrongScheme := journal
+	wrongScheme.URL = strings.Replace(journal.URL, "postgres://", "http://", 1)
+	for name, invalid := range map[string]JournalDatabase{
+		"another workspace": other, "the backend database": backendDatabase, "another role": otherRole,
+		"no credential": noPassword, "a selected schema": schemaSelected, "another schema": wrongSchema,
+		"not postgres": wrongScheme, "unparseable": {Name: journal.Name, Schema: JournalSchema, URL: "postgres://%zz"},
+	} {
+		launch.Journal = invalid
+		_, err = BuildProcessSpec(launch, paths, 4317)
+		require.Error(t, err, name)
+		assert.NotContains(t, err.Error(), password, name)
+	}
+
+	launch.Journal = JournalDatabase{}
+	for _, name := range []string{"SMITHERS_POSTGRES_URL", "SMITHERS_POSTGRES_SCHEMA", "DATABASE_URL", "SMITHERS_BACKEND"} {
+		launch.Environment = map[string]string{name: journal.URL}
+		_, err = BuildProcessSpec(launch, paths, 4317)
+		require.Error(t, err, "a start's environment never selects the journal: %s", name)
 	}
 }
 

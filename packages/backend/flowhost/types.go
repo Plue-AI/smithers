@@ -178,6 +178,12 @@ type HostLaunch struct {
 	// not part of the host's service identity, and it never replaces a
 	// reserved name.
 	Environment map[string]string
+	// Journal, when set, keeps the host's control and engine journals in the
+	// workspace's own PostgreSQL database instead of SQLite in the state
+	// directory (#2099). The resolver supplies it from Config.Journals on
+	// every inspect and start; its database name is part of the service
+	// identity, its credential is not.
+	Journal JournalDatabase
 	// Superseded asks only to inspect a live host the catalog has replaced,
 	// by Binding.ServiceIdentity, while a run still depends on it. Such a
 	// host is never started.
@@ -258,4 +264,14 @@ type Config struct {
 	// ActiveRuns defers a host upgrade while work depends on the superseded
 	// host. Without it, an upgrade replaces the host at once.
 	ActiveRuns ActiveRuns
+	// Journals, when set, keeps each host's journals in its workspace's own
+	// PostgreSQL database (#2099); nil keeps SQLite in the state directory.
+	Journals Journals
+}
+
+// Journals selects a workspace's journal database: Describe for inspecting a
+// live host, Provision before starting one. PostgresJournals implements it.
+type Journals interface {
+	Describe(workspaceID string) (JournalDatabase, error)
+	Provision(ctx context.Context, workspaceID string) (JournalDatabase, error)
 }

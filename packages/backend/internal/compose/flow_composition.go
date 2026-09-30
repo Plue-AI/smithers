@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -123,7 +124,14 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		return flowdispatch.HasPinnedLaunches(ctx, store, jobs.Scope{TenantID: host.TenantID, PrincipalID: host.PrincipalID},
 			flowruntime.Identity{RuntimeArtifactDigest: host.RuntimeArtifactDigest, SourceRevision: host.SourceRevision})
 	})
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns})
+	var journals flowhost.Journals
+	if address := strings.TrimSpace(cfg.Sandbox.FlowJournalPostgresURL); address != "" {
+		key := sha256.Sum256([]byte("smithers flow journal key v1\x00" + cfg.Webhook.SecretEncryptionKey))
+		if journals, err = flowhost.NewPostgresJournals(context.Background(), pool, address, key[:]); err != nil {
+			return nil, err
+		}
+	}
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals})
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}

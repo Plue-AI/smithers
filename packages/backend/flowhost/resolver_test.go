@@ -748,3 +748,74 @@ func TestResolverActiveRunCheckFailureIsRetryableAndStopsNothing(t *testing.T) {
 	require.Empty(t, launcher.stops)
 	require.Equal(t, old, store.binding)
 }
+
+type recordingJournals struct {
+	journals            *PostgresJournals
+	described, provided []string
+	describeErr, err    error
+}
+
+func (j *recordingJournals) Describe(workspaceID string) (JournalDatabase, error) {
+	j.described = append(j.described, workspaceID)
+	if j.describeErr != nil {
+		return JournalDatabase{}, j.describeErr
+	}
+	return j.journals.Describe(workspaceID)
+}
+
+func (j *recordingJournals) Provision(_ context.Context, workspaceID string) (JournalDatabase, error) {
+	j.provided = append(j.provided, workspaceID)
+	if j.err != nil {
+		return JournalDatabase{}, j.err
+	}
+	return j.journals.Describe(workspaceID)
+}
+
+// With PostgreSQL journals, the resolver provisions the workspace's database
+// before each start and names it on every inspection, so the identity it
+// records is the live host's and the host is reused (#2099).
+func TestResolverGivesEachHostItsWorkspaceJournal(t *testing.T) {
+	ctx := context.Background()
+	resolver, store, launcher, target := testResolver(t)
+	journals := &recordingJournals{journals: &PostgresJournals{address: mustURL(t, "postgres://journal.internal:5432/"), key: journalTestKey}}
+	resolver.journals = journals
+	workspace := "22222222-2222-4222-8222-222222222222"
+
+	// An unprovisionable journal fails the start before the host starts.
+	journals.err = errors.New("journal server unavailable at postgres://admin:secret@db")
+	_, err := resolver.ResolveFlowRuntime(ctx, target)
+	var known flowruntime.Failure
+	require.ErrorAs(t, err, &known)
+	require.Equal(t, "runtime_journal_unavailable", known.FlowRuntimeCode())
+	require.NotContains(t, err.Error(), "secret")
+	require.Empty(t, launcher.starts)
+	require.Equal(t, "failed", store.binding.State)
+
+	journals.err = nil
+	_, err = resolver.ResolveFlowRuntime(ctx, target)
+	require.NoError(t, err)
+	require.Len(t, launcher.starts, 1)
+	require.Equal(t, []string{workspace, workspace}, journals.provided)
+	expected, err := journals.journals.Describe(workspace)
+	require.NoError(t, err)
+	require.Equal(t, expected, launcher.starts[0].Journal)
+	require.Equal(t, launcher.fingerprint, store.binding.ServiceIdentity, "the recorded identity is the live host's")
+
+	_, err = resolver.ResolveFlowRuntime(ctx, target)
+	require.NoError(t, err)
+	require.Len(t, launcher.starts, 1, "the live host is reused")
+
+	// A host that cannot name its journal is refused, never restarted on SQLite.
+	journals.describeErr = errors.New("invalid workspace")
+	_, err = resolver.ResolveFlowRuntime(ctx, target)
+	require.ErrorAs(t, err, &known)
+	require.Equal(t, "runtime_journal_unavailable", known.FlowRuntimeCode())
+	require.Len(t, launcher.starts, 1)
+
+	// A host started before journals moved is not reused.
+	journals.describeErr = nil
+	resolver.journals = nil
+	_, err = resolver.ResolveFlowRuntime(ctx, target)
+	require.Error(t, err)
+	require.Len(t, launcher.starts, 1)
+}

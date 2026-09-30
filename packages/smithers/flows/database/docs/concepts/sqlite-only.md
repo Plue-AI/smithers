@@ -71,8 +71,30 @@ host storage.
 The self-hosted Go backend accepts `SMITHERS_DATABASE_URL` or its
 `DATABASE_URL` fallback, with the prefixed variable taking precedence. That
 credential stays in the backend: flow hosts share their workspace with
-repository commands, so they keep their stores on SQLite in the workspace
-state directory and never receive a database URL.
+repository commands, so they never receive it. By default a host keeps its
+stores on SQLite in the workspace state directory.
+
+Set `SMITHERS_FLOW_JOURNAL_POSTGRES_URL` to keep each workspace coding host's
+control and engine stores on the backend's PostgreSQL server instead. The value
+is the server address as the host reaches it (for a microVM guest, a routable
+host rather than loopback); its user, password and database are replaced.
+Before a host starts, the backend creates or repairs that workspace's own login
+role and a database it owns, named `smithers_flows_<workspace>`. The role has
+no server privileges and a connection limit of 32, and only it may connect to
+its database. The host receives only that role's `SMITHERS_POSTGRES_URL` and the
+`flows` schema prefix, so its stores are `flows_control_db` and
+`flows_engine_db`. Every backend replica derives the same password from the
+webhook secret encryption key, so a live host keeps reconnecting across backend
+restarts. Only the SCRAM verifier reaches the server.
+
+The backend role needs `CREATEROLE` and `CREATEDB`, or superuser. It revokes
+`CONNECT` on its own database from `PUBLIC` at startup. If it does not own that
+database, revoke the grant yourself; until then every host start is refused. A
+repository can read or damage only its own journals, as it could with the
+SQLite files beside it. Artifacts and native process state stay in the state
+directory. Turning the setting on or off changes each host's identity, like a
+catalog change. A host already running under the other setting is refused
+until it stops, and its replacement starts with an empty journal.
 
 ## Transactions and SQL behavior
 

@@ -70,6 +70,15 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		environment[AccountPoolProvidersEnv] = strings.Join(routes, ",")
 		environment[AccountPoolKeyEnv] = ModelCredential(launch.Binding.ID, launch.Credential)
 	}
+	// The workspace's own journal database, when the backend keeps journals
+	// in PostgreSQL; otherwise the host keeps SQLite in its state directory.
+	journal, err := launch.Journal.environment(launch.Binding.WorkspaceID)
+	if err != nil {
+		return ProcessSpec{}, err
+	}
+	for name, value := range journal {
+		environment[name] = value
+	}
 	environment["SMITHERS_API_KEY"] = launch.Credential
 	environment["SMITHERS_GATEWAY_ID"] = launch.Binding.ID
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
@@ -99,7 +108,9 @@ func hostServiceIdentity(launch HostLaunch) string {
 		Generation                                 int64
 		Catalog                                    Catalog
 		Repository                                 string
-	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository}
+		// Omitted when empty, so SQLite hosts keep their existing identity.
+		Journal string `json:",omitempty"`
+	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.Name}
 	data, _ := json.Marshal(identity)
 	digest := sha256.Sum256(data)
 	return "flow-host:" + hex.EncodeToString(digest[:])

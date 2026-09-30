@@ -72,6 +72,7 @@ type Resolver struct {
 	launcher   Launcher
 	catalogs   map[string]Catalog
 	activeRuns ActiveRuns
+	journals   Journals
 }
 
 func New(config Config) (*Resolver, error) {
@@ -93,7 +94,7 @@ func New(config Config) (*Resolver, error) {
 		return nil, errors.New("flow host resolver requires at least one catalog")
 	}
 	return &Resolver{store: config.Store, targets: config.Targets, launcher: config.Launcher, catalogs: catalogs,
-		activeRuns: config.ActiveRuns}, nil
+		activeRuns: config.ActiveRuns, journals: config.Journals}, nil
 }
 
 func validateCatalog(catalog Catalog) (Catalog, error) {
@@ -259,6 +260,11 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 		}
 	}
 	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential()}
+	if resolver.journals != nil {
+		if launch.Journal, err = resolver.journals.Describe(binding.WorkspaceID); err != nil {
+			return nil, refuse(ctx, "runtime_journal_unavailable", err, binding)
+		}
+	}
 	connection, inspectErr := resolver.launcher.InspectFlowHost(ctx, launch)
 	if inspectErr == nil {
 		client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), binding)
@@ -287,6 +293,12 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 		return nil, refuse(ctx, "runtime_owner_fence_failed", err, binding)
 	}
 	launch = HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: lease.Credential()}
+	if resolver.journals != nil {
+		// The workspace's database and role exist before its host opens them.
+		if launch.Journal, err = resolver.journals.Provision(ctx, binding.WorkspaceID); err != nil {
+			return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_journal_unavailable", err, binding))
+		}
+	}
 	connection, err = resolver.launcher.StartFlowHost(ctx, launch)
 	if err != nil {
 		return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_start_failed", err, binding))

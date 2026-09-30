@@ -48,6 +48,7 @@ var allEnvKeys = []string{
 	"SMITHERS_SANDBOX_AGENT_SNAPSHOT_ID",
 	"SMITHERS_PREVIEW_RELAY_TOKEN",
 	"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL",
+	"SMITHERS_FLOW_JOURNAL_POSTGRES_URL",
 	"SMITHERS_SANDBOX_AGENT_MEMORY_MB",
 	"SMITHERS_SANDBOX_WORKSPACE_MEMORY_MB",
 	"SMITHERS_SANDBOX_WORKSPACE_VCPU_COUNT",
@@ -1788,6 +1789,17 @@ func TestLoad_WorkspaceCodingDefaultModelPin(t *testing.T) {
 	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.Equal(t, "cerebras:gpt-oss-120b", cfg.Sandbox.WorkspaceCodingDefaultModel)
+}
+
+func TestLoad_FlowJournalPostgresURL(t *testing.T) {
+	clearConfigEnv(t)
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Sandbox.FlowJournalPostgresURL, "journals stay in SQLite unless configured")
+	t.Setenv("SMITHERS_FLOW_JOURNAL_POSTGRES_URL", "postgres://10.0.0.1:5432/?sslmode=disable")
+	cfg, err = Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://10.0.0.1:5432/?sslmode=disable", cfg.Sandbox.FlowJournalPostgresURL)
 }
 
 // TestLoad_OrgsIsNotAFeatureFlag pins the owner decision (2026-09-15) that

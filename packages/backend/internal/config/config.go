@@ -323,6 +323,13 @@ type SandboxConfig struct {
 	// and runtime credentials keep precedence; pool-only defaults resolve at host start.
 	WorkspaceCodingDefaultModel string `mapstructure:"workspace_coding_default_model"`
 
+	// FlowJournalPostgresURL keeps each workspace coding host's control and
+	// engine journals in its own database on the backend's PostgreSQL server
+	// (#2099), at this address as the host reaches it; its user, password and
+	// database are replaced by the workspace's own. Empty keeps them in SQLite.
+	// Env: SMITHERS_FLOW_JOURNAL_POSTGRES_URL.
+	FlowJournalPostgresURL string `mapstructure:"flow_journal_postgres_url"`
+
 	// PreviewRelayToken is the shared credential the preview gateway demands
 	// for platform domains (its SMITHERS_PREVIEW_RELAY_TOKEN). The gateway is
 	// public for user previews, so the desktop relay presents this on every
@@ -823,6 +830,7 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.workspace_ssh_dial_host", "SMITHERS_SANDBOX_WORKSPACE_SSH_DIAL_HOST"},
 		{"sandbox.agent_snapshot_id", "SMITHERS_SANDBOX_AGENT_SNAPSHOT_ID"},
 		{"sandbox.workspace_coding_default_model", "SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL"},
+		{"sandbox.flow_journal_postgres_url", "SMITHERS_FLOW_JOURNAL_POSTGRES_URL"},
 		{"sandbox.preview_relay_token", "SMITHERS_PREVIEW_RELAY_TOKEN"},
 	} {
 		_ = v.BindEnv(b[0], b[1])
