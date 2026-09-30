@@ -440,3 +440,41 @@ changes the `scorerKey`. `agreement` measures a judge against human labels.
 | `Rubric.decide`        | const     | predicates   | Applies a `Rule` to scores.                                      |
 | `Rubric.make`          | const     | constructors | Declares a rubric scorer over a caller-supplied judge.           |
 | `Rubric.agreement`     | const     | calibration  | Counts judge agreement with human labels.                        |
+
+## Scorers
+
+Import `Scorers` from `@smthrs/scorers`, or the `@smthrs/scorers/Scorers` subpath.
+`exact()` compares string `output` and string `groundTruth` after trimming edges
+and collapsing whitespace; `contains()` checks case-sensitive containment.
+Non-text input is inconclusive. `rubric` is the existing `Rubric.make` contract.
+
+`testsPass({ command, sandbox, timeoutMs? })` runs the declared command through
+an already acquired `@smthrs/sandbox` session. It drains both output streams and
+waits for the real exit: zero scores 1, every other valid exit scores 0. The
+result includes `meta.exitCode`. Launch, transport or timeout failure raises
+`ScorerError` with code `inconclusive`; `Runner` retains it as an inconclusive
+observation. The command scope closes on completion, interruption and timeout.
+The default timeout is 60,000 ms; a blank command or a nonpositive/noninteger
+timeout is an invalid declaration. Command and timeout enter the scorer identity.
+The host selects the sandbox; the scorer does not grant filesystem or network access.
+
+`diffSize({ max })` and `touchedFiles({ max })` grade string `output` containing
+a complete text unified diff. `diffSize` counts added plus removed hunk lines;
+`touchedFiles` counts distinct paths, including deleted files, with repeated
+hunks deduplicated. Equality to the cap passes. Both return counts in `reason`
+and `meta: { added, removed, files, count, max }`. Empty diffs count zero;
+malformed, incomplete, binary or metadata-only files without unified headers are inconclusive. `max` must be a
+nonnegative safe integer and enters the scorer identity.
+
+### Scorers export index
+
+| Export                     | Kind      | Category | Summary                                                                      |
+| -------------------------- | --------- | -------- | ---------------------------------------------------------------------------- |
+| `Scorers.exact`            | const     | scorers  | Normalized text equality: trims edges and collapses whitespace.              |
+| `Scorers.contains`         | const     | scorers  | Case-sensitive containment of ground-truth text.                             |
+| `Scorers.rubric`           | const     | scorers  | The existing model-agnostic 1–5 rubric scorer.                               |
+| `Scorers.TestsPassOptions` | interface | models   | A declared command and already acquired sandbox session.                     |
+| `Scorers.testsPass`        | const     | scorers  | Grades sandbox command exit; launch and transport failure stay inconclusive. |
+| `Scorers.DiffOptions`      | interface | models   | An inclusive nonnegative diff budget.                                        |
+| `Scorers.diffSize`         | const     | scorers  | Added plus removed lines against an inclusive cap.                           |
+| `Scorers.touchedFiles`     | const     | scorers  | Distinct file paths against an inclusive cap.                                |

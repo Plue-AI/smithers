@@ -18885,6 +18885,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/scorers/src/Scorers.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/scorers/src/SqlScoreStore.ts"
       },
       {
@@ -20974,6 +20978,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/engine-store/src/StepBoundary.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine-store/src/StepCacheFold.ts"
       },
       {
         "kind": "file",
@@ -24118,6 +24126,14 @@
       {
         "kind": "file",
         "path": "packages/smithers/ui/src/alert.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/app-operations/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/app-operations/wiki.ts"
       },
       {
         "kind": "file",
@@ -31672,6 +31688,10 @@
       {
         "kind": "file",
         "path": "flows/test/review-flow.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/host-jev-routing.test.ts"
       },
       {
         "kind": "file",

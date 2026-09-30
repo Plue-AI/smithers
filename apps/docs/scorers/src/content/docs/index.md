@@ -145,6 +145,8 @@ also importable from `@smthrs/scorers/<Module>`:
 | `Checks`        | Pure text and action checks, and a scorer over a list of them.                                        |
 | `Rubric`        | A model-agnostic LLM rubric judge declared as a scorer, and judge calibration.                        |
 
+| `Scorers` | Built-in normalized equality, containment, sandbox test verdicts, diff budgets and rubric. |
+
 Every export of every namespace, with signatures and bounds, is on the
 [API reference](/reference/api/). The one-line member index is in
 [Exported members](/exports/).

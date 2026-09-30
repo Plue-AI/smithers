@@ -1,0 +1,31 @@
+{
+  "sourceCommit": "764281d1055d1bbd649787aee029c33da66bb407",
+  "checks": [
+    {
+      "log": "smithers-burndown-20260930-checkpoint-docs-check.log",
+      "sha256": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab"
+    },
+    {
+      "log": "smithers-burndown-20260930-checkpoint-docs-sync.log",
+      "sha256": "4e0e72a79bbf210d80d3b3c6ce737d916bc5db915558c125a76b2f75d0af2237"
+    },
+    {
+      "log": "smithers-burndown-20260930-checkpoint-markers.log",
+      "sha256": "54e6146936b3ea07a58ee5ca03f31cde5511a19eaf8a325633c4528b3876e227"
+    },
+    {
+      "log": "smithers-burndown-20260930-checkpoint-target-index-check.log",
+      "sha256": "d5664d4dc4896488d7c124157275fae2985e283b1dc33ca77baf30d53a7d07be"
+    },
+    {
+      "log": "smithers-burndown-20260930-checkpoint-target-index.log",
+      "sha256": "520d9d4a8e7cb0bf5a80e1606050c30d999e20e8f6ba6bde58e05fb2c4beb0cd"
+    }
+  ],
+  "knownFailures": [
+    "#3195 app approval_unavailable vocabulary: three tests and app types",
+    "#3203 runs.continue real scenario inventory",
+    "#3184 declaration baseline review ongoing, with legacy record compatibility prerequisite #3206"
+  ],
+  "pendingWork": "1976,3093,3204,3206 remain preserved in the single-worktree checkpoint stash; no completion or release qualification claimed"
+}

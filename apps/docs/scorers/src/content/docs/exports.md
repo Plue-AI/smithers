@@ -8,7 +8,7 @@ Every categorized member reachable through the root namespaces, in source
 order. Signatures, bounds, and the reasoning behind each rule are on the
 [API reference](/reference/api/).
 
-12 namespaces, 101 documented members.
+13 namespaces, 109 documented members.
 
 | Export                               | Kind      | Category     | Summary                                                                                       |
 | ------------------------------------ | --------- | ------------ | --------------------------------------------------------------------------------------------- |
@@ -113,3 +113,11 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `Rubric.decide`                      | const     | predicates   | Applies a `Rule` to scores.                                                                   |
 | `Rubric.make`                        | const     | constructors | Declares a rubric scorer over a caller-supplied judge.                                        |
 | `Rubric.agreement`                   | const     | calibration  | Counts judge agreement with human labels.                                                     |
+| `Scorers.exact`                      | const     | scorers      | Normalized text equality: trims edges and collapses whitespace.                               |
+| `Scorers.contains`                   | const     | scorers      | Case-sensitive containment of ground-truth text.                                              |
+| `Scorers.rubric`                     | const     | scorers      | The existing model-agnostic 1–5 rubric scorer.                                                |
+| `Scorers.TestsPassOptions`           | interface | models       | A declared command and already acquired sandbox session.                                      |
+| `Scorers.testsPass`                  | const     | scorers      | Grades sandbox command exit; launch and transport failure stay inconclusive.                  |
+| `Scorers.DiffOptions`                | interface | models       | An inclusive nonnegative diff budget.                                                         |
+| `Scorers.diffSize`                   | const     | scorers      | Added plus removed lines against an inclusive cap.                                            |
+| `Scorers.touchedFiles`               | const     | scorers      | Distinct file paths against an inclusive cap.                                                 |
