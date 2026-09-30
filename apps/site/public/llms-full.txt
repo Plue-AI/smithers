@@ -149,13 +149,13 @@ Smithers picks and runs the models. Model usage draws on your account credit at 
 | Idle sleep | 30 minutes | 1 hour |
 | Sandbox-hours per day | 4 | Unlimited |
 
-Pro's monthly credit is added when each monthly payment succeeds and expires at the end of that month; unused credit does not roll over. A refund or cancellation ends it. The plans card shows the credit you have left, the credit your plan includes, and the date the next credit arrives.
+Pro's credit is added when each monthly payment succeeds and lasts for the month that payment covers, not the calendar month: subscribe on September 17 and that credit expires on October 17. Unused credit does not roll over. A refund, a dispute, or the end of your subscription removes it. The plans card shows the credit you have left, the credit your plan includes, and the date the next credit arrives.
 
 When credit runs out, new model calls stop until more credit arrives. The plans card then offers Upgrade to Pro.
 
 Sandbox-hours measure the time your sandboxes are awake, added together across running sandboxes. Daily usage resets at midnight UTC.
 
-Pro renews monthly until you cancel. Cancel anytime in the billing portal; Pro stays active until the end of the paid month. See [Terms](/terms/), [Refunds](/refunds/) and [Privacy](/privacy/).
+Pro renews monthly until you cancel. Cancel anytime in the billing portal; Pro and its credit stay active until the end of the period you paid for. See [Terms](/terms/), [Refunds](/refunds/) and [Privacy](/privacy/).
 
 ## Choose or manage a plan
 

@@ -2,7 +2,7 @@
 layout: ../layouts/Legal.astro
 title: Terms of Service
 description: The terms for using Smithers, operated by Tevm Inc.
-updated: September 25, 2026
+updated: September 30, 2026
 ---
 
 <!-- COUNSEL REVIEW PENDING: draft by Tevm Inc., 2026-09-25. Not reviewed by a lawyer. -->
@@ -21,8 +21,8 @@ You must be at least 18. Keep your sign-in secure; you are responsible for what 
 | Pro | $50 per month | $50 each paid month |
 
 - **Pro renews automatically every month** at the price shown at checkout until you cancel. Stripe charges the card you give at checkout.
-- **Cancel anytime** in the billing portal (`/billing.portal` in the app). Cancellation stops the next renewal; Pro stays active until the end of the month you paid for.
-- **Model credit** pays for the model calls Smithers makes for you. Monthly credit expires at the end of the month it was granted for. Credit has no cash value, cannot be transferred, and is not refunded on its own.
+- **Cancel anytime** in the billing portal (`/billing.portal` in the app). Cancellation stops the next renewal; Pro stays active until the end of the period you paid for.
+- **Model credit** pays for the model calls Smithers makes for you. Each payment's credit lasts for the month that payment covers, not the calendar month: if you subscribe on September 17, that payment's credit expires on October 17. Unused credit does not roll over. A refund, a dispute, or the end of your subscription removes it. Credit has no cash value, cannot be transferred, and is not refunded on its own.
 - When credit runs out, new model calls stop until more credit arrives or you upgrade.
 - We may change prices for future months. We will email you at least 30 days before a price change applies to you.
 - Refunds follow our [Refund Policy](/refunds/).
@@ -49,7 +49,7 @@ To the extent the law allows, Smithers is not liable for indirect, incidental, s
 
 ## Ending the agreement
 
-You can stop using the Service and delete your account at any time. We may suspend or end your access if you break these terms or if we stop offering the Service; if we end a paid plan without cause, we refund the unused part of your current month.
+You can stop using the Service and delete your account at any time. We may suspend or end your access if you break these terms or if we stop offering the Service; if we end a paid plan without cause, we refund the unused part of your current billing period.
 
 ## Changes and law
 

@@ -17,14 +17,15 @@ import (
 
 type subscriptionTransport struct {
 	commerce.Client
-	owner  int64
-	status string
-	end    time.Time
+	owner             int64
+	status            string
+	end               time.Time
+	cancelAtPeriodEnd bool
 }
 
 func (p *subscriptionTransport) GetSubscription(context.Context, string) (commerce.SubscriptionSnapshot, error) {
 	return commerce.SubscriptionSnapshot{ID: "sub_plan", CustomerID: "cus_plan", PriceID: "price_pro", Interval: "monthly", Status: p.status,
-		Quantity: 1, CurrentPeriodEnd: p.end, RawPayload: []byte(`{}`),
+		Quantity: 1, CurrentPeriodEnd: p.end, CancelAtPeriodEnd: p.cancelAtPeriodEnd, RawPayload: []byte(`{}`),
 		Metadata: map[string]string{"owner_type": "user", "owner_id": fmt.Sprint(p.owner)}}, nil
 }
 
@@ -366,5 +367,92 @@ func TestPlanCreditCommitsWithItsWebhook(t *testing.T) {
 	mac = hmac.New(sha256.New, []byte(secret))
 	fmt.Fprintf(mac, "%d.%s", now, lapse)
 	require.NoError(t, api.HandleStripeWebhook(ctx, lapse, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))))
+	require.Equal(t, int64(1000), balance())
+}
+
+// The Terms example (apps/site/src/pages/terms.md): a Pro payment's credit
+// lasts for the subscription period that payment covers, not the calendar
+// month; unused credit expires at the renewal, and a cancellation ends it
+// with the period (smithersai/plue#559).
+func TestPlanCreditFollowsTheSubscriptionPeriod(t *testing.T) {
+	pool := database(t)
+	ctx := context.Background()
+	owner := user(t, pool)
+	// The first period began one month before its renewal, mid-month in general.
+	renewal := time.Now().Add(time.Hour).Truncate(time.Second)
+	started := renewal.AddDate(0, -1, 0)
+	transport := &subscriptionTransport{owner: owner, status: "active", end: renewal}
+	const secret = "test-only-plan-period-secret"
+	api, err := commerce.New(pool, transport, commerce.Config{Usage: admission.ProductUsage, Prices: admission.Prices{ProMonthly: "price_pro"},
+		WebhookSecret: secret, MonthlyCreditGrantCents: 5000, SignupCreditGrantCents: 1000})
+	require.NoError(t, err)
+	clock := time.Now().Add(-time.Hour)
+	deliver := func(event, kind, object string) {
+		t.Helper()
+		clock = clock.Add(time.Minute)
+		payload := []byte(fmt.Sprintf(`{"id":%q,"type":%q,"created":%d,"data":{"object":%s}}`, event, kind, clock.Unix(), object))
+		now := time.Now().Unix()
+		mac := hmac.New(sha256.New, []byte(secret))
+		fmt.Fprintf(mac, "%d.%s", now, payload)
+		require.NoError(t, api.HandleStripeWebhook(ctx, payload, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))))
+	}
+	invoice := func(event, id string, start, end time.Time) {
+		t.Helper()
+		deliver(event, "invoice.paid", fmt.Sprintf(`{"id":%q,"customer":"cus_plan","amount_paid":5000,"currency":"usd",
+			"parent":{"subscription_details":{"subscription":"sub_plan"}},"lines":{"data":[{"period":{"start":%d,"end":%d}}]}}`,
+			id, start.Unix(), end.Unix()))
+	}
+	ledger := api.CreditLedger()
+	balance := func() int64 {
+		t.Helper()
+		n, err := ledger.OwnerBalance(ctx, "user", owner)
+		require.NoError(t, err)
+		return n / credits.NanosPerCent
+	}
+	expiry := func(id string) time.Time {
+		t.Helper()
+		var at time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM credit_grants WHERE source_key = $1`, "invoice:"+id).Scan(&at))
+		return at
+	}
+
+	// The payment that starts the subscription grants $50 until the renewal.
+	invoice("evt_first", "in_first", started, renewal)
+	require.True(t, expiry("in_first").Equal(renewal), "credit expires at the renewal, not the calendar month end")
+	require.Equal(t, int64(6000), balance())
+
+	// Spending draws the plan credit before the non-expiring signup grant.
+	account, err := ledger.EnsureAccount(ctx, "user", owner)
+	require.NoError(t, err)
+	_, err = ledger.Reserve(ctx, account, "model-call", 2000*credits.NanosPerCent)
+	require.NoError(t, err)
+	_, err = ledger.Settle(ctx, account, "model-call", 2000*credits.NanosPerCent)
+	require.NoError(t, err)
+	require.Equal(t, int64(4000), balance())
+
+	// At the renewal the unused $30 expires; only the signup grant is left.
+	// The ledger expires by the database clock, so the test moves the first
+	// period (the grant's expiry) into the past instead of waiting an hour.
+	_, err = pool.Exec(ctx, `UPDATE credit_grants SET expires_at = now() - interval '1 second' WHERE source_key = 'invoice:in_first'`)
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), balance())
+
+	// The renewal payment grants a fresh $50; nothing rolled over.
+	next := renewal.AddDate(0, 1, 0)
+	transport.end = next
+	invoice("evt_renewal", "in_renewal", renewal, next)
+	require.True(t, expiry("in_renewal").Equal(next))
+	require.Equal(t, int64(6000), balance())
+
+	// Cancelling at period end keeps the credit while the paid period runs;
+	// the subscription's end forfeits the unspent remainder.
+	transport.cancelAtPeriodEnd = true
+	deliver("evt_cancel_scheduled", "customer.subscription.updated", `{"id":"sub_plan","customer":"cus_plan"}`)
+	var scheduled bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT cancel_at_period_end FROM billing_subscriptions WHERE stripe_subscription_id = 'sub_plan'`).Scan(&scheduled))
+	require.True(t, scheduled)
+	require.Equal(t, int64(6000), balance())
+	transport.status = "canceled"
+	deliver("evt_ended", "customer.subscription.deleted", `{"id":"sub_plan","customer":"cus_plan"}`)
 	require.Equal(t, int64(1000), balance())
 }
