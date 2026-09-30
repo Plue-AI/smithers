@@ -4,6 +4,8 @@
  */
 
 import { Control, type ControlSchema } from "@smthrs/control"
+import * as RunDevTools from "@smthrs/gateway/RunDevTools"
+import * as RunTrace from "@smthrs/gateway/RunTrace"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import { Clock, Effect } from "effect"
@@ -357,6 +359,56 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             runtime
           )
         }, { next: Presentation.runs({ show: false }) })
+    })
+    .command("devtools", {
+      description: "Inspect a run's node tree: state, timings, inputs, outputs and journal frames",
+      mcp: { annotations: { readOnlyHint: true } },
+      args: runArgs.extend({ node: z.string().optional().describe("A trace node id; the run itself when omitted") }),
+      options: options.extend({
+        frames: z.number().int().min(0).optional().describe(
+          "Newest journal frames kept on the inspection; 100 by default"
+        )
+      }),
+      run: (c) => {
+        let human = ""
+        return guard(c, async () => {
+          if (!Bridge.hasRecords(c.options, runtime)) {
+            await Bridge.project(checks(c.options, runtime), c.options, runtime)
+            throw unknownRun(c.args.run)
+          }
+          await reconcileHistory(c.options, runtime)
+          return Bridge.read(
+            Effect.gen(function*() {
+              const control = yield* Control.Control
+              const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
+              const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
+              if (run === undefined) throw unknownRun(c.args.run)
+              const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
+                operation: "run devtools",
+                subject: run.runId
+              })
+              // The same fold the app's run card and the terminal read: one projection, three doors.
+              const model = RunTrace.traceFromJournal(
+                { runId: run.runId, flowId: run.flowId, status: run.status },
+                events
+              )
+              const node = c.args.node
+              if (node !== undefined && !model.rows.some((row) => row.id === node)) {
+                throw new CliError.Refused({
+                  fault: "user",
+                  code: "node_not_found",
+                  message: `Run ${run.runId} has no trace node ${node}`
+                })
+              }
+              const bound = { frames: c.options.frames }
+              human = RunDevTools.lines(model, node, { ...bound, width: runtime.stdout?.columns }).join("\n")
+              return { ...RunDevTools.devTools(model), inspection: RunDevTools.inspect(model, node, bound) }
+            }),
+            c.options,
+            runtime
+          )
+        }, { next: Presentation.runs({ show: false }), render: () => ({ human }) })
+      }
     })
     .command("logs", {
       description: "Read run events or follow new events as they commit",

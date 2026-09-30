@@ -164,6 +164,7 @@ it(
           "flow_show",
           "runs_list",
           "runs_show",
+          "runs_devtools",
           "runs_logs",
           "approvals_list",
           "cache_steps_ls",

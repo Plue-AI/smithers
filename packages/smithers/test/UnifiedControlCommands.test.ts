@@ -460,14 +460,66 @@ describe("unified control dispatch", () => {
     })
   })
 
+  it("inspects the requested run's node tree through the shared DevTools projection", async () => {
+    const run = row("run-1", "running")
+    ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [run] }))
+    const calls = [
+      event(1, "control.agent.turn-opened", { seat: "openai:gpt-5.6-sol" }),
+      event(2, "control.agent.cell-call-started", { flowName: "files.read", input: { path: "README.md" } }),
+      event(3, "control.agent.cell-call-settled", { flowName: "files.read", outcome: "success", value: "# Smithers" })
+    ]
+    ports.watch.mockReturnValue(Stream.fromIterable(calls))
+    const result = await invoke(["runs", "devtools", "run-1", "--root", "/fixture", "--json"])
+    expect(ports.watch).toHaveBeenCalledExactlyOnceWith({ runId: "run-1", follow: false })
+    const output = JSON.parse(result.stdout)
+    expect(output.runId).toBe("run-1")
+    expect(output.status).toBe("running")
+    expect(output.nodes.map((node: { label: string }) => node.label)).toEqual([
+      "run run-1 · demo/ship",
+      "frame 1 · openai:gpt-5.6-sol",
+      "files.read"
+    ])
+    expect(output.inspection.node.kind).toBe("run")
+    expect(output.inspection.frameCount).toBe(3)
+
+    const node = await invoke(["runs", "devtools", "run-1", "call-1", "--frames", "1", "--json"])
+    const inspected = JSON.parse(node.stdout)
+    expect(inspected.inspection.node.label).toBe("files.read")
+    expect(inspected.inspection.output).toBe("# Smithers")
+    expect(inspected.inspection.frames.map((frame: { sequence: number }) => frame.sequence)).toEqual([3])
+    expect(inspected.inspection.frameCount).toBe(2)
+
+    // A person at a terminal reads the tree itself, not the document's keys.
+    let tty = ""
+    const human = await invoke(["runs", "devtools", "run-1", "call-1", "--audience", "human"], {
+      stdout: {
+        isTTY: true,
+        columns: 120,
+        write: (text) => {
+          tty += text
+        }
+      }
+    })
+    const printed = human.stdout + tty
+    expect(printed).toContain(">     ● files.read")
+    expect(printed).toContain("call · run run-1 · demo/ship / frame 1 · openai:gpt-5.6-sol / files.read · completed")
+    expect(printed).toContain("Frames 2")
+
+    const missing = await invoke(["runs", "devtools", "run-1", "nope", "--json"])
+    expect(missing.codes).toEqual([1])
+    expect(missing.stdout).toContain("Run run-1 has no trace node nope")
+  })
+
   it.each([{ _tag: "runs", items: [row("other")] }, { _tag: "flows", items: [] }])(
     "does not watch a missing run",
     async (page) => {
-      ports.list.mockReturnValue(Effect.succeed(page))
-      const result = await invoke(["runs", "show", "run-1", "--json"])
-      expect(result.codes).toEqual([1])
-      expect(result.stdout).toContain("Unknown run run-1")
-      expect(ports.watch).not.toHaveBeenCalled()
+      for (const verb of ["show", "devtools"]) {
+        ports.list.mockReturnValue(Effect.succeed(page))
+        const result = await invoke(["runs", verb, "run-1", "--json"])
+        expect(result.codes).toEqual([1])
+        expect(result.stdout).toContain("Unknown run run-1")
+        expect(ports.watch).not.toHaveBeenCalled()
+      }
     }
   )
 
