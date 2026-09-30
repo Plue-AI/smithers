@@ -104,13 +104,19 @@ for (
       seen.length = 0
       const missing = await evaluate(layer)
       assert.equal(missing._tag, "Failure")
-      if (missing._tag === "Failure") assert.equal(missing.failure.code, "unreachable")
+      if (missing._tag === "Failure") {
+        assert.equal(missing.failure.code, "unconfigured")
+        assert.match(Evaluator.publicMessage(missing.failure), /AI_GATEWAY_API_KEY/)
+      }
       assert.deepEqual(seen, ["/routes"], "an empty pool cannot fall back to another provider")
 
       refused = true
       const failed = await evaluate(layer)
       assert.equal(failed._tag, "Failure")
-      if (failed._tag === "Failure") assert.equal(failed.failure.code, "unreachable")
+      if (failed._tag === "Failure") {
+        assert.equal(failed.failure.code, "unconfigured", "an unreadable pool fails closed with the setup reason")
+        assert.match(Evaluator.publicMessage(failed.failure), /AI_GATEWAY_API_KEY/)
+      }
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
     }
@@ -124,8 +130,9 @@ for (
     }))
     assert.equal(result._tag, "Failure")
     if (result._tag === "Failure") {
-      assert.equal(result.failure.code, "unreachable")
-      assert.equal(result.failure.message, Evaluator.unreachableMessage)
+      assert.equal(result.failure.code, "unconfigured")
+      assert.equal(Evaluator.publicMessage(result.failure), result.failure.message)
+      assert.match(result.failure.message, /AI_GATEWAY_API_KEY/)
     }
   })
 }

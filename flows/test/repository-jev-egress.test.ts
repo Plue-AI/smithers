@@ -75,7 +75,9 @@ test("the host's judge reaches the subscription pool through the configured prox
         })).pipe(Effect.provide(evaluatorLayer(environment)))
     ))
     assert.equal(answered._tag, "Failure", "the refusing proxy cannot produce a model answer")
-    if (answered._tag === "Failure") assert.equal(answered.failure.code, "unreachable")
+    if (answered._tag === "Failure") {
+      assert.equal(answered.failure.code, "unconfigured", "an unreadable pool fails closed with the setup reason")
+    }
     assert.ok(proxy.seen.length > 0, "the subscription pool must be reached through the proxy")
     assert.ok(proxy.seen.every((request) => request === "CONNECT pool.example.test:443"))
   } finally {
