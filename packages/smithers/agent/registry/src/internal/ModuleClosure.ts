@@ -181,6 +181,10 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
   }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
+    if (token.kind === "unparsed") {
+      opaque++
+      continue
+    }
     // `host["require"]` reaches the loader through a computed member access
     // that names it with a literal, which is a loader under another spelling.
     if (token.kind === "string") {

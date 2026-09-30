@@ -63,7 +63,7 @@ interface FlowObject {
  * @private
  */
 export interface Token {
-  readonly kind: "identifier" | "number" | "punctuation" | "regex" | "string"
+  readonly kind: "identifier" | "number" | "punctuation" | "regex" | "string" | "unparsed"
   readonly value: string
   readonly start: number
   readonly end: number
@@ -352,6 +352,20 @@ const nextToken = (source: string, start: number, context: (index: number) => Co
   return { kind: "punctuation", value: character, start: index, end: index + 1 }
 }
 
+/** Reads template text only; executable substitutions are tokenized by the caller. */
+const templateChunk = (source: string, start: number, opening: boolean) => {
+  for (let index = start + (opening ? 1 : 0); index < source.length; index++) {
+    if (source[index] === "\\") {
+      index++
+    } else if (source[index] === "`") {
+      return { end: index + 1, interpolation: false, closed: true }
+    } else if (source[index] === "$" && source[index + 1] === "{") {
+      return { end: index + 2, interpolation: true, closed: false }
+    }
+  }
+  return { end: source.length, interpolation: false, closed: false }
+}
+
 /**
  * Splits module source into tokens, skipping strings, comments, and regular
  * expressions.
@@ -372,6 +386,8 @@ export const tokenize = (source: string, reading: SlashReading = "likely"): Read
   const heads: Array<boolean> = []
   let closesCondition = false
   let offset = 0
+  // Iterative frames bound nesting without recursing on authored source.
+  const templates: Array<{ expression: boolean; braces: number }> = []
   const context = (index: number): Context => {
     const previous = tokens.at(-1)
     return {
@@ -384,11 +400,47 @@ export const tokenize = (source: string, reading: SlashReading = "likely"): Read
     }
   }
   while (offset < source.length) {
+    const frame = templates.at(-1)
+    const start = frame?.expression === false ? offset : skipTrivia(source, offset)
+    if (frame?.expression === false || source[start] === "`") {
+      const opening = frame?.expression !== false
+      const chunk = templateChunk(source, start, opening)
+      if ((!chunk.closed && !chunk.interpolation) || (opening && chunk.interpolation && templates.length >= 64)) {
+        tokens.push({ kind: "unparsed", value: source.slice(start), start, end: source.length })
+        return tokens
+      }
+      tokens.push({ kind: "string", value: source.slice(start, chunk.end), start, end: chunk.end })
+      if (chunk.interpolation) {
+        if (opening) templates.push({ expression: true, braces: 0 })
+        else frame.expression = true
+        // A substitution starts an expression, so `/.../` here is a regexp.
+        tokens.push({ kind: "punctuation", value: "(", start: chunk.end - 2, end: chunk.end })
+        heads.push(false)
+      } else if (!opening) {
+        templates.pop()
+      }
+      closesCondition = false
+      offset = chunk.end
+      continue
+    }
     const token = nextToken(source, offset, context)
     if (token === undefined) {
       break
     }
     closesCondition = false
+    if (frame?.expression && token.kind === "punctuation") {
+      if (token.value === "{") frame.braces++
+      else if (token.value === "}") {
+        if (frame.braces === 0) {
+          frame.expression = false
+          heads.pop()
+          tokens.push({ ...token, value: ")" })
+          offset = token.end
+          continue
+        }
+        frame.braces--
+      }
+    }
     if (token.kind === "punctuation" && token.value === "(") {
       heads.push(isKeyword(tokens.at(-1), tokens.at(-2), conditionKeywords))
     } else if (token.kind === "punctuation" && token.value === ")") {
@@ -397,6 +449,7 @@ export const tokenize = (source: string, reading: SlashReading = "likely"): Read
     tokens.push(token)
     offset = token.end
   }
+  if (templates.length > 0) tokens.push({ kind: "unparsed", value: "", start: offset, end: offset })
   return tokens
 }
 
