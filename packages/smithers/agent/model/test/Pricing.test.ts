@@ -85,17 +85,19 @@ describe("Pricing.costUsd", () => {
       .toBeCloseTo(272_000 * 0.8 / million, 9)
   })
 
-  it("adds a per-call charge once and nothing for a flat card without one", () => {
-    expect(Pricing.costUsd({ inputTokens: 0, outputTokens: 0 }, Pricing.table["typesafe-ai/jev"]!)).toBe(0.002)
-    expect(Pricing.costUsd({ inputTokens: million, outputTokens: 0 }, Pricing.table["claude-opus-4-8"]!)).toBe(5)
+  it("prices the Jev judge at its published gateway rate: 0.042 USD per million input tokens, output free", () => {
+    const jev = Pricing.table["typesafe-ai/jev"]!
+    expect(Pricing.costUsd({ inputTokens: million, outputTokens: million }, jev)).toBe(0.042)
+    expect(Pricing.costUsd({ inputTokens: 64_000, outputTokens: 3 }, jev)).toBe(0.002688)
+    expect(Pricing.costUsd({ inputTokens: 0, outputTokens: 0 }, jev)).toBe(0)
+    expect(Pricing.cost({ inputTokens: 120, outputTokens: 3 }, "typesafe-ai/jev"))
+      .toEqual({ costUsd: 0.00000504, costSource: "estimated" })
   })
 
-  it("prices a per-call endpoint that reports no token usage at its per-call charge", () => {
-    const jev = Pricing.table["typesafe-ai/jev"]!
-    expect(Pricing.costUsd({}, jev)).toBe(0.002)
-    expect(Pricing.costUsd({ inputTokens: 1 }, jev)).toBeNaN()
-    expect(Pricing.costUsd({ outputTokens: 1 }, jev)).toBeNaN()
-    expect(Pricing.cost({}, "typesafe-ai/jev")).toEqual({ costUsd: 0.002, costSource: "estimated" })
+  it("leaves a call that reported no token counts unpriced, for every card", () => {
+    expect(Pricing.costUsd({}, Pricing.table["typesafe-ai/jev"]!)).toBeNaN()
+    expect(Pricing.costUsd({ inputTokens: 1 }, Pricing.table["typesafe-ai/jev"]!)).toBeNaN()
+    expect(Pricing.cost({}, "typesafe-ai/jev")).toBeUndefined()
     expect(Pricing.costUsd({}, Pricing.table["claude-opus-4-8"]!)).toBeNaN()
   })
 

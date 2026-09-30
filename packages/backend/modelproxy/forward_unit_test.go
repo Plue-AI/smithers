@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/credits"
+	"github.com/smithersai/smithers/packages/backend/modelprice"
 	"github.com/stretchr/testify/require"
 )
 
@@ -282,4 +283,35 @@ func TestForwardUnitConnectionRefusalBeforeSendDoesNotCharge(t *testing.T) {
 	require.Equal(t, 502, response.Code)
 	require.JSONEq(t, `{"error":{"type":"api_error","message":"Model provider unreachable."}}`, response.Body.String())
 	require.Equal(t, 1, calls)
+}
+
+// Jev is priced per input token: a reading settles at the tokens it reported,
+// and one that reported none is unknown, so the reserved ceiling is kept.
+func TestForwardUnitJevSettlesReportedTokens(t *testing.T) {
+	for _, item := range []struct {
+		name    string
+		body    string
+		outcome credits.ModelOutcome
+		usage   modelprice.Usage
+	}{
+		{"camel case usage", `{"answers":{"1":{"type":"boolean"}},"usage":{"inputTokens":120,"outputTokens":3}}`, credits.ModelSucceeded, modelprice.Usage{InputTokens: 120, OutputTokens: 3}},
+		{"no usage", `{"answers":{"1":{"type":"boolean"}}}`, credits.ModelUnknown, modelprice.Usage{}},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			h := &Handler{Keys: &forwardUnitKeys{key: "platform-private-fixture"}, Client: &http.Client{Transport: forwardUnitTransport(func(sent *http.Request) (*http.Response, error) {
+				defer sent.Body.Close()
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: &forwardUnitBody{Reader: strings.NewReader(item.body)}, Request: sent}, nil
+			})}}
+			request := httptest.NewRequest("POST", "/caller", nil)
+			request.Header.Set("Ai-Model-Id", JevModel)
+			parsed, err := parseRequest("vercel", "v4/ai/evaluation-model", request.Header, []byte(`{"questions":{"1":"hello"}}`))
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			result, err := h.forward(context.Background(), response, request, "vercel", routes["vercel"], "v4/ai/evaluation-model", parsed)
+			require.NoError(t, err)
+			require.Equal(t, item.outcome, result.Outcome)
+			require.Equal(t, item.usage, result.Usage)
+			require.Equal(t, item.body, response.Body.String())
+		})
+	}
 }

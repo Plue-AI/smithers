@@ -237,11 +237,6 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 	if readErr != nil || len(raw) > maxResponseBody {
 		return result, nil
 	}
-	if provider == ProviderVercel {
-		// The evaluation model is priced per call and reports no tokens.
-		result.Outcome = credits.ModelSucceeded
-		return result, nil
-	}
 	if usage, ok := usageFromJSON(raw); ok {
 		result.Outcome, result.Usage = credits.ModelSucceeded, usage
 	}

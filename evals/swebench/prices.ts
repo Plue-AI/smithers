@@ -107,8 +107,7 @@ export const usd = (
     ? price.longContext :
     price
   const uncached = Math.max(0, tokens.inputTokens - tokens.cachedInputTokens)
-  const total = price.flatPerCall ?? 0
   const metered = (uncached * rates.input + tokens.cachedInputTokens * rates.cacheRead
     + write * rates.cacheWrite + tokens.outputTokens * rates.output) / 1_000_000
-  return { usd: Math.round((total + metered) * 10_000) / 10_000, source: "modelprice Go rate card" }
+  return { usd: Math.round(metered * 10_000) / 10_000, source: "modelprice Go rate card" }
 }

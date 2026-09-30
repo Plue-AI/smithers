@@ -31,6 +31,15 @@ var routes = map[string]route{
 // ai-model-id header rather than the body.
 const JevModel = "typesafe-ai/jev"
 
+// JevMaxRequestTokens is the gateway's limit on one Jev request, state and
+// questions together (https://ai-gateway.vercel.sh/v1/models). Jev is priced
+// per input token and its output is free, so this is the call's bound.
+const JevMaxRequestTokens = 64_000
+
+// JevMaximum is the dearest usage one Jev call can report: its rate card has
+// one input rate for every cache class.
+var JevMaximum = modelprice.Usage{InputTokens: JevMaxRequestTokens}
+
 const (
 	// inputAllowance covers tokens a provider adds beyond the request text:
 	// message framing and the tool-use system prompt.
@@ -85,7 +94,7 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 		if !json.Valid(body) {
 			return parsedCall{}, refuse("request body must be JSON")
 		}
-		return parsedCall{body: body, model: JevModel, maximum: func(modelprice.Price) modelprice.Usage { return modelprice.Usage{} }}, nil
+		return parsedCall{body: body, model: JevModel, maximum: func(modelprice.Price) modelprice.Usage { return JevMaximum }}, nil
 	}
 	if provider == ProviderAnthropic && strings.Contains(strings.ToLower(header.Get("Anthropic-Beta")), "context-1m") {
 		return parsedCall{}, refuse("the long-context beta is not offered on platform keys")
@@ -378,13 +387,15 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 		return modelprice.Usage{}, errUsageMissing
 	}
 	var u struct {
-		InputTokens      *int64 `json:"input_tokens"`
-		OutputTokens     *int64 `json:"output_tokens"`
-		PromptTokens     *int64 `json:"prompt_tokens"`
-		CompletionTokens *int64 `json:"completion_tokens"`
-		CacheRead        *int64 `json:"cache_read_input_tokens"`
-		CacheWrite       *int64 `json:"cache_creation_input_tokens"`
-		CacheCreation    struct {
+		InputTokens       *int64 `json:"input_tokens"`
+		OutputTokens      *int64 `json:"output_tokens"`
+		InputTokensCamel  *int64 `json:"inputTokens"`
+		OutputTokensCamel *int64 `json:"outputTokens"`
+		PromptTokens      *int64 `json:"prompt_tokens"`
+		CompletionTokens  *int64 `json:"completion_tokens"`
+		CacheRead         *int64 `json:"cache_read_input_tokens"`
+		CacheWrite        *int64 `json:"cache_creation_input_tokens"`
+		CacheCreation     struct {
 			FiveMinute *int64 `json:"ephemeral_5m_input_tokens"`
 			OneHour    *int64 `json:"ephemeral_1h_input_tokens"`
 		} `json:"cache_creation"`
@@ -411,8 +422,9 @@ func decodeUsage(raw json.RawMessage) (modelprice.Usage, error) {
 			}
 		}
 	}
-	pick(&out.InputTokens, u.InputTokens, u.PromptTokens)
-	pick(&out.OutputTokens, u.OutputTokens, u.CompletionTokens)
+	// The Vercel AI Gateway evaluation model reports camelCase counts.
+	pick(&out.InputTokens, u.InputTokens, u.PromptTokens, u.InputTokensCamel)
+	pick(&out.OutputTokens, u.OutputTokens, u.CompletionTokens, u.OutputTokensCamel)
 	pick(&out.CacheReadTokens, u.CacheRead, u.PromptDetails.Cached, u.InputDetails.Cached)
 	pick(&out.CacheWriteTokens, u.CacheWrite, u.PromptDetails.CacheWrite, u.InputDetails.CacheWrite)
 	// Anthropic's cache_creation_input_tokens counts both cache lifetimes;

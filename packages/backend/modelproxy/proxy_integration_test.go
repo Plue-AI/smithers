@@ -499,7 +499,7 @@ func TestProxy_NeverLeaksTheKey(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Echo", r.Header.Get("X-Api-Key"))
 		if r.Header.Get("Ai-Model-Id") != "" {
-			_, _ = w.Write([]byte(`{"answers":{}}`))
+			_, _ = w.Write([]byte(`{"answers":{},"usage":{"inputTokens":1000,"outputTokens":2}}`))
 			return
 		}
 		if strings.Contains(r.URL.Path, "chat") {
@@ -544,8 +544,8 @@ func TestProxy_NeverLeaksTheKey(t *testing.T) {
 	require.NotContains(t, f.logs.String(), platformKey)
 	rows := f.rows()
 	require.Equal(t, "failed", rows[1].outcome, "the provider's 401 is released")
-	require.Equal(t, "succeeded", rows[2].outcome, "Jev is priced per call")
-	require.Equal(t, int64(2_000_000), rows[2].charged)
+	require.Equal(t, "succeeded", rows[2].outcome, "Jev is priced per input token")
+	require.Equal(t, int64(42_000), rows[2].charged, "1,000 input tokens at 0.042 USD per million")
 }
 
 // A gateway status can arrive after the model ran, so it is charged the bound;

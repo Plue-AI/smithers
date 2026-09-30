@@ -136,6 +136,10 @@ func (j *JevRecommender) Recommend(ctx context.Context, input ports.Recommendati
 			Choice        string             `json:"choice"`
 			Probabilities map[string]float64 `json:"probabilities"`
 		} `json:"answers"`
+		Usage *struct {
+			InputTokens  *int64 `json:"inputTokens"`
+			OutputTokens *int64 `json:"outputTokens"`
+		} `json:"usage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&envelope); err != nil || len(envelope.Answers) == 0 {
 		return ports.RecommendationResult{}, errors.New("Jev returned no decision")
@@ -179,5 +183,9 @@ func (j *JevRecommender) Recommend(ctx context.Context, input ports.Recommendati
 		commands = append(commands, item.name)
 	}
 	commands = append(commands, chosen...)
-	return ports.RecommendationResult{Commands: commands, Model: model}, nil
+	result := ports.RecommendationResult{Commands: commands, Model: model}
+	if usage := envelope.Usage; usage != nil && usage.InputTokens != nil && usage.OutputTokens != nil {
+		result.Usage = &ports.RecommendationUsage{InputTokens: *usage.InputTokens, OutputTokens: *usage.OutputTokens}
+	}
+	return result, nil
 }

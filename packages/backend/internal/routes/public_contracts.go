@@ -14,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/modelprice"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
@@ -145,13 +146,18 @@ func (h *RecommendationHandler) recommend(ctx context.Context, user *db.User, in
 	}
 	var result ports.RecommendationResult
 	caller := modelproxy.Caller{OwnerType: "user", OwnerID: user.ID, UserID: user.ID, Source: modelproxy.SourceRecommendation}
-	_, err := h.Meter.Execute(ctx, caller, modelproxy.Call{Provider: modelproxy.ProviderVercel, Model: modelproxy.JevModel},
+	maximum := modelproxy.JevMaximum
+	_, err := h.Meter.Execute(ctx, caller, modelproxy.Call{Provider: modelproxy.ProviderVercel, Model: modelproxy.JevModel, Maximum: maximum},
 		func(ctx context.Context) (modelproxy.Result, error) {
 			var callErr error
 			result, callErr = h.Recommender.Recommend(ctx, input)
 			switch {
+			case callErr == nil && result.Usage != nil:
+				usage := modelprice.Usage{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens}
+				return modelproxy.Result{Outcome: credits.ModelSucceeded, Usage: usage}, nil
 			case callErr == nil:
-				return modelproxy.Result{Outcome: credits.ModelSucceeded}, nil
+				// An answer without a token count is charged at the request ceiling.
+				return modelproxy.Result{Outcome: credits.ModelSucceeded, Usage: maximum}, nil
 			case errors.Is(callErr, modelproxy.ErrNotCharged), errors.Is(callErr, ports.ErrModelCredentialMissing):
 				return modelproxy.Result{Outcome: credits.ModelFailed}, callErr
 			default:

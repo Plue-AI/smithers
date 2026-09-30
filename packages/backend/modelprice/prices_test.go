@@ -44,18 +44,42 @@ func TestMaximumChoosesDearerPromptClassAndKeepsOutputLimit(t *testing.T) {
 	}
 }
 
-func TestCostNanosRoundsOnlyOnceAndIncludesFlatCharge(t *testing.T) {
+func TestCostNanosRoundsOnlyOnce(t *testing.T) {
 	price := Price{Context: ContextFlat, Rates: Rates{
 		InputPerMTok: 1, OutputPerMTok: 1, CacheReadPerMTok: 1, CacheWritePerMTok: 1,
-	}, FlatPerCall: 2}
+	}}
 	usage := Usage{InputTokens: 1, OutputTokens: 1, CacheReadTokens: 1, CacheWriteTokens: 1}
 	got, err := CostNanos(price, usage)
-	if err != nil || got != 2001 {
-		t.Fatalf("cost=%d err=%v, want one rounded nano plus 2000 flat nanos", got, err)
+	if err != nil || got != 1 {
+		t.Fatalf("cost=%d err=%v, want four sub-nano parts rounded up once to 1", got, err)
 	}
 	got, err = CostNanos(price, Usage{})
-	if err != nil || got != 2000 {
-		t.Fatalf("zero-token flat call=%d err=%v", got, err)
+	if err != nil || got != 0 {
+		t.Fatalf("zero-token call=%d err=%v", got, err)
+	}
+}
+
+// TestJevIsPricedPerInputToken pins the judge's published gateway rate
+// (https://ai-gateway.vercel.sh/v1/models, read 2026-09-29): 0.042 USD per
+// million input tokens, output free, no per-call charge.
+func TestJevIsPricedPerInputToken(t *testing.T) {
+	jev, ok := Lookup("typesafe-ai/jev")
+	if !ok || jev.Provider != "vercel" {
+		t.Fatalf("jev=%+v ok=%v", jev, ok)
+	}
+	for _, tc := range []struct {
+		usage Usage
+		want  int64
+	}{
+		{Usage{}, 0},
+		{Usage{InputTokens: 1_000_000}, 42_000_000},
+		{Usage{InputTokens: 1_000, OutputTokens: 7}, 42_000},
+		{Usage{InputTokens: 64_000}, 2_688_000},
+		{Usage{InputTokens: 1}, 42},
+	} {
+		if got, err := CostNanos(jev, tc.usage); err != nil || got != tc.want {
+			t.Errorf("%+v: cost=%d err=%v, want %d", tc.usage, got, err, tc.want)
+		}
 	}
 }
 
@@ -73,10 +97,6 @@ func TestCostNanosRejectsEveryNegativeUsageAndPriceClass(t *testing.T) {
 		if _, err := CostNanos(price, Usage{}); err == nil || err.Error() != "negative model price" {
 			t.Fatalf("rates %+v: err=%v", rates, err)
 		}
-	}
-	base.FlatPerCall = -1
-	if _, err := CostNanos(base, Usage{}); err == nil || err.Error() != "negative model price" {
-		t.Fatalf("negative flat charge: err=%v", err)
 	}
 }
 
@@ -324,7 +344,7 @@ func TestAnthropicOneHourCacheWrites(t *testing.T) {
 	}
 	for model, price := range Table {
 		for _, rates := range []Rates{price.Rates, price.LongContext} {
-			if rates == (Rates{}) || price.FlatPerCall > 0 {
+			if rates == (Rates{}) {
 				continue
 			}
 			want := rates.CacheWritePerMTok

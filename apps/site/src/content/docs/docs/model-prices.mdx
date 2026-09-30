@@ -3,34 +3,34 @@ title: "Model prices"
 description: "Managed model credit rates per million tokens."
 ---
 
-Source date: 2026-09-27. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Token rates below are USD per million tokens; per-call charges are USD per call. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.
+Source date: 2026-09-29. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Rates below are USD per million tokens. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.
 
-| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output | Per call |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| claude-fable-5 | 10 | 1 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
-| claude-fable-5-1 | 10 | 0.25 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
-| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 2 | 5 | - | - | - | - | - | - | - |
-| claude-opus-4-6 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-4-7 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-4-8 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-5 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-5-5 | 4 | 0.2 | 5 | 8 | 20 | - | - | - | - | - | - | - |
-| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 6 | 15 | 200000 | 6 | 0.6 | 7.5 | 12 | 22.5 | - |
-| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 6 | 15 | - | - | - | - | - | - | - |
-| claude-sonnet-5 | 2 | 0.2 | 2.5 | 4 | 10 | - | - | - | - | - | - | - |
-| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 0.75 | 3.75 | - | - | - | - | - | - | - |
-| gpt-4o | 2.5 | 1.25 | 2.5 | 2.5 | 10 | - | - | - | - | - | - | - |
-| gpt-5.5 | 5 | 0.5 | 5 | 5 | 30 | 272000 | 10 | 1 | 10 | 10 | 45 | - |
-| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 | - |
-| gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 | - |
-| gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 | - |
-| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 | - |
-| gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
-| gpt-6.1-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
-| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
-| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
-| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - | - |
-| typesafe-ai/jev | 0 | 0 | 0 | 0 | 0 | - | - | - | - | - | - | 0.002 |
+| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| claude-fable-5 | 10 | 1 | 12.5 | 20 | 50 | - | - | - | - | - | - |
+| claude-fable-5-1 | 10 | 0.25 | 12.5 | 20 | 50 | - | - | - | - | - | - |
+| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 2 | 5 | - | - | - | - | - | - |
+| claude-opus-4-6 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-4-7 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-4-8 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-5 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-5-5 | 4 | 0.2 | 5 | 8 | 20 | - | - | - | - | - | - |
+| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 6 | 15 | 200000 | 6 | 0.6 | 7.5 | 12 | 22.5 |
+| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 6 | 15 | - | - | - | - | - | - |
+| claude-sonnet-5 | 2 | 0.2 | 2.5 | 4 | 10 | - | - | - | - | - | - |
+| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 0.75 | 3.75 | - | - | - | - | - | - |
+| gpt-4o | 2.5 | 1.25 | 2.5 | 2.5 | 10 | - | - | - | - | - | - |
+| gpt-5.5 | 5 | 0.5 | 5 | 5 | 30 | 272000 | 10 | 1 | 10 | 10 | 45 |
+| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 |
+| gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 |
+| gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 |
+| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 |
+| gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 |
+| gpt-6.1-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 |
+| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
+| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
+| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - |
+| typesafe-ai/jev | 0.042 | 0.042 | 0.042 | 0.042 | 0 | - | - | - | - | - | - |
 
 At or above the long-context prompt threshold, the long rates apply to the whole call.
 

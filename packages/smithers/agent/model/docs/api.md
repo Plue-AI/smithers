@@ -719,7 +719,7 @@ includes cache reads and cache writes; each class is charged at its own rate.
 | `table`                            | constant | Every priced model, keyed by wire model id. Spread it with your own rows to override a model or seat.                                                                                                       |
 | `lookup(modelId, { table?, at? })` | resolver | The rate card in effect at `at`: an exact row, else the bare model of a seat (`openai:gpt-5.6-sol`) or gateway id (`anthropic/claude-sonnet-5`), else a dated snapshot's family. `undefined` when unpriced. |
 | `weigh(usage, rates)`              | function | The rate-weighted token sum. `NaN` for missing input or output counts, invalid counters, or cache classes larger than the input count.                                                                      |
-| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold; a per-call charge is added once.                                                                                            |
+| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold.                                                                                                                             |
 | `cost(usage, modelId, options?)`   | function | `{ costUsd, costSource }`: `"reported"` when the usage carries a valid provider charge, else `"estimated"` from the rate card; `undefined` when neither exists.                                             |
 
 `@smthrs/agent`'s `Budget` writes `costUsd` and `costSource` on each usage

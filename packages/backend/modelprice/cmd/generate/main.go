@@ -25,13 +25,12 @@ type rate struct {
 }
 type row struct {
 	rate
-	Provider        string  `json:"provider"`
-	Context         string  `json:"context"`
-	LongContextFrom int64   `json:"longContextFrom,omitempty"`
-	LongContext     *rate   `json:"longContext,omitempty"`
-	FlatPerCall     float64 `json:"flatPerCall,omitempty"`
-	NextFrom        string  `json:"nextFrom,omitempty"`
-	Next            *row    `json:"next,omitempty"`
+	Provider        string `json:"provider"`
+	Context         string `json:"context"`
+	LongContextFrom int64  `json:"longContextFrom,omitempty"`
+	LongContext     *rate  `json:"longContext,omitempty"`
+	NextFrom        string `json:"nextFrom,omitempty"`
+	Next            *row   `json:"next,omitempty"`
 }
 
 func rates(r modelprice.Rates) rate {
@@ -42,7 +41,7 @@ func convert(p modelprice.Price) row {
 	if p.Context == modelprice.ContextTiered {
 		c = "tiered"
 	}
-	v := row{rate: rates(p.Rates), Provider: p.Provider, Context: c, LongContextFrom: p.LongContextFrom, FlatPerCall: float64(p.FlatPerCall) / 1e6}
+	v := row{rate: rates(p.Rates), Provider: p.Provider, Context: c, LongContextFrom: p.LongContextFrom}
 	if p.Context == modelprice.ContextTiered {
 		x := rates(p.LongContext)
 		v.LongContext = &x
@@ -90,7 +89,6 @@ export interface ModelPrice {
     readonly cacheWrite: number
     readonly cacheWrite1h: number
   }
-  readonly flatPerCall?: number
   readonly nextFrom?: string
   readonly next?: ModelPrice
 }
@@ -121,8 +119,8 @@ func main() {
 	docPath := filepath.Join("apps", "site", "src", "content", "docs", "docs", "model-prices.mdx")
 	var sheet bytes.Buffer
 	sheet.WriteString("---\ntitle: \"Model prices\"\ndescription: \"Managed model credit rates per million tokens.\"\n---\n\n")
-	sheet.WriteString("Source date: 2026-09-27. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Token rates below are USD per million tokens; per-call charges are USD per call. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.\n\n")
-	sheet.WriteString("| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output | Per call |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	sheet.WriteString("Source date: 2026-09-29. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Rates below are USD per million tokens. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.\n\n")
+	sheet.WriteString("| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
 	ids := make([]string, 0, len(rows))
 	for id := range rows {
 		ids = append(ids, id)
@@ -139,11 +137,7 @@ func main() {
 			longWrite1h = fmt.Sprint(p.LongContext.CacheWrite1h)
 			longOut = fmt.Sprint(p.LongContext.Output)
 		}
-		perCall := "-"
-		if p.FlatPerCall != 0 {
-			perCall = fmt.Sprint(p.FlatPerCall)
-		}
-		fmt.Fprintf(&sheet, "| %s | %g | %g | %g | %g | %g | %s | %s | %s | %s | %s | %s | %s |\n", id, p.Input, p.CacheRead, p.CacheWrite, p.CacheWrite1h, p.Output, longFrom, longIn, longRead, longWrite, longWrite1h, longOut, perCall)
+		fmt.Fprintf(&sheet, "| %s | %g | %g | %g | %g | %g | %s | %s | %s | %s | %s | %s |\n", id, p.Input, p.CacheRead, p.CacheWrite, p.CacheWrite1h, p.Output, longFrom, longIn, longRead, longWrite, longWrite1h, longOut)
 	}
 	sheet.WriteString("\nAt or above the long-context prompt threshold, the long rates apply to the whole call.\n")
 	for _, id := range ids {

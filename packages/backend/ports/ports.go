@@ -51,6 +51,15 @@ type RecommendationRequest struct {
 type RecommendationResult struct {
 	Commands []string `json:"commands"`
 	Model    string   `json:"model"`
+	// Usage is the token count the model reported, nil when it reported
+	// none. The route meters it; it never reaches the client.
+	Usage *RecommendationUsage `json:"-"`
+}
+
+// RecommendationUsage is what one decision-model call reported.
+type RecommendationUsage struct {
+	InputTokens  int64
+	OutputTokens int64
 }
 
 // Recommender is the deployment-provided decision model. Implementations own

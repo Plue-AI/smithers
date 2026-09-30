@@ -3,34 +3,34 @@
 # Model prices
 https://smithers.sh/docs/model-prices/
 
-Source date: 2026-09-27. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Token rates below are USD per million tokens; per-call charges are USD per call. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.
+Source date: 2026-09-29. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Rates below are USD per million tokens. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.
 
-| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output | Per call |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| claude-fable-5 | 10 | 1 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
-| claude-fable-5-1 | 10 | 0.25 | 12.5 | 20 | 50 | - | - | - | - | - | - | - |
-| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 2 | 5 | - | - | - | - | - | - | - |
-| claude-opus-4-6 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-4-7 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-4-8 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-5 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - | - |
-| claude-opus-5-5 | 4 | 0.2 | 5 | 8 | 20 | - | - | - | - | - | - | - |
-| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 6 | 15 | 200000 | 6 | 0.6 | 7.5 | 12 | 22.5 | - |
-| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 6 | 15 | - | - | - | - | - | - | - |
-| claude-sonnet-5 | 2 | 0.2 | 2.5 | 4 | 10 | - | - | - | - | - | - | - |
-| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 0.75 | 3.75 | - | - | - | - | - | - | - |
-| gpt-4o | 2.5 | 1.25 | 2.5 | 2.5 | 10 | - | - | - | - | - | - | - |
-| gpt-5.5 | 5 | 0.5 | 5 | 5 | 30 | 272000 | 10 | 1 | 10 | 10 | 45 | - |
-| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 | - |
-| gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 | - |
-| gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 | - |
-| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 | - |
-| gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
-| gpt-6.1-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
-| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
-| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
-| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - | - |
-| typesafe-ai/jev | 0 | 0 | 0 | 0 | 0 | - | - | - | - | - | - | 0.002 |
+| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| claude-fable-5 | 10 | 1 | 12.5 | 20 | 50 | - | - | - | - | - | - |
+| claude-fable-5-1 | 10 | 0.25 | 12.5 | 20 | 50 | - | - | - | - | - | - |
+| claude-haiku-4-5 | 1 | 0.1 | 1.25 | 2 | 5 | - | - | - | - | - | - |
+| claude-opus-4-6 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-4-7 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-4-8 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-5 | 5 | 0.5 | 6.25 | 10 | 25 | - | - | - | - | - | - |
+| claude-opus-5-5 | 4 | 0.2 | 5 | 8 | 20 | - | - | - | - | - | - |
+| claude-sonnet-4-5 | 3 | 0.3 | 3.75 | 6 | 15 | 200000 | 6 | 0.6 | 7.5 | 12 | 22.5 |
+| claude-sonnet-4-6 | 3 | 0.3 | 3.75 | 6 | 15 | - | - | - | - | - | - |
+| claude-sonnet-5 | 2 | 0.2 | 2.5 | 4 | 10 | - | - | - | - | - | - |
+| gemini-3.8-flash | 0.75 | 0.075 | 0.75 | 0.75 | 3.75 | - | - | - | - | - | - |
+| gpt-4o | 2.5 | 1.25 | 2.5 | 2.5 | 10 | - | - | - | - | - | - |
+| gpt-5.5 | 5 | 0.5 | 5 | 5 | 30 | 272000 | 10 | 1 | 10 | 10 | 45 |
+| gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 |
+| gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 |
+| gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 |
+| gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 |
+| gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 |
+| gpt-6.1-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 |
+| gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
+| gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - |
+| qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - |
+| typesafe-ai/jev | 0.042 | 0.042 | 0.042 | 0.042 | 0 | - | - | - | - | - | - |
 
 At or above the long-context prompt threshold, the long rates apply to the whole call.
 
@@ -2193,6 +2193,8 @@ smithers workspace delete BOX_ID --repo acme/app --yes
 **API**
 
 **Available now.** `POST .../workspaces/{id}/suspend`, `POST .../workspaces/{id}/resume`, `DELETE .../workspaces/{id}`. `POST .../workspaces/{id}/snapshot` saves a point; `POST .../workspaces/{id}/fork` starts a new box from it.
+
+A fork, or a box started from a snapshot, starts signed out of Claude Code and Codex. Sign in again inside it.
 
 ## Next
 
@@ -36115,7 +36117,7 @@ includes cache reads and cache writes; each class is charged at its own rate.
 | `table`                            | constant | Every priced model, keyed by wire model id. Spread it with your own rows to override a model or seat.                                                                                                       |
 | `lookup(modelId, { table?, at? })` | resolver | The rate card in effect at `at`: an exact row, else the bare model of a seat (`openai:gpt-5.6-sol`) or gateway id (`anthropic/claude-sonnet-5`), else a dated snapshot's family. `undefined` when unpriced. |
 | `weigh(usage, rates)`              | function | The rate-weighted token sum. `NaN` for missing input or output counts, invalid counters, or cache classes larger than the input count.                                                                      |
-| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold; a per-call charge is added once.                                                                                            |
+| `costUsd(usage, price)`            | function | USD for one call. A long-context card prices the whole call from its threshold.                                                                                                                             |
 | `cost(usage, modelId, options?)`   | function | `{ costUsd, costSource }`: `"reported"` when the usage carries a valid provider charge, else `"estimated"` from the rate card; `undefined` when neither exists.                                             |
 
 `@smthrs/agent`'s `Budget` writes `costUsd` and `costSource` on each usage
@@ -38978,7 +38980,7 @@ The static filesystem declaration vocabulary shared by planning and execution: a
 ### The declaration types
 
 ```ts
-const Pattern: Schema.String // workspace-relative, with `*` and `**`
+const Pattern: Schema.String // workspace-relative; `*` and `**` match only inside a Glob
 const Glob: Schema.TaggedStruct<"Glob", { include: NonEmptyArray<Pattern>; exclude?: Array<Pattern> }>
 const TreeArtifact: Schema.TaggedStruct<"TreeArtifact", { path: Pattern }>
 const Filegroup: Schema.TaggedStruct<"Filegroup", { name: NonEmptyString; entries: Array<Entry> }>
@@ -39062,7 +39064,7 @@ segment pair once, without regex backtracking.
 const overlaps: (left: Entry, right: Entry) => boolean
 ```
 
-Conservative static overlap. Exact paths, wildcard strings, and tree roots compare in `folded` form: canonical separator, NFC, and case-insensitive. A glob against an exact path folds both its `include` and `exclude` patterns. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
+Conservative static overlap. A plain string is a literal path, even one containing `*` or `**`, as it is at execution. Exact paths and tree roots compare in `folded` form: canonical separator, NFC, and case-insensitive. A glob against an exact path folds both its `include` and `exclude` patterns. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
 
 ## Effects
 
@@ -51323,6 +51325,7 @@ Arguments:
 
 Options:
   --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
+  --user-id <number>       Account id the first erase returned; required once the username is reused
   --yes
 
 Custom Global Options:

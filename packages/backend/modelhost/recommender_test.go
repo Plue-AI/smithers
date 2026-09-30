@@ -36,6 +36,31 @@ func TestJevRecommender_UsesGatewayDecisionAndFiltersAtRouteBoundary(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, JevDefaultModel, gotHeader)
 	require.Equal(t, []string{"review", "help"}, result.Commands)
+	require.Nil(t, result.Usage, "an answer without usage reports none")
+}
+
+func TestJevRecommender_ReportsTheTokensJevCounted(t *testing.T) {
+	for _, item := range []struct {
+		usage string
+		want  *ports.RecommendationUsage
+	}{
+		{`{"inputTokens":120,"outputTokens":3}`, &ports.RecommendationUsage{InputTokens: 120, OutputTokens: 3}},
+		{`{"inputTokens":120}`, nil},
+		{`{"outputTokens":3}`, nil},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"answers":{"command1":{"type":"choice","choice":"review"}},"usage":` + item.usage + `}`))
+		}))
+		recommender, err := NewJevRecommender(modelproxy.StaticKeys{modelproxy.ProviderVercel: "gateway-key"}, server.URL, server.Client())
+		require.NoError(t, err)
+		result, err := recommender.Recommend(context.Background(), ports.RecommendationRequest{
+			Commands: []ports.RecommendationCommand{{Name: "review", Summary: "Review"}},
+		})
+		server.Close()
+		require.NoError(t, err)
+		require.Equal(t, item.want, result.Usage, item.usage)
+	}
 }
 
 func TestJevRecommenderRejectsInvalidEndpointAndBindingBeforeDispatch(t *testing.T) {

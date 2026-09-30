@@ -30,7 +30,6 @@ export interface ModelPrice {
     readonly cacheWrite: number
     readonly cacheWrite1h: number
   }
-  readonly flatPerCall?: number
   readonly nextFrom?: string
   readonly next?: ModelPrice
 }
@@ -324,13 +323,12 @@ export const modelPrices: Readonly<Record<string, ModelPrice>> = {
     "context": "flat"
   },
   "typesafe-ai/jev": {
-    "input": 0,
+    "input": 0.042,
     "output": 0,
-    "cacheRead": 0,
-    "cacheWrite": 0,
-    "cacheWrite1h": 0,
+    "cacheRead": 0.042,
+    "cacheWrite": 0.042,
+    "cacheWrite1h": 0.042,
     "provider": "vercel",
-    "context": "flat",
-    "flatPerCall": 0.002
+    "context": "flat"
   }
 }

@@ -54,9 +54,6 @@ type Price struct {
 	// token of the call. Only for ContextTiered.
 	LongContextFrom int64
 	LongContext     Rates
-	// FlatPerCall is charged once per call for endpoints that report no
-	// token usage (the Jev evaluation model).
-	FlatPerCall int64
 	// Next replaces this price from NextFrom on: a published, dated change
 	// such as the end of an introductory price.
 	NextFrom time.Time
@@ -111,6 +108,9 @@ const OpenAILongContextFrom = 272_000
 //   - Google: https://ai.google.dev/gemini-api/docs/pricing (paid tier).
 //     No cache-write price is published, so cache writes are charged as
 //     input.
+//   - Vercel AI Gateway: https://ai-gateway.vercel.sh/v1/models, read
+//     2026-09-29 (typesafe-ai/jev: input 0.000000042 USD per token, output
+//     0). No cache price is published, so cached tokens are charged as input.
 var Table = map[string]Price{
 	"claude-fable-5-1":  anthropic(10, 50, 0.025),
 	"claude-fable-5":    anthropic(10, 50, 0.1),
@@ -147,9 +147,8 @@ var Table = map[string]Price{
 	// Introductory through 2026-12-31, doubled from 2027-01-01.
 	"gemini-3.8-flash": dated(flatCached("google", 0.75, 3.75, 0.075), time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), flatCached("google", 1.50, 7.50, 0.15)),
 
-	// Vercel AI Gateway evaluation model: no token usage on the wire, flat
-	// per call (VERIFY against the gateway invoice).
-	"typesafe-ai/jev": {Provider: "vercel", Context: ContextFlat, FlatPerCall: usd(0.002)},
+	// Vercel AI Gateway evaluation model: 64,000 tokens per request at most.
+	"typesafe-ai/jev": flat("vercel", 0.042, 0),
 }
 
 func anthropic(in, out, cacheRead float64) Price {
@@ -279,9 +278,6 @@ func CostNanos(price Price, usage Usage) (int64, error) {
 	if !price.known() {
 		return 0, errors.New("model context pricing is unknown")
 	}
-	if price.FlatPerCall < 0 {
-		return 0, errors.New("negative model price")
-	}
 	prompt := new(big.Int).Add(big.NewInt(usage.InputTokens), big.NewInt(usage.CacheReadTokens))
 	prompt.Add(prompt, big.NewInt(usage.CacheWriteTokens))
 	rates := price.Rates
@@ -301,7 +297,6 @@ func CostNanos(price Price, usage Usage) (int64, error) {
 	if remainder.Sign() > 0 {
 		quotient.Add(quotient, big.NewInt(1))
 	}
-	quotient.Add(quotient, new(big.Int).Mul(big.NewInt(price.FlatPerCall), big.NewInt(1000)))
 	if !quotient.IsInt64() {
 		return 0, errors.New("model cost overflow")
 	}

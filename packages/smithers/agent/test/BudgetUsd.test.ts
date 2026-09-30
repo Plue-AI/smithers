@@ -125,6 +125,30 @@ describe("USD budget admission", () => {
     }))
   })
 
+  it("admits a judged run: judge readings are priced under the rate card, not left unknown", async () => {
+    await Effect.runPromise(Effect.gen(function*() {
+      const budget = yield* Budget.make({ usd: { max: 1 } })
+      yield* budget.record("turn-1", charged(0.4), "anthropic/claude-sonnet-5")
+      // Jev through the gateway: 0.042 USD per million input tokens, output free.
+      expect((yield* budget.admitReading("reading-jev"))._tag).toBe("proceed")
+      yield* budget.record("reading-jev", { inputTokens: 12_000, outputTokens: 3 }, "typesafe-ai/jev")
+      // A subscription judge records its seat's model id.
+      expect((yield* budget.admitReading("reading-luna"))._tag).toBe("proceed")
+      yield* budget.record("reading-luna", { inputTokens: 2_000, outputTokens: 100 }, "openai:gpt-6-luna")
+      const verdict = yield* Effect.scoped(budget.reserve("turn-2"))
+      expect(verdict._tag).toBe("proceed")
+      // 0.4 + 12,000 x 0.042e-6 + (2,000 x 0.1e-6 + 100 x 0.5e-6), with the 0.4 turn as the forecast.
+      const refused = yield* Budget.make({ usd: { max: 0.8007 } })
+      yield* refused.record("turn-1", charged(0.4), "anthropic/claude-sonnet-5")
+      yield* refused.record("reading-jev", { inputTokens: 12_000, outputTokens: 3 }, "typesafe-ai/jev")
+      yield* refused.record("reading-luna", { inputTokens: 2_000, outputTokens: 100 }, "openai:gpt-6-luna")
+      const over = yield* refused.check("turn-2")
+      expect(over).toMatchObject({ _tag: "refuse", exceeded: { scope: "usd", next: 0.4 } })
+      if (over._tag !== "refuse") throw new Error("expected a refusal")
+      expect(over.exceeded.used).toBeCloseTo(0.4 + 0.000504 + 0.00025, 12)
+    }))
+  })
+
   it("fails closed once a call's model has no price, and still replays a charged step", async () => {
     await Effect.runPromise(Effect.gen(function*() {
       const budget = yield* Budget.make({ usd: { max: 100 } })

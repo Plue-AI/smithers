@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/modelprice"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,7 +135,7 @@ func TestParametersUnitProviderSpecificAndJSONAdmission(t *testing.T) {
 	}
 }
 
-func TestParametersUnitVercelFlatFeeHasNoTokenMaximum(t *testing.T) {
+func TestParametersUnitVercelJevReservesItsRequestCeiling(t *testing.T) {
 	raw := []byte(`{"questions":{"1":"hello"}}`)
 	parsed, err := parseRequest("vercel", "v4/ai/evaluation-model", http.Header{"Ai-Model-Id": []string{" typesafe-ai/jev "}}, raw)
 	require.NoError(t, err)
@@ -143,11 +144,27 @@ func TestParametersUnitVercelFlatFeeHasNoTokenMaximum(t *testing.T) {
 	_, price, ok := Price("vercel", "typesafe-ai/jev")
 	require.True(t, ok)
 	maximum := parsed.maximum(price)
-	require.Zero(t, maximum.PromptTokens())
+	require.Equal(t, int64(JevMaxRequestTokens), maximum.PromptTokens())
 	require.Zero(t, maximum.OutputTokens)
 	bound, err := Bound(price, maximum)
 	require.NoError(t, err)
-	require.Equal(t, int64(2000000), bound, "the per-call fee is reserved even though no tokens are reported")
+	require.Equal(t, int64(2_688_000), bound, "64,000 input tokens at 0.042 USD per million")
+}
+
+func TestParametersUnitJevCamelCaseUsageIsPriced(t *testing.T) {
+	usage, ok := usageFromJSON([]byte(`{"answers":{},"usage":{"inputTokens":120,"outputTokens":3}}`))
+	require.True(t, ok)
+	require.Equal(t, modelprice.Usage{InputTokens: 120, OutputTokens: 3}, usage)
+	_, price, _ := Price("vercel", "typesafe-ai/jev")
+	cost, err := modelprice.CostNanos(price, usage)
+	require.NoError(t, err)
+	require.Equal(t, int64(5_040), cost)
+	// Snake case wins when a body carries both spellings.
+	usage, ok = usageFromJSON([]byte(`{"usage":{"input_tokens":7,"inputTokens":120,"outputTokens":3}}`))
+	require.True(t, ok)
+	require.Equal(t, modelprice.Usage{InputTokens: 7, OutputTokens: 3}, usage)
+	_, ok = usageFromJSON([]byte(`{"usage":{"inputTokens":"120","outputTokens":3}}`))
+	require.False(t, ok)
 }
 
 func TestParametersUnitMalformedProviderReportsCannotProveUsageOrSpendCap(t *testing.T) {
