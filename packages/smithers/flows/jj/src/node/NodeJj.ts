@@ -419,6 +419,38 @@ const withLockFile = <A, E, R>(
   )
 }
 
+/**
+ * The repository store every workspace of one repository shares. The first
+ * workspace holds it as `.jj/repo`; every later one holds a file naming it,
+ * relative to that workspace's `.jj`.
+ */
+const repositoryStoreOf = (root: string): string => {
+  const store = join(root, ".jj", "repo")
+  return realpathSync(isDirectory(store) ? store : resolve(root, ".jj", readFileSync(store, "utf8").trim()))
+}
+
+/** One in-process permit and one on-disk lock per key. */
+const withLock = <A, E, R>(
+  method: string,
+  key: string,
+  lockPath: string | undefined,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | JjError, R> => {
+  let entry = repositoryLocks.get(key)
+  if (entry === undefined) {
+    entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+    repositoryLocks.set(key, entry)
+  }
+  entry.users += 1
+  const held = entry
+  return held.semaphore.withPermit(lockPath === undefined ? effect : withLockFile(method, lockPath, effect)).pipe(
+    Effect.ensuring(Effect.sync(() => {
+      held.users -= 1
+      if (held.users === 0) repositoryLocks.delete(key)
+    }))
+  )
+}
+
 /** Fibers and independently constructed layers share a permit per workspace. */
 const withRepositoryLock = <A, E, R>(
   method: string,
@@ -427,21 +459,30 @@ const withRepositoryLock = <A, E, R>(
 ): Effect.Effect<A, E | JjError, R> =>
   Effect.suspend(() => {
     const root = workspaceRootOf(from)
-    const key = root ?? resolve(from)
-    let entry = repositoryLocks.get(key)
-    if (entry === undefined) {
-      entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
-      repositoryLocks.set(key, entry)
-    }
-    entry.users += 1
-    const held = entry
-    return held.semaphore.withPermit(
-      root === undefined ? effect : withLockFile(method, join(root, ".jj", lockName), effect)
-    ).pipe(
-      Effect.ensuring(Effect.sync(() => {
-        held.users -= 1
-        if (held.users === 0) repositoryLocks.delete(key)
-      }))
+    return withLock(
+      method,
+      `workspace:${root ?? resolve(from)}`,
+      root === undefined ? undefined : join(root, ".jj", lockName),
+      effect
+    )
+  })
+
+/**
+ * Every workspace of one repository shares a permit for changes to which
+ * workspaces exist. Taken only while the workspace permit is held, so the two
+ * are always acquired in the same order.
+ */
+const withStoreLock = <A, E, R>(
+  method: string,
+  from: string,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | JjError, R> =>
+  Effect.suspend(() => {
+    const root = workspaceRootOf(from)
+    if (root === undefined) return withLock(method, `store:${resolve(from)}`, undefined, effect)
+    return Effect.flatMap(
+      Effect.try({ try: () => repositoryStoreOf(root), catch: (cause) => lockFailure(method, cause) }),
+      (store) => withLock(method, `store:${store}`, join(store, lockName), effect)
     )
   })
 
@@ -733,6 +774,13 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
     Effect.suspend(() => withRepositoryLock(method, repositoryRoot ?? process.cwd(), effect))
 
   /**
+   * Fences a change to which workspaces exist, or a restore that would drop
+   * one, against the same change from any workspace of the repository.
+   */
+  const registrationCritical = <A, E, R>(method: string, effect: Effect.Effect<A, E, R>) =>
+    repositoryCritical(method, Effect.suspend(() => withStoreLock(method, repositoryRoot ?? process.cwd(), effect)))
+
+  /**
    * Capture the working copy without closing a change.
    *
    * `jj op log` snapshots the working copy and names the operation that holds
@@ -819,8 +867,10 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
         )
     )
 
-  const workspaceForget = (name: string) =>
+  const forgetWorkspace = (name: string) =>
     Effect.asVoid(inRepository("workspaceForget", ["workspace", "forget", "--", name]))
+
+  const workspaceForget = (name: string) => registrationCritical("workspaceForget", forgetWorkspace(name))
 
   /**
    * `--name=` and the `--` terminator are what make the claim "a workspace name
@@ -837,43 +887,49 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
   const workspaceAdd = (name: string, path: string, revision?: string) =>
     Effect.asVoid(
       revision === undefined
-        ? inRepository("workspaceAdd", ["workspace", "add", `--name=${name}`, "--", path])
+        ? registrationCritical(
+          "workspaceAdd",
+          inRepository("workspaceAdd", ["workspace", "add", `--name=${name}`, "--", path])
+        )
         : Effect.flatMap(requireRevision("workspaceAdd", "jj workspace add", revision), (pinned) =>
           // The commands remain cancellable; only the handoff from a completed
           // add to the pin's cleanup finalizer is protected from interruption.
-          Effect.uninterruptibleMask((restore) =>
-            restore(inRepository("workspaceAdd", [
-              "workspace",
-              "add",
-              `--name=${name}`,
-              `--revision=parents(${pinned})`,
-              "--",
-              path
-            ])).pipe(
-              Effect.andThen(
-                restore(run(
-                  "workspaceAdd",
-                  [
-                    "restore",
-                    "--from",
-                    pinned,
-                    "--color=never",
-                    "--config",
-                    "snapshot.max-new-file-size=0",
-                    ...HOST_ONLY_CONFIG
-                  ],
-                  resolve(repositoryRoot ?? process.cwd(), path)
-                )).pipe(
-                  Effect.onExit((exit) =>
-                    Exit.isSuccess(exit)
-                      ? Effect.void
-                      : Effect.interruptible(workspaceForget(name)).pipe(
-                        Effect.timeout(workspaceCleanupTimeoutMs),
-                        // Keep the pin failure as the result if cleanup also fails.
-                        Effect.catch((cleanupFailure) =>
-                          Effect.logWarning("Failed to forget workspace after pinning failed", cleanupFailure)
+          registrationCritical(
+            "workspaceAdd",
+            Effect.uninterruptibleMask((restore) =>
+              restore(inRepository("workspaceAdd", [
+                "workspace",
+                "add",
+                `--name=${name}`,
+                `--revision=parents(${pinned})`,
+                "--",
+                path
+              ])).pipe(
+                Effect.andThen(
+                  restore(run(
+                    "workspaceAdd",
+                    [
+                      "restore",
+                      "--from",
+                      pinned,
+                      "--color=never",
+                      "--config",
+                      "snapshot.max-new-file-size=0",
+                      ...HOST_ONLY_CONFIG
+                    ],
+                    resolve(repositoryRoot ?? process.cwd(), path)
+                  )).pipe(
+                    Effect.onExit((exit) =>
+                      Exit.isSuccess(exit)
+                        ? Effect.void
+                        : Effect.interruptible(forgetWorkspace(name)).pipe(
+                          Effect.timeout(workspaceCleanupTimeoutMs),
+                          // Keep the pin failure as the result if cleanup also fails.
+                          Effect.catch((cleanupFailure) =>
+                            Effect.logWarning("Failed to forget workspace after pinning failed", cleanupFailure)
+                          )
                         )
-                      )
+                    )
                   )
                 )
               )
@@ -944,7 +1000,7 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
    */
   const opRestore = (operationId: string) =>
     /^[0-9a-f]+$/.test(operationId)
-      ? repositoryCritical(
+      ? registrationCritical(
         "opRestore",
         Effect.gen(function*() {
           // `jj op restore` resets every workspace's working-copy commit and

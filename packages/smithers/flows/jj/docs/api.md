@@ -216,6 +216,12 @@ records lock owners as `hostname-pid-random` and reclaims only an owner on the
 same host whose process is dead. Permission-denied probes count as alive;
 foreign-host and legacy owner markers require operator cleanup.
 
+`workspaceAdd`, `workspaceForget`, and `opRestore` also hold one permit per
+repository store, shared by every workspace of the repository in a process and
+by an exclusive `smithers.lock` inside the store (`.jj/repo`) across processes.
+A restore therefore either sees an added workspace and refuses with `conflict`,
+or completes before the add runs.
+
 Snapshot messages are opaque strings on both browser and CLI layers, including
 empty strings, leading `-`, quotes, and newlines. Node and Bun never pass them
 to jj; workspace names and paths use `--name=` and `--` so option-like values
