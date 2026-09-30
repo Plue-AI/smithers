@@ -185,6 +185,30 @@ describe("NO_COLOR frames", () => {
     expect(has(spanOf(lines, "Worker a"), TextAttributes.INVERSE)).toBe(false)
   })
 
+  it("show the focused transcript card in reverse video", async () => {
+    const card = (title: string, label: string) => ({
+      id: title,
+      title,
+      summary: "1 row",
+      rows: [{ id: label, label, status: "running" as const, details: [] }]
+    })
+    const lines = await draw(
+      "none",
+      (
+        <box>
+          <View.Card panel={card("Focused", "first")} focused />
+          <View.Card panel={card("Other", "second")} />
+        </box>
+      ),
+      40,
+      6
+    )
+    expect(has(spanOf(lines, "Focused"), TextAttributes.INVERSE)).toBe(true)
+    expect(has(spanOf(lines, "first"), TextAttributes.INVERSE)).toBe(true)
+    expect(has(spanOf(lines, "Other"), TextAttributes.INVERSE)).toBe(false)
+    expect(has(spanOf(lines, "second"), TextAttributes.INVERSE)).toBe(false)
+  })
+
   it("leave filled panels that are not selected plain", async () => {
     const lines = await draw(
       "none",

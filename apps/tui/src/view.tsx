@@ -275,7 +275,7 @@ export function Card(
     <box
       style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
       borderColor={props.focused === true ? color.text : failed ? color.danger : color.brand}
-      {...(props.focused === true ? { backgroundColor: color.surface } : {})}
+      {...(props.focused === true ? { backgroundColor: color.selected } : {})}
       customBorderChars={bar}
       {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
     >
