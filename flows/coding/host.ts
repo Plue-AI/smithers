@@ -9,7 +9,7 @@ import { Context, Effect, FileSystem, Layer } from "effect"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
-import { seatRefusal } from "../../packages/smithers/src/Providers.ts"
+import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
@@ -57,6 +57,7 @@ import type { ProjectConfig } from "./project-config.ts"
 import { prototypeRegistration } from "./prototype.ts"
 import { registration } from "./registration.ts"
 import { requestRegistration } from "./request.ts"
+import { reviewCheckDelegate, reviewCheckLayers, ReviewLens, reviewRole } from "./review-check.ts"
 import * as Snapshots from "./snapshots.ts"
 import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
@@ -100,6 +101,8 @@ export interface Options extends NativeOptions {
   readonly planningModel?: string | undefined
   readonly pocModel?: string | undefined
   readonly wikiModel?: string | undefined
+  /** The `coding/review` seat; unset, the host picks one on a provider other than the implementer's. */
+  readonly reviewModel?: string | undefined
   /** Operator role→seat pins (`SMITHERS_CODING_SEATS`); they win over the repository's `seats`. */
   readonly seats?: Readonly<Record<string, string>> | undefined
   /**
@@ -195,7 +198,7 @@ const configured = (options: Options) => {
       "Set SMITHERS_CODING_IMPLEMENT_MODEL to a seat alias or an explicit provider:model for coding/implement"
     )
   }
-  for (const model of [options.planningModel, options.pocModel, options.wikiModel]) {
+  for (const model of [options.planningModel, options.pocModel, options.wikiModel, options.reviewModel]) {
     if (model !== undefined && seatRefusal(model) !== undefined) {
       throw new Error("Coding role models must be seat aliases or explicit provider:model values")
     }
@@ -258,8 +261,26 @@ export const roleResolver = (
   })
 }
 
-type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel"> & {
+type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel" | "reviewModel"> & {
   readonly seats?: Readonly<Record<string, string>> | undefined
+}
+
+/** The provider prefix of a seat alias or `provider:model`; a bare model id has none. */
+const seatProvider = (seat: string): string => {
+  const expanded = expandSeat(seat)
+  const separator = expanded.indexOf(":")
+  return separator < 0 ? "" : expanded.slice(0, separator).toLowerCase()
+}
+
+/**
+ * The seat `coding/review` runs on when nothing names one: the first alias on
+ * a provider other than the implementer's, so a change is never reviewed
+ * only by the model that wrote it. The implementer is the effective one,
+ * after the repository's and the operator's `seats`.
+ */
+export const reviewDefault = (implementationSeat: string): string => {
+  const provider = seatProvider(implementationSeat)
+  return Object.entries(seatAliases).find(([, seat]) => seatProvider(seat) !== provider)?.[0] ?? implementationSeat
 }
 
 /** Every role this host resolves: its defaults with the repository's and the operator's seats over them. */
@@ -290,10 +311,7 @@ export const roleSeats = (options: Options, suppliedSeats?: SeatResolver.Service
     )
 }
 
-const defaultRoles = (
-  implementationModel: string,
-  models: Pick<Options, "planningModel" | "pocModel" | "wikiModel">
-): Readonly<Record<string, string>> => ({
+const defaultRoles = (implementationModel: string, models: RoleModels): Readonly<Record<string, string>> => ({
   "coding/implement": implementationModel,
   // A dispatched turn that names no model runs on the implementation seat,
   // because that is the seat this host was configured to write code with.
@@ -301,6 +319,8 @@ const defaultRoles = (
   "coding/plan": models.planningModel ?? implementationModel,
   "coding/poc": models.pocModel ?? implementationModel,
   "wiki/reviewer": models.wikiModel ?? implementationModel,
+  // The review check's lenses: a second provider unless the operator pins one.
+  [reviewRole]: models.reviewModel ?? reviewDefault(models.seats?.["coding/implement"] ?? implementationModel),
   "repository/research": models.planningModel ?? implementationModel,
   // The seat the built-in authoring bodies declare. They write a flow and
   // run its checks, so they run on the seat this host writes code with; the
@@ -523,7 +543,11 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             environment: options.checkEnvironment
           }),
           // Lint on Jev: a check body's rules judged over the implementation diff.
-          jevCheckLayers(evaluator)
+          jevCheckLayers(evaluator),
+          // Review on a second provider: a check body's lenses read over the
+          // same diff. Each lens answers about supplied evidence only.
+          reviewCheckLayers,
+          evidenceOnly(ReviewLens.layer)
         )
           .pipe(
             // A local lander reads through the native helper, so it is provided first.
@@ -541,6 +565,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           delegates: [
             checkDelegate,
             jevCheckDelegate,
+            reviewCheckDelegate,
             RunSetup,
             RunJob,
             RunTrigger,

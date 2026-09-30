@@ -69,7 +69,7 @@ if (parsed.values.version) {
       "Loads <root>/.smithers/coding-project.json when present; SMITHERS_CODING_PROJECT overrides it.\n" +
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
-      "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL and SMITHERS_CODING_WIKI_MODEL select provider:model roles.\n" +
+      "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL, SMITHERS_CODING_WIKI_MODEL and SMITHERS_CODING_REVIEW_MODEL select provider:model roles; review defaults to a second provider.\n" +
       "The project's \"seats\" map routes roles to aliases (sol, luna, opus, fable, qwen); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
       "The provisioned SMITHERS_JJHUB_TOKEN and SMITHERS_JJHUB_API_URL enable coding/vibe; the token is consumed before any tool starts.\n" +
       "Without them, the project's \"landing\" (\"fast-forward\" or \"pull-request\") lands coding/vibe with jj, git and gh from PATH.\n" +
@@ -120,6 +120,9 @@ if (parsed.values.version) {
     ...(process.env.SMITHERS_CODING_WIKI_MODEL === undefined
       ? {}
       : { wikiModel: process.env.SMITHERS_CODING_WIKI_MODEL }),
+    ...(process.env.SMITHERS_CODING_REVIEW_MODEL === undefined
+      ? {}
+      : { reviewModel: process.env.SMITHERS_CODING_REVIEW_MODEL }),
     ...(process.env.SMITHERS_CODING_SEATS === undefined
       ? {}
       : { seats: parseSeats(process.env.SMITHERS_CODING_SEATS) }),

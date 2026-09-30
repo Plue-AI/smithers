@@ -1,0 +1,6 @@
+---
+description: Review the implemented Change through the declared lenses on a second provider and return findings bound to its commit.
+flows: [coding/ReviewCheck]
+capabilities: ["fs:read:**"]
+---
+{"lenses":[{"id":"tests","focus":"A behavior change that no test in the same change covers."},{"id":"errors","focus":"An error swallowed, ignored or downgraded instead of surfaced to the caller."},{"id":"docs","focus":"A public export added or changed without a JSDoc block that says what it does."},{"id":"names","focus":"A name that says less than the code does, or a comment the code contradicts."}]}

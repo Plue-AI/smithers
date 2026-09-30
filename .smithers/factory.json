@@ -504,6 +504,38 @@
       ]
     },
     {
+      "id": "checks/review",
+      "description": "Review the implemented Change through the declared lenses on a second provider and return findings bound to its commit.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/checks/review/flow.mdx",
+      "capabilities": [
+        "fs:read:**"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/ReviewCheck"
+      ]
+    },
+    {
       "id": "checks/runtime",
       "description": "Run the existing //flows:codingRuntime acceptance target.",
       "summary": null,

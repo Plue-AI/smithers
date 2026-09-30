@@ -84,7 +84,8 @@ SMITHERS_CODING_PROJECT=/etc/smithers/project.json \
 SMITHERS_CODING_IMPLEMENT_MODEL=provider:implementation-model \
 SMITHERS_CODING_PLAN_MODEL=provider:planning-model \
 SMITHERS_CODING_POC_MODEL=provider:prototype-model \
-SMITHERS_CODING_WIKI_MODEL=provider:review-model \
+SMITHERS_CODING_WIKI_MODEL=provider:wiki-review-model \
+SMITHERS_CODING_REVIEW_MODEL=provider:review-model \
 smithers-coding-host serve --root /home/developer/workspace
 ```
 
@@ -96,7 +97,11 @@ Without either, startup is refused.
 The optional plan, POC and wiki
 variables select the existing logical seats `coding/plan`, `coding/poc` and
 `wiki/reviewer`. When omitted, the host explicitly uses the implementation model
-for that role, unless the project's `seats` names it. Every selection must be a
+for that role, unless the project's `seats` names it. The review variable
+selects `coding/review`, the seat every `coding/ReviewCheck` lens runs on; when
+omitted, the host picks the first seat alias on a provider other than the
+effective implementer's, so a change is never reviewed only by the model that
+wrote it. Every selection must be a
 seat alias or a `provider:model`; this configuration
 does not add credentials or a broker. Existing workspace/user provider setup
 supplies authentication. Deployment still supplies the owning
