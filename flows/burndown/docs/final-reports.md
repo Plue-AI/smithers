@@ -25,7 +25,7 @@ BLOCKED #10 dependency
 READY #11 <full-commit-id>
 ```
 
-The result contains issue 11's commit and retains issue 10's blocker in notes.
+The result contains only issue 11's commit.
 
 CLOSED text requires host verification and returns blocked without a closure
 receipt. It cannot hide an open issue from selection.
