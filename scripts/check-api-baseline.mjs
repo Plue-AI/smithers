@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import ts from "typescript"
 import { copyInputDeclarations } from "../packages/repo-targets/scripts/build-library.mjs"
 import { isMain, libraryPackages, repoRoot } from "./workspace-packages.mjs"
 
@@ -15,6 +16,55 @@ const declarations = (directory, prefix = "") => readdirSync(directory, { withFi
     : entry.name.endsWith(".d.ts") ? [name] : []
 })
 
+/**
+ * The declaration text with order-insensitive inferred members put in one order.
+ *
+ * TypeScript prints an inferred union in type-creation order and an inferred
+ * object type in checker order, so an unrelated edit elsewhere in the same
+ * program can reorder either without changing the type. Union constituents are
+ * sorted by their printed text, and a type literal's named members (properties,
+ * methods, accessors) are stably sorted by name, which keeps the order of
+ * same-name method overloads. Call, construct and index signatures keep their
+ * written order, as do interfaces, classes, overloaded functions and every
+ * other declaration, so each real signature or export change still differs.
+ */
+export const canonicalDeclaration = (text) => {
+  const source = ts.createSourceFile("api.d.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
+  const print = (node) => printer.printNode(ts.EmitHint.Unspecified, node, source)
+  const byKey = (key) => (left, right) => {
+    const a = key(left)
+    const b = key(right)
+    return a < b ? -1 : a > b ? 1 : 0
+  }
+  const result = ts.transform(source, [(context) => {
+    const visit = (node) => {
+      const visited = ts.visitEachChild(node, visit, context)
+      if (ts.isUnionTypeNode(visited)) {
+        return context.factory.updateUnionTypeNode(
+          visited,
+          context.factory.createNodeArray([...visited.types].sort(byKey(print)))
+        )
+      }
+      if (ts.isTypeLiteralNode(visited)) {
+        const named = visited.members.filter((member) => member.name !== undefined)
+        const unnamed = visited.members.filter((member) => member.name === undefined)
+        return context.factory.updateTypeLiteralNode(
+          visited,
+          context.factory.createNodeArray([...unnamed, ...named.sort(byKey((member) => print(member.name)))])
+        )
+      }
+      return visited
+    }
+    return (file) => ts.visitNode(file, visit)
+  }])
+  try {
+    return printer.printFile(result.transformed[0])
+  } finally {
+    result.dispose()
+  }
+}
+
 /** Include private declarations too: public signatures can reference them. */
 export const apiSurface = (root = repoRoot, declarationRoot = root) => Object.fromEntries(
   libraryPackages(root).filter(({ manifest }) => !manifest.private).map(({ name, dir, manifest }) => {
@@ -24,8 +74,8 @@ export const apiSurface = (root = repoRoot, declarationRoot = root) => Object.fr
     return [name, {
       exports: manifest.publishConfig.exports,
       declarations: Object.fromEntries(names.map((file) => {
-        const contents = readFileSync(join(directory, file), "utf8").replace(/\r\n/g, "\n")
-          .replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim()
+        const contents = canonicalDeclaration(readFileSync(join(directory, file), "utf8").replace(/\r\n/g, "\n")
+          .replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim())
         return [file, createHash("sha256").update(contents).digest("hex")]
       }))
     }]
@@ -85,11 +135,11 @@ if (isMain(import.meta)) {
     const path = join(repoRoot, "scripts/fixtures/public-api-baseline.json")
     const surface = apiSurface(repoRoot, declarationRoot)
     if (options.includes("--update")) {
-      writeFileSync(path, `${JSON.stringify({ format: 1, packages: surface }, null, 2)}\n`)
+      writeFileSync(path, `${JSON.stringify({ format: 2, packages: surface }, null, 2)}\n`)
       console.log(`Recorded declarations for ${Object.keys(surface).length} public packages`)
     } else {
       const baseline = JSON.parse(readFileSync(path, "utf8"))
-      if (baseline.format !== 1) throw new Error("unsupported API baseline format")
+      if (baseline.format !== 2) throw new Error("unsupported API baseline format")
       assertApiBaseline(baseline.packages, surface)
       console.log(`Declaration baseline matches ${Object.keys(surface).length} public packages`)
     }
