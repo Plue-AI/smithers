@@ -448,11 +448,16 @@ describe("Target own __proto__ attrs", () => {
   })
 
   it("keeps a __proto__ key beside presentation", () => {
-    const target = Configured(
-      { ...parsed("{\"summary\":\"Configured.\"}"), config: parsed("{\"__proto__\":\"kept\"}") } as never
-    )
-    expect(Target.metadata(target).presentation).toEqual({ summary: "Configured.", featured: false })
+    const target = Configured({ config: parsed("{\"__proto__\":\"kept\"}"), summary: "Configured.", featured: true })
+    expect(Target.metadata(target).summary).toBe("Configured.")
+    expect(Target.metadata(target).featured).toBe(true)
     expect(Object.getOwnPropertyDescriptor(config(target), "__proto__")?.value).toBe("kept")
+    const split = Target.splitPresentation(parsed("{\"summary\":\"Kept.\",\"ordinary\":1,\"__proto__\":\"kept\"}"))
+    if (typeof split === "string") throw new Error(split)
+    expect(split.presentation).toEqual({ summary: "Kept.", featured: false })
+    expect(Object.keys(split.attrs as object)).toEqual(["ordinary", "__proto__"])
+    expect(Object.getPrototypeOf(split.attrs)).toBe(Object.prototype)
+    expect(Object.getOwnPropertyDescriptor(split.attrs, "__proto__")?.value).toBe("kept")
   })
 
   it("keeps a __proto__ entry in a real record env", () => {
