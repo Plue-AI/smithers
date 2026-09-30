@@ -143,7 +143,19 @@ export const make = (
   Journal.Journal | Author.Author | ScriptRunner.ScriptRunner
 > =>
   Effect.gen(function*() {
-    const shadowed = options.entries.filter((entry) => reserved.includes(entry.name)).map((entry) => entry.name)
+    // The child contract is snapshotted once: the digest below and every
+    // child the handler runs describe these values, never a later edit of
+    // the caller's options object.
+    const entries = [...options.entries]
+    const maxDepth = options.maxDepth ?? defaultMaxDepth
+    const pinned: Options = {
+      entries,
+      maxCallsPerLink: options.maxCallsPerLink,
+      maxDepth,
+      maxLinks: options.maxLinks,
+      prefix: options.prefix
+    }
+    const shadowed = entries.filter((entry) => reserved.includes(entry.name)).map((entry) => entry.name)
     if (shadowed.length > 0) {
       return yield* Effect.die(
         new Error(`entries shadow reserved catalog names: ${shadowed.join(", ")}`)
@@ -155,12 +167,11 @@ export const make = (
     const journal = yield* Journal.Journal
     const author = yield* Author.Author
     const runner = yield* ScriptRunner.ScriptRunner
-    const maxDepth = options.maxDepth ?? defaultMaxDepth
 
     const agent: Catalog.Entry = {
       capabilities: [agentCapability],
       description: agentDescription,
-      digest: contractDigest(options),
+      digest: contractDigest(pinned),
       handler: (payload, slot) =>
         Effect.gen(function*() {
           const input = decodeInput(payload)
@@ -191,9 +202,9 @@ export const make = (
             chain: child,
             context: input.value.context ?? [],
             goal: input.value.goal,
-            maxCallsPerLink: options.maxCallsPerLink,
-            maxLinks: options.maxLinks,
-            prefix: options.prefix
+            maxCallsPerLink: pinned.maxCallsPerLink,
+            maxLinks: pinned.maxLinks,
+            prefix: pinned.prefix
           }).pipe(
             Effect.provideService(Catalog.Catalog, catalog),
             Effect.provideService(Journal.Journal, journal),
@@ -221,7 +232,7 @@ export const make = (
     // The handler above closes over this binding, not a second state
     // holder: `Catalog.make` only snapshots handler references, so the
     // entry can never run before the binding is initialized.
-    const catalog: Catalog.Service = Catalog.make(Catalog.withSystem([...options.entries, agent]))
+    const catalog: Catalog.Service = Catalog.make(Catalog.withSystem([...entries, agent]))
     return catalog
   })
 

@@ -393,6 +393,72 @@ describe("SubChains", () => {
     })
   })
 
+  it.each(runners)("keeps the constructed child contract when the caller edits its options (%s)", async (_, runner) => {
+    const options: {
+      entries: Array<Catalog.Entry>
+      prefix: string
+      maxLinks: number
+      maxCallsPerLink: number
+    } = { entries: [], prefix: "CHILD ORIGINAL", maxLinks: 2, maxCallsPerLink: 0 }
+    const original = SubChains.contractDigest(options)
+    const late = countingEntry("late", null)
+    const seen: Array<Author.Input> = []
+    const author = Author.make({
+      author: (input) =>
+        Effect.sync(() => {
+          seen.push(input)
+          // The catalog is built; the caller now edits its ordinary options.
+          options.prefix = "CHILD REVISED"
+          options.maxCallsPerLink = 1
+          options.maxLinks = 5
+          options.entries.push(late.entry)
+          return seen.length === 1
+            ? flow(`const child = await ctx.call("agent", { goal: "child" })`, `return done(child)`)
+            : flow(`return done("child executed")`)
+        })
+    })
+    const { events, outcome } = await runChain({
+      runner,
+      author: Layer.succeed(Author.Author)(author),
+      catalog: SubChains.layer(options)
+    })
+    expect(SubChains.contractDigest(options)).not.toBe(original)
+    // The zero-call budget still binds the child: it parks at link 0 without
+    // ever asking the author, so the revised prefix is never seen.
+    expect(seen).toHaveLength(1)
+    expect(outcome).toEqual({
+      _tag: "Done",
+      value: { _tag: "Park", reason: { code: "quota", message: "link 0 exceeded its budget of 0 calls" } }
+    })
+    const settle = events.find((event) => event._tag === "CallSettled" && event.name === "agent") as Event.CallSettled
+    expect(settle.key.entryDigest).toBe(original)
+  })
+
+  it("keeps the constructed prefix and entries when the caller edits its options", async () => {
+    const options: { entries: Array<Catalog.Entry>; prefix: string } = { entries: [], prefix: "CHILD ORIGINAL" }
+    const late = countingEntry("late", null)
+    const seen: Array<Author.Input> = []
+    const author = Author.make({
+      author: (input) =>
+        Effect.sync(() => {
+          seen.push(input)
+          options.prefix = "CHILD REVISED"
+          options.entries.push(late.entry)
+          return seen.length === 1
+            ? parentDelegates
+            : flow(`const late = await ctx.call("late", {})`, `return done(late)`)
+        })
+    })
+    const { outcome } = await runChain({
+      author: Layer.succeed(Author.Author)(author),
+      catalog: SubChains.layer(options)
+    })
+    expect(seen[1]?.prefix).toBe("CHILD ORIGINAL")
+    // An entry pushed after construction is not in the child's catalog.
+    expect(late.count()).toBe(0)
+    expect(outcome._tag).toBe("Park")
+  })
+
   it("passes child budgets and prefix through, and pins them in the contract digest", async () => {
     const seen: Array<Author.Input> = []
     const author = Author.make({
