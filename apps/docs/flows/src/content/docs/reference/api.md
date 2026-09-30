@@ -427,24 +427,36 @@ class SandboxedFlowError extends Schema.TaggedError("@smthrs/flows/SandboxedFlow
 })
 ```
 
-The one failure type every refusal in this module raises.
+The failure type every protocol refusal in this module raises.
 
-| `code`              | Meaning                                                                                                  |
-| ------------------- | -------------------------------------------------------------------------------------------------------- |
-| `bundle_failed`     | The entry module could not be bundled.                                                                   |
-| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                 |
-| `guest_failed`      | The guest runtime exited non-zero, including exit 126 or 127 for a runtime the image does not contain.   |
-| `flow_failed`       | The child flow ran and reported a failure, including an entry that exports no flow of the requested tag. |
-| `result_unreadable` | The guest exited 0 but wrote no result, or wrote one that is not the protocol's JSON.                    |
-| `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                 |
-| `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                            |
-| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                         |
-| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.           |
-| `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                     |
+| `code`              | Meaning                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundle_failed`     | The entry module could not be bundled.                                                                                                                |
+| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                                                              |
+| `guest_failed`      | The guest runtime exited non-zero, including exit 126 or 127 for a runtime the image does not contain.                                                |
+| `flow_failed`       | The child flow ran and reported a failure, including an entry that exports no flow of the requested tag.                                              |
+| `result_unreadable` | The guest exited 0 but wrote no result, or one that is not the protocol's JSON, belongs to another attempt, or echoes a different capability ceiling. |
+| `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                                                              |
+| `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                                                                         |
+| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                                                                      |
+| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.                                                        |
+| `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                                                                  |
 
 Messages quote the tail of the guest's stdout and stderr where they help, cut at
 4 KiB and marked when they were cut. A child's typed error arrives as its tag and
 its own fields, not as a stack trace into the bundle.
+
+### `ExecuteError`
+
+```ts
+const ExecuteError: Schema.Union<[typeof SandboxedFlowError, typeof PermissionDenied]>
+type ExecuteError = SandboxedFlowError | PermissionDenied
+```
+
+Every typed failure of a sandboxed execution. A child that needed a capability
+the caller's ceiling does not hold fails with the kernel's own
+`PermissionDenied` from `@smthrs/capability/Permission`, the same typed error a
+local run of the child fails with.
 
 ### `Limits` and `ResolvedLimits`
 
@@ -516,11 +528,14 @@ interface Result<A> {
   readonly diff: ReadonlyArray<DiffEntry>
   /** Workspace-relative paths that existed before the guest ran and were gone after. */
   readonly deleted: ReadonlyArray<string>
+  /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted. */
+  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
 }
 
 const DiffEntry: Schema.Struct<{ path: Schema.String; bytes: Schema.Uint8Array }>
 const Diff: Schema.Array<typeof DiffEntry>
 const Deleted: Schema.Array<Schema.String> // decodes a missing key as []
+const EnforcedCeiling: Schema.Array<Schema.Array<typeof CapabilityPattern>> // decodes a missing key as []
 ```
 
 One `DiffEntry` per file the guest created or changed, as it stood when the
@@ -528,6 +543,9 @@ guest exited, and one `deleted` path per file it removed. A file counts as
 changed when its size or its modification time differs; a provider whose `stat`
 reports no modification time compares sizes alone. The schemas are
 JSON-encodable for the journal: the bytes serialize as base64.
+`capabilityCeiling` is the receipt of the authority the child ran under; a
+result journaled before ceilings crossed the machine boundary ran unrestricted
+and decodes with none.
 
 ### `resultSchema` and `ResultSchema`
 
@@ -536,6 +554,7 @@ type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
   readonly diff: typeof Diff
   readonly deleted: typeof Deleted
+  readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
 const resultSchema: <Success extends Schema.Top>(success: Success) => ResultSchema<Success>
@@ -551,7 +570,7 @@ const execute: <Tag, Payload, Success, Error, Requires>(
   flow: Flow.Flow<Tag, Payload, Success, Error, Requires>,
   payload: Payload["Type"],
   options: ExecuteOptions
-) => Effect<Result<Success["Type"]>, SandboxedFlowError>
+) => Effect<Result<Success["Type"]>, ExecuteError>
 ```
 
 Runs `flow` with `payload` inside a machine `options.provider` provisions. The
@@ -562,6 +581,10 @@ behind for a later execution with the same session key to reattach.
 `payload` is the decoded payload, encoded through the flow's payload schema for
 the wire. A value the schema's own JSON codec refuses is a programmer error and
 dies, the same posture `Flow.executionId` takes.
+
+The guest runs the child under the caller's current capability authority
+intersected with the child's own declaration, and can only narrow it. See
+[capability ceilings](/concepts/runner-protocol/#capability-ceilings).
 
 Diff change detection compares sizes by path against a snapshot taken before the
 guest ran. A created file and a file whose size changed are collected; a file
@@ -576,7 +599,7 @@ type SandboxedAction<Tag, Payload, Success> = Action.Declared<
   Tag,
   Payload,
   ResultSchema<Success>,
-  typeof SandboxedFlowError
+  typeof ExecuteError
 >
 
 function action<Tag, Payload, Success, Error, Requires, const Name extends string>(
@@ -591,7 +614,7 @@ function action<Tag, Payload, Success, Error, Requires, const Name extends strin
 
 Declares the durable action a parent flow calls to run `flow` in a sandbox. Its
 payload schema is the flow's, its success schema is `resultSchema` over the
-flow's, and its error schema is `SandboxedFlowError`. The tag is
+flow's, and its error schema is `ExecuteError`. The tag is
 `<flow tag>/sandboxed` unless `options.name` says otherwise. Both forms preserve
 the literal name, so providing one declaration's implementation cannot satisfy
 a differently named declaration. An optional name retains both possible tags.

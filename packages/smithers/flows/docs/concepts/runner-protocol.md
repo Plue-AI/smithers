@@ -25,13 +25,13 @@ Every `SandboxedFlow.execute` call runs this sequence inside one acquired
 session. The protocol's own files live in `.smithers-sandbox/` under the session
 workdir.
 
-| Step    | What happens                                                                                                                                                                                                                                                                                                                                        |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| bundle  | esbuild bundles the `entry` module (`platform: "node"`, ESM) together with the guest runner into one self-contained `.smithers-sandbox/bundle.mjs`.                                                                                                                                                                                                 |
-| request | The host writes `.smithers-sandbox/request.json`, holding `{ attempt, flow, executionId, payload }`: a fresh nonce for this execution of the effect, the flow's tag, the session key as the guest execution id, and the payload encoded through `Schema.toCodecJson` of the flow's payload schema.                                                  |
-| run     | The guest runtime (`node` by default) runs the bundle with the workdir as its working directory and `SMITHERS_SANDBOX_REQUEST_PATH` and `SMITHERS_SANDBOX_RESULT_PATH` set.                                                                                                                                                                         |
-| guest   | The runner finds the flow by tag among the entry module's exports, decodes the payload, runs the flow, and writes `.smithers-sandbox/result.json`: `{ attempt, status: "succeeded", output }` with the success value encoded through the success schema's JSON codec, or `{ attempt, status: "failed", error }`, echoing `request.attempt` exactly. |
-| result  | The host refuses a non-zero exit, a missing or unparseable result, a result whose `attempt` is absent or differs from this execution's, and a result over the limits, then decodes `output` through the same codec. Every refusal is a typed `SandboxedFlowError`.                                                                                  |
+| Step    | What happens                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| bundle  | esbuild bundles the `entry` module (`platform: "node"`, ESM) together with the guest runner into one self-contained `.smithers-sandbox/bundle.mjs`.                                                                                                                                                                                                                                                                                  |
+| request | The host writes `.smithers-sandbox/request.json`, holding `{ attempt, flow, executionId, capabilityCeiling, payload }`: a fresh nonce for this execution of the effect, the flow's tag, the session key as the guest execution id, the caller's capability ceiling, and the payload encoded through `Schema.toCodecJson` of the flow's payload schema.                                                                               |
+| run     | The guest runtime (`node` by default) runs the bundle with the workdir as its working directory and `SMITHERS_SANDBOX_REQUEST_PATH` and `SMITHERS_SANDBOX_RESULT_PATH` set.                                                                                                                                                                                                                                                          |
+| guest   | The runner finds the flow by tag among the entry module's exports, decodes the payload, runs the flow under the ceiling, and writes `.smithers-sandbox/result.json`: `{ attempt, capabilityCeiling, status: "succeeded", output }` with the success value encoded through the success schema's JSON codec, or `{ attempt, capabilityCeiling, status: "failed", error, denied? }`, echoing `request.attempt` and the ceiling exactly. |
+| result  | The host refuses a non-zero exit, a missing or unparseable result, a result whose `attempt` or `capabilityCeiling` is absent or differs from this execution's, and a result over the limits, then decodes `output` through the same codec. Every refusal is a typed `SandboxedFlowError`.                                                                                                                                            |
 
 The `attempt` nonce is a fresh random value for every execution of the effect,
 separate from the stable `executionId` that names the session. A retry or a
@@ -39,6 +39,34 @@ replay writes a new request with a new nonce, so a result left in the workdir by
 an earlier attempt cannot be mistaken for the current one: the host refuses it
 as `result_unreadable`. A custom runner must copy `request.attempt` into its
 result unchanged.
+
+## Capability ceilings
+
+`capabilityCeiling` is the caller's current authority intersected with the
+child flow's own `capabilities` declaration, as the normalized any-of groups of
+a `CapabilitySet`. No groups is unrestricted; an empty group denies every
+capability. Inside a parent flow, the caller's authority already includes every
+declaration on the way to the sandboxed action.
+
+The guest starts unrestricted, which is the identity of intersection, and runs
+the child under exactly the ceiling it was sent. It can only narrow it. A
+request with no ceiling or with a pattern that does not decode is a protocol
+failure: the guest throws and runs nothing.
+
+The guest echoes the ceiling it enforced. The host refuses a result whose echo
+is absent or differs from what it sent, so a runner that never received or
+applied the ceiling cannot report success, and the nonce refuses a result an
+earlier attempt produced under a wider ceiling. Neither is proof of honesty:
+the guest can read `request.json`. The ceiling binds the kernel-guarded
+services the entry's `layer` composes, as the host's ceiling binds its own; the
+machine is what contains code that reaches past them.
+
+A capability the ceiling refuses fails the child with the kernel's
+`PermissionDenied`, directly or inside a guarded service's `PlatformError`. The
+guest writes it as `denied`, and the host fails with that `PermissionDenied`
+rather than a `SandboxedFlowError`: the same typed error a local run fails with.
+The parent journals the refusal, or on success the result with its
+`capabilityCeiling` receipt, as the action's one recorded outcome.
 
 Payload and output both cross the machine boundary through a schema round trip
 on each side, never a cast. The wire codecs are service-free, the same erasure
