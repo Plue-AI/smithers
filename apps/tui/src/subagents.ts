@@ -37,7 +37,8 @@ export const entry = (call: Transcript.Call): SubagentCard.Entry => {
     state: states[call.status],
     target: call.subject,
     ...(call.verb === undefined ? {} : { verb: { pending: call.verb.pending, done: call.verb.success } }),
-    ...(lines === undefined ? {} : { added: lines.added, removed: lines.removed })
+    ...(lines === undefined ? {} : { added: lines.added, removed: lines.removed }),
+    ...(call.exit === undefined ? {} : { exit: call.exit })
   }
 }
 

@@ -67,13 +67,12 @@ describe("replaying a recorded run", () => {
     expect(cells(replay())[0]!.startedAt).toBe(requested.at)
   })
 
-  it("records a command's nonzero exit on its call", () => {
+  it("records a command's exit on its call", () => {
     const calls = cells(replay()).flatMap((cell) => cell.calls)
     const failing = recorded.filter(({ event }) =>
-      event._tag === "cell-call-settled" && typeof event.result.value?.exitCode === "number" &&
-      event.result.value.exitCode !== 0
+      event._tag === "cell-call-settled" && typeof event.result.value?.exitCode === "number"
     )
-    expect(failing.length).toBeGreaterThan(0)
+    expect(failing.some(({ event }) => event.result.value.exitCode !== 0)).toBe(true)
     expect(calls.filter((call) => call.exit !== undefined).map((call) => call.exit)).toEqual(
       failing.map(({ event }) => event.result.value.exitCode)
     )

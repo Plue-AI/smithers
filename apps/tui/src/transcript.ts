@@ -25,7 +25,7 @@ export interface Call {
   readonly subject: string
   readonly status: "running" | "ok" | "failed"
   readonly message?: string
-  /** A command's nonzero exit status; the call itself still succeeded. */
+  /** A command's exit status; the call itself succeeded even when it is nonzero. */
   readonly exit?: number
   /** The flow's own words for the call: `reading`, `read`, `failed to read`. */
   readonly verb?: { readonly pending: string; readonly success: string; readonly failure: string }
@@ -523,7 +523,7 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
           status: ok ? "ok" : "failed",
           ...(Approvals.denied(event.result) ? { denied: true as const } : {}),
           ...(ok || event.result.message === undefined ? {} : { message: event.result.message }),
-          ...(exit === undefined || exit === 0 ? {} : { exit }),
+          ...(exit === undefined ? {} : { exit }),
           ...(calls[at_]!.change === undefined || startLine(event.result.value) === undefined
             ? {}
             : { change: { ...calls[at_]!.change, line: startLine(event.result.value)! } }),

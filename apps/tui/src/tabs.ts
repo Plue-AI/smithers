@@ -33,20 +33,6 @@ export const style = (status: Status, now: number): { readonly glyph: string; re
   return { glyph, tone: toneColor(tone) }
 }
 
-/** Whose fault a failure is, in the words every surface uses: `not your fault · provider`. */
-export const faultWords = (fault: NonNullable<Tab["failure"]>["fault"]): string => faultLabel[fault]
-
-/** Whose problem a failure is, in product words; the internal class never reaches the screen. */
-const faultLabel = {
-  user: "needs you",
-  wait: "not your fault · waiting",
-  infra: "not your fault · infra",
-  dependency: "not your fault · provider",
-  factory: "not your fault",
-  policy: "cap reached",
-  bug: "not your fault · bug"
-} as const satisfies Record<NonNullable<Tab["failure"]>["fault"], string>
-
 /** A worker's glyph: `⇄` in the needs color while the person drives it, else its status glyph. */
 export const styleOf = (
   tab: Pick<Tab, "status" | "driver">,

@@ -67,15 +67,8 @@ describe("worker failure card", () => {
     expect(frame).not.toContain("secret stack")
   })
 
-  it("names whose problem it is in product words, never the internal class", async () => {
-    for (
-      const [fault, label] of [
-        ["policy", "cap reached"],
-        ["factory", "not your fault"],
-        ["user", "needs you"],
-        ["wait", "not your fault · waiting"]
-      ] as const
-    ) {
+  it("shows the headline alone, with no fault suffix", async () => {
+    for (const fault of ["policy", "factory", "user", "wait", "infra", "dependency", "bug"] as const) {
       setup = await testRender(
         <FailureCard
           tab={{ ...tab, failure: { ...tab.failure, fault } }}
@@ -86,8 +79,9 @@ describe("worker failure card", () => {
       )
       await setup.renderOnce()
       const frame = setup.captureCharFrame()
-      expect(frame).toContain(label)
-      expect(frame).not.toMatch(new RegExp(`· ${fault}\\b(?!ing)`))
+      expect(frame).toContain("ChatGPT usage limit reached")
+      expect(frame).not.toContain("not your fault")
+      expect(frame).not.toContain("ChatGPT usage limit reached  ·")
       setup.renderer.destroy()
       setup = undefined
     }

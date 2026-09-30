@@ -44,6 +44,10 @@ describe("activity rows", () => {
     expect(
       SubagentCard.describe({ kind: "tool", tool: "edit", state: "done", target: "login.ts", added: 18, removed: 4 })
     ).toEqual({ text: "Edited login.ts +18 -4", mark: "✓", state: "done" })
+    expect(SubagentCard.describe({ kind: "tool", tool: "bash", state: "done", target: "node check.mjs", exit: 1 }))
+      .toEqual({ text: "Ran node check.mjs  exit 1", mark: "✗", state: "error" })
+    expect(SubagentCard.describe({ kind: "tool", tool: "bash", state: "done", target: "node check.mjs", exit: 0 }))
+      .toEqual({ text: "Ran node check.mjs  exit 0", mark: "✓", state: "done" })
     expect(SubagentCard.describe({ kind: "tool", tool: "bash", state: "error", target: "bun test auth" }))
       .toEqual({ text: "Ran bun test auth", mark: "✗", state: "error" })
   })
@@ -200,11 +204,15 @@ describe("batch header", () => {
     expect(SubagentCard.headerLine(SubagentCard.header(["running"], 150))).toBe("◓ Running 1 subagent (0/1)")
   })
 
-  test("says Ran with ✓, or ✗ when any failed, once all settle", () => {
-    const ran = SubagentCard.header(["done", "cancelled", "done"], 0)
+  test("says Ran with ✓ when all are done, ✗ when any failed, ■ when any stopped", () => {
+    const ran = SubagentCard.header(["done", "done", "done"], 0)
     expect(SubagentCard.headerLine(ran)).toBe("Ran 3 subagents ✓")
     expect(ran.tone).toBe("done")
     expect(ran.bar).toEqual(["done", "done", "done"])
+    const stopped = SubagentCard.header(["done", "cancelled"], 0)
+    expect(SubagentCard.headerLine(stopped)).toBe("Ran 2 subagents ■")
+    expect(stopped.tone).toBe("stopped")
+    expect(SubagentCard.headerLine(SubagentCard.header(["cancelled", "failed"], 0))).toBe("Ran 2 subagents ✗")
     const failed = SubagentCard.header(["done", "failed"], 0)
     expect(SubagentCard.headerLine(failed)).toBe("Ran 2 subagents ✗")
     expect(failed.tone).toBe("failed")
@@ -280,7 +288,8 @@ describe("card", () => {
       title: "docs",
       line: "◉ docs finished"
     })
-    expect(SubagentCard.finished("db", "failed").tone).toBe("failed")
+    expect(SubagentCard.finished("db", "failed")).toMatchObject({ tone: "failed", line: "◉ db failed" })
+    expect(SubagentCard.finished("lint", "cancelled")).toMatchObject({ tone: "stopped", line: "◉ lint stopped" })
   })
 })
 

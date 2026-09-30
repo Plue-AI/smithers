@@ -51,7 +51,7 @@ const callLabel = (call: Transcript.Call): string => {
   }
   if (call.status === "running") return `${call.verb?.pending ?? `Running ${call.flow}`}: ${sentence(call.subject)}`
   if (call.flow === "bash") {
-    return `Ran ${sentence(call.subject)}${call.exit === undefined ? "" : ` (exit ${call.exit})`}`
+    return `Ran ${sentence(call.subject)}${call.exit === undefined || call.exit === 0 ? "" : ` (exit ${call.exit})`}`
   }
   return `${verbs[call.flow] ?? call.verb?.success ?? `Called ${call.flow}`} ${sentence(call.subject)}`.trim()
 }
@@ -62,7 +62,7 @@ const cellLabel = (cell: Extract<Transcript.Item, { kind: "cell" }>): string => 
     const changed = cell.calls.filter((call) =>
       (call.patches?.length ?? 0) > 0 || (call.status === "ok" && call.change !== undefined)
     )
-    const failed = cell.calls.filter((call) => call.status === "failed" || call.exit !== undefined)
+    const failed = cell.calls.filter((call) => call.status === "failed" || (call.exit ?? 0) !== 0)
     const important = [...new Set([...changed, ...failed])]
     const chosen = important.length > 0 ? important : cell.calls
     if (chosen.every((call) => call.flow === "read" && call.status === "ok") && chosen.length > 2) {

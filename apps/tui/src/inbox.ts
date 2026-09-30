@@ -191,9 +191,7 @@ export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript
     ? [`${Tabs.model(tab.seat, [])} → ${Tabs.model(tab.activeSeat, [])}`]
     : []
   if (tab.failure !== undefined) {
-    return [`${tab.failure.headline} · ${Tabs.faultWords(tab.failure.fault)}`, tab.failure.line, ...backup].filter((
-      line
-    ) => line !== "")
+    return [tab.failure.headline, tab.failure.line, ...backup].filter((line) => line !== "")
   }
   if (tab.status === "parked") {
     return [

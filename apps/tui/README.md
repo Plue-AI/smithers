@@ -328,10 +328,11 @@ subagent cards after that cell (`@smthrs/rpc/SubagentCard`, shared with the
 GUI): `◐ Running 3 subagents (1/3)` and a `▰` bar, then equal-height cards,
 one column below 69 columns, up to four across. A card has its lane-colored
 `▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
-`└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
+`├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
 `Done 1m 04s · sol`. A focused card shows its worker keys (`[x Stop] [s Steer]`).
-A worker tab's own children show the same way. `◉ <worker> finished` marks
-where a worker settled. `/filter` shows or hides each kind of row;
+A worker tab's own children show the same way. `◉ <worker> finished`,
+`failed` or `stopped` marks where a worker settled; a settled batch reads `Ran 3 subagents` with `✓` when all
+are done, `✗` when any failed, else `■` when any stopped. `/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Progress uses the shared toast stack,

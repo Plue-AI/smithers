@@ -572,7 +572,9 @@ function CallView(
           </span>
           <span fg={call.status === "failed" ? color.danger : color.text}>{verb}{" "}</span>
           <span fg={color.muted}>{subject}</span>
-          {call.exit === undefined ? null : <span fg={color.warning}>{"  "}exit {call.exit}</span>}
+          {call.exit === undefined
+            ? null
+            : <span fg={call.exit === 0 ? color.muted : color.warning}>{"  "}exit {call.exit}</span>}
         </text>
         <text fg={color.faint} style={{ flexShrink: 0 }}>
           {" "}

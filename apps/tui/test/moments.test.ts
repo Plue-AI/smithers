@@ -42,7 +42,7 @@ it("writes a row for what entered the window, once per new set, and none for a r
   ])
 })
 
-it("peeks at a park with its reset and count, a backup seat, and a failure with whose fault it is", () => {
+it("peeks at a park with its reset and count, a backup seat, and a failure by its headline", () => {
   const row = (worker: Tab) => ({
     key: worker.id,
     group: "needs" as const,
@@ -76,7 +76,7 @@ it("peeks at a park with its reset and count, a backup seat, and a failure with 
       () => Transcript.empty
     )
   )
-    .toEqual(["Token budget reached · not your fault · infra", "200 of 200 tokens used."])
+    .toEqual(["Token budget reached", "200 of 200 tokens used."])
 })
 
 it("offers Raise cap on a worker stopped at its run cap, and nowhere else", () => {

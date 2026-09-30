@@ -28,7 +28,9 @@ const cell = (
   transcript: Transcript.Transcript,
   at: number,
   prose: string,
-  calls: ReadonlyArray<{ flow: string; input: unknown; outcome?: "success" | "failure" | "running" }>
+  calls: ReadonlyArray<
+    { flow: string; input: unknown; outcome?: "success" | "failure" | "running"; exitCode?: number }
+  >
 ): Transcript.Transcript => {
   let next = Transcript.apply(transcript, event({ _tag: "model-requested" }), at)
   next = Transcript.apply(
@@ -53,7 +55,7 @@ const cell = (
         identity,
         result: call.outcome === "failure"
           ? { outcome: "failure", message: "exit 1" }
-          : { outcome: "success", value: {} }
+          : { outcome: "success", value: call.exitCode === undefined ? {} : { exitCode: call.exitCode } }
       }),
       at + index + 1
     )
@@ -78,6 +80,18 @@ describe("the card adapter", () => {
       "└ Editing login.ts…"
     ])
     expect(card.footer.text).toBe("42s · GPT-6 Sol")
+  })
+
+  it("marks a command by its exit status", () => {
+    const worker = cell(Transcript.empty, 10, "Check.", [
+      { flow: "bash", input: { command: "node check.mjs" }, exitCode: 1 },
+      { flow: "bash", input: { command: "node check.mjs" }, exitCode: 0 }
+    ])
+    const card = SubagentCard.card(Subagents.subagent(tab("w", "done"), worker, models), 42_000)
+    expect(card.activity.rows.map((row) => SubagentCard.line(row)).slice(1)).toEqual([
+      "├ Ran node check.mjs  exit 1 ✗",
+      "└ Ran node check.mjs  exit 0 ✓"
+    ])
   })
 
   it("prefers the flow's own verbs and takes counts from captured patches", () => {

@@ -98,6 +98,8 @@ export type Entry =
     readonly verb?: Verb
     readonly added?: number
     readonly removed?: number
+    /** A command's exit status; nonzero marks the row failed. */
+    readonly exit?: number
   }
   | { readonly kind: "text"; readonly text: string }
 
@@ -247,10 +249,13 @@ export const describe = (entry: Entry): Omit<Row, "branch"> => {
   const target = oneLine(entry.target)
   const subject = target === "" ? "" : ` ${target}`
   if (entry.state === "pending") return { text: `${words.pending}${subject}…`, mark: "", state: "pending" }
+  const state = entry.exit !== undefined && entry.exit !== 0 ? "error" : entry.state
   return {
-    text: `${words.done}${subject}${counts(entry.added, entry.removed)}`,
-    mark: entry.state === "done" ? "✓" : "✗",
-    state: entry.state
+    text: `${words.done}${subject}${counts(entry.added, entry.removed)}${
+      entry.exit === undefined ? "" : `  exit ${entry.exit}`
+    }`,
+    mark: state === "done" ? "✓" : "✗",
+    state
   }
 }
 
@@ -471,8 +476,8 @@ export interface Header {
   readonly text: string
   /** `(1/3)` settled of total while live; empty once all settle. */
   readonly count: string
-  /** `✓`, or `✗` when any failed, once all settle; empty while live. */
-  readonly mark: "" | "✓" | "✗"
+  /** `✓` when all are done, `✗` when any failed, else `■` when any stopped; empty while live. */
+  readonly mark: "" | "✓" | "✗" | "■"
   /** One cell per subagent, settled first. */
   readonly bar: ReadonlyArray<"done" | "pending">
 }
@@ -504,15 +509,12 @@ export const header = (statuses: ReadonlyArray<Status>, now: number): Header => 
       bar
     }
   }
-  const failed = statuses.includes("failed")
-  return {
-    glyph: "",
-    tone: failed ? "failed" : "done",
-    text: `Ran ${total} ${noun}`,
-    count: "",
-    mark: failed ? "✗" : "✓",
-    bar
-  }
+  const outcome = statuses.includes("failed")
+    ? { tone: "failed" as const, mark: "✗" as const }
+    : statuses.includes("cancelled")
+    ? { tone: "stopped" as const, mark: "■" as const }
+    : { tone: "done" as const, mark: "✓" as const }
+  return { glyph: "", ...outcome, text: `Ran ${total} ${noun}`, count: "", bar }
 }
 
 /**
@@ -545,11 +547,11 @@ export const earlierBatches = <A>(batches: ReadonlyArray<A>, open = false): Read
  * @since 1.0.0
  * @category header
  */
-export const earlierLine = (count: number): string =>
-  `${count} earlier subagent ${count === 1 ? "batch" : "batches"}`
+export const earlierLine = (count: number): string => `${count} earlier subagent ${count === 1 ? "batch" : "batches"}`
 
 /**
- * The inline parent row when a background subagent settles: `◉ {title} finished`.
+ * The inline parent row when a background subagent settles: `◉ {title} finished`,
+ * `◉ {title} failed` or `◉ {title} stopped`.
  * @since 1.0.0
  * @category cards
  */
@@ -560,7 +562,7 @@ export const finished = (
   glyph: "◉",
   tone: glyph(status, 0).tone,
   title,
-  line: `◉ ${title} finished`
+  line: `◉ ${title} ${status === "failed" ? "failed" : status === "cancelled" ? "stopped" : "finished"}`
 })
 
 /**
