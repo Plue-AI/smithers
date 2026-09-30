@@ -51,6 +51,11 @@
 
 ### Fixed
 
+- `runs list/count/show/logs` and `approvals list` open existing stores
+  read-only: no migration, schema object, recovery, sweeper or reaper, on
+  SQLite and PostgreSQL. They no longer fail while another process holds the
+  writer (#2069).
+
 - Backend commands (`repo`, `stack`, `land`, `auth`, `workspace ssh`/`cp` and
   the local jj verbs) start `jj`, `git`, `ssh` and the keyring helper through
   the contained host spawner, so a timed-out or cancelled command stops their

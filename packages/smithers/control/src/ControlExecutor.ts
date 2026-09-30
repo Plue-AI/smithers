@@ -426,6 +426,31 @@ export const makeObserving = (service: Service): Service => {
 }
 
 /**
+ * An executor that only reads the engine: every method that drives or
+ * changes a run dies.
+ *
+ * A host composed over read-only stores carries it. Unlike
+ * {@link makeObserving}, it records no cancel and delivers no signal, because
+ * such a host can write neither. Without `readExecution` a listing answers
+ * from the control plane's coordination copy alone.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const makeReadOnly = (readExecution?: Service["readExecution"]): Service => {
+  const refuse = (method: string) =>
+    Effect.die(new Error(`This host only observes runs, so ControlExecutor.${method} is unreachable on it.`))
+  return make({
+    ...(readExecution === undefined ? {} : { readExecution }),
+    launch: Effect.fn("ControlExecutor.launch")(() => refuse("launch")),
+    requestCancel: Effect.fn("ControlExecutor.requestCancel")(() => refuse("requestCancel")),
+    deliverSignal: Effect.fn("ControlExecutor.deliverSignal")(() => refuse("deliverSignal")),
+    resumeRun: Effect.fn("ControlExecutor.resumeRun")(() => refuse("resumeRun")),
+    settleCancelledPark: Effect.fn("ControlExecutor.settleCancelledPark")(() => refuse("settleCancelledPark"))
+  })
+}
+
+/**
  * Provides {@link makeNoop}.
  *
  * @category layers

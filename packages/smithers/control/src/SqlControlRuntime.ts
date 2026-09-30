@@ -378,13 +378,15 @@ const EngineStateProjection = Schema.Struct({ flowName: Schema.NonEmptyString })
  * Creates every control-plane table.
  *
  * `RunStore`'s own migrations are the journal package's business and are
- * applied by its layer.
+ * applied by its layer. A read-only client installs nothing.
  *
  * @category migrations
  * @since 0.1.0
  */
 export const migrate: Effect.Effect<void, PersistenceError, SqlClient.SqlClient> = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
+  // A read-only observer reads the schema it finds and installs nothing.
+  if (Dialect.isReadOnly(sql)) return
   // A standalone runtime cannot record control's high-offset migration first:
   // that high-water mark would make later journal and run-store sets look
   // skipped. The idempotent bootstrap keeps standalone construction safe. The

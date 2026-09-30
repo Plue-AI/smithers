@@ -128,4 +128,24 @@ describe("control migrations", () => {
       expect(yield* sql`SELECT * FROM control_run_keys`).toEqual([])
       expect(yield* sql`SELECT value FROM control_sequences WHERE name = 'upgrade-sentinel'`).toEqual([{ value: 42 }])
     })))
+
+  it("leaves an older store untouched over a read-only client", async () => {
+    const root = mkdtempSync(join(tmpdir(), "control-readonly-bootstrap-"))
+    const filename = join(root, "control.db")
+    try {
+      const db = new DatabaseSync(filename)
+      db.exec("CREATE TABLE flows_migrations (id INTEGER)")
+      db.close()
+      const tables = await Effect.runPromise(
+        Effect.gen(function*() {
+          yield* SqlControlRuntime.migrate
+          const sql = yield* SqlClient.SqlClient
+          return yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`
+        }).pipe(Effect.provide(NodeDatabase.layer({ filename, readOnly: true })))
+      )
+      expect(tables).toEqual([{ name: "flows_migrations" }])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

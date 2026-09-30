@@ -11,7 +11,7 @@
  */
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import type { RunId } from "@smthrs/control/ControlSchema"
-import { Effect, Exit } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
 
 const runId = "run-1" as RunId
@@ -75,5 +75,30 @@ describe("makeObserving", () => {
     expect(String(exit)).toContain("This host observes runs and drives none")
     expect(String(exit)).toContain(`ControlExecutor.${method}`)
     expect(calls).toEqual([])
+  })
+})
+
+describe("makeReadOnly", () => {
+  it("reads the engine it was given and dies on everything else", async () => {
+    const reader = ControlExecutor.makeReadOnly(() => Effect.succeed({ _tag: "Observed", status: "parked" } as const))
+    expect(await Effect.runPromise(reader.readExecution!(runId))).toEqual({ _tag: "Observed", status: "parked" })
+    const refused: Record<string, Effect.Effect<unknown, unknown>> = {
+      launch: reader.launch({} as ControlExecutor.Launch),
+      requestCancel: reader.requestCancel({ runId }),
+      deliverSignal: reader.deliverSignal({ runId, signal: { name: "go", payload: null } }),
+      resumeRun: reader.resumeRun({ runId }),
+      settleCancelledPark: reader.settleCancelledPark({ runId })
+    }
+    for (const [method, effect] of Object.entries(refused)) {
+      const exit = await Effect.runPromiseExit(effect)
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(String(Cause.squash(exit.cause))).toContain(`ControlExecutor.${method} is unreachable`)
+      }
+    }
+  })
+
+  it("has no engine reader without an engine", () => {
+    expect(ControlExecutor.makeReadOnly().readExecution).toBeUndefined()
   })
 })
