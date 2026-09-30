@@ -221,6 +221,18 @@ export const operatorLine = (error: unknown, verbose: boolean): string => {
   return verbose && stated === unknownSentence ? `${line}\n${operatorDetail(error)}` : line
 }
 
+/**
+ * The stderr text for a failure that ends the process: its operator sentence,
+ * and for an undesigned failure under `verbose`, the redacted raw detail.
+ *
+ * @category getters
+ * @since 1.0.0
+ */
+export const operatorReport = (error: unknown, verbose: boolean): string => {
+  const stated = operatorSentence(error)
+  return verbose && stated === unknownSentence ? `${stated}\n${operatorDetail(error)}` : stated
+}
+
 const MAX_DETAIL_DEPTH = 8
 
 const rawDetail = (error: unknown, depth: number): string => {

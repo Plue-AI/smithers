@@ -152,6 +152,26 @@ describe("Failure.operatorLine", () => {
   })
 })
 
+describe("Failure.operatorReport", () => {
+  it("prints a designed sentence alone, with or without --verbose", () => {
+    const refusal = new ControlError.ClaimLost({ runId: "run-42" })
+    expect(Failure.operatorReport(refusal, false)).toBe("claim_lost runId=run-42")
+    expect(Failure.operatorReport(refusal, true)).toBe("claim_lost runId=run-42")
+  })
+
+  it("appends the redacted raw cause of an undesigned failure under --verbose only", () => {
+    const missing = Object.assign(new Error("Cannot find package '@smthrs/gone' token=privatevalue123456"), {
+      code: "ERR_MODULE_NOT_FOUND"
+    })
+    Object.setPrototypeOf(missing, TypeError.prototype)
+    expect(Failure.operatorReport(missing, false)).toBe(Failure.unknownSentence)
+    const report = Failure.operatorReport(missing, true)
+    expect(report.startsWith(`${Failure.unknownSentence}\n`)).toBe(true)
+    expect(report).toContain("@smthrs/gone")
+    expect(report).not.toContain("privatevalue123456")
+  })
+})
+
 describe("Failure.operatorDetail", () => {
   it("is the redacted, terminal-safe raw text, for --verbose only", () => {
     const detail = Failure.operatorDetail(new Error("api_key=privatevalue123456 \u001b]0;title\u0007boom"))

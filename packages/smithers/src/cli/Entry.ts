@@ -12,14 +12,6 @@ import * as Failure from "../internal/Failure.ts"
 import { normalizeArguments } from "./Arguments.ts"
 import * as Argv from "./Argv.ts"
 
-const verboseIn = (argv: ReadonlyArray<string>): boolean => {
-  try {
-    return Argv.parse(argv).verbose
-  } catch {
-    return false
-  }
-}
-
 /**
  * Process hosts keep MCP alive until stdin closes or the operator interrupts.
  * @category models
@@ -99,11 +91,7 @@ export const main = async (host: Host): Promise<void> => {
     if (mcp) await host.waitForDisconnect?.(controller.signal)
   } catch (cause) {
     if (interrupted === undefined) {
-      const verbose = verboseIn(host.argv)
-      const stated = Failure.operatorSentence(cause)
-      const text = verbose && stated === Failure.unknownSentence
-        ? `${stated}\n${Failure.operatorDetail(cause)}`
-        : stated
+      const text = Failure.operatorReport(cause, Argv.parse(host.argv).verbose)
       host.stderr.write(`${String(Redaction.redactDiagnostic(text))}\n`)
       exit(1)
     }
