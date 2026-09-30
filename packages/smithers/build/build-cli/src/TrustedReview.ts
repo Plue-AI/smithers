@@ -248,7 +248,13 @@ export const prepare = async (options: Options) => {
       const attrs = Schema.decodeUnknownSync(LlmLint.Attrs)(JSON.parse(row.reviewPolicy))
       if (!named(row, attrs)) continue
       const trusted = policies.find(({ label }) => label === row.label)?.payload
-      const { contextTokens: _proposedWindow, ...checks } = payloadOf(attrs, policyRevision)
+      // Engine, model, context window, budget and requirement are operator gates: the trusted policy's apply.
+      const {
+        budget: _proposedBudget,
+        contextTokens: _proposedWindow,
+        required: _proposedRequirement,
+        ...checks
+      } = payloadOf(attrs, policyRevision)
       policies.push({
         label: `${row.label}#proposed-checks`,
         payload: {
@@ -256,6 +262,8 @@ export const prepare = async (options: Options) => {
           engine: trusted?.engine ?? "claude",
           model: trusted?.model ?? SecurityReview.defaultClaudeModel,
           ...(trusted?.contextTokens === undefined ? {} : { contextTokens: trusted.contextTokens }),
+          ...(trusted?.budget === undefined ? {} : { budget: trusted.budget }),
+          ...(trusted?.required === undefined ? {} : { required: trusted.required }),
           scope: "all"
         },
         // Filled below from files the trusted policies already review.

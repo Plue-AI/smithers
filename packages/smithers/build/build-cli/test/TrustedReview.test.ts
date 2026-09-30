@@ -277,6 +277,45 @@ describe("TrustedReview Git boundary", () => {
     expect(limited.snapshot.map(({ path }) => path)).not.toContain("private/notes.md")
   })
 
+  it("pins a proposed-check review to the trusted budget and requirement", async () => {
+    const trustedPolicy = JSON.parse(policy("trusted rubric")) as Record<string, unknown>
+    const { root, trusted } = await fixture(
+      JSON.stringify({ ...trustedPolicy, required: true, budget: { modelCalls: 3, wallMs: 60_000 } })
+    )
+    // The candidate lifts the cap, drops the requirement and shrinks the batches.
+    await write(
+      root,
+      ".smithers/target-index.json",
+      index(JSON.stringify({ ...JSON.parse(policy("looser rubric")), budget: { modelCalls: 5_000 } }))
+    )
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "lift the review budget")
+    const prepared = await prepare(options(root, trusted, git(root, "rev-parse", "HEAD")))
+    const proposed = prepared.policies.find(({ label }) => label === "//:security#proposed-checks")!
+    expect(proposed.payload).toMatchObject({
+      rubric: "looser rubric",
+      required: true,
+      budget: { modelCalls: 3, wallMs: 60_000 }
+    })
+
+    // A proposed target with no trusted counterpart carries no budget of its own choosing either.
+    const added = await fixture()
+    await write(
+      added.root,
+      ".smithers/target-index.json",
+      JSON.stringify([
+        row("//:security", policy("trusted rubric")),
+        row("//:audit", JSON.stringify({ ...JSON.parse(policy("new rubric")), budget: { modelCalls: 5_000 } }))
+      ])
+    )
+    git(added.root, "add", ".")
+    git(added.root, "commit", "-qm", "new review target with its own budget")
+    const next = await prepare(options(added.root, added.trusted, git(added.root, "rev-parse", "HEAD")))
+    const audit = next.policies.find(({ label }) => label === "//:audit#proposed-checks")!.payload as object
+    expect(Object.hasOwn(audit, "budget")).toBe(false)
+    expect(Object.hasOwn(audit, "required")).toBe(false)
+  })
+
   it("masks credential-bearing paths in the receipt", async () => {
     const { root } = await fixture()
     const token = `ghp_${"P".repeat(36)}`
