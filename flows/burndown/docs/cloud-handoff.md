@@ -54,11 +54,15 @@ failure receipt for inspection; it does not silently restart or discard changes.
 artifact, even when review or preparation fails. Without an artifact, execution
 that may have produced commits keeps its workspace for recovery.
 
-Before export, `recovery.json` on the host records the repository, assignment key,
+Before export, `recoveries/<attempt-id>/recovery.json` on the host records the repository, assignment key,
 actual tool/model, workspace ID, reported status, and full commit IDs. It omits
 agent notes, login material, and SSH grant commands. It retains the last export
 stage, grant outcome, and cleanup outcome. A failed export keeps this receipt and
 the workspace; a report receipt alone does not authorize deleting committed work.
+Each attempt gets a separate receipt directory. Retrying an assignment cannot
+overwrite an earlier workspace ID or report. Enumerate `recoveries/` to find
+preserved workspaces, recover their commits, and delete them after retention;
+empty or unknown reports alone are insufficient evidence for deletion.
 
 Recovery uses the retained workspace ID to obtain fresh SSH access, inspect the
 actual agent report and Git history, and retry export for verified commits.

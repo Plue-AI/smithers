@@ -4,7 +4,7 @@ import { workspaceSshPrefix } from "@smthrs/cli/NodeControl"
 import { Effect, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { execFile, spawn } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -221,6 +221,9 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
       if (assignment.tool === "codex" && assignment.model !== "gpt-6.1-sol") {
         return yield* Effect.fail("burndown Codex assignments require gpt-6.1-sol")
       }
+      if (assignment.tool === "claude" && assignment.model !== "claude-opus-5-5") {
+        return yield* Effect.fail("burndown Claude assignments require claude-opus-5-5")
+      }
       const username = yield* Effect.tryPromise({
         try: options.identity ?? cloudIdentity,
         catch: () => "could not verify Cloud user; set SMITHERS_TOKEN and SMITHERS_API_ORIGIN"
@@ -240,6 +243,8 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         "Smithers-Ops/burndown/receipts",
         encodeURIComponent(assignment.key)
       )
+      // Attempts never overwrite preserved workspace/report evidence from a retry.
+      const recoveryDirectory = join(artifactDirectory, "recoveries", randomUUID())
       const attribution = { tool: assignment.tool, model: assignment.model }
       const redactions = Object.entries(process.env).filter(([key]) => /token|secret|password|api_key/i.test(key))
         .map(([, value]) => value!).filter(Boolean)
@@ -247,6 +252,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
       let grantAcquired = false
       let retained = false
       let reportedWork = false
+      let grantAttempted = false
       let stage = "launch"
       const recovery: Record<string, unknown> = {
         version: 1,
@@ -260,7 +266,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         phase: "launch",
         cleanup: "pending"
       }
-      const save = () => retainCloudRecovery(artifactDirectory, recovery)
+      const save = () => retainCloudRecovery(recoveryDirectory, recovery)
       const evidence = Effect.tryPromise({
         try: save,
         catch: () => "could not retain Cloud commit artifact or recovery receipt"
@@ -293,23 +299,39 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         },
         sshPrefix: async (reference, signal) => {
           const started = Date.now()
-          await save()
+          if (!grantAttempted) {
+            grantAttempted = true
+            await save()
+          }
           try {
             const prefix = await control.sshPrefix(reference, AbortSignal.any([signal, AbortSignal.timeout(30_000)]))
+            const changed = !grantAcquired || (recovery.grant as { status?: string } | undefined)?.status !== "acquired"
             grantAcquired = true
             recovery.grant = { status: "acquired", elapsedMs: Date.now() - started }
-            await save()
+            if (changed) await save()
             return prefix
           } catch (error) {
             const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)
+            const errorClass = error instanceof Error &&
+                /^(?:Error|TypeError|AbortError|TimeoutError|APIError|Refused)$/.test(error.name)
+              ? error.name :
+              "UnknownError"
+            const row = error && typeof error === "object"
+              ? error as { status?: unknown; cause?: { status?: unknown } }
+              : {}
+            const status = row.status ?? row.cause?.status
             recovery.grant = {
               status: "failed",
+              errorClass,
+              ...Number.isInteger(status) && Number(status) >= 100 && Number(status) <= 599
+                ? { httpStatus: status }
+                : {},
               kind: timeout ? "timeout-or-cancelled" : "unavailable",
               elapsedMs: Date.now() - started
             }
             recovery.failure = { stage: "ssh-grant", kind: timeout ? "timeout-or-cancelled" : "unavailable" }
             await save()
-            throw new Error("Cloud SSH grant failed; recovery receipt retained")
+            throw error
           }
         }
       }
@@ -373,8 +395,9 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
             const exportedRead: ReadCommand = (program, args, stdin) => {
               stage = args[1]?.includes("git show") ? "metadata" : args[1]?.includes("diff-tree") ? "tree" : "blob"
               recovery.phase = "exporting"
+              const changed = recovery.stage !== stage
               recovery.stage = stage
-              return evidence.pipe(Effect.andThen(read(program, args, stdin)))
+              return (changed ? evidence : Effect.void).pipe(Effect.andThen(read(program, args, stdin)))
             }
             const artifact = yield* exportCloudCommits(
               assignment.repo,
@@ -485,11 +508,21 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
                 ...error.includes("Git exit") ? { diagnostic: cloudDiagnostic(error, redactions) } : {}
               }
               yield* evidence
-              return yield* Effect.fail(`${error}; Cloud recovery receipt: ${join(artifactDirectory, "recovery.json")}`)
+              return yield* Effect.fail(`${error}; Cloud recovery receipt: ${join(recoveryDirectory, "recovery.json")}`)
             })
           )),
         command: (script: string) =>
-          makeCommand(options, account, script).pipe(Effect.tap(() => {
+          makeCommand(options, account, script).pipe(Effect.tap((command) => {
+            // Protect opaque subscription tokens as well as recognizable formats.
+            const envelope = JSON.parse(new TextDecoder().decode(command.stdin)) as { credential: unknown }
+            const protect = (value: unknown): void => {
+              if (value === null || typeof value !== "object") return
+              for (const [key, member] of Object.entries(value)) {
+                if (typeof member === "string" && member && /token$|api_key$/i.test(key)) redactions.push(member)
+                else protect(member)
+              }
+            }
+            protect(envelope.credential)
             commandRequested = true
             recovery.phase = "execution-requested"
             return evidence

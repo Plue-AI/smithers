@@ -32,6 +32,19 @@ const account: Account = {
   aliases: []
 }
 
+const recoveryReceipts = async (directory: string) => {
+  const root = join(directory, "recoveries")
+  return await Promise.all((await readdir(root)).map(async (id) => {
+    const path = join(root, id, "recovery.json")
+    return { path, raw: await readFile(path, "utf8") }
+  }))
+}
+const readRecovery = async (directory: string): Promise<string> => {
+  const receipts = await recoveryReceipts(directory)
+  assert.equal(receipts.length, 1, "a fresh machine retains one unique recovery receipt")
+  return receipts[0]!.raw
+}
+
 // A fake control API makes workspace lifecycle deterministic; real subprocesses
 // exercise CommandSandbox stdin, temporary guest config and cleanup together.
 for (const tool of ["codex", "claude"] as const) {
@@ -59,7 +72,11 @@ for (const tool of ["codex", "claude"] as const) {
               sshPrefix: async () => []
             }
           })
-          const machine = yield* placement.machine({ ...assignment, tool }, { ...account, tool })
+          const machine = yield* placement.machine({
+            ...assignment,
+            tool,
+            model: tool === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5"
+          }, { ...account, tool })
           assert.equal(machine.env.TMPDIR, "/tmp")
           assert.equal(machine.env.GOCACHE, `${machine.stateDir}/go-cache`)
           const command = yield* machine.command!(
@@ -144,7 +161,10 @@ for (const mode of ["failure", "cancellation"] as const) {
               sshPrefix: async () => []
             }
           })
-          const machine = yield* placement.machine({ ...assignment, tool: "claude" }, { ...account, tool: "claude" })
+          const machine = yield* placement.machine({ ...assignment, tool: "claude", model: "claude-opus-5-5" }, {
+            ...account,
+            tool: "claude"
+          })
           const command = yield* machine.command!(
             `printf '%s' "$CLAUDE_CONFIG_DIR" > '${marker}'; ${mode === "failure" ? "exit 7" : "sleep 10"}`
           )
@@ -244,7 +264,7 @@ test("live Cloud native agents execute tools through temporary stdin auth", {
         assert.match(output, new RegExp(`^SMITHERS_TOOL_PROOF=CLOUD-${tool.toUpperCase()}-TOOL-OK$`, "m"))
         assert.match(output, /^SMITHERS_JJ_PROOF=OK$/m)
         assert.ok(!output.includes("code-mode host is missing"))
-        console.log(`${tool}: Cloud command execution passed; scoped workspace released`)
+        process.stdout.write(`${tool}: Cloud command execution passed; scoped workspace released\n`)
       }).pipe(Effect.provide(NodeServices.layer))
     )
   }
@@ -420,7 +440,10 @@ test("Cloud wrapper keeps the exit receipt after agent stderr", async () => {
           credential: async () => ({ token: "fixture-token" }),
           api: { request: async () => ({ id: "ws-stderr", status: "running" }), sshPrefix: async () => [] }
         })
-        const machine = yield* placement.machine({ ...assignment, tool: "claude" }, { ...account, tool: "claude" })
+        const machine = yield* placement.machine({ ...assignment, tool: "claude", model: "claude-opus-5-5" }, {
+          ...account,
+          tool: "claude"
+        })
         const command = yield* machine.command!(
           "printf 'agent warning\\n' >&2; printf 'agent report\\nBURNDOWN_EXIT=0\\n'"
         )
@@ -697,7 +720,11 @@ test("default host review pins a fixture login, disables tools, redacts receipts
           spawner,
           identity: async () => "smithers-dev",
           prepareRepository: async () => {}
-        }).machine({ ...assignment, tool: "claude" }, { ...account, tool: "claude", directory: reviewer })
+        }).machine({ ...assignment, tool: "claude", model: "claude-opus-5-5" }, {
+          ...account,
+          tool: "claude",
+          directory: reviewer
+        })
         const claudeCommand = yield* claudeMachine.command!("true")
         assert.ok(Buffer.from(claudeCommand.stdin!).toString().includes("fixture-review-token"))
         assert.ok(!claudeCommand.script.includes("fixture-review-token"))
@@ -972,7 +999,7 @@ test("Cloud export failure retains report and workspace for recovery", async () 
               Effect.mapError(() => "ssh-grant timeout; PRIVATE-TRANSPORT-ERROR")
             )))
           assert.equal(exit._tag, "Failure")
-          const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+          const raw = yield* Effect.promise(() => readRecovery(dir))
           assert.ok(!raw.includes("PRIVATE-REPORT-NOTES"))
           assert.ok(!raw.includes("PRIVATE-TRANSPORT-ERROR"))
           assert.match(raw, /ws-recovery/)
@@ -1099,7 +1126,7 @@ test("Cloud grant failure is redacted and allows cleanup before guest execution"
               return { id: "ws-grant", status: "running" }
             },
             sshPrefix: async () => {
-              throw Error("PRIVATE-GRANT-TOKEN")
+              throw Object.assign(Error("PRIVATE-GRANT-TOKEN"), { status: 401 })
             }
           }
         }).machine(assignment, account)
@@ -1111,10 +1138,13 @@ test("Cloud grant failure is redacted and allows cleanup before guest execution"
         )
         assert.equal(exit._tag, "Failure")
         assert.ok(!JSON.stringify(exit).includes("PRIVATE-GRANT-TOKEN"))
-        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+        const raw = yield* Effect.promise(() => readRecovery(dir))
         assert.match(raw, /ssh-grant/)
         assert.match(raw, /ws-grant/)
         assert.ok(!raw.includes("PRIVATE-GRANT-TOKEN"))
+        const recovery = JSON.parse(raw)
+        assert.equal(recovery.grant.errorClass, "Error")
+        assert.equal(recovery.grant.httpStatus, 401)
       }).pipe(Effect.provide(NodeServices.layer))
     )
     assert.deepEqual(calls, ["POST", "GET", "DELETE"])
@@ -1158,7 +1188,7 @@ test("Cloud replayed READY report preserves workspace without a new guest comman
             agentHours: 0
           }, () => Effect.fail("export unavailable")))
           assert.equal(exit._tag, "Failure")
-          const recovery = JSON.parse(yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8")))
+          const recovery = JSON.parse(yield* Effect.promise(() => readRecovery(dir)))
           assert.deepEqual(recovery.result, { status: "ready", commits: [{ issue: 42, commit: sha }] })
           assert.equal(recovery.workspaceId, "ws-replayed")
         }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
@@ -1197,7 +1227,7 @@ test("Cloud Git diagnostics redact the coding credential from the local command 
         assert.equal(exit._tag, "Failure")
         assert.ok(!JSON.stringify(exit).includes(secret))
         assert.match(JSON.stringify(exit), /\[redacted\]/)
-        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+        const raw = yield* Effect.promise(() => readRecovery(dir))
         assert.ok(!raw.includes(secret))
         assert.match(raw, /\[redacted\]/)
         const recovery = JSON.parse(raw)
@@ -1208,4 +1238,102 @@ test("Cloud Git diagnostics redact the coding credential from the local command 
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test("Cloud recovery keeps earlier workspace evidence when the same assignment is retried", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-recovery-retry-"))
+  const firstSha = "a".repeat(40)
+  const secondSha = "b".repeat(40)
+  const deleted: Array<string> = []
+  let created = 0
+  try {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const placement = makeCloudPlacement({
+          spawner,
+          artifactDirectory: dir,
+          workdir: dir,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          api: {
+            request: async (method, path) => {
+              if (method === "POST") created++
+              if (method === "DELETE") deleted.push(path)
+              return { id: `ws-history-${created}`, status: "running" }
+            },
+            sshPrefix: async () => []
+          }
+        })
+        let firstPath = ""
+        let firstRaw = ""
+        for (const [index, sha] of [firstSha, secondSha].entries()) {
+          const machine = yield* placement.machine(assignment, account)
+          yield* Effect.gen(function*() {
+            const guest = yield* ChildProcessSpawner
+            yield* guest.string(ChildProcess.make("sh", ["-c", "true"]))
+            const exit = yield* Effect.exit(
+              machine.handoff!({
+                key: assignment.key,
+                status: "ready",
+                commits: [{ issue: 42, commit: sha }],
+                notes: "",
+                agentHours: 0
+              }, () => Effect.fail("export unavailable"))
+            )
+            assert.equal(exit._tag, "Failure")
+          }).pipe(
+            Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir + index })),
+            Effect.scoped
+          )
+          if (index === 0) {
+            const receipts = yield* Effect.promise(() => recoveryReceipts(dir))
+            assert.equal(receipts.length, 1)
+            firstPath = receipts[0]!.path
+            firstRaw = receipts[0]!.raw
+          }
+        }
+        assert.equal(
+          yield* Effect.promise(() => readFile(firstPath, "utf8")),
+          firstRaw,
+          "a retry must not overwrite the only committed-work recovery evidence"
+        )
+        const receipts = yield* Effect.promise(() => recoveryReceipts(dir))
+        assert.equal(receipts.length, 2)
+        const recovered = receipts.map((receipt) => JSON.parse(receipt.raw)).sort((a, b) =>
+          a.workspaceId.localeCompare(b.workspaceId)
+        )
+        assert.deepEqual(recovered.map((receipt) => receipt.workspaceId), ["ws-history-1", "ws-history-2"])
+        assert.deepEqual(recovered.map((receipt) => receipt.result.commits[0].commit), [firstSha, secondSha])
+        assert.deepEqual(deleted, [])
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("Cloud refuses unsupported Claude model before contacting identity or repository", async () => {
+  let contacts = 0
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner
+      const machine = makeCloudPlacement({
+        spawner,
+        identity: async () => {
+          contacts++
+          return "smithers-dev"
+        },
+        prepareRepository: async () => {
+          contacts++
+        }
+      })
+      const exit = yield* Effect.exit(
+        machine.machine({ ...assignment, tool: "claude", model: "unsupported" }, { ...account, tool: "claude" })
+      )
+      assert.equal(exit._tag, "Failure")
+      assert.match(JSON.stringify(exit), /claude-opus-5-5/)
+      assert.equal(contacts, 0)
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
 })

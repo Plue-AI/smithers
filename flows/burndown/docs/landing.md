@@ -26,7 +26,9 @@ Fable before push. The review receipt names the candidate SHA; the queue refuses
 any SHA change after checks or review. Cloud artifact review alone is insufficient.
 Review runs in an empty directory with a ten-minute deadline. Landing has a
 45-minute overall deadline; cancellation stops the lock wrapper, shell, and
-detached descendants before quarantine. Issue completion and release use the
+detached descendants before quarantine. The host freezes the process tree and
+rescans until no new descendants appear before killing it; cleanup failures
+remain in the failure receipt. Issue completion and release use the
 fixed host claim tool. Every issue receipt is attempted; failures remain visible
 even after push. Retries recognize commits already on main and retry receipts
 without landing again. If the post-push fetch fails, the queue checks the remote

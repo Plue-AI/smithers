@@ -275,6 +275,22 @@ test("Codex cannot recover a failed turn merely by emitting a later completion",
 })
 
 for (const tool of ["codex", "claude"] as const) {
+  test(`${tool} queues only an explicitly ready extra when the lead is blocked`, () => {
+    for (const text of [
+      `BLOCKED #2955 dependency\nREADY #2956 ${second}`,
+      `READY #2956 ${second}\nBLOCKED #2955 dependency`,
+      `BLOCKED #2955 dependency\nREADY #2956 ${second}\nBLOCKED #2955 dependency`
+    ]) {
+      const output = tool === "codex" ? codex(text) : claude(text)
+      const result = parse(output, 0, tool)
+      assert.equal(result.status, "ready")
+      assert.deepEqual(result.commits, [{ issue: 2956, commit: second }])
+      assert.match(result.notes, /BLOCKED #2955 dependency/)
+    }
+  })
+}
+
+for (const tool of ["codex", "claude"] as const) {
   test(`${tool} does not classify failed exits from quota words in tool output`, () => {
     const toolOutput = tool === "codex"
       ? { type: "item.completed", item: { type: "command_execution", aggregated_output: "rate limit regression" } }

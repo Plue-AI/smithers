@@ -3,7 +3,12 @@ import { chmod, lstat, mkdtemp, readFile, readlink, realpath, rm, symlink, write
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { prepareCloudHandoff, retainCloudHandoff, validateCloudHandoff } from "../burndown/cloud-handoff.ts"
+import {
+  prepareCloudHandoff,
+  retainCloudHandoff,
+  retainCloudRecovery,
+  validateCloudHandoff
+} from "../burndown/cloud-handoff.ts"
 
 const base = "a".repeat(40)
 const source = "b".repeat(40)
@@ -736,3 +741,57 @@ for (
     }
   })
 }
+
+test("real jj handoff replaces CRLF false Sol attribution with the trusted Opus assignment", async () => {
+  const env = await fixture()
+  try {
+    const value = {
+      ...artifact(),
+      base: env.base,
+      commits: [{
+        ...artifact().commits[0]!,
+        parent: env.base,
+        message: "fix: CRLF guest\r\n\r\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>\r\n\r\nGuest detail survives",
+        changes: [{ path: "owned.txt", before: entry("old"), after: entry("new") }]
+      }]
+    }
+    const prepared = await prepareCloudHandoff(value, {
+      ...env.options,
+      attribution: { tool: "claude", model: "claude-opus-5-5" }
+    })
+    const description = await env.jj("log", "--no-graph", "-r", prepared.commit, "-T", "description")
+    assert.equal(
+      description.split("\n").filter((line) => line === "Co-Authored-By: Claude Opus <noreply@anthropic.com>").length,
+      1
+    )
+    assert.doesNotMatch(description, /GPT-6\.1 Sol/)
+    assert.match(description, /Guest detail survives/)
+  } finally {
+    await rm(env.directory, { recursive: true, force: true })
+  }
+})
+
+test("Cloud recovery consumer reads successive private receipts and rejected writes preserve the last evidence", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "handoff-recovery-")))
+  try {
+    const directory = join(root, "receipts", "run", "workspace")
+    const first = { workspace: "cloud-workspace", status: "export-failed", stage: "ssh-grant" }
+    const second = { ...first, status: "exported", artifactPath: "retained-artifact.json" }
+    await retainCloudRecovery(directory, first)
+    const path = join(directory, "recovery.json")
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), first)
+    assert.equal((await lstat(directory)).mode & 0o777, 0o700)
+    assert.equal((await lstat(path)).mode & 0o777, 0o600)
+    await retainCloudRecovery(directory, second)
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), second)
+    await assert.rejects(retainCloudRecovery(directory, { diagnostic: "x".repeat(16 * 1024) }), /limit/)
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), second)
+    await assert.rejects(retainCloudRecovery("relative/receipts", first), /absolute/)
+    const link = join(root, "linked-receipts")
+    await symlink(directory, link)
+    await assert.rejects(retainCloudRecovery(link, first), /symlink/)
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), second)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

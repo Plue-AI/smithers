@@ -18,6 +18,15 @@ mappings, contradictory statuses for one issue, excess commits and inconsistent
 repositories fail the bundle. READY for one issue can coexist with BLOCKED for
 another assigned issue.
 
+Use explicit issue IDs when the lead is blocked and an extra is ready:
+
+```text
+BLOCKED #10 dependency
+READY #11 <full-commit-id>
+```
+
+The result contains issue 11's commit and retains issue 10's blocker in notes.
+
 CLOSED text requires host verification and returns blocked without a closure
 receipt. It cannot hide an open issue from selection.
 

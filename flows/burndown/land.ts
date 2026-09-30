@@ -397,29 +397,40 @@ export const runLandingProcess = (
       if (failure !== undefined) return
       failure = new Error(reason)
       if (child.pid !== undefined) {
-        // Freeze the landing group first: a shell cannot start a late push while
-        // we discover detached check/review children. Never rely on lock forwarding.
-        send(-child.pid, "SIGSTOP")
+        const descendants = new Set([child.pid])
+        const cleanupErrors: Array<string> = []
         try {
-          const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8", timeout: 5000 })
-            .trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number))
-          const descendants = new Set([child.pid])
-          for (let size = -1; size !== descendants.size;) {
-            size = descendants.size
-            for (const [pid, parent] of rows) {
-              if (pid !== undefined && parent !== undefined && descendants.has(parent)) {
-                descendants.add(pid)
-                send(pid, "SIGSTOP")
+          // Freeze before discovery, then rescan after freezing every new child:
+          // a detached child can fork between a ps snapshot and its SIGSTOP.
+          // Never rely on the lock wrapper forwarding cancellation signals.
+          send(-child.pid, "SIGSTOP")
+          const deadline = Date.now() + 5000
+          while (true) {
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) throw new Error("process-tree discovery timeout")
+            const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8", timeout: remaining })
+              .trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number))
+            const previousSize = descendants.size
+            for (let size = -1; size !== descendants.size;) {
+              size = descendants.size
+              for (const [pid, parent] of rows) {
+                if (pid !== undefined && parent !== undefined && descendants.has(parent) && !descendants.has(pid)) {
+                  descendants.add(pid)
+                  send(pid, "SIGSTOP")
+                }
               }
             }
+            if (descendants.size === previousSize) break
           }
-          for (const pid of [...descendants].reverse()) send(pid, "SIGKILL")
         } catch (cause) {
-          // A failed tree inspection still kills the landing group and is retained.
-          failure = new Error(`${reason}; process-tree cleanup: ${String(cause)}`)
+          cleanupErrors.push(String(cause))
         } finally {
-          send(-child.pid, "SIGKILL")
+          // Attempt every kill even if inspection or another signal failed.
+          for (const pid of [...descendants].reverse().concat(-child.pid)) {
+            try { send(pid, "SIGKILL") } catch (cause) { cleanupErrors.push(String(cause)) }
+          }
         }
+        if (cleanupErrors.length > 0) failure = new Error(`${reason}; process-tree cleanup: ${cleanupErrors.join("; ")}`)
       }
     }
     const abort = () => stop("LANDING_CANCELLED")

@@ -591,24 +591,17 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     process.env.BURNDOWN_LAND = "on"
     try {
       const { Pace } = await import("../burndown/pace.ts")
-      const { RunAgent } = await import("../burndown/run-agent.ts")
       const implementations = Layer.mergeAll(
-        layer,
+        // Worker is mocked at the detached boundary, so its production run-agent
+        // requirement is absent in this isolated host.
+        layer as Layer.Layer<Layer.Success<typeof layer>, never, Action.Implementations | FlowRuntime.FlowRuntime>,
         Pace.toLayer(() => Effect.succeed({ launches: [], nextTarget: 4, note: "fixture" })),
-        RunAgent.toLayer(() => Effect.die("READY recovery must not launch a worker"), {
-          implementationVersion: "burndown/run-agent/v6"
-        }),
         Sleep.layer
       ).pipe(Layer.provideMerge(Action.layerImplementations))
       const services = Interpreter.layerWithImplementations(Burndown, implementations).pipe(
         Layer.provideMerge(Interpreter.layer(Round).pipe(Layer.provide(implementations))),
         Layer.provideMerge(FlowEngine.layerMemory),
-        Layer.provideMerge(NodeCrypto.layer),
-        Layer.provideMerge(
-          RunAgent.toLayer(() => Effect.die("READY recovery must not launch a worker"), {
-            implementationVersion: "burndown/run-agent/v6"
-          }).pipe(Layer.provide(Action.layerImplementations))
-        )
+        Layer.provideMerge(NodeCrypto.layer)
       )
       const completed = await Effect.runPromise(
         Burndown.execute({ repos: [assignment.repo], ready: [ready] }, { executionId: "public-ready-recovery" }).pipe(

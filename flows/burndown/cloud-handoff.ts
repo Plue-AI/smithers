@@ -295,7 +295,7 @@ for change in changes:
             if disk(REPO,change['path'])!=change['after'] or tree('@',change['path'])!=change['after']: raise RuntimeError('reconstructed working-copy differs: '+change['path'])
         message=commit['message'].rstrip()
         if COAUTHOR:
-            message=re.sub(r'(?im)^Co-Authored-By: [^\r\n]*<noreply@(?:openai\.com|anthropic\.com)>[ \t]*$', '', message).rstrip()
+            message=re.sub(r'(?im)^Co-Authored-By: [^\r\n]*<noreply@(?:openai\.com|anthropic\.com)>[ \t\r]*$', '', message).rstrip()
             message+='\n\n'+COAUTHOR
         if revision('main')!=main: raise RuntimeError('main changed during preparation')
         jj('commit',*paths,'--message='+message)
@@ -384,10 +384,17 @@ export const retainCloudRecovery = async (
   if (!isAbsolute(directory)) throw new Error("recovery directory must be absolute")
   const bytes = JSON.stringify(value)
   if (Buffer.byteLength(bytes) > 16 * 1024) throw new Error("Cloud recovery receipt exceeds limit")
-  await mkdir(directory, { recursive: true, mode: 0o700 })
+  const created = await mkdir(directory, { recursive: true, mode: 0o700 })
   if ((await lstat(directory)).isSymbolicLink()) throw new Error("recovery directory cannot use symlinks")
   await replaceHostFile(join(directory, "recovery.json"), bytes, 0o600)
   await syncDirectory(directory)
+  if (created !== undefined) {
+    // Fsync newly created ancestors as well as the receipt's own directory.
+    for (let parent = dirname(directory);; parent = dirname(parent)) {
+      await syncDirectory(parent)
+      if (parent === dirname(created)) break
+    }
+  }
 }
 
 /** Durably retain validated committed bytes before review or sandbox release. */
