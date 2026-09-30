@@ -62,9 +62,9 @@ test("the card lists the built-in roles, then the repository's flows that declar
   expect(t.rows().slice(AGENT_ROLES.length)).toEqual([
     { id: "review", label: "review", purpose: "Reviews the working-copy change.", model: { provider: "", id: "sol", label: "sol" },
       builtin: false, available: false, reason: "", account: "" },
-    { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
+    { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
       builtin: false, available: false, reason: "", account: "" },
-    { id: "product-release", label: "product-release", purpose: "Ships a release.", model: { provider: "openai", id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "product-release", label: "product-release", purpose: "Ships a release.", model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
       builtin: false, available: false, reason: "", account: "" }
   ])
   // A built-in row keeps its harness; a flow runs on Smithers itself and names none.

@@ -29,7 +29,7 @@ const FAST_ROLE_IDS = ["trivial-implementation", "fast-ui"] as const
 describe("the implement seat (RULINGS 42)", () => {
   test("the implementation role runs on the smart Codex seat, not on either fast row's model", () => {
     const implementation = agentRole("implementation")
-    expect(implementation.model.id).toBe("gpt-6-sol")
+    expect(implementation.model.id).toBe("gpt-6.1-sol")
     expect(implementation.harness).toBe("codex")
 
     const fastModels = FAST_ROLE_IDS.map((id) => agentRole(id).model.id)
