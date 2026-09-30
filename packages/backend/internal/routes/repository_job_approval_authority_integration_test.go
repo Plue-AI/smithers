@@ -127,14 +127,22 @@ func repositoryJobApprovalServer(t *testing.T, queries *db.Queries, service *ser
 	t.Helper()
 	handler := &RepositoryJobHandler{RepositoryJobs: service}
 	r := chi.NewRouter()
-	r.Use(middleware.AuthLoader(queries, config.AuthConfig{}))
+	// As in internal/compose/router.go, a coding host's callback is outside
+	// user auth: its binding ID and control credential are the auth.
 	r.Put("/api/gateways/{hostID}/repository-jobs/{job}", handler.PutRepositoryJob)
-	r.Route("/api/repos/{owner}/{repo}", func(r chi.Router) {
-		r.Use(middleware.LoadRepoContext(queries))
-		r.With(repositoryJobApprovalChain(t, `Post("/repository-jobs/{job}/approvals"`)...).
-			Post("/repository-jobs/{job}/approvals", handler.PostRepositoryJobApproval)
-		r.With(repositoryJobApprovalChain(t, `Get("/repository-jobs/{job}/approvals"`)...).
-			Get("/repository-jobs/{job}/approvals", handler.GetRepositoryJobApprovals)
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.AuthLoader(queries, config.AuthConfig{}))
+		r.Route("/api/repos/{owner}/{repo}", func(r chi.Router) {
+			r.Use(middleware.LoadRepoContext(queries))
+			r.With(repositoryJobApprovalChain(t, `Post("/repository-jobs/{job}/approvals"`)...).
+				Post("/repository-jobs/{job}/approvals", handler.PostRepositoryJobApproval)
+			r.With(repositoryJobApprovalChain(t, `Get("/repository-jobs/{job}/approvals"`)...).
+				Get("/repository-jobs/{job}/approvals", handler.GetRepositoryJobApprovals)
+			r.With(repositoryJobApprovalChain(t, `Get("/repository-jobs", repositoryJobHandler.GetRepositoryJobs)`)...).
+				Get("/repository-jobs", handler.GetRepositoryJobs)
+			r.With(repositoryJobApprovalChain(t, `Get("/repository-jobs/{job}/dispatches"`)...).
+				Get("/repository-jobs/{job}/dispatches", handler.GetRepositoryJobDispatches)
+		})
 	})
 	server := httptest.NewServer(r)
 	t.Cleanup(server.Close)
