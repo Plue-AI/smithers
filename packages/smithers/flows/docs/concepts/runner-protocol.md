@@ -25,13 +25,20 @@ Every `SandboxedFlow.execute` call runs this sequence inside one acquired
 session. The protocol's own files live in `.smithers-sandbox/` under the session
 workdir.
 
-| Step    | What happens                                                                                                                                                                                                                                                                                   |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| bundle  | esbuild bundles the `entry` module (`platform: "node"`, ESM) together with the guest runner into one self-contained `.smithers-sandbox/bundle.mjs`.                                                                                                                                            |
-| request | The host writes `.smithers-sandbox/request.json`, holding `{ flow, executionId, payload }`: the flow's tag, the session key as the guest execution id, and the payload encoded through `Schema.toCodecJson` of the flow's payload schema.                                                      |
-| run     | The guest runtime (`node` by default) runs the bundle with the workdir as its working directory and `SMITHERS_SANDBOX_REQUEST_PATH` and `SMITHERS_SANDBOX_RESULT_PATH` set.                                                                                                                    |
-| guest   | The runner finds the flow by tag among the entry module's exports, decodes the payload, runs the flow, and writes `.smithers-sandbox/result.json`: `{ status: "succeeded", output }` with the success value encoded through the success schema's JSON codec, or `{ status: "failed", error }`. |
-| result  | The host refuses a non-zero exit, a missing or unparseable result, and a result over the limits, then decodes `output` through the same codec. Every refusal is a typed `SandboxedFlowError`.                                                                                                  |
+| Step    | What happens                                                                                                                                                                                                                                                                                                                                        |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| bundle  | esbuild bundles the `entry` module (`platform: "node"`, ESM) together with the guest runner into one self-contained `.smithers-sandbox/bundle.mjs`.                                                                                                                                                                                                 |
+| request | The host writes `.smithers-sandbox/request.json`, holding `{ attempt, flow, executionId, payload }`: a fresh nonce for this execution of the effect, the flow's tag, the session key as the guest execution id, and the payload encoded through `Schema.toCodecJson` of the flow's payload schema.                                                  |
+| run     | The guest runtime (`node` by default) runs the bundle with the workdir as its working directory and `SMITHERS_SANDBOX_REQUEST_PATH` and `SMITHERS_SANDBOX_RESULT_PATH` set.                                                                                                                                                                         |
+| guest   | The runner finds the flow by tag among the entry module's exports, decodes the payload, runs the flow, and writes `.smithers-sandbox/result.json`: `{ attempt, status: "succeeded", output }` with the success value encoded through the success schema's JSON codec, or `{ attempt, status: "failed", error }`, echoing `request.attempt` exactly. |
+| result  | The host refuses a non-zero exit, a missing or unparseable result, a result whose `attempt` is absent or differs from this execution's, and a result over the limits, then decodes `output` through the same codec. Every refusal is a typed `SandboxedFlowError`.                                                                                  |
+
+The `attempt` nonce is a fresh random value for every execution of the effect,
+separate from the stable `executionId` that names the session. A retry or a
+replay writes a new request with a new nonce, so a result left in the workdir by
+an earlier attempt cannot be mistaken for the current one: the host refuses it
+as `result_unreadable`. A custom runner must copy `request.attempt` into its
+result unchanged.
 
 Payload and output both cross the machine boundary through a schema round trip
 on each side, never a cast. The wire codecs are service-free, the same erasure
