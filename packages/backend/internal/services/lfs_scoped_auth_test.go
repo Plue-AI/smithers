@@ -176,7 +176,7 @@ func TestLFSService_RepositoryBoundTokenCannotCrossRepositoryOnAnyOperation(t *t
 	})
 	assert.Equal(t, 404, apiStatus(t, err))
 	_, err = svc.ConfirmUpload(ctx, lfsUser(), "alice", "demo", LFSConfirmUploadInput{Oid: oid, Size: 1})
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 	err = svc.DeleteObject(ctx, lfsUser(), "alice", "demo", oid)
 	assert.Equal(t, 403, apiStatus(t, err))
 	_, _, err = svc.ListObjects(ctx, lfsUser(), "alice", "demo", 1, 10)

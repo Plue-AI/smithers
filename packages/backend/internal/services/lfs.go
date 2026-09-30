@@ -451,10 +451,21 @@ func (s *LFSService) ConfirmUpload(ctx context.Context, actor *db.User, owner, r
 	if err != nil {
 		return db.LfsObject{}, err
 	}
+	// Match Batch: a caller that cannot see a private repository receives the
+	// same 404 as for a missing one, so verify never confirms its existence.
+	_, scoped := lfsauth.ClaimsFromContext(ctx)
+	if !repository.IsPublic && !scoped && actor != nil {
+		if err := s.requireReadAccess(ctx, repository, actor); err != nil {
+			return db.LfsObject{}, hidePrivateLFSRepository(repository, err)
+		}
+	}
 	if err := enforceLFSRepositoryRestriction(ctx, repository.ID); err != nil {
-		return db.LfsObject{}, err
+		return db.LfsObject{}, hidePrivateLFSRepository(repository, err)
 	}
 	if err := s.requireLFSScopedOrWriteAccess(ctx, repository, actor, lfsauth.OperationUpload); err != nil {
+		if scoped {
+			return db.LfsObject{}, hidePrivateLFSRepository(repository, err)
+		}
 		return db.LfsObject{}, err
 	}
 	oid, size, err := validateLFSObjectInput(LFSObjectInput(input))
@@ -1212,6 +1223,15 @@ func enforceLFSRepositoryRestriction(ctx context.Context, repositoryID int64) er
 		return pkgerrors.Forbidden("repository-bound token cannot access resources outside its repository")
 	}
 	return nil
+}
+
+// hidePrivateLFSRepository converts an authorization failure on a private
+// repository into the not-found response a missing repository produces.
+func hidePrivateLFSRepository(repository db.Repository, err error) error {
+	if apiErr, ok := err.(*pkgerrors.APIError); ok && apiErr.Status == 403 && !repository.IsPublic {
+		return pkgerrors.NotFound("repository not found")
+	}
+	return err
 }
 
 func (s *LFSService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo string) (db.Repository, error) {
