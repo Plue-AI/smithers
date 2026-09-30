@@ -46,6 +46,7 @@ import * as EffectBoundary from "../src/EffectBoundary.ts"
 import * as SqlTimeTravelStore from "../src/SqlTimeTravelStore.ts"
 import { TimeTravel } from "../src/TimeTravel.ts"
 import type { TimeTravelError } from "../src/TimeTravelError.ts"
+import { joinDrive } from "./JoinDrive.ts"
 
 /**
  * The declared step the flow's body names.
@@ -284,6 +285,7 @@ describe("time travel over an engine-written journal", () => {
         const scope = yield* Effect.scope
         const engine = yield* FlowRuntime.FlowRuntime
         yield* Ledger.execute({}, { executionId: "ledger-1", discard: true })
+        yield* joinDrive(Ledger, "ledger-1")
         yield* engine.deferredDone(Settled, {
           flowName: Ledger._tag,
           executionId: "ledger-1",
@@ -313,6 +315,7 @@ describe("time travel over an engine-written journal", () => {
             return "done"
           }))
         yield* engine.execute(parent, { executionId: "contract-parent", payload: {}, discard: true })
+        yield* joinDrive(parent, "contract-parent")
 
         const runs = yield* RunStore.RunStore
         const owner = { hostId: "contract-test", pid: 1, nonce: "contract-test" }
@@ -620,6 +623,7 @@ describe("time travel over an engine-written journal", () => {
           const timeTravel = yield* TimeTravel
           yield* timeTravel.rewind({ runId: "ledger-1", frame })
           yield* Ledger.execute({}, { executionId: "ledger-1", discard: true })
+          yield* joinDrive(Ledger, "ledger-1")
 
           const runs = yield* RunStore.RunStore
           const sql = yield* SqlClient.SqlClient
@@ -662,6 +666,9 @@ describe("time travel over an engine-written journal", () => {
           }))
         const execute = engine.execute(approval, { executionId: "approval-run", payload: {}, discard: true })
         yield* execute
+        // The frame below is the journal tail at the first park, so the drive
+        // the detached start scheduled must have reached it.
+        yield* joinDrive(approval, "approval-run")
         const journal = yield* Journal.Journal
         const before = yield* journal.entries({ runId: "approval-run" as JournalEvent.RunId, limit: 100 })
         const frame = { lineageId: FlowEngine.Lineage.root("approval-run"), seq: before.entries.at(-1)!.seq }
@@ -712,7 +719,9 @@ describe("time travel over an engine-written journal", () => {
             yield* DurableClock.sleep({ name: "rewind-sleep", duration: 1000, inMemoryThreshold: 0 })
             return yield* DurableDeferred.await(Settled)
           }))
-        const execute = engine.execute(timer, { executionId: "clock-run", payload: {}, discard: true })
+        const execute = engine.execute(timer, { executionId: "clock-run", payload: {}, discard: true }).pipe(
+          Effect.tap(() => joinDrive(timer, "clock-run"))
+        )
         yield* execute
         const journal = yield* Journal.Journal
         const before = yield* journal.entries({ runId: "clock-run" as JournalEvent.RunId, limit: 100 })
@@ -767,7 +776,9 @@ describe("time travel over an engine-written journal", () => {
             yield* DurableClock.sleep({ name: "rewind-sleep", duration: 1000, inMemoryThreshold: 0 })
             return yield* DurableDeferred.await(Settled)
           }))
-        const execute = engine.execute(timer, { executionId: "fired-clock-run", payload: {}, discard: true })
+        const execute = engine.execute(timer, { executionId: "fired-clock-run", payload: {}, discard: true }).pipe(
+          Effect.tap(() => joinDrive(timer, "fired-clock-run"))
+        )
         yield* execute
         const journal = yield* Journal.Journal
         const before = yield* journal.entries({ runId: "fired-clock-run" as JournalEvent.RunId, limit: 100 })

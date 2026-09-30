@@ -32,6 +32,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as SqlTimeTravelStore from "../src/SqlTimeTravelStore.ts"
 import type * as TimeTravelStore from "../src/TimeTravelStore.ts"
+import { joinDrive } from "./JoinDrive.ts"
 
 const rootRunId = "trampoline-lineage"
 
@@ -120,6 +121,8 @@ const drive = <A, E>(
   Effect.gen(function*() {
     // Counts 0 -> 1 -> 2: round 0 hands off, round 1 finishes.
     yield* Counter.execute({ value: 0, target: 2 }, { executionId: rootRunId, discard: true })
+    // Round 0's drive journals the handoff that the frames below are read against.
+    yield* joinDrive(Counter, rootRunId)
     const journal = yield* Journal.Journal
     yield* journal.flush
     const page = yield* journal.entries({ runId: rootRunId as JournalEvent.RunId, limit: 200 })

@@ -32,6 +32,7 @@ import { dirname, join } from "node:path"
 import * as Migrations from "../src/Migrations.ts"
 import * as SqlTimeTravelStore from "../src/SqlTimeTravelStore.ts"
 import { TimeTravel } from "../src/TimeTravel.ts"
+import { joinDrive } from "./JoinDrive.ts"
 
 export const jjInstalled = spawnSync("jj", ["--version"], { stdio: "ignore" }).status === 0
 
@@ -199,6 +200,7 @@ export const parkSealedFlow = (
       Interpreter.layer(SealedParked)
     )
     return yield* SealedParked.execute({}, { executionId, discard: true }).pipe(
+      Effect.tap(() => joinDrive(SealedParked, executionId)),
       Effect.provide(flowWiring(runtime, implementation))
     )
   })
@@ -222,6 +224,7 @@ export const parkCompensableFlow = (
       Interpreter.layer(CompensableParked)
     )
     return yield* CompensableParked.execute({}, { executionId, discard: true }).pipe(
+      Effect.tap(() => joinDrive(CompensableParked, executionId)),
       Effect.provide(flowWiring(runtime, implementation))
     )
   })
