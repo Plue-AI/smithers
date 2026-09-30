@@ -103,6 +103,37 @@ export const Package = S.Package({ targets: { run: S.Shell.Run({ shell: command 
     expect(Target.metadata(next.packages[0]!.value["run"]!).attrs).toMatchObject({ shell: "echo revised" })
   })
 
+  it.each([
+    ["plain", "./helper.ts"],
+    ["unicode", "./\\u0068elper.ts"],
+    ["code point", "./\\u{68}elper.ts"],
+    ["hex", "./\\x68elper.ts"],
+    ["identity", "./\\helper.ts"],
+    ["line continuation", "./h\\\nelper.ts"]
+  ])("rekeys the graph after editing a helper imported with a %s specifier", async (_name, specifier) => {
+    const root = await fixture(`import { Smithers as S } from "@smthrs/targets"
+import { command } from "${specifier}"
+export const Package = S.Package({ targets: { run: S.Shell.Run({ shell: command }) } })
+`)
+    await write(root, "helper.ts", "export const command = \"echo first\"\n")
+    const first = await loaded(root)
+    expect(Target.metadata(first.packages[0]!.value["run"]!).attrs).toMatchObject({ shell: "echo first" })
+    expect(await loaded(root)).toBe(first)
+    await write(root, "helper.ts", "export const command = \"echo revised\"\n")
+    const next = await loaded(root)
+    expect(next).not.toBe(first)
+    expect(Target.metadata(next.packages[0]!.value["run"]!).attrs).toMatchObject({ shell: "echo revised" })
+  })
+
+  it.each([
+    ["./\\u0057ORKSPACE.js", "unsupported_module_specifier"],
+    ["\\x2e./outside.ts", "module_outside_workspace"],
+    ["./\\u{2e}./outside.ts", "module_outside_workspace"]
+  ])("applies import boundaries to the decoded specifier %s", async (specifier, code) => {
+    const root = await fixture(`import "${specifier}"\n${validPackage}`)
+    await expect(loaded(root)).rejects.toMatchObject({ code, path: "PACKAGE.ts" })
+  })
+
   it("reports a discovered package removed before its static scan", async () => {
     const root = await fixture()
     const discovery = await PackageDiscovery.discover(root)

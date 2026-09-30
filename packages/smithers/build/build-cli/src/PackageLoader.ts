@@ -119,8 +119,9 @@ const importSpecifiers = (source: string): ReadonlyArray<string> => {
       while (index < length) {
         const c = source[index]!
         if (c === "\\") {
-          value += source.slice(index, index + 2)
-          index += 2
+          const escape = source[index + 1] === "\r" && source[index + 2] === "\n" ? 3 : 2
+          value += source.slice(index, index + escape)
+          index += escape
           continue
         }
         if (c === char) {
@@ -132,7 +133,10 @@ const importSpecifiers = (source: string): ReadonlyArray<string> => {
         value += c
         index += 1
       }
-      if (closed && value !== "" && (lastWord === "from" || lastWord === "import")) found.push(value)
+      if (closed && (lastWord === "from" || lastWord === "import")) {
+        const decoded = decodeStringLiteral(value)
+        if (decoded !== undefined && decoded !== "") found.push(decoded)
+      }
       lastWord = ""
       lastSignificant = char
       continue
@@ -207,6 +211,80 @@ const importSpecifiers = (source: string): ReadonlyArray<string> => {
     index += 1
   }
   return found
+}
+
+/** Single-character escapes of an ECMAScript string literal. */
+const singleEscapes: Readonly<Record<string, string>> = {
+  "b": "\b",
+  "f": "\f",
+  "n": "\n",
+  "r": "\r",
+  "t": "\t",
+  "v": "\v"
+}
+
+/**
+ * Decodes the body of a module-specifier string literal with the language's
+ * escape rules, so `"./\u0068elper.ts"` names `./helper.ts` exactly as the
+ * module loader sees it. Returns `undefined` for a body a module cannot
+ * contain (a legacy octal or malformed escape is a syntax error in a module).
+ */
+const decodeStringLiteral = (body: string): string | undefined => {
+  let decoded = ""
+  let index = 0
+  while (index < body.length) {
+    const char = body[index]!
+    if (char !== "\\") {
+      decoded += char
+      index += 1
+      continue
+    }
+    const next = body[index + 1]
+    if (next === undefined) return undefined
+    index += 2
+    if (next === "\n" || next === "\u2028" || next === "\u2029") continue
+    if (next === "\r") {
+      if (body[index] === "\n") index += 1
+      continue
+    }
+    const single = singleEscapes[next]
+    if (single !== undefined) {
+      decoded += single
+      continue
+    }
+    if (next === "0") {
+      if (/[0-9]/.test(body[index] ?? "")) return undefined
+      decoded += "\0"
+      continue
+    }
+    if (/[1-9]/.test(next)) return undefined
+    if (next === "x") {
+      const hex = body.slice(index, index + 2)
+      if (!/^[0-9A-Fa-f]{2}$/.test(hex)) return undefined
+      decoded += String.fromCharCode(Number.parseInt(hex, 16))
+      index += 2
+      continue
+    }
+    if (next === "u") {
+      if (body[index] === "{") {
+        const close = body.indexOf("}", index)
+        const hex = close === -1 ? "" : body.slice(index + 1, close)
+        if (!/^[0-9A-Fa-f]+$/.test(hex)) return undefined
+        const point = Number.parseInt(hex, 16)
+        if (point > 0x10ffff) return undefined
+        decoded += String.fromCodePoint(point)
+        index = close + 1
+        continue
+      }
+      const hex = body.slice(index, index + 4)
+      if (!/^[0-9A-Fa-f]{4}$/.test(hex)) return undefined
+      decoded += String.fromCharCode(Number.parseInt(hex, 16))
+      index += 4
+      continue
+    }
+    decoded += next
+  }
+  return decoded
 }
 
 /** Words after which a `/` starts a regular expression, not a division. */
