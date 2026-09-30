@@ -751,6 +751,11 @@ The memory door: `remember` and `recall` as catalog entries, bound over the
   contract (name, description, effect declaration, and the input/output
   schema shapes), so a memory-package upgrade that changes the contract
   re-keys every call that names it instead of replaying stale results.
+- `bindingDigest(contract, policy: WithMemory.Policy): string`: the digest of
+  an entry's binding identity, its `contractDigest` together with the decoded
+  policy it runs under. `make` keys each entry by it, so a journaled `recall`
+  recorded under a broader policy is never replayed for a call under a
+  narrower one.
 - `make(policy: WithMemory.Policy): Effect<ReadonlyArray<Catalog.Entry>,
   MemoryError, MemoryStore.MemoryStore | Recall.Recall>`: builds the two
   memory entries over the ambient store and recall services. Exactly those
