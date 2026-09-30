@@ -191,6 +191,30 @@ describe("TrustedReview Git boundary", () => {
     })
   })
 
+  it("adds unchanged included callers and dependencies of changed source to the pinned snapshot", async () => {
+    const { root } = await fixture()
+    await write(root, "src/guard.ts", "export const guard = true\n")
+    await write(root, "src/route.ts", "import { value } from \"./service.js\"\nexport const route = value\n")
+    await write(root, "src/unrelated.ts", "export const unrelated = 1\n")
+    await write(root, "lib/caller.ts", "import { value } from \"../src/service.ts\"\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "trusted neighbours")
+    const trusted = git(root, "rev-parse", "HEAD")
+    await write(root, "src/service.ts", "import { guard } from \"./guard.ts\"\nexport const value = guard\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "candidate source")
+    const candidate = git(root, "rev-parse", "HEAD")
+    await write(root, "src/guard.ts", "export const guard = 'dirty worktree'\n")
+
+    const prepared = await prepare(options(root, trusted, candidate))
+    expect(prepared.snapshot.map(({ path, changed }) => [path, changed]).sort()).toEqual([
+      ["src/guard.ts", false],
+      ["src/route.ts", false],
+      ["src/service.ts", true]
+    ])
+    expect(prepared.snapshot.find(({ path }) => path === "src/guard.ts")?.contents).toBe("export const guard = true\n")
+  })
+
   it("fails closed when the trusted index omits review policy data", async () => {
     const { root, trusted } = await fixture(null)
     await expect(prepare(options(root, trusted))).rejects.toThrow("Trusted revision has no review policy")

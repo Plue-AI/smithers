@@ -208,10 +208,10 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
  * `context` files are read into every batch whether or not they changed.
  * `engine` defaults to `claude` on {@link defaultClaudeModel}; `codex`
  * defaults to {@link defaultCodexModel}. `base` is the diff review's base,
- * `origin/main` by default. `batchSize` (default 4) caps files per model call
- * in the diff review and `auditBatchSize` (default 8) in the full audit; the
- * audit reviews at most 64 batches, so a package over 512 included files
- * narrows `include` or raises `auditBatchSize`.
+ * `origin/main` by default. `batchSize` (default 4) caps changed files per
+ * model call in the diff review and `auditBatchSize` (default 8) in the full
+ * audit. Related files share a call and carry their unchanged callers and
+ * dependencies; `contextTokens` is the model's context window each call fits.
  *
  * `workspaceRoot` is the absolute workspace root the declaration is checked
  * against. It defaults to the root derived from the declaring `PACKAGE.ts`
@@ -235,6 +235,7 @@ export interface Options {
   readonly base?: string | undefined
   readonly batchSize?: number | undefined
   readonly auditBatchSize?: number | undefined
+  readonly contextTokens?: number | undefined
   readonly summary?: string | undefined
   readonly workspaceRoot?: string | undefined
 }
@@ -510,7 +511,8 @@ export const SecurityReview = (options: Options): SecurityTargets => {
     engine,
     model,
     failOn: "error" as const,
-    securityChecks: checks.map((check) => check.id)
+    securityChecks: checks.map((check) => check.id),
+    ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens })
   }
   return {
     security: LlmLint({

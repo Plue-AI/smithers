@@ -16,6 +16,13 @@ class ReviewRefused extends Error {
 }
 
 /**
+ * Output capacity every review request asks for and every batch budget reserves.
+ * @category constants
+ * @since 1.0.0
+ */
+export const maximumResponseTokens = 16_384
+
+/**
  * Sends only the supplied review text to a fixed provider endpoint.
  * @category execution
  * @since 1.0.0
@@ -46,7 +53,7 @@ export const reviewModel = (
       messages: [ModelRequest.Message.user(prompt)],
       tools: [],
       toolChoice: "none",
-      params: ModelRequest.GenerationParams.make({ maxTokens: 16_384 })
+      params: ModelRequest.GenerationParams.make({ maxTokens: maximumResponseTokens })
     })
     return Effect.gen(function*() {
       const model = yield* Model.Model

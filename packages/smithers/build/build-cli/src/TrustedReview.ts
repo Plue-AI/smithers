@@ -18,7 +18,12 @@ import * as PackageDiscovery from "./PackageDiscovery.ts"
 const hash = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 const indexLimit = 32 * 1024 * 1024
 
-const git = async (root: string, args: ReadonlyArray<string>, limit = indexLimit): Promise<string> => {
+const git = async (
+  root: string,
+  args: ReadonlyArray<string>,
+  limit = indexLimit,
+  accepted: ReadonlyArray<number> = [0]
+): Promise<string> => {
   let stdout = ""
   const environment: Record<string, string> = {
     PATH: process.env["PATH"] ?? "/usr/bin:/bin",
@@ -44,7 +49,7 @@ const git = async (root: string, args: ReadonlyArray<string>, limit = indexLimit
     },
     stderr: () => {}
   })
-  if (code !== 0) throw new Error("Cannot read the pinned review revision from Git")
+  if (!accepted.includes(code)) throw new Error("Cannot read the pinned review revision from Git")
   return stdout
 }
 
@@ -65,8 +70,26 @@ const payloadOf = (attrs: LlmLint.Attrs, base: string): LlmLint.Payload => ({
   batchSize: attrs.batchSize,
   failOn: attrs.failOn,
   securityChecks: attrs.securityChecks,
+  ...(attrs.contextTokens === undefined ? {} : { contextTokens: attrs.contextTokens }),
   scope: attrs.scope
 })
+
+/** Whether a Git path is a normalized workspace path a review snapshot can carry. */
+const usablePath = (path: string): boolean => {
+  try {
+    return !/[\u0000-\u001f\u007f]/.test(path) && Input.resolvePath("", path) === path
+  } catch {
+    return false
+  }
+}
+
+/** Payloads a pinned-snapshot review applies, excluding policy reviews that bring their own snapshot. */
+const snapshotPolicies = (
+  policies: ReadonlyArray<
+    { readonly payload: LlmLint.Payload; readonly snapshot?: ReadonlyArray<LlmLint.SnapshotFile> }
+  >
+): ReadonlyArray<LlmLint.Payload> =>
+  policies.filter(({ snapshot }) => snapshot === undefined).map(({ payload }) => payload)
 
 const decodeRows = (text: string): ReadonlyArray<TargetIndex.Row> => {
   const rows = Schema.decodeUnknownSync(Schema.Array(TargetIndex.Row))(JSON.parse(text))
@@ -207,6 +230,14 @@ export const prepare = async (options: Options) => {
   }
   const snapshot: Array<LlmLint.SnapshotFile> = []
   let bytes = 0
+  const addBlob = async (path: string, oid: string, extra: Omit<LlmLint.SnapshotFile, "path" | "contents">) => {
+    const contents = await git(root, ["cat-file", "blob", oid], LlmLint.maximumReviewFileBytes)
+    bytes += Buffer.byteLength(contents, "utf8")
+    if (bytes > 64 * 1024 * 1024 || snapshot.length >= 100_000) {
+      throw new Error("Review snapshot exceeds its size limit")
+    }
+    snapshot.push({ path, contents, ...extra })
+  }
   const deleted = new Set(
     (await git(root, [
       "diff",
@@ -244,13 +275,43 @@ export const prepare = async (options: Options) => {
     if ((mode !== "100644" && mode !== "100755") || type !== "blob" || !hash.test(oid ?? "")) {
       throw new Error("Review snapshot must contain only regular files")
     }
-    const contents = await git(root, ["cat-file", "blob", oid!], LlmLint.maximumReviewFileBytes)
-    bytes += Buffer.byteLength(contents, "utf8")
-    if (bytes > 64 * 1024 * 1024 || snapshot.length >= 100_000) {
-      throw new Error("Review snapshot exceeds its size limit")
-    }
-    snapshot.push({ path, contents, changed: changed.has(path), ...(deleted.has(path) ? { deleted: true } : {}) })
+    await addBlob(path, oid!, { changed: changed.has(path), ...(deleted.has(path) ? { deleted: true } : {}) })
   }
+  // Unchanged included files related to the changed ones (dependencies, Go package siblings, importers)
+  // join the snapshot so each review sees the code around its change.
+  const blobs = new Map<string, string>()
+  for (const record of listing.split("\0")) {
+    const tab = record.indexOf("\t")
+    const [mode, type, oid] = record.slice(0, tab).split(" ")
+    if (tab > 0 && (mode === "100644" || mode === "100755") && type === "blob" && hash.test(oid ?? "")) {
+      blobs.set(record.slice(tab + 1), oid!)
+    }
+  }
+  const present = new Set(snapshot.map((file) => file.path))
+  const eligible = (path: string) =>
+    !present.has(path) && usablePath(path) &&
+    snapshotPolicies(policies).some((payload) => payload.scope !== "all" && matches(path, payload.include))
+  const changedSources = snapshot.filter((file) => file.changed && file.deleted !== true)
+  const candidates = LlmLint.relatedCandidates(changedSources, new Set(blobs.keys()))
+  const callers = candidates.callerPatterns.length === 0 ? [] : (await git(
+    root,
+    [
+      "grep",
+      "-l",
+      "-z",
+      "-I",
+      "-E",
+      ...candidates.callerPatterns.flatMap((pattern) => ["-e", pattern]),
+      revision,
+      "--"
+    ],
+    indexLimit,
+    [0, 1]
+  )).split("\0").filter((name) => name.startsWith(`${revision}:`)).map((name) => name.slice(revision.length + 1))
+  const related = [...new Set([...candidates.paths, ...callers.sort()])]
+    .filter((path) => blobs.has(path) && eligible(path))
+    .slice(0, LlmLint.maximumRelatedFiles)
+  for (const path of related) await addBlob(path, blobs.get(path)!, { changed: false })
   const declarationPolicy = policies.find(({ label }) => label === "//:proposed-security-policy")
   if (declarationPolicy !== undefined) {
     declarationPolicy.snapshot = snapshot.filter(({ path }) => declarations.has(path))

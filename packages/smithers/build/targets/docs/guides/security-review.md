@@ -133,10 +133,25 @@ must not produce weaponized exploits or instructions to attack live systems.
 | `engine`         | `"claude"`        | `claude` or `codex`.                                          |
 | `model`          | `claude-opus-5-5` | `gpt-6-sol` when `engine` is `codex`.                         |
 | `base`           | `"origin/main"`   | The diff review's base revision.                              |
-| `batchSize`      | `4`               | Files per model call in `security`.                           |
-| `auditBatchSize` | `8`               | Files per model call in `securityAudit`.                      |
+| `batchSize`      | `4`               | Changed files per model call in `security`.                   |
+| `auditBatchSize` | `8`               | Changed files per model call in `securityAudit`.              |
+| `contextTokens`  | `200000`          | The model's context window every call fits.                   |
 | `deps`           | `[]`              | Targets that must run first.                                  |
 | `summary`        | generated         | One-line summary of `security`.                               |
+
+## Batching
+
+Changed files that import each other, or share a Go package, go in the same
+call whenever they fit. Each call also carries the unchanged included files
+its changed files import or are imported by, dependencies first, then Go
+package siblings, then importers. Related files that do not fit the budget
+are named in the prompt as omitted. Context files are in every call.
+
+Every call fits `contextTokens`, estimated at three bytes per token, after
+reserving 16,384 output tokens. A changed file too large for one call is split
+at top-level declarations, then at lines; each slice reports whole-file line
+numbers. A finding on a file several calls saw is reported once per line and
+check, keeping the most severe.
 
 A review makes at most 64 model calls, so the audit covers at most
 `64 * auditBatchSize` files. Narrow `include` or raise `auditBatchSize` for a

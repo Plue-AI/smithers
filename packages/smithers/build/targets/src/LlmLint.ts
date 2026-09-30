@@ -23,13 +23,14 @@ import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
 import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
-import { reviewModel } from "./internal/ReviewModel.ts"
+import * as ReviewBatches from "./internal/ReviewBatches.ts"
+import { maximumResponseTokens, reviewModel } from "./internal/ReviewModel.ts"
 import { Engine } from "./ModelEngine.ts"
 import * as SafeFs from "./SafeFs.ts"
 import * as Target from "./Target.ts"
 
 /**
- * Maximum files placed in one model-review batch.
+ * Maximum changed files placed in one model-review batch.
  *
  * @category constants
  * @since 0.1.0
@@ -64,12 +65,51 @@ export const maximumContextFiles = 512
  */
 export const maximumReviewFileBytes = 1024 * 1024
 /**
- * Maximum aggregate changed-file content supplied in one batch.
+ * Maximum aggregate changed-file content one review reads.
  *
  * @category constants
- * @since 0.1.0
+ * @since 1.0.0
  */
-export const maximumBatchContentBytes = 5 * 1024 * 1024
+export const maximumReviewContentBytes = 64 * 1024 * 1024
+/**
+ * Maximum unchanged related files (dependencies, Go package siblings and
+ * callers of the changed files) one review reads.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const maximumRelatedFiles = 512
+/**
+ * Maximum aggregate related-file content one review reads.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const maximumRelatedContentBytes = 16 * 1024 * 1024
+/**
+ * Model context window, in tokens, a review budgets against when its
+ * declaration names none.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const defaultContextTokens = 200_000
+/**
+ * Smallest declarable model context window, in tokens.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const minimumContextTokens = 32_768
+/**
+ * Largest declarable model context window, in tokens.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const maximumContextTokens = 2_000_000
+/** Tokens held back for per-pass and verification instructions added after planning. */
+const promptSlackTokens = 4_096
 /**
  * Maximum aggregate repository context supplied in one batch.
  *
@@ -326,13 +366,24 @@ export const ReviewError = Schema.Union([ModelCliMissing, LlmReviewError, Findin
  */
 export type ReviewError = typeof ReviewError.Type
 
+/** A declared model context window. */
+const ContextTokens = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(minimumContextTokens),
+  Schema.isLessThanOrEqualTo(maximumContextTokens)
+)
+
 /**
  * Payload for one llm-review call.
  *
  * `base` is the git revision the diff runs against. `include` globs match
  * workspace-relative changed paths. `context` globs are read on every round
  * and appended to every batch prompt whether or not they changed.
- * `batchSize` caps how many changed files one engine CLI call reviews.
+ * `batchSize` caps how many changed files one model call reviews; related
+ * changed files share a call, and unchanged included files they import or
+ * are imported by travel with them. `contextTokens` is the selected model's
+ * context window (default {@link defaultContextTokens}); every call fits it
+ * with output capacity reserved, splitting an oversized file at top-level
+ * symbol boundaries.
  * `failOn` is the severity that fails a generic review. With `securityChecks`,
  * findings require declared checks (including `general`) and structured evidence; release advice gates
  * the review instead of `failOn`. Model confirmation claims are never trusted.
@@ -354,6 +405,7 @@ export const Payload = Schema.Struct({
   ),
   failOn: Severity,
   securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  contextTokens: Schema.optional(ContextTokens),
   /**
    * `changed` (the default) reviews the paths that differ from `base`. `all`
    * reviews every tracked or untracked, non-ignored path the include globs
@@ -907,14 +959,6 @@ const changedFiles = (
     )
   )
 
-/** Splits changed paths into review batches of at most batchSize files. */
-const chunk = (paths: ReadonlyArray<string>, batchSize: number): ReadonlyArray<ReadonlyArray<string>> => {
-  const width = Math.max(1, Math.floor(batchSize))
-  const output: Array<ReadonlyArray<string>> = []
-  for (let index = 0; index < paths.length; index += width) output.push(paths.slice(index, index + width))
-  return output
-}
-
 /**
  * One immutable snapshot file supplied by a trusted host, never executed.
  * @category models
@@ -927,12 +971,12 @@ export interface SnapshotFile {
   readonly deleted?: boolean
 }
 
-interface BatchFile {
-  readonly deleted?: boolean
-  readonly path: string
-  readonly contents: string
-  readonly bytes: number
-  readonly lines: number
+type Segment = ReviewBatches.Segment
+
+/** One whole file as a segment. */
+const wholeFile = (path: string, contents: string, deleted: boolean): Segment => {
+  const lines = contents.split("\n").length
+  return { path, contents, ...(deleted ? { deleted: true } : {}), firstLine: 1, lastLine: lines, totalLines: lines }
 }
 
 /** Reads a bounded set of regular UTF-8 files through the workspace boundary. */
@@ -942,10 +986,10 @@ const readBatch = (
   totalLimit: number,
   missing: "skip" | "fail",
   snapshot?: ReadonlyMap<string, SnapshotFile>
-): Effect.Effect<ReadonlyArray<BatchFile>, LlmReviewError> =>
+): Effect.Effect<ReadonlyArray<Segment>, LlmReviewError> =>
   Effect.tryPromise({
     try: async (signal) => {
-      const output: Array<BatchFile> = []
+      const output: Array<Segment> = []
       let total = 0
       for (const path of paths) {
         signal.throwIfAborted()
@@ -969,13 +1013,7 @@ const readBatch = (
         if (total > totalLimit) {
           throw new Error(`LLM review file contents exceed their ${totalLimit}-byte aggregate limit`)
         }
-        output.push({
-          path,
-          contents,
-          bytes,
-          lines: contents.split("\n").length,
-          ...(snapshot?.get(path)?.deleted ? { deleted: true } : {})
-        })
+        output.push(wholeFile(path, contents, snapshot?.get(path)?.deleted === true))
       }
       return output
     },
@@ -1010,20 +1048,208 @@ const contextPaths = (
     catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
   })
 
-/** Renders one labelled file section of the prompt. */
-const renderFiles = (label: string, files: ReadonlyArray<BatchFile>): string =>
-  files.map((file) =>
-    `--- ${label}: ${JSON.stringify(file.path)} ---\n${
-      JSON.stringify({ ...(file.deleted ? { deleted: true } : {}), contents: file.contents })
-    }`
+/** Lists candidate paths through git, tolerating no match and skipping paths a review cannot use. */
+const gitCandidates = (
+  workspaceRoot: string,
+  args: ReadonlyArray<string>,
+  runtime: { readonly timeoutMs: number; readonly sensitiveEnv: ReadonlyArray<string> }
+): Effect.Effect<ReadonlyArray<string>, LlmReviewError> =>
+  spawnText(workspaceRoot, "git", ["-c", "core.fsmonitor=false", ...args], {
+    stdoutBytes: maximumGitOutputBytes,
+    timeoutMs: Math.min(runtime.timeoutMs, 30_000),
+    sensitiveEnv: runtime.sensitiveEnv,
+    git: true
+  }).pipe(
+    Effect.mapError((error) => new LlmReviewError({ phase: "diff", message: failureMessage(error) })),
+    Effect.flatMap((output) =>
+      output.exitCode === 0 || (args[0] === "grep" && output.exitCode === 1 && output.stdout === "")
+        ? Effect.succeed(
+          output.stdout.split("\0").filter((path) => {
+            if (path === "") return false
+            try {
+              return reviewPath(path) === path
+            } catch {
+              return false
+            }
+          })
+        )
+        : Effect.fail(
+          new LlmReviewError({
+            phase: "diff",
+            message: `git ${args[0]} exited ${output.exitCode}: ${stderrTail(output.stderr)}`
+          })
+        )
+    )
   )
-    .join("\n\n")
+
+/** Whether a validated workspace path names a regular file, never following a final symlink. */
+const workspaceFile = (workspaceRoot: string, path: string): boolean => {
+  try {
+    return reviewPath(path) === path &&
+      NodeFs.lstatSync(NodePath.join(workspaceRoot, path), { throwIfNoEntry: false })?.isFile() === true
+  } catch {
+    return false
+  }
+}
+
+interface Relations {
+  readonly edges: ReadonlyMap<string, ReadonlySet<string>>
+  readonly related: ReadonlyMap<string, ReadonlyArray<string>>
+  readonly files: ReadonlyMap<string, Segment>
+}
+
+/**
+ * Finds the unchanged included files related to the changed ones: their
+ * relative-import dependencies, Go package siblings and importers. Context
+ * files are already in every request and are never related files. A snapshot
+ * review relates only files the snapshot holds.
+ */
+const relatedSources = (
+  runtime: RuntimeOptions,
+  payload: Payload,
+  snapshot: ReadonlyMap<string, SnapshotFile> | undefined,
+  changed: ReadonlyArray<Segment>,
+  context: ReadonlySet<string>
+): Effect.Effect<Relations, LlmReviewError> =>
+  Effect.gen(function*() {
+    const names = new Set(changed.map((file) => file.path))
+    const eligible = (path: string) =>
+      !names.has(path) && !context.has(path) && payload.include.some((glob) => matchesGlob(path, glob))
+    const exists = snapshot === undefined
+      ? (path: string) => names.has(path) || workspaceFile(runtime.workspaceRoot, path)
+      : (path: string) => names.has(path) || snapshot.has(path)
+    const files = new Map<string, Segment>()
+    if (snapshot !== undefined) {
+      for (const [path, file] of snapshot) {
+        if (eligible(path) && file.deleted !== true) files.set(path, wholeFile(path, file.contents, false))
+      }
+    } else {
+      const pathspecs = includePathspecs(payload.include)
+      const patterns = ReviewBatches.callerPatterns([...names])
+      const directories = ReviewBatches.goDirectories([...names])
+      const callers = patterns.length === 0 ? [] : yield* gitCandidates(
+        runtime.workspaceRoot,
+        [
+          "grep",
+          "-l",
+          "-z",
+          "-I",
+          "-E",
+          "--untracked",
+          "--full-name",
+          "--no-color",
+          ...patterns.flatMap((pattern) => ["-e", pattern]),
+          "--",
+          ...pathspecs
+        ],
+        runtime
+      )
+      const siblings = directories.length === 0 ? [] : yield* gitCandidates(
+        runtime.workspaceRoot,
+        [
+          "ls-files",
+          "--cached",
+          "--others",
+          "--exclude-standard",
+          "--full-name",
+          "-z",
+          "--",
+          ...directories.map((directory) => `:(glob)${directory === "." ? "" : `${directory}/`}*.go`)
+        ],
+        runtime
+      )
+      const candidates = [
+        ...new Set([...ReviewBatches.calleePaths(changed, exists), ...[...siblings].sort(), ...[...callers].sort()])
+      ].filter(eligible).slice(0, maximumRelatedFiles)
+      // Reading stops at the byte cap; an unreadable related file is context the review lacks, never a failure.
+      yield* Effect.promise(async (signal) => {
+        let bytes = 0
+        for (const path of candidates) {
+          let contents: string | undefined
+          try {
+            const text = await SafeFs.readText(NodePath.join(runtime.workspaceRoot, path), {
+              root: runtime.workspaceRoot,
+              signal,
+              symlinks: "reject",
+              limit: maximumReviewFileBytes,
+              what: "LLM review related file"
+            })
+            contents = text === undefined
+              ? undefined
+              : usableText(text, "LLM review related file", maximumReviewFileBytes, false)
+          } catch {
+            signal.throwIfAborted()
+            continue
+          }
+          if (contents !== undefined) {
+            bytes += Buffer.byteLength(contents, "utf8")
+            if (bytes > maximumRelatedContentBytes) break
+            files.set(path, wholeFile(path, contents, false))
+          }
+        }
+      })
+    }
+    const { edges, related } = ReviewBatches.relate(changed, [...files.values()], exists)
+    return { edges, related, files }
+  })
+
+/**
+ * The unchanged paths a snapshot host supplies so a review can relate changed
+ * files to their relative-import dependencies and Go package siblings, plus
+ * the extended regular expressions that find their importers (for example
+ * with `git grep -E` at the reviewed revision). `available` is every path at
+ * that revision; the host filters results to the review's include globs.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const relatedCandidates = (
+  changed: ReadonlyArray<{ readonly path: string; readonly contents: string }>,
+  available: ReadonlySet<string>
+): { readonly paths: ReadonlyArray<string>; readonly callerPatterns: ReadonlyArray<string> } => {
+  const names = changed.map((file) => file.path)
+  const directories = new Set(ReviewBatches.goDirectories(names))
+  const siblings = [...available].filter((path) => {
+    const directory = ReviewBatches.goPackage(path)
+    return directory !== undefined && directories.has(directory) && !names.includes(path)
+  })
+  return {
+    paths: [...new Set([...ReviewBatches.calleePaths(changed, (path) => available.has(path)), ...siblings])].sort(),
+    callerPatterns: ReviewBatches.callerPatterns(names)
+  }
+}
+
+/** Whether a segment carries only part of its file. */
+const partial = (segment: Segment): boolean => segment.firstLine !== 1 || segment.lastLine !== segment.totalLines
+
+/** Renders one labelled file or file slice. */
+const renderSegment = (label: string, segment: Segment): string =>
+  `--- ${label}: ${JSON.stringify(segment.path)}${
+    partial(segment) ? ` (lines ${segment.firstLine}-${segment.lastLine} of ${segment.totalLines})` : ""
+  } ---\n${
+    JSON.stringify({
+      ...(segment.deleted ? { deleted: true } : {}),
+      ...(partial(segment) ? { firstLine: segment.firstLine } : {}),
+      contents: segment.contents
+    })
+  }`
+
+/** Renders one labelled file section of the prompt. */
+const renderFiles = (label: string, files: ReadonlyArray<Segment>): string =>
+  files.map((file) => renderSegment(label, file)).join("\n\n")
+
+/** One planned model request with its related files loaded. */
+interface Batch {
+  readonly changed: ReadonlyArray<Segment>
+  readonly related: ReadonlyArray<Segment>
+  readonly omittedRelated: ReadonlyArray<string>
+}
 
 /** Renders the deterministic review prompt for one batch. */
 const renderPrompt = (
   payload: Payload,
-  batch: ReadonlyArray<BatchFile>,
-  context: ReadonlyArray<BatchFile>
+  batch: Batch,
+  context: ReadonlyArray<Segment>
 ): string => {
   const sections = [
     payload.prompt,
@@ -1048,8 +1274,25 @@ const renderPrompt = (
       "Use a declared checkId. Code inspection is not reproduction. Do not supply reproduction receipts. " +
       "High or critical impact blocks release regardless of verification."
     ]),
-    `=== CHANGED FILES (under review) ===\n\n${renderFiles("CHANGED FILE", batch)}`
+    ...(batch.changed.some(partial)
+      ? [
+        "A CHANGED FILE header naming a line range carries only that slice of the file; its firstLine is the " +
+        "whole-file line number of the slice's first line. Report whole-file line numbers."
+      ]
+      : []),
+    `=== CHANGED FILES (under review) ===\n\n${renderFiles("CHANGED FILE", batch.changed)}`
   ]
+  if (batch.related.length > 0 || batch.omittedRelated.length > 0) {
+    sections.push(
+      "=== RELATED FILES (unchanged callers and dependencies of the changed files) ===\n\n" +
+        "These unchanged files import, are imported by, or share a package with the changed files in this " +
+        "request, so a flow can be judged end to end, and a finding may name one of them." +
+        (batch.related.length > 0 ? `\n\n${renderFiles("RELATED FILE", batch.related)}` : "") +
+        (batch.omittedRelated.length > 0
+          ? `\n\nRelated files omitted by the token budget: ${JSON.stringify(batch.omittedRelated)}`
+          : "")
+    )
+  }
   if (context.length > 0) {
     sections.push(
       "=== CONTEXT FILES (shared reference material) ===\n\n" +
@@ -1387,17 +1630,29 @@ const parseFindings = (text: string): Effect.Effect<ReadonlyArray<Finding>, LlmR
 const reviewBatch = (
   runtime: RuntimeOptions,
   payload: Payload,
-  batch: ReadonlyArray<BatchFile>,
-  context: ReadonlyArray<BatchFile>,
+  batch: Batch,
+  context: ReadonlyArray<Segment>,
   mask: CredentialMask,
   onCompletion?: (completion: typeof SecurityCompletion.Type) => void
 ): Effect.Effect<ReadonlyArray<Finding>, ModelCliMissing | LlmReviewError> =>
   Effect.flatMap(
     Effect.try({
-      try: () => mask.sanitize(renderPrompt(payload, batch, context)),
+      try: () => {
+        const prompt = mask.sanitize(renderPrompt(payload, batch, context))
+        const policy = mask.sanitize(`${payload.prompt}\nRubric:\n${payload.rubric}`)
+        const window = payload.contextTokens ?? defaultContextTokens
+        const tokens = ReviewBatches.estimateTokens(prompt) + ReviewBatches.estimateTokens(policy)
+        if (tokens + maximumResponseTokens > window) {
+          throw new Error(
+            `LLM review request needs about ${tokens} tokens plus ${maximumResponseTokens} reserved for output, ` +
+              `exceeding the ${window}-token context window`
+          )
+        }
+        return { prompt, policy }
+      },
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     }),
-    (prompt) =>
+    ({ policy, prompt }) =>
       runtime.cliOverride
         ? invokeEngine(runtime, payload.engine, payload.model, prompt, payload.securityChecks !== undefined)
         : reviewModel(
@@ -1406,7 +1661,7 @@ const reviewBatch = (
           prompt,
           runtime.timeoutMs,
           maximumModelOutputBytes,
-          mask.sanitize(`${payload.prompt}\nRubric:\n${payload.rubric}`)
+          policy
         ).pipe(
           Effect.mapError((error) => new LlmReviewError({ phase: "review", message: error.message }))
         )
@@ -1474,16 +1729,18 @@ const reviewBatch = (
     Effect.flatMap((findings) =>
       Effect.try({
         try: () => {
-          const available = new Map([...batch, ...context].map((file) => [file.path, file] as const))
+          const available = new Map(
+            [...batch.changed, ...batch.related, ...context].map((file) => [file.path, file.totalLines] as const)
+          )
           let bytes = 0
           for (const finding of findings) {
-            const file = available.get(finding.file)
-            if (file === undefined) {
+            const lines = available.get(finding.file)
+            if (lines === undefined) {
               throw new Error(`the model reported a file outside this review batch: ${JSON.stringify(finding.file)}`)
             }
-            if (finding.line > file.lines) {
+            if (finding.line > lines) {
               throw new Error(
-                `the model reported line ${finding.line} past line ${file.lines} of ${JSON.stringify(finding.file)}`
+                `the model reported line ${finding.line} past line ${lines} of ${JSON.stringify(finding.file)}`
               )
             }
             bytes += Buffer.byteLength(JSON.stringify(finding), "utf8")
@@ -1498,13 +1755,40 @@ const reviewBatch = (
     )
   )
 
+/**
+ * Keeps one finding per file, line and check for files several requests saw,
+ * preferring the most severe; other findings pass through untouched.
+ */
+const mergeRepeated = (
+  findings: ReadonlyArray<Finding>,
+  repeated: (path: string) => boolean
+): ReadonlyArray<Finding> => {
+  const output: Array<Finding> = []
+  const positions = new Map<string, number>()
+  for (const finding of findings) {
+    if (!repeated(finding.file)) {
+      output.push(finding)
+      continue
+    }
+    const key = `${finding.file}\0${finding.line}\0${finding.security?.checkId ?? ""}`
+    const position = positions.get(key)
+    if (position === undefined) {
+      positions.set(key, output.length)
+      output.push(finding)
+    } else if (severityRank[finding.severity] > severityRank[output[position]!.severity]) {
+      output[position] = finding
+    }
+  }
+  return output
+}
+
 /** Three independent passes and a separate examination of every union candidate. */
 const securityBatch = (
   runtime: RuntimeOptions,
   executableOverride: string | undefined,
   payload: Payload,
-  batch: ReadonlyArray<BatchFile>,
-  context: ReadonlyArray<BatchFile>,
+  batch: Batch,
+  context: ReadonlyArray<Segment>,
   batchIndex: number,
   attempts: Array<typeof ReviewAttempt.Type>,
   mask: CredentialMask
@@ -1706,15 +1990,6 @@ export const review = (
     if (files.length === 0) {
       return { files: [], findings: [], ...(payload.securityChecks === undefined ? {} : { attempts: [] }) }
     }
-    const batches = chunk(files, payload.batchSize)
-    if (batches.length > maximumReviewBatches) {
-      return yield* Effect.fail(
-        new LlmReviewError({
-          phase: "review",
-          message: `LLM review requires ${batches.length} batches, exceeding its limit of ${maximumReviewBatches}`
-        })
-      )
-    }
     const paths = snapshot === undefined
       ? yield* contextPaths(runtime.workspaceRoot, payload.context)
       : [...snapshot.keys()].filter((path) => payload.context.some((glob) => matchesGlob(path, glob))).sort()
@@ -1730,15 +2005,53 @@ export const review = (
       "fail",
       snapshot
     )
+    // Snapshot every bounded changed file before planning or the first provider request.
+    const changed = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
+    const relations = yield* relatedSources(runtime, payload, snapshot, changed, new Set(paths))
+    const plan = yield* Effect.try({
+      try: () => {
+        const window = payload.contextTokens ?? defaultContextTokens
+        const fixed = ReviewBatches.estimateTokens(
+          renderPrompt(payload, { changed: [], related: [], omittedRelated: [] }, context)
+        ) + ReviewBatches.estimateTokens(`${payload.prompt}\nRubric:\n${payload.rubric}`) +
+          maximumResponseTokens + promptSlackTokens
+        if (window - fixed < 1024) {
+          throw new Error(
+            `LLM review instructions and context need about ${fixed} of the ${window}-token context window, ` +
+              "leaving no room for source"
+          )
+        }
+        return ReviewBatches.planBatches({
+          files: changed,
+          edges: relations.edges,
+          related: relations.related,
+          relatedCost: (path) =>
+            ReviewBatches.estimateTokens(renderSegment("RELATED FILE", relations.files.get(path)!)) + 1,
+          segmentCost: (segment) => ReviewBatches.estimateTokens(renderSegment("CHANGED FILE", segment)) + 1,
+          budget: window - fixed,
+          maximumFiles: payload.batchSize
+        })
+      },
+      catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
+    })
+    if (plan.length > maximumReviewBatches) {
+      return yield* Effect.fail(
+        new LlmReviewError({
+          phase: "review",
+          message: `LLM review requires ${plan.length} batches, exceeding its limit of ${maximumReviewBatches}`
+        })
+      )
+    }
+    const loadedBatches: ReadonlyArray<Batch> = plan.map((batch) => ({
+      changed: batch.changed,
+      related: batch.related.map((path) => relations.files.get(path)!),
+      omittedRelated: batch.omittedRelated
+    }))
     const mask = new CredentialMask()
     for (const file of context) mask.scan(file.path, file.contents)
-    const loadedBatches: Array<ReadonlyArray<BatchFile>> = []
-    // Snapshot and scan every bounded batch before the first provider request.
-    for (const batchPaths of batches) {
-      const batch = yield* readBatch(runtime.workspaceRoot, batchPaths, maximumBatchContentBytes, "skip", snapshot)
-      loadedBatches.push(batch)
-      for (const file of batch) mask.scan(file.path, file.contents)
-    }
+    for (const file of changed) mask.scan(file.path, file.contents)
+    const sentRelated = [...new Set(loadedBatches.flatMap((batch) => batch.related.map((file) => file.path)))].sort()
+    for (const path of sentRelated) mask.scan(path, relations.files.get(path)!.contents)
     // Review instructions reach the provider too; mask them without reporting a file.
     mask.scan(undefined, payload.prompt)
     mask.scan(undefined, payload.rubric)
@@ -1766,10 +2079,9 @@ export const review = (
     let batchIndex = 0
     let findingBytes = 0
     for (const batch of loadedBatches) {
-      if (batch.length === 0) {
-        continue
+      for (const segment of batch.changed) {
+        if (!reviewed.includes(segment.path)) reviewed.push(segment.path)
       }
-      reviewed.push(...batch.map((file) => file.path))
       const batchFindings = yield* (payload.securityChecks === undefined
         ? reviewBatch(runtime, payload, batch, context, mask)
         : securityBatch(
@@ -1804,6 +2116,18 @@ export const review = (
         )
       }
     }
+    // A file supplied to several requests (shared context, a related file, or a split file) reports each flaw once.
+    const appearances = new Map<string, number>()
+    for (const batch of loadedBatches) {
+      for (const path of new Set([...batch.changed, ...batch.related].map((file) => file.path))) {
+        appearances.set(path, (appearances.get(path) ?? 0) + 1)
+      }
+    }
+    findings.splice(
+      0,
+      findings.length,
+      ...mergeRepeated(findings, (path) => paths.includes(path) || (appearances.get(path) ?? 0) > 1)
+    )
     for (const location of mask.locations) {
       findings.push({
         file: location.file,
@@ -1877,7 +2201,8 @@ export const LlmReviewLive = (options: {
  * Context is bounded by {@link maximumContextFiles}, {@link maximumReviewFileBytes},
  * and {@link maximumContextContentBytes}. Both sets are caller-owned declared
  * inputs harvested by {@link Target.make}; planner expansion remains package scoped.
- * `engine` selects the model CLI and defaults to `claude`.
+ * `engine` selects the model CLI and defaults to `claude`. `contextTokens`
+ * declares the model's context window (default {@link defaultContextTokens}).
  * `failOn` fails the target when any finding meets that severity and defaults
  * to `error`. With `securityChecks`, structured findings are required and
  * release recommendation `block` gates the review independently of `failOn`.
@@ -1902,6 +2227,8 @@ export const Attrs = Schema.Struct({
   ),
   failOn: Severity.pipe(Schema.withConstructorDefault(Effect.succeed("error" as const))),
   securityChecks: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  /** The selected model's context window in tokens; defaults to {@link defaultContextTokens}. */
+  contextTokens: Schema.optional(ContextTokens),
   /**
    * `changed` (the default) reviews the files that differ from
    * `changes.base`; `all` reviews every included file.
@@ -1931,9 +2258,12 @@ export type Attrs = typeof Attrs.Type
  * `include` and `context` files within its package scope. Cross-package context
  * is read afresh at execution; model reviews are non-cacheable. Execution runs
  * through
- * {@link LlmReviewLive}: changed paths filtered by `include`, batched by
- * `batchSize`, one tool-free model call per batch selecting `model`, the context
- * files appended to every batch prompt, findings parsed as
+ * {@link LlmReviewLive}: changed paths filtered by `include`, grouped with the
+ * changed files they import or are imported by, packed into calls of at most
+ * `batchSize` changed files that fit `contextTokens`, each carrying its
+ * unchanged related included files, one tool-free model call per batch
+ * selecting `model`, the context files appended to every batch prompt,
+ * findings on files several calls saw deduplicated, findings parsed as
  * `{file, line, severity, message}`. Key material also contains dependency
  * keys, include and context patterns, prompt, rubric, engine, model and
  * model-layer identity, batch size, and the failOn threshold. Model output is
@@ -1971,6 +2301,7 @@ export const LlmLint = Target.make("LlmLint", {
       batchSize: attrs.batchSize,
       failOn: attrs.failOn,
       securityChecks: attrs.securityChecks,
+      ...(attrs.contextTokens === undefined ? {} : { contextTokens: attrs.contextTokens }),
       scope: attrs.scope
     })
 })
