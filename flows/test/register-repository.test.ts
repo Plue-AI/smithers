@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
-import { Action, HumanTask } from "@smthrs/flow"
+import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
 import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -39,8 +39,17 @@ import {
   workspacePackages
 } from "../register-repository/pulls.ts"
 import { namesCommand, readiness } from "../register-repository/readiness.ts"
-import type { Outcome } from "../register-repository/schema.ts"
+import {
+  Clone,
+  Commits,
+  Input,
+  Languages,
+  type Outcome,
+  RegisterError,
+  Unavailable
+} from "../register-repository/schema.ts"
 import { checkCommands, checkRunners, licenseCandidates, type Tree } from "../register-repository/tree.ts"
+import { CloneStep, CommitsStep, LanguagesStep } from "../register-repository/workflow.ts"
 import { githubReadable, makeRemote, RepositoryRemote } from "../repository/remote.ts"
 
 test("a freeform link becomes one canonical owner/repo, and anything else is refused", () => {
@@ -614,4 +623,72 @@ test("approval starts setup, which runs the repository's checks, and a wrong rep
     true
   )
   assert.equal((refused as { code?: string }).code, "wrong_repository")
+})
+
+/** Each registration step alone, so the checkout can move between them. */
+const PinnedClone = Flow.make("register-test/clone", {
+  payload: Input.fields,
+  success: Clone,
+  error: RegisterError,
+  body: (input) => CloneStep.call(input)
+})
+const PinnedLanguages = Flow.make("register-test/languages", {
+  payload: { clone: Clone },
+  success: Languages,
+  error: RegisterError,
+  body: (input) => LanguagesStep.call(input)
+})
+const PinnedCommits = Flow.make("register-test/commits", {
+  payload: { clone: Clone },
+  success: Schema.Union([Commits, Unavailable]),
+  error: RegisterError,
+  body: (input) => CommitsStep.call(input)
+})
+
+test("analyses stay pinned to the captured commit when HEAD advances", { timeout: 180_000 }, async (t) => {
+  const { root, repo } = await checkout(t)
+  const judge = jev()
+  const analyses = (clone: typeof Clone.Type, id: string) =>
+    Effect.all({
+      languages: PinnedLanguages.execute({ clone }, { executionId: `${id}-languages` }),
+      commits: PinnedCommits.execute({ clone }, { executionId: `${id}-commits` })
+    })
+  const { captured, advanced, pinned, fresh } = await lifetime(
+    repo,
+    root,
+    judge.layer,
+    Effect.gen(function*() {
+      const captured = yield* PinnedClone.execute({ link: "acme/widgets" }, { executionId: "pin-clone" })
+      const before = yield* analyses(captured, "pin-before")
+      // The checkout moves on after the clone recorded its commit.
+      gitIn(repo, ["rm", "-q", "src/index.ts"])
+      yield* Effect.promise(() => writeFile(join(repo, "app.py"), "print('widgets')\n"))
+      gitIn(repo, ["add", "app.py"])
+      gitIn(repo, ["commit", "-q", "-m", "Rewrite in Python"], "2026-08-25T10:00:00Z")
+      const advanced = gitIn(repo, ["rev-parse", "HEAD"]).trim()
+      const pinned = yield* analyses(captured, "pin-after")
+      const next = yield* PinnedClone.execute({ link: "acme/widgets" }, { executionId: "pin-clone-next" })
+      return { captured, advanced, pinned: { before, after: pinned }, fresh: yield* analyses(next, "pin-next") }
+    }).pipe(
+      Effect.provide(Layer.mergeAll(
+        Interpreter.layer(PinnedClone),
+        Interpreter.layer(PinnedLanguages),
+        Interpreter.layer(PinnedCommits)
+      ))
+    )
+  )
+  assert.notEqual(advanced, captured.commit)
+  const names = (result: { languages: { languages: ReadonlyArray<{ name: string }> } }) =>
+    result.languages.languages.map((entry) => entry.name)
+  assert.ok(names(pinned.before).includes("TypeScript"))
+  assert.deepEqual(names(pinned.after), names(pinned.before), "the recorded commit's languages, not HEAD's")
+  assert.ok(!names(pinned.after).includes("Python"))
+  assert.deepEqual(pinned.after.commits, pinned.before.commits, "history ends at the recorded commit")
+  // A registration that captures the new commit sees it.
+  assert.ok(names(fresh).includes("Python") && !names(fresh).includes("TypeScript"))
+  assert.equal(
+    fresh.commits._tag === "commits" && pinned.after.commits._tag === "commits" &&
+      fresh.commits.total - pinned.after.commits.total,
+    1
+  )
 })

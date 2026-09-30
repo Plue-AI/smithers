@@ -185,13 +185,13 @@ interface Entry {
 }
 
 /**
- * Tracked files at HEAD, and the text of the regular files small enough to analyze, read as git
- * blobs so a symlink or an uncommitted edit is never read.
+ * Tracked files at the captured commit, and the text of the regular files small enough to analyze,
+ * read as git blobs so a symlink, an uncommitted edit or a later HEAD is never read.
  */
-const readTreeOnce = (options: HostOptions) =>
+const readTreeOnce = (options: HostOptions, commit: string) =>
   Effect.gen(function*() {
     const listing = text(
-      (yield* git(options, ["ls-tree", "-r", "-l", "-z", "--full-tree", "HEAD"], 64 * 1024 * 1024)).bytes
+      (yield* git(options, ["ls-tree", "-r", "-l", "-z", "--full-tree", commit], 64 * 1024 * 1024)).bytes
     )
     const entries: Array<Entry & { readonly sha: string; readonly regular: boolean }> = listing.split("\0").flatMap(
       (line) => {
@@ -237,7 +237,7 @@ const readTreeOnce = (options: HostOptions) =>
     return { tree, sourceLines }
   })
 
-const historyOnce = (options: HostOptions) =>
+const historyOnce = (options: HostOptions, commit: string) =>
   Effect.gen(function*() {
     const read = yield* git(
       options,
@@ -248,7 +248,7 @@ const historyOnce = (options: HostOptions) =>
         "50000",
         `--format=${LOG_FORMAT}`,
         "--numstat",
-        "HEAD"
+        commit
       ],
       LOG_BYTES,
       true
@@ -256,23 +256,25 @@ const historyOnce = (options: HostOptions) =>
     // A log cut at its bound keeps every complete record before the cut.
     const log = text(read.bytes)
     const commits = parseLog(read.truncated ? log.slice(0, log.lastIndexOf("\x1e")) : log)
-    const now = Number(text((yield* git(options, ["log", "-1", "--format=%ct", "HEAD"])).bytes).trim())
+    const now = Number(text((yield* git(options, ["log", "-1", "--format=%ct", commit])).bytes).trim())
     return { commits, now }
   })
 
 /**
  * Parallel steps share one read per commit: the first caller reads, the rest await it. Keyed by
- * checkout and HEAD; a failed read is dropped so the next step reads again; two commits at most.
+ * checkout and the captured commit, never the checkout's current HEAD, so every analysis of one
+ * registration describes the commit it recorded; a failed read is dropped so the next step reads
+ * again; two commits at most.
  */
-const memo = <A, E, R>(read: (options: HostOptions) => Effect.Effect<A, E, R>) => {
+const memo = <A, E, R>(read: (options: HostOptions, commit: string) => Effect.Effect<A, E, R>) => {
   const reads = new Map<string, Effect.Effect<A, E, R>>()
-  return (options: HostOptions) =>
-    git(options, ["rev-parse", "HEAD"]).pipe(Effect.flatMap((head) => {
-      const key = `${options.repositoryPath}\u0000${text(head.bytes).trim()}`
+  return (options: HostOptions, commit: string) =>
+    Effect.suspend(() => {
+      const key = `${options.repositoryPath}\u0000${commit}`
       let cached = reads.get(key)
       if (cached === undefined) {
         cached = Effect.runSync(Effect.cached(
-          read(options).pipe(Effect.onExit((exit) =>
+          read(options, commit).pipe(Effect.onExit((exit) =>
             Effect.sync(() => {
               if (exit._tag === "Failure") reads.delete(key)
             })
@@ -282,7 +284,7 @@ const memo = <A, E, R>(read: (options: HostOptions) => Effect.Effect<A, E, R>) =
         reads.set(key, cached)
       }
       return cached
-    }))
+    })
 }
 
 /** A step reads evidence; if the evidence is unreadable it answers `unavailable` instead of failing the run. */
@@ -419,7 +421,7 @@ export const stepLayers = (options: HostOptions) => {
         }
         const commit = text((yield* git(options, ["rev-parse", "HEAD"])).bytes).trim()
         // A tree too large to list still registers; the steps that need it report unavailable.
-        const counted = yield* readTree(options).pipe(
+        const counted = yield* readTree(options, commit).pipe(
           Effect.map(({ sourceLines, tree }) => ({ files: tree.paths.length, lines: sourceLines })),
           Effect.orElseSucceed(() => ({ files: 0, lines: 0 }))
         )
@@ -430,7 +432,7 @@ export const stepLayers = (options: HostOptions) => {
       soft(
         "theme",
         withJev(Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const candidates = themeCandidates(tree, clone.repo)
           const readme = tree.files.find((file) => /^readme/i.test(file.path))?.text.slice(0, 600) ?? ""
           const name = yield* choose(
@@ -451,7 +453,7 @@ export const stepLayers = (options: HostOptions) => {
       soft(
         "license",
         withJev(Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const candidates = licenseCandidates(tree)
           if (candidates.length === 0) {
             const unknown = tree.paths.some((path) => LICENSE_FILES.test(path))
@@ -487,7 +489,7 @@ export const stepLayers = (options: HostOptions) => {
       soft(
         "checks",
         withJev(Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const runners = checkRunners(tree)
           const picked = runners.length === 0
             ? { value: "None yet", by: "detected" as const }
@@ -520,7 +522,7 @@ export const stepLayers = (options: HostOptions) => {
       soft(
         "readiness",
         Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const runs = yield* runChecks(options, clone.commit, checks, tree)
           const install = runs.find((entry) => installCommand(tree)?.join(" ") === entry.command)
           const installed = install === undefined || install.status === "error"
@@ -530,49 +532,49 @@ export const stepLayers = (options: HostOptions) => {
         })
       )
     ),
-    CleanupStep.toLayer(() =>
+    CleanupStep.toLayer(({ clone }) =>
       soft(
         "cleanup",
         Effect.gen(function*() {
-          const { tree, sourceLines } = yield* readTree(options)
-          const { commits, now } = yield* history(options)
+          const { tree, sourceLines } = yield* readTree(options, clone.commit)
+          const { commits, now } = yield* history(options, clone.commit)
           return cleanup(tree, sourceLines, churn(commits, now))
         })
       )
     ),
-    AgentShareStep.toLayer(() =>
+    AgentShareStep.toLayer(({ clone }) =>
       soft(
         "agent-share",
         Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
-          const { commits, now } = yield* history(options)
+          const { tree } = yield* readTree(options, clone.commit)
+          const { commits, now } = yield* history(options, clone.commit)
           return agentShare(commits, now, tree.paths)
         })
       )
     ),
-    CommitsStep.toLayer(() =>
+    CommitsStep.toLayer(({ clone }) =>
       soft(
         "commits",
         Effect.gen(function*() {
-          const { commits, now } = yield* history(options)
+          const { commits, now } = yield* history(options, clone.commit)
           return commitGraph(commits, now)
         })
       )
     ),
-    ContributorsStep.toLayer(() =>
+    ContributorsStep.toLayer(({ clone }) =>
       soft(
         "contributors",
         Effect.gen(function*() {
-          const { commits, now } = yield* history(options)
+          const { commits, now } = yield* history(options, clone.commit)
           return contributors(commits, now)
         })
       )
     ),
-    IntakeStep.toLayer(() =>
+    IntakeStep.toLayer(({ clone }) =>
       soft(
         "intake",
         Effect.gen(function*() {
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const pulls = parsePulls(yield* githubJson(options, "/pulls?state=all&per_page=50"))
           if (pulls.length === 0) return unavailable("No pull requests to read")
           const sampled = pulls.filter((pull) => pull.merged !== null).slice(0, 10)
@@ -593,7 +595,7 @@ export const stepLayers = (options: HostOptions) => {
         })
       )
     ),
-    WorkflowsStep.toLayer(() =>
+    WorkflowsStep.toLayer(({ clone }) =>
       soft(
         "workflows",
         withJev(Effect.gen(function*() {
@@ -602,7 +604,7 @@ export const stepLayers = (options: HostOptions) => {
             Effect.map((value) => parsePulls(value).filter((pull) => pull.merged !== null)),
             Effect.orElseSucceed(() => [])
           )
-          const { commits } = yield* history(options)
+          const { commits } = yield* history(options, clone.commit)
           const pulls = fromGitHub.length > 0
             ? fromGitHub.slice(0, 30).map((pull) => ({ number: pull.number, title: pull.title, body: pull.body }))
             : commits.flatMap((commit) => {
@@ -626,7 +628,7 @@ export const stepLayers = (options: HostOptions) => {
         }))
       )
     ),
-    CiStep.toLayer(() =>
+    CiStep.toLayer(({ clone }) =>
       soft(
         "ci",
         Effect.gen(function*() {
@@ -648,20 +650,20 @@ export const stepLayers = (options: HostOptions) => {
               : undefined
             return typeof name === "string" ? [name] : []
           })
-          const { tree } = yield* readTree(options)
+          const { tree } = yield* readTree(options, clone.commit)
           const packages = workspacePackages(tree)
           return ciEstimate(merged.number, baseline, packages.length, affectedPackages(packages, changed))
         })
       )
     ),
-    LanguagesStep.toLayer(() =>
-      readTree(options).pipe(
+    LanguagesStep.toLayer(({ clone }) =>
+      readTree(options, clone.commit).pipe(
         Effect.map(({ tree }) => languages(tree)),
         Effect.orElseSucceed(() => ({ _tag: "languages" as const, languages: [] }))
       )
     ),
     VerifyStep.toLayer(({ commit, checks }) =>
-      readTree(options).pipe(
+      readTree(options, commit).pipe(
         Effect.flatMap(({ tree }) => runChecks(options, commit, checks, tree)),
         Effect.mapError((error) =>
           error instanceof RegisterError ? error : failure("unavailable", "The checks could not run")
