@@ -573,6 +573,44 @@ console.log(kept)`
     ])
   })
 
+  for (const maxFrames of [1, 8]) {
+    for (const channel of ["empty", "answering"] as const) {
+      it(`suspends a final-frame park with an ${channel} source (${maxFrames} frames)`, async () => {
+        const parks: Array<{ readonly reason: string; readonly message: string }> = []
+        const script = Array.from({ length: maxFrames - 1 }, (_, index) => emits(`console.log(${index})`))
+        script.push(emits(`ctx.park("waiting-input", "Required final question?")`))
+        const { events, engine, failure, model } = await run({
+          state: state({ approvalChannel: true, maxFrames }),
+          script,
+          ...(channel === "empty" ? {} : {
+            steering: Steering.layer({
+              read: () => Effect.succeed(Steering.empty()),
+              drain: (input) => {
+                if (input.park !== undefined) parks.push(input.park)
+                return Effect.succeed({
+                  inserts: input.park === undefined ? [] : [ModelRequest.Message.user("confirmed")],
+                  seatChanges: [],
+                  remaining: Steering.empty(),
+                  queued: false,
+                  duplicate: false
+                })
+              }
+            })
+          })
+        })
+        expect(failure).toMatchObject({ code: "suspended", message: "Required final question?" })
+        expect(parks).toEqual([])
+        expect(of(events, "resolved")).toHaveLength(0)
+        expect(of(events, "suspended")[0]?.reason).toMatchObject({
+          code: "waiting-input",
+          message: "Required final question?"
+        })
+        expect(engine.recorder.suspend).toHaveLength(1)
+        expect(model.recorder.requests).toHaveLength(maxFrames)
+      })
+    }
+  }
+
   it("fails a run after five identical throwing cells", async () => {
     const { events, failure, model } = await run({
       script: Array.from({ length: 30 }, () => emits(`throw new Error("bash exited 1")`)),

@@ -2268,15 +2268,16 @@ describe("CellTurn recorded observations", () => {
     queue.steer("finish up")
     const model = ScriptedModel.make([emits(`ctx.park("waiting-input", "which branch?")`)])
     const engine = ScriptedEngine.make(model.model, [])
-    const { events } = await collect(
+    const { events, failure } = await collect(
       { state: state({ maxFrames: 1, approvalChannel: true }), flows: [lister] },
       { engine: engine.layer, steering: queue.layer }
     )
 
-    expect(of(events, "suspended")).toHaveLength(0)
-    expect(of(events, "steering-drained")[0]?.messages).toEqual([])
+    expect(failure).toMatchObject({ code: "suspended", message: "which branch?" })
+    expect(of(events, "suspended")[0]?.reason).toMatchObject({ code: "waiting-input", message: "which branch?" })
+    expect(of(events, "steering-drained")).toHaveLength(0)
     expect(queue.pending()).toEqual([ModelRequest.Message.user("finish up")])
-    expect(resolvedText(events)).toContain("frame budget of 1 is exhausted")
+    expect(of(events, "resolved")).toHaveLength(0)
   })
 
   it("re-issues a call whose original attempt parked, so a later grant can answer it", async () => {
@@ -2470,7 +2471,7 @@ describe("CellTurn delivery through the durable notification queue", () => {
           payload: { body: "Please handle the follow-up" }
         })
         const source = yield* Notifications.make({ runId: "run", lineageId: "run/root" })
-        yield* CellTurn.run({
+        const result = yield* CellTurn.run({
           state: new CellTurn.State({ ...state({ maxFrames, approvalChannel }), revalidations: 0 }),
           flows: [descriptor("edit", { writes: ["/**"] })],
           limits: { steps: 100 }
@@ -2479,8 +2480,13 @@ describe("CellTurn delivery through the durable notification queue", () => {
           Effect.provide(engine.layer),
           Effect.provide(QuickJSSandbox.layer),
           Effect.provide(confidentEvaluator),
-          Effect.provideService(Steering.Source, source)
+          Effect.provideService(Steering.Source, source),
+          Effect.result
         )
+        if (maxFrames === 1 && approvalChannel) {
+          expect(result).toMatchObject({ _tag: "Failure", failure: { code: "suspended", message: "which branch?" } })
+          expect(of(events, "resolved")).toHaveLength(0)
+        } else expect(result._tag).toBe("Success")
         return yield* queue.pending("run")
       }).pipe(Effect.provide(NotificationQueue.layer.pipe(Layer.provide(journal))), Effect.scoped)
     )

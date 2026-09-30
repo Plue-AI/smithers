@@ -3680,10 +3680,16 @@ const frame = (
           message: `The run requires an answer but has no approval channel: ${transition.message}`
         })
       }
+      // No frame remains to consume an answer. Keep pending steering at its
+      // source and suspend with the question instead of reporting completion.
       if (!Frame.hasNextFrame(state)) {
-        yield* drain(exit, true)
-        yield* close(exit, "resolved")
-        return { _tag: "Done" }
+        return yield* finish(exit, {
+          _tag: "Suspend",
+          reason: new EngineLike.SuspendReason({
+            code: transition.reason,
+            message: transition.message
+          })
+        })
       }
       // The drain on the park path, and the only thing that can ever answer an
       // honored park.

@@ -516,6 +516,8 @@ export const make = (options: {
     const session = `tui-${process.pid}-${index}`
     /** The seat of this turn's latest model call. */
     let requested: string | undefined
+    let suspension: { readonly code: string; readonly message: string } | undefined
+    let cancelled = false
     const program = Effect.gen(function*() {
       // Each worker routes on its own; a retry or resume is handed the seat and variant it was routed to.
       const decision = input.seat !== Seat.auto
@@ -726,6 +728,7 @@ export const make = (options: {
               requested = event.to
             }
             if (event._tag === "model-settled" && requested !== undefined) credit.answered(requested)
+            if (event._tag === "suspended") suspension = event.reason
             if (event._tag === "resolved") answer = text(event.message.content)
             if (event._tag === "model-requested" || event._tag === "model-retried") reply = ""
             if (event._tag === "model-delta" && event.delta.type === "text-delta") reply += event.delta.text
@@ -753,7 +756,13 @@ export const make = (options: {
     const done = new Promise<Outcome>((resolve) => {
       fiber.addObserver((exit) => {
         if (Exit.isSuccess(exit)) return resolve({ _tag: "done", answer: exit.value })
-        if (Cause.hasInterruptsOnly(exit.cause)) return resolve({ _tag: "cancelled" })
+        if (Cause.hasInterruptsOnly(exit.cause)) {
+          return resolve(
+            !cancelled && suspension !== undefined
+              ? { _tag: "failed", message: suspension.message, detail: `${suspension.code}: ${suspension.message}` }
+              : { _tag: "cancelled" }
+          )
+        }
         const detail = Cause.pretty(exit.cause)
         Log.write("host.turn", detail)
         // No judge could check the answer: the run is done, unchecked, never failed.
@@ -774,7 +783,13 @@ export const make = (options: {
         })
       })
     })
-    return { done, cancel: () => void runtime.runFork(Fiber.interrupt(fiber)) }
+    return {
+      done,
+      cancel: () => {
+        cancelled = true
+        void runtime.runFork(Fiber.interrupt(fiber))
+      }
+    }
   }
 
   const approvals: NonNullable<Host["approvals"]> = {

@@ -86,6 +86,97 @@ const turn = async (role: "coordinator" | "worker") => {
 }
 
 describe("Host.run required asks", () => {
+  test("explicit cancellation at a final-frame suspension retains the cancelled outcome", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-host-final-cancel-"))
+    roots.push(cwd)
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+    const cells = Array.from({ length: 7 }, (_, index) => `console.log(${index})`)
+    cells.push("ctx.park(\"waiting-input\", \"Required final question?\")")
+    try {
+      const running = host.run({
+        prompt: "Ask before finishing",
+        role: "coordinator",
+        seat: `replay:${doneReplay(cwd, cells[0], ...cells.slice(1))}`,
+        history: [],
+        onEvent: (event) => {
+          if (event._tag === "suspended") running.cancel()
+        }
+      })
+      expect(await running.done).toEqual({ _tag: "cancelled" })
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("a required ask on the coordinator's eighth frame fails without an answer channel", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-host-final-ask-"))
+    roots.push(cwd)
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+    const events: Array<AgentEvent.AgentEvent> = []
+    const cells = Array.from({ length: 7 }, (_, index) => `console.log(${index})`)
+    cells.push("ctx.park(\"waiting-input\", \"Required final question?\")")
+    try {
+      const outcome = await host.run({
+        prompt: "Ask before finishing",
+        role: "coordinator",
+        seat: `replay:${doneReplay(cwd, cells[0], ...cells.slice(1))}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      expect(outcome).toMatchObject({ _tag: "failed", message: "Required final question?" })
+      expect(events.filter((event) => event._tag === "model-requested")).toHaveLength(8)
+      expect(events.some((event) => event._tag === "resolved")).toBe(false)
+      expect(events.findLast((event) => event._tag === "transition-applied")).toMatchObject({
+        transition: { _tag: "park", reason: "waiting-input", message: "Required final question?" }
+      })
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  test("the coordinator's final-frame ask fails explicitly and retains pending steering with a channel", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-host-final-answer-"))
+    roots.push(cwd)
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+    const events: Array<AgentEvent.AgentEvent> = []
+    const asked: Array<string> = []
+    const queue = Steering.make({
+      ask: async (question) => {
+        asked.push(question)
+        return "confirmed"
+      }
+    })
+    const cells = Array.from({ length: 7 }, (_, index) => `console.log(${index})`)
+    cells.push("ctx.park(\"waiting-input\", \"Required final question?\")")
+    try {
+      const outcome = await host.run({
+        prompt: "Ask before finishing",
+        role: "coordinator",
+        steering: queue.source,
+        seat: `replay:${doneReplay(cwd, cells[0], ...cells.slice(1))}`,
+        history: [],
+        onEvent: (event) => {
+          events.push(event)
+          if (
+            event._tag === "model-requested" && events.filter((item) => item._tag === "model-requested").length === 8
+          ) {
+            queue.steer("pending follow-up")
+          }
+        }
+      }).done
+      expect(outcome).toMatchObject({ _tag: "failed", message: "Required final question?" })
+      expect(events.some((event) => event._tag === "resolved")).toBe(false)
+      expect(events.find((event) => event._tag === "suspended")).toMatchObject({
+        reason: { code: "waiting-input", message: "Required final question?" }
+      })
+      expect(asked).toEqual([])
+      expect(queue.take()).toEqual(["pending follow-up"])
+      expect(events.filter((event) => event._tag === "model-requested")).toHaveLength(8)
+    } finally {
+      await host.dispose()
+    }
+  })
+
   for (const role of ["worker", "coordinator"] as const) {
     test(`${role} fails a required ask without an answer channel before a self-answer`, async () => {
       const cwd = mkdtempSync(join(tmpdir(), "tui-host-ask-"))
