@@ -10,11 +10,14 @@ import type { Comparison, SemanticVerdict } from "./checks.ts"
 import type { Check } from "./schema.ts"
 
 /** A hunk Jev is asked about: the candidate file, the first line the hunk
- * changes in the candidate, and the hunk's own unified diff text. */
+ * changes in the candidate, and the hunk's own unified diff text. `complete`
+ * is false when the text was clipped to {@link MAX_HUNK_BYTES}, so Jev sees
+ * only a prefix of the change and cannot clear the path. */
 export interface Hunk {
   readonly path: string
   readonly line: number
   readonly hunk: string
+  readonly complete: boolean
 }
 
 /** At or above this probability the hunk violates the rule and becomes a
@@ -42,7 +45,10 @@ export const clip = (value: string, limit: number): string => {
   if (end > 0 && value.codePointAt(end - 1)! >= 0xd800 && value.codePointAt(end - 1)! <= 0xdbff) end -= 1
   return value.slice(0, end)
 }
-const bounded = (text: string): string => clip(text, MAX_HUNK_BYTES)
+const bounded = (text: string): { readonly hunk: string; readonly complete: boolean } => {
+  const hunk = clip(text, MAX_HUNK_BYTES)
+  return { hunk, complete: hunk === text }
+}
 
 /** One boolean per (rule, hunk). The state is exactly what the rule can be
  * judged against, so a hunk that needs more than itself reads indecisive. */
@@ -104,7 +110,7 @@ export const hunks = (comparison: typeof Comparison.Type): ReadonlyArray<Hunk> =
         } else if (text.startsWith(" ") || text === "") candidate++
       }
       index--
-      found.push({ path, line: first || Math.max(1, Number(start[1])), hunk: bounded(body.join("\n")) })
+      found.push({ path, line: first || Math.max(1, Number(start[1])), ...bounded(body.join("\n")) })
     }
   }
   return found
@@ -129,7 +135,7 @@ export const proposalHunks = (comparison: typeof Comparison.Type): ReadonlyArray
     return {
       path: change.path,
       line: 1,
-      hunk: bounded([header, ...before.map((text) => `-${text}`), ...after.map((text) => `+${text}`)].join("\n"))
+      ...bounded([header, ...before.map((text) => `-${text}`), ...after.map((text) => `+${text}`)].join("\n"))
     }
   })
 
@@ -160,15 +166,18 @@ const cited = (comparison: typeof Comparison.Type, path: string, line: number): 
  * below {@link CLEAN_PROBABILITY} clears it, and anything between or a missing
  * answer is indecisive. Every answer decisive and none flagged is a pass, a
  * decisive flag is a fail, and one indecisive hunk makes the whole check
- * uncertain. An evaluation Jev could not answer at all never reaches here:
+ * uncertain. A path in `partial` had a hunk Jev saw only a prefix of, so it is
+ * never examined and, unless a hunk is flagged, the check is uncertain. An
+ * evaluation Jev could not answer at all never reaches here:
  * {@link jevSemanticCheck} fails instead of inventing a verdict. */
 export const jevVerdict = (
   comparison: typeof Comparison.Type,
   check: typeof Check.Type,
   states: ReadonlyArray<RuleState>,
-  answers: ReadonlyArray<{ readonly violates: Classifier.BooleanAnswer }>
+  answers: ReadonlyArray<{ readonly violates: Classifier.BooleanAnswer }>,
+  partial: ReadonlyArray<string> = []
 ): typeof SemanticVerdict.Type => {
-  const examinedPaths = scopedPaths(comparison, check)
+  const examinedPaths = scopedPaths(comparison, check).filter((path) => !partial.includes(path))
   const named = check.name || check.id
   if (!states.length) {
     return { verdict: "uncertain", summary: `Jev found no hunk to judge against ${named}`, examinedPaths, findings: [] }
@@ -185,6 +194,14 @@ export const jevVerdict = (
     return {
       verdict: "uncertain",
       summary: `Jev was unsure about ${unsure} of ${states.length} hunks against ${named}`,
+      examinedPaths,
+      findings: []
+    }
+  }
+  if (!flagged.length && partial.length) {
+    return {
+      verdict: "uncertain",
+      summary: `Jev saw only part of the changes to ${partial.join(", ")} against ${named}`,
       examinedPaths,
       findings: []
     }
@@ -231,10 +248,10 @@ export const jevSemanticCheck = (
     // so its exact changes are rendered as hunks instead.
     const parsed = hunks(comparison)
     const changed = parsed.length ? parsed : proposalHunks(comparison)
-    const states: ReadonlyArray<RuleState> = !rule ?
-      []
-      : changed.filter((hunk) => scoped.has(hunk.path)).map((hunk) => ({ rule, ...hunk }))
+    const judged = rule ? changed.filter((hunk) => scoped.has(hunk.path)) : []
+    const states: ReadonlyArray<RuleState> = judged.map(({ hunk, line, path }) => ({ rule, path, line, hunk }))
     if (!states.length) return jevVerdict(comparison, check, [], [])
+    const partial = [...new Set(judged.filter((hunk) => !hunk.complete).map((hunk) => hunk.path))]
     const answered = yield* Effect.forEach(batches(states), (batch) => ruleClassifier.evaluateAll(batch), {
       concurrency: 1
     })
@@ -243,7 +260,7 @@ export const jevSemanticCheck = (
       if (Result.isFailure(answer)) return yield* Effect.fail(jevUnavailable(check, answer.failure))
       answers.push(answer.success)
     }
-    return jevVerdict(comparison, check, states, answers)
+    return jevVerdict(comparison, check, states, answers, partial)
   })
 
 /** Use the native subscription judge over the host's proxy-aware transport.

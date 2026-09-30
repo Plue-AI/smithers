@@ -55,7 +55,6 @@ export const jevCheckDelegate = Flow.make("coding/JevCheck", {
   body: (invocation) => CheckRules.call(invocation)
 })
 
-const encoder = new TextEncoder()
 const gitHeader = "diff --git a/"
 
 /** One changed file of a unified diff: its path, every path it touches, its section text, and whether git rendered it as binary. */
@@ -214,7 +213,7 @@ export const judge = (
     const changed = public_.flatMap((file) =>
       hunks({ ...comparison, diff: file.text }).map((hunk) => ({ ...hunk, path: file.path }))
     )
-    const clipped = changed.find((hunk) => encoder.encode(hunk.hunk).length >= MAX_HUNK_BYTES - 3)
+    const clipped = changed.find((hunk) => !hunk.complete)
     if (clipped !== undefined) {
       return receipt("failed", { refused: "hunk_too_large", path: clipped.path, limitBytes: MAX_HUNK_BYTES }, [
         finding(`${clipped.path}:${clipped.line} has a hunk too large for the Jev check to judge whole`)
@@ -232,7 +231,12 @@ export const judge = (
       const scoped = new Set(scopedPaths(comparison, rule))
       return {
         rule,
-        states: changed.filter((hunk) => scoped.has(hunk.path)).map((hunk) => ({ rule: rule.rule, ...hunk })),
+        states: changed.filter((hunk) => scoped.has(hunk.path)).map(({ hunk, line, path }) => ({
+          rule: rule.rule,
+          path,
+          line,
+          hunk
+        })),
         binary: public_.filter((file) => file.binary && scoped.has(file.path)).map((file) => file.path)
       }
     })

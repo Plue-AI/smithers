@@ -156,7 +156,8 @@ test("a proposal with no diff is judged from its exact changes", async () => {
   assert.deepEqual(proposalHunks(proposal), [{
     path: "src/a.ts",
     line: 1,
-    hunk: "@@ -1,1 +1,1 @@\n-const w = 3\n+const width = 3"
+    hunk: "@@ -1,1 +1,1 @@\n-const w = 3\n+const width = 3",
+    complete: true
   }])
   const asked: Array<string> = []
   const verdict = await Effect.runPromise(
@@ -179,8 +180,87 @@ test("a deleted proposal path is judged as the removal it is", () => {
       diff: "",
       changes: [{ path: "src/gone.ts", before: "const a = 1\n", after: null }]
     }),
-    [{ path: "src/gone.ts", line: 1, hunk: "@@ -1,1 +0,0 @@\n-const a = 1" }]
+    [{ path: "src/gone.ts", line: 1, hunk: "@@ -1,1 +0,0 @@\n-const a = 1", complete: true }]
   )
+})
+
+/** A replacement hunk of two files each within the 32 KiB source bound is
+ * larger than one state, so Jev sees only its prefix. That prefix never clears
+ * the path: the check is uncertain and its assessment errors. */
+test("a clipped hunk leaves its path unexamined and never passes", async () => {
+  const marker = "REGRESSION_AT_END"
+  const before = lines(1000, "old"), after = `${lines(1050, "new")}const last = "${marker}"\n`
+  assert.ok(before.length < 32_768 && after.length < 32_768 && before.length + after.length > 32_768)
+  const judge = (proposal: typeof Comparison.Type) => {
+    const asked: Array<string> = []
+    return Effect.runPromise(
+      jevSemanticCheck(proposal, check).pipe(
+        Effect.provide(Evaluator.layerScripted((request) => {
+          const { hunk } = request.state as { hunk: string }
+          asked.push(hunk)
+          return { violates: { probability: hunk.includes(marker) ? 0.95 : 0.02 } }
+        }))
+      )
+    ).then((verdict) => ({ verdict, asked }))
+  }
+  const proposal = (text: string): typeof Comparison.Type => ({
+    base,
+    candidate: `${base}+${"1".repeat(64)}`,
+    diff: "",
+    paths: ["src/change.ts"],
+    files: [{ path: "src/change.ts", text, digest: Digest.digest(text), truncated: false }],
+    changes: [{ path: "src/change.ts", before, after: text }]
+  })
+  const large = proposal(after)
+  assert.deepEqual(proposalHunks(large).map((hunk) => hunk.complete), [false])
+  const clipped = await judge(large)
+  assert.equal(clipped.asked.length, 1)
+  assert.ok(!clipped.asked[0]!.includes(marker), "the judged prefix omits the final added line")
+  assert.equal(clipped.verdict.verdict, "uncertain")
+  assert.deepEqual([...clipped.verdict.examinedPaths], [], "a clipped prefix is not path coverage")
+  assert.match(clipped.verdict.summary, /only part of the changes to src\/change\.ts/)
+  const clippedContext = {
+    ...context,
+    source: large.candidate,
+    files: large.files,
+    reads: [{ ...context.reads[0]!, path: "src/change.ts", digest: large.files[0]!.digest }]
+  }
+  assert.deepEqual(Checks.assessSemantic(large, clipped.verdict, clippedContext), {
+    status: "error",
+    summary: inconclusiveCheck
+  })
+
+  // The same marker in a hunk Jev sees whole is a decisive failure.
+  const short = proposal(`const last = "${marker}"\n`)
+  assert.deepEqual(proposalHunks(short).map((hunk) => hunk.complete), [true])
+  const whole = await judge(short)
+  assert.equal(whole.verdict.verdict, "fail")
+  assert.deepEqual([...whole.verdict.examinedPaths], ["src/change.ts"])
+  const shortContext = {
+    ...clippedContext,
+    files: short.files,
+    reads: [{ ...clippedContext.reads[0]!, digest: short.files[0]!.digest }]
+  }
+  assert.equal(Checks.assessSemantic(short, whole.verdict, shortContext).status, "failed")
+
+  // A committed diff hunk clipped the same way, beside a complete clean hunk,
+  // keeps the complete path examined and the clipped one out.
+  const big = Array.from({ length: 2000 }, (_, index) => `+const added${index} = ${index}`).join("\n")
+  const committed: typeof Comparison.Type = {
+    ...comparison,
+    diff:
+      `${diff}diff --git a/src/c.ts b/src/c.ts\n--- a/src/c.ts\n+++ b/src/c.ts\n@@ -0,0 +1,2001 @@\n${big}\n+const tail = "${marker}"\n`,
+    paths: [...comparison.paths, "src/c.ts"]
+  }
+  assert.deepEqual(hunks(committed).map((hunk) => [hunk.path, hunk.complete]), [
+    ["src/a.ts", true],
+    ["src/a.ts", true],
+    ["src/b.ts", true],
+    ["src/c.ts", false]
+  ])
+  const partial = await judge(committed)
+  assert.equal(partial.verdict.verdict, "uncertain")
+  assert.deepEqual([...partial.verdict.examinedPaths], ["src/a.ts", "src/b.ts"])
 })
 
 test("a batch carries at most 64 states and keeps every one", () => {
