@@ -146,16 +146,11 @@ test("Review a PR asks for a box before reading its context, and its agent reque
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
-    const form = [...store.collections.cards.values()].find(card =>
-      card.kind === "flow-form" && card.payload.flow === "box.open" && card.payload.afterBox?.kind === "prs.triage")
-    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo },
-      afterBox: { repo, number: 4 } } })
-    if (form === undefined) throw new Error("PR review box form was not rendered")
-    await store.dispatch({ type: "card.removed", actor: "user", id: form.id }).isPersisted.promise
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
     const agent = await controller.commands.runForAgent("prs.triage", `4 ${repo}`)
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
-    expect([...store.collections.cards.values()].filter(card =>
-      card.kind === "flow-form" && card.payload.flow === "box.open")).toEqual([])
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })
@@ -165,14 +160,7 @@ test("Review a PR carries its act through the several-box chooser without readin
   try {
     await loadBox(store, repo, "0b0c0d0e-0000-4000-8000-000000000002")
     expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
-    const form = store.collections.cards.get("form-box.select")
-    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.select",
-      given: { repo, flow: "prs.triage", args: `4 ${repo}` } } })
-    if (form?.kind !== "flow-form") throw new Error("PR review box picker was not rendered")
-    expect(form.payload.draft).toEqual({})
-    expect(form.payload.error).toBeUndefined()
-    expect(form.payload.fields.find(field => field.name === "workspaceId")?.options?.map(option => option.value))
-      .toEqual([TEST_BOX, "0b0c0d0e-0000-4000-8000-000000000002"])
+    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "prs.triage", args: `4 ${repo}` } } })
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })

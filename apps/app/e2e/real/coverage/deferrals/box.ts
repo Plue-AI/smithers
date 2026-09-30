@@ -1,5 +1,5 @@
-// Box choice resumes a host-backed act; real-host coverage remains owed in #2327.
+// Host-backed box acts whose real-host coverage remains owed.
 export const box = [
   "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop",
-  "box.images", "box.list", "box.session.destroy", "box.select",
+  "box.images", "box.list", "box.session.destroy",
 ] as const
