@@ -205,3 +205,19 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
 Migration is exclusive under the maintenance lock. The state manifest changes only after migration succeeds. Normal startup refuses a distribution, schema, or PostgreSQL version mismatch. An interrupted upgrade blocks startup and maintenance until [recovery from the pre-upgrade backup](../packages/backend/docs/upgrade-recovery.md). Restoring returns to the backup point and loses later changes.
 
 This edition targets one host and local disk, with maintenance downtime. It makes no high availability or autoscaling claim.
+
+### Rotate the operator key
+
+The operator key seals connected provider accounts, secrets, model credentials and webhook signing secrets. It is `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY`, kept in the data volume's `config/secrets.json` unless set in the environment. Take a backup, stop the container, then run:
+
+```sh
+docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
+  --env-file ./smithers.env \
+  -v smithers-data:/var/lib/smithers \
+  --entrypoint /opt/smithers/bin/smithers-backend \
+  "$SMITHERS_IMAGE" keys rotate
+```
+
+It writes a new key beside the old one, reseals every stored value under the new key, then deletes the old key. It prints counts per table and never a key. If it stops partway, run it again: it finishes with the key it already wrote, and the app starts in between because the file holds both keys. A value no key opens stops it and names the table and row. A backup keeps the key it was made with.
+
+When the key comes from the environment, `keys rotate` refuses. Set the new key in `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY` and the old one in `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS` (comma separated, newest first), restart, and run `smithers-backend keys reseal` with the same variables while the app runs. It repeats until a pass finds every value under the new key. Then remove `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS` and restart.

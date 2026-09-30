@@ -125,6 +125,7 @@ func run(ctx context.Context, args []string) (runErr error) {
 	resolver, err := modelhost.NewOwnerSecretResolver(
 		func() string { return os.Getenv("SMITHERS_DATABASE_URL") },
 		func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY") },
+		modelhost.WithPreviousSecretKeys(func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS") }),
 	)
 	if err != nil {
 		return err
