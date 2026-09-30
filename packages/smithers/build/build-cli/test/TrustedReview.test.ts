@@ -1,12 +1,23 @@
 import * as Input from "@smthrs/targets/Input"
 import * as LlmLint from "@smthrs/targets/LlmLint"
 import * as Target from "@smthrs/targets/Target"
+import * as Effect from "effect/Effect"
+import * as Stream from "effect/Stream"
 import { execFileSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { defaultProposedBudget, prepare, run } from "../src/TrustedReview.ts"
+import * as Label from "../src/Label.ts"
+import {
+  defaultProposedBudget,
+  prepare,
+  prepareSource,
+  reviewPrepared,
+  type ReviewSource,
+  run,
+  type SourceEntry
+} from "../src/TrustedReview.ts"
 import { serve } from "./helpers/ServeCli.ts"
 
 const temporaryDirectories: Array<string> = []
@@ -493,5 +504,154 @@ describe("TrustedReview Git boundary", () => {
     }
     expect(record).toMatchObject({ status: "failed", owner: "//:security" })
     expect((await Fs.stat(store)).mode & 0o777).toBe(0o700)
+  })
+})
+
+/** Immutable revisions held in memory: a host's source that is not a Git repository. */
+const memorySource = (revisions: Record<string, Record<string, string>>, symlinks: ReadonlyArray<string> = []) => {
+  const reads: Array<string> = []
+  const source: ReviewSource = {
+    tree: async (revision) =>
+      new Map(
+        Object.entries(revisions[revision]!).map(([path, contents]): [string, SourceEntry] => [
+          path,
+          { id: `${symlinks.includes(path) ? "link" : "file"}:${contents}`, regular: !symlinks.includes(path) }
+        ])
+      ),
+    read: async (revision, path) => {
+      reads.push(`${revision}:${path}`)
+      return revisions[revision]![path]!
+    },
+    grep: async (revision, patterns, candidate) =>
+      Object.entries(revisions[revision]!).filter(([path, contents]) =>
+        candidate(path) && patterns.some((pattern) => new RegExp(pattern).test(contents))
+      ).map(([path]) => path)
+  }
+  return { source, reads }
+}
+
+const trustedFiles: Record<string, string> = {
+  "PACKAGE.ts": "export const Package = 1\n",
+  "src/service.ts": "export const value = 'trusted'\n",
+  "src/removed.ts": "export const guard = true\n",
+  "src/caller.ts": "import { value } from \"./service.ts\"\nexport const caller = value\n",
+  "src/unrelated.ts": "export const unrelated = 1\n",
+  "docs/readme.md": "unreviewed\n",
+  ".smithers/target-index.json": index(policy("trusted rubric"))
+}
+const { "src/removed.ts": _removed, ...kept } = trustedFiles
+const headFiles: Record<string, string> = {
+  ...kept,
+  "src/service.ts": "export const value = 'candidate'\n",
+  "docs/readme.md": "changed but ungoverned\n"
+}
+
+/** A scripted seat that answers each review request with `answer` and records the seats it served. */
+const seat =
+  (answer: (prompt: string) => string, seats: Array<LlmLint.ReviewSeat>): LlmLint.ReviewTransport => (requested) =>
+    Effect.succeed({
+      modelId: requested.model,
+      model: {
+        stream: (request) =>
+          Stream.suspend(() => {
+            seats.push(requested)
+            const prompt = request.messages.flatMap((message) =>
+              message.content.flatMap((part) => part.type === "text" ? [part.text] : [])
+            ).join("\n")
+            return Stream.fromIterable([
+              { type: "text-delta" as const, id: "t", text: answer(prompt) },
+              { type: "settle" as const, stopReason: "stop" as const }
+            ])
+          })
+      }
+    })
+
+describe("TrustedReview on another host's immutable source", () => {
+  const all = [Label.parse("//...", "")]
+
+  it("selects trusted policy, changed and deleted source and their callers without Git", async () => {
+    const { source, reads } = memorySource({ base: trustedFiles, head: headFiles })
+    const prepared = await prepareSource(source, { policyRevision: "base", revision: "head", patterns: all })
+    expect(prepared.policies.map(({ label, payload }) => [label, payload.rubric, payload.base])).toEqual([
+      ["//:security", "trusted rubric", "base"]
+    ])
+    expect(prepared.policyChanges).toEqual([])
+    expect(prepared.snapshot).toEqual([
+      { path: "src/service.ts", contents: "export const value = 'candidate'\n", changed: true },
+      { path: "src/removed.ts", contents: "export const guard = true\n", changed: true, deleted: true },
+      { path: "src/caller.ts", contents: trustedFiles["src/caller.ts"], changed: false }
+    ])
+    // Only the trusted index and selected source are read; the removed file from the trusted revision.
+    expect(reads.sort()).toEqual([
+      "base:.smithers/target-index.json",
+      "base:src/removed.ts",
+      "head:src/caller.ts",
+      "head:src/service.ts"
+    ])
+  })
+
+  it("marks every selected review required and refuses a selected non-regular entry", async () => {
+    const { source } = memorySource({ base: trustedFiles, head: headFiles })
+    const required = await prepareSource(source, {
+      policyRevision: "base",
+      revision: "head",
+      patterns: all,
+      required: true
+    })
+    expect(required.policies.every(({ payload }) => payload.required === true)).toBe(true)
+    const linked = memorySource({ base: trustedFiles, head: headFiles }, ["src/service.ts"])
+    await expect(prepareSource(linked.source, { policyRevision: "base", revision: "head", patterns: all }))
+      .rejects.toThrow("only regular files")
+    const unusable = memorySource({ base: trustedFiles, head: { ...headFiles, "src/bell\u0007.ts": "x\n" } })
+    await expect(prepareSource(unusable.source, { policyRevision: "base", revision: "head", patterns: all }))
+      .rejects.toThrow("Invalid review snapshot path")
+  })
+
+  it("refuses a trusted revision without a target index", async () => {
+    const { ".smithers/target-index.json": _index, ...bare } = trustedFiles
+    const { source } = memorySource({ base: bare, head: headFiles })
+    await expect(prepareSource(source, { policyRevision: "base", revision: "head", patterns: all }))
+      .rejects.toThrow("The pinned review revision has no target index")
+  })
+
+  it("reviews through a host seat and returns only public summaries of stored findings", async () => {
+    const { source } = memorySource({ base: trustedFiles, head: headFiles })
+    const prepared = await prepareSource(source, { policyRevision: "base", revision: "head", patterns: all })
+    const root = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-seat-review-")))
+    const store = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-seat-store-"))
+    temporaryDirectories.push(root, store)
+    const seats: Array<LlmLint.ReviewSeat> = []
+    const secret = "the guard removal lets any caller skip authorization"
+    const result = await reviewPrepared(prepared, {
+      root,
+      findingsStore: store,
+      transport: seat(
+        (prompt) =>
+          prompt.includes("CHANGED FILE: \"src/removed.ts\"")
+            ? JSON.stringify([{ file: "src/removed.ts", line: 1, severity: "error", message: secret }])
+            : "[]",
+        seats
+      )
+    })
+    expect(seats.length).toBeGreaterThan(0)
+    expect(seats.every(({ model }) => model === "review-test-model")).toBe(true)
+    expect(result.ok).toBe(false)
+    const [review] = result.reviews
+    expect(review).toMatchObject({ label: "//:security", status: "failed" })
+    expect(JSON.stringify(result)).not.toContain(secret)
+    const stored = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(stored.map(({ finding }) => finding.message)).toEqual([secret])
+    expect(review && "error" in review ? review.error : undefined).toMatchObject({
+      findings: [{
+        fingerprint: stored[0]!.fingerprint,
+        reference: `restricted-finding:${stored[0]!.fingerprint}`,
+        state: "open",
+        severity: "error",
+        owner: "//:security"
+      }]
+    })
+
+    const clean = await reviewPrepared(prepared, { root, findingsStore: store, transport: seat(() => "[]", []) })
+    expect(clean).toMatchObject({ ok: true, reviews: [{ label: "//:security", status: "completed", findings: [] }] })
   })
 })

@@ -1,5 +1,7 @@
 /**
- * Review policy and source are immutable Git data, never executable declarations.
+ * Review policy and source are immutable revision data, never executable
+ * declarations. The review command reads them from Git; another host supplies
+ * its own immutable revisions as a {@link ReviewSource}.
  * @since 1.0.0
  */
 
@@ -118,6 +120,64 @@ const decodeRows = (text: string): ReadonlyArray<TargetIndex.Row> => {
 }
 
 /**
+ * One entry of a revision's tree: `id` identifies its type and contents, and
+ * only a `regular` file can enter a review.
+ * @category models
+ * @since 1.0.0
+ */
+export interface SourceEntry {
+  readonly id: string
+  readonly regular: boolean
+}
+
+/**
+ * Immutable revisions a review reads its policy and source from.
+ *
+ * `tree` lists every entry at a revision by normalized workspace path; a
+ * changed path is one whose entry differs between the two revisions. `read`
+ * returns one regular file's text, failing past `limit` bytes. `grep` lists
+ * the files at a revision whose contents match any extended regular
+ * expression; it may skip paths `candidate` rejects.
+ * @category models
+ * @since 1.0.0
+ */
+export interface ReviewSource {
+  readonly tree: (revision: string) => Promise<ReadonlyMap<string, SourceEntry>>
+  readonly read: (revision: string, path: string, entry: SourceEntry, limit: number) => Promise<string>
+  readonly grep: (
+    revision: string,
+    patterns: ReadonlyArray<string>,
+    candidate: (path: string) => boolean
+  ) => Promise<ReadonlyArray<string>>
+}
+
+/** The source the review command reads: Git objects, with no working-tree bytes. */
+const gitSource = (root: string): ReviewSource => ({
+  tree: async (revision) => {
+    const entries = new Map<string, SourceEntry>()
+    for (const record of (await git(root, ["ls-tree", "-r", "-z", revision])).split("\0")) {
+      if (record === "") continue
+      const tab = record.indexOf("\t")
+      if (tab < 0) throw new Error("Invalid review snapshot path")
+      const [mode, type, oid] = record.slice(0, tab).split(" ")
+      entries.set(record.slice(tab + 1), {
+        id: `${mode} ${type} ${oid}`,
+        regular: (mode === "100644" || mode === "100755") && type === "blob" && hash.test(oid ?? "")
+      })
+    }
+    return entries
+  },
+  read: (_revision, _path, entry, limit) => git(root, ["cat-file", "blob", entry.id.split(" ")[2]!], limit),
+  grep: async (revision, patterns) =>
+    (await git(
+      root,
+      ["grep", "-l", "-z", "-I", "-E", ...patterns.flatMap((pattern) => ["-e", pattern]), revision, "--"],
+      indexLimit,
+      [0, 1]
+    )).split("\0").filter((name) => name.startsWith(`${revision}:`)).map((name) => name.slice(revision.length + 1))
+})
+
+/**
  * Operator inputs; neither revision nor engine configuration comes from candidate declarations.
  * @category models
  * @since 1.0.0
@@ -138,6 +198,21 @@ export interface Options {
 }
 
 /**
+ * Which trusted policies one review applies, and at which revisions: the
+ * policy revision is both the trusted index and the diff base. Patterns are
+ * target labels (`//...:security`); none selects every review.
+ * @category models
+ * @since 1.0.0
+ */
+export interface Selection {
+  readonly policyRevision: string
+  readonly revision: string
+  readonly patterns: ReadonlyArray<Label.Pattern>
+  /** Every selected review, policy reviews included, must review something and run. */
+  readonly required?: boolean | undefined
+}
+
+/**
  * Reads and validates policy without importing any module from the repository.
  * @category execution
  * @since 1.0.0
@@ -154,11 +229,31 @@ export const prepare = async (options: Options) => {
   if (selected !== "HEAD" && !hash.test(selected)) throw new Error("--revision must be HEAD or a full commit SHA")
   const revision = (await git(root, ["rev-parse", "--verify", "--end-of-options", `${selected}^{commit}`])).trim()
   if (!hash.test(revision)) throw new Error("Git returned an invalid review revision")
-  const rows = decodeRows(await git(root, ["cat-file", "blob", `${policyRevision}:${TargetIndex.indexPath}`]))
   const current = NodePath.relative(root, NodePath.resolve(options.workspace)).split(NodePath.sep).join("/")
   const patterns = (options.patterns.length === 0 ? ["//..."] : options.patterns).map((pattern) =>
     Label.parse(pattern, current)
   )
+  return {
+    root,
+    ...(await prepareSource(gitSource(root), { policyRevision, revision, patterns, required: options.required }))
+  }
+}
+
+/**
+ * Reads the trusted policies a selection applies and the snapshot they review
+ * from any immutable source, importing no module from the repository.
+ * @category execution
+ * @since 1.0.0
+ */
+export const prepareSource = async (source: ReviewSource, options: Selection) => {
+  const { policyRevision, revision, patterns } = options
+  const [trustedTree, reviewedTree] = await Promise.all([source.tree(policyRevision), source.tree(revision)])
+  const readIndex = (tree: ReadonlyMap<string, SourceEntry>, at: string) => {
+    const entry = tree.get(TargetIndex.indexPath)
+    if (entry === undefined || !entry.regular) throw new Error("The pinned review revision has no target index")
+    return source.read(at, TargetIndex.indexPath, entry, indexLimit)
+  }
+  const rows = decodeRows(await readIndex(trustedTree, policyRevision))
   const policies: Array<{ label: string; payload: LlmLint.Payload; snapshot?: ReadonlyArray<LlmLint.SnapshotFile> }> =
     []
   const selects = (row: TargetIndex.Row) =>
@@ -183,19 +278,11 @@ export const prepare = async (options: Options) => {
   }
   if (policies.length === 0) throw new Error("No trusted review policies match the requested labels")
   const trustedPolicies = [...policies]
+  // A path changes when its entry (type, mode or contents) differs between the revisions.
   const changed = new Set(
-    (await git(root, [
-      "diff",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--no-renames",
-      "--name-only",
-      "-z",
-      policyRevision,
-      revision,
-      "--"
-    ]))
-      .split("\0").filter(Boolean)
+    [...new Set([...trustedTree.keys(), ...reviewedTree.keys()])].filter((path) =>
+      trustedTree.get(path)?.id !== reviewedTree.get(path)?.id
+    )
   )
   const policyChanges = [...changed].filter((path) =>
     /(?:^|\/)(?:PACKAGE|WORKSPACE|security)\.ts$/.test(path) || path === TargetIndex.indexPath
@@ -222,7 +309,7 @@ export const prepare = async (options: Options) => {
     })
   }
   if (changed.has(TargetIndex.indexPath)) {
-    const proposed = decodeRows(await git(root, ["cat-file", "blob", `${revision}:${TargetIndex.indexPath}`]))
+    const proposed = decodeRows(await readIndex(reviewedTree, revision))
     const before = new Map(rows.filter((row) => row.rule === "LlmLint").map((row) => [row.label, row.reviewPolicy]))
     const after = new Map(proposed.filter((row) => row.rule === "LlmLint").map((row) => [row.label, row.reviewPolicy]))
     const changes = [...new Set([...before.keys(), ...after.keys()])].sort()
@@ -285,35 +372,20 @@ export const prepare = async (options: Options) => {
   }
   const snapshot: Array<LlmLint.SnapshotFile> = []
   let bytes = 0
-  const addBlob = async (path: string, oid: string, extra: Omit<LlmLint.SnapshotFile, "path" | "contents">) => {
-    const contents = await git(root, ["cat-file", "blob", oid], LlmLint.maximumReviewFileBytes)
+  const readSource = async (at: string, path: string, entry: SourceEntry) => {
+    const contents = await source.read(at, path, entry, LlmLint.maximumReviewFileBytes)
     bytes += Buffer.byteLength(contents, "utf8")
     if (bytes > 64 * 1024 * 1024 || snapshot.length >= 100_000) {
       throw new Error("Review snapshot exceeds its size limit")
     }
-    snapshot.push({ path, contents, ...extra })
+    return contents
   }
-  const deleted = new Set(
-    (await git(root, [
-      "diff",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--no-renames",
-      "--diff-filter=D",
-      "--name-only",
-      "-z",
-      policyRevision,
-      revision,
-      "--"
-    ])).split("\0").filter(Boolean)
-  )
-  const listing = await git(root, ["ls-tree", "-r", "-z", revision])
-  const removed = deleted.size === 0 ? [] : (await git(root, ["ls-tree", "-r", "-z", policyRevision]))
-    .split("\0").filter((record) => deleted.has(record.slice(record.indexOf("\t") + 1)))
-  for (const record of [...listing.split("\0"), ...removed]) {
-    if (record === "") continue
-    const tab = record.indexOf("\t")
-    const path = record.slice(tab + 1)
+  const deleted = new Set([...trustedTree.keys()].filter((path) => !reviewedTree.has(path)))
+  const listed: Array<readonly [string, SourceEntry, string]> = [
+    ...[...reviewedTree].map(([path, entry]) => [path, entry, revision] as const),
+    ...[...deleted].map((path) => [path, trustedTree.get(path)!, policyRevision] as const)
+  ]
+  for (const [path, entry, at] of listed) {
     // Generated index policy is assessed separately as an explicit before/after projection.
     if (path === TargetIndex.indexPath) continue
     if (
@@ -323,50 +395,35 @@ export const prepare = async (options: Options) => {
           matches(path, payload.context))
       )
     ) continue
-    if (tab < 0 || /[\u0000-\u001f\u007f]/.test(path) || Input.resolvePath("", path) !== path) {
+    if (/[\u0000-\u001f\u007f]/.test(path) || Input.resolvePath("", path) !== path) {
       throw new Error("Invalid review snapshot path")
     }
-    const [mode, type, oid] = record.slice(0, tab).split(" ")
-    if ((mode !== "100644" && mode !== "100755") || type !== "blob" || !hash.test(oid ?? "")) {
-      throw new Error("Review snapshot must contain only regular files")
-    }
-    await addBlob(path, oid!, { changed: changed.has(path), ...(deleted.has(path) ? { deleted: true } : {}) })
+    if (!entry.regular) throw new Error("Review snapshot must contain only regular files")
+    snapshot.push({
+      path,
+      contents: await readSource(at, path, entry),
+      changed: changed.has(path),
+      ...(deleted.has(path) ? { deleted: true } : {})
+    })
   }
   // Unchanged included files related to the changed ones (dependencies, Go package siblings, importers)
   // join the snapshot so each review sees the code around its change.
-  const blobs = new Map<string, string>()
-  for (const record of listing.split("\0")) {
-    const tab = record.indexOf("\t")
-    const [mode, type, oid] = record.slice(0, tab).split(" ")
-    if (tab > 0 && (mode === "100644" || mode === "100755") && type === "blob" && hash.test(oid ?? "")) {
-      blobs.set(record.slice(tab + 1), oid!)
-    }
-  }
+  const blobs = new Map([...reviewedTree].filter(([, entry]) => entry.regular))
   const present = new Set(snapshot.map((file) => file.path))
   const eligible = (path: string) =>
     !present.has(path) && usablePath(path) &&
     snapshotPolicies(policies).some((payload) => payload.scope !== "all" && matches(path, payload.include))
   const changedSources = snapshot.filter((file) => file.changed && file.deleted !== true)
   const candidates = LlmLint.relatedCandidates(changedSources, new Set(blobs.keys()))
-  const callers = candidates.callerPatterns.length === 0 ? [] : (await git(
-    root,
-    [
-      "grep",
-      "-l",
-      "-z",
-      "-I",
-      "-E",
-      ...candidates.callerPatterns.flatMap((pattern) => ["-e", pattern]),
-      revision,
-      "--"
-    ],
-    indexLimit,
-    [0, 1]
-  )).split("\0").filter((name) => name.startsWith(`${revision}:`)).map((name) => name.slice(revision.length + 1))
+  const callers = candidates.callerPatterns.length === 0
+    ? []
+    : [...await source.grep(revision, candidates.callerPatterns, (path) => blobs.has(path) && eligible(path))]
   const related = [...new Set([...candidates.paths, ...callers.sort()])]
     .filter((path) => blobs.has(path) && eligible(path))
     .slice(0, LlmLint.maximumRelatedFiles)
-  for (const path of related) await addBlob(path, blobs.get(path)!, { changed: false })
+  for (const path of related) {
+    snapshot.push({ path, contents: await readSource(revision, path, blobs.get(path)!), changed: false })
+  }
   // Proposed checks never widen what reaches the provider: they review only files a trusted policy includes.
   const trustedScope = (path: string) =>
     trustedPolicies.some(({ payload }) => matches(path, payload.include) || matches(path, payload.context))
@@ -374,12 +431,12 @@ export const prepare = async (options: Options) => {
   for (const policy of policies) {
     if (!policy.label.endsWith("#proposed-checks")) continue
     const files: Array<LlmLint.SnapshotFile> = []
-    for (const [path, oid] of [...blobs].sort(([left], [right]) => left < right ? -1 : 1)) {
+    for (const [path, entry] of [...blobs].sort(([left], [right]) => left < right ? -1 : 1)) {
       if (!usablePath(path) || !trustedScope(path)) continue
       if (!matches(path, policy.payload.include) && !matches(path, policy.payload.context)) continue
       let contents = loaded.get(path)
       if (contents === undefined) {
-        contents = await git(root, ["cat-file", "blob", oid], LlmLint.maximumReviewFileBytes)
+        contents = await source.read(revision, path, entry, LlmLint.maximumReviewFileBytes)
         bytes += Buffer.byteLength(contents, "utf8")
         if (bytes > 64 * 1024 * 1024) throw new Error("Review snapshot exceeds its size limit")
         loaded.set(path, contents)
@@ -396,8 +453,15 @@ export const prepare = async (options: Options) => {
   if (options.required === true) {
     for (const policy of policies) policy.payload = { ...policy.payload, required: true }
   }
-  return { root, policyRevision, revision, policyChanges, policies, snapshot }
+  return { policyRevision, revision, policyChanges, policies, snapshot }
 }
+
+/**
+ * A selection's policies and the snapshot they review, as {@link prepareSource} reads them.
+ * @category models
+ * @since 1.0.0
+ */
+export type Prepared = Awaited<ReturnType<typeof prepareSource>>
 
 type Restrictable = {
   readonly findings: ReadonlyArray<LlmLint.Finding>
@@ -423,6 +487,51 @@ export const restrictFindings = async <A extends Restrictable>(store: string, va
 }
 
 type Attempts = ReadonlyArray<typeof LlmLint.ReviewAttempt.Type> | undefined
+
+/**
+ * Runs every prepared policy against its snapshot. Findings persist in the
+ * private `findingsStore`; the result carries only their public summaries.
+ * `transport` sends the reviews through a trusted host's model seats instead
+ * of tool-free provider requests.
+ * @category execution
+ * @since 1.0.0
+ */
+export const reviewPrepared = async (
+  prepared: Prepared,
+  options: {
+    readonly root: string
+    readonly findingsStore: string
+    readonly transport?: LlmLint.ReviewTransport | undefined
+  }
+) => {
+  const restricted = <A extends Restrictable>(value: A) => restrictFindings(options.findingsStore, value)
+  const reviews = []
+  for (const { label, payload, snapshot } of prepared.policies) {
+    const result = await Effect.runPromise(Effect.result(
+      LlmLint.review({
+        workspaceRoot: options.root,
+        ...(options.transport === undefined ? {} : { transport: options.transport }),
+        store: { directory: options.findingsStore, owner: label },
+        revisions: { base: prepared.policyRevision, head: prepared.revision },
+        snapshot: snapshot ??
+          prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
+      }, payload)
+    ))
+    reviews.push({
+      label,
+      ...(label === "//:proposed-review-index" ? { representation: "review-policy-changes" } : {}),
+      ...(result._tag === "Success"
+        ? { status: "completed" as const, ...(await restricted(result.success)) }
+        : {
+          status: "failed" as const,
+          error: result.failure._tag === "smithers-build/FindingsError"
+            ? await restricted(result.failure)
+            : LlmLint.publicError(result.failure)
+        })
+    })
+  }
+  return { ok: reviews.every((review) => review.status === "completed"), reviews }
+}
 
 /**
  * Runs pinned policy against pinned source with tool-free inference.
@@ -457,36 +566,6 @@ export const run = async (options: Options) => {
       files: prepared.snapshot.map(({ path }) => LlmLint.redactCredentials(path))
     }
   }
-  const restricted = <A extends Restrictable>(value: A) => restrictFindings(findingsStore, value)
-  const reviews = []
-  for (const { label, payload, snapshot } of prepared.policies) {
-    const result = await Effect.runPromise(Effect.result(
-      LlmLint.review({
-        workspaceRoot: prepared.root,
-        store: { directory: findingsStore, owner: label },
-        revisions: { base: prepared.policyRevision, head: prepared.revision },
-        snapshot: snapshot ??
-          prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
-      }, payload)
-    ))
-    reviews.push({
-      label,
-      ...(label === "//:proposed-review-index" ? { representation: "review-policy-changes" } : {}),
-      ...(result._tag === "Success"
-        ? { status: "completed" as const, ...(await restricted(result.success)) }
-        : {
-          status: "failed" as const,
-          error: result.failure._tag === "smithers-build/FindingsError"
-            ? await restricted(result.failure)
-            : LlmLint.publicError(result.failure)
-        })
-    })
-  }
-  return {
-    ...receipt,
-    findingsStore,
-    ok: reviews.every((review) => review.status === "completed"),
-    planned: false as const,
-    reviews
-  }
+  const { ok, reviews } = await reviewPrepared(prepared, { root: prepared.root, findingsStore })
+  return { ...receipt, findingsStore, ok, planned: false as const, reviews }
 }
