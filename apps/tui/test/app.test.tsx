@@ -485,6 +485,89 @@ test("agent repeated flow request ID is deduplicated and changed input is refuse
   expect(turns[0]?.settled).toBe(false)
 })
 
+test.each(["worker", "flow"] as const)(
+  "Ctrl+S from a failed %s tab opens Failed and keeps that row in the right pane",
+  async (kind) => {
+    const { port, launch, remote, starts, watches } = controlledFlow(Schema.Struct({}))
+    await mount({ flows: port })
+    await type("Coordinate review")
+    await enter()
+    await act(async () => {
+      const runtime = turns[0]!.input.runtime!
+      runtime.delegate!({ id: "visible", title: "Visible work", prompt: "Keep working" })
+      if (kind === "worker") {
+        runtime.delegate!({ id: "target", title: "Target review", prompt: "Review target" })
+      } else {
+        runtime.flows!.run({ id: "target", flow: "review", input: {} })
+      }
+      await setImmediate()
+    })
+    if (kind === "worker") {
+      await settle(2, { _tag: "failed", message: "Target refused", detail: "Fixture refusal" })
+    } else {
+      await waitFor(() => starts.length === 1)
+      await act(async () => {
+        launch.resolve("remote-review")
+        await setImmediate()
+      })
+      await waitFor(() => watches.length === 1)
+      await act(async () => {
+        remote.resolve({ kind: "failed", message: "Target refused" })
+        await setImmediate()
+      })
+      await waitFor(() => records().some((record) => record.type === "flow" && record.run.status === "failed"))
+    }
+    await settle(0, { _tag: "done", answer: "Requested" })
+    // Chat -> Summary -> visible worker -> failed target (worker or flow).
+    await key("]", { ctrl: true })
+    expect(await draw()).toContain("Failed 1 ›")
+    await key("]", { ctrl: true })
+    await key("]", { ctrl: true })
+    const tabFrame = await draw()
+    expect(tabFrame).toContain(kind === "worker" ? "Subagent · Target review" : "Target refused")
+    await key("s", { ctrl: true })
+    const summary = await draw()
+    expect(summary).toContain("Failed 1")
+    expect(summary).not.toContain("Failed 1 ›")
+    // The left list also contains Visible work, so inspect only the right
+    // pane below the tab strip. The old fallback displays Visible work here.
+    const lines = summary.split("\n")
+    const top = lines.findIndex((line) => line.includes("┌─tree"))
+    const header = lines[top]!
+    const rightStart = header.indexOf("┌", header.indexOf("┌") + 1)
+    const bottom = lines.findIndex((line, index) => index > top && line.slice(rightStart).startsWith("└"))
+    const rightPane = lines.slice(top, bottom + 1).map((line) => line.slice(rightStart)).join("\n")
+    expect(rightPane).toContain(kind === "worker" ? "Target review" : "review")
+    expect(rightPane).not.toContain("Visible work")
+    // The same shortcut returns to the failed tab it came from.
+    await key("s", { ctrl: true })
+    expect(await draw()).toContain(kind === "worker" ? "Subagent · Target review" : "Target refused")
+    expect(await draw()).not.toContain("Failed 1")
+  }
+)
+
+test("Ctrl+S from a successful worker selects it while unrelated Failed rows stay collapsed", async () => {
+  await mount()
+  await type("Coordinate review")
+  await enter()
+  await act(async () => {
+    const runtime = turns[0]!.input.runtime!
+    runtime.delegate!({ id: "target", title: "Target review", prompt: "Review target" })
+    runtime.delegate!({ id: "failed", title: "Other failure", prompt: "Review another file" })
+    await setImmediate()
+  })
+  await settle(1, { _tag: "done", answer: "Target completed" })
+  await settle(2, { _tag: "failed", message: "Other refused", detail: "Fixture refusal" })
+  await settle(0, { _tag: "done", answer: "Requested" })
+  await key("]", { ctrl: true })
+  await key("]", { ctrl: true })
+  expect(await draw()).toContain("Subagent · Target review")
+  await key("s", { ctrl: true })
+  expect(await draw()).toContain("Failed 1 ›")
+  expect(await draw()).toContain("┌─Target review")
+  expect(await draw()).not.toContain("┌─Other failure")
+})
+
 test("required flow input parks in a visible form and only valid submission reaches launch", async () => {
   const { port, starts } = controlledFlow(Schema.Struct({ title: Schema.String.check(Schema.isMinLength(1)) }))
   await mount({ flows: port })

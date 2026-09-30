@@ -2103,7 +2103,13 @@ export function App(props: AppProps) {
         if (act.kind === "show") return showTab(act.surface)
         showTab("summary")
         if (act.select !== undefined) {
-          setOverview({ selected: act.select, pane: "tree" })
+          setOverview({
+            selected: act.select,
+            pane: "tree",
+            failedOpen: inbox.some((section) =>
+              section.group === "failed" && section.rows.some((row) => row.key === act.select)
+            )
+          })
         }
       })
       // After the render, so a pending effect from an earlier tab change cannot clear it.
