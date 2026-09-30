@@ -245,7 +245,7 @@ export class Client {
     return Redaction.redact(value, { rules: this.outputRules })
   }
   write(text: string) {
-    ;(this.runtime.stderr ?? process.stderr).write(str(this.redact(text)))
+    ;(this.runtime.stderr ?? process.stderr).write(Failure.terminalSafeLines(str(this.redact(text))))
   }
   output(out: Buffer, err: Buffer) {
     if (!this.live) return
@@ -425,9 +425,23 @@ export class Client {
         throw withCause(new Refused({ fault: "user", code: "cancelled", message: "API request cancelled" }), error)
       }
       if (signal?.aborted || error instanceof Error && error.name === "TimeoutError") {
-        throw withCause(new Refused({ fault: "infra", code: "backend_timed_out", message: "Smithers API timed out. Check api_origin and your connection" }), error)
+        throw withCause(
+          new Refused({
+            fault: "infra",
+            code: "backend_timed_out",
+            message: "Smithers API timed out. Check api_origin and your connection"
+          }),
+          error
+        )
       }
-      throw withCause(new Refused({ fault: "infra", code: "backend_unavailable", message: "Cannot reach Smithers API. Check api_origin and your connection" }), error)
+      throw withCause(
+        new Refused({
+          fault: "infra",
+          code: "backend_unavailable",
+          message: "Cannot reach Smithers API. Check api_origin and your connection"
+        }),
+        error
+      )
     })
     if (!response.ok) {
       let detail: Values = {}

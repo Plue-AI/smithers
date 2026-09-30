@@ -148,6 +148,14 @@ describe("native login stores", () => {
 })
 
 describe("authenticated transport boundaries", () => {
+  it("makes stderr controls inert after redaction while retaining multiline whitespace", () => {
+    let output = ""
+    const c = new Client({ stderr: { write: (text) => void (output += text), isTTY: false, columns: 80 } })
+    c.protect("synthetic-sse-secret")
+    c.write("before\u001b]0;changed\u0007\u001b[2J\u009b31mred\u0000\u202e\r\n\tsecond synthetic-sse-secret\n")
+    expect(output).toBe("beforered\n\tsecond [REDACTED]\n")
+  })
+
   it("redacts a saved token split across live chunks and UTF-8 boundaries", async () => {
     const { environment } = await fixture({
       SMITHERS_TOKEN: "private-session-secret",
