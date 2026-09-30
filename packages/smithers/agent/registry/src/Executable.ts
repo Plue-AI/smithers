@@ -1504,6 +1504,10 @@ export interface Catalog {
  */
 export const Catalog: Context.Service<Catalog, Catalog> = Context.Service("flows/registry/Catalog")
 
+/** Whether a refusal only says the host registered no `agent` delegate for a prompt body. */
+const isUnregisteredAgent = (failure: ExecutableError, options: Options): boolean =>
+  failure.code === "missing_delegate" && failure.delegate === (options.agent ?? defaultAgent)
+
 /**
  * Makes every discovered flow runnable, reporting the ones it could not.
  *
@@ -1558,6 +1562,10 @@ export const catalog = (
       }
       const failure = result.failure
       refused.push(failure)
+      // A prompt body names no flow, so it delegates to the host's `agent`, which
+      // hosts that run prompts through their own agent path never register here.
+      // That is the ordinary case, not a fault an operator can act on.
+      if (isUnregisteredAgent(failure, options)) continue
       yield* Effect.logWarning("discovered flow is not runnable on this host", {
         flow: failure.flow,
         path: failure.path,
@@ -1805,14 +1813,16 @@ const makeRefresh = (
               if (result._tag === "Failure") {
                 put(name, undefined, result.failure)
                 yield* release(name)
-                yield* Effect.logWarning("refreshed flow is not runnable on this host", {
-                  flow: result.failure.flow,
-                  path: result.failure.path,
-                  code: result.failure.code,
-                  delegate: result.failure.delegate,
-                  available: result.failure.available,
-                  reason: result.failure.message
-                })
+                if (!isUnregisteredAgent(result.failure, options)) {
+                  yield* Effect.logWarning("refreshed flow is not runnable on this host", {
+                    flow: result.failure.flow,
+                    path: result.failure.path,
+                    code: result.failure.code,
+                    delegate: result.failure.delegate,
+                    available: result.failure.available,
+                    reason: result.failure.message
+                  })
+                }
                 return { _tag: "Refused", error: result.failure } as const
               }
               yield* restore(Layer.build(result.success.layer).pipe(Effect.provideService(Scope.Scope, scope)))

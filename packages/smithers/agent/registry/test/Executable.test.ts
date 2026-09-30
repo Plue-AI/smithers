@@ -1275,6 +1275,25 @@ describe("the host's catalog", () => {
       expect(built.executables.map((entry) => entry.descriptor.name)).toContain("greet")
     }).pipe(Effect.provide(registryLayer), Effect.provide(platform)))
 
+  it.effect("warns about a flow whose named delegate is missing, not about a prompt flow the host runs itself", () =>
+    Effect.gen(function*() {
+      // Hosts that run prompt bodies through their own agent path register no
+      // `agent` delegate, so every prompt flow is refused here by design. One
+      // warning per prompt flow on every launch is noise no operator can act on;
+      // a flow that names a delegate nobody registered still warns.
+      const logs: Array<string> = []
+      const capture = Logger.make((entry) => void logs.push(JSON.stringify(entry.message)))
+      const built = yield* Executable.catalog(options({ delegates: [Echo, Other] })).pipe(
+        Effect.provide(Logger.layer([capture]))
+      )
+      const promptFlows = built.refused.filter((failure) =>
+        failure.code === "missing_delegate" && failure.delegate === "agent"
+      )
+      expect(promptFlows.length).toBeGreaterThan(0)
+      for (const failure of promptFlows) expect(logs.some((line) => line.includes(`"${failure.flow}"`))).toBe(false)
+      expect(logs.some((line) => line.includes("orphan"))).toBe(true)
+    }).pipe(Effect.provide(registryLayer), Effect.provide(platform)))
+
   it.effect("reports a defective entry instead of failing the whole catalog", () =>
     Effect.gen(function*() {
       // Every module body is now unreadable; only the markdown flow survives.
