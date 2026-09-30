@@ -146,7 +146,7 @@ test("a newer physical OPFS store refuses the normal app boot without replacing 
   expect(await queryDatabase(page, "SELECT value FROM smithers_metadata WHERE key = 'schema-version'", true))
     .toEqual([{ value: "2147483647" }])
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "This browser's saved data is from a newer Smithers. Update Smithers to open it." })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
   expect(await page.evaluate(() => localStorage.getItem("smithers-mvp.persistenceBackend"))).toBe("opfs")
   expect(await queryDatabase(page, "SELECT value FROM smithers_metadata WHERE key = 'schema-version'", true))
@@ -174,7 +174,7 @@ for (const authority of ["corrupt", "missing"] as const) test(`${authority} OPFS
   if (authority === "corrupt") expect(JSON.stringify(original)).toContain("private invalid authority fixture")
   else expect(await queryDatabase(page, "SELECT value FROM smithers_collection_rows WHERE collection_id = 'app-event-heads'", true)).toEqual([])
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Smithers could not read this browser's saved data. Not your fault. It was kept as it was." })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
   await expect(page.locator("body")).not.toContainText("private raw recovery fixture")
   await expect(page.locator("body")).not.toContainText("private invalid authority fixture")
@@ -201,7 +201,7 @@ for (const authority of ["corrupt", "missing"] as const) test(`${authority} loca
   }, authority)
   await page.reload()
 
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Smithers could not read this browser's saved data. Not your fault. It was kept as it was." })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
   expect(await page.evaluate(() => localStorage.getItem("smithers-mvp.store"))).toBe(original)
   expect((await downloadRecovery(page)).localStorage).toContainEqual({ key: "smithers-mvp.store", value: original })
@@ -216,7 +216,7 @@ test("an unreadable localStorage envelope stops boot without erasing the origina
     localStorage.setItem("smithers-mvp.store", "private unreadable envelope")
   })
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Smithers could not read this browser's saved data. Not your fault. It was kept as it was." })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
   await expect(page.locator("body")).not.toContainText("private unreadable envelope")
   expect(await page.evaluate(() => localStorage.getItem("smithers-mvp.store"))).toBe("private unreadable envelope")
@@ -273,7 +273,7 @@ test("two unstamped stores refuse an arbitrary choice and leave the legacy origi
     localStorage.removeItem("smithers-mvp.persistenceBackend")
   })
   await page.reload()
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "This browser holds two copies of Smithers' saved data. Not your fault. Neither was changed." })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
   // The raw refusal stays behind Details; opening it is a keyboard-reachable act.
   await page.getByText("Details", { exact: true }).click()
@@ -326,7 +326,7 @@ test("oversized physical event authority refuses without loading its bytes and t
   await page.goto("/")
   // CI observed the 64 MiB OPFS refusal at 4.9 s, just before the default
   // assertion expired. Allow the physical read and React error panel to settle.
-  await expect(page.getByRole("heading", { name: "Smithers could not start. Not your fault." })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole("heading", { name: "This browser's saved data is too large for Smithers to open. Not your fault. It was kept as it was." })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText("The app-events store exceeds", { exact: false })).toBeHidden()
   await page.getByText("Details", { exact: true }).click()
   await expect(page.getByText("The app-events store exceeds", { exact: false })).toBeVisible()

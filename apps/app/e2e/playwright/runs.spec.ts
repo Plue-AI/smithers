@@ -203,7 +203,7 @@ test("T1: approval counts settle with receipts and decided questions survive rel
     await expect(page.getByTestId("composer-input")).toBeFocused()
     await page.keyboard.press("Escape")
     release(false)
-    await expect(card.getByRole("alert")).toContainText("Approval unavailable")
+    await expect(card.getByRole("alert")).toContainText("Smithers could not record this decision. Not your fault.")
     await expect(count).toHaveText("1 approval pending · 1 question pending")
     await grant.getByRole("button", { name: "Deny", exact: true }).click()
     await expect(count).toHaveText("1 question pending")
