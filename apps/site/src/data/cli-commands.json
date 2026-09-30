@@ -4749,35 +4749,6 @@
       }
     },
     {
-      "name": "history land",
-      "description": "Land a proposed TODO's pull request once its review approves and CI is green",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "issue": {
-              "type": "string",
-              "description": "Issue number (12 or #12) or item id"
-            }
-          },
-          "required": [
-            "issue"
-          ],
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
-            }
-          },
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "history parallel",
       "description": "Set how many lanes work at once",
       "schema": {
@@ -8643,6 +8614,15 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "step": {
+              "description": "Step key digest whose recorded result the fork replaces",
+              "type": "string",
+              "minLength": 1
+            },
+            "result": {
+              "description": "The replacement result as JSON, or @file to read it from a file",
+              "type": "string"
             }
           },
           "required": [
@@ -9331,6 +9311,52 @@
     {
       "name": "runs stop",
       "description": "Stop a run a budget or time limit parked",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Durable run ID"
+            }
+          },
+          "required": [
+            "run"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "quiet"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "runs verify",
+      "description": "Report which recorded steps the current flow code would replay and which it would execute again",
       "schema": {
         "args": {
           "type": "object",
@@ -11750,6 +11776,15 @@
             "image": {
               "type": "string",
               "description": "OCI image to boot instead of the default workspace image (e.g. docker.io/library/python:3.13-slim)"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "container",
+                "vm",
+                "desktop"
+              ],
+              "description": "Workspace kind: container (default), vm (the repository's Nix environment) or desktop"
             },
             "memory": {
               "type": "number",

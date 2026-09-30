@@ -1,8 +1,8 @@
 /**
  * Generates the CLI data the docs import instead of retyping it.
  *
- *   bun apps/site/scripts/gen-cli-data.mjs          # write
- *   bun apps/site/scripts/gen-cli-data.mjs --check  # fail on drift, write nothing
+ *   node apps/site/scripts/gen-cli-data.mjs          # write
+ *   node apps/site/scripts/gen-cli-data.mjs --check  # fail on drift, write nothing
  *
  * Outputs, all committed:
  *   apps/site/src/content/docs/docs/reference/cli/index.mdx   canonical command table

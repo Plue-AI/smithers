@@ -20969,6 +20969,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine-store/src/ReplayOnly.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine-store/src/Retention.ts"
       },
       {
@@ -23686,6 +23690,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/history/Projection.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/history/Verify.ts"
       },
       {
         "kind": "file",
@@ -31711,6 +31719,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/registration-calibration.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/host-jev-routing.test.ts"
       },
       {
@@ -31737,6 +31749,14 @@
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/register-repository/calibration/corpus.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/register-repository/calibration/fit.json"
       },
       {
         "kind": "file",

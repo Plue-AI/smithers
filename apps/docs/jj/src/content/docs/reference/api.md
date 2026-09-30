@@ -79,7 +79,7 @@ operationId? }`. Restore to `commitId`: it is content addressed, and jj
 resolves it even after later edits rewrite the working copy and hide it.
 `changeId` is for display; a later rewrite such as `jj squash` moves it to a
 different tree. `operationId` is the jj operation that recorded the capture;
-Node and Bun report it, the browser layer does not.
+Node, Bun, and the browser layer report it.
 
 `restore` puts the working copy back to `revision`, replacing the tree rather
 than merging into it. `diff` is a git-format unified diff between two
@@ -206,8 +206,8 @@ Node and Bun `snapshot` capture without closing a change: `jj op log -n1 -T id`
 snapshots the working copy and names the operation, and `jj log --at-op` reads
 `@` at exactly that operation. Nothing is committed, described, or opened, so a
 compensable attempt leaves no change of its own in the log, and the message is
-not written to the repository. The browser's frozen WASM ABI still closes the
-current change and replaces its description when a message is supplied.
+not written to the repository. Browser snapshots preserve the current change
+and description too, and report the operation id through the WASM ABI.
 
 Repository state operations are fenced as a unit. `snapshot`, `restore`, and
 `diff` share one single-permit semaphore per repository inside a process and an

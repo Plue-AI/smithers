@@ -14,7 +14,6 @@ const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 
 describe("backend command startup", () => {
   it("mounts every declared backend command with its executable handler", () => {
-    expect(Object.keys(definitions)).toContain("history land")
     for (const name of Object.keys(definitions)) expect(handlers[name], name).toBeTypeOf("function")
     const cli = makeCli()
     for (const name of Object.keys(definitions)) {
@@ -79,10 +78,10 @@ describe("backend command startup", () => {
       expect(help.code, help.output + help.error).toBe(0)
       expect(help.output).toContain("environment")
       expect(requests).toEqual([])
-      const landingHelp = await run(["history", "land", "--help"])
-      expect(landingHelp.code, landingHelp.output + landingHelp.error).toBe(0)
-      expect(landingHelp.output).toContain("Usage: smthrs history land")
-      expect(landingHelp.output).toContain("--repo")
+      const historyHelp = await run(["history", "show", "--help"])
+      expect(historyHelp.code, historyHelp.output + historyHelp.error).toBe(0)
+      expect(historyHelp.output).toContain("Usage: smthrs history show")
+      expect(historyHelp.output).toContain("--repo")
       expect(requests).toEqual([])
       const environments = await run(["environment", "list", "--format=json"])
       expect(environments.code, environments.output + environments.error).toBe(0)

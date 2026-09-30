@@ -1,0 +1,27 @@
+{
+  "testedBase": "a75c02255221ccefce4cdc1f8e9a4ab3bd5180bc",
+  "issues": [
+    3217,
+    3206,
+    1976,
+    3236
+  ],
+  "startup": "Latest main ac36ad8b44 removes the unsupported history land declaration; retained startup guard requires every currently advertised command to mount. Final two startup tests pass for actual root help, current history show help, saved environments and authenticated local HTTP; all help/environment requests are inert. Source types and format pass. Broader history hint fixture race and external-peer test-type mismatch remain tracked #3110. Backend landing remains pending #3059.",
+  "reviewRecords": "Merged host-seat and ReviewSource ports retained. Full targets2371 pass/4skip; unchanged gate passes at99.08% statements,97.44% branches,99.17% functions,99.34% lines. All changed executable compatibility statements/functions/branch outcomes covered. Source/test types pass.",
+  "jj": "All14 production/build inputs and artifact match retained post-rebase provenance. Native73,JS390,real parity32,runner12 pass; JS100% configured coverage; Rustfmt/Clippy/types/lint/format and pinned reproducible WASM build/verify pass. Existing skip and sanitizer/fault/release limitations preserved.",
+  "calibration": "Existing runner now executes calibration with complete TS and corpus/fit JSON inputs;8calibration/inventory tests pass including negative control. No real-world benchmark quality claim.",
+  "generated": "Node26 CLI docs generation/check and docs fleet check pass. Initial Bun script attempt failed registerHooks; usage comment corrected to Node. Index generation and drift pass after calibration repair; earlier failures retained.",
+  "logs": {
+    "smithers-burndown-20260930-checkpoint3-cli-check-node.log": "e2ecc38689f0c857742ca45352970b54b5abb12045c441130194b82860f72c24",
+    "smithers-burndown-20260930-checkpoint3-cli-generate-node.log": "5561622a10ad5baf58bbc28b194b3f4c775cc96bca3233ab06a91bcaf8c12bfe",
+    "smithers-burndown-20260930-checkpoint3-cli-generate.log": "939335fa95fdd83e5a1dbc0655ae335181639ab82d7a3f0d3013fc3dd8ed7749",
+    "smithers-burndown-20260930-checkpoint3-docs-check.log": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab",
+    "smithers-burndown-20260930-checkpoint3-docs-sync.log": "325991b13280052540c0b4bc2320d757e54c72d0cb152de407dcc370819f8c64",
+    "smithers-burndown-20260930-checkpoint3-flow-inventory.log": "f3c4a94bdca522b753b202f0881b3e7326cf9b6847dfd71f07aa2ed1db45f189",
+    "smithers-burndown-20260930-checkpoint3-target-index-drift-fixed.log": "c79e96ee4577926654a312af7547ba3e60a2d92e09a60679298c119f9beac69c",
+    "smithers-burndown-20260930-checkpoint3-target-index-drift.log": "9564bec7c41c091e2d9892053f8d0153541b4c2987574a9c1036f5a5d9b839a6",
+    "smithers-burndown-20260930-checkpoint3-target-index-fixed.log": "b434fb0d76f73551b7644e9a89fced4f7ff97a70221cf564373a1097a82048ac",
+    "smithers-burndown-20260930-checkpoint3-target-index.log": "c320d7f072c25525553f523c776b26f31e374cd259a42fd90fc7b0a81cae8e29"
+  },
+  "finalStartupTestSha256": "00cf7e93de5bded448ef3ac7d30715f17cb0855e3bb78bb7ec0ed6852f79205b"
+}
