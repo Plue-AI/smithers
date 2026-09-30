@@ -222,6 +222,9 @@ its own principal launched: `List` sets `ListInput.reader` and `Watch` sets
 watches only those runs, sees only the fires that started them and no
 triggers, receives nothing from a plan partition, and gets `RunNotFound` for
 any other run. A lost-tail watch failure reaches it without partition names.
+`steer`, `signal`, `cancel` and `resume` take the same `reader`: over RPC the
+server sets it, and such a reader mutates only those runs and gets
+`RunNotFound` for any other.
 
 The `triggers` and `fires` variants are answered through the `DispatchReader`
 port. A host without one refuses both with `InvalidInput` whose issue is
