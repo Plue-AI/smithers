@@ -571,30 +571,34 @@ const disallowedSelection: SelectOptions = {
 void disallowedSelection
 
 // Will's rule (#2916): security, money, merge/landing, unclear root cause and cross-package design never bundle.
-test("never-bundle classes are neither companions nor bundle leads, by label or title", async () => {
-  const classes: ReadonlyArray<readonly [Array<string>, string]> = [
-    [["security"], "tighten token check"],
-    [[], "Security: redact webhook secret"],
-    [["billing"], "fix invoice rounding"],
-    [[], "Pricing page shows stale plan"],
-    [[], "Credit balance off by one"],
-    [["area:merge-queue"], "retry flaky rebase"],
-    [[], "Lander pushes stale receipt"],
-    [[], "Unclear root cause: runs stall"],
-    [["needs-design"], "share run state"],
-    [[], "Cross-package design for run ids"]
-  ]
-  const issues = [
-    { ...issue(1), body: "apps/a.ts" },
-    { ...issue(2), body: "apps/a.ts" },
-    ...classes.map(([labels, title], i) => ({ ...issue(10 + i, labels, title), body: "apps/a.ts" }))
-  ]
-  const result = await Effect.runPromise(selectCandidates({
-    repos: [repo],
-    triagePath: join(tmpdir(), "burndown-missing-triage.json"),
-    command: async () => JSON.stringify(issues)
-  }))
-  const bundled = result.candidates.filter((bundle) => bundle.extras.length > 0)
-  assert.deepEqual(bundled.map((bundle) => [bundle.lead.n, bundle.extras.map((extra) => extra.n)]), [[2, [1]]])
-  assert.equal(result.candidates.length, 2 + classes.length - 1)
-})
+const neverBundleClasses: ReadonlyArray<readonly [string, Array<string>, string]> = [
+  ["security label", ["security"], "tighten token check"],
+  ["security title", [], "Security: redact webhook secret"],
+  ["billing label", ["billing"], "fix rounding"],
+  ["invoice title", [], "fix invoice rounding"],
+  ["pricing title", [], "Pricing page shows stale plan"],
+  ["credit title", [], "Credit balance off by one"],
+  ["merge label", ["area:merge-queue"], "retry flaky rebase"],
+  ["landing title", [], "Lander pushes stale receipt"],
+  ["unclear root cause title", [], "Unclear root cause: runs stall"],
+  ["design label", ["needs-design"], "share run state"],
+  ["cross-package title", [], "Cross-package design for run ids"]
+]
+for (const [name, labels, title] of neverBundleClasses) {
+  test(`never-bundle class (${name}) is neither a companion nor a bundle lead`, async () => {
+    const issues = [
+      { ...issue(1), body: "apps/a.ts" },
+      { ...issue(2), body: "apps/a.ts" },
+      { ...issue(10, labels, title), body: "apps/a.ts" }
+    ]
+    const result = await Effect.runPromise(selectCandidates({
+      repos: [repo],
+      triagePath: join(tmpdir(), "burndown-missing-triage.json"),
+      command: async () => JSON.stringify(issues)
+    }))
+    const bundled = result.candidates.filter((bundle) => bundle.extras.length > 0)
+    assert.deepEqual(bundled.map((bundle) => [bundle.lead.n, bundle.extras.map((extra) => extra.n)]), [[2, [1]]])
+    assert.equal(result.candidates.length, 2)
+    assert.ok(result.candidates.some((bundle) => bundle.lead.n === 10 && bundle.extras.length === 0))
+  })
+}
