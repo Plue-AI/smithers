@@ -7,10 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// realMirrorGitTimeout bounds every git command and mirror run these tests
+// start: a stuck subprocess fails its test with the command that stuck instead
+// of stalling the package until Go's test timeout (#3100).
+const realMirrorGitTimeout = 2 * time.Minute
 
 // realMirrorRepos is a Smithers source and a GitHub target, both real bare
 // repositories reached over file:// URLs, plus a scratch clone for commits.
@@ -45,10 +51,14 @@ func newRealMirrorRepos(t *testing.T) *realMirrorRepos {
 
 func (r *realMirrorRepos) git(dir string, args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), realMirrorGitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(cmd.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	cmd.WaitDelay = 5 * time.Second
+	cmd.Env = append(cmd.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
+	require.NoError(r.t, ctx.Err(), "git %s did not finish within %s: %s", strings.Join(args, " "), realMirrorGitTimeout, out)
 	require.NoError(r.t, err, "git %s: %s", strings.Join(args, " "), out)
 	return strings.TrimSpace(string(out))
 }
@@ -67,7 +77,9 @@ func (r *realMirrorRepos) push(remote string, refspecs ...string) {
 
 func (r *realMirrorRepos) refs(remote string) map[string]string {
 	r.t.Helper()
-	refs, err := defaultListRemoteRefs(context.Background(), remote)
+	ctx, cancel := context.WithTimeout(context.Background(), realMirrorGitTimeout)
+	defer cancel()
+	refs, err := defaultListRemoteRefs(ctx, remote)
 	require.NoError(r.t, err)
 	return refs
 }
@@ -76,6 +88,18 @@ func (r *realMirrorRepos) service(store GitMirrorSyncQuerier) *GitMirrorSyncServ
 	svc := synchronousGitMirrorService(store)
 	svc.resolveRemotes = func(context.Context, int64, int64, string, string) (gitMirrorRemotes, error) {
 		return gitMirrorRemotes{sourceURL: r.source, targetURL: r.target}, nil
+	}
+	svc.launch = func(name string, fn func()) {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			fn()
+		}()
+		select {
+		case <-done:
+		case <-time.After(realMirrorGitTimeout):
+			r.t.Fatalf("%s did not finish within %s", name, realMirrorGitTimeout)
+		}
 	}
 	return svc
 }
