@@ -157,7 +157,7 @@ export const fromArguments = (argv: ReadonlyArray<string>, options: Options = {}
     if (arg === "--silent" || arg === "--silent=true" || arg === "--quiet") silent = true
     if (arg === "--no-silent" || arg === "--silent=false") silent = false
     if (arg === "--verbose" || arg === "--verbose=true") verbose = true
-    if (arg === "--mcp") mcp = true
+    if (arg === "--mcp" && options.mcp === undefined) mcp = true
     if (arg === "--json" || arg === "--format" || arg.startsWith("--format=")) formatExplicit = true
   }
   return resolve({ ...options, audience, silent, verbose, formatExplicit, mcp })

@@ -66,14 +66,14 @@ export const main = async (host: Host): Promise<void> => {
   host.on("SIGINT", onSigint)
   host.on("SIGTERM", onSigterm)
   try {
-    const mcp = host.argv.includes("--mcp")
+    let mcp = false
     const presentation = Audience.fromArguments(host.argv, {
       env: host.env,
       stdout: host.stdout.isTTY,
       stderr: host.stderr.isTTY,
       mcp
     })
-    await makeCli({
+    const cli = makeCli({
       cacheUrl,
       cacheToken,
       signal: controller.signal,
@@ -81,13 +81,32 @@ export const main = async (host: Host): Promise<void> => {
       stdout: host.stdout,
       stderr: host.stderr,
       presentation,
-      exit: mcp ? () => {} : exit
+      exit: (code) => {
+        if (!mcp) exit(code)
+      }
     })
-      .serve(Audience.incurArguments(normalizeArguments(host.argv), presentation), {
+    const parsed = Argv.parse(normalizeArguments(host.argv), cli)
+    mcp = parsed.mcp
+    Object.assign(
+      presentation,
+      Audience.resolve({
         env: host.env,
-        exit,
-        stdout: (text) => host.stdout.write(text)
+        stdout: host.stdout.isTTY,
+        stderr: host.stderr.isTTY,
+        audience: parsed.audience === "auto" || parsed.audience === "human" || parsed.audience === "agent"
+          ? parsed.audience
+          : undefined,
+        silent: parsed.silent || parsed.quiet,
+        verbose: parsed.verbose,
+        formatExplicit: parsed.json || parsed.format !== undefined,
+        mcp
       })
+    )
+    await cli.serve(Audience.incurArguments(parsed.incurArgv, presentation), {
+      env: host.env,
+      exit,
+      stdout: (text) => host.stdout.write(text)
+    })
     if (mcp) await host.waitForDisconnect?.(controller.signal)
   } catch (cause) {
     if (interrupted === undefined) {

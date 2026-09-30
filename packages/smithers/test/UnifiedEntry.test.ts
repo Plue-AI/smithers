@@ -1,4 +1,5 @@
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
+import { Cli, z } from "incur"
 import { EventEmitter } from "node:events"
 import { delimiter, join, resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -65,7 +66,7 @@ describe("unified process entry", () => {
       options.stdout("result\n")
     })
     await main(host)
-    expect(serve.mock.calls[0]![0]).toContain("--workspace")
+    expect(serve.mock.calls[0]![0]).toContain("--workspace=/fixture")
     expect(serve.mock.calls[0]![0]).not.toContain("--root")
     expect(result).toEqual({ stdout: "result\n", stderr: "", codes: [0] })
     clean(signals)
@@ -248,3 +249,31 @@ it.each([
   expect(result.codes.at(-1)).toBe(0)
   clean(signals)
 })
+
+it("constructs once and gives selected command arities authority over transport and presentation", async () => {
+  const cli = Cli.create("fixture").command("issue", { options: z.object({ title: z.string() }), run: () => undefined })
+  cli.serve = serve
+  makeCli.mockReturnValue(cli)
+  const { host, signals, result } = fixture(["issue", "--title", "--mcp"])
+  const disconnect = vi.fn()
+  await main({ ...host, waitForDisconnect: disconnect })
+  expect(makeCli).toHaveBeenCalledTimes(1)
+  expect(config().presentation?.source).toBe("pipe")
+  expect(serve.mock.calls[0]![0]).toContain("--title=--mcp")
+  expect(serve.mock.calls[0]![0]).not.toContain("--mcp")
+  expect(disconnect).not.toHaveBeenCalled()
+  expect(result.codes).toEqual([0])
+  clean(signals)
+})
+
+it.each([["--no-mcp"], ["--mcp=false"], ["--mcp", "false"], ["--mcp=maybe"], ["--", "--mcp"]])(
+  "does not wait for MCP disconnect for non-transport spelling %j",
+  async (...argv) => {
+    const { host, signals } = fixture(argv)
+    const disconnect = vi.fn()
+    await main({ ...host, waitForDisconnect: disconnect })
+    expect(config().presentation?.source).not.toBe("mcp")
+    expect(disconnect).not.toHaveBeenCalled()
+    clean(signals)
+  }
+)

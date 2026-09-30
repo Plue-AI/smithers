@@ -1,0 +1,103 @@
+{
+  "issue": 3278,
+  "scope": "issue fix",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "bb587db15d1b17f3ac5c615383ec655f1bb05b0a5d9da4e8d2b958f26f983f9f",
+  "sourceSha256": {
+    "packages/smithers/src/Cli.ts": "58082f7d2948dd7595f1b252c0ebd1cf61cddcc3015795c2df13b1a162939b3b",
+    "packages/smithers/src/cli/Argv.ts": "93ca2be5082e3cb7c8f451f83dec8cc3980397f04b916fc56e703316cb5ea909",
+    "packages/smithers/src/cli/Entry.ts": "81c32d6020512556780189919342bb725d49f9cd5c0b67b77c8381c3a834a8f2",
+    "packages/smithers/test/Argv.test.ts": "ab8fa6f97b0c251f4b82ec7c9700cae0d8a92a5332bba687a62254eb0c29bc27",
+    "packages/smithers/test/UnifiedEntry.test.ts": "d8dda06c839ffaaf96c04ca96a27d43641f5394e1fe5a66dc691226a81ea4a09",
+    "packages/smithers/test/McpModeCli.test.ts": "cde19707b6acbafd44ad9941a27d7138074496fb3bdad4947522a583ba9a3f8d",
+    "packages/smithers/build/build-cli/src/Audience.ts": "498a8e5e98acd2d139c97238b9e81f253436f5f5c004b01ce4e55f8b0456928d",
+    "packages/smithers/build/build-cli/test/Audience.test.ts": "3146bb4ea9fb6a55b9cc684b747ef0c31605317bdee5e9f0a0658fe723f4b456"
+  },
+  "generatedSha256": {},
+  "archiveSha256": "8ea86d7f99e51d630acb2565868566c9b7499882babfabfe052393755a01dba9",
+  "rawReceipts": {
+    "smithers-burndown-20260930-checkpoint15-target-index.log": "46f89d56c9ee07083ba3328fca8cd0a6e44f8429a1adf377e585786a1762e9bd",
+    "3278-3283-3284-frozen-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-3284-frozen-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-alias-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-types.json": "f444e979559482b7aa717c551e1b55021c593ed76ad2e53d71d6a7ab41318a8c",
+    "3278-3284-frozen-unit.log": "fff226d8b7466ea897bc182726d6da947addcc372b3d8f12935b56f23f7c5b72",
+    "3278-alias-integration.log": "58fd6b06bb0fff0f533275c8b57378c2c95c561f672c04b7d3b224f759c06b12",
+    "3278-audience.log": "61044701862e99b591a1fd8bc5ac7f01eb97c8bbb8435332e23d270343e57d73",
+    "3278-final-integration.log": "0e6c18aeb6765d2edd205f0a0ba0c8e461684ffefeb8bf81f0d2e0df65e0e2a9",
+    "3278-final-unit.log": "16daf0afe24e2e55d80f41da33824129bdcb6fd2ff0bb0f369373adffe373b85",
+    "3278-first-types.log": "0315acb224d00c2a72a4bedd87e4126c62add7d3b4c4cb52e66b8b23cb33ec1a",
+    "3278-first-unit.log": "6cb6bd7571a5d57234a71e34c53c10c1a9e9da5fe53dbbd806bfb6c3c3c4181e",
+    "3278-ready-evidence.json": "bb587db15d1b17f3ac5c615383ec655f1bb05b0a5d9da4e8d2b958f26f983f9f",
+    "3278-red-probe.log": "0b4045e034c62e9825f81fd5276ea3e4f6f5a2342609c6245e271330417e5a0d",
+    "3278-red-probe.mjs": "80f096fc105f805ae5fb09c796508e19e8247ff5dfe9045c3302336ce23c0a19"
+  },
+  "qualification": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run test/Argv.test.ts test/UnifiedEntry.test.ts test/Positionals.test.ts test/DidYouMean.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "400 tests/4 files pass; all321 positional inventory controls retained",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3284-frozen-unit.log",
+        "sha256": "fff226d8b7466ea897bc182726d6da947addcc372b3d8f12935b56f23f7c5b72"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/McpModeCli.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "1 integration pass;22 actual CLI children, real loopback HTTP/Git TRACE2/local environment process, no mock executable/native host",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-alias-integration.log",
+        "sha256": "58fd6b06bb0fff0f533275c8b57378c2c95c561f672c04b7d3b224f759c06b12"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run test/Audience.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/build-cli",
+      "exit": 0,
+      "result": "33 tests pass",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-audience.log",
+        "sha256": "61044701862e99b591a1fd8bc5ac7f01eb97c8bbb8435332e23d270343e57d73"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-types.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Unchanged strict CLI test configuration, all CLI source + Argv, Entry, MCP process, HistoryForkChild and Positionals owning tests; green",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-types.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts --max-warnings=0",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Four changed production files pass lint",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-alias-lint.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts test/Argv.test.ts test/UnifiedEntry.test.ts test/McpModeCli.test.ts test/HistoryForkChild.test.ts test/Positionals.test.ts build/build-cli/src/Audience.ts build/build-cli/test/Audience.test.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "All eleven owned files formatted",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "limitations": [
+    "Scoped decisive checks, not a fresh full CLI suite or configured full CLI coverage gate; coverage thresholds and production inclusion unchanged.",
+    "No rebuilt native artifact claim. Actual history boundary reused /Users/williamcory/smithers/target/debug/smithers-jj-export and installed jj.",
+    "Fresh packed npm/pnpm consumer proof remains separate assigned #3093; this is source qualification."
+  ],
+  "targetIndex": "Canonical generation attempted; blocked by tracked #3276 flow test inventory gate. No generated file hand edits."
+}

@@ -412,15 +412,10 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   // the mounted subtree directly so registration uses Agents.addMcp as documented.
   const serve = cli.serve.bind(cli)
   cli.serve = async (argv = process.argv.slice(2), serveOptions) => {
-    // Incur's document selector reads the spaced spelling before command
-    // parsing. Preserve the public inline spelling and keep literal tails opaque.
-    const separator = argv.indexOf("--")
-    argv = argv.flatMap((argument, index) =>
-      (separator < 0 || index < separator) && argument.startsWith("--format=")
-        ? ["--format", argument.slice("--format=".length)]
-        : [argument]
-    )
-    const parsed = Argv.parse(argv)
+    // Read the selected command's actual option arities before Incur extracts
+    // built-ins. A message named --mcp is one value, never a transport switch.
+    argv = [...Argv.parse(argv, cli).incurArgv]
+    const parsed = Argv.parse(argv, cli)
     if (parsed.json || parsed.format === "json" || parsed.format === "jsonl") {
       const stdout = serveOptions?.stdout ?? ((text: string) => void process.stdout.write(text))
       serveOptions = { ...serveOptions, stdout: (text) => stdout(Failure.terminalSafeJson(text)) }
@@ -434,13 +429,11 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
       offset += !flag.includes("=") && typeof value === "string" ? 2 : 1
     }
     const index = parsed.restIndices[offset]
-    if (parsed.rest[offset] === "mcp" && index !== undefined && !argv.includes("--mcp")) {
-      return mcp.serve([...argv.slice(0, index), ...argv.slice(index + 1)], serveOptions)
-    }
     if (parsed.rest[offset] === "repo" && index !== undefined && argv[index + 1] === "clone") {
       // Incur does not consume a literal tail. Preserve git/jj clone options
       // as values of the existing repeatable clone-arg option.
-      const separator = argv.indexOf("--", index + 2)
+      const tail = parsed.rest.indexOf("--")
+      const separator = tail < 0 ? -1 : parsed.restIndices[tail]!
       if (separator >= 0) {
         argv = [
           ...argv.slice(0, separator),
@@ -449,10 +442,20 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
       }
     }
     if (parsed.rest[offset] === "environment" && index !== undefined && argv[index + 1] === "exec") {
-      const separator = argv.indexOf("--", index + 2)
+      const tail = parsed.rest.indexOf("--")
+      const separator = tail < 0 ? -1 : parsed.restIndices[tail]!
       if (separator >= 0) {
         argv = [...argv.slice(0, separator), ...argv.slice(separator + 1).map((value) => `--arg=${value}`)]
       }
+    }
+    // Generic literal tails are unsupported by Incur 0.5. Keep the fence for
+    // its own parser refusal, but never let tail data reach built-in extraction.
+    // Supported forwarding commands above have already retained every value.
+    const literalRest = parsed.rest.indexOf("--")
+    const literal = literalRest < 0 ? -1 : parsed.restIndices[literalRest]!
+    if (literal >= 0 && argv[literal] === "--") argv = argv.slice(0, literal + 1)
+    if (parsed.rest[offset] === "mcp" && index !== undefined && !parsed.mcp) {
+      return mcp.serve([...argv.slice(0, index), ...argv.slice(index + 1)], serveOptions)
     }
     const typed = parsed.rest[offset]
     if (typed === undefined) return serve(argv, serveOptions)

@@ -3,7 +3,9 @@ import * as TestControl from "@smthrs/control/test/TestControl"
 import { Effect, Layer } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
+import { Cli, Parser, z } from "incur"
 import { describe, expect, it } from "vitest"
+import { makeCli } from "../src/Cli.ts"
 import * as Argv from "../src/cli/Argv.ts"
 import { agentArguments, legacyArguments } from "../src/cli/Compatibility.ts"
 import { connectionOptions } from "../src/cli/ControlBridge.ts"
@@ -145,5 +147,126 @@ describe("the shared globals", () => {
     expect(agentArguments(["--silent", "resume", "fork-run"])).toEqual(["runs", "resume", "--silent", "fork-run"])
     expect(agentArguments(["resume", "--verbose", "fork-run"])).toEqual(["runs", "resume", "--verbose", "fork-run"])
     expect(agentArguments(["resume", "fork-run", "--json=true"])).toBeUndefined()
+  })
+})
+
+describe("MCP argument roles", () => {
+  it.each(["true", "1", "yes", "y", "on"])("normalizes enabled MCP spelling %s", (literal) => {
+    for (const args of [[`--mcp=${literal}`], ["--mcp", literal]]) {
+      expect(Argv.parse(args)).toMatchObject({ mcp: true, incurArgv: ["--mcp"], rest: [] })
+    }
+  })
+  it.each(["false", "0", "no", "n", "off"])("normalizes disabled MCP spelling %s", (literal) => {
+    for (const args of [[`--mcp=${literal}`], ["--mcp", literal]]) {
+      expect(Argv.parse(args)).toMatchObject({ mcp: false, incurArgv: [], rest: [] })
+    }
+  })
+  it("keeps every shared valued root form and its literal-looking values opaque", () => {
+    for (
+      const flag of [
+        "--root",
+        "--remote",
+        "--mcp-config",
+        "--backend",
+        "--audience",
+        "--format",
+        "--workspace",
+        "-w",
+        "--ui",
+        "--filter-output",
+        "--token-limit",
+        "--token-offset"
+      ]
+    ) {
+      for (const value of ["--mcp", "--"]) {
+        for (const form of [[flag, value], [`${flag}=${value}`]]) {
+          const parsed = Argv.parse(form)
+          expect(parsed.mcp, form.join(" ")).toBe(false)
+          expect(Argv.parse(parsed.incurArgv).mcp, form.join(" ")).toBe(false)
+        }
+      }
+    }
+  })
+  it("accepts the unchanged Globals input shape while enriching parser output", () => {
+    const { mcp: _mcp, incurArgv: _incurArgv, ...legacy } = Argv.parse(["--mcp"])
+    const globals: Argv.Globals = legacy
+    expect(Argv.parse(globals)).toMatchObject({ mcp: true, incurArgv: ["--mcp"] })
+  })
+  it("keeps first occurrence semantics, malformed switches and tails", () => {
+    expect(Argv.parse(["--no-mcp", "--mcp"]).mcp).toBe(false)
+    expect(Argv.parse(["--mcp", "--no-mcp"]).mcp).toBe(true)
+    for (const flag of ["--mcp=maybe", "--no-mcp=true"]) {
+      expect(Argv.parse([flag])).toMatchObject({ mcp: false, rest: [flag], incurArgv: [flag] })
+    }
+    expect(Argv.parse(["--", "--mcp", "--help"])).toMatchObject({
+      mcp: false,
+      rest: ["--", "--mcp", "--help"],
+      incurArgv: ["--", "--mcp", "--help"]
+    })
+  })
+  it("uses selected schemas for option aliases, kebab names, arrays, switches and counts", () => {
+    const options = z.object({
+      contentText: z.string().optional(),
+      attachments: z.array(z.string()).optional(),
+      confirm: z.boolean().optional(),
+      loud: z.number().default(0).meta({ count: true })
+    })
+    const aliases = { contentText: "c", confirm: "a", loud: "v" }
+    const tree = Cli.create("roles").command("send", {
+      options,
+      alias: aliases,
+      run: () => undefined
+    })
+    for (const flag of ["--contentText", "--content-text", "-c", "--attachments"]) {
+      for (const value of ["--mcp", "--", "--format=json", "--help"]) {
+        const parsed = Argv.parse(["send", flag, value], tree)
+        expect(parsed.mcp, `${flag} ${value}`).toBe(false)
+        expect(parsed.incurArgv).toEqual(["send", `${flag === "-c" ? "--contentText" : flag}=${value}`])
+        expect(Object.values(Parser.parse([...parsed.incurArgv.slice(1)], { options, alias: aliases }).options).flat())
+          .toContain(value)
+      }
+    }
+    const stacked = Argv.parse(["send", "-avc", "--mcp"], tree)
+    expect(stacked.mcp).toBe(false)
+    expect(Parser.parse([...stacked.incurArgv.slice(1)], { options, alias: aliases }).options)
+      .toMatchObject({ confirm: true, loud: 1, contentText: "--mcp" })
+    expect(() =>
+      Parser.parse([...Argv.parse(["send", "-c=--mcp"], tree).incurArgv.slice(1)], { options, alias: aliases })
+    ).toThrow()
+    for (const flag of ["--confirm", "--loud"]) expect(Argv.parse(["send", flag, "--mcp"], tree).mcp).toBe(true)
+  })
+  it("protects every actual valued command option, including aliases and inline spellings", () => {
+    const cli = makeCli()
+    let checked = 0
+    const inspect = (tree: NonNullable<ReturnType<typeof Cli.toCommands.get>>, path: Array<string>) => {
+      for (const [name, entry] of tree) {
+        if ("_group" in entry) {
+          inspect(entry.commands, [...path, name])
+          continue
+        }
+        if (!("options" in entry)) continue
+        for (const [key, schema] of Object.entries(entry.options?.shape ?? {}) as Array<[string, z.ZodType]>) {
+          let base = schema
+          while ("innerType" in base.def && base.def.innerType !== undefined) base = base.def.innerType as z.ZodType
+          if (base instanceof z.ZodBoolean || schema.meta()?.["count"] === true) continue
+          const alias = entry.alias?.[key]
+          const flags = new Set([
+            `--${key}`,
+            `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+            ...(alias === undefined ? [] : [`-${alias}`])
+          ])
+          for (const flag of flags) {
+            for (const form of [[flag, "--mcp"], [`${flag}=--mcp`]]) {
+              const args = [...path, name, ...form]
+              expect(Argv.parse(args, cli).mcp, args.join(" ")).toBe(false)
+              expect(Argv.parse(args, cli).incurArgv, args.join(" ")).not.toContain("--mcp")
+              checked++
+            }
+          }
+        }
+      }
+    }
+    inspect(Cli.toCommands.get(cli as never)!, [])
+    expect(checked).toBeGreaterThan(400)
   })
 })

@@ -4,6 +4,8 @@
  * @since 1.0.0
  */
 
+import { Cli, z } from "incur"
+
 /**
  * The shared flags with their values, and every word they did not claim.
  *
@@ -37,6 +39,17 @@ export interface Globals {
   readonly first: number
 }
 
+/** Parser output adds transport metadata without narrowing the existing Globals input contract. */
+interface ParsedGlobals extends Globals {
+  /** Equivalent options with opaque values protected from Incur built-in extraction. */
+  readonly incurArgv: ReadonlyArray<string>
+  /** Actual stdio transport selection, excluding opaque option values and literal tails. */
+  readonly mcp: boolean
+}
+
+const isParsed = (args: Globals): args is ParsedGlobals =>
+  "incurArgv" in args && Array.isArray(args.incurArgv) && "mcp" in args && typeof args.mcp === "boolean"
+
 const valued = {
   "--root": "root",
   "--remote": "remote",
@@ -52,7 +65,8 @@ const switches = {
   "--json": "json",
   "--quiet": "quiet",
   "--silent": "silent",
-  "--verbose": "verbose"
+  "--verbose": "verbose",
+  "--mcp": "mcp"
 } as const
 
 // Options used by the pre-parser consumers. These stay in rest; recognizing
@@ -65,7 +79,10 @@ const localValues = new Set([
   "--fields",
   "--allowed-tools",
   "--message",
-  "--scope"
+  "--scope",
+  "--filter-output",
+  "--token-limit",
+  "--token-offset"
 ])
 
 // The literals `effect/unstable/cli` accepts after a boolean flag.
@@ -94,8 +111,11 @@ const literals: Record<string, boolean | undefined> = {
  * @category parsing
  * @since 1.0.0
  */
-export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
-  if ("rest" in args) return args
+export const parse = (args: ReadonlyArray<string> | Globals, cli?: object): ParsedGlobals => {
+  if ("rest" in args) {
+    if (isParsed(args)) return args
+    args = args.argv
+  }
   const values: Record<(typeof valued)[keyof typeof valued], string | undefined> = {
     root: undefined,
     remote: undefined,
@@ -108,8 +128,31 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
     json: undefined,
     quiet: undefined,
     silent: undefined,
-    verbose: undefined
+    verbose: undefined,
+    mcp: undefined
   }
+  const incurArgv: Array<string> = []
+  let scope = cli === undefined ? undefined : Cli.toCommands.get(cli as never)
+  const arities = new Map<string, boolean>([...localValues].map((flag) => [flag, true]))
+  const names = new Map<string, string>([["-w", "--workspace"]])
+  const declare = (
+    schema: z.ZodObject<any> | undefined,
+    aliases?: Partial<Record<string | number | symbol, string>>
+  ) => {
+    const shape: Record<string, z.ZodType> = schema?.shape ?? {}
+    for (const [name, field] of Object.entries(shape)) {
+      let base = field
+      while ("innerType" in base.def && base.def.innerType !== undefined) base = base.def.innerType as z.ZodType
+      const takesValue = !(base instanceof z.ZodBoolean) && field.meta()?.["count"] !== true
+      arities.set(`--${name}`, takesValue)
+      arities.set(`--${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`, takesValue)
+      if (aliases?.[name] !== undefined) {
+        arities.set(`-${aliases[name]}`, takesValue)
+        names.set(`-${aliases[name]}`, `--${name}`)
+      }
+    }
+  }
+  if (cli !== undefined) declare(Cli.toRootOptions.get(cli as never))
   const rest: Array<string> = []
   const restIndices: Array<number> = []
   const options = new Map<string, string | boolean>()
@@ -122,11 +165,24 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!
     if (argument === "--") {
+      incurArgv.push(...args.slice(index))
       keep(index, argument)
       for (let tail = index + 1; tail < args.length; tail++) keep(tail, args[tail]!)
       break
     }
     if (!argument.startsWith("-")) {
+      const found = scope?.get(argument)
+      const entry = found !== undefined && "_alias" in found ? scope?.get(found.target) : found
+      if (entry !== undefined) {
+        if ("_group" in entry) {
+          scope = entry.commands
+          declare(entry.root?.options, entry.root?.alias)
+        } else {
+          scope = undefined
+          if ("options" in entry) declare(entry.options, entry.alias)
+        }
+      }
+      incurArgv.push(argument)
       keep(index, argument)
       continue
     }
@@ -136,11 +192,15 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
     if (flag in valued) {
       const name = valued[flag as keyof typeof valued]
       if (inline === undefined && index + 1 >= args.length) {
+        incurArgv.push(argument)
         keep(index, argument)
         continue
       }
       const value = inline ?? args[++index]!
       values[name] ??= value
+      // Incur's format extractor accepts only the spaced spelling and consumes
+      // its value itself. All other values must be opaque to that extractor.
+      incurArgv.push(...(flag === "--format" ? [flag, value] : [`${flag}=${value}`]))
       continue
     }
     const negated = flag.startsWith("--no-") ? `--${flag.slice(5)}` : undefined
@@ -152,18 +212,37 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
     if (switchName === undefined) {
       keep(index, argument)
       let value: string | boolean = inline ?? true
-      if (localValues.has(flag) && inline === undefined && index + 1 < args.length) {
+      // Incur supports stacked boolean/count aliases with a valued alias last.
+      // Use the same declared arities; its parser retains syntax validation.
+      const aliases = !flag.startsWith("--") && inline === undefined ? [...flag.slice(1)].map((name) => `-${name}`) : []
+      const stack = aliases.length > 1 && aliases.slice(0, -1).every((name) => arities.get(name) === false) &&
+          arities.get(aliases.at(-1)!) === true ?
+        aliases :
+        undefined
+      const normalized = stack?.at(-1) ?? flag
+      const takesValue = arities.get(normalized) === true
+      if (takesValue && inline === undefined && index + 1 < args.length) {
         value = args[++index]!
         keep(index, value)
       }
       if (!options.has(flag)) options.set(flag, value)
+      if (typeof value === "string" && inline === undefined) {
+        incurArgv.push(...(stack?.slice(0, -1).map((name) => names.get(name) ?? name) ?? []))
+        incurArgv.push(
+          ...(["--filter-output", "--token-limit", "--token-offset"].includes(flag)
+            ? [flag, value]
+            : [`${names.get(normalized) ?? normalized}=${value}`])
+        )
+      } else incurArgv.push(argument)
       continue
     }
     const name = switches[switchName as keyof typeof switches]
+    const switchIndex = index
     let value: boolean | undefined
     if (inline !== undefined) {
       value = Object.hasOwn(literals, inline) ? literals[inline] : undefined
       if (value === undefined || negated !== undefined) {
+        incurArgv.push(argument)
         keep(index, argument)
         continue
       }
@@ -176,9 +255,12 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
       value = literal ?? true
     }
     flags[name] ??= value
+    if (name !== "mcp") incurArgv.push(...args.slice(switchIndex, index + 1))
   }
   return {
     argv: args,
+    incurArgv: flags.mcp ? ["--mcp", ...incurArgv] : incurArgv,
+    mcp: flags.mcp ?? false,
     restIndices,
     options,
     ...values,

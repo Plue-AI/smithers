@@ -143,3 +143,10 @@ describe("consumer detection", () => {
     expect(Audience.incurArguments(["--help"], policy)).toEqual(["--help"])
   })
 })
+
+
+it("honors the executable's authoritative MCP selection instead of reinterpreting opaque words", () => {
+  expect(Audience.fromArguments(["--mcp"], { env: {}, stdout: false, stderr: false, mcp: false }).source).toBe("pipe")
+  expect(Audience.fromArguments([], { env: {}, mcp: true }).source).toBe("mcp")
+  expect(Audience.fromArguments(["--mcp"], { env: {}, stdout: false, stderr: false }).source).toBe("mcp")
+})
