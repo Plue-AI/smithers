@@ -206,8 +206,10 @@ function AskFormView(props: {
       onInput={(text: string) => props.onField("answer", text)}
     />
   )
-  // The question and a blank row take two rows at least; the choices get the rest, the cursor's in view.
-  const rows = Math.max(1, props.height - (props.compact ? 3 : 6))
+  // Reserve the answer rows before bounding the question, including wrapped and explicit newlines.
+  const available = Math.max(2, props.height - (props.compact ? 0 : 4))
+  const rows = Math.min(Math.max(1, lines.length), available - 1)
+  const questionHeight = Math.max(1, available - rows)
   const start = Math.min(Math.max(0, ask.choice - Math.floor(rows / 2)), Math.max(0, lines.length - rows))
   return (
     <box
@@ -224,10 +226,12 @@ function AskFormView(props: {
         }}
         backgroundColor={color.element}
       >
-        <text fg={color.text} wrapMode="word">
-          <span fg={color.needs}>{"◆ "}</span>
-          {ask.question}
-        </text>
+        <scrollbox scrollX={false} style={{ maxHeight: questionHeight, flexShrink: 0, scrollbarOptions: { visible: false } }}>
+          <text fg={color.text} wrapMode="word">
+            <span fg={color.needs}>{"◆ "}</span>
+            {ask.question}
+          </text>
+        </scrollbox>
         {props.compact ? null : <box style={{ height: 1 }} />}
         {lines.length === 0
           ? (
