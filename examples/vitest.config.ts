@@ -3,6 +3,10 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     environment: "node",
+    // The suite `//examples:suite` declares. `burndown/pacer.test.mjs` is a
+    // `node:test` file that `//examples:pacer` runs under Node's runner, as
+    // PACER.md documents; collected here it registers no Vitest suite and fails.
+    include: ["test/**/*.test.ts"],
     // A developer's credentials must not turn the ordinary suite into a paid
     // network run. Live smoke tests remain available through explicit opt-in.
     // Every provider key an example reads is masked, not only today's live one.

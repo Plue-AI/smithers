@@ -26986,6 +26986,32 @@
     }
   },
   {
+    "label": "//examples:pacer",
+    "package": "examples",
+    "name": "pacer",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "examples/burndown/pacer.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "examples/burndown/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "examples/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//examples:security",
     "package": "examples",
     "name": "security",

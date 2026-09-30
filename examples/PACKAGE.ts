@@ -60,6 +60,21 @@ const suite = Smithers.Vitest({
 })
 
 /**
+ * Runs the offline burndown pacer's `node:test` suite under Node's own runner,
+ * the command PACER.md documents. The suite spawns `pacer.mjs` and the
+ * `burndown.sh` tick loop, so the whole directory is its input.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const pacer = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//examples/burndown/pacer.test.mjs")]),
+  srcs: [Smithers.glob("//examples/burndown/**")],
+  deps: [],
+  cwd
+})
+
+/**
  * The examples as documentation: every program and the flow descriptors
  * beside them, named as one target so the site's example pages
  * (`//apps/site:examplesPages`) can list this group in `data`. A glob
@@ -172,5 +187,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, suite, docs, ...securityReview }
+  targets: { check, suite, pacer, docs, ...securityReview }
 })
