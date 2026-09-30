@@ -135,20 +135,23 @@ export const make = (options: CommandSandboxOptions): Provider => {
         // Every beat prints the machine's boot id, which later commands adopt.
         // A spawned command compares it against the boot it recorded as it
         // started; a restart wipes /tmp, so a missing record is a restart too.
-        // Any other command compares it against the session's boot as it
-        // launched, so each command a restart took fails and none started
-        // after it does.
+        // Its pid is written after that record, so until the pid exists the
+        // command is still starting (its script may not have arrived yet) and
+        // the beat compares the session's boot as the command launched, as
+        // any other command does: each command a restart took fails and none
+        // started after it does.
         const beat = (
           pidfile: string | undefined,
           baseline: string
-        ): Effect.Effect<"alive" | "restarted" | "silent"> =>
+        ): Effect.Effect<"alive" | "starting" | "restarted" | "silent"> =>
           Effect.map(
             Effect.flatMap(
               start(
                 shell(
                   pidfile === undefined
                     ? bootProbe
-                    : `b=$(${bootProbe}); printf '%s' "$b"; test -e ${pidfile}.boot && [ "$b" = "$(cat ${pidfile}.boot)" ] || exit 3`
+                    : `b=$(${bootProbe}); printf '%s' "$b"; test -s ${pidfile} || exit 4; ` +
+                      `test -e ${pidfile}.boot && [ "$b" = "$(cat ${pidfile}.boot)" ] || exit 3`
                 ),
                 undefined
               ),
@@ -156,8 +159,9 @@ export const make = (options: CommandSandboxOptions): Provider => {
             ),
             (answer) => {
               const now = new TextDecoder().decode(answer.stdout).trim()
-              if (answer.code !== 0 && answer.code !== 3) return "silent" as const
+              if (answer.code !== 0 && answer.code !== 3 && answer.code !== 4) return "silent" as const
               boot = now
+              if (answer.code === 4) return now === baseline ? "starting" as const : "restarted" as const
               return answer.code === 3 || (pidfile === undefined && now !== baseline)
                 ? "restarted" as const
                 : "alive" as const
@@ -170,18 +174,21 @@ export const make = (options: CommandSandboxOptions): Provider => {
             Effect.scoped
           )
         // One silent beat is a blip, such as a failed grant fetch; two in a
-        // row, or a restart, end the command.
+        // row, or a restart, end the command. A command seen started that
+        // later looks unstarted lost its records to a restart.
         const watch = (pidfile: string | undefined, baseline: string): Effect.Effect<never, ProviderError> => {
-          const loop = (strikes: number): Effect.Effect<never, ProviderError> =>
+          const loop = (strikes: number, started: boolean): Effect.Effect<never, ProviderError> =>
             Effect.flatMap(Effect.andThen(elapsed(heartbeat), beat(pidfile, baseline)), (answer) =>
               answer === "alive"
-                ? loop(0)
-                : answer === "restarted"
+                ? loop(0, true)
+                : answer === "starting" && !started
+                ? loop(0, false)
+                : answer !== "silent"
                 ? Effect.fail(restarted)
                 : strikes + 1 >= 2
                 ? Effect.fail(silent)
-                : loop(strikes + 1))
-          return loop(0)
+                : loop(strikes + 1, started))
+          return loop(0, false)
         }
         // The command's exit races the heartbeat; a lost machine kills the
         // local client, whose streams then end, and fails the exit.

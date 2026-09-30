@@ -1,6 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Stream } from "effect"
+import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -94,6 +95,52 @@ describe("CommandSandbox local heartbeat", () => {
         expect(yield* child.exitCode).toBe(0)
         expect(yield* Stream.mkString(Stream.decodeText(child.stdout))).toBe("ready|done")
         expect(launches - before).toBeGreaterThanOrEqual(2)
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    15_000
+  )
+
+  it.effect(
+    "keeps a command whose startup has not yet written its boot record running on an unchanged boot",
+    () =>
+      Effect.gen(function*() {
+        const local = yield* ChildProcessSpawner
+        let launches = 0
+        let startingGuest = false
+        // Delay only the guest's stdin, so the bootstrap cannot read its framed
+        // script and write the boot record before several beats reach the
+        // live, unchanged machine. Probes and supervision stay real.
+        const spawner = makeSpawner((command) => {
+          launches++
+          const delayed = startingGuest
+          startingGuest = false
+          if (!delayed || command._tag !== "StandardCommand" || !Stream.isStream(command.options.stdin)) {
+            return local.spawn(command)
+          }
+          const stdin = Stream.concat(
+            Stream.fromEffectDrain(
+              Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 500)))
+            ),
+            command.options.stdin
+          )
+          return local.spawn(ChildProcess.make(command.command, command.args, { ...command.options, stdin }))
+        })
+        const session = yield* CommandSandbox.make({
+          spawner,
+          prefix: [],
+          heartbeat: "100 millis",
+          workdir: root
+        }).acquire(`${basename(root)}-delayed-startup`)
+        startingGuest = true
+        const input = new Uint8Array([0, 255, 10, 105, 110, 10])
+        const child = yield* session.spawn("od -An -tu1 | tr -s ' \\n' ' '; printf 'ready|'; sleep 2; printf done", {
+          stdin: input
+        })
+        const before = launches
+        expect(yield* child.exitCode).toBe(0)
+        // The original input bytes arrive intact behind the delayed script frame.
+        expect(yield* Stream.mkString(Stream.decodeText(child.stdout))).toBe(" 0 255 10 105 110 10 ready|done")
+        // Beats ran while startup was still pending and after it recorded its boot.
+        expect(launches - before).toBeGreaterThanOrEqual(10)
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     15_000
   )

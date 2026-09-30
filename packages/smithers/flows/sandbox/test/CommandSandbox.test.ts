@@ -1,8 +1,18 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Fiber, Scope, Stream } from "effect"
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll } from "vitest"
@@ -222,6 +232,64 @@ describe("CommandSandbox", () => {
         message: "machine restarted; the command it was running is gone"
       })
     }).pipe(Effect.scoped, Effect.provide(platform)), 30_000)
+
+  it.effect("counts a restart while a command is still starting as a restart", () =>
+    Effect.gen(function*() {
+      const local = yield* ChildProcessSpawner
+      let holdNext = false
+      let release = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      // Hold the next guest's framed script, so it never records a boot or pid.
+      const spawner = makeSpawner((command) => {
+        const hold = holdNext
+        holdNext = false
+        return hold && command._tag === "StandardCommand" && Stream.isStream(command.options.stdin)
+          ? local.spawn(
+            ChildProcess.make(command.command, command.args, {
+              ...command.options,
+              stdin: Stream.concat(Stream.fromEffectDrain(Effect.promise(() => held)), command.options.stdin)
+            })
+          )
+          : local.spawn(command)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(release))
+      const machine = switchable(spawner, "starting-restart")
+      const session = yield* machine.provider.acquire("starting-restart")
+      holdNext = true
+      const lost = yield* session.spawn("sleep 30", {})
+      // Beats on the unchanged boot keep the unstarted command waiting.
+      yield* wait(1_200)
+      expect(existsSync(join(pidDirectory, sessionSlug("starting-restart"), "0.pid"))).toBe(false)
+      machine.restart()
+      expect(yield* Effect.flip(lost.exitCode)).toMatchObject({
+        code: "unavailable",
+        message: "machine restarted; the command it was running is gone"
+      })
+    }).pipe(Effect.scoped, Effect.provide(platform)), 30_000)
+
+  it.effect(
+    "counts pid and boot records wiped after the command was seen started as a restart",
+    () =>
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = switchable(spawner, "records-wiped")
+        const session = yield* machine.provider.acquire("records-wiped")
+        const lost = yield* session.spawn("sleep 30", {})
+        yield* untilStarted("records-wiped", 0)
+        // A beat sees the command started before its records vanish.
+        yield* wait(1_200)
+        const pidfile = join(pidDirectory, sessionSlug("records-wiped"), "0.pid")
+        renameSync(pidfile, `${pidfile}.kept`)
+        renameSync(`${pidfile}.boot`, `${pidfile}.boot.kept`)
+        // Put the pid back as the scope closes, so teardown signals the command.
+        yield* Effect.addFinalizer(() => Effect.sync(() => renameSync(`${pidfile}.kept`, pidfile)))
+        expect(yield* Effect.flip(lost.exitCode)).toMatchObject({
+          code: "unavailable",
+          message: "machine restarted; the command it was running is gone"
+        })
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+    30_000
+  )
 
   it.effect(
     "keeps a long read running on the boot a spawned command's heartbeat adopted",
