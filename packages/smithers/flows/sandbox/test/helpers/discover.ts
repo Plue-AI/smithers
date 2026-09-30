@@ -38,5 +38,7 @@ export const discover = (
         + " was killed; a stalled probe is a host failure, not a missing capability"
     )
   }
-  return { status: result.status, stdout: result.stdout ?? "" }
+  // Node reports a command that could not start as status `null`; Bun as
+  // `undefined`. Both mean the same absent capability.
+  return { status: result.status ?? null, stdout: result.stdout ?? "" }
 }
