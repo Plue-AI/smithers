@@ -937,6 +937,7 @@ export const createAppController = (
   const triggersSeam = actors.pair(seamCtx, (context, select) => createTriggersSeam(context, {
     requestRun: (repo, slug, operation) => select(workflowController).requestTriggerRun(repo, slug, operation),
     requestRegistration: (repo, request) => select(workflowController).requestTriggerRegistration(repo, request),
+    requireJobBox: (repo, act, title) => select(workflowController).requireJobBox(repo, act, title),
     withToast
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))

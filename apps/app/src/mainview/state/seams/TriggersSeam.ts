@@ -16,6 +16,7 @@
  * placeholders for them.
  */
 import { WORKFLOW_RPC_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { flowArgs } from "../../flows/FlowArgs"
 import { FACTORY_PROJECTION_PATH, FactoryProjectionSchema, ruleFlows } from "@smthrs/rpc/FactoryProjection"
 import type { FactoryProjection, FactoryRule } from "@smthrs/rpc/FactoryProjection"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -182,6 +183,7 @@ export interface TriggersSeam {
  */
 export interface TriggersRuntime {
   readonly requestRun: (repo: string, slug: string, operation?: "fire" | "resume") => Promise<string | { value: string }>
+  readonly requireJobBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   /** Human-approved registration uses the same durable launcher as other workflow requests. */
   readonly requestRegistration: (repo: string, request: TriggerRegistration) => Promise<string | { value: string }>
   /** Background work on the shared stack, under its 300 ms debounce; a string outcome is the failure line. */
@@ -1036,6 +1038,15 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
   const registerTrigger = async (request: TriggerWrite): Promise<string | void | { readonly value: string }> => {
     const target = resolveTargetRepo(ctx.store, request.repo)
     if ("error" in target) return target.error
+    if (request.operation === "register" || request.operation === "run" || request.operation === "resume") {
+      const act = request.operation === "register"
+        ? { flow: "triggers.register", args: JSON.stringify({ repo: target.repo, flow: request.flow, slug: request.slug,
+          schedule: request.schedule, input: request.input, tokens: request.tokens, minutes: request.minutes }) }
+        : { flow: request.operation === "run" ? "triggers.run" : "triggers.resume",
+          args: flowArgs(request.operation === "run" ? "triggers.run" : "triggers.resume", { slug: request.slug ?? "", repo: target.repo }) }
+      const prerequisite = runtime.requireJobBox(target.repo, act, `Open a box for schedules in ${target.repo}`)
+      if (prerequisite !== undefined) return prerequisite
+    }
     if (request.operation === "approve") return approveTrigger(request, target.repo)
     if (request.operation === "run") return runTrigger(request, target.repo)
     if (request.operation === "resume") {

@@ -20,6 +20,8 @@ import type { SetupManualRequest } from "@smthrs/rpc/RepositorySetup"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "flow.create": { readonly description: string; readonly repo: string }
+  readonly "feature.prototype": { readonly request: string; readonly repo: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "agent.session.view": { readonly sessionId: string; readonly repo: string }
   readonly "agent.session.stop": { readonly sessionId: string; readonly repo: string }
@@ -96,7 +98,7 @@ export interface FlowInput {
   readonly "setup.work": { readonly cardId: string; readonly stepId: string; readonly field?: "prompt" | "source" | "number"; readonly value?: unknown }
   readonly "setup.run": { readonly cardId: string; readonly operation: "inspect" | "evaluate" | "trial" | "apply" | "pause" | "run"; readonly manual?: SetupManualRequest }
   /** A saved registration draft; JSON input must survive the retry door verbatim. */
-  readonly "triggers.register": { readonly repo: string; readonly flow: string; readonly slug: string; readonly schedule: string; readonly input: string; readonly tokens?: number; readonly minutes?: number }
+  readonly "triggers.register": { readonly repo: string; readonly flow: string; readonly slug?: string; readonly schedule?: string; readonly input?: string; readonly tokens?: number; readonly minutes?: number }
   /** `<name> [owner/repo]` — a schedule's name holds no whitespace, so the repository trails it. */
   readonly "triggers.resume": { readonly slug: string; readonly repo?: string }
   readonly "triggers.run": { readonly slug: string; readonly repo?: string }

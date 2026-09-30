@@ -2,7 +2,7 @@ import { Data, Schema } from "effect"
 import { Plan } from "../../../../../../flows/coding/schema"
 import { decodeChangeReceipt,receiptMatchesPlan,validateTutorialPlan } from "../../cards/tutorial2-agent_change-contract"
 import { flag,line,text } from "@smthrs/ui/flow-form"
-import type { Card } from "../AppState"
+import { parseRepoSelection, type Card } from "../AppState"
 import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
 import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
@@ -75,14 +75,17 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
       const plan = validateTutorialPlan(Schema.decodeUnknownSync(Plan)(card.payload.input?.plan))
       const scope = card.payload.input?.tutorialScope as { repoKey?: string; accountLogin?: string | null } | undefined
       const session = ctx.store.session()
-      if (!scope || scope.repoKey !== session.activeRepoKey || scope.accountLogin !== (ctx.accountOwner() ?? null)) return "The repository or account changed; request a new plan."
+      const pickedSameRepo = (scope?.repoKey == null || scope.repoKey === card.payload.repo)
+        && parseRepoSelection(session.activeRepoKey ?? "")?.repoId === card.payload.repo
+      if (!scope || (scope.repoKey !== session.activeRepoKey && !pickedSameRepo) || scope.accountLogin !== (ctx.accountOwner() ?? null)) return "The repository or account changed; request a new plan."
+      const prerequisite = flows.requireBox(card.payload.repo, { flow: "agent.change.start", args: cardId }, `Open a box to start the change in ${card.payload.repo}`)
+      if (prerequisite !== undefined) return prerequisite
+      const binding = gatewayBindingFor(ctx.store, card.payload.repo)
+      if ("error" in binding) return binding.error
       // Consume before awaiting the seam: concurrent activation cannot execute twice.
       const { error: _stale, ...payload } = card.payload
       await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: { ...card, status: "acted", payload } }).isPersisted.promise
       try {
-        // No box, no run: the plan keeps its Start door and says which box to open or pick.
-        const binding = gatewayBindingFor(ctx.store, card.payload.repo)
-        if ("error" in binding) throw new ChangeRefusal(binding.error)
         await post("preflight", { repo: card.payload.repo, plan })
         const provisioned = await flows.provisionWorkspace(card.payload.repo, binding)
         if (provisioned !== true) throw new ChangeRefusal(provisioned)

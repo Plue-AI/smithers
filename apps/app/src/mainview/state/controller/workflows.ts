@@ -58,6 +58,7 @@ export interface WorkflowController {
   /** The Flows pane: the surface switch, and the same listing that fills it. */
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
   readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
+  readonly requireJobBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** `change.request`: coding/request on the prompt, continuing into coding/vibe once it validates. */
   readonly requestChange: (prompt: string, repo?: string, from?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
@@ -845,6 +846,13 @@ export const createWorkflowController = (
     return "error" in binding ? boxPrerequisite(repo, binding, act, title) : undefined
   }
 
+  const requireJobBox: WorkflowController["requireJobBox"] = (repo, act, title) => {
+    const guard = workflowIdentityGuard()
+    if (guard !== undefined) return guard
+    const binding = repositoryJobBinding(store, repo)
+    return "error" in binding ? boxPrerequisite(repo, binding, act, title) : undefined
+  }
+
   let flowsOpening = false
   let flowsOpeningGeneration = 0
 
@@ -1251,6 +1259,7 @@ export const createWorkflowController = (
     listWorkspaceWorkflows,
     showFlows,
     requireBox,
+    requireJobBox,
     runWorkflow,
     requestChange,
     planFlow,
