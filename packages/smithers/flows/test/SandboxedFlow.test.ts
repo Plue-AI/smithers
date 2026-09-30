@@ -2078,6 +2078,38 @@ describe("the guest runner in process", () => {
     expect(result.status === "failed" && result.error).toContain("exports no flow tagged \"nowhere/Flow\"")
   })
 
+  it("redacts a credential a requested tag carries in the missing-flow failure", async () => {
+    const secret = "synthetic-flow-tag-credential-NOT-A-REAL-SECRET"
+    const environment = request("unknown-secret", {
+      flow: `nowhere/Flow?password=${secret}`,
+      executionId: "in-process",
+      payload: {}
+    })
+    await Guest.run(childEntry, environment)
+    const result = resultOf(environment)
+    expect(readFileSync(environment.SMITHERS_SANDBOX_RESULT_PATH!).toString()).not.toContain(secret)
+    expect(result.status === "failed" && result.error).toContain("exports no flow tagged")
+  })
+
+  it("keeps the fields after a redacted message: a failure line is redacted once, where it is made", async () => {
+    const secret = "synthetic-double-pass-credential-NOT-A-REAL-SECRET"
+    const Crash = Action.make("review/double-pass-failure", { payload: {}, success: Schema.Void })
+    const Child = Flow.make("review/double-pass-child", {
+      payload: {},
+      success: Schema.Void,
+      body: () => Crash.call({})
+    })
+    const layer = Crash.toLayer(() =>
+      Effect.die(Object.assign(new Error(`refused: token=${secret}`), { statusCode: 503, retryAfter: 7 }))
+    )
+    const environment = request("double-pass", { flow: Child._tag, executionId: "double-pass", payload: {} })
+    await Guest.run({ Child, layer }, environment)
+    const result = resultOf(environment)
+    expect(readFileSync(environment.SMITHERS_SANDBOX_RESULT_PATH!).toString()).not.toContain(secret)
+    expect(result.status === "failed" && result.error).toContain("\"statusCode\":503")
+    expect(result.status === "failed" && result.error).toContain("\"retryAfter\":7")
+  })
+
   it("runs an entry without a layer", async () => {
     const environment = request("pure", {
       flow: pureEntry.Constant._tag,

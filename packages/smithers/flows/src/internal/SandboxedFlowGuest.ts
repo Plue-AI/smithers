@@ -296,11 +296,11 @@ export const run = async (entry: Readonly<Record<string, unknown>>, environment:
   const result = await Effect.runPromise(execute(entry, request))
   await writeFile(
     resultPath,
-    JSON.stringify(
-      Schema.encodeSync(Result)(
-        result.status === "failed" ? { ...result, error: String(redact(result.error)) } : result
-      )
-    )
+    // Every failure text is redacted where it is made. A second pass over a
+    // finished line is not harmless: the diagnostic rules treat the words after
+    // a placeholder as the rest of a credential, so a line already redacted
+    // once loses everything that follows its first placeholder.
+    JSON.stringify(Schema.encodeSync(Result)(result))
   )
 }
 
@@ -319,7 +319,9 @@ const execute = (
         attempt: request.attempt,
         capabilityCeiling,
         status: "failed",
-        error: `the entry module exports no flow tagged "${request.flow}"; export the flow the host was asked to run`
+        error: String(
+          redact(`the entry module exports no flow tagged "${request.flow}"; export the flow the host was asked to run`)
+        )
       } as const
     }
     const implementations = Layer.isLayer(entry.layer) ? entry.layer : Layer.empty
