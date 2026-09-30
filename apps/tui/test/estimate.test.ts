@@ -216,6 +216,25 @@ describe("Estimate", () => {
     expect(estimator.ledger.failure("next")?.reason).toBe("unusable-answer")
   })
 
+  it("keeps a flow run's failed estimate off the screen, and still reports a later delegated one", async () => {
+    const failures: Array<Improve.Failure> = []
+    const estimator = new Estimate.Estimator({
+      ledger: new Improve.Ledger(undefined),
+      model: async () => {
+        throw new Error("no key")
+      },
+      onFailure: (failure) => failures.push(failure)
+    })
+    estimator.request({ id: "sum-1", kind: "flow", key: "flow:sum", subject: "sum", startedAt: 0 })
+    await estimator.idle()
+    // Recorded for the eval log, never toasted over the run's form.
+    expect(estimator.ledger.failure("sum-1")).toMatchObject({ kind: "flow", reason: "model-error", message: "no key" })
+    expect(failures).toEqual([])
+    estimator.request({ id: "fix", kind: "delegate", key: "delegate", subject: "fix", startedAt: 0 })
+    await estimator.idle()
+    expect(failures.map((failure) => failure.id)).toEqual(["fix"])
+  })
+
   it("records a model error with its message, so a class fallback is never mistaken for no model", async () => {
     const file = join(scratch(), "estimates.jsonl")
     const ledger = new Improve.Ledger(file)
