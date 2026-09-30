@@ -11,6 +11,7 @@ type Entry = {
   readonly _group?: true
   readonly commands?: ReadonlyMap<string, Entry>
   readonly args?: z.ZodObject<any>
+  readonly options?: z.ZodObject<any>
   run?: (context: { readonly args: Record<string, unknown> }) => unknown
 }
 
@@ -52,7 +53,16 @@ describe("surplus positionals", () => {
       let output = ""
       let exitCode = 0
       const values = fields(entry).map((field) => field instanceof z.ZodEnum ? String(field.options[0]) : "value")
-      await cli.serve([...path, ...values, "surplus", "--format", "json"], {
+      // Review's trusted policy is a required option, independent of its
+      // variadic target arguments. Satisfy the real schema before checking
+      // positional consumption; the audit still never invokes a review job.
+      const required = path.join(" ") === "review"
+        ? ["--policy-revision", "a".repeat(40)]
+        : []
+      if (required.length > 0) {
+        expect(entry.options!.parse({ policyRevision: required[1] }).policyRevision).toBe(required[1])
+      }
+      await cli.serve([...path, ...values, "surplus", ...required, "--format", "json"], {
         env: {},
         stdout: (text) => {
           output += text

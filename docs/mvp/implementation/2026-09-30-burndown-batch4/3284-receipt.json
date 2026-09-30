@@ -1,0 +1,66 @@
+{
+  "issue": 3284,
+  "scope": "issue fix",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "3cc83a7c7a9e5b12b1bbb2416a1b64c9c4f44b6e9a45590f9b28811e49451a90",
+  "sourceSha256": {
+    "packages/smithers/test/Positionals.test.ts": "d4875f0082daa44738a456a733e36dde3cea5ee5691836e4810b962a7b6ad308"
+  },
+  "generatedSha256": {},
+  "archiveSha256": "45f8b9aa4bf2ad17311556097c1ecc9d5255b6f45e699fe2c0c2c2dc05a6e0c5",
+  "rawReceipts": {
+    "3278-3283-3284-frozen-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-3284-frozen-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-alias-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-types.json": "f444e979559482b7aa717c551e1b55021c593ed76ad2e53d71d6a7ab41318a8c",
+    "3278-3284-frozen-unit.log": "fff226d8b7466ea897bc182726d6da947addcc372b3d8f12935b56f23f7c5b72",
+    "3278-final-unit.log": "16daf0afe24e2e55d80f41da33824129bdcb6fd2ff0bb0f369373adffe373b85",
+    "3284-ready-evidence.json": "3cc83a7c7a9e5b12b1bbb2416a1b64c9c4f44b6e9a45590f9b28811e49451a90"
+  },
+  "qualification": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run test/Argv.test.ts test/UnifiedEntry.test.ts test/Positionals.test.ts test/DidYouMean.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "400 tests/4 files pass; all321 positional inventory controls retained",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3284-frozen-unit.log",
+        "sha256": "fff226d8b7466ea897bc182726d6da947addcc372b3d8f12935b56f23f7c5b72"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-types.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Unchanged strict CLI test configuration, all CLI source + Argv, Entry, MCP process, HistoryForkChild and Positionals owning tests; green",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-types.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts --max-warnings=0",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Four changed production files pass lint",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-alias-lint.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts test/Argv.test.ts test/UnifiedEntry.test.ts test/McpModeCli.test.ts test/HistoryForkChild.test.ts test/Positionals.test.ts build/build-cli/src/Audience.ts build/build-cli/test/Audience.test.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "All eleven owned files formatted",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "limitations": [
+    "Pure selected-schema/guard fixture qualification. No production source edit, no real review pipeline launch claimed."
+  ],
+  "targetIndex": null
+}
