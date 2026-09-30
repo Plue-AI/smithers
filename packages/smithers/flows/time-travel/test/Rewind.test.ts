@@ -681,6 +681,137 @@ describe("Rewind", () => {
       expect(store.state().audits).toEqual([])
     }))
 
+  describe("revalidates the frame and history generation under the claim", () => {
+    const frameOne = { lineageId: "run/root", seq: 1 } as const
+    const threeRecords = () =>
+      MemoryTimeTravelStore.make({
+        records: [baseline(), { ...baseline(), seq: 1, eventId: "event-1" }, {
+          ...baseline(),
+          seq: 2,
+          eventId: "event-2"
+        }]
+      })
+    /**
+     * A journal that holds `before` until validation finishes and `after`
+     * from then on, answering each page from the requested position.
+     */
+    const switching = (
+      before: ReadonlyArray<JournalEvent.Entry>,
+      after: ReadonlyArray<JournalEvent.Entry>,
+      overrides: Partial<Journal.Service> = {}
+    ) => {
+      const state = { validated: false }
+      const journal = Journal.makeNoop({
+        entries: ({ after: position, limit }) =>
+          Effect.sync(() => {
+            const entries = (state.validated ? after : before).filter((entry) => entry.seq > (position ?? -1))
+            return { entries: entries.slice(0, limit), hasMore: entries.length > limit }
+          }),
+        ...overrides
+      })
+      return { state, journal }
+    }
+    const attempt = (
+      journal: ReturnType<typeof switching>,
+      store: ReturnType<typeof MemoryTimeTravelStore.make> = threeRecords()
+    ) =>
+      provide(
+        Rewind.validate({ runId: "run", frame: frameOne }).pipe(
+          Effect.tap(() => Effect.sync(() => void (journal.state.validated = true))),
+          Effect.flatMap((expectedTail) =>
+            Rewind.rewind({ runId: "run", frame: frameOne, owner, auditId: "audit-revalidated", expectedTail })
+          )
+        ),
+        { store, runs: makeRuns([row("run")]), jj: makeJj("current").service, journal: journal.journal }
+      )
+    const all = [journalEntry(0), journalEntry(1), journalEntry(2)]
+
+    it.effect("refuses a frame whose record vanished below an unmoved tail", () =>
+      Effect.gen(function*() {
+        const store = threeRecords()
+        const failure = yield* Effect.flip(attempt(switching(all, [journalEntry(0), journalEntry(2)]), store))
+        expect(failure).toMatchObject({
+          code: "not_found",
+          message: "no record of lineage run/root exists at seq 1 in run"
+        })
+        expect(store.state().audits).toEqual([])
+      }))
+
+    it.effect("refuses a frame the claim's page cannot find", () =>
+      Effect.gen(function*() {
+        const journal = switching(all, all)
+        const entries = journal.journal.entries
+        const failure = yield* Effect.flip(attempt({
+          ...journal,
+          journal: {
+            ...journal.journal,
+            // The frame read alone comes back empty.
+            entries: (options) =>
+              journal.state.validated && options.limit === 1
+                ? Effect.succeed({ entries: [], hasMore: false })
+                : entries(options)
+          }
+        }))
+        expect(failure.code).toBe("not_found")
+      }))
+
+    it.effect("keeps a lineage-less record at the frame addressable", () =>
+      Effect.gen(function*() {
+        const legacy = [journalEntry(0), { ...journalEntry(1), meta: {} }, journalEntry(2)]
+        const result = yield* attempt(switching(legacy, legacy))
+        expect(result.frame).toEqual(frameOne)
+      }))
+
+    it.effect("reports a frame read failure under the claim as unknown", () =>
+      Effect.gen(function*() {
+        const journal = switching(all, all)
+        const entries = journal.journal.entries
+        const failure = yield* Effect.flip(attempt({
+          ...journal,
+          journal: {
+            ...journal.journal,
+            entries: (options) =>
+              journal.state.validated && options.limit === 1
+                ? Effect.fail(new Journal.JournalError({ code: "unknown", message: "journal offline" }))
+                : entries(options)
+          }
+        }))
+        expect(failure).toMatchObject({ code: "unknown", message: "could not read journal for run" })
+      }))
+
+    it.effect("refuses as busy when the generation advanced since validation", () =>
+      Effect.gen(function*() {
+        const store = threeRecords()
+        const journal = switching(all, all, {
+          generation: () => Effect.sync(() => ({ generation: journal.state.validated ? 1 : 0, afterSeq: -1 }))
+        })
+        const failure = yield* Effect.flip(attempt(journal, store))
+        expect(failure).toMatchObject({ code: "busy", message: "journal history was rewritten for run" })
+        expect(store.state().archived).toEqual([])
+      }))
+
+    it.effect("proceeds when the generation is the one validation read", () =>
+      Effect.gen(function*() {
+        const result = yield* attempt(switching(all, all, {
+          generation: () => Effect.succeed({ generation: 3, afterSeq: -1 })
+        }))
+        expect(result.frame).toEqual(frameOne)
+      }))
+
+    it.effect("reports an unreadable generation as unknown before any claim", () =>
+      Effect.gen(function*() {
+        const store = threeRecords()
+        const failure = yield* Effect.flip(attempt(
+          switching(all, all, {
+            generation: () => Effect.fail(new Journal.JournalError({ code: "read_failed", message: "offline" }))
+          }),
+          store
+        ))
+        expect(failure).toMatchObject({ code: "unknown", message: "could not read journal generation for run" })
+        expect(store.state().audits).toEqual([])
+      }))
+  })
+
   it.effect("suspends with state derived at the rewind frame", () =>
     Effect.gen(function*() {
       const decision = (seq: number, cursor: number): MemoryTimeTravelStore.JournalRecord => ({

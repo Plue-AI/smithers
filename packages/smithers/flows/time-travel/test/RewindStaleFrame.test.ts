@@ -56,7 +56,7 @@ const services = () => {
     interposedRuns,
     CacheStore.layer,
     SqlTimeTravelStore.layer,
-    Layer.succeed(Jj.Jj, Jj.makeNoop())
+    Layer.succeed(Jj.Jj, Jj.makeNoop({}))
   ).pipe(Layer.provideMerge(migrated))
   return TimeTravel.TimeTravel.layer.pipe(Layer.provideMerge(persistence))
 }
