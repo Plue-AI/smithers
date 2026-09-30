@@ -54,7 +54,7 @@ const packageOf = (specifier: string): string =>
 const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
   version: string
   dependencies: Record<string, string>
-  peerDependencies: Record<string, string>
+  peerDependencies?: Record<string, string>
   optionalDependencies: Record<string, string>
   devDependencies: Record<string, string>
   exports: Record<string, unknown>
@@ -111,7 +111,7 @@ describe("the flow surface's dependency boundary", () => {
   it("imports only packages the manifest declares", () => {
     const declared = new Set([
       ...Object.keys(manifest.dependencies),
-      ...Object.keys(manifest.peerDependencies),
+      ...Object.keys(manifest.peerDependencies ?? {}),
       ...Object.keys(manifest.optionalDependencies)
     ])
     const undeclared = new Map<string, ReadonlyArray<string>>()

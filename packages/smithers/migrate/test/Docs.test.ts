@@ -23,7 +23,7 @@ const readme = read("../README.md")
 const flowSource = read("../src/flow/MigrateFlow.ts")
 const manifest = JSON.parse(read("../package.json")) as {
   dependencies: Record<string, string>
-  peerDependencies: Record<string, string>
+  peerDependencies?: Record<string, string>
 }
 
 /** Every namespace `src/index.ts` re-exports, in source order. */
@@ -76,17 +76,23 @@ describe("installation contract", () => {
 
     expect(contract).toBeDefined()
     const [hard, peer] = (contract as string).split(" dependencies and ")
-    expect(peer).toBeDefined()
+    const peers = effectPackages(manifest.peerDependencies ?? {})
+    // The sentence has a peer half exactly when the manifest declares an
+    // Effect peer, and a manifest without one leaves no package called a peer.
+    expect(peer === undefined).toBe(peers.length === 0)
+    if (peers.length === 0) expect(hard).not.toMatch(/\bpeer\b/)
 
     for (const name of effectPackages(manifest.dependencies)) {
       expect(hard).toContain(`\`${name}\``)
-      expect(peer).not.toContain(`\`${name}\``)
+      expect(peer ?? "").not.toContain(`\`${name}\``)
     }
-    for (const name of effectPackages(manifest.peerDependencies)) {
+    for (const name of peers) {
       expect(peer).toContain(`\`${name}\``)
       expect(hard).not.toContain(`\`${name}\``)
     }
-    for (const half of [hard, peer]) expect(half).toContain(`\`${manifest.dependencies["effect"]}\``)
+    for (const half of peer === undefined ? [hard] : [hard, peer]) {
+      expect(half).toContain(`\`${manifest.dependencies["effect"]}\``)
+    }
   })
 })
 
