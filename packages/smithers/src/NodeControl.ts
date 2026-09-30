@@ -99,7 +99,7 @@ export type ServerOptions = ListenOptions & {
 const mcpServersFromArguments = (
   globals: Argv.Globals,
   environment: Environment
-): ReadonlyArray<McpClient.ConnectOptions> | undefined => {
+): ReadonlyArray<McpClient.StdioConnectOptions> | undefined => {
   const path = globals.mcpConfig ?? Environment_.read(environment, "SMITHERS_MCP_CONFIG")
   if (path === undefined) return undefined
   if (!existsSync(path)) {
