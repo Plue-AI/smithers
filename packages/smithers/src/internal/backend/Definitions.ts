@@ -1078,15 +1078,6 @@ export const definitions = {
       "page": z.coerce.number().describe("Page number").default(1)
     })
   },
-  "secret bind": {
-    description: "Set the hosts and headers a secret may be sent to; none unbinds it",
-    args: z.object({ "name": z.string().describe("Secret name") }),
-    options: z.object({
-      "header": z.array(z.string()).describe("Request header the value goes in (repeatable)").default([]),
-      "host": z.array(z.string()).describe("Host the secret may be sent to (repeatable)").default([]),
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional()
-    })
-  },
   "secret delete": {
     description: "Delete a secret",
     args: z.object({ "name": z.string().describe("Secret name") }),
@@ -1102,8 +1093,6 @@ export const definitions = {
     args: z.object({ "name": z.string().describe("Secret name") }),
     options: z.object({
       "body-stdin": z.boolean().describe("Read the secret value from stdin").default(false),
-      "header": z.array(z.string()).describe("Request header the value goes in (repeatable, with --host)").default([]),
-      "host": z.array(z.string()).describe("Host the secret may be sent to (repeatable, with --header)").default([]),
       "main-only": z.boolean().describe("Only trusted runs on the default bookmark receive it").default(false),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
