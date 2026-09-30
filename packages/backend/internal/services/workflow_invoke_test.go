@@ -573,7 +573,8 @@ func TestInvokedFlowJournalAndFailureReachTheRunLog(t *testing.T) {
 	logs := f.logs(t)
 	require.Len(t, logs, 2, "a re-delivered page is logged once")
 	assert.Equal(t, `node.started {"node":"echo"}`, logs[0].Entry)
-	assert.Equal(t, `node.output {"text":"calling with `+redactedSecretValue+`"}`, logs[1].Entry)
+	// A JSON string whose decoded value holds a secret is masked whole (3c321c6f47).
+	assert.Equal(t, `node.output {"text":"`+redactedSecretValue+`"}`, logs[1].Entry)
 	assert.Equal(t, steps[0].ID, logs[0].WorkflowStepID)
 	assert.Equal(t, "running", f.steps(t)[0].Status)
 	assert.Equal(t, "running", f.status(t))
