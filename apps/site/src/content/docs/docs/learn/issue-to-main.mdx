@@ -38,6 +38,38 @@ smithers api /api/repos/acme/app/mythical/bootstrap --method POST
 </TabItem>
 </Tabs>
 
+## File a TODO
+
+A TODO is an issue the factory implements. Filing one needs a GitHub login the repository's policy names as a maintainer.
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** On **History**, select **New TODO**, or enter `/history.todo Add the footer link`. A toast follows it through its checks until its pull request opens.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smithers api /api/repos/acme/app/mythical/todos --method POST --field title="Add the footer link"
+smithers history watch 42 --repo acme/app
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST /api/repos/{owner}/{repo}/mythical/todos` with `title` and an optional `body`. The response is the queued issue. `403` when your GitHub login is not a maintainer.
+
+</TabItem>
+</Tabs>
+
 ## See where each issue is
 
 <Tabs syncKey="surface">
