@@ -54469,6 +54469,125 @@ Global Options:
 
 ---
 
+# smthrs egress
+https://smithers.sh/docs/reference/cli/egress/
+
+```text
+smthrs egress — egress
+
+Usage: smthrs egress <command>
+
+Commands:
+  allow  Let the repository's sandboxes reach a host
+  deny   Take a host off the repository's egress allowlist
+  list   List the hosts the repository's sandboxes may reach
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## egress allow
+
+```text
+smthrs egress allow — Let the repository's sandboxes reach a host
+
+Usage: smthrs egress allow <host> [options]
+
+Arguments:
+  host  Host name or *.domain
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## egress deny
+
+```text
+smthrs egress deny — Take a host off the repository's egress allowlist
+
+Usage: smthrs egress deny <host> [options]
+
+Arguments:
+  host  Host name or *.domain
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## egress list
+
+```text
+smthrs egress list — List the hosts the repository's sandboxes may reach
+
+Usage: smthrs egress list [options]
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
 # smthrs environment
 https://smithers.sh/docs/reference/cli/environment/
 
@@ -61029,6 +61148,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
 | [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
 | [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
+| [`egress`](/docs/reference/cli/egress/) | egress |
 | [`environment`](/docs/reference/cli/environment/) | Run commands in saved local, SSH, or Cloud environments |
 | [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
 | [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |

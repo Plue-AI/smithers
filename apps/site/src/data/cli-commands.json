@@ -3575,6 +3575,85 @@
       }
     },
     {
+      "name": "egress allow",
+      "description": "Let the repository's sandboxes reach a host",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "Host name or *.domain"
+            }
+          },
+          "required": [
+            "host"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "egress deny",
+      "description": "Take a host off the repository's egress allowlist",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "Host name or *.domain"
+            }
+          },
+          "required": [
+            "host"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "egress list",
+      "description": "List the hosts the repository's sandboxes may reach",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "environment add",
       "description": "Save an execution location",
       "schema": {

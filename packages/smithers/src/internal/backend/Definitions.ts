@@ -548,6 +548,21 @@ export const definitions = {
     args: z.object({}),
     options: z.object({})
   },
+  "egress allow": {
+    description: "Let the repository's sandboxes reach a host",
+    args: z.object({ "host": z.string().describe("Host name or *.domain") }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
+  "egress deny": {
+    description: "Take a host off the repository's egress allowlist",
+    args: z.object({ "host": z.string().describe("Host name or *.domain") }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
+  "egress list": {
+    description: "List the hosts the repository's sandboxes may reach",
+    args: z.object({}),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
   "extension linear install": {
     description: "Configure a Linear team for a Smithers repository",
     args: z.object({}),

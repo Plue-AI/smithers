@@ -24,6 +24,7 @@ Commands:
   credentials   Manage encrypted local credentials without printing secret values
   docs          Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
   doctor        Check project discovery, providers, tools, and durable-state compatibility
+  egress        egress
   environment   Run commands in saved local, SSH, or Cloud environments
   eval          Run fixed evaluation suites and compare committed score baselines
   explain       Explain a target's actual planned cache key and local cache state

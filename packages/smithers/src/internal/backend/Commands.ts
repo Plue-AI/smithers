@@ -14,6 +14,7 @@ import { auth } from "./Auth.ts"
 import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
+import { egress } from "./Egress.ts"
 import { history, humans } from "./History.ts"
 import { local } from "./Local.ts"
 import { misc } from "./Misc.ts"
@@ -36,6 +37,7 @@ export const handlers: Record<string, Handler> = {
   ...misc,
   ...workspaces,
   ...stacks,
+  ...egress,
   ...history,
   "agent ask": ask,
   "workspace cp": copy,

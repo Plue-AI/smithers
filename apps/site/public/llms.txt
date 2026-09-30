@@ -208,6 +208,7 @@
 - [smthrs credentials](https://smithers.sh/docs/reference/cli/credentials/): Manage encrypted local credentials without printing secret values
 - [smthrs docs](https://smithers.sh/docs/reference/cli/docs/): Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
 - [smthrs doctor](https://smithers.sh/docs/reference/cli/doctor/): Report registry, database, runtime, and provider readiness
+- [smthrs egress](https://smithers.sh/docs/reference/cli/egress/): egress
 - [smthrs environment](https://smithers.sh/docs/reference/cli/environment/): Run commands in saved local, SSH, or Cloud environments
 - [smthrs eval](https://smithers.sh/docs/reference/cli/eval/): Run fixed evaluation suites and compare committed score baselines
 - [smthrs explain](https://smithers.sh/docs/reference/cli/explain/): Explain a target's actual planned cache key and local cache state
