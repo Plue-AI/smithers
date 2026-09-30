@@ -77,12 +77,18 @@ load_release() {
   release_postgres=$(field "$release_file" SMITHERS_POSTGRES_MAJOR)
 }
 state_file() { printf '%s/version.env\n' "$SMITHERS_DATA_ROOT"; }
+require_complete_upgrade() {
+  [ ! -e "$SMITHERS_DATA_ROOT/.upgrade-incomplete" ] || die "upgrade incomplete; keep the app stopped and restore the verified pre-upgrade backup with its old image into an empty database and data volume"
+}
 write_state() {
   destination=$(state_file); temporary="${destination}.tmp.$$"; umask 077
-  { printf 'SMITHERS_DISTRIBUTION_VERSION=%s\n' "$release_version"; printf 'SMITHERS_SCHEMA_VERSION=%s\n' "$release_schema"; printf 'SMITHERS_POSTGRES_MAJOR=%s\n' "$release_postgres"; } >"$temporary"
-  sync "$temporary"; mv "$temporary" "$destination"
+  { printf 'SMITHERS_DISTRIBUTION_VERSION=%s\n' "$release_version"; printf 'SMITHERS_SCHEMA_VERSION=%s\n' "$release_schema"; printf 'SMITHERS_POSTGRES_MAJOR=%s\n' "$release_postgres"; } >"$temporary" || return "$?"
+  sync "$temporary" || return "$?"
+  mv "$temporary" "$destination" || return "$?"
+  sync "$SMITHERS_DATA_ROOT"
 }
 verify_state_matches_release() {
+  require_complete_upgrade
   state=$(state_file); [ -f "$state" ] || die "state version manifest is missing; restore it with the data or initialize an empty installation"
   state_version=$(field "$state" SMITHERS_DISTRIBUTION_VERSION); state_schema=$(field "$state" SMITHERS_SCHEMA_VERSION); state_postgres=$(field "$state" SMITHERS_POSTGRES_MAJOR)
   [ "$state_version" = "$release_version" ] || die "state version ${state_version} requires an explicit upgrade to ${release_version}"

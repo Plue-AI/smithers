@@ -29,7 +29,7 @@ jobs:
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_POSTGRES_TEST_MAJOR: "18"
-        run: go test -p 1 ./distribution -run TestRealBackupRestorePostgreSQL -count=1 -v
+        run: go test -p 1 ./distribution -run 'TestRealBackupRestorePostgreSQL|TestRealFailedUpgradeRecoveryPostgreSQL|TestFailedUpgradeReportsRecovery|TestIncompleteUpgrade' -count=1 -v
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0

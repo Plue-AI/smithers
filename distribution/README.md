@@ -202,6 +202,6 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   /backups/smithers-YYYYMMDDTHHMMSSZ
 ```
 
-Migration is exclusive under the maintenance lock. The state manifest changes only after migration succeeds. Normal startup refuses a distribution, schema, or PostgreSQL version mismatch.
+Migration is exclusive under the maintenance lock. The state manifest changes only after migration succeeds. Normal startup refuses a distribution, schema, or PostgreSQL version mismatch. An interrupted upgrade blocks startup and maintenance until [recovery from the pre-upgrade backup](../packages/backend/docs/upgrade-recovery.md). Restoring returns to the backup point and loses later changes.
 
 This edition targets one host and local disk, with maintenance downtime. It makes no high availability or autoscaling claim.

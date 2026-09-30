@@ -17,6 +17,7 @@ mkdir -p "$SMITHERS_DATA_ROOT"
 chmod 700 "$SMITHERS_DATA_ROOT"
 exec 9>"$SMITHERS_DATA_ROOT/.maintenance.lock"
 flock -n 9 || die "Smithers maintenance is running; wait for it to finish before starting"
+require_complete_upgrade
 backend=${SMITHERS_BACKEND_BINARY:-/opt/smithers/bin/smithers-backend}
 for item in "$backend" /opt/smithers/bin/node /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-chat-connector /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj /opt/smithers/git/bin/git pg_dump pg_restore psql; do [ -x "$item" ] || command -v "$item" >/dev/null 2>&1 || die "packaged runtime is unavailable: $item"; done
 [ -f /opt/smithers/web/index.html ] || die "packaged web application is unavailable"
