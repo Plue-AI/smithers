@@ -304,6 +304,9 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
       void streamFrames(response.body, request.runId, publish, release)
         .catch(() => {
           if (abortController.signal.aborted) return
+          // Release before the terminal frame, as the `done` and EOF paths do:
+          // a listener may start this runId again from that frame.
+          release()
           publish({ runId: request.runId, type: "done", error: "The Smithers web agent stream failed." })
         })
         .finally(release)

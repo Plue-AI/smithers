@@ -636,7 +636,9 @@ test("unsubscribe is idempotent and preserves registration order for remaining s
 
 const failedTerminalCases = [
   { cause: "done", terminal: { runId: "run-1", type: "done" } },
-  { cause: "EOF", terminal: { runId: "run-1", type: "done", error: "The response stream ended before Smithers finished the turn." } }
+  { cause: "EOF", terminal: { runId: "run-1", type: "done", error: "The response stream ended before Smithers finished the turn." } },
+  { cause: "Error", terminal: { runId: "run-1", type: "done", error: "The Smithers web agent stream failed." } },
+  { cause: "non-Error", terminal: { runId: "run-1", type: "done", error: "The Smithers web agent stream failed." } }
 ] as const
 
 test.each([...failedTerminalCases])("$cause terminal permits immediate retry and old teardown preserves the successor cancel handle", async ({ cause, terminal: expectedTerminal }) => {
