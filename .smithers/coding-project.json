@@ -188,6 +188,22 @@
         "flows/coding/request.ts",
         "flows/coding/prototype/flow.ts"
       ],
+      "excerpts": {
+        "flows/coding/request.md": [
+          {
+            "start": 1,
+            "end": 58
+          },
+          {
+            "start": 84,
+            "end": 88
+          },
+          {
+            "start": 108,
+            "end": 166
+          }
+        ]
+      },
       "related": [
         "coding-planning",
         "coding-poc",
@@ -423,6 +439,18 @@
         "apps/tui-docs/scripts/targets.ts",
         "apps/tui-docs/package.json"
       ],
+      "excerpts": {
+        "apps/tui-docs/PACKAGE.ts": [
+          {
+            "start": 1,
+            "end": 6
+          },
+          {
+            "start": 82,
+            "end": 92
+          }
+        ]
+      },
       "related": [
         "agent",
         "runtime",
