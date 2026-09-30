@@ -336,3 +336,24 @@ test("an 18-line question keeps the focused answer and footer visible at 80 by 2
   await key("RETURN")
   expect(await answered()).toMatchObject({ answer: "total" })
 })
+
+test.each([
+  ["paste and suffix", "\x1b[200~total\x1b[201~All\r", "totalAll", true],
+  ["consecutive pastes", "\x1b[200~total\x1b[201~\x1b[200~All\x1b[201~\r", "totalAll", true],
+  ["explicit paste before arming", "\x1b[200~total\x1b[201~\r", "total", false]
+] as const)("%s survives one terminal burst", async (_name, burst, expected, armed) => {
+  await delegate("add")
+  const answered = await ask(1, "New name?", ["sum", "plus"])
+  let answer: string | undefined
+  void answered().then((result) => { answer = result.answer })
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await type("a")
+  if (armed) await settle()
+  await act(async () => {
+    setup!.renderer.stdin.emit("data", Buffer.from(burst))
+    await setImmediate()
+  })
+  await waitFor(() => answer !== undefined)
+  expect(answer).toBe(expected)
+})
