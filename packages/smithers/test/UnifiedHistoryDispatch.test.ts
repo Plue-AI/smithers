@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import type * as Bridge from "../src/cli/ControlBridge.ts"
 import { appendHistoryCommands, prepareHistoryRun, reconcileHistory } from "../src/cli/HistoryCommands.ts"
 import * as CliError from "../src/CliError.ts"
+import * as Failure from "../src/internal/Failure.ts"
 
 const ports = vi.hoisted(() => ({
   read: vi.fn(),
@@ -255,12 +256,11 @@ describe("unified historical command dispatch", () => {
     expect(JSON.parse(result.stdout)).toEqual({ code: "history_failed", message: "The path must be a directory" })
   })
 
-  it("renders non-Error rejections through the same failure contract", async () => {
+  it("renders non-Error rejections as the unknown-failure sentence without their text", async () => {
     ports.read.mockRejectedValue("Authorization: Bearer private-fixture")
     const result = await invoke(["inspect", "run-1", "--root", directory])
     expect(result.codes).toEqual([1])
-    expect(result.stdout).toContain("history_failed")
-    expect(result.stdout).toContain("[REDACTED_TOKEN]")
+    expect(JSON.parse(result.stdout)).toEqual({ code: "history_failed", message: Failure.unknownSentence })
     expect(result.stdout).not.toContain("private-fixture")
   })
 
