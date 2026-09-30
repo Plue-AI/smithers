@@ -238,6 +238,24 @@ export const factory = S.Factory({ summary: String(typeof Package) })
     await absent(root, ".smithers/factory.json")
   })
 
+  it("projects every declared budget ceiling, the USD ceiling and onExceeded included, and reds when one changes", async () => {
+    const root = await fixture()
+    const budgeted = (usd: string) =>
+      reviewFlow.replace("---\n\n#", `budget:\n  tokens: 500\n  milliseconds: 60000\n  usd: ${usd}\n  onExceeded: park\n---\n\n#`)
+    await write(root, "flows/review/flow.mdx", budgeted("2.5"))
+    const written = await serve(root, ["target", "//:factoryProjection", "--write"])
+    expect(written.exitCode, written.logs).toBe(0)
+    const projection = await projectionOf(root)
+    expect(projection.flows[0]!["budget"]).toEqual({ tokens: 500, milliseconds: 60000, usd: 2.5, onExceeded: "park" })
+    expect(projection.flows[1]).not.toHaveProperty("budget")
+    expect((await serve(root, ["lint", "//:factoryProjection"])).exitCode).toBe(0)
+
+    await write(root, "flows/review/flow.mdx", budgeted("3"))
+    const drifted = await serve(root, ["ci", "//:factoryProjection"])
+    expect(drifted.exitCode).toBe(1)
+    expect(drifted.logs).toContain("drifted from its generated form")
+  })
+
   it("writes no home pane for a factory that exports none, and refuses a stale one until --write removes it", async () => {
     const root = await fixture({ home: false })
     expect((await serve(root, ["target", "//:factoryProjection", "--write"])).exitCode).toBe(0)

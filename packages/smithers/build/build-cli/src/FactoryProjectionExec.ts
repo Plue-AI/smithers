@@ -90,7 +90,9 @@ export const discoverFlows = (
         ...(descriptor.budget === undefined ? {} : {
           budget: {
             ...(descriptor.budget.tokens === undefined ? {} : { tokens: descriptor.budget.tokens }),
-            ...(descriptor.budget.milliseconds === undefined ? {} : { milliseconds: descriptor.budget.milliseconds })
+            ...(descriptor.budget.milliseconds === undefined ? {} : { milliseconds: descriptor.budget.milliseconds }),
+            ...(descriptor.budget.usd === undefined ? {} : { usd: descriptor.budget.usd }),
+            ...(descriptor.budget.onExceeded === undefined ? {} : { onExceeded: descriptor.budget.onExceeded })
           }
         }),
         model: Option.getOrNull(descriptor.model),
