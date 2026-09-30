@@ -20,6 +20,7 @@ import { SubmitApprovalOutput } from "@smthrs/gateway/GatewayRpcs"
 import { WORKFLOW_RPC_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { Option, Schema } from "effect"
 import { cloudFailure } from "../seams/CloudClient"
+import { flowPageRequest, TOO_MANY_FLOWS, walkFlowPages } from "../FlowPages"
 import { errorCodeOf, gatewayRefusalSentence, workspaceAnswerSentence } from "./GatewayFailureCopy"
 
 /**
@@ -250,12 +251,16 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
   return {
     call,
 
-    /** Every flow the workspace has discovered. */
-    listFlows: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<FlowSummary>>> =>
-      map(await call(repo, "List", { _tag: "flows" }, binding), (value) => {
-        const items = asRecord(value).items
-        return (Array.isArray(items) ? items : [])
-          .map((entry) => asRecord(entry))
+    /** Every flow the workspace has discovered, every page of it. */
+    listFlows: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<FlowSummary>>> => {
+      const walked = await walkFlowPages<GatewayResult<never>>(async (cursor) => {
+        const listed = await call(repo, "List", flowPageRequest(cursor), binding)
+        return listed.status === "ok" ? { ok: true, page: listed.value } : { ok: false, refusal: listed }
+      }, { status: "error", message: TOO_MANY_FLOWS })
+      if (!walked.ok) return walked.refusal
+      return {
+        status: "ok",
+        value: walked.items
           .filter((entry) => typeof entry.flowId === "string")
           .map((entry): FlowSummary => ({
             flowId: entry.flowId as string,
@@ -264,7 +269,8 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
               : null,
             ...(entry.inputSchema === undefined ? {} : { inputSchema: entry.inputSchema })
           }))
-      }),
+      }
+    },
 
     /**
      * What a flow WOULD run: its keyed nodes and the edges between them,

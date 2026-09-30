@@ -29,6 +29,7 @@ import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures
 import { repositoryJobBinding, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { actorSharedState } from "../ActorBindings"
+import { flowPageRequest, TOO_MANY_FLOWS, walkFlowPages } from "../FlowPages"
 import { accountOwnerOf } from "../AccountOwner"
 import { captureCloudOwner, refusalWords, unreachableSentence } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
@@ -374,38 +375,18 @@ const relayTo = async (
   return { ok: false, message: workspaceAnswerSentence(body) }
 }
 
-/** The most flow pages one walk reads: 50 pages of 100 flows. */
-const FLOW_PAGE_CAP = 50
-export const TOO_MANY_FLOWS = "The workspace lists more flows than Smithers reads."
-
-/**
- * Every flow the workspace has discovered. The workspace answers 100 at a
- * time (ControlSchema.defaultPageSize), so the registrar or the chosen flow
- * may sit on any page: walk `nextCursor` until the workspace names none,
- * repeats one, or answers an empty page; past FLOW_PAGE_CAP pages it refuses.
- * The walk also stops early once `live` turns false; the caller re-checks the
- * same predicate and discards the partial list.
- */
+/** Every flow the workspace has discovered, through the one cursor walker (FlowPages.ts). */
 const workspaceFlows = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,
   repo: string,
   workspaceId: string,
   live: () => boolean
 ): Promise<{ readonly ok: true; readonly items: ReadonlyArray<Record<string, unknown>> } | { readonly ok: false; readonly message: string }> => {
-  const items: Array<Record<string, unknown>> = []
-  const walked = new Set<string>()
-  let cursor: string | undefined
-  for (let pages = 0; ; pages++) {
-    if (pages === FLOW_PAGE_CAP) return { ok: false, message: TOO_MANY_FLOWS }
-    const listed = await relayTo(ctx, repo, "List", cursor === undefined ? { _tag: "flows" } : { _tag: "flows", cursor }, workspaceId)
-    if (!listed.ok) return listed
-    const page = (Array.isArray(listed.value.items) ? listed.value.items : []).filter(isRecord)
-    items.push(...page)
-    const next = listed.value.nextCursor
-    if (page.length === 0 || typeof next !== "string" || next === "" || walked.has(next) || !live()) return { ok: true, items }
-    walked.add(next)
-    cursor = next
-  }
+  const walked = await walkFlowPages<string>(async (cursor) => {
+    const listed = await relayTo(ctx, repo, "List", flowPageRequest(cursor), workspaceId)
+    return listed.ok ? { ok: true, page: listed.value } : { ok: false, refusal: listed.message }
+  }, TOO_MANY_FLOWS, live)
+  return walked.ok ? walked : { ok: false, message: walked.refusal }
 }
 
 /** One canonical repository-job action, with its typed refusal kept whole. */

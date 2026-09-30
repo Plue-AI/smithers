@@ -397,6 +397,49 @@ test("an approval snapshot waits for resume with the original workspace binding"
   expect(requests[1]?.workspaceId).toBe("workspace-a")
 })
 
+test("the flows list reads every page of a catalog past the first 100 flows (#3146)", async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const first = Array.from({ length: 100 }, (_, index) => ({ flowId: `flow-${index}`, description: "" }))
+  const seam = createGatewaySeam({
+    baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      bodies.push(body)
+      const cursor = (body.payload as { cursor?: string }).cursor
+      return Response.json(cursor === undefined
+        ? { ok: true, payload: { _tag: "flows", items: first, nextCursor: "page-2" } }
+        : { ok: true, payload: { _tag: "flows", items: [{ flowId: "flow-100", description: "last" }] } })
+    },
+    errorMessageOf: async (_response, fallback) => fallback
+  })
+  const listed = await seam.listFlows("o/r")
+  expect(listed.status).toBe("ok")
+  const flows = listed.status === "ok" ? listed.value : []
+  expect(flows).toHaveLength(101)
+  expect(flows[100]).toEqual({ flowId: "flow-100", description: "last" })
+  expect(bodies.map((body) => body.payload)).toEqual([{ _tag: "flows" }, { _tag: "flows", cursor: "page-2" }])
+  expect(bodies.every((body) => body.workspaceId === "box-1")).toBe(true)
+})
+
+test("a refused second flows page is the listing's refusal, never a truncated catalog", async () => {
+  let calls = 0
+  const seam = createGatewaySeam({
+    baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
+    fetch: async () => {
+      calls++
+      return Response.json(calls === 1
+        ? { ok: true, payload: { items: [{ flowId: "a" }], nextCursor: "page-2" } }
+        : { ok: false, error: { detail: { code: "flow_not_found" }, message: "gone" } })
+    },
+    errorMessageOf: async (_response, fallback) => fallback
+  })
+  const listed = await seam.listFlows("o/r")
+  expect(listed.status).toBe("error")
+  expect(calls).toBe(2)
+})
+
 test("the flows list waits while a box's coding host starts (#2198)", async () => {
   let calls = 0
   const seam = createGatewaySeam({
