@@ -101,6 +101,14 @@ it("UI typecheck skips TypeScript when strict devkit preparation fails in a clea
       name: "ui-devkit-refusal", private: true, type: "module", packageManager: rootManifest.packageManager
     }))
     copyFileSync(join(root, "pnpm-lock.yaml"), join(temporary, "pnpm-lock.yaml"))
+    // Every host binary a projected declaration names must be declared by the
+    // workspace, so read them from the same declarations the fixture copies.
+    const hostBins = [...new Set(
+      [...libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`), "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"]
+        .filter((path) => existsSync(join(root, path)))
+        .flatMap((path) => [...readFileSync(join(root, path), "utf8").matchAll(/\bHost\.bin\(\s*"([^"]+)"/g)].map(([, name]) => name))
+    )].sort()
+    assert.ok(hostBins.includes("bun"), "the projected declarations name S.Host.bin(\"bun\")")
     write("WORKSPACE.ts", `import { Smithers as S } from "@smthrs/targets"
 const packageJson = S.file("//package.json")
 export const Workspace = S.Workspace("ui-devkit-refusal", {
@@ -109,8 +117,7 @@ export const Workspace = S.Workspace("ui-devkit-refusal", {
   runtime: S.Runtime.Node({ version: ">=26.4.0" }),
   packageManager: S.PackageManager.Pnpm({ manifest: packageJson, lockfile: S.file("//pnpm-lock.yaml") }),
   nodeModules: S.Npm.NodeModules({ packageJson }),
-  // The projected package declarations name S.Host.bin("bun").
-  host: S.Host({ bins: ["bun"] }),
+  host: S.Host({ bins: ${JSON.stringify(hostBins)} }),
   sandboxes: S.Sandboxes({ default: S.Sandbox.None() })
 })
 `)
@@ -147,18 +154,22 @@ if (process.argv[2] === "--version") console.log(${JSON.stringify(rootManifest.p
 else { writeFileSync(${JSON.stringify(tscMarker)}, JSON.stringify(process.argv.slice(2))); process.exit(91) }
 `)
     chmodSync(pnpm, 0o755)
-    // Evaluating a SecurityReview checks that each check path names a file the
-    // review reads, so copy each file the projected declarations name. A
-    // declaration file is left out, so the projection's own WORKSPACE.ts and
-    // PACKAGE.ts files stay the only ones discovered.
+    // Evaluating a SecurityReview checks that each check path and each trust
+    // boundary's caller, authorization, service and storage/egress path names
+    // a file, so copy each file the projected declarations name. A `//` path
+    // is anchored at the repository root and any other at the declaring
+    // directory, as the review anchors them. A declaration file is left out,
+    // so the projection's own WORKSPACE.ts and PACKAGE.ts files stay the only
+    // ones discovered.
     for (const declaration of [...libraryDeclarations, "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"]) {
       const directory = dirname(declaration)
       const source = readFileSync(join(root, declaration), "utf8")
-      const patterns = [...source.matchAll(/\bpaths: \[([^\]]*)\]/g)]
+      const patterns = [...source.matchAll(/\b(?:paths|caller|authorization|service|storageOrEgress): \[([^\]]*)\]/g)]
         .flatMap(([, list]) => [...list.matchAll(/"([^"]+)"/g)].map(([, pattern]) => pattern))
       for (const pattern of patterns) {
-        for (const match of globSync(pattern, { cwd: join(root, directory), exclude: (name) => name === "node_modules" })) {
-          const path = join(directory, match)
+        const [base, relative] = pattern.startsWith("//") ? [".", pattern.slice(2)] : [directory, pattern]
+        for (const match of globSync(relative, { cwd: join(root, base), exclude: (name) => name === "node_modules" })) {
+          const path = join(base, match)
           if (/(?:^|\/)(?:WORKSPACE|PACKAGE)\.ts$/.test(path) || !statSync(join(root, path)).isFile()) continue
           if (!existsSync(join(temporary, path))) copyFileSync(join(root, path), write(path, ""))
         }
