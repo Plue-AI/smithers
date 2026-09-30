@@ -1913,6 +1913,8 @@ interface Spend {
   started: number
   modelCalls: number
   promptTokens: number
+  /** Records the spend durably; runs after every charge and before its call is issued. */
+  persist: Effect.Effect<void, LlmReviewError>
 }
 
 /** Charges one model call against the budget and returns that call's timeout. */
@@ -1958,7 +1960,10 @@ const reviewBatch = (
         return { prompt, policy, timeoutMs: charge(spend, tokens, runtime.timeoutMs) }
       },
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
-    }),
+    }).pipe(
+      // Charge, then call: a process killed mid-call has already recorded the spend a resume must keep.
+      Effect.tap(() => spend.persist)
+    ),
     ({ policy, prompt, timeoutMs }) =>
       runtime.cliOverride
         ? invokeEngine(
@@ -2366,7 +2371,13 @@ export const review = (
       },
       catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
     })
-    const spend: Spend = { budget: payload.budget, started: Date.now(), modelCalls: 0, promptTokens: 0 }
+    const spend: Spend = {
+      budget: payload.budget,
+      started: Date.now(),
+      modelCalls: 0,
+      promptTokens: 0,
+      persist: Effect.void
+    }
     const usage = () =>
       payload.budget === undefined
         ? {}
@@ -2575,6 +2586,7 @@ export const review = (
         },
         catch: storeError
       })
+    spend.persist = persist({})
     const sources = new Map(
       [...context, ...changed, ...relations.files.values()].map((file) => [file.path, file.contents])
     )

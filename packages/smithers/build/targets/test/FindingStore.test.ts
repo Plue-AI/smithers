@@ -488,6 +488,31 @@ describe("LlmLint.review containment follow-up", () => {
     expect(await calls()).toBe(1)
   })
 
+  it("records each call's charge before issuing it, so a killed process never frees its spend", async () => {
+    const executable = Path.join(root, "engine.mjs")
+    const seen = Path.join(root, "calls.log")
+    // The engine captures the run record as it stands when the call arrives, then is killed.
+    await Fs.writeFile(
+      executable,
+      "#!/usr/bin/env node\nimport { appendFileSync, readdirSync, readFileSync } from \"node:fs\"\n" +
+        "for await (const _ of process.stdin) {}\n" +
+        `const runs = ${JSON.stringify(Path.join(store, "runs"))}\n` +
+        "for (const name of readdirSync(runs)) {\n" +
+        "  const usage = JSON.parse(readFileSync(`${runs}/${name}`, \"utf8\")).usage\n" +
+        `  appendFileSync(${JSON.stringify(seen)}, JSON.stringify(usage) + "\\n")\n` +
+        "}\n" +
+        "process.kill(process.pid, \"SIGKILL\")\n",
+      { mode: 0o755 }
+    )
+    await Effect.runPromise(Effect.flip(review(executable, { budget: { modelCalls: 3 } })))
+    const usages = (await Fs.readFile(seen, "utf8")).split("\n").filter(Boolean).map((line) =>
+      JSON.parse(line) as LlmLint.RunRecord["usage"]
+    )
+    // The call found its own charge already on disk.
+    expect(usages.map(({ modelCalls }) => modelCalls)).toEqual([1])
+    expect(usages[0]!.promptTokens).toBeGreaterThan(0)
+  })
+
   it("refuses a FIFO record without waiting for a writer", async () => {
     const cli = await engine({ findings: { "src/a.ts": [danger] } })
     await Effect.runPromise(review(cli.executable))

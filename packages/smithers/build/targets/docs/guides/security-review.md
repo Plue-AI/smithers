@@ -195,7 +195,8 @@ and parse failures fail every security review.
 time, each call's timeout shrinking to what remains; no call starts with
 under a second left. A resumed run keeps
 counting the calls, tokens and time its earlier invocations spent, failed
-calls included. A call that would exceed a
+calls included; each charge is recorded before its call is sent, so even a
+killed process keeps it. A call that would exceed a
 bound is not sent, is never retried, and fails the review. A budgeted report
 includes its `usage`. Interrupting a review stops its model calls.
 
