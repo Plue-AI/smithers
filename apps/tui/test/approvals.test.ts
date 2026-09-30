@@ -481,6 +481,7 @@ describe("read-only declarations", () => {
       "tree -L 2",
       "head -5 a",
       "jq '.a' x.json",
+      "printf -- '%s' x",
       "git log HEAD~1 -1",
       "cat '~/x' \\~/y",
       ""
@@ -551,6 +552,15 @@ describe("read-only declarations", () => {
     ], false)
     expect(Approvals.readOnly("node --test ../check.mjs", root, join(root, "scripts"))).toBe("runs")
     expect(Approvals.readOnly("node --test ../../outside.mjs", root, join(root, "scripts"))).toBe(false)
+  })
+
+  it("refuses every printf option, since -v sets a variable a later command obeys", () => {
+    reads(workspace(), [
+      "printf -v HOME %s /abs/dir && git status",
+      "printf -v PATH %s /x; ls",
+      "printf -vHOME x",
+      "printf --help"
+    ], false)
   })
 
   it("refuses code that is not a script file inside the workspace, or reaches it through its input", () => {

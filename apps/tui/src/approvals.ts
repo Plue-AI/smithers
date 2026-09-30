@@ -414,7 +414,6 @@ const plain = new Set([
   "jq",
   "ls",
   "md5sum",
-  "printf",
   "pwd",
   "realpath",
   "sha256sum",
@@ -551,6 +550,8 @@ const readers: Readonly<Record<string, Reader>> = {
       "--word-diff"
     ]
   },
+  // `-v` assigns a shell variable, such as `HOME` or `PATH` for a later command.
+  printf: { options: ["--"] },
   rg: {
     letters: "aABcCeEfFgHiIjlLmMnNopPqrsStTuUvwx0",
     options: [
