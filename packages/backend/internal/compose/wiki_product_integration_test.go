@@ -111,6 +111,10 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 			rec := request("GET", suffix+separator+"visibility=private", auth, "", "")
 			require.True(t, rec.Code == 403 || rec.Code == 401, "%s: %d %s", suffix, rec.Code, rec.Body.String())
 			require.NotContains(t, rec.Body.String(), "private [[Home")
+			if auth == outsiderToken && rec.Code == 403 {
+				// A readable repository's private space refuses with its own code.
+				require.Contains(t, rec.Body.String(), `"code":"wiki_space_unreadable"`, suffix)
+			}
 		}
 	}
 	rec := request("GET", "/home", "", "", "")
@@ -177,4 +181,8 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 	require.NoError(t, err)
 	rec = request("GET", "/home", "", "", "")
 	require.NotEqual(t, 200, rec.Code)
+	// A private repository never names its private space to an outsider.
+	rec = request("GET", "/navigation/index?visibility=private", outsiderToken, "", "")
+	require.NotEqual(t, 200, rec.Code)
+	require.NotContains(t, rec.Body.String(), "wiki_space_unreadable")
 }

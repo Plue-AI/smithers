@@ -15,6 +15,8 @@ Prefix `/api/repos/{owner}/{repo}/wiki`. All wiki routes accept `?visibility=pub
 
 `public` means repository-readable: a private repository stays private. `private` requires explicit repository access (owner, authorized organization/team member or collaborator); incidental public-repository read permission is insufficient. Writes require existing repository write access. Visibility is immutable; publication requires an explicit copy. Private edits do not dispatch repository wiki webhooks or publish to the public repository history sidecar.
 
+A viewer who can read a repository but not its private space gets 403 with code `wiki_space_unreadable`, so a client can say so instead of retrying. A repository the viewer cannot read refuses with the generic `forbidden` code and never discloses its private space.
+
 ## Pages and navigation
 
 Existing list/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions, document, updates and SSE routes remain. Page DTO:

@@ -210,6 +210,7 @@ const (
 	CodeGitHubUnavailable         Code = "github_unavailable"
 	CodeListingSecretDetected     Code = "listing_secret_detected"
 	CodeWikiUnavailable           Code = "wiki_unavailable"
+	CodeWikiSpaceUnreadable       Code = "wiki_space_unreadable"
 	CodeSSEUnavailable            Code = "sse_unavailable"
 	CodeRepositoryHeld            Code = "repository_held"
 	CodePushTooSlow               Code = "push_too_slow"
@@ -519,6 +520,8 @@ var registry = map[Code]Entry{
 	CodeListingSecretDetected: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The share listing contains something that scans as a credential; it was not published."},
 	// The wiki's collaboration backend is not answering.
 	CodeWikiUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "The wiki's collaboration backend is not answering."},
+	// A readable repository's private wiki needs explicit repository access.
+	CodeWikiSpaceUnreadable: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator)."},
 	// plue's event-stream tier could not open the stream: the LISTEN backing
 	// it failed, or the broker refused the subscription. The stream was never
 	// established, so a client loses nothing by reconnecting.

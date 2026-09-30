@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client"
 import type { ReactNode } from "react"
 import { payloadFor } from "../flows/SlashPayload"
 import type { Card, WikiIndexRow, WorldDocument } from "../state/AppState"
-import { CLOUD_WIKI_PAGE_FAILURES, WIKI_INDEX_FAILURE } from "../wiki/CloudWikiFailure"
+import { CLOUD_WIKI_PAGE_FAILURES, WIKI_INDEX_FAILURE, WIKI_SPACE_UNREADABLE } from "../wiki/CloudWikiFailure"
 import type { CloudWikiState } from "../wiki/CloudWikiState"
 import { WikiTree } from "../wiki/WikiNavigation"
 import { BROWSER_READ_FAILURE, BrowserCardBody, ConnectCardBody, INTEGRATION_FAILURES, WorldCardBody } from "./ConversationCards"
@@ -163,6 +163,27 @@ describe("a Wiki space whose index could not be read", () => {
     expect(retry.textContent).toBe("Retry")
     retry.click()
     expect(calls).toEqual([{ name: "wiki.space", payload: { space: "private", repo: "acme/app" } }])
+  })
+
+  test("a private space the viewer cannot read says so as the person's fault, with no Retry", () => {
+    const raw = "the private wiki needs repository access"
+    const row: WikiIndexRow = { ...index(raw), errorCode: "wiki_space_unreadable" }
+    const host = render(<WikiTree scope={{ repo: "acme/app", space: "private", index: row }} documents={[]} selectedId={undefined} onRunCommand={() => {}} />)
+    const notice = host.querySelector<HTMLElement>('[data-testid="wiki-tree-error"]')!
+    expect(notice.dataset.failure).toBe("WikiSpaceUnreadable")
+    expect(notice.dataset.fault).toBe("user")
+    expect(sentenceOf(notice)).toBe(WIKI_SPACE_UNREADABLE.sentence)
+    expect(sentenceOf(notice)).not.toBe(WIKI_INDEX_FAILURE.sentence)
+    expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+    expect(notice.querySelector("button")).toBeNull()
+  })
+
+  test("another refusal code keeps the generic retryable notice", () => {
+    const row: WikiIndexRow = { ...index("permission denied"), errorCode: "forbidden" }
+    const host = render(<WikiTree scope={{ repo: "acme/app", space: "private", index: row }} documents={[]} selectedId={undefined} onRunCommand={() => {}} />)
+    const notice = host.querySelector<HTMLElement>('[data-testid="wiki-tree-error"]')!
+    expect(notice.dataset.failure).toBe("WikiIndexFailed")
+    expect(notice.querySelector("button")?.textContent).toBe("Retry")
   })
 
   test("a read index draws no notice", () => {

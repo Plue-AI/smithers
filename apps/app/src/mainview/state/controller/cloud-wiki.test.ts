@@ -598,6 +598,7 @@ describe("wiki spaces", () => {
       private: [{ id: 9, slug: "home", title: "Home", path: "Home.md", revision: 1, updated_at: "2026-09-26T00:00:00Z", author: { id: 1, login: "will" }, created_at: "2026-09-26T00:00:00Z", visibility: "private", content_digest: "d".repeat(64), metadata: { frontmatter: null, aliases: [], tags: ["secret"], headings: ["Home"], links: [] }, backlinks: [] }]
     }
     let renameStatus = 200
+    let privateIndexRefusal: string | undefined
     const services: AppServices = {
       fetchImpl: async (input, init) => {
         const url = String(input)
@@ -606,6 +607,9 @@ describe("wiki spaces", () => {
         const at = match[1] as "public" | "private"
         const path = url.split("?")[0]!
         requests.push({ method: init?.method ?? "GET", url, ...(init?.body === undefined ? {} : { body: typeof init.body === "string" ? init.body : "<bytes>" }), ...(new Headers(init?.headers).get("content-type") === null ? {} : { type: new Headers(init?.headers).get("content-type")! }) })
+        if (path.endsWith("/navigation/index") && at === "private" && privateIndexRefusal !== undefined) {
+          return Response.json({ code: privateIndexRefusal, message: "the private wiki needs repository access" }, { status: 403 })
+        }
         if (path.endsWith("/navigation/index")) return Response.json({ pages: pages[at], folders: [...new Set(pages[at].flatMap((page) => String(page.path).includes("/") ? [String(page.path).split("/")[0]] : []))], tags: [...new Set(pages[at].flatMap((page) => (page.metadata as { tags: string[] }).tags))] })
         if (/\/history\/\d+$/.test(path)) return Response.json([
           { page_id: 1, revision: 3, path: "Home.md", title: "Home", content_digest: "a".repeat(64), deleted: false, author: { id: 1, login: "will" }, updated_at: "2026-09-26T03:00:00Z" },
@@ -637,8 +641,21 @@ describe("wiki spaces", () => {
     ctx.resolveToast = () => {}
     const wiki = createCloudWikiController(ctx, () => 1)
     cleanup.push(() => ctx.dispose())
-    return { store, ctx, wiki, requests, toasts, refuseRename: () => { renameStatus = 409 } }
+    return {
+      store, ctx, wiki, requests, toasts,
+      refuseRename: () => { renameStatus = 409 },
+      refusePrivateIndex: (code: string) => { privateIndexRefusal = code }
+    }
   }
+
+  test.each(["wiki_space_unreadable", "forbidden"])("a refused private index keeps the server's %s code on its row", async (code) => {
+    const f = await space()
+    f.refusePrivateIndex(code)
+    expect(await f.wiki.setWikiSpace("private", repo)).toBeUndefined()
+    await until(() => f.wiki.wikiIndexes.get("owner/repo", "private") !== undefined)
+    expect(f.wiki.wikiIndexes.get("owner/repo", "private")).toMatchObject({ pages: [], errorCode: code })
+    expect(f.wiki.wikiIndexes.get("owner/repo", "private")!.error).toBeTruthy()
+  })
 
   test("the index of each space lands in its own row, and switching the space re-reads it", async () => {
     const f = await space()

@@ -574,16 +574,23 @@ func (s *WikiService) requireReadAccess(ctx context.Context, repository db.Repos
 	if repository.IsPublic && wikiVisibility(ctx) == "public" {
 		return nil
 	}
-	if viewer == nil {
-		return pkgerrors.Forbidden("permission denied")
+	// Only a repository the viewer may already see gets the typed refusal, so
+	// it never discloses a private repository's existence.
+	unreadable := pkgerrors.Forbidden("permission denied")
+	if repository.IsPublic {
+		unreadable = pkgerrors.New(pkgerrors.CodeWikiSpaceUnreadable, "the private wiki needs repository access")
 	}
-	repository.IsPublic = false // Private scope requires explicit membership, never incidental public read.
-	allowed, err := s.canReadRepo(ctx, repository, viewer.ID)
+	if viewer == nil {
+		return unreadable
+	}
+	explicit := repository
+	explicit.IsPublic = false // Private scope requires explicit membership, never incidental public read.
+	allowed, err := s.canReadRepo(ctx, explicit, viewer.ID)
 	if err != nil {
 		return err
 	}
 	if !allowed {
-		return pkgerrors.Forbidden("permission denied")
+		return unreadable
 	}
 	return nil
 }

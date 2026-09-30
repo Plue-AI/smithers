@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:48bbd536da56877ccc99c44818a10965bc6979b8b1ffd5e2b2eef60821152b10"
+export const PLUE_FAILURE_DIGEST = "sha256:22ee435b073d3ee910a93c92b4546326b680c4828ea5e82357d32c3051a65b3f"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -185,6 +185,7 @@ export const PLUE_FAILURE_CODES = [
   "user_ref_push_too_large",
   "user_ref_stack",
   "validation_failed",
+  "wiki_space_unreadable",
   "wiki_unavailable",
   "worker_draining",
   "worker_error",
@@ -466,6 +467,8 @@ export const PLUE_FAILURES = {
   "user_ref_stack": { fault: "user", status: 409, retryAfter: 0 },
   /** One or more fields failed validation; the errors array names each one. */
   "validation_failed": { fault: "user", status: 422, retryAfter: 0 },
+  /** The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator). */
+  "wiki_space_unreadable": { fault: "user", status: 403, retryAfter: 0 },
   /** The wiki's collaboration backend is not answering. */
   "wiki_unavailable": { fault: "infra", status: 503, retryAfter: 1 },
   /** The worker is draining and takes no new placements. */

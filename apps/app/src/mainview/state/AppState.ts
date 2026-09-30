@@ -187,6 +187,8 @@ export const WikiIndexRowSchema = z.object({
   tags: z.array(z.string()),
   /** The read's refusal, verbatim, when the index could not be read; the rows then are the last read's. */
   error: z.string().optional(),
+  /** The refusal's server code, when it stated one. */
+  errorCode: z.string().optional(),
   loadedAt: z.number()
 })
 export type WikiIndexRow = z.infer<typeof WikiIndexRowSchema>

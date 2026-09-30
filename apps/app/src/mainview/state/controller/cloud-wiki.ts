@@ -79,11 +79,11 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         try { listener() } catch (error) { ctx.failures.report("wiki.index.listener", error) }
       }
     }
-    const setIndex = (repo: string, space: WikiSpace, answer: Pick<WikiIndexRow, "pages" | "folders" | "tags"> | { readonly error: string; readonly retainMetadata?: boolean }) => {
+    const setIndex = (repo: string, space: WikiSpace, answer: Pick<WikiIndexRow, "pages" | "folders" | "tags"> | { readonly error: string; readonly errorCode?: string; readonly retainMetadata?: boolean }) => {
       const id = wikiIndexRowId(repo, space)
       const existing = "error" in answer && answer.retainMetadata ? indexes.get(id) : undefined
       indexes.set(id, "error" in answer
-        ? { id, repo, space, pages: existing?.pages ?? [], folders: existing?.folders ?? [], tags: existing?.tags ?? [], error: answer.error, loadedAt: Date.now() }
+        ? { id, repo, space, pages: existing?.pages ?? [], folders: existing?.folders ?? [], tags: existing?.tags ?? [], error: answer.error, ...(answer.errorCode === undefined ? {} : { errorCode: answer.errorCode }), loadedAt: Date.now() }
         : { id, repo, space, ...answer, loadedAt: Date.now() })
       notifyIndexes()
     }
@@ -412,6 +412,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
 
   const indexFailure = (error: unknown) => ({
     error: refusal(error),
+    ...(error instanceof CloudWikiError && error.code !== undefined ? { errorCode: error.code } : {}),
     retainMetadata: !(error instanceof CloudWikiError) || error.status === undefined ||
       error.status === 408 || error.status === 429 || error.status >= 500
   })

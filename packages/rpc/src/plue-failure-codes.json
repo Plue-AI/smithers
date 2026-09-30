@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:48bbd536da56877ccc99c44818a10965bc6979b8b1ffd5e2b2eef60821152b10",
+  "digest": "sha256:22ee435b073d3ee910a93c92b4546326b680c4828ea5e82357d32c3051a65b3f",
   "faults": [
     "user",
     "wait",
@@ -822,6 +822,13 @@
       "status": 422,
       "retry_after": 0,
       "doc": "One or more fields failed validation; the errors array names each one."
+    },
+    {
+      "code": "wiki_space_unreadable",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator)."
     },
     {
       "code": "wiki_unavailable",

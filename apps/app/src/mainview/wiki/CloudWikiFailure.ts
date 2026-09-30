@@ -25,6 +25,15 @@ export const WIKI_INDEX_FAILURE: UserFailureCopy = {
   actions: ["retry"]
 }
 
+/** A readable repository's private space refused the viewer (`wiki_space_unreadable`): no retry helps. */
+export const WIKI_SPACE_UNREADABLE: UserFailureCopy = {
+  fault: "user",
+  sentence: "This private Wiki needs access to the repository.",
+  actions: []
+}
+
 /** The failure a space's stored index refusal stands for, or null when the read succeeded. */
-export const wikiIndexFailure = (index: Pick<WikiIndexRow, "error">): UserFailure | null =>
-  index.error === undefined ? null : describedFailure("WikiIndexFailed", WIKI_INDEX_FAILURE, index.error)
+export const wikiIndexFailure = (index: Pick<WikiIndexRow, "error" | "errorCode">): UserFailure | null =>
+  index.error === undefined ? null :
+  index.errorCode === "wiki_space_unreadable" ? describedFailure("WikiSpaceUnreadable", WIKI_SPACE_UNREADABLE, index.error) :
+  describedFailure("WikiIndexFailed", WIKI_INDEX_FAILURE, index.error)

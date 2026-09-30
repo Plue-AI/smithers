@@ -86,6 +86,8 @@ export type CloudWikiIndex = z.infer<typeof CloudWikiIndex>
 export class CloudWikiError extends Data.TaggedError("CloudWikiError")<{
   readonly sentence: string
   readonly status?: number
+  /** The server's failure code (`wiki_space_unreadable`, ...) when it stated one. */
+  readonly code?: string
 }> {
   /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
   override get message(): string { return this.sentence }
@@ -232,7 +234,11 @@ export const makeCloudWikiTransport = (
         const value = await config.http(url(path), { ...init, signal })
         if (!value.ok) {
           const failure = await cloudFailure(value, `Reading or saving this Wiki page failed (${value.status}).`)
-          throw new CloudWikiError({ sentence: failure.error, status: value.status })
+          throw new CloudWikiError({
+            sentence: failure.error,
+            status: value.status,
+            ...(failure.code === null ? {} : { code: failure.code })
+          })
         }
         return value
       },
