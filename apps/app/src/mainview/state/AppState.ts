@@ -1743,7 +1743,6 @@ export type AppTransition =
   /* One repository job's host registration read: requested, then completed or failed. */
   | { type: "repository-job.observed"; actor: "system"; observation: RepositoryJobObservation }
   /* The repository's declared flows landed (or went absent: an empty list) from its factory projection. */
-  | { type: "repository-job.observed"; actor: "system"; observation: RepositoryJobObservation }
   | { type: "repository-flows.loaded"; actor: "system"; repo: string; flows: ReadonlyArray<RepositoryFlow>; home?: RepositoryFlowsRow["home"] }
   /* The whole of one flow's measured history, replacing whatever was read before. */
   | { type: "flow-durations.loaded"; actor: "system"; repo: string; workspaceId?: string; flowId: string; rows: ReadonlyArray<{ readonly actionTag: string; readonly samples: number; readonly p50Ms: number; readonly p90Ms: number }> }
