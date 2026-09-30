@@ -247,7 +247,7 @@ describe("legacy operator command contracts", () => {
     const agent = Agents.agents[0]!
     const result = await invoke(["mcp", "add", "--agent", agent.id, "--json"])
     expect(result.failure).toBeUndefined()
-    expect(ports.addMcp).toHaveBeenCalledExactlyOnceWith(agent, undefined)
+    expect(ports.addMcp).toHaveBeenCalledExactlyOnceWith(agent, undefined, {})
     expect(JSON.parse(result.stdout)).toEqual([{ agent: agent.id, path: `/fixture/${agent.id}`, status: "written" }])
   })
 
