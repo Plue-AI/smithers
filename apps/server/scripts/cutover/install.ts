@@ -15,8 +15,9 @@
  * fsynced journal intent exists. Restore redeploys the exact original version id
  * and touches only versions this execution owns. Exit 2 prints {"refused":CODE}.
  */
-import { createHash } from "node:crypto"
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs"
+import { createHash, randomUUID } from "node:crypto"
+import { closeSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs"
+import { hostname } from "node:os"
 import { isAbsolute, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { accountURL, api, type Binding, type Settings } from "./cloudflare"
@@ -235,10 +236,59 @@ const appendJournal = (root: string, planSHA256: string, entry: Omit<JournalEntr
   const fd = openSync(path, "a", 0o600)
   try { writeSync(fd, line + "\n"); fsyncSync(fd) } finally { closeSync(fd) }
 }
+// ---- Lock: one installer process per private directory; a provably dead owner's lock is recovered. ----
+interface LockOwner { pid: number; executionID: string; startedAt: string; host: string; processStart: string | null; nonce: string }
+const LOCK = "install.lock"
+/** The OS start time of `pid`, which a reused PID cannot share; null when it cannot be read. */
+const processStart = (pid: number): string | null => {
+  const run = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 10_000, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } })
+  const start = run.status === 0 && typeof run.stdout === "string" ? run.stdout.trim() : ""
+  return start === "" ? null : start
+}
+const pidExists = (pid: number) => {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as { code?: string }).code !== "ESRCH" }
+}
+/**
+ * dead only when the recorded owner provably no longer runs: same host and
+ * execution, and its PID is gone or now names a process with another start
+ * time. Anything unreadable or unrecorded is unknown and keeps the lock.
+ */
+export const lockOwnerState = (owner: unknown, executionID: string): "live" | "dead" | "unknown" => {
+  const o = owner as Partial<LockOwner> | null
+  if (!o || typeof o !== "object" || !Number.isSafeInteger(o.pid) || o.pid! <= 0 || o.executionID !== executionID || o.host !== hostname() ||
+    typeof o.processStart !== "string" || !o.processStart || typeof o.nonce !== "string" || !o.nonce) return "unknown"
+  if (!pidExists(o.pid!)) return "dead"
+  const start = processStart(o.pid!)
+  return start === null ? "unknown" : start === o.processStart ? "live" : "dead"
+}
+const acquireLock = (root: string, executionID: string): LockOwner => {
+  const path = resolve(root, LOCK)
+  const owner: LockOwner = { pid: process.pid, executionID, startedAt: new Date().toISOString(), host: hostname(), processStart: processStart(process.pid), nonce: randomUUID() }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { writeFileSync(path, JSON.stringify(owner), { mode: 0o600, flag: "wx" }); return owner } catch (e) { if ((e as { code?: string }).code !== "EEXIST") throw e }
+    let held: string
+    try { held = readFileSync(path, "utf8") } catch (e) { if ((e as { code?: string }).code === "ENOENT") continue; throw e }
+    let parsed: unknown = null
+    try { parsed = JSON.parse(held) } catch { /* unreadable owner: unknown */ }
+    if (lockOwnerState(parsed, executionID) !== "dead") fail("CF_INSTALL_LOCKED")
+    // Move the dead owner's lock aside atomically, then prove it was that exact lock before taking over.
+    const tomb = resolve(root, `${LOCK}.dead-${(parsed as LockOwner).pid}-${randomUUID()}`)
+    try { renameSync(path, tomb) } catch (e) { if ((e as { code?: string }).code === "ENOENT") continue; throw e }
+    if (readFileSync(tomb, "utf8") !== held) {
+      // A newer owner took the lock in between: put it back untouched and refuse.
+      try { linkSync(tomb, path); rmSync(tomb) } catch { fail("CF_INSTALL_LOCK_CONTENDED") }
+      fail("CF_INSTALL_LOCKED")
+    }
+    // The tomb stays beside the journal as the receipt of this recovery.
+  }
+  return fail("CF_INSTALL_LOCKED")
+}
 const withLock = async <T>(root: string, executionID: string, body: () => Promise<T>): Promise<T> => {
-  const path = resolve(root, "install.lock")
-  try { writeFileSync(path, JSON.stringify({ pid: process.pid, executionID, startedAt: new Date().toISOString() }), { mode: 0o600, flag: "wx" }) } catch { fail("CF_INSTALL_LOCKED") }
-  try { return await body() } finally { rmSync(path, { force: true }) }
+  const owner = acquireLock(root, executionID), path = resolve(root, LOCK)
+  try { return await body() } finally {
+    // Release only this process's own lock, never one another operator holds.
+    try { if ((JSON.parse(readFileSync(path, "utf8")) as Partial<LockOwner>).nonce === owner.nonce) rmSync(path) } catch { /* already gone */ }
+  }
 }
 
 // ---- Gate authorization hook: a fresh, exact, per-step decision; never a standing yes. ----

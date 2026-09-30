@@ -37,6 +37,16 @@ fresh plan against that provider state.
 
 ## Refusals and recovery
 
+`install.lock` admits one `apply` or `restore` process per private directory.
+When that process dies, the next `apply` or `restore` for the same execution
+on the same host takes the lock over, but only after proving the recorded
+owner gone: its PID no longer exists, or now names a process with a different
+start time. The dead lock is kept beside the journal as
+`install.lock.dead-<pid>-<id>`. A live owner, another host or execution, or an
+owner whose identity cannot be read still refuses with `CF_INSTALL_LOCKED`.
+Every step after the takeover still needs its fresh gate authorization and the
+usual journal and provider ownership checks.
+
 `CF_RESTORE_PREVIEWS_DRIFT` preserves a changed workers.dev setting.
 `CF_RESTORE_PREVIEWS_UNCERTAIN` preserves disabled previews when a disable or
 restore write has an unknown outcome. An intent alone cannot establish that

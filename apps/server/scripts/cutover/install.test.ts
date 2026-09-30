@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 import { stable } from "./deployment"
 import { CLOUDFLARE_PRODUCERS, collectCloudflareFence, privateArtifact } from "./fence"
 import { FakeCloudflare } from "./install-fake"
-import { applyPhase, installStatus, loadPlan, MAINTENANCE_SECRETS, prepareInstall, readJournal, restoreAll } from "./install"
+import { applyPhase, installStatus, loadPlan, lockOwnerState, MAINTENANCE_SECRETS, prepareInstall, readJournal, restoreAll } from "./install"
 
 setDefaultTimeout(60_000) // each step spawns the real authorization hook process
 const keys = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]) as CryptoKeyPair
@@ -578,4 +578,93 @@ test("a KV-backed Durable Object class is refused: the alarm marker needs SQLite
   writeFileSync(join(root, "recipient.json"), JSON.stringify({ migrationId: executionID, privateJwk, token: TOKEN, expiresAt: new Date(Date.now() + 6 * 3_600_000).toISOString() }), { mode: 0o600 })
   fake = new FakeCloudflare({}, ["RecoDurableObject"]).install()
   await expect(prepareInstall(root)).rejects.toThrow("CF_INSTALL_KV_BACKED_OBJECT")
+})
+
+// ---- #2628: a killed installer's lock is recovered only after proving its owner dead ----
+const psStart = (pid: number) => Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], { env: { ...process.env, LC_ALL: "C", TZ: "UTC" } }).stdout.toString().trim()
+const deadPid = async () => { const child = Bun.spawn(["true"]); await child.exited; return child.pid }
+
+/** Runs the real installer CLI in a child Bun process whose Cloudflare requests reach this process's fixture. */
+const childInstaller = (fake: FakeCloudflare, root: string, args: string[], trap: (method: string, path: string) => "before" | "after" | undefined) => {
+  const loopback = fake.serve(root, trap)
+  const child = Bun.spawn(["bun", "--preload", loopback.preload, join(import.meta.dir, "install.ts"), ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env } })
+  return { child, held: loopback.held, stop: loopback.stop }
+}
+
+for (const point of ["before", "after"] as const) {
+  test(`a SIGKILLed apply ${point} the provider accepts its upload leaves a lock that resume and restore recover`, async () => {
+    const { root, planSHA256, plan, originals, fake } = await setup()
+    hook(root)
+    const worker = "smithers-cloud-chat-canary"
+    const run = childInstaller(fake, root, ["apply", root, planSHA256, "admission"], (method, path) => method === "PUT" && path.startsWith(`/workers/scripts/${worker}?`) ? point : undefined)
+    try {
+      await run.held
+      const lock = JSON.parse(readFileSync(join(root, "install.lock"), "utf8")) as { pid: number; executionID: string; processStart: string }
+      expect(lock.pid).toBe(run.child.pid)
+      expect(lock.executionID).toBe(plan.executionID)
+      // A concurrent operator is refused while the owner is alive.
+      await expect(restoreAll(root, planSHA256)).rejects.toThrow("CF_INSTALL_LOCKED")
+      await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_LOCKED")
+      run.child.kill("SIGKILL")
+      await run.child.exited
+      expect(run.child.signalCode).toBe("SIGKILL")
+    } finally { run.stop() }
+    expect(() => process.kill(run.child.pid, 0)).toThrow()
+    expect(existsSync(join(root, "install.lock"))).toBe(true)
+    const events = readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "admission").map(e => e.event)
+    expect(events).toEqual(["authorized", "intent"])
+    expect(fake.live(worker).id === originals[worker]).toBe(point === "before")
+
+    if (point === "before") {
+      // The provider never saw the upload: apply resumes under a fresh authorization and completes the phase.
+      await applyPhase(root, planSHA256, "admission")
+      expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "admission").map(e => e.event)).toEqual(["authorized", "intent", "authorized", "intent", "uploaded", "verified"])
+      expect(fake.live(worker).entry).toBe("cutover-admission-entry.js")
+    }
+    // Restore adopts only this execution's annotated version and redeploys the exact original.
+    const results = await restoreAll(root, planSHA256)
+    expect(results.find(r => r.worker === worker)).toEqual({ worker, outcome: "restored" })
+    expect(results.every(r => r.outcome !== "refused")).toBe(true)
+    expect(fake.live(worker).id).toBe(originals[worker]!)
+    expect(fake.workers.get("smithers-cloud-identity")!.subdomain.previews_enabled).toBe(true)
+    expect(existsSync(join(root, "install.lock"))).toBe(false)
+    // The dead owner's lock is kept as the recovery receipt.
+    const tombs = readdirSync(root).filter(f => f.startsWith("install.lock.dead-"))
+    expect(tombs).toHaveLength(1)
+    expect(tombs[0]!.startsWith(`install.lock.dead-${run.child.pid}-`)).toBe(true)
+  })
+}
+
+test("a lock is taken over only from a provably dead owner of this execution on this host", async () => {
+  const { root, planSHA256, plan } = await setup()
+  hook(root)
+  const path = join(root, "install.lock"), dead = await deadPid()
+  const owner = { pid: dead, executionID: plan.executionID, startedAt: new Date().toISOString(), host: hostname(), processStart: psStart(process.pid), nonce: randomUUID() }
+  expect(lockOwnerState(owner, plan.executionID)).toBe("dead")
+  expect(lockOwnerState({ ...owner, pid: process.pid }, plan.executionID)).toBe("live")
+  // A reused PID names a process with another start time: the recorded owner is gone.
+  expect(lockOwnerState({ ...owner, pid: process.pid, processStart: "Thu Jan  1 00:00:00 1970" }, plan.executionID)).toBe("dead")
+  for (const ambiguous of [{ ...owner, executionID: randomUUID() }, { ...owner, host: `${hostname()}-other` }, { ...owner, processStart: null }, { ...owner, nonce: "" }, { ...owner, pid: 0 }, null, {}]) {
+    expect(lockOwnerState(ambiguous, plan.executionID)).toBe("unknown")
+    const bytes = JSON.stringify(ambiguous)
+    writeFileSync(path, bytes, { mode: 0o600 })
+    await expect(restoreAll(root, planSHA256)).rejects.toThrow("CF_INSTALL_LOCKED")
+    expect(readFileSync(path, "utf8")).toBe(bytes)
+    rmSync(path)
+  }
+  writeFileSync(path, "not json", { mode: 0o600 })
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_LOCKED")
+  rmSync(path)
+  // A live owner keeps its lock; the same PID with a foreign start time is recovered.
+  const live = JSON.stringify({ ...owner, pid: process.pid })
+  writeFileSync(path, live, { mode: 0o600 })
+  await expect(restoreAll(root, planSHA256)).rejects.toThrow("CF_INSTALL_LOCKED")
+  expect(readFileSync(path, "utf8")).toBe(live)
+  const reused = JSON.stringify({ ...owner, pid: process.pid, processStart: "Thu Jan  1 00:00:00 1970" })
+  writeFileSync(path, reused, { mode: 0o600 })
+  expect((await restoreAll(root, planSHA256)).every(r => r.outcome === "already-original")).toBe(true)
+  expect(existsSync(path)).toBe(false)
+  const tombs = readdirSync(root).filter(f => f.startsWith(`install.lock.dead-${process.pid}-`))
+  expect(tombs).toHaveLength(1)
+  expect(readFileSync(join(root, tombs[0]!), "utf8")).toBe(reused)
 })

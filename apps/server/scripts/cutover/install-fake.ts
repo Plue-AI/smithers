@@ -6,6 +6,8 @@
  * not the deployed version; only /versions/{id} describes one exact version.
  */
 import { createHash, randomUUID } from "node:crypto"
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { accountURL } from "./cloudflare"
 import { CLOUDFLARE_PRODUCERS } from "./fence"
 
@@ -97,7 +99,39 @@ export class FakeCloudflare {
   private settings(v: FakeVersion) {
     return { ...v.settings, annotations: { "workers/message": v.message }, bindings: [...v.bindings, ...Object.keys(v.secrets).sort().map(name => ({ type: "secret_text", name }))] }
   }
-  private async handle(request: Request): Promise<Response> {
+  /**
+   * Serves this fixture over loopback to operator CLIs run as real child
+   * processes: `bun --preload <preload> ...` sends their Cloudflare API calls
+   * here. `trap` may hold one request, before or after the fixture accepts it,
+   * so a test can kill the child or drop the response at exactly that point;
+   * `held` resolves when it does.
+   */
+  serve(directory: string, trap: (method: string, path: string) => "before" | "after" | "drop-after" | undefined = () => undefined) {
+    let reached!: () => void
+    const held = new Promise<void>(resolve => { reached = resolve })
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const url = new URL(request.url), path = url.pathname.slice("/acct".length) + url.search, hold = trap(request.method, path)
+        if (hold === "before") { reached(); return new Promise<Response>(() => {}) }
+        const response = await this.handle(new Request(accountURL + path, { method: request.method, headers: request.headers, body: request.method === "GET" ? undefined : await request.arrayBuffer() }))
+        if (hold === "after") { reached(); return new Promise<Response>(() => {}) }
+        // The provider committed the request, then the connection closed before any response.
+        if (hold === "drop-after") { reached(); server.stop(true); return new Promise<Response>(() => {}) }
+        return response
+      }
+    })
+    const preload = join(directory, `loopback-preload-${randomUUID()}.ts`)
+    writeFileSync(preload, `const account = ${JSON.stringify(accountURL)}, proxy = ${JSON.stringify(`${server.url.origin}/acct`)}, real = globalThis.fetch
+globalThis.fetch = (async (input, init) => {
+  const request = new Request(input, init)
+  if (!request.url.startsWith(account)) return real(request)
+  const body = request.method === "GET" ? undefined : await request.arrayBuffer()
+  return real(proxy + request.url.slice(account.length), { method: request.method, headers: request.headers, body, signal: init?.signal })
+})\n`, { mode: 0o600 })
+    return { preload, held, stop: () => server.stop(true) }
+  }
+  handle = async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
     if (!url.href.startsWith(accountURL)) return new Response("unexpected network", { status: 599 })
     const path = url.pathname.slice(new URL(accountURL).pathname.length), method = request.method
