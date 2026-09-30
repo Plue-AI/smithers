@@ -25,6 +25,7 @@ import * as GatewaySchema from "../src/GatewaySchema.ts"
 import * as GatewayServer from "../src/GatewayServer.ts"
 import * as NodeGateway from "../src/node/NodeGateway.ts"
 import * as Projections from "../src/Projections.ts"
+import * as RunHistory from "../src/RunHistory.ts"
 import * as RuntimeBridge from "../src/RuntimeBridge.ts"
 
 const packageRoot = Path.join(Path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -52,6 +53,7 @@ const modules = [
   ["GatewayRpcs", GatewayRpcs, declaredTypes("GatewayRpcs.ts")],
   ["GatewayServer", GatewayServer, declaredTypes("GatewayServer.ts")],
   ["Projections", Projections, declaredTypes("Projections.ts")],
+  ["RunHistory", RunHistory, declaredTypes("RunHistory.ts")],
   ["RuntimeBridge", RuntimeBridge, declaredTypes("RuntimeBridge.ts")],
   ["node/NodeGateway", NodeGateway, declaredTypes("node/NodeGateway.ts")]
 ] as const

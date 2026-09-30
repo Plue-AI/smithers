@@ -212,6 +212,7 @@ describe("GatewayProjection.runSummary", () => {
     expect(Object.keys(row)).not.toContain("planId")
     expect(Object.keys(row)).not.toContain("cancellation")
     expect(Object.keys(row)).not.toContain("steeringPending")
+    expect(Object.keys(row)).not.toContain("deadlineAt")
   })
 
   it("carries every optional field the run does have", () => {
@@ -225,7 +226,8 @@ describe("GatewayProjection.runSummary", () => {
         roundOrdinal: 2,
         waitingReason: "approval",
         steering: { pending: 3 },
-        cancellation: { requestedAt: 5, source: "control", reason: "stop" }
+        cancellation: { requestedAt: 5, source: "control", reason: "stop" },
+        deadlineAt: 1_800_010
       },
       [event("control.agent.turn-opened", { seat: "opus", contextDigest: "ctx" })]
     )
@@ -238,6 +240,7 @@ describe("GatewayProjection.runSummary", () => {
       waitingReason: "approval",
       steeringPending: 3,
       cancellation: { source: "control", reason: "stop" },
+      deadlineAt: 1_800_010,
       seat: "opus"
     })
   })

@@ -51,6 +51,7 @@
     "./RunTrace": "./src/RunTrace.ts",
     "./EngineTrace": "./src/EngineTrace.ts",
     "./RunDevTools": "./src/RunDevTools.ts",
+    "./RunHistory": "./src/RunHistory.ts",
     "./SuperviseRuntime": null,
     "./test/TestSuperviseRuntime": null
   },
@@ -221,6 +222,16 @@
         "require": {
           "types": "./dist/cjs/RunDevTools.d.ts",
           "default": "./dist/cjs/RunDevTools.js"
+        }
+      },
+      "./RunHistory": {
+        "import": {
+          "types": "./dist/esm/RunHistory.d.ts",
+          "default": "./dist/esm/RunHistory.js"
+        },
+        "require": {
+          "types": "./dist/cjs/RunHistory.d.ts",
+          "default": "./dist/cjs/RunHistory.js"
         }
       },
       "./SuperviseRuntime": null,

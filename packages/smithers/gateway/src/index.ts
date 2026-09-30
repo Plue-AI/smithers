@@ -59,6 +59,11 @@ export * as GatewayServer from "./GatewayServer.ts"
 export * as Projections from "./Projections.ts"
 
 /**
+ * @since 1.0.0 @category rpc
+ */
+export * as RunHistory from "./RunHistory.ts"
+
+/**
  * @since 1.0.0 @category runtime bridge
  */
 export * as RuntimeBridge from "./RuntimeBridge.ts"

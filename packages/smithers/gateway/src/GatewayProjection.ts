@@ -50,6 +50,8 @@ export const RunSummaryRow = Schema.Struct({
   waitingReason: Schema.optional(Schema.String),
   steeringPending: Schema.optional(Schema.Number),
   cancellation: Schema.optional(ControlSchema.Cancellation),
+  /** When the run's approved deadline passes; absent for a run with none. */
+  deadlineAt: Schema.optional(Schema.Number),
   /** The model seat the run's last opened turn ran on. */
   seat: Schema.optional(Schema.String),
   turns: Schema.Number,
@@ -311,6 +313,7 @@ export const runSummary = (
     ...optional("waitingReason", run.waitingReason),
     ...optional("steeringPending", run.steering?.pending),
     ...optional("cancellation", run.cancellation),
+    ...optional("deadlineAt", run.deadlineAt),
     ...optional("seat", facts.seat),
     turns: facts.turns,
     calls: facts.calls,

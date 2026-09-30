@@ -33,7 +33,7 @@ import type * as ControlSchema from "@smthrs/control/ControlSchema"
 import * as ControlServer from "@smthrs/control/ControlServer"
 import { SyncRpcs } from "@smthrs/sync/SyncRpcs"
 import * as SyncServer from "@smthrs/sync/SyncServer"
-import { Effect, Layer, Schema, Stream, type Types } from "effect"
+import { Effect, Layer, Option, Schema, Stream, type Types } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
@@ -41,6 +41,7 @@ import { GatewayError, settingRefusal } from "./GatewayError.ts"
 import { GatewayRpcs } from "./GatewayRpcs.ts"
 import * as GatewaySchema from "./GatewaySchema.ts"
 import { heartbeatIntervalMillis, Projections } from "./Projections.ts"
+import * as RunHistory from "./RunHistory.ts"
 import * as RuntimeBridge from "./RuntimeBridge.ts"
 
 /**
@@ -86,6 +87,12 @@ export const layerHandlers = GatewayRpcs.toLayer(
   Effect.gen(function*() {
     const projections = yield* Projections
     const control = yield* Control
+    // Only a host that owns the project's stores can fork or verify its runs.
+    const history = yield* Effect.serviceOption(RunHistory.RunHistory)
+    const historyHost = Option.match(history, {
+      onNone: () => Effect.fail(new ControlError.Unavailable({ feature: "run history", ticket: "smithers#3242" })),
+      onSome: Effect.succeed
+    })
     return GatewayRpcs.of({
       "Projection.Snapshot": Effect.fn("Gateway.snapshot")(
         ({ selector, after }) => projections.snapshot(selector, after),
@@ -155,7 +162,15 @@ export const layerHandlers = GatewayRpcs.toLayer(
             ? yield* control.approve(payload)
             : yield* control.deny(payload)
           return { decision }
-        }), Effect.tapCause(ControlServer.logDefect))
+        }), Effect.tapCause(ControlServer.logDefect)),
+      "Run.Fork": Effect.fn("Gateway.fork")(
+        (input) => Effect.flatMap(historyHost, (host) => host.fork(input)),
+        Effect.tapCause(ControlServer.logDefect)
+      ),
+      "Run.Verify": Effect.fn("Gateway.verify")(
+        (input) => Effect.flatMap(historyHost, (host) => host.verify(input)),
+        Effect.tapCause(ControlServer.logDefect)
+      )
     })
   })
 )

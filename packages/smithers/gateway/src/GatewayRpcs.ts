@@ -19,6 +19,7 @@ import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { GatewayError } from "./GatewayError.ts"
 import * as GatewaySchema from "./GatewaySchema.ts"
+import * as RunHistory from "./RunHistory.ts"
 
 /**
  * The decision a client submits for one approval.
@@ -118,7 +119,14 @@ const submitErrors = Schema.Union([
 ])
 
 /**
- * The gateway read path and the composite approval mutation.
+ * The failures `Run.Fork` and `Run.Verify` answer with: the history host's own
+ * refusal, or `Unavailable` from a gateway composed without one.
+ */
+const historyErrors = Schema.Union([RunHistory.HistoryRefused, ControlError.Unavailable])
+
+/**
+ * The gateway read path, the composite approval mutation, and the run
+ * history procedures.
  *
  * `Approval.Submit` is the transport form of Control's single decision
  * command. Control records the decision and durable resume delegation; the
@@ -152,5 +160,19 @@ export const GatewayRpcs = RpcGroup.make(
     payload: SubmitApprovalInput,
     success: SubmitApprovalOutput,
     error: submitErrors
+  }),
+  /* Branches a run at a recorded frame into a parked child, as `smthrs runs fork`. */
+  Rpc.make("Run.Fork", {
+    defect: ControlRpcs.ControlDefect,
+    payload: RunHistory.ForkInput,
+    success: RunHistory.ForkOutput,
+    error: historyErrors
+  }),
+  /* Reports what a resume under the current flow code would replay, as `smthrs runs verify`. */
+  Rpc.make("Run.Verify", {
+    defect: ControlRpcs.ControlDefect,
+    payload: RunHistory.VerifyInput,
+    success: RunHistory.VerifyReport,
+    error: historyErrors
   })
 ).middleware(ControlRpcs.ControlAuth)
