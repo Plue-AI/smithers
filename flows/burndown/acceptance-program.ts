@@ -1,5 +1,6 @@
 /** Source inserted into the existing exact-model reviewer, never a second seat. */
 import { parseAcceptanceReview, validateAcceptance } from "./acceptance.ts"
+import { validateLandingReceipt, validateMemberAcceptance } from "./landing-receipt.ts"
 
 export const acceptanceReviewPrelude = () =>
   String.raw`
@@ -48,14 +49,32 @@ import { dirname as acceptanceDirname } from "node:path";
 ${validateAcceptance.toString()}
 const [path,acceptancePath,memberJson,revision,...changes] = process.argv.slice(1);
 const member = JSON.parse(memberJson);
-const record = JSON.parse(readFileSync(acceptancePath,"utf8"));
-validateAcceptance(record.receipt,record.context);
-if (record.context.repo!==member.repo || record.context.revision!==revision || changes.length!==member.commits.length) throw new Error("PUSHED_RECEIPT_INVALID");
+${validateMemberAcceptance.toString()}
+${validateLandingReceipt.toString()}
+if (changes.length!==member.commits.length) throw new Error("PUSHED_RECEIPT_INVALID");
 const landed = changes.map((change,index) => ({issue:member.commits[index].issue,sha:execFileSync("jj",["--ignore-working-copy","log","--no-graph","-r",change,"-T","commit_id"],{encoding:"utf8",timeout:60_000}).trim()}));
-if (landed.at(-1)?.sha!==revision || landed.some(item=>!/^[0-9a-f]{40}$/.test(item.sha)) || record.receipt.issues.length!==landed.length || landed.some(item=>!record.receipt.issues.some(source=>source.issue===item.issue))) throw new Error("PUSHED_RECEIPT_INVALID");
+if (landed.at(-1)?.sha!==revision) throw new Error("PUSHED_RECEIPT_INVALID");
+const fact = validateLandingReceipt({version:2,phase:"landed",key:member.key,repo:member.repo,commits:member.commits,landed},member);
+console.log("LANDING_CONFIRMED "+JSON.stringify(fact));
+const record = acceptancePath === "-" ? undefined : JSON.parse(readFileSync(acceptancePath,"utf8"));
+const saved = record === undefined ? fact : validateLandingReceipt({...fact,phase:"verified",acceptance:record},member);
 const temporary=path+".pending";
-writeFileSync(temporary,JSON.stringify({version:1,key:member.key,repo:member.repo,commits:member.commits,landed,acceptance:record})+"\n",{mode:0o600});
+writeFileSync(temporary,JSON.stringify(saved)+"\n",{mode:0o600});
 const fd=openSync(temporary,"r"); try{fsyncSync(fd);}finally{closeSync(fd);}
 renameSync(temporary,path);
 const directoryFd=openSync(acceptanceDirname(path),"r"); try{fsyncSync(directoryFd);}finally{closeSync(directoryFd);}
+`
+
+/** A read-only probe lets embedded verified evidence survive standalone-file loss. */
+export const verifiedReceiptProgram = () =>
+  String.raw`
+import {readFileSync} from "node:fs";
+${validateAcceptance.toString()}
+${validateMemberAcceptance.toString()}
+${validateLandingReceipt.toString()}
+try {
+  const [path,memberJson]=process.argv.slice(1);
+  const saved=validateLandingReceipt(JSON.parse(readFileSync(path,"utf8")),JSON.parse(memberJson));
+  if(saved.version!==1 && saved.phase!=="verified") process.exit(1);
+} catch {process.exit(1);}
 `

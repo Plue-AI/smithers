@@ -35,6 +35,7 @@ function withReviewAccounts(script: string, root: string) {
   const source = "join(homedir(), \".smithers/accounts\")"
   assert.ok(script.includes(source))
   return script.replace(source, `join(${JSON.stringify(home)}, ".smithers/accounts")`)
+    .replace("set -eu", "set -eu\nexport BURNDOWN_REVIEW_ACCOUNT=claude-1")
 }
 
 // Substitute only external CLIs: package discovery and subprocess ordering run in real temporary repositories.
@@ -314,7 +315,7 @@ test("generated landing shell persists a red receipt and never bookmarks or push
   await chmod(join(f.bin, "git"), 0o755)
   const result = spawnSync("sh", [
     "-c",
-    landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
+    landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] })
   ], {
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, FAIL_CHECK: "typecheck" },
@@ -463,7 +464,7 @@ test("a changed member SHA after green verification refuses bookmark and push", 
   t.after(() => rm(receipt, { force: true }))
   const result = spawnSync("sh", [
     "-c",
-    landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
+    landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] })
   ], {
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, CHANGE_SHA: "1" },
@@ -661,7 +662,7 @@ test("successful diff verdict without issue acceptance never permits landing rev
 
 test("acceptance existence and stale rejected-push receipts never classify an unpushed failure as delivered", async (t) => {
   const key = `test-pushed-failure-${process.pid}-${Date.now()}`
-  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] }
   const revision = "a".repeat(40)
   const path = join(homedir(), "Smithers-Ops/burndown/landings", `${key}.acceptance.json`)
   await mkdir(dirname(path), { recursive: true })
@@ -748,7 +749,7 @@ test("public landing receipt orchestration checks current acceptance before any 
   for (const changed of [false, true]) {
     const f = await fixture(t, {})
     const key = `test-receipt-orchestration-${process.pid}-${Date.now()}-${changed}`
-    const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+    const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] }
     const revision = "a".repeat(40)
     const criterion = changed ? "Old acceptance." : "Acceptance complete."
     const record = {
@@ -824,7 +825,7 @@ console.log(JSON.stringify(outcome));`
 
 test("retained pushed receipt is bound to the same assignment, issues and repository acceptance", async (t) => {
   const key = `test-pushed-binding-${process.pid}-${Date.now()}`
-  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] }
   const revision = "a".repeat(40)
   const path = join(homedir(), "Smithers-Ops/burndown/landings", `${key}.pushed.json`)
   await mkdir(dirname(path), { recursive: true })
@@ -839,6 +840,7 @@ test("retained pushed receipt is bound to the same assignment, issues and reposi
       context: {
         repo: member.repo,
         revision,
+        commits: member.commits,
         issues: [{ issue: 1, body: "Acceptance complete." }],
         checks: "CHECKS_PASSED"
       },
@@ -1141,7 +1143,7 @@ async function completeLandingFixture(t: test.TestContext) {
         [
           "-c",
           withReviewAccounts(
-            landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] }),
+            landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "a".repeat(40) }] }),
             f.root
           )
         ],
@@ -1201,6 +1203,36 @@ test("partial native identity can land with its full acceptance explicitly remai
   assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
 })
 
+test("cold already-landed READY automatically verifies acceptance without rebasing or pushing", async (t) => {
+  const f = await completeLandingFixture(t)
+  await writeFile(f.commandLog + ".pushed", "already present on remote main")
+  const result = f.runLanding()
+  assert.equal(result.status, 0, result.stderr)
+  const receipts = join(homedir(), "Smithers-Ops/burndown/landings")
+  const acceptance = JSON.parse(await readFile(join(receipts, `${f.key}.acceptance.json`), "utf8"))
+  assert.equal(acceptance.receipt.revision, "a".repeat(40))
+  assert.equal(acceptance.receipt.issues[0].disposition, "complete")
+  const commands = await f.commands()
+  assert.equal(commands.filter((args) => args[0] === "pnpm" && args.at(-1) === "typecheck").length, 2)
+  assert.equal(commands.filter((args) => args[0] === "claude" && args.includes("-p")).length, 1)
+  assert.ok(!commands.some((args) => args.includes("push") || args.includes("rebase")))
+})
+
+test("cold landed verification failure retains authoritative landing without completing acceptance", async (t) => {
+  const f = await completeLandingFixture(t)
+  await writeFile(f.commandLog + ".pushed", "already remote")
+  const result = f.runLanding({ GH_ACCEPTANCE_FAIL: "1" })
+  assert.notEqual(result.status, 0)
+  const pushed = JSON.parse(
+    await readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.pushed.json`), "utf8")
+  )
+  assert.equal(pushed.version, 2)
+  assert.equal(pushed.phase, "landed")
+  assert.equal(pushed.acceptance, undefined)
+  assert.match(result.stdout, /^LANDING_CONFIRMED /m)
+  assert.ok(!(await f.commands()).some((args) => args.includes("push") || args.includes("rebase")))
+})
+
 test("missing acceptance and issue provider failure block pipeline push", async (t) => {
   for (const extra of [{ ACCEPTANCE_SUPPRESS: "1" }, { GH_ACCEPTANCE_FAIL: "1" }]) {
     const f = await completeLandingFixture(t)
@@ -1255,12 +1287,17 @@ test("replaying a reconciled landing returns its SHA without rebase, checks, or 
   const pushedPath = join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.pushed.json`)
   const durable = await readFile(pushedPath, "utf8")
   assert.equal(JSON.parse(durable).acceptance.receipt.issues[0].disposition, "complete")
+  await rm(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.acceptance.json`))
   const before = (await f.commands()).length
   const retry = f.runLanding()
   assert.equal(retry.status, 0, retry.stderr)
   assert.match(retry.stdout, /^LANDED 1 a{40}$/m)
   const replay = (await f.commands()).slice(before)
-  assert.ok(!replay.some((args) => args.includes("rebase") || args.includes("push") || args[0] === "pnpm"))
+  assert.ok(
+    !replay.some((args) =>
+      args.includes("rebase") || args.includes("push") || args[0] === "pnpm" || args[0] === "claude"
+    )
+  )
   assert.equal(await readFile(pushedPath, "utf8"), durable)
 })
 
@@ -2001,7 +2038,7 @@ test("large green check and review logs stay on disk without exceeding landing o
   const result = await runLandingProcess("sh", [
     "-c",
     withReviewAccounts(
-      landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] }),
+      landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a".repeat(40) }] }),
       f.root
     )
   ], {
@@ -2151,8 +2188,12 @@ test("overall review deadline covers issue reads before any reviewer starts", as
   const marker = join(f.root, "gh-started")
   const program = reviewProgram.replace("Date.now() + 600_000", "Date.now() + 10_000")
   assert.notEqual(program, reviewProgram)
-  const result = f.review({ GH_ACCEPTANCE_DELAY: "15_000", GH_ACCEPTANCE_MARKER: marker }, program, 20_000)
+  const started = Date.now()
+  const result = f.review({ GH_ACCEPTANCE_DELAY: "15000", GH_ACCEPTANCE_MARKER: marker }, program, 30_000)
+  assert.notEqual(result.status, null, "the inner review deadline must settle before the outer harness")
   assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /ETIMEDOUT/)
+  assert.ok(Date.now() - started < 20_000, "the overall ten-second budget must kill the delayed issue read")
   assert.equal(await readFile(marker, "utf8"), "started")
   assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 0)
   assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)

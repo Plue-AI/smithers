@@ -30,7 +30,7 @@ export const Launch = Action.make("burndown/launch", {
 
 /** Lands every ready worker through the merge queue. */
 export const Land = Action.make("burndown/land", {
-  implementationVersion: "burndown/land/v3",
+  implementationVersion: "burndown/land/v4",
   payload: { state: RoundState, observation: Observation },
   success: LandReport,
   error: Schema.String,
@@ -58,7 +58,7 @@ export const canLaunch = (observation: Observation): boolean =>
   observation.capacity.some((c) => !c.hardStop && c.problem === null && c.slots > 0)
 
 /** Bump when the round topology or a captured callback changes meaning. */
-const identity = "burndown/round/v6"
+const identity = "burndown/round/v7"
 
 export const RoundError = Schema.Union([Schema.String, AgentAction.AgentFailure, Sleep.SleepRequestInvalid])
 

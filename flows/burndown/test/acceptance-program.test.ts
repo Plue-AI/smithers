@@ -4,9 +4,10 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { acceptanceReviewPrelude, pushedReceiptProgram } from "../acceptance-program.ts"
+import { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram } from "../acceptance-program.ts"
 
 const revision = "a".repeat(40)
+const original = "b".repeat(40)
 const check = `CHECK_REVISION ${revision}\nCHECKS_PASSED\nGo prerequisite PASS`
 const issue = {
   number: 3098,
@@ -70,14 +71,19 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
 `
   return {
     path,
-    pushed(extra: Record<string, string> = {}, issues = [{ issue: 3098 }]) {
+    pushed(
+      extra: Record<string, string> = {},
+      issues = [{ issue: 3098, commit: original }],
+      cold = false,
+      target = `${path}.pushed`
+    ) {
       return spawnSync(process.execPath, [
         "--experimental-strip-types",
         "--input-type=module",
         "-e",
         pushedReceiptProgram(),
-        `${path}.pushed`,
-        path,
+        target,
+        cold ? "-" : path,
         JSON.stringify({ key: "retained", repo: complete.repo, commits: issues }),
         revision,
         "change-one"
@@ -87,6 +93,15 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
         timeout: 10_000,
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...extra }
       })
+    },
+    probe() {
+      return spawnSync(process.execPath, [
+        "--input-type=module",
+        "-e",
+        verifiedReceiptProgram(),
+        `${path}.pushed`,
+        JSON.stringify({ key: "retained", repo: complete.repo, commits: [{ issue: 3098, commit: original }] })
+      ], { encoding: "utf8", timeout: 10_000 })
     },
     pre,
     post,
@@ -104,7 +119,7 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
           REPORT: report,
           BURNDOWN_ACCEPTANCE_MEMBER: JSON.stringify({
             repo: complete.repo,
-            commits: [{ issue: 3098 }],
+            commits: [{ issue: 3098, commit: original }],
             notes: "READY claimed fixed"
           }),
           BURNDOWN_ACCEPTANCE_PATH: path,
@@ -194,6 +209,8 @@ test("confirmed push atomically retains exact issues and acceptance before later
   assert.equal(result.status, 0, result.stderr)
   const durable = JSON.parse(await readFile(`${f.path}.pushed`, "utf8"))
   assert.equal(durable.key, "retained")
+  assert.equal(durable.version, 2)
+  assert.equal(durable.phase, "verified")
   assert.deepEqual(durable.landed, [{ issue: 3098, sha: revision }])
   assert.deepEqual(durable.acceptance.receipt, complete)
   await assert.rejects(readFile(`${f.path}.pushed.pending`, "utf8"), /ENOENT/)
@@ -204,7 +221,7 @@ test("pushed receipt refuses changed revision or attached issues without replaci
   assert.equal(f.run().status, 0)
   assert.equal(f.pushed().status, 0)
   const before = await readFile(`${f.path}.pushed`, "utf8")
-  for (const result of [f.pushed({ PUSHED_SHA: "b".repeat(40) }), f.pushed({}, [{ issue: 1871 }])]) {
+  for (const result of [f.pushed({ PUSHED_SHA: "b".repeat(40) }), f.pushed({}, [{ issue: 1871, commit: original }])]) {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /PUSHED_RECEIPT_INVALID/)
     assert.equal(await readFile(`${f.path}.pushed`, "utf8"), before)
@@ -219,4 +236,48 @@ test("issue provider and malformed current issue data failures never save accept
     assert.match(f.run(undefined, { ISSUE_DATA: JSON.stringify(invalid) }).stderr, /ACCEPTANCE_ISSUE_INVALID/)
     await assert.rejects(readFile(f.path, "utf8"), /ENOENT/)
   }
+})
+
+test("cold confirmation persists one landed receipt then upgrades it with exact acceptance", async (t) => {
+  const f = await fixture(t)
+  const confirmed = f.pushed({}, undefined, true)
+  assert.equal(confirmed.status, 0, confirmed.stderr)
+  const fact = JSON.parse(await readFile(`${f.path}.pushed`, "utf8"))
+  assert.equal(fact.version, 2)
+  assert.equal(fact.phase, "landed")
+  assert.equal(fact.acceptance, undefined)
+  assert.deepEqual(fact.commits, [{ issue: 3098, commit: original }])
+  assert.match(confirmed.stdout, /^LANDING_CONFIRMED /)
+  assert.equal(f.run().status, 0)
+  assert.equal(f.pushed().status, 0)
+  const verified = JSON.parse(await readFile(`${f.path}.pushed`, "utf8"))
+  assert.equal(verified.phase, "verified")
+  assert.deepEqual(verified.landed, fact.landed)
+  assert.deepEqual(verified.acceptance.context.commits, fact.commits)
+})
+
+test("atomic writer failure still emits independently bound remote confirmation", async (t) => {
+  const f = await fixture(t)
+  const result = f.pushed({}, undefined, true, join(f.path, "missing", "pushed.json"))
+  assert.notEqual(result.status, 0)
+  const line = result.stdout.trim()
+  assert.ok(line.startsWith("LANDING_CONFIRMED "), result.stderr)
+  const fact = JSON.parse(line.slice("LANDING_CONFIRMED ".length))
+  assert.equal(fact.phase, "landed")
+  assert.equal(fact.key, "retained")
+  assert.deepEqual(fact.commits, [{ issue: 3098, commit: original }])
+  assert.deepEqual(fact.landed, [{ issue: 3098, sha: revision }])
+})
+
+test("warm embedded verified probe survives standalone loss and refuses unverified or malformed facts", async (t) => {
+  const f = await fixture(t)
+  assert.equal(f.probe().status, 1)
+  assert.equal(f.pushed({}, undefined, true).status, 0)
+  assert.equal(f.probe().status, 1)
+  assert.equal(f.run().status, 0)
+  assert.equal(f.pushed().status, 0)
+  await rm(f.path)
+  assert.equal(f.probe().status, 0)
+  await writeFile(`${f.path}.pushed`, "{}")
+  assert.equal(f.probe().status, 1)
 })

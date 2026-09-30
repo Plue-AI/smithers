@@ -31,9 +31,16 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   let accountReadings: Array<unknown> = []
   const queue: Array<{ results: unknown; workers: unknown }> = []
   let pushedReceipt = false
+  let remoteLanded = false
   // GitHub claims and detached workers are external boundaries: fixtures avoid
   // spending subscriptions or changing live claims while exercising host policy.
   const executeClaim = (_command: string, args: Array<string>) => {
+    if (_command === "jj") {
+      return Promise.resolve({
+        stdout: args.includes("change_id") ? "k".repeat(32) : remoteLanded ? "a".repeat(40) : "",
+        stderr: ""
+      })
+    }
     claims.push(args)
     return Promise.resolve({ stdout: args[1] === "check" ? JSON.stringify(ownership) : "{}", stderr: "" })
   }
@@ -332,6 +339,26 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       if (prior === undefined) delete process.env.BURNDOWN_LAND
       else process.env.BURNDOWN_LAND = prior
       ownership = { mine: true, holder: { host: hostname() } }
+    }
+  })
+
+  test("legacy READY already on remote main can replay without receipts or reacquiring a released claim", async () => {
+    queue.length = 0
+    claims.length = 0
+    remoteLanded = true
+    ownership = { mine: false, holder: { host: hostname() } }
+    const prior = process.env.BURNDOWN_LAND
+    process.env.BURNDOWN_LAND = "on"
+    try {
+      await invoke(Land.name, { state: { ...initial(), ready: [ready] }, observation: observation() })
+      assert.equal(queue.length, 1)
+      assert.deepEqual(queue[0]!.results, [result])
+      assert.equal(claims.some((args) => args[1] === "claim"), false)
+    } finally {
+      remoteLanded = false
+      ownership = { mine: true, holder: { host: hostname() } }
+      if (prior === undefined) delete process.env.BURNDOWN_LAND
+      else process.env.BURNDOWN_LAND = prior
     }
   })
 

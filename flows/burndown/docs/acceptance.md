@@ -20,3 +20,8 @@ a broader acceptance gate, deployment check, or observed cache hit requirement.
 Issue receipt writes attempt every issue and retain failures for retry. Only a
 verified complete disposition permits closure. A landed prerequisite reports
 its commit and linked remaining condition without closing the issue.
+
+One durable landing receipt records either confirmed landing or verified
+acceptance. A confirmed landing never permits closure. Verified receipts retain
+their acceptance evidence, so losing the separate acceptance file does not lose
+recovery. Older verified receipts remain readable.

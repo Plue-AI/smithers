@@ -6,18 +6,15 @@
 import * as MergeQueue from "@smthrs/patterns/MergeQueue"
 import { Data, Effect } from "effect"
 import { execFile, execFileSync, spawn } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
 import { chmod, mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises"
 import { homedir, hostname, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
-import { acceptanceReviewPrelude, pushedReceiptProgram } from "./acceptance-program.ts"
-import {
-  type AcceptanceRecord,
-  completeIssueReceipts,
-  validateAcceptance,
-  validateCurrentAcceptance
-} from "./acceptance.ts"
+import { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram } from "./acceptance-program.ts"
+import { completeIssueReceipts, validateCurrentAcceptance } from "./acceptance.ts"
+import { isPushedFailure, loadAcceptanceRecord } from "./landing-receipt.ts"
+export { hasPushedReceipt, isPushedFailure } from "./landing-receipt.ts"
 import type { InFlight, LandReport, WorkerResult } from "./schema.ts"
 
 const run = promisify(execFile)
@@ -237,7 +234,9 @@ const remaining = () => {
   if (ms <= 0) throw new Error("REVIEW_TIMEOUT: overall ten-minute limit");
   return ms;
 };
-const diff = execFileSync("jj", ["--ignore-working-copy", "diff", "--git", "--from", "main@origin", "--to", sha], { encoding: "utf8", timeout: Math.min(60_000, remaining()), maxBuffer: 16 << 20 });
+const reviewBase = process.env.BURNDOWN_REVIEW_BASE ?? "main@origin";
+if (reviewBase !== "main@origin" && !/^[0-9a-f]{40}$/.test(reviewBase)) throw new Error("Invalid review base revision");
+const diff = execFileSync("jj", ["--ignore-working-copy", "diff", "--git", "--from", reviewBase, "--to", sha], { encoding: "utf8", timeout: Math.min(60_000, remaining()), maxBuffer: 16 << 20 });
 ${acceptanceReviewPrelude()}
 const accountRoot = join(homedir(), ".smithers/accounts");
 const excluded = new Set(["claude-4", "claude-6", ...(process.env.BURNDOWN_REVIEW_EXCLUDED_ACCOUNTS ?? "").split(/[,\s]+/)]);
@@ -346,6 +345,61 @@ realign_working_copy() {
     jj rebase -r @ -d "$1" || { echo "WORKING_COPY_REALIGNMENT_REQUIRED"; exit 7; }
   fi
 }
+verify_prechecks() {
+prechecks_log=${shellQuote(join(scriptDir, `${member.key}.prechecks.log`))}
+if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${
+    shellQuote(member.repo.split("/")[1]!)
+  } $changes >"$prechecks_log" 2>&1; then
+  tail -c 4000 "$prechecks_log" >&2
+else
+  tail -c 4000 "$prechecks_log" >&2
+  exit 6
+fi
+preverified=$(sed -n 's/^CHECK_REVISION //p' "$prechecks_log" | head -n 1)
+current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
+if [ -z "$preverified" ] || [ "$current" != "$preverified" ]; then
+  echo "PRECHECK_REVISION_CHANGED $preverified != $current" >>"$prechecks_log"
+  tail -c 4000 "$prechecks_log" >&2
+  exit 6
+fi
+}
+verify_checks() {
+checks_log=${shellQuote(join(scriptDir, `${member.key}.checks.log`))}
+if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${
+    shellQuote(member.repo.split("/")[1]!)
+  } $changes >"$checks_log" 2>&1; then
+  tail -c 4000 "$checks_log" >&2
+else
+  tail -c 4000 "$checks_log" >&2
+  exit 6
+fi
+verified=$(sed -n 's/^CHECK_REVISION //p' "$checks_log" | head -n 1)
+current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
+if [ -z "$verified" ] || [ "$current" != "$verified" ]; then
+  echo "CHECK_REVISION_CHANGED $verified != $current" >>"$checks_log"
+  tail -c 4000 "$checks_log" >&2
+  exit 6
+fi
+}
+verify_review() {
+review_log=${shellQuote(join(scriptDir, `${member.key}.review.log`))}
+if BURNDOWN_ACCEPTANCE_MEMBER=${shellQuote(JSON.stringify(member))} BURNDOWN_ACCEPTANCE_PATH=${
+    shellQuote(join(scriptDir, `${member.key}.acceptance.json`))
+  } BURNDOWN_REVIEW_BASE="\${review_base:-main@origin}" BURNDOWN_PRECHECKS_LOG="$prechecks_log" BURNDOWN_CHECKS_LOG="$checks_log" BURNDOWN_CHECK_REVISION="$verified" node --input-type=module -e ${
+    shellQuote(reviewProgram)
+  } >"$review_log" 2>&1; then
+  tail -c 4000 "$review_log" >&2
+else
+  tail -c 4000 "$review_log" >&2
+  exit 6
+fi
+current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
+if [ "$current" != "$verified" ]; then
+  echo "REVIEW_REVISION_CHANGED $verified != $current" >>"$review_log"
+  tail -c 4000 "$review_log" >&2
+  exit 6
+fi
+}
 jj git fetch >/dev/null 2>&1 || jj git fetch
 # Only main is queue-managed: recover a rejected push or interrupted publication.
 jj --ignore-working-copy bookmark set main -r main@origin --allow-backwards || { echo "MAIN_RECONCILIATION_REQUIRED"; exit 5; }
@@ -361,6 +415,29 @@ for ch in $changes; do
   if [ -z "$landed" ]; then already_landed=false; fi
 done
 if [ "$already_landed" = true ]; then
+  if ! node --input-type=module -e ${shellQuote(verifiedReceiptProgram())} ${
+    shellQuote(join(scriptDir, `${member.key}.pushed.json`))
+  } ${shellQuote(JSON.stringify(member))}; then
+    first=$(echo $changes | awk '{print $1}')
+    for ch in $changes; do
+      in_landing=$(query_jj --ignore-working-copy log --no-graph -r "$ch & ::$last" -T 'change_id')
+      [ -n "$in_landing" ] || { echo "NOT_IN_LANDING $ch"; exit 4; }
+    done
+    verified=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
+    # Remote ancestry established actual landing; persist proof before verification.
+    node --input-type=module -e ${shellQuote(pushedReceiptProgram())} ${
+    shellQuote(join(scriptDir, `${member.key}.pushed.json`))
+  } - ${shellQuote(JSON.stringify(member))} "$verified" $changes
+    review_base=$(query_jj --ignore-working-copy log --no-graph -r "parents($first)" -T 'commit_id')
+    verify_prechecks
+    verify_checks
+    verify_review
+    node --input-type=module -e ${shellQuote(pushedReceiptProgram())} ${
+    shellQuote(join(scriptDir, `${member.key}.pushed.json`))
+  } ${shellQuote(join(scriptDir, `${member.key}.acceptance.json`))} ${
+    shellQuote(JSON.stringify(member))
+  } "$verified" $changes
+  fi
   main_commit=$(query_jj --ignore-working-copy log --no-graph -r main@origin -T 'commit_id')
   realign_working_copy "$main_commit"
   i=0
@@ -386,22 +463,7 @@ protected=$(query_jj log --no-graph -r '(@:: ~ @) | (@ & bookmarks())' -T 'chang
 if [ -n "$protected" ]; then
   echo "WORKING_COPY_REALIGNMENT_REQUIRED protected revision"; exit 7
 fi
-prechecks_log=${shellQuote(join(scriptDir, `${member.key}.prechecks.log`))}
-if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${
-    shellQuote(member.repo.split("/")[1]!)
-  } $changes >"$prechecks_log" 2>&1; then
-  tail -c 4000 "$prechecks_log" >&2
-else
-  tail -c 4000 "$prechecks_log" >&2
-  exit 6
-fi
-preverified=$(sed -n 's/^CHECK_REVISION //p' "$prechecks_log" | head -n 1)
-current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
-if [ -z "$preverified" ] || [ "$current" != "$preverified" ]; then
-  echo "PRECHECK_REVISION_CHANGED $preverified != $current" >>"$prechecks_log"
-  tail -c 4000 "$prechecks_log" >&2
-  exit 6
-fi
+verify_prechecks
 revs=""
 for ch in $changes; do revs="$revs -r $ch"; done
 jj rebase $revs -d main@origin
@@ -422,39 +484,8 @@ for ch in $changes; do
     echo "NOT_IN_LANDING $ch"; exit 4
   fi
 done
-checks_log=${shellQuote(join(scriptDir, `${member.key}.checks.log`))}
-if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${
-    shellQuote(member.repo.split("/")[1]!)
-  } $changes >"$checks_log" 2>&1; then
-  tail -c 4000 "$checks_log" >&2
-else
-  tail -c 4000 "$checks_log" >&2
-  exit 6
-fi
-verified=$(sed -n 's/^CHECK_REVISION //p' "$checks_log" | head -n 1)
-current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
-if [ -z "$verified" ] || [ "$current" != "$verified" ]; then
-  echo "CHECK_REVISION_CHANGED $verified != $current" >>"$checks_log"
-  tail -c 4000 "$checks_log" >&2
-  exit 6
-fi
-review_log=${shellQuote(join(scriptDir, `${member.key}.review.log`))}
-if BURNDOWN_ACCEPTANCE_MEMBER=${shellQuote(JSON.stringify(member))} BURNDOWN_ACCEPTANCE_PATH=${
-    shellQuote(join(scriptDir, `${member.key}.acceptance.json`))
-  } BURNDOWN_PRECHECKS_LOG="$prechecks_log" BURNDOWN_CHECKS_LOG="$checks_log" BURNDOWN_CHECK_REVISION="$verified" node --input-type=module -e ${
-    shellQuote(reviewProgram)
-  } >"$review_log" 2>&1; then
-  tail -c 4000 "$review_log" >&2
-else
-  tail -c 4000 "$review_log" >&2
-  exit 6
-fi
-current=$(query_jj --ignore-working-copy log --no-graph -r "$last" -T 'commit_id')
-if [ "$current" != "$verified" ]; then
-  echo "REVIEW_REVISION_CHANGED $verified != $current" >>"$review_log"
-  tail -c 4000 "$review_log" >&2
-  exit 6
-fi
+verify_checks
+verify_review
 assert_working_copy "$verified"
 jj --ignore-working-copy bookmark set main -r "$verified"
 if ! jj --ignore-working-copy git push --bookmark main; then
@@ -834,95 +865,53 @@ export const runLandingProcess = (
     if (options.signal?.aborted) abort()
   })
 
-/** A retained pushed member retries receipts, never a coding repair. */
-export const hasPushedReceipt = (member: Member): boolean => {
-  try {
-    const saved = JSON.parse(readFileSync(join(scriptDir, `${member.key}.pushed.json`), "utf8")) as {
-      version: number
-      key: string
-      repo: string
-      commits: Member["commits"]
-      landed: ReadonlyArray<{ issue: number; sha: string }>
-      acceptance: AcceptanceRecord
-    }
-    validateAcceptance(saved.acceptance.receipt, saved.acceptance.context)
-    return saved.version === 1 && saved.key === member.key && saved.repo === member.repo &&
-      saved.acceptance.context.repo === member.repo &&
-      saved.acceptance.receipt.issues.length === member.commits.length &&
-      saved.acceptance.receipt.issues.every((item) => member.commits.some((commit) => commit.issue === item.issue)) &&
-      JSON.stringify(saved.commits) === JSON.stringify(member.commits) &&
-      saved.landed.length === member.commits.length && saved.landed.every((item, index) =>
-        item.issue === member.commits[index]?.issue && /^[0-9a-f]{40}$/.test(item.sha)
-      ) && saved.landed.at(-1)?.sha === saved.acceptance.context.revision
-  } catch {
-    return false
-  }
-}
-
-/** Pre-push acceptance alone never grants post-push recovery privileges. */
-export const isPushedFailure = (member: Member, cause: unknown): boolean => {
-  if (hasPushedReceipt(member)) return true
-  try {
-    const stdout = (cause as { stdout?: unknown }).stdout
-    if (typeof stdout !== "string") return false
-    const record = JSON.parse(
-      readFileSync(join(scriptDir, `${member.key}.acceptance.json`), "utf8")
-    ) as AcceptanceRecord
-    const receipt = validateAcceptance(record.receipt, record.context)
-    if (
-      receipt.repo !== member.repo || JSON.stringify(record.context.commits) !== JSON.stringify(member.commits) ||
-      receipt.issues.length !== member.commits.length ||
-      !receipt.issues.every((item) => member.commits.some((commit) => commit.issue === item.issue))
-    ) return false
-    const accepted = [...stdout.matchAll(/^PUSH_ACCEPTED ([0-9a-f]{40})$/gm)]
-    if (accepted.length === 1 && accepted[0]?.[1] === receipt.revision) return true
-    const landed = [...stdout.matchAll(/^LANDED ([1-9][0-9]*) ([0-9a-f]{40})$/gm)]
-    return landed.length === member.commits.length && landed.every((item, index) => Number(item[1]) === index + 1) &&
-      landed.at(-1)?.[2] === receipt.revision
-  } catch {
-    return false
-  }
-}
-
 const landOne = (member: Member) =>
   Effect.tryPromise({
     try: async (signal) => {
-      await mkdir(scriptDir, { recursive: true })
-      const path = join(scriptDir, `${member.key}.sh`)
-      await writeFile(path, landingScript(member))
-      await chmod(path, 0o755)
-      const repoName = member.repo.split("/")[1]!
-      const { stdout } = await runLandingProcess("python3", [lockScript, repoName, path], { signal })
-      const landed = [...stdout.matchAll(/^LANDED (\d+) ([0-9a-f]{40})$/gm)].map((m) => ({
-        issue: member.commits[Number(m[1]) - 1]!.issue,
-        sha: m[2]!
-      }))
-      if (landed.length !== member.commits.length) {
-        throw new Error(`landing printed ${landed.length} of ${member.commits.length}:\n${stdout}`)
+      let confirmedStdout = ""
+      try {
+        await mkdir(scriptDir, { recursive: true })
+        const path = join(scriptDir, `${member.key}.sh`)
+        await writeFile(path, landingScript(member))
+        await chmod(path, 0o755)
+        const repoName = member.repo.split("/")[1]!
+        const { stdout } = await runLandingProcess("python3", [lockScript, repoName, path], { signal })
+        confirmedStdout = stdout
+        const landed = [...stdout.matchAll(/^LANDED (\d+) ([0-9a-f]{40})$/gm)].map((m) => ({
+          issue: member.commits[Number(m[1]) - 1]!.issue,
+          sha: m[2]!
+        }))
+        if (landed.length !== member.commits.length) {
+          throw new Error(`landing printed ${landed.length} of ${member.commits.length}:\n${stdout}`)
+        }
+        const record = loadAcceptanceRecord(member, landed.at(-1)!.sha)
+        // Acceptance can change after push. Never close against a stale issue body.
+        const currentIssues: Array<{ issue: number; body: string }> = []
+        for (const issue of record.context.issues) {
+          const { stdout } = await run("gh", [
+            "issue",
+            "view",
+            String(issue.issue),
+            "--repo",
+            member.repo,
+            "--json",
+            "title,body"
+          ], { timeout: 60_000, maxBuffer: 16 << 20 })
+          const current = JSON.parse(stdout) as { title: string; body: string }
+          currentIssues.push({ issue: issue.issue, body: `${current.title}\n${current.body}` })
+        }
+        validateCurrentAcceptance(record, currentIssues)
+        await completeIssueReceipts(member, landed, record, (command, args) =>
+          run(command, [...args], { timeout: 120_000, maxBuffer: 16 << 20 }))
+        return landed
+      } catch (cause) {
+        if (confirmedStdout) {
+          const error = cause instanceof Error ? cause : new Error(String(cause))
+          Object.assign(error, { stdout: confirmedStdout })
+          throw error
+        }
+        throw cause
       }
-      const record = JSON.parse(
-        await readFile(join(scriptDir, `${member.key}.acceptance.json`), "utf8")
-      ) as AcceptanceRecord
-      validateAcceptance(record.receipt, record.context)
-      // Acceptance can change after push. Never close against a stale issue body.
-      const currentIssues: Array<{ issue: number; body: string }> = []
-      for (const issue of record.context.issues) {
-        const { stdout } = await run("gh", [
-          "issue",
-          "view",
-          String(issue.issue),
-          "--repo",
-          member.repo,
-          "--json",
-          "title,body"
-        ], { timeout: 60_000, maxBuffer: 16 << 20 })
-        const current = JSON.parse(stdout) as { title: string; body: string }
-        currentIssues.push({ issue: issue.issue, body: `${current.title}\n${current.body}` })
-      }
-      validateCurrentAcceptance(record, currentIssues)
-      await completeIssueReceipts(member, landed, record, (command, args) =>
-        run(command, [...args], { timeout: 120_000, maxBuffer: 16 << 20 }))
-      return landed
     },
     catch: (cause) => {
       const failure = landingFailure(member.key, cause)

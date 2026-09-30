@@ -195,6 +195,7 @@ const burndown = Smithers.NodeTest({
     Smithers.file("//flows/burndown/test/cloud-symlink.test.ts"),
     Smithers.file("//flows/burndown/test/issues.test.ts"),
     Smithers.file("//flows/burndown/test/land.test.ts"),
+    Smithers.file("//flows/burndown/test/landing-receipt.test.ts"),
     Smithers.file("//flows/burndown/test/local-scratch.test.ts"),
     Smithers.file("//flows/burndown/test/pacing.test.ts"),
     Smithers.file("//flows/burndown/test/run-agent.test.ts"),

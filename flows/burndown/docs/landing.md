@@ -88,6 +88,11 @@ Acceptance is saved atomically before push. The confirmed pushed bundle is saved
 before checkout realignment or issue writes. Receipt failures retain the original
 READY bundle for replay, including mixed completion dispositions, rather than
 launching a coding repair. Replay verifies the current issue bodies and refuses
-foreign claims before any issue mutation. Previously retained READY seeds need
-no migration: their current issues are assessed when landing. An already-pushed
-legacy bundle without acceptance evidence cannot close issues automatically.
+foreign claims before any issue mutation. Retained READY seeds use the same
+contract. An already-landed legacy bundle without acceptance evidence records
+its confirmed landing, runs exact snapshot checks and current-issue Fable review,
+then records verified acceptance without rebasing or pushing again. Failed checks
+or review keep its READY entry for verification retry and cannot close issues.
+Historical review compares the first commit's parent with the last landed commit.
+Verified evidence embedded in the landing receipt remains authoritative if the
+separate acceptance file is lost.

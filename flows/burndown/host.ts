@@ -347,6 +347,39 @@ const readyWork = (state: RoundState, observation: Observation): Array<Ready> =>
  * lets agents keep producing while the queue is being repaired; the work stays
  * in round state and its receipts on disk until landing is switched on.
  */
+/** Read-only admission hint; the locked landing script re-proves remote ancestry. */
+const alreadyOnRemoteMain = async (member: Ready): Promise<boolean> => {
+  try {
+    const cwd = join(homedir(), member.assignment.repo.split("/")[1]!)
+    for (const commit of member.result.commits) {
+      const original = await run("jj", [
+        "--ignore-working-copy",
+        "log",
+        "--no-graph",
+        "-r",
+        commit.commit,
+        "-T",
+        "change_id"
+      ], { cwd, timeout: 15_000, maxBuffer: 1 << 20 })
+      const change = original.stdout.trim()
+      if (!/^[a-z]{32}$/.test(change)) return false
+      const landed = await run("jj", [
+        "--ignore-working-copy",
+        "log",
+        "--no-graph",
+        "-r",
+        `${change} & ::main@origin`,
+        "-T",
+        "commit_id"
+      ], { cwd, timeout: 15_000, maxBuffer: 1 << 20 })
+      if (!/^[0-9a-f]{40}$/.test(landed.stdout.trim())) return false
+    }
+    return member.result.commits.length > 0
+  } catch {
+    return false
+  }
+}
+
 const land = (state: RoundState, observation: Observation) => {
   const ready = readyWork(state, observation)
   if (process.env.BURNDOWN_LAND === "off" || ready.length === 0) {
@@ -362,7 +395,7 @@ const land = (state: RoundState, observation: Observation) => {
             repo: member.assignment.repo,
             commits: member.result.commits
           }) ||
-          await refreshOwned(member.assignment)
+          await alreadyOnRemoteMain(member) || await refreshOwned(member.assignment)
         )
     )
     if (owned.length === 0) return { landed: [], quarantined: [] }
@@ -508,7 +541,7 @@ export const layer = Layer.mergeAll(
     implementationVersion: "burndown/launch/v3"
   }),
   Land.toLayer(({ observation, state }) => land(state, observation), {
-    implementationVersion: "burndown/land/v3"
+    implementationVersion: "burndown/land/v4"
   }),
   Settle.toLayer(
     ({ landed, launched, observation, plan, state }) => settle(state, observation, plan, launched, landed),

@@ -28580,6 +28580,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/burndown/test/landing-receipt.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/burndown/test/local-scratch.test.ts"
       },
       {
