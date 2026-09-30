@@ -17,7 +17,6 @@ type RuntimeStores struct {
 	WorkflowRuns      services.WorkflowRunQuerier
 	AgentDispatch     services.AgentDispatchQuerier
 	Workspaces        services.WorkspaceQuerier
-	WorkflowScheduler services.WorkflowSandboxSchedulerQuerier
 	EnvironmentImages services.SandboxEnvironmentImageQuerier
 	RepoGateways      RepoGatewayStore
 	Orphans           services.SandboxOrphanQuerier

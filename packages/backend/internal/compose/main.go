@@ -858,9 +858,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return errors.New("workflow run service does not publish terminal run outcomes")
 	}
 	var workflowSandboxSchedulerWorker *services.WorkflowSandboxSchedulerWorker
-	if runtimeStores.WorkflowScheduler != nil && workflowSandboxClient != nil {
+	if workflowSandboxClient != nil {
 		workflowSandboxSchedulerWorker = services.NewWorkflowSandboxSchedulerWorker(
-			runtimeStores.WorkflowScheduler,
+			services.NewProductWorkflowSandboxScheduler(queries),
 			workflowSandboxClient,
 			services.WithWorkflowSandboxSchedulerAPIBaseURL(agentAPIBaseURL),
 			services.WithWorkflowSandboxSchedulerGitBaseURL(publicBaseURL),

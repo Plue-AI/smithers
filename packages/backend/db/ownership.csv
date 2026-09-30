@@ -73,7 +73,7 @@ workflow_triggers,product,product baseline
 workflow_schedule_specs,product,product baseline
 workflow_runs,product,product baseline
 workflow_log_budget_initializations,product,product baseline
-workflow_sandbox_claims,private,Plue private migration 000001
+workflow_sandbox_claims,product,product migration 0091 (adopts Plue private migration 000001)
 workflow_steps,product,product baseline
 workflow_tasks,product,product baseline
 workflow_logs,product,product baseline

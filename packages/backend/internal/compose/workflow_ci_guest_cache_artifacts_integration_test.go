@@ -3,7 +3,6 @@ package compose
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,7 +26,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
@@ -74,8 +72,8 @@ func TestNixCIGuestCacheAndArtifactsPostgres(t *testing.T) {
 	handler = mux
 
 	guests := newLocalCIGuests(t)
-	schedulerStore := &ciTestSchedulerStore{Queries: q, pool: pool}
-	worker := services.NewWorkflowSandboxSchedulerWorker(schedulerStore, guests,
+	// The scheduler claims through the product lease every deployment uses.
+	worker := services.NewWorkflowSandboxSchedulerWorker(services.NewProductWorkflowSandboxScheduler(q), guests,
 		services.WithWorkflowSandboxSchedulerGitBaseURL(srv.URL),
 		services.WithWorkflowSandboxSchedulerAPIBaseURL(srv.URL+"/api"),
 		services.WithWorkflowSandboxSchedulerCIGuests(guests),
@@ -243,57 +241,6 @@ func ciTestLogs(t *testing.T, pool *pgxpool.Pool, runID int64) []string {
 		out = append(out, entry)
 	}
 	return out
-}
-
-// ciTestSchedulerStore is the product queries plus the claim fence a
-// deployment store supplies (see ports.RuntimeStores.WorkflowScheduler).
-type ciTestSchedulerStore struct {
-	*db.Queries
-	pool *pgxpool.Pool
-}
-
-func (s *ciTestSchedulerStore) ClaimQueuedWorkflowRuns(ctx context.Context, limit int32) ([]runtimeports.ClaimQueuedWorkflowRunsRow, error) {
-	rows, err := s.pool.Query(ctx, `UPDATE workflow_runs SET status = 'running', started_at = NOW(), updated_at = NOW()
-		WHERE id IN (SELECT id FROM workflow_runs WHERE status = 'queued' AND execution_plane = 'sandbox' ORDER BY id LIMIT $1)
-		RETURNING id, repository_id, workflow_definition_id, trigger_ref, trigger_commit_sha, trigger_event`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []runtimeports.ClaimQueuedWorkflowRunsRow
-	for rows.Next() {
-		var row runtimeports.ClaimQueuedWorkflowRunsRow
-		if err := rows.Scan(&row.ID, &row.RepositoryID, &row.WorkflowDefinitionID, &row.TriggerRef, &row.TriggerCommitSha, &row.TriggerEvent); err != nil {
-			return nil, err
-		}
-		_, _ = rand.Read(row.ClaimToken.Bytes[:])
-		row.ClaimToken.Valid = true
-		row.ClaimGeneration = 1
-		row.ClaimLeaseExpiresAt = pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func (s *ciTestSchedulerStore) RenewWorkflowSandboxClaim(context.Context, runtimeports.RenewWorkflowSandboxClaimParams) (pgtype.Timestamptz, error) {
-	return pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, nil
-}
-
-func (s *ciTestSchedulerStore) finish(ctx context.Context, id int64, status string) (db.WorkflowRun, error) {
-	var repoID int64
-	if err := s.pool.QueryRow(ctx, `UPDATE workflow_runs SET status = $2, completed_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND status = 'running' RETURNING repository_id`, id, status).Scan(&repoID); err != nil {
-		return db.WorkflowRun{}, err
-	}
-	return s.Queries.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: id, RepositoryID: repoID})
-}
-
-func (s *ciTestSchedulerStore) MarkWorkflowRunSuccess(ctx context.Context, arg runtimeports.MarkWorkflowRunSuccessParams) (db.WorkflowRun, error) {
-	return s.finish(ctx, arg.ID, "success")
-}
-
-func (s *ciTestSchedulerStore) MarkWorkflowRunFailure(ctx context.Context, arg runtimeports.MarkWorkflowRunFailureParams) (db.WorkflowRun, error) {
-	return s.finish(ctx, arg.ID, "failure")
 }
 
 // localCIGuests is a fake sandbox provider whose guests are private

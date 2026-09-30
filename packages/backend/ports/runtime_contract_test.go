@@ -44,21 +44,6 @@ func (externalGoldenSnapshots) FailedGoldenSnapshotBuilders(context.Context) ([]
 	return nil, nil
 }
 
-type externalWorkflowScheduler struct{ productstore.Product }
-
-func (externalWorkflowScheduler) ClaimQueuedWorkflowRuns(context.Context, int32) ([]runtimeports.ClaimQueuedWorkflowRunsRow, error) {
-	return nil, nil
-}
-func (externalWorkflowScheduler) RenewWorkflowSandboxClaim(context.Context, runtimeports.RenewWorkflowSandboxClaimParams) (pgtype.Timestamptz, error) {
-	return pgtype.Timestamptz{}, nil
-}
-func (externalWorkflowScheduler) MarkWorkflowRunSuccess(context.Context, runtimeports.MarkWorkflowRunSuccessParams) (runtimeports.WorkflowRun, error) {
-	return runtimeports.WorkflowRun{}, nil
-}
-func (externalWorkflowScheduler) MarkWorkflowRunFailure(context.Context, runtimeports.MarkWorkflowRunFailureParams) (runtimeports.WorkflowRun, error) {
-	return runtimeports.WorkflowRun{}, nil
-}
-
 type externalEnvironmentImages struct{}
 
 func (externalEnvironmentImages) UpsertSandboxEnvironmentImage(context.Context, runtimeports.UpsertSandboxEnvironmentImageParams) (runtimeports.SandboxEnvironmentImage, error) {
@@ -147,7 +132,6 @@ type externalWorkspaces struct{ productstore.Product }
 var _ = ports.RuntimeStores{
 	Workspaces:        externalWorkspaces{},
 	GoldenSnapshots:   externalGoldenSnapshots{},
-	WorkflowScheduler: externalWorkflowScheduler{},
 	EnvironmentImages: externalEnvironmentImages{},
 	RepoGateways:      externalRepoGateways{},
 	Orphans:           externalOrphans{},
