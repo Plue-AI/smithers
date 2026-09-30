@@ -12,6 +12,7 @@ import { NodeServices } from "@effect/platform-node"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Deferred, Effect, Fiber, Redacted, Schema, Sink, Stream } from "effect"
 import { ProcessId } from "effect/unstable/process/ChildProcessSpawner"
+import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -602,39 +603,45 @@ describe("McpClient against a real MCP server", () => {
   it("fails a pending call when the server closes stdin", async () => {
     const directory = mkdtempSync(join(tmpdir(), "smithers-mcp-stdin-"))
     const marker = join(directory, "closed")
-    const script = join(directory, "close-stdin.ps1")
+    const source = join(directory, "close-stdin.cs")
+    const executable = join(directory, "close-stdin.exe")
+    const windowsEnvironment = Object.fromEntries(
+      Object.entries(process.env).filter(([name, value]) =>
+        value !== undefined && /^(PATH|SystemRoot|WINDIR|TEMP|TMP|USERPROFILE)$/i.test(name)
+      )
+    )
     try {
-      if (process.platform === "win32") writeFileSync(script, `\uFEFF${FixtureServer.windowsCloseStdinSource}`, "utf8")
+      if (process.platform === "win32") {
+        writeFileSync(source, FixtureServer.windowsCloseStdinSource, "utf8")
+        const framework = join(process.env.SystemRoot ?? "C:\\Windows", "Microsoft.NET", "Framework", "v4.0.30319")
+        // Compile before opening the MCP pipe; the compiler cannot inherit its reader.
+        try {
+          execFileSync(join(framework, "csc.exe"), [
+            "/nologo",
+            "/target:exe",
+            `/out:${executable}`,
+            `/reference:${join(framework, "System.Web.Extensions.dll")}`,
+            source
+          ], { env: windowsEnvironment, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: 10_000 })
+        } catch (error) {
+          const stdout = error instanceof Error && "stdout" in error && typeof error.stdout === "string"
+            ? error.stdout
+            : ""
+          const stderr = error instanceof Error && "stderr" in error && typeof error.stderr === "string"
+            ? error.stderr
+            : ""
+          throw new Error(`Windows stdin fixture compiler failed: ${stdout}${stderr}`, { cause: error })
+        }
+      }
       const errors = await execute(Effect.scoped(Effect.gen(function*() {
         const client = yield* connectNode(
           "close-stdin",
           [marker],
           process.platform === "win32"
             ? {
-              command: join(
-                process.env.SystemRoot ?? "C:\\Windows",
-                "System32",
-                "WindowsPowerShell",
-                "v1.0",
-                "powershell.exe"
-              ),
-              args: [
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                script
-              ],
-              env: {
-                ...Object.fromEntries(
-                  Object.entries(process.env).filter(([name, value]) =>
-                    value !== undefined && /^(SystemRoot|TEMP|TMP|USERPROFILE)$/i.test(name)
-                  )
-                ),
-                MCP_CLOSE_STDIN_MARKER: marker
-              },
+              command: executable,
+              args: [marker],
+              env: windowsEnvironment,
               handshakeTimeoutMs: 15_000
             }
             : {}
@@ -668,17 +675,8 @@ describe("McpClient against a real MCP server", () => {
       })
       expect(errors.next).toBe(errors.first)
       expect(errors.later).toBe(errors.first)
-    } catch (error) {
-      if (process.platform === "win32") {
-        let phase = "unavailable"
-        try {
-          phase = readFileSync(`${marker}.startup`, "utf8")
-        } catch {}
-        throw new Error(`Windows stdin fixture phase: ${phase}`, { cause: error })
-      }
-      throw error
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 

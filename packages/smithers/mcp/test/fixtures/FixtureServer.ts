@@ -486,18 +486,14 @@ reader?.on("line", (line) => {
  * stdout and the process stay alive so only the client's writer can fail.
  */
 export const windowsCloseStdinSource = String.raw`
-$ProgressPreference = 'SilentlyContinue'
-$ErrorActionPreference = 'Stop'
-$startupMarker = $env:MCP_CLOSE_STDIN_MARKER + '.startup'
-function Set-FixtureStartupPhase($phase) {
-  try { [System.IO.File]::WriteAllText($startupMarker, $phase) } catch {}
-}
-Set-FixtureStartupPhase 'compiling'
-Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Web.Script.Serialization;
 public static class McpStdin {
   [DllImport("kernel32.dll", SetLastError = true)]
   public static extern IntPtr GetStdHandle(int kind);
@@ -507,7 +503,7 @@ public static class McpStdin {
   [DllImport("kernel32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool ReadFile(IntPtr handle, [Out] byte[] data, uint size, out uint read, IntPtr overlapped);
-  public static string ReadLine(IntPtr handle) {
+  private static string ReadLine(IntPtr handle) {
     var bytes = new List<byte>();
     var data = new byte[1];
     uint read;
@@ -517,35 +513,36 @@ public static class McpStdin {
     }
     return null;
   }
-}
-'@
-$stdinHandle = [McpStdin]::GetStdHandle(-10)
-Set-FixtureStartupPhase 'reading'
-:requests while ($null -ne ($line = [McpStdin]::ReadLine($stdinHandle))) {
-  $request = ConvertFrom-Json -InputObject $line
-  switch ($request.method) {
-    'initialize' {
-      $result = @{
-        protocolVersion = '2025-06-18'
-        capabilities = @{ tools = @{} }
-        serverInfo = @{ name = 'fixture' }
+  public static void Main(string[] args) {
+    var serializer = new JavaScriptSerializer();
+    var stdin = GetStdHandle(-10);
+    string line;
+    while ((line = ReadLine(stdin)) != null) {
+      var request = serializer.Deserialize<Dictionary<string, object>>(line);
+      var method = (string)request["method"];
+      object result;
+      switch (method) {
+        case "initialize":
+          result = new {
+            protocolVersion = "2025-06-18",
+            capabilities = new { tools = new {} },
+            serverInfo = new { name = "fixture" }
+          };
+          break;
+        case "tools/list":
+          result = new { tools = new[] { new { name = "add", inputSchema = new { type = "object" } } } };
+          break;
+        case "tools/call":
+          if (!CloseHandle(stdin)) throw new IOException("Failed to close stdin");
+          File.WriteAllText(args[0], serializer.Serialize(new {
+            method = method, requestId = request["id"], pid = Process.GetCurrentProcess().Id
+          }));
+          while (true) Thread.Sleep(1000);
+        default:
+          continue;
       }
+      Console.WriteLine(serializer.Serialize(new { jsonrpc = "2.0", id = request["id"], result = result }));
     }
-    'tools/list' {
-      $result = @{ tools = @(@{ name = 'add'; inputSchema = @{ type = 'object' } }) }
-    }
-    'tools/call' {
-      if (-not [McpStdin]::CloseHandle($stdinHandle)) { throw 'Failed to close stdin' }
-      $receipt = @{ method = $request.method; requestId = $request.id; pid = $PID } |
-        ConvertTo-Json -Compress
-      [System.IO.File]::WriteAllText($env:MCP_CLOSE_STDIN_MARKER, $receipt)
-      while ($true) { Start-Sleep -Seconds 1 }
-    }
-    default { continue requests }
   }
-  $response = @{ jsonrpc = '2.0'; id = $request.id; result = $result } |
-    ConvertTo-Json -Depth 6 -Compress
-  [Console]::WriteLine($response)
-  Set-FixtureStartupPhase ('answered ' + $request.method)
 }
 `
