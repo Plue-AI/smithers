@@ -2796,14 +2796,6 @@ type WorkflowRunLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-type WorkflowSandboxClaim struct {
-	WorkflowRunID  int64              `json:"workflow_run_id"`
-	Generation     int64              `json:"generation"`
-	ClaimToken     pgtype.UUID        `json:"claim_token"`
-	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
-	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-}
-
 type WorkflowScheduleSpec struct {
 	ID                   int64              `json:"id"`
 	WorkflowDefinitionID int64              `json:"workflow_definition_id"`

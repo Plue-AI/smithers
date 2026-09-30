@@ -126,7 +126,6 @@ var migrationRegistry = []migrationSpec{
 	{88, "migrations/0088_github_mirror_refreshes.sql"},
 	{89, "migrations/0089_workspace_children.sql"},
 	{90, "migrations/0090_workspace_child_release.sql"},
-	{91, "migrations/0091_workflow_sandbox_claims.sql"},
 }
 
 type migration struct {
