@@ -489,9 +489,7 @@ describe("the Summary overview's tree row", () => {
     status: "running",
     name: "Fix UTF-8 split-chunk decoding in flows/release so a multibyte char survives",
     seat: "Claude Opus 5.5",
-    clock: "11m 43s",
-    window: 20,
-    cache: 48
+    clock: "11m 43s"
   } as const
   const seat = SubagentView.seatColumn([row, { seat: "GPT-6.1 Sol" }], 64)
   it("sizes the model column to the longest model name, short of squeezing names under a dozen cells", () => {
@@ -504,15 +502,16 @@ describe("the Summary overview's tree row", () => {
     const line = SubagentView.treeRow(row, 4, 64, seat)
     const text = `${line.title}${" ".repeat(line.gap)}${line.aside}`
     expect(4 + text.length).toBeLessThanOrEqual(64 - 1)
-    expect(text).toMatch(/… +Claude Opus 5\.5 +11m 43s +20% 48%$/)
+    expect(text).toMatch(/… +Claude Opus 5\.5 +11m 43s *$/)
+    expect(text).not.toContain("%")
   })
   it("pads short values to the same columns, so rows line up", () => {
     const a = SubagentView.treeRow({ ...row, seat: "Qwen 3.8", clock: "4s" }, 4, 64, seat)
     const b = SubagentView.treeRow(row, 4, 64, seat)
-    expect(a.aside.indexOf("20%")).toBe(b.aside.indexOf("20%"))
+    expect(a.aside.indexOf("4s")).toBe(b.aside.indexOf("11m 43s"))
     expect(a.title.length + a.gap).toBe(b.title.length + b.gap)
   })
-  it("drops the meter first in a narrow pane and still separates the clock", () => {
+  it("keeps names and clock separated in a narrow pane", () => {
     const line = SubagentView.treeRow(row, 4, 46, seat)
     expect(line.aside).not.toContain("%")
     expect(`${line.title}${" ".repeat(line.gap)}${line.aside}`).toMatch(/… +Claude Opus 5\.5 +11m 43s *$/)

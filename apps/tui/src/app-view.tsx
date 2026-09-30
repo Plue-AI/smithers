@@ -7,15 +7,14 @@ import { type ScrollBoxRenderable, TextBuffer, TextBufferView } from "@opentui/c
 import { flushSync, useKeyboard, usePaste, useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
 import { basename } from "node:path"
-import { type ReactNode, useRef } from "react"
+import { useRef } from "react"
 import stringWidth from "string-width"
 import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
-import * as Inbox from "./inbox.ts"
 import * as Dispatch from "./key-dispatch.ts"
 import type { FlowForm } from "./key-dispatch.ts"
-import type * as Keys from "./keys.ts"
+import * as Keys from "./keys.ts"
 import * as Models from "./models.ts"
 import { color } from "./theme.ts"
 import type * as Transcript from "./transcript.ts"
@@ -354,67 +353,78 @@ export function PickerDialog(props: {
   )
 }
 
-/** The status line's right end: a stale-context warning, token usage and USD, and the context window used. */
+/** Context only becomes an action hint at 70% of a known window. */
 export const meter = (transcript: Transcript.Transcript, window: number) => {
-  const usage = transcript.usage
-  const percent = window > 0 ? (usage.context / window) * 100 : 0
-  const { cache } = Inbox.usage(usage, window)
-  return {
-    percent,
-    context: transcript.contextAssessment?.outdated || transcript.contextAssessment?.irrelevant
-      ? `context: ${
-        [
-          transcript.contextAssessment.outdated ? "outdated" : "",
-          transcript.contextAssessment.irrelevant ? "irrelevant" : ""
-        ].filter(Boolean).join(" + ")
-      } · compact?  `
-      : "",
-    usage: `↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}${
-      usage.cached === 0 ? "" : ` R${Editor.tokens(usage.cached)}`
-    }${usage.usd > 0 ? ` ${usd(usage.usd)}` : ""}`,
-    window: `${
-      window > 0
-        ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}`
-        : ""
-    }${cache === undefined ? "" : ` cache ${cache}%`}`
-  }
+  const percent = window > 0 ? transcript.usage.context / window * 100 : 0
+  return { percent, label: percent >= 70 ? `ctx ${Math.round(percent)}%` : "" }
 }
 
-/** The line under the composer: where or how long, the key hints, status items and the meter. */
+/** Session spend includes each restored or live agent exactly once. */
+export const sessionUsage = (
+  chat: Transcript.Transcript,
+  tabs: ReadonlyArray<Pick<Tab, "id">>,
+  transcript: (id: string) => Transcript.Transcript
+): Pick<Transcript.Usage, "input" | "output" | "cached" | "usd"> => {
+  const total = { input: chat.usage.input, output: chat.usage.output, cached: chat.usage.cached, usd: chat.usage.usd }
+  for (const id of new Set(tabs.map((tab) => tab.id))) {
+    const usage = transcript(id).usage
+    total.input += usage.input
+    total.output += usage.output
+    total.cached += usage.cached
+    total.usd += usage.usd
+  }
+  return total
+}
+
+export const usageDetails = (usage: Pick<Transcript.Usage, "input" | "output" | "usd">): string => {
+  // Keep sub-cent precision while removing zeroes beyond the cents shown in the mock.
+  const dollars = usd(usage.usd).replace(/(\.\d{2}\d*?)0+$/, "$1")
+  return `${Editor.tokens(usage.input)} input  ${Editor.tokens(usage.output)} output  ~${dollars} est.`
+}
+
+/** Keep the branch and the end of the project name when room runs out. */
+export const clipProject = (project: string, width: number): string => {
+  if (width <= 0) return ""
+  if (stringWidth(project) <= width) return project
+  const chars = [...project]
+  while (chars.length > 0 && stringWidth(chars.join("")) > width - 1) chars.shift()
+  return `…${chars.join("")}`
+}
+
+/** Project, hints, contributed actions and a context warning, in one row. */
 export function StatusLine(props: {
-  /** The running turn's clock, or the path, branch and session name. */
-  readonly lead: ReactNode
+  readonly lead: string
+  readonly width?: number
   readonly hints: ReadonlyArray<Keys.Binding>
   readonly items: ReadonlyArray<Extension.Status>
   readonly onItem: (item: Extension.Status) => void
   readonly meter: ReturnType<typeof meter>
 }) {
-  const { meter } = props
+  const renderer = useRenderer()
+  const width = props.width ?? renderer.width
+  const right = props.items.reduce((total, item) => total + stringWidth(item.text) + 2, 0) +
+    (props.meter.label === "" ? 0 : stringWidth(props.meter.label) + 2)
+  const available = Math.max(0, width - right - 1)
+  const hints = Keys.fit(props.hints, Math.max(0, available - Math.min(stringWidth(props.lead), 24) - 2), stringWidth)
+  const hintsWidth = hints.reduce((total, binding) => total + Keys.hintWidth(binding, stringWidth) + 2, 0)
+  const project = clipProject(props.lead, Math.max(0, available - hintsWidth - 2))
   return (
-    <box
-      style={{ flexDirection: "row", justifyContent: "space-between", height: 1, paddingLeft: 1, flexShrink: 0 }}
-    >
-      <box style={{ flexDirection: "row", flexShrink: 1, marginRight: 2 }}>
-        {/* The path gives way before the hints do. */}
-        <text wrapMode="none" style={{ flexShrink: 100, marginRight: 2 }}>
-          {props.lead}
-        </text>
-        <View.KeyHints bindings={props.hints} />
-      </box>
-      <box style={{ flexDirection: "row", flexShrink: 0 }}>
-        <View.StatusItems items={props.items} onSelect={props.onItem} />
-        <text wrapMode="none" style={{ flexShrink: 0 }}>
-          {meter.context === "" ? null : <span fg={color.warning}>{meter.context}</span>}
-          <span fg={color.faint}>{meter.usage}</span>
-          {meter.window === "" ?
-            null :
-            (
-              <span fg={meter.percent > 90 ? color.danger : meter.percent > 70 ? color.warning : color.faint}>
-                {meter.window}
-              </span>
-            )}
-        </text>
-      </box>
+    <box style={{ flexDirection: "row", height: 1, paddingLeft: 1, flexShrink: 0, width }}>
+      <text fg={color.faint} wrapMode="none" style={{ flexShrink: 0, marginRight: 2 }}>{project}</text>
+      <View.KeyHints bindings={hints} />
+      <box style={{ flexGrow: 1 }} />
+      <View.StatusItems items={props.items} onSelect={props.onItem} />
+      {props.meter.label === "" ?
+        null :
+        (
+          <text
+            wrapMode="none"
+            fg={props.meter.percent >= 90 ? color.danger : color.warning}
+            style={{ flexShrink: 0, marginLeft: 2 }}
+          >
+            {props.meter.label}
+          </text>
+        )}
     </box>
   )
 }

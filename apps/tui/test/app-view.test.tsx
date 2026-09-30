@@ -1,10 +1,12 @@
 import { testRender } from "@opentui/react/test-utils"
 import { afterEach, expect, test } from "bun:test"
 import { act, type ReactNode } from "react"
+import stringWidth from "string-width"
 import * as AppView from "../src/app-view.tsx"
 import type * as Complete from "../src/complete.ts"
 import type * as Extension from "../src/extension.ts"
 import type { FlowForm } from "../src/key-dispatch.ts"
+import * as Keys from "../src/keys.ts"
 import type * as Models from "../src/models.ts"
 import * as Transcript from "../src/transcript.ts"
 
@@ -476,74 +478,118 @@ test.each([false, true])(
 )
 
 test.each([
-  { outdated: false, irrelevant: false, context: "" },
-  { outdated: true, irrelevant: false, context: "context: outdated · compact?  " },
-  { outdated: false, irrelevant: true, context: "context: irrelevant · compact?  " },
-  { outdated: true, irrelevant: true, context: "context: outdated + irrelevant · compact?  " }
-])("meter preserves context warning combination $outdated/$irrelevant", ({ outdated, irrelevant, context }) => {
+  { context: 0, window: 100, percent: 0, label: "" },
+  { context: 69, window: 100, percent: 69, label: "" },
+  { context: 70, window: 100, percent: 70, label: "ctx 70%" },
+  { context: 74, window: 100, percent: 74, label: "ctx 74%" },
+  { context: 120, window: 100, percent: 120, label: "ctx 120%" },
+  { context: 75, window: 0, percent: 0, label: "" }
+])("context warning is actionable at $context/$window", ({ context, window, percent, label }) => {
   const transcript: Transcript.Transcript = {
     ...Transcript.empty,
-    usage: { input: 12, output: 4, cached: 0, context: 75, usd: 0 },
-    contextAssessment: { scope: "run", frame: 1, outdated, irrelevant }
+    usage: { input: 122000, output: 14000, cached: 103000, context, usd: 1.5 },
+    contextAssessment: { scope: "run", frame: 1, outdated: true, irrelevant: true }
   }
-  expect(AppView.meter(transcript, 100)).toEqual({
-    percent: 75,
-    context,
-    usage: "↑12 ↓4",
-    window: "  75.0%/100"
-  })
+  expect(AppView.meter(transcript, window)).toEqual({ percent, label })
 })
 
-test("meter has no percentage label without a known window and includes the cache share", () => {
-  const transcript: Transcript.Transcript = {
+test("session details aggregate coordinator and unique agents, including settled agents", () => {
+  const withUsage = (input: number, output: number, cached: number, usd: number): Transcript.Transcript => ({
     ...Transcript.empty,
-    usage: { input: 12, output: 4, cached: 3, context: 75, usd: 0 }
-  }
-  expect(AppView.meter(transcript, 0)).toEqual({
-    percent: 0,
-    context: "",
-    usage: "↑12 ↓4 R3",
-    window: " cache 25%"
+    usage: { input, output, cached, context: input, usd }
   })
-  expect(AppView.meter(transcript, 100)).toEqual({
-    percent: 75,
-    context: "",
-    usage: "↑12 ↓4 R3",
-    window: "  75.0%/100 cache 25%"
+  const workers = { running: withUsage(10000, 8000, 5000, 0.01), done: withUsage(15000, 10000, 7000, 0.02) }
+  const calls: string[] = []
+  const total = AppView.sessionUsage(withUsage(1000, 1000, 500, 0.01), [{ id: "running" }, { id: "done" }, {
+    id: "running"
+  }], (id) => {
+    calls.push(id)
+    return workers[id as keyof typeof workers]
   })
+  expect(total.input).toBe(26000)
+  expect(total.output).toBe(19000)
+  expect(total.cached).toBe(12500)
+  expect(total.usd).toBeCloseTo(0.04)
+  expect(calls).toEqual(["running", "done"])
+  expect(AppView.usageDetails(total)).toBe("26k input  19k output  ~$0.04 est.")
+  expect(AppView.sessionUsage(Transcript.empty, [], () => {
+    throw new Error("No agent")
+  })).toEqual({ input: 0, output: 0, cached: 0, usd: 0 })
+  expect(AppView.usageDetails({ input: 0, output: 0, usd: 0 })).toBe("0 input  0 output  ~$0.00 est.")
+  expect(AppView.usageDetails({ input: 1, output: 2, usd: 0.0042 })).toBe("1 input  2 output  ~$0.0042 est.")
+  expect(AppView.usageDetails({ input: 1, output: 2, usd: 1.5 })).toBe("1 input  2 output  ~$1.50 est.")
 })
 
-test("meter shows the USD of priced calls beside the tokens", () => {
-  const transcript: Transcript.Transcript = {
-    ...Transcript.empty,
-    usage: { input: 12, output: 4, cached: 3, context: 75, usd: 1.5 }
+test.each([0, 1, 8, 16, 24, 80])("left clipping stays within %s cells and retains the project suffix", (width) => {
+  const project = "very-long-界界-inventory-replay (master)"
+  const clipped = AppView.clipProject(project, width)
+  expect(stringWidth(clipped)).toBeLessThanOrEqual(width)
+  if (width === 0) expect(clipped).toBe("")
+  else if (width >= stringWidth(project)) expect(clipped).toBe(project)
+  else {
+    expect(clipped).toStartWith("…")
+    expect(project.endsWith(clipped.slice(1))).toBe(true)
   }
-  expect(AppView.meter(transcript, 0).usage).toBe("↑12 ↓4 R3 $1.50")
-  expect(AppView.meter({ ...transcript, usage: { ...transcript.usage, usd: 0.0042 } }, 0).usage).toBe(
-    "↑12 ↓4 R3 $0.0042"
+})
+
+const footerHints = Keys.registry.filter((binding) => ["palette", "summary", "keys"].includes(binding.id))
+test.each([0, 74])("footer keeps project, branch and hints without raw telemetry at context %s", async (percent) => {
+  const frame = await draw(
+    <AppView.StatusLine
+      lead="inventory-replay (master)"
+      width={80}
+      hints={footerHints}
+      items={[]}
+      onItem={() => {}}
+      meter={{ percent, label: percent === 0 ? "" : `ctx ${percent}%` }}
+    />
   )
+  expect(frame).toContain("inventory-replay (master)")
+  expect(frame).toContain("ctrl+k Search")
+  expect(frame).toContain("ctrl+s Summary")
+  expect(frame).toContain("? Keys")
+  expect(frame).not.toContain("↑")
+  expect(frame).not.toContain("cache")
+  if (percent === 0) expect(frame).not.toContain("ctx")
+  else expect(frame).toContain("ctx 74%")
 })
 
-test("status line renders the assessment and dispatches only the item actually clicked", async () => {
+test("narrow footer clips from the left before losing branch and actionable hints", async () => {
+  const frame = await draw(
+    <AppView.StatusLine
+      lead="long-name-inventory-replay (master)"
+      width={60}
+      hints={footerHints}
+      items={[]}
+      onItem={() => {}}
+      meter={{ percent: 0, label: "" }}
+    />
+  )
+  expect(frame).toContain("…")
+  expect(frame).toContain("(master)")
+  expect(frame).toContain("ctrl+k Search")
+  expect(frame).not.toContain("long-name")
+})
+
+test("status items preserve click ownership alongside the context warning", async () => {
   const selected: Extension.Status[] = []
   const item: Extension.Status = { id: "review", text: "Review", tone: "warning" }
   const frame = await draw(
     <AppView.StatusLine
-      lead="/workspace"
+      lead="inventory-replay (master)"
+      width={80}
       hints={[]}
       items={[item]}
       onItem={(value) => selected.push(value)}
-      meter={{ percent: 95, context: "context: outdated · compact?  ", usage: "↑12 ↓4", window: "  95.0%/100" }}
+      meter={{ percent: 95, label: "ctx 95%" }}
     />
   )
-  expect(frame).toContain("/workspace")
-  expect(frame).toContain("context: outdated · compact?")
-  expect(frame).toContain("↑12 ↓4")
-  expect(frame).toContain("95.0%/100")
+  expect(frame).toContain("inventory-replay (master)")
+  expect(frame).toContain("ctx 95%")
   expect(selected).toEqual([])
   const lines = frame.split("\n")
   const y = lines.findIndex((line) => line.includes("Review"))
-  await setup!.mockMouse.click(lines[y]!.indexOf("Review") + 1, y)
+  await act(() => setup!.mockMouse.click(lines[y]!.indexOf("Review") + 1, y))
   expect(selected).toEqual([item])
   expect(selected[0]).toBe(item)
 })

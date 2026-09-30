@@ -1,7 +1,7 @@
 /**
  * The Summary overview's rows: every worker and flow run grouped as Needs you,
- * Working, Failed and Done, each row `glyph name seat clock window cache`, each
- * build target waiting for approval under Needs you, and each active monitor
+ * Working, Failed and Done, each row `glyph name seat clock`, each build
+ * target waiting for approval under Needs you, and each active monitor
  * under Working. Needs you holds only what the person can answer now: an ask
  * they hold, an approval, a build target, a flow's form, a frame waiting for
  * its driver. A node listed there, or under Failed, appears once, flat; the
@@ -52,10 +52,6 @@ export interface Row {
   readonly seat: string
   /** Elapsed, how long an ask has waited, `resets 21:43` for a park, or blank. */
   readonly clock: string
-  /** Context window used, percent. */
-  readonly window?: number
-  /** Cache hits over input tokens, percent. */
-  readonly cache?: number
   /** The worker's ask the person holds. */
   readonly ask?: Asks.Ask
   /** Pending asks, approvals and forms represented by this row. */
@@ -66,16 +62,6 @@ export interface Section {
   readonly group: Group
   readonly rows: ReadonlyArray<Row>
 }
-
-/** `R / ↑` and `context / window`, from the usage the footer meter reads. */
-export const usage = (
-  usage: Transcript.Transcript["usage"],
-  window: number
-): { readonly window?: number; readonly cache?: number } => ({
-  ...(usage.context > 0 && window > 0 ? { window: Math.round((usage.context / window) * 100) } : {}),
-  // A provider that reports no cached tokens gets no figure, never a false 0%.
-  ...(usage.cached > 0 && usage.input > 0 ? { cache: Math.round((usage.cached / usage.input) * 100) } : {})
-})
 
 const at = (ms: number): string => {
   const date = new Date(ms)
@@ -111,8 +97,6 @@ const supersededRun = (run: Flows.Run, runs: ReadonlyArray<Flows.Run>): boolean 
 export const rows = (input: {
   readonly tabs: ReadonlyArray<Tab>
   readonly runs: ReadonlyArray<Flows.Run>
-  readonly transcript: (id: string) => Transcript.Transcript
-  readonly contextWindow: (seat: string) => number
   readonly models: ReadonlyArray<Models.Model>
   readonly now: number
   /** Open asks; those the person holds put their asker under Needs you. */
@@ -133,7 +117,6 @@ export const rows = (input: {
   /** Listed once, flat, under Needs you or Failed. */
   const flat = (tab: Tab) => needs(tab) || failing(tab)
   const worker = (tab: Tab, group: Group, level: number): Row => {
-    const seat = tab.activeSeat ?? tab.seat
     const ask = asking(tab)
     const parked = tab.status === "parked" && tab.wakeAt !== undefined
     return {
@@ -151,7 +134,6 @@ export const rows = (input: {
         : tab.status === "queued"
         ? ""
         : SubagentCard.duration(Tabs.elapsed(tab, input.now)),
-      ...usage(input.transcript(tab.id).usage, input.contextWindow(seat)),
       ...(ask === undefined ? {} : { ask }),
       ...(group === "needs" ?
         {
@@ -258,11 +240,6 @@ export const keys = (sections: ReadonlyArray<Section>, failedOpen: boolean): Rea
     ...(each.group === "failed" ? [failedKey] : []),
     ...(each.group === "failed" && !failedOpen ? [] : each.rows.map((row) => row.key))
   ])
-
-/** `61% 91%`: window used, then cache hit; blank when unmeasured. */
-export const meter = (row: Pick<Row, "window" | "cache">): string =>
-  [row.window === undefined ? "" : `${row.window}%`, row.cache === undefined ? "" : `${row.cache}%`]
-    .filter((each) => each !== "").join(" ")
 
 /** What `space` shows for a row: the pending question, a failure or park, else the last step. */
 export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript): ReadonlyArray<string> => {

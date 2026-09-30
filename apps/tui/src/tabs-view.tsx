@@ -10,7 +10,6 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type RefObject, useEffect, useRef } from "react"
 import stringWidth from "string-width"
 import type * as Asks from "./asks.ts"
-import * as Editor from "./editor.ts"
 import * as Inbox from "./inbox.ts"
 import { type Model, seatName } from "./models.ts"
 import { FailureCard } from "./panel-view.tsx"
@@ -253,7 +252,6 @@ export function WorkerView(props: {
   }, [props.jump])
   const { tab, transcript } = props
   const { glyph, tone } = Tabs.styleOf(tab, props.now)
-  const usage = transcript.usage
   const facts = [
     ...(tab.driver === undefined ? [] : [`${tab.driver.by} since ${clock(tab.driver.from)}`]),
     tab.harness === undefined
@@ -261,8 +259,7 @@ export function WorkerView(props: {
       : `${tab.harness.vendor}${
         tab.harness.session === undefined ? "" : ` · session ${tab.harness.session.slice(0, 8)}`
       }`,
-    Transcript.duration(Tabs.elapsed(tab, props.now)),
-    ...(usage.input + usage.output === 0 ? [] : [`↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}`])
+    Transcript.duration(Tabs.elapsed(tab, props.now))
   ].join(" · ")
   const lines = Subagents.lines(
     Timeline.rows(transcript),

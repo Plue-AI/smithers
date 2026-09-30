@@ -163,3 +163,82 @@ test("Return exits timeline before later draft bytes in the same input burst", a
   expect(frame).toContain("Draft!")
   expect(frame).not.toContain("Draft]")
 })
+
+test("footer names the checkout while Ctrl+O reveals and hides session totals", async () => {
+  const frame = await mount(80, 24)
+  expect(frame.split("\n")[23]).toContain("inventory-replay (master)")
+  expect(frame.split("\n")[23]).toContain("ctrl+k Search")
+  expect(frame).not.toContain("ctx")
+  expect(frame).not.toContain("input  ")
+  expect(frame).not.toContain("est.")
+  const details = await key("o", { ctrl: true })
+  expect(details).toContain("120 input  30 output  ~$0.00 est.")
+  expect(details.split("\n")[23]).toContain("inventory-replay (master)")
+  const collapsed = await key("o", { ctrl: true })
+  expect(collapsed).not.toContain("input  ")
+  expect(collapsed).not.toContain("est.")
+})
+
+test("Ctrl+O session totals include restored parent and nested finished agents exactly once", async () => {
+  writer.append({
+    type: "event",
+    at: 110,
+    event: new AgentEvent.ModelSettled({
+      eventType: "flows.harness.model-settled.v1",
+      message: ModelRequest.Message.assistant("Chat complete"),
+      usage: { inputTokens: 880, outputTokens: 970 },
+      costUsd: 0.01,
+      costSource: "estimated"
+    })
+  })
+  const seedAgent = (id: string, parent: string | undefined, input: number, output: number, usd: number) => {
+    const agent = Session.create(cwd, "worker")
+    agent.append({ type: "user", at: 110, text: `Review ${id}` })
+    agent.append({
+      type: "event",
+      at: 111,
+      event: new AgentEvent.ModelSettled({
+        eventType: "flows.harness.model-settled.v1",
+        message: ModelRequest.Message.assistant(`${id} complete`),
+        usage: { inputTokens: input, outputTokens: output, cachedInputTokens: 5000 },
+        costUsd: usd,
+        costSource: "estimated"
+      })
+    })
+    agent.append({
+      type: "outcome",
+      at: 112,
+      prompt: `Review ${id}`,
+      outcome: { _tag: "done", answer: `${id} complete` }
+    })
+    const tab = {
+      id,
+      title: `Review ${id}`,
+      prompt: `Review ${id}`,
+      seat: "replay:test",
+      file: agent.file,
+      depth: parent === undefined ? 1 : 2,
+      status: "done" as const,
+      startedAt: 110,
+      endedAt: 112,
+      ...(parent === undefined ? {} : { parent })
+    }
+    writer.append({ type: "tab", tab })
+    return tab
+  }
+  const parent = seedAgent("review", undefined, 10000, 8000, 0.01)
+  seedAgent("review/docs", "review", 15000, 10000, 0.02)
+  writer.append({ type: "tab", tab: parent })
+  const restored = await mount(80, 24)
+  expect(restored).not.toContain("input  ")
+  const details = await key("o", { ctrl: true })
+  expect(details).toContain("26k input  19k output  ~$0.04 est.")
+  expect(details.split("\n")[0]).toContain("Chat")
+  expect(details.split("\n")[0]).toContain("Summary")
+  expect(details.split("\n")[23]).toContain("inventory-replay (master)")
+  await key("s", { ctrl: true })
+  const summary = setup!.captureCharFrame()
+  expect(summary).toContain("Review review")
+  expect(summary).toContain("Review review/docs")
+  expect(summary).not.toContain("%")
+})

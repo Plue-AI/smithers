@@ -413,7 +413,7 @@ export const forest = (
       glyph: glyph.glyph,
       tone: glyph.tone,
       name: each.name,
-      sub: [each.seat, each.clock, Inbox.meter(each)].filter((part) => part !== "").join(" · "),
+      sub: [each.seat, each.clock].filter((part) => part !== "").join(" · "),
       children
     }
   }
@@ -509,8 +509,8 @@ export function GraphView(props: {
   )
 }
 
-/** Fixed columns right of the name: clock, window and cache; each value leaves a space before the next. */
-const columns = { clock: 8, meter: 10 } as const
+/** Fixed column right of the model: the clock; each value leaves a space before the next. */
+const columns = { clock: 8 } as const
 
 /**
  * The model column's width in a pane `inner` cells wide: the longest model
@@ -522,8 +522,7 @@ export const seatColumn = (rows: ReadonlyArray<Pick<Inbox.Row, "seat">>, inner: 
 /**
  * A tree row right of its `lead` cells in a pane `inner` cells wide: the name
  * clipped to fit, the gap, and the model column `seat` cells wide, then the
- * clock and meter columns. A narrow pane keeps the names readable: the meter
- * column goes first.
+ * clock column.
  */
 export const treeRow = (
   row: Inbox.Row,
@@ -531,15 +530,14 @@ export const treeRow = (
   inner: number,
   seat: number
 ): { readonly title: string; readonly gap: number; readonly aside: string } => {
-  const meter = inner - seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
   const pad = (text: string, width: number) => SubagentCard.clip(text, width - 1).padEnd(width)
   // A clock wider than its column, a park's `resets 21:43`, takes the empty seat column too.
   const aside = `${
     row.seat === "" && stringWidth(row.clock) >= columns.clock
       ? pad(row.clock, seat + columns.clock)
       : `${pad(row.seat, seat)}${pad(row.clock, columns.clock)}`
-  }${meter === 0 ? "" : SubagentCard.clip(Inbox.meter(row), meter)}`
-  const right = seat + columns.clock + meter
+  }`
+  const right = seat + columns.clock
   // One space always separates the clipped name from the seat column.
   const title = SubagentCard.clip(row.name, Math.max(1, inner - 2 - lead - right))
   return { title, gap: Math.max(1, inner - 1 - lead - stringWidth(title) - right), aside }
@@ -556,8 +554,6 @@ export function Peek(props: { readonly row: Inbox.Row; readonly lines: ReadonlyA
         <span fg={color.faint}>{`  ${[row.seat, row.clock].filter((part) => part !== "").join(" · ")}`}</span>
       </text>
       {props.lines.map((line, index) => <text key={index} fg={color.text}>{line}</text>)}
-      {row.window === undefined ? null : <text fg={color.faint}>{`window  ${row.window}%`}</text>}
-      {row.cache === undefined ? null : <text fg={color.faint}>{`cache   ${row.cache}%`}</text>}
     </box>
   )
 }

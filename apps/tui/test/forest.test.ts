@@ -3,7 +3,6 @@ import type * as Flows from "../src/flows.ts"
 import type * as Graph from "../src/graph.ts"
 import * as Inbox from "../src/inbox.ts"
 import { forest } from "../src/subagent-view.tsx"
-import * as Transcript from "../src/transcript.ts"
 import type { Tab } from "../src/workspace.ts"
 
 const now = 1_000_000
@@ -20,10 +19,7 @@ const tab = (id: string, status: Tab["status"], parent?: string): Tab => ({
 })
 const shape = (node: Graph.Node): unknown => [node.key, node.children.map(shape)]
 const rows = (tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Flows.Run> = []) =>
-  Inbox.flat(
-    Inbox.rows({ tabs, runs, transcript: () => Transcript.empty, contextWindow: () => 0, models: [], now }),
-    true
-  )
+  Inbox.flat(Inbox.rows({ tabs, runs, models: [], now }), true)
 
 it("draws the whole tree above and below the selected worker, the failed ones included", () => {
   const tabs = [

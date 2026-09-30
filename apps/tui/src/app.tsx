@@ -16,10 +16,8 @@ import * as CloudSession from "@smthrs/cli/CloudSession"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
 import { Schema } from "effect"
-import { homedir } from "node:os"
 import { basename } from "node:path"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import stringWidth from "string-width"
 import { ActivityView } from "./activity-view.tsx"
 import * as Agents from "./agents.ts"
 import * as AppView from "./app-view.tsx"
@@ -653,8 +651,6 @@ export function App(props: AppProps) {
   const inbox = Inbox.rows({
     tabs: snapshot.tabs,
     runs: flowRuns,
-    transcript: workspace.transcript,
-    contextWindow: props.contextWindow,
     models: props.models,
     now,
     asks: workspace.asks.list(),
@@ -2689,10 +2685,6 @@ export function App(props: AppProps) {
         : [binding]
     )
   const meter = AppView.meter(transcript, window)
-  // The hints get the row less its padding, the margins, the status items and the meter; the path gives way first.
-  const hintColumns = width - 5 -
-    statusItems.reduce((total, item) => total + stringWidth(item.text) + 2, 0) -
-    stringWidth(meter.context + meter.usage + meter.window)
   /** A run card's run; while its form is open below, the form asks, so the card does not repeat it. */
   const runCard = (surface: string): FlowRun | undefined => {
     const run = surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined
@@ -2980,6 +2972,13 @@ export function App(props: AppProps) {
                     : null}
                 </scrollbox>
               )}
+            {expanded && reviewTab === undefined
+              ? (
+                <text fg={color.faint} wrapMode="none" style={{ height: 1, flexShrink: 0, paddingLeft: 2 }}>
+                  {AppView.usageDetails(AppView.sessionUsage(transcript, snapshot.tabs, workspace.transcript))}
+                </text>
+              )
+              : null}
             {activeInspection === undefined || monitored === undefined || reviewTab !== undefined ?
               null :
               (
@@ -3124,20 +3123,9 @@ export function App(props: AppProps) {
             </box>
           </box>
           <StatusLine
-            lead={working
-              ? (
-                <>
-                  <span fg={color.brand}>{tick} {Transcript.duration(now - turn.startedAt)}</span>
-                </>
-              )
-              : (
-                <span fg={color.faint}>
-                  {props.host.cwd.replace(homedir(), "~")}
-                  {props.branch === undefined ? "" : ` (${props.branch})`}
-                  {name === undefined ? "" : ` • ${name}`}
-                </span>
-              )}
-            hints={Keys.fit(footerHints, hintColumns, stringWidth)}
+            lead={`${basename(props.host.cwd)}${props.branch === undefined ? "" : ` (${props.branch})`}`}
+            width={width}
+            hints={footerHints}
             items={statusItems}
             onItem={(item) => item.action === undefined ? undefined : perform(item.action)}
             meter={meter}

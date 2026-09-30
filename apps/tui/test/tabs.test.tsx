@@ -423,6 +423,7 @@ describe("WorkerView", () => {
     expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
     expect(frame).toContain("GPT-6.1 Sol · 3.0s")
     expect(frame).toContain("3.0s")
+    expect(frame).not.toContain("↑18k ↓2.3k")
     expect(frame.split("\n").findIndex((row) => row.includes("Audit the auth middleware."))).toBeLessThanOrEqual(4)
     expect(frame).toContain("Audit the auth middleware.")
     // A cell the model is still writing shows as work, its program behind ctrl+o.

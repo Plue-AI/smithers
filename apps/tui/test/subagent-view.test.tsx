@@ -360,3 +360,32 @@ describe("the Summary overview's groups", () => {
     expect(frame).not.toContain("a Answer")
   })
 })
+
+describe("Summary telemetry", () => {
+  const worker = tab("review")
+  const row = {
+    key: "review",
+    group: "working" as const,
+    level: 0,
+    status: "running" as const,
+    name: "Review checkout",
+    seat: "sol",
+    clock: "1m",
+    worker
+  }
+  it("peek keeps the current step and model without percentage columns", async () => {
+    const mounted = await mount(<View.Peek row={row} lines={["Read math.js"]} now={42000} />)
+    const frame = mounted.captureCharFrame()
+    expect(frame).toContain("Review checkout")
+    expect(frame).toContain("Read math.js")
+    expect(frame).toContain("sol")
+    expect(frame).not.toContain("%")
+    expect(frame).not.toContain("window")
+    expect(frame).not.toContain("cache")
+  })
+  it("graph captions contain only the model and clock", () => {
+    const node = View.forest(row, [row], [worker], () => [], 42000)
+    expect(node.sub).toBe("sol · 1m")
+    expect(node.children).toEqual([])
+  })
+})

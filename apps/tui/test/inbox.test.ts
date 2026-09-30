@@ -27,12 +27,8 @@ const run = (id: string, status: Flows.Run["status"], extra: Partial<Flows.Run> 
   startedAt: now - 5_000,
   ...extra
 })
-const used = (input: number, cached: number, context: number): Transcript.Transcript => ({
-  ...Transcript.empty,
-  usage: { input, output: 10, cached, context, usd: 0 }
-})
-const rows = (tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Flows.Run> = [], transcript = () => Transcript.empty) =>
-  Inbox.rows({ tabs, runs, transcript, contextWindow: () => 200_000, models: [], now })
+const rows = (tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Flows.Run> = []) =>
+  Inbox.rows({ tabs, runs, models: [], now })
 const shape = (sections: ReadonlyArray<Inbox.Section>) =>
   sections.map((section) => [section.group, section.rows.map((row) => `${"  ".repeat(row.level)}${row.key}`)])
 
@@ -47,8 +43,6 @@ describe("the overview inbox", () => {
     const sections = Inbox.rows({
       tabs: [],
       runs: [],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       targets: [target]
@@ -96,8 +90,6 @@ describe("the overview inbox", () => {
         tab("wait", "waiting")
       ],
       runs: [run("form", "input"), run("gate", "running"), run("park", "parked")],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       approvals: ["approve", "flow:gate"]
@@ -147,8 +139,6 @@ describe("the overview inbox", () => {
     const input = {
       tabs: [tab("worker", "running")],
       runs: [],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now
     }
@@ -167,8 +157,6 @@ describe("the overview inbox", () => {
     const sections = Inbox.rows({
       tabs: [tab("worker", "running")],
       runs: [run("form", "input")],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       asks: [{
@@ -254,8 +242,6 @@ describe("the overview inbox", () => {
     const sections = Inbox.rows({
       tabs: [tab("done", "done")],
       runs: [run("going", "running")],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       monitors: [monitor("ci", "active"), monitor("old", "stopped"), monitor("broke", "failed")]
@@ -268,8 +254,6 @@ describe("the overview inbox", () => {
     const stoppedOnly = Inbox.rows({
       tabs: [],
       runs: [],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       monitors: [monitor("old", "stopped")]
@@ -281,11 +265,11 @@ describe("the overview inbox", () => {
     expect(shape(rows([tab("a", "done")]))).toEqual([["done", ["a"]]])
   })
 
-  it("reads window and cache percent from the footer's usage", () => {
-    const [section] = rows([tab("a", "running")], [], () => used(40_000, 36_400, 122_000))
-    expect(section!.rows[0]).toMatchObject({ seat: "GPT-6.1 Sol", clock: "1m", window: 61, cache: 91 })
-    expect(Inbox.meter(section!.rows[0]!)).toBe("61% 91%")
-    expect(Inbox.meter({})).toBe("")
+  it("keeps the model and elapsed time without telemetry columns", () => {
+    const [section] = rows([tab("a", "running")])
+    expect(section!.rows[0]).toMatchObject({ seat: "GPT-6.1 Sol", clock: "1m" })
+    expect(section!.rows[0]).not.toHaveProperty("window")
+    expect(section!.rows[0]).not.toHaveProperty("cache")
   })
 
   it("gives a flow run no model label and its form's question as the peek", () => {
@@ -309,10 +293,9 @@ describe("the overview inbox", () => {
       .toEqual([["working", ["flow:p", "flow:q"]], ["failed", ["flow:f"]], ["done", ["flow:c"]]])
   })
 
-  it("leaves a queued row's clock blank and shows no cache figure a provider did not report", () => {
-    const [section] = rows([tab("a", "queued")], [], () => used(40_000, 0, 20_000))
-    expect(section!.rows[0]).toMatchObject({ clock: "", window: 10 })
-    expect(section!.rows[0]!.cache).toBeUndefined()
+  it("leaves a queued row's clock blank", () => {
+    const [section] = rows([tab("a", "queued")])
+    expect(section!.rows[0]).toMatchObject({ clock: "" })
   })
 
   it("lists a worker whose ask the person holds under Needs you, and peeks at the question and its path", () => {
@@ -330,8 +313,6 @@ describe("the overview inbox", () => {
     const shown = Inbox.rows({
       tabs: [tab("plan", "running"), tab("impl", "running", { parent: "plan" })],
       runs: [],
-      transcript: () => Transcript.empty,
-      contextWindow: () => 200_000,
       models: [],
       now,
       asks: [ask, { ...ask, id: "ask-2", from: "plan", holder: "root" }]
