@@ -922,6 +922,7 @@ export function Approval(
       readonly subject: string
       readonly preview?: Approvals.Preview
     }
+    /** The columns the row has, which decide whether its keys fit beside it. */
     readonly width: number
     /** From `Approvals.choices`. */
     readonly choices: ReadonlyArray<Approvals.Offer>
@@ -936,7 +937,13 @@ export function Approval(
   const preview = props.request.preview
   const shown = preview === undefined ? [] : preview.lines.slice(0, Math.max(1, props.lines))
   const hidden = preview === undefined ? 0 : preview.added + preview.removed - shown.length
-  const column = preview !== undefined || props.width < 90
+  const head = `${props.worker === undefined ? "" : `↳ ${props.worker} `}? ${Approvals.verb(props.request.flow)} ${
+    props.request.subject.replace(/\s+/g, " ").replace(/\p{Cc}/gu, "\ufffd")
+  }`
+  const more = props.more > 0 ? ` +${props.more}` : ""
+  const keys = props.choices.map((choice) => `${choice.key} ${choice.label}`).join("  ")
+  // Keys beside the request only when both fit whole: a wrapped command reads as another one.
+  const column = preview !== undefined || stringWidth(`${head}${more}  ${keys}`) > props.width - 2
   return (
     <box
       style={{
@@ -949,11 +956,10 @@ export function Approval(
     >
       {/* Wrapped, never clipped: `y` approves exactly the text shown. */}
       <text wrapMode="char" style={{ flexShrink: 1 }} fg={color.warning}>
-        {props.worker === undefined ? "" : `↳ ${props.worker} `}? {Approvals.verb(props.request.flow)}{" "}
-        {props.request.subject.replace(/\s+/g, " ").replace(/\p{Cc}/gu, "\ufffd")}
+        {head}
         {preview === undefined ? null : <span fg={color.success}>{`  +${preview.added}`}</span>}
         {preview === undefined ? null : <span fg={color.danger}>{` −${preview.removed}`}</span>}
-        {props.more > 0 ? ` +${props.more}` : ""}
+        {more}
       </text>
       {shown.map((line, index) => (
         <text

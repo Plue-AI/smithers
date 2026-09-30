@@ -301,6 +301,39 @@ test("approval subjects and keys remain separate across terminal widths", async 
   }
 })
 
+test("an approval puts its keys beside the command only when both fit whole in the row's width", async () => {
+  const rows = async (width: number, subject: string, worker?: string) => {
+    setup = await testRender(
+      <box style={{ width }}>
+        <View.Approval
+          width={width}
+          request={{ flow: "bash", subject }}
+          choices={Approvals.choices({ action: "proc:spawn", flow: "bash", always: true })}
+          armed
+          more={0}
+          lines={4}
+          {...(worker === undefined ? {} : { worker })}
+        />
+      </box>,
+      { width: 140, height: 8 }
+    )
+    await setup.renderOnce()
+    const lines = setup.captureCharFrame().split("\n").map((line) => line.trim()).filter((line) => line !== "")
+    setup.renderer.destroy()
+    setup = undefined
+    return lines
+  }
+  const keys = "y Allow once  n Deny  a Allow commands this run"
+  expect(await rows(82, "git status --porcelain", "Fix math.js")).toEqual([
+    "↳ Fix math.js ? run git status --porcelain",
+    keys
+  ])
+  const long = "node --test test/parser/quoted-arguments-regression.test.mjs"
+  expect(await rows(110, long)).toEqual([`? run ${long}`, keys])
+  const [row] = await rows(110, "git status --porcelain", "Fix math.js")
+  expect(row!.replace(/\s+/g, " ")).toBe(`↳ Fix math.js ? run git status --porcelain ${keys.replace(/\s+/g, " ")}`)
+})
+
 test("an edit approval shows its changed lines, bounded, and offers the change's keys", async () => {
   const request = {
     flow: "edit",

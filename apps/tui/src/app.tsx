@@ -2896,7 +2896,7 @@ export function App(props: AppProps) {
             <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onAction={workerAction} />}
           {approvals[0] === undefined ? null : (
             <View.Approval
-              width={dimensions.width}
+              width={width}
               request={approvals[0]}
               choices={offered}
               armed={approvalReady}
