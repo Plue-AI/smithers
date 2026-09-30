@@ -24,12 +24,14 @@ export async function repositoryListRead(
   filter: "open" | "closed" | "all",
   renderForm: RepositoryForm | undefined,
   read: (repo: string) => Promise<string | void | { readonly value: string }>,
+  /** The form's prefilled line when it carries more than the filter (issues.list --kind/--view). */
+  formArgs?: string,
 ): Promise<string | void | { readonly value: string }> {
   const actor = ctx.actor()
   const target = resolveTargetRepo(ctx.store, explicit)
   if ("error" in target) {
     if (!explicit && renderForm) {
-      renderForm({ name: `${kind}.list`, args: kind === "issues" ? filter : "", via: actor === "smithers" ? "agent" : "user",
+      renderForm({ name: `${kind}.list`, args: formArgs ?? (kind === "issues" ? filter : ""), via: actor === "smithers" ? "agent" : "user",
         hints: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text", required: true } } } })
       return readResult("Rendered a form for repo.")
     }

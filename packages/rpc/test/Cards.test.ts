@@ -1344,6 +1344,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       repo: "smithersai/smithers",
       filter: "all",
       kind: "issue",
+      view: "bugs",
+      views: [{ id: "bugs", title: "Open bugs" }],
       issues: [{
         number: 1634,
         title: "rc0 CI green",

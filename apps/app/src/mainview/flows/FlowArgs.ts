@@ -96,7 +96,7 @@ export interface FlowInput {
   readonly "flow.plan.select": { readonly cardId: string; readonly nodeId?: string }
   readonly "runs.graph.tab": { readonly runId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
   readonly "flow.plan.tab": { readonly cardId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
-  readonly "issues.list": { readonly filter?: "open" | "closed" | "all"; readonly repo?: string; readonly kind?: "all" | "conversation" | "issue" }
+  readonly "issues.list": { readonly filter?: "open" | "closed" | "all"; readonly repo?: string; readonly kind?: "all" | "conversation" | "issue"; readonly view?: string }
   readonly "setup.configure": { readonly cardId: string; readonly field: string; readonly value: unknown }
   readonly "setup.view": { readonly cardId: string; readonly view: "flows" | "prompts" | "checks" | "evals" | "test" | "work"; readonly step?: string }
   readonly "setup.work": { readonly cardId: string; readonly stepId: string; readonly field?: "prompt" | "source" | "number"; readonly value?: unknown }
@@ -287,7 +287,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "flow.plan.select": payload => graphLine(payload, "cardId", "nodeId"),
   "runs.graph.tab": payload => graphLine(payload, "runId", "tab"),
   "flow.plan.tab": payload => graphLine(payload, "cardId", "tab"),
-  "issues.list": (payload) => line(token(payload, "filter") ?? "open", payload.kind === undefined || payload.kind === "all" ? undefined : `--kind ${payload.kind}`, token(payload, "repo")),
+  "issues.list": (payload) => line(token(payload, "filter") ?? "open", payload.kind === undefined || payload.kind === "all" ? undefined : `--kind ${payload.kind}`, token(payload, "view") === undefined ? undefined : `--view ${token(payload, "view")}`, token(payload, "repo")),
   "setup.configure": payload => JSON.stringify(payload),
   "setup.view": payload => JSON.stringify(payload),
   "setup.run": payload => JSON.stringify(payload),

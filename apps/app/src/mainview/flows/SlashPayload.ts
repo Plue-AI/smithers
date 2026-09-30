@@ -828,12 +828,16 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const kindMatch = /(?:^|\s)--kind(?:\s+|=)(\S+)/.exec(rest)
     const kind = kindMatch?.[1]
     if (kind !== undefined && kind !== "conversation" && kind !== "issue" && kind !== "all") return no("issues.list --kind takes conversation, issue or all")
-    const bare = rest.replace(/(?:^|\s)--kind(?:\s+|=)\S+/, "").trim()
+    // `--view <id>` lists through a saved view the repository's factory declares (#2269).
+    const viewMatch = /(?:^|\s)--view(?:\s+|=)(\S+)/.exec(rest)
+    const view = viewMatch?.[1]
+    if (view !== undefined && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(view)) return no("issues.list --view takes a saved view id")
+    const bare = rest.replace(/(?:^|\s)--kind(?:\s+|=)\S+/, "").replace(/(?:^|\s)--view(?:\s+|=)\S+/, "").trim()
     const filter = bare === "" ? "open" : bare
     if (filter !== "open" && filter !== "closed" && filter !== "all") {
       return no("issues.list takes open, closed, or all")
     }
-    return ok({ filter, ...(repo === undefined ? {} : { repo }), ...(kind === undefined || kind === "all" ? {} : { kind }) })
+    return ok({ filter, ...(repo === undefined ? {} : { repo }), ...(kind === undefined || kind === "all" ? {} : { kind }), ...(view === undefined ? {} : { view }) })
   },
   "issue.flows": (args, known) => numbered(args, "An issue number is required", known),
   "issue.repro": (args, known) => numbered(args, "An issue number is required", known),

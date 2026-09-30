@@ -33,7 +33,7 @@ export interface IssuesSeam {
   readonly resolveIssueSync: (cardId: string, deliveryId: number, action: "sent" | "skip" | "retry", evidence: string, messageId: string) => Promise<string | void>
   readonly mapIssueSync: (number: number, mapping: Omit<NonNullable<IssuePayload["sync"]>, "state" | "error">, repo?: string) => Promise<string | void>
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
-  readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter]>
+  readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter, view?: string]>
   readonly viewIssue: ViewAction<[number: number, repo?: string, source?: "smithers-cloud" | "github"]>
   readonly createIssue: (title: string, repo?: string, kind?: "issue" | "chat") => Promise<string | void>
   readonly setIssueState: (
@@ -256,6 +256,15 @@ const issuesRoute = (ctx: Pick<SeamContext, "baseUrl">, repo: string): string =>
   const [owner = "", name = ""] = repo.split("/")
   return `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`
 }
+
+/** The saved issue views route (the factory's issueViews) for a repository. */
+const issueViewsRoute = (ctx: Pick<SeamContext, "baseUrl">, repo: string): string => issuesRoute(ctx, repo).replace(/\/issues$/, "/issue-views")
+
+/** One declared view as the list card offers it. */
+const parseIssueView = (value: unknown): { readonly id: string; readonly title: string } | null =>
+  isRecord(value) && typeof value.id === "string" && value.id !== "" && typeof value.title === "string" && value.title !== ""
+    ? { id: value.id, title: value.title }
+    : null
 
 /*
  * IMPORT-READINESS (multi src/smithersCloud/importReadiness.ts): the
@@ -584,14 +593,33 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     ].join("\n")) }
   }
 
-  const listView = preparedView(ctx, (filter: "open" | "closed" | "all", repoArg?: string, kind: IssueKindFilter = "all") => {
+  /**
+   * The saved issue views the repository's factory declares, or none when
+   * the read fails: the chips are a door onto the list, and a view the
+   * person selects reports its own failure through the list read.
+   */
+  const readIssueViews = async (repo: string): Promise<ReadonlyArray<{ readonly id: string; readonly title: string }>> => {
+    try {
+      const response = await ctx.http(issueViewsRoute(ctx, repo))
+      if (!response.ok) return []
+      const body: unknown = await response.json().catch(() => null)
+      return Array.isArray(body) ? body.flatMap((entry) => { const view = parseIssueView(entry); return view === null ? [] : [view] }) : []
+    } catch {
+      return []
+    }
+  }
+
+  const listView = preparedView(ctx, (filter: "open" | "closed" | "all", repoArg?: string, kind: IssueKindFilter = "all", view?: string) => {
     const target = resolveTargetRepo(ctx.store, repoArg)
     if ("error" in target) return target.error
     const repo = target.repo
-    return { id: `issues-${repo}`, title: `Issues · ${repo}`, key: JSON.stringify(["issues", repo, filter, kind]), pane: repo, read: async (): Promise<ViewResult> => {
+    // A saved view carries its own state and addresses Smithers' own tracker (the API refuses view with state).
+    const named = view === undefined || view === "" ? undefined : view
+    return { id: `issues-${repo}`, title: `Issues · ${repo}`, key: JSON.stringify(["issues", repo, filter, kind, named ?? null]), pane: repo, read: async (): Promise<ViewResult> => {
       // Plue 422s unknown states ("all" included) — omit the param to list every state.
       const search = new URLSearchParams()
-      if (filter !== "all") search.set("state", filter)
+      if (named !== undefined) search.set("view", named)
+      else if (filter !== "all") search.set("state", filter)
       // Conversations are owner-private and excluded from the plain list; ask for them by kind (chat = issues contract; #2111).
       if (kind === "conversation") search.set("kind", "chat")
       const query = search.size === 0 ? "" : `?${search}`
@@ -603,7 +631,9 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       }
       if (!response.ok) {
         // The imported namespace 404s ⇔ the repo isn't imported: degrade to
-        // the GitHub-source list instead of surfacing a broken 404.
+        // the GitHub-source list instead of surfacing a broken 404. A named
+        // view 404s when it is not declared: that is the answer, not a fallback.
+        if (response.status === 404 && named !== undefined) return readRepositoryListError(response, `Listing the ${named} view of ${repo} failed (${response.status})`)
         if (response.status === 404) return listFromGithubSource(repo, filter)
         if (response.status === 401) ctx.dispatch({ type: "card.removed", actor: ctx.actor(), id: `issues-${repo}` })
         return readRepositoryListError(response, `Listing issues for ${repo} failed (${response.status})`)
@@ -624,8 +654,10 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
        * GitHub read's provenance rides the card. A GitHub refusal (not
        * linked, not mirrored) is stated, never a silent absence.
        */
-      // Conversations live in Smithers' own tracker; GitHub's rows join the unfiltered and issues lists.
-      const github = kind === "conversation" ? { issues: [], meta: undefined } : await readGithubIssues(repo, filter)
+      // Read before GitHub: a GitHub 401 re-probes the session, and the view must settle in the scope it started in.
+      const views = await readIssueViews(repo)
+      // Conversations and saved views live in Smithers' own tracker; GitHub's rows join the unfiltered and issues lists.
+      const github = kind === "conversation" || named !== undefined ? { issues: [], meta: undefined } : await readGithubIssues(repo, filter)
       const issues = [...native, ...github.issues]
       const card: Card = {
         id: `issues-${repo}`,
@@ -634,7 +666,13 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         status: "active",
         createdAt: Date.now(),
         ordinal: ctx.nextOrdinal(),
-        payload: { repo, filter, issues, ...(kind === "all" ? {} : { kind }), ...(github.meta === undefined ? {} : { github: github.meta }) }
+        payload: {
+          repo, filter, issues,
+          ...(kind === "all" ? {} : { kind }),
+          ...(github.meta === undefined ? {} : { github: github.meta }),
+          ...(named === undefined ? {} : { view: named }),
+          ...(views.length === 0 ? {} : { views: [...views] })
+        }
       }
       return { card, ...readResult(issues.length === 0
         ? `No ${filter === "all" ? "" : `${filter} `}${kind === "conversation" ? "conversations" : "issues"} in ${repo}${github.meta?.refusal ? ` (GitHub: ${github.meta.refusal})` : ""}.`
@@ -1065,7 +1103,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Sync mapped", repo, number)
     },
-    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all")), { preload: listView.preload }),
+    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
+      [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),
     setIssueTask: async (number, field, value, explicitRepo) => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error

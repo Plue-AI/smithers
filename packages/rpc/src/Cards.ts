@@ -1469,6 +1469,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       filter: z.enum(["open", "closed", "all"]),
       /** Which rows the list shows: every issue, only conversations, or only issues (issues.list --kind). */
       kind: z.enum(["all", "conversation", "issue"]).optional(),
+      /** The saved issue view the list applies (issues.list --view), when one is selected. */
+      view: z.string().optional(),
+      /** The saved issue views the repository's factory declares, in declaration order; absent when none. */
+      views: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
       issues: z.array(
         z.object({
           number: z.number().int(),

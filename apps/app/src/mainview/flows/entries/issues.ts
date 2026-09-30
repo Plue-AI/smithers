@@ -45,18 +45,19 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.list",
-    summary: "List a repository's issues and conversations, or only one kind",
-    form: { args: payload => line(text(payload, "filter"), payload.kind === undefined || payload.kind === "all" ? undefined : flag(payload, "kind"), text(payload, "repo")) },
+    summary: "List a repository's issues and conversations, only one kind, or a saved view",
+    form: { args: payload => line(text(payload, "filter"), payload.kind === undefined || payload.kind === "all" ? undefined : flag(payload, "kind"), flag(payload, "view"), text(payload, "repo")) },
     runtimeAny: ["cloud"],
-    args: "[open|closed|all] [--kind conversation|issue] [owner/repo]",
+    args: "[open|closed|all] [--kind conversation|issue] [--view <id>] [owner/repo]",
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({
       filter: Schema.optional(Schema.Literals(["open", "closed", "all"])),
       kind: Schema.optional(Schema.Literals(["all", "conversation", "issue"])),
+      view: Schema.optional(Schema.String),
       repo: Schema.optional(Schema.String)
     }),
-    prepare: ({ filter, repo, kind }) => actions.listIssues.preload?.(filter ?? "open", repo, kind),
-    handler: ({ filter, repo, kind }) => actions.listIssues(filter ?? "open", repo, kind)
+    prepare: ({ filter, repo, kind, view }) => actions.listIssues.preload?.(filter ?? "open", repo, kind, view),
+    handler: ({ filter, repo, kind, view }) => actions.listIssues(filter ?? "open", repo, kind, view)
   }),
   flow({
     name: "issues.view",

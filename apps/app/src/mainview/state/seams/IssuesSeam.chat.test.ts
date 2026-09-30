@@ -143,6 +143,7 @@ const absentRoutes = new Set([
   "GET /api/repos/smithersai/smithers/contents/.smithers/factory.json",
   "GET /api/repos/smithersai/smithers/home",
   "GET /api/user/github-repos/will/flows/issues",
+  "GET /api/repos/will/flows/issue-views",
   "GET /api/repos/will/flows/issues/8/sync",
   "GET /api/repos/will/flows/issues/10/sync",
   "GET /api/repos/will/flows/issues/8/comments/31/reactions",
