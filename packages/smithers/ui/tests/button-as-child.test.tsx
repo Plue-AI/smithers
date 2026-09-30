@@ -101,4 +101,40 @@ describe("Button asChild activation", () => {
     );
     expect(link.getAttribute("aria-busy")).toBe("true");
   });
+
+  for (const state of ["loading", "disabled"] as const) {
+    test(`${state} slotted link never runs child capture handlers`, async () => {
+      const onClickCapture = mock(() => {});
+      const onKeyDownCapture = mock(() => {});
+      const link = await renderLink(
+        <Button asChild loading={state === "loading"} disabled={state === "disabled"}>
+          <a href="#next" onClickCapture={onClickCapture} onKeyDownCapture={onKeyDownCapture}>
+            Launch
+          </a>
+        </Button>,
+      );
+      expect((await dispatch(link, click())).defaultPrevented).toBe(true);
+      await dispatch(link, key("Enter"));
+      await dispatch(link, key(" "));
+      await dispatch(link, key("Tab"));
+      expect(onClickCapture).not.toHaveBeenCalled();
+      expect(onKeyDownCapture).not.toHaveBeenCalled();
+    });
+  }
+
+  test("enabled slotted link still runs child capture handlers", async () => {
+    const onClickCapture = mock(() => {});
+    const onKeyDownCapture = mock(() => {});
+    const link = await renderLink(
+      <Button asChild>
+        <a href="#next" onClickCapture={onClickCapture} onKeyDownCapture={onKeyDownCapture}>
+          Launch
+        </a>
+      </Button>,
+    );
+    await dispatch(link, click());
+    await dispatch(link, key("Enter"));
+    expect(onClickCapture).toHaveBeenCalledTimes(1);
+    expect(onKeyDownCapture).toHaveBeenCalledTimes(1);
+  });
 });

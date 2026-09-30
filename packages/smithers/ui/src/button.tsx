@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import type { ComponentProps, KeyboardEvent, MouseEvent } from "react";
+import { cloneElement, isValidElement, type ComponentProps, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import { cn } from "./cn";
@@ -81,28 +81,37 @@ export function Button({
     };
     // Anchors and other non-native children ignore `disabled`, and Slot runs
     // the child's handlers before ours, so guard activation in the capture
-    // phase: the child's handlers and default navigation never run, while
-    // the element stays focusable with aria-disabled.
+    // phase: default navigation never runs and bubble handlers are cut off,
+    // while the element stays focusable with aria-disabled. The child's own
+    // activation capture handlers would still run first, so they are removed
+    // from the child while inactive.
     const { onClickCapture, onKeyDownCapture, ...rest } = props;
     const inertProps = interactionDisabled
       ? {
           onClickCapture: (event: MouseEvent<HTMLButtonElement>) => {
             event.preventDefault();
             event.stopPropagation();
-            onClickCapture?.(event);
           },
           onKeyDownCapture: (event: KeyboardEvent<HTMLButtonElement>) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               event.stopPropagation();
+            } else {
+              onKeyDownCapture?.(event);
             }
-            onKeyDownCapture?.(event);
           },
         }
       : { onClickCapture, onKeyDownCapture };
+    const slottedChild =
+      interactionDisabled && isValidElement(children)
+        ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+            onClickCapture: undefined,
+            onKeyDownCapture: undefined,
+          })
+        : children;
     return (
       <Slot.Root data-slot="button" className={classes} {...rest} {...slottedStateProps} {...inertProps}>
-        {children}
+        {slottedChild}
       </Slot.Root>
     );
   }
