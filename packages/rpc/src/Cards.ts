@@ -1410,6 +1410,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           approval: z.record(z.string(), z.unknown()),
           requestedAt: z.number(),
           /*
+           * A budget or time guard's park: its class and words. The row reads
+           * as the incident, decided as Continue (approve) or Stop (deny).
+           */
+          incident: z.object({ classification: z.enum(["Runaway", "Stuck"]), message: z.string() }).optional(),
+          /*
            * A gate that asks a QUESTION rather than for a grant: a HumanTask
            * waiting on a person. Approve and Deny answer nothing here, so the
            * row carries what the run asked — the kind of answer it wants, the
@@ -1875,14 +1880,16 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       link: z.string().max(500),
       repo: z.string(),
-      phase: z.enum(["importing", "launching", "launched", "failed"]),
+      phase: z.enum(["importing", "launching", "launched", "failed", "cached"]),
       /** When this attempt started; a run recorded before it belongs to an earlier attempt. */
       startedAt: z.number().int().nonnegative(),
       error: z.string().nullable(),
       /** The Smithers Cloud repository the import produced. */
       cloudRepo: z.string().nullable(),
       replay: z.number().int().nonnegative(),
-      accountOwner: z.string().nullable()
+      accountOwner: z.string().nullable(),
+      /** The phase "cached" result: another account's report of this public repository at `commit` (#3239); no run was launched. */
+      cached: z.object({ commit: z.string(), report: z.record(z.string(), z.unknown()) }).optional()
     })
   }),
   /*

@@ -5,10 +5,12 @@
  * the analysis reaches review) continue in the background. One unfinished
  * registration per account; a repeated start for the same repository reopens
  * it, and a registered repository replays its recorded run instead of running
- * again.
+ * again. Before a first launch the report another account recorded for the
+ * public repository is read (Registration.Report, #3239): when one exists it
+ * is the card's cached result and nothing launches; asking again re-analyses.
  */
 import type { Card } from "../AppState"
-import { canonicalRepo, registrationRun, statusOf, unfinished } from "../../cards/Registration"
+import { canonicalRepo, registrationRun, sharedReportOf, statusOf, unfinished } from "../../cards/Registration"
 import type { ControllerContext } from "./context"
 import { actorSharedState } from "../ActorBindings"
 
@@ -70,6 +72,19 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
     return card?.kind === "repo-import" ? card : undefined
   }
 
+  /** The report another account recorded for this public repository at its current commit, else undefined (also when the read fails). */
+  const sharedReport = async (cloudRepo: string, repo: string) => {
+    const box = importOf(repo)?.payload.workspaceId
+    try {
+      const answer = await ctx.gateway.call(cloudRepo, "Registration.Report", { repo }, box === undefined ? undefined : { workspaceId: box })
+      if (answer.status !== "ok") return undefined
+      const value = answer.value
+      return typeof value === "object" && value !== null ? sharedReportOf((value as { report?: unknown }).report, repo) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   /** Waits on the import card until the job is done or failed. */
   const imported = async (repo: string, current: () => boolean): Promise<{ cloudRepo: string } | string> => {
     const started = Date.now()
@@ -107,6 +122,9 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
         if (!current()) return
         if (typeof result === "string") return patch(id, { phase: "failed", error: result })
         cloudRepo = result.cloudRepo
+        const cached = await sharedReport(cloudRepo, repo)
+        if (!current()) return
+        if (cached !== undefined) return patch(id, { phase: "cached", cloudRepo, error: null, cached })
         await patch(id, { phase: "launching", cloudRepo })
       }
       if (!current()) return
@@ -154,6 +172,8 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
       show(other)
       return `Finish registering ${other.payload.repo} first.`
     }
+    // A cached result is asked for again: analyse it here, on the repository already imported.
+    const reanalyse = state === "Cached" ? existing?.payload.cloudRepo ?? null : null
     // Claimed before the first await, so two quick starts cannot both pass the check above.
     const slot = admissionSlot()
     if (admitting.has(slot)) return "A registration is already starting."
@@ -168,7 +188,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
         status: "active",
         createdAt: existing?.createdAt ?? Date.now(),
         ordinal: existing?.ordinal ?? store.nextOrdinal(),
-        payload: { link: link.trim(), repo, phase: "importing", startedAt: Date.now(), error: null, cloudRepo: null, replay: 0, accountOwner: owner }
+        payload: { link: link.trim(), repo, phase: reanalyse === null ? "importing" : "launching", startedAt: Date.now(), error: null, cloudRepo: reanalyse, replay: 0, accountOwner: owner }
       })
       if (ctx.disposed || ctx.accountEpoch !== epoch || login() !== owner || read(id)?.payload.accountOwner !== owner) return
       send(id)

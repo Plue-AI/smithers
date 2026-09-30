@@ -19,6 +19,7 @@ import {
   License,
   Outcome,
   Readiness,
+  Report as ReportSchema,
   Theme,
   Unavailable,
   Workflows
@@ -41,6 +42,7 @@ const StepResult = Schema.Union([
 type StepResult = typeof StepResult.Type
 const decodeStep = Schema.decodeUnknownOption(StepResult)
 const decodeOutcome = Schema.decodeUnknownOption(Outcome)
+const decodeSharedReport = Schema.decodeUnknownOption(ReportSchema)
 
 /** Every step result the run recorded, keyed by its tag (an unavailable one by its step), in record order. */
 export interface Report {
@@ -115,7 +117,37 @@ export const outcomeOf = (card: RunCard): typeof Outcome.Type | undefined => {
   return undefined
 }
 
-export type RegistrationStatus = "Analyzing" | "In review" | "Setting up" | "Ready" | "Declined" | "Failed"
+/**
+ * The report another account recorded for this public repository (Registration.Report), as the
+ * card keeps it: undefined unless the answer is a whole report of the repository asked about.
+ */
+export const sharedReportOf = (answer: unknown, repo: string): { readonly commit: string; readonly report: Record<string, unknown> } | undefined => {
+  const shared = object(answer)
+  const report = object(shared.report)
+  if (typeof shared.commit !== "string" || shared.commit === "") return undefined
+  const decoded = decodeSharedReport(report)
+  if (Option.isNone(decoded) || decoded.value.repo !== repo) return undefined
+  return { commit: shared.commit, report }
+}
+
+/** The tiles and answers of a report kept on the card rather than journaled by a run here. */
+export const cachedReportOf = (report: Record<string, unknown>): Report => {
+  const decoded = decodeSharedReport(report)
+  if (Option.isNone(decoded)) return { unavailable: [], sequences: [] }
+  const { repo: _repo, ...steps } = decoded.value
+  const found: Record<string, StepResult> = {}
+  const unavailable: Array<string> = []
+  for (const value of Object.values(steps) as Array<StepResult>) {
+    if (value._tag === "unavailable") unavailable.push(value.step)
+    else found[value._tag] = value
+  }
+  return { ...(found as Omit<Report, "unavailable" | "sequences">), unavailable, sequences: [] }
+}
+
+/** The first seven characters of a commit: the one mark of where a cached report comes from. */
+export const shortCommit = (commit: string): string => commit.slice(0, 7)
+
+export type RegistrationStatus = "Analyzing" | "In review" | "Setting up" | "Ready" | "Declined" | "Failed" | "Cached"
 
 /** The newest run of the registration flow for one canonical repository, with its observed journal. */
 export const registrationRun = (cards: Iterable<Card>, repo: string, runs: ReadonlyArray<RuntimeRun>): RunCard | undefined => {
@@ -139,6 +171,7 @@ const setupStarted = (run: RunCard): boolean =>
 /** One status word. A run recorded before this attempt started belongs to an earlier attempt. */
 export const statusOf = (registration: RegistrationCard, run: RunCard | undefined): RegistrationStatus => {
   if (registration.payload.phase === "failed") return "Failed"
+  if (registration.payload.phase === "cached") return "Cached"
   if (run === undefined || run.createdAt < registration.payload.startedAt) return "Analyzing"
   switch (run.payload.phase) {
     case "completed": {

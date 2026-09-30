@@ -15,10 +15,11 @@ const fixture = async (options: {
   wrapStore?: (store: AppStore) => AppStore
   importRepository?: (repo: string) => Promise<unknown>
   startRegistration?: (cloudRepo: string, link: string, box: string | null) => Promise<{ value: string } | string>
+  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
-  const ctx = createControllerContext(options.wrapStore?.(store) ?? store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: async () => new Response(null, { status: 500 }) })
+  const ctx = createControllerContext(options.wrapStore?.(store) ?? store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: options.fetchImpl ?? (async () => new Response(null, { status: 500 })) })
   Object.assign(ctx, createFailureController(ctx))
   const imports: Array<string> = []
   const launches: Array<{ cloudRepo: string; link: string; box?: string | null }> = []
@@ -375,4 +376,101 @@ test("a replay receipt from the previous account cannot navigate over the new re
     expect(await oldReplay).toBeUndefined()
     expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "bob", phase: "importing", replay: 0 })
   } finally { replay.held.resolve(); await t.dispose() }
+})
+
+/** The finished report the `ready` fixture's run recorded: what another account's analysis shares. */
+const recordedReport = (): Record<string, unknown> => {
+  const walk = (value: unknown): Record<string, unknown> | undefined => {
+    if (typeof value !== "object" || value === null) return undefined
+    const report = (value as { report?: unknown }).report
+    if (typeof report === "object" && report !== null && "clone" in report) return report as Record<string, unknown>
+    for (const child of Object.values(value)) {
+      const found = walk(child)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return walk(ready)!
+}
+const COMMIT = "fc3f257b643b41dd8de24d4b0d3248253ab411c5"
+const BOX = "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90"
+
+/** A relay answering Registration.Report with `answer`; `gate` holds the answer until released. */
+const reportRelay = (answer: () => unknown, gate?: Promise<void>) => {
+  const asked: Array<{ procedure: string; repo: string; workspaceId: string; payload: unknown }> = []
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { procedure: string; repo: string; workspaceId: string; payload: unknown }
+    asked.push(body)
+    await gate
+    return Response.json({ ok: true, payload: { report: answer() } })
+  }
+  return { asked, fetchImpl }
+}
+
+test("a recorded report of the public repository is the card's cached result and nothing launches", async () => {
+  const relay = reportRelay(() => ({ repo: "acme/widgets", commit: COMMIT, report: recordedReport(), recordedAt: "2026-09-30T00:00:00Z" }))
+  const t = await fixture({ fetchImpl: relay.fetchImpl })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done", undefined, BOX)
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "cached")
+    expect(relay.asked).toHaveLength(1)
+    expect(relay.asked[0]).toMatchObject({ procedure: "Registration.Report", repo: "acme/widgets", workspaceId: BOX, payload: { repo: "acme/widgets" } })
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ cloudRepo: "acme/widgets", error: null, cached: { commit: COMMIT } })
+    await settle()
+    expect(t.launches).toEqual([])
+    expect(await t.registration.registerRepository("acme/widgets")).toEqual({ value: "registration-requested repo=acme/widgets" })
+    // Asking again re-analyses on the repository already imported: no second import, no second lookup.
+    await waitFor(() => t.launches.length === 1)
+    expect(t.launches[0]).toEqual({ cloudRepo: "acme/widgets", link: "acme/widgets", box: BOX })
+    expect(t.imports).toEqual(["acme/widgets"])
+    expect(relay.asked).toHaveLength(1)
+    expect(t.card("acme/widgets")?.payload.cached).toBeUndefined()
+  } finally { await t.dispose() }
+})
+
+test("no recorded report, a refused read or a malformed report falls through to the launch", async () => {
+  const answers: Array<() => unknown> = [
+    () => null,
+    () => { throw new Error("unreachable") },
+    () => ({ repo: "acme/widgets", commit: COMMIT, report: { repo: "acme/widgets" }, recordedAt: "x" }),
+    () => ({ repo: "acme/widgets", commit: COMMIT, report: { ...recordedReport(), repo: "acme/other" }, recordedAt: "x" })
+  ]
+  for (const answer of answers) {
+    const relay = reportRelay(answer)
+    const t = await fixture({ fetchImpl: relay.fetchImpl })
+    try {
+      await t.registration.registerRepository("acme/widgets")
+      await t.importCard("acme/widgets", "done", undefined, BOX)
+      await waitFor(() => t.launches.length === 1)
+      expect(relay.asked).toHaveLength(1)
+      expect(t.card("acme/widgets")?.payload.cached).toBeUndefined()
+      expect(t.card("acme/widgets")?.payload.phase).not.toBe("cached")
+    } finally { await t.dispose() }
+  }
+})
+
+test("a report that arrives after the registration was restarted is ignored", async () => {
+  const gate = Promise.withResolvers<void>()
+  const relay = reportRelay(() => ({ repo: "acme/widgets", commit: COMMIT, report: recordedReport(), recordedAt: "x" }), gate.promise)
+  const t = await fixture({ fetchImpl: relay.fetchImpl })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done", undefined, BOX)
+    await waitFor(() => relay.asked.length === 1)
+    // The first playthrough fails and is retried while its lookup is still unanswered.
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...t.card("acme/widgets")!, payload: { ...t.card("acme/widgets")!.payload, phase: "failed", error: "x" } } }).isPersisted.promise
+    await t.registration.registerRepository("acme/widgets")
+    await waitFor(() => t.imports.length === 2)
+    gate.resolve()
+    await settle()
+    // The first playthrough's answer arrives while the retry still imports: it changes nothing.
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ phase: "importing", cloudRepo: null })
+    expect(t.card("acme/widgets")?.payload.cached).toBeUndefined()
+    await t.importCard("acme/widgets", "done", undefined, BOX)
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "cached")
+    expect(t.card("acme/widgets")?.payload.cached?.commit).toBe(COMMIT)
+    expect(relay.asked).toHaveLength(2)
+    expect(t.launches).toEqual([])
+  } finally { await t.dispose() }
 })

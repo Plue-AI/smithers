@@ -43,6 +43,7 @@
   "src/panel-view.tsx",
   "src/panels.ts",
   "src/picker.ts",
+  "src/registration-report.ts",
   "src/replay.ts",
   "src/run.tsx",
   "src/runtime-version.ts",

@@ -15,7 +15,7 @@ import { useController } from "../ControllerContext"
 import type { Card } from "../state/AppState"
 import { useCardRows } from "../state/useCardRows"
 import type { CardFamily, RunCommand } from "./CardFamily"
-import { outcomeOf, registrationRun, type Report, reportOf, statusOf } from "./Registration"
+import { cachedReportOf, outcomeOf, registrationRun, type Report, reportOf, shortCommit, statusOf } from "./Registration"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
@@ -251,12 +251,13 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
   const controller = useController()
   const cards = useCardRows(controller.store.collections.cards)
   const { data: runs } = useLiveQuery(controller.store.collections.runtimeRuns)
-  const { repo, link, cloudRepo, replay, startedAt } = card.payload
+  const { repo, link, cloudRepo, replay, startedAt, cached } = card.payload
   const newest = registrationRun(cards, repo, runs)
   // A run from an earlier attempt is not this attempt's answer.
   const run = newest !== undefined && newest.createdAt >= startedAt ? newest : undefined
   const status = statusOf(card, run)
-  const report = run === undefined ? { unavailable: [], sequences: [] } : reportOf(run)
+  const report = status === "Cached" && cached !== undefined ? cachedReportOf(cached.report)
+    : run === undefined ? { unavailable: [], sequences: [] } : reportOf(run)
   const outcome = run === undefined ? undefined : outcomeOf(run)
   const license = report.license?.choice
   const checks = report.checks?.choice
@@ -272,7 +273,7 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
     >
       <div className="registration-link">
         <span className="registration-input registration-mono">{link}</span>
-        <span className="registration-go">{status}</span>
+        <span className="registration-go">{status === "Cached" && cached !== undefined ? `Cached · ${shortCommit(cached.commit)}` : status}</span>
       </div>
       <RegistrationFailure payload={card.payload} onRunCommand={onRunCommand} />
       <div key={replay} className="registration-body" data-stagger={stagger ? "" : undefined}>
@@ -287,6 +288,7 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
         <Tiles report={report} repo={target} stagger={stagger} onRunCommand={onRunCommand} />
         {outcome?.review.decision === "decline" && outcome.review.note !== "" ? <p className="registration-sub">{outcome.review.note}</p> : null}
         {status === "Ready" ? <Button size="sm" {...flowAction(onRunCommand, "repo.select", target)}>Open</Button> : null}
+        {status === "Cached" ? <Button size="sm" {...flowAction(onRunCommand, "repository.register", flowArgs("repository.register", { link }))}>Analyze again</Button> : null}
       </div>
     </div>
   )
