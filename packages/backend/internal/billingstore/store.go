@@ -38,6 +38,8 @@ type Querier interface {
 	ListBillingUsageCountersByOwnerAndPeriod(ctx context.Context, arg db.ListBillingUsageCountersByOwnerAndPeriodParams) ([]db.BillingUsageCounter, error)
 
 	CountPrivateReposByOwner(ctx context.Context, arg db.CountPrivateReposByOwnerParams) (int64, error)
+	CountReposByOwner(ctx context.Context, arg db.CountReposByOwnerParams) (int64, error)
+	CountOrganizationsOwnedByUser(ctx context.Context, userID int64) (int64, error)
 	SumStorageBytesByOwner(ctx context.Context, arg db.SumStorageBytesByOwnerParams) (int64, error)
 	SumStorageBytesByRepository(ctx context.Context, repositoryID int64) (int64, error)
 	SumWorkflowMinutesByOwner(ctx context.Context, arg db.SumWorkflowMinutesByOwnerParams) (int64, error)

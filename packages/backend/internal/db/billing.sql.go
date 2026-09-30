@@ -157,6 +157,20 @@ func (q *Queries) CountCreditLedgerByAccount(ctx context.Context, billingAccount
 	return column_1, err
 }
 
+const countOrganizationsOwnedByUser = `-- name: CountOrganizationsOwnedByUser :one
+SELECT COUNT(*)::bigint
+FROM org_members
+WHERE user_id = $1::bigint
+  AND role = 'owner'
+`
+
+func (q *Queries) CountOrganizationsOwnedByUser(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countOrganizationsOwnedByUser, userID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countPrivateReposByOwner = `-- name: CountPrivateReposByOwner :one
 SELECT COUNT(*)::bigint
 FROM (
@@ -178,6 +192,27 @@ type CountPrivateReposByOwnerParams struct {
 
 func (q *Queries) CountPrivateReposByOwner(ctx context.Context, arg CountPrivateReposByOwnerParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countPrivateReposByOwner, arg.OwnerType, arg.OwnerID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countReposByOwner = `-- name: CountReposByOwner :one
+SELECT COUNT(*)::bigint
+FROM repositories r
+WHERE ($1::text = 'user' AND r.user_id = $2::bigint)
+   OR ($1::text = 'org' AND r.org_id = $2::bigint)
+`
+
+type CountReposByOwnerParams struct {
+	OwnerType string `json:"owner_type"`
+	OwnerID   int64  `json:"owner_id"`
+}
+
+// Every repository, public or private, counts toward the owner's
+// repository cap.
+func (q *Queries) CountReposByOwner(ctx context.Context, arg CountReposByOwnerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countReposByOwner, arg.OwnerType, arg.OwnerID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

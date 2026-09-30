@@ -421,6 +421,20 @@ FROM (
     )
 ) private_repository_allocations;
 
+-- name: CountReposByOwner :one
+-- Every repository, public or private, counts toward the owner's
+-- repository cap.
+SELECT COUNT(*)::bigint
+FROM repositories r
+WHERE (sqlc.arg(owner_type)::text = 'user' AND r.user_id = sqlc.arg(owner_id)::bigint)
+   OR (sqlc.arg(owner_type)::text = 'org' AND r.org_id = sqlc.arg(owner_id)::bigint);
+
+-- name: CountOrganizationsOwnedByUser :one
+SELECT COUNT(*)::bigint
+FROM org_members
+WHERE user_id = sqlc.arg(user_id)::bigint
+  AND role = 'owner';
+
 -- name: SumStorageBytesByOwner :one
 -- Product metadata and pending uploads count toward storage. A private
 -- storage adapter may count its own deletion queue allocations separately.

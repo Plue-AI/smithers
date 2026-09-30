@@ -144,6 +144,20 @@ func (*UnlimitedBillingPolicy) AuthorizePrivateRepoCommitted(
 	return runUnlimitedCommit(ctx, commit)
 }
 
+func (*UnlimitedBillingPolicy) AuthorizeRepoCreateCommitted(
+	ctx context.Context,
+	_ string,
+	_ int64,
+	_ bool,
+	commit func(context.Context) error,
+) error {
+	return runUnlimitedCommit(ctx, commit)
+}
+
+func (*UnlimitedBillingPolicy) AuthorizeOrgCreateCommitted(ctx context.Context, _ int64, commit func(context.Context) error) error {
+	return runUnlimitedCommit(ctx, commit)
+}
+
 func (*UnlimitedBillingPolicy) AuthorizeStorageIncreaseCommitted(
 	ctx context.Context,
 	_ int64,

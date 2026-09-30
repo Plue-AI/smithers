@@ -37,6 +37,8 @@ const (
 	BillingIntervalAnnual  = "annual"
 
 	BillingMetricPrivateRepos = "private_repos"
+	BillingMetricRepos        = "repositories"
+	BillingMetricOrgs         = "organizations"
 	BillingMetricStorageBytes = "storage_bytes"
 	BillingMetricCIMinutes    = "ci_minutes"
 	BillingMetricAgentRuns    = "agent_runs"
@@ -198,10 +200,14 @@ type billingPlanLimits struct {
 	SandboxIdleTimeoutSecs int64
 	SandboxHoursPerDay     int64
 	PrivateRepos           int64
-	StorageBytes           int64
-	CIMinutes              int64
-	AgentRuns              int64
-	Seats                  int64
+	// Repos caps every repository an owner holds, public or private.
+	Repos int64
+	// Orgs caps the organizations a user owns; it applies to user plans only.
+	Orgs         int64
+	StorageBytes int64
+	CIMinutes    int64
+	AgentRuns    int64
+	Seats        int64
 }
 
 type billingPlanDefinition struct {
@@ -399,6 +405,8 @@ func (s *BillingService) bootstrapCatalog() {
 		EgressBytesPerDay:   1 << 30,
 		ConcurrentSandboxes: 1, SandboxIdleTimeoutSecs: 1800, SandboxHoursPerDay: 4,
 		PrivateRepos: 100,
+		Repos:        200,
+		Orgs:         3,
 		StorageBytes: 100 * 1024 * 1024 * 1024,
 		CIMinutes:    10000,
 		AgentRuns:    2000,
@@ -408,6 +416,8 @@ func (s *BillingService) bootstrapCatalog() {
 		EgressBytesPerDay:   5 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 250,
+		Repos:        500,
+		Orgs:         10,
 		StorageBytes: 250 * 1024 * 1024 * 1024,
 		CIMinutes:    25000,
 		AgentRuns:    5000,
@@ -420,6 +430,8 @@ func (s *BillingService) bootstrapCatalog() {
 		EgressBytesPerDay:   10 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 3600, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 500,
+		Repos:        1000,
+		Orgs:         10,
 		StorageBytes: 500 * 1024 * 1024 * 1024,
 		CIMinutes:    50000,
 		AgentRuns:    15000,
@@ -429,6 +441,7 @@ func (s *BillingService) bootstrapCatalog() {
 		EgressBytesPerDay:   100 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: 1000,
+		Repos:        2000,
 		StorageBytes: 1024 * 1024 * 1024 * 1024,
 		CIMinutes:    100000,
 		AgentRuns:    25000,
@@ -438,6 +451,7 @@ func (s *BillingService) bootstrapCatalog() {
 		EgressBytesPerDay:   1000 << 30,
 		ConcurrentSandboxes: 3, SandboxIdleTimeoutSecs: 14400, SandboxHoursPerDay: unlimitedBillingQuantity,
 		PrivateRepos: unlimitedBillingQuantity,
+		Repos:        unlimitedBillingQuantity,
 		StorageBytes: unlimitedBillingQuantity,
 		CIMinutes:    unlimitedBillingQuantity,
 		AgentRuns:    unlimitedBillingQuantity,
@@ -915,36 +929,113 @@ func (s *BillingService) AuthorizePrivateRepoCommitted(
 		return pkgerrors.Internal("invalid private repository billing owner")
 	}
 
-	txq, ok := s.queries.(billingTxQuerier)
-	if !ok {
-		if err := s.AuthorizePrivateRepo(ctx, ownerType, ownerID); err != nil {
+	owner := billingOwnerRef{OwnerType: ownerType, OwnerID: ownerID}
+	return s.withOwnerQuotaLock(ctx, owner, "private repository authorization", func(svc *BillingService) error {
+		plan, usage, _, _, err := svc.resolveLocalState(ctx, owner)
+		if err != nil {
+			return err
+		}
+		if err := svc.enforceMetricLimit(plan.Limits.PrivateRepos, usage[BillingMetricPrivateRepos], "private repositories"); err != nil {
 			return err
 		}
 		return commit(ctx)
-	}
+	})
+}
 
+// AuthorizeRepoCreateCommitted admits one new repository. Every repository
+// counts toward the owner's repository cap; a private one also counts toward
+// the private-repository cap. Both checks and commit run under the owner's
+// quota lock, the same lock AuthorizePrivateRepoCommitted and transfers take,
+// so concurrent creates cannot pass against one count.
+func (s *BillingService) AuthorizeRepoCreateCommitted(
+	ctx context.Context,
+	ownerType string,
+	ownerID int64,
+	privateRepository bool,
+	commit func(ctx context.Context) error,
+) error {
+	if commit == nil {
+		return pkgerrors.Internal("repository commit is required")
+	}
+	if ownerID <= 0 || (ownerType != BillingOwnerTypeUser && ownerType != BillingOwnerTypeOrg) {
+		return pkgerrors.Internal("invalid repository billing owner")
+	}
+	owner := billingOwnerRef{OwnerType: ownerType, OwnerID: ownerID}
+	return s.withOwnerQuotaLock(ctx, owner, "repository authorization", func(svc *BillingService) error {
+		plan, usage, _, _, err := svc.resolveLocalState(ctx, owner)
+		if err != nil {
+			return err
+		}
+		if err := planLimitReached(plan, BillingMetricRepos, plan.Limits.Repos, usage[BillingMetricRepos], "repositories"); err != nil {
+			return err
+		}
+		if privateRepository {
+			if err := svc.enforceMetricLimit(plan.Limits.PrivateRepos, usage[BillingMetricPrivateRepos], "private repositories"); err != nil {
+				return err
+			}
+		}
+		return commit(ctx)
+	})
+}
+
+// AuthorizeOrgCreateCommitted admits one new organization owned by userID
+// against the user's plan, holding the user's quota lock through commit.
+func (s *BillingService) AuthorizeOrgCreateCommitted(ctx context.Context, userID int64, commit func(ctx context.Context) error) error {
+	if commit == nil {
+		return pkgerrors.Internal("organization commit is required")
+	}
+	if userID <= 0 {
+		return pkgerrors.Internal("invalid organization billing owner")
+	}
+	owner := billingOwnerRef{OwnerType: BillingOwnerTypeUser, OwnerID: userID}
+	return s.withOwnerQuotaLock(ctx, owner, "organization authorization", func(svc *BillingService) error {
+		plan, usage, _, _, err := svc.resolveLocalState(ctx, owner)
+		if err != nil {
+			return err
+		}
+		if err := planLimitReached(plan, BillingMetricOrgs, plan.Limits.Orgs, usage[BillingMetricOrgs], "organizations"); err != nil {
+			return err
+		}
+		return commit(ctx)
+	})
+}
+
+// withOwnerQuotaLock runs admit with a service bound to a transaction that
+// holds the owner's quota lock. The transaction carries only the lock and
+// usage projections and is rolled back afterward, so admit's commit callback
+// must make its own write durable. Queriers without transactions (unit-test
+// fakes) run admit unserialized.
+func (s *BillingService) withOwnerQuotaLock(ctx context.Context, owner billingOwnerRef, operation string, admit func(*BillingService) error) error {
+	txq, ok := s.queries.(billingTxQuerier)
+	if !ok {
+		return admit(s)
+	}
 	tx, err := txq.BeginTx(ctx)
 	if err != nil {
-		return pkgerrors.Internal("failed to begin private repository authorization transaction").WithCause(err)
+		return pkgerrors.Internal("failed to begin " + operation + " transaction").WithCause(err)
 	}
-	defer releaseBillingAdvisoryLockTransaction(ctx, tx, "private repository authorization")
-	if _, err := tx.Exec(ctx, storageAuthorizationLockSQL, ownerType, ownerID); err != nil {
-		return pkgerrors.Internal("failed to lock private repository usage").WithCause(err)
+	defer releaseBillingAdvisoryLockTransaction(ctx, tx, operation)
+	if _, err := tx.Exec(ctx, storageAuthorizationLockSQL, owner.OwnerType, owner.OwnerID); err != nil {
+		return pkgerrors.Internal("failed to lock owner usage").WithCause(err)
 	}
-
 	txService, err := s.inTransaction(tx)
 	if err != nil {
 		return err
 	}
-	owner := billingOwnerRef{OwnerType: ownerType, OwnerID: ownerID}
-	plan, usage, _, _, err := txService.resolveLocalState(ctx, owner)
-	if err != nil {
-		return err
+	return admit(txService)
+}
+
+// planLimitReached returns a typed plan_limit_exceeded error when usage has
+// reached a finite limit.
+func planLimitReached(plan billingPlanDefinition, metric string, limit int64, usage BillingUsageSummary, label string) error {
+	if limit >= unlimitedBillingQuantity || usage.ConsumedQuantity < limit {
+		return nil
 	}
-	if err := txService.enforceMetricLimit(plan.Limits.PrivateRepos, usage[BillingMetricPrivateRepos], "private repositories"); err != nil {
-		return err
-	}
-	return commit(ctx)
+	err := pkgerrors.New(pkgerrors.CodePlanLimitExceeded, label+" limit reached for the current plan")
+	limitValue, remaining := int(limit), 0
+	err.PlanKey, err.LimitKind = plan.Key, metric
+	err.Limit, err.Remaining = &limitValue, &remaining
+	return err
 }
 
 // pairingPlanRank orders plan keys so pairing can require Hobby ('personal')
@@ -1358,12 +1449,11 @@ func (s *BillingService) authorizeRepositoryTransferUsage(ctx context.Context, r
 	if footprint < 0 {
 		return pkgerrors.Internal("repository storage footprint cannot be negative")
 	}
-	if !privateRepository && footprint == 0 {
-		return nil
-	}
-
 	plan, usage, _, _, err := s.resolveLocalState(ctx, target)
 	if err != nil {
+		return err
+	}
+	if err := planLimitReached(plan, BillingMetricRepos, plan.Limits.Repos, usage[BillingMetricRepos], "repositories"); err != nil {
 		return err
 	}
 	if privateRepository {
@@ -1460,6 +1550,60 @@ type PrivateRepoCommitAuthorizer interface {
 		ownerID int64,
 		commit func(ctx context.Context) error,
 	) error
+}
+
+// RepoCreateAuthorizer is the optional BillingPolicy extension used by every
+// operation that creates a repository (create, fork, import). Production
+// *BillingService meters the owner's repository count, and the private count
+// for a private repository, under the owner's quota lock through commit.
+type RepoCreateAuthorizer interface {
+	AuthorizeRepoCreateCommitted(
+		ctx context.Context,
+		ownerType string,
+		ownerID int64,
+		privateRepository bool,
+		commit func(ctx context.Context) error,
+	) error
+}
+
+// OrgCreateAuthorizer is the optional BillingPolicy extension OrgService uses
+// to cap the organizations one user owns.
+type OrgCreateAuthorizer interface {
+	AuthorizeOrgCreateCommitted(ctx context.Context, userID int64, commit func(ctx context.Context) error) error
+}
+
+// authorizeRepoCreateThenCommit admits one new repository. Policies without
+// RepoCreateAuthorizer keep private-repository admission only.
+func authorizeRepoCreateThenCommit(
+	ctx context.Context,
+	policy BillingPolicy,
+	ownerType string,
+	ownerID int64,
+	privateRepository bool,
+	commit func(ctx context.Context) error,
+) error {
+	if commit == nil {
+		return pkgerrors.Internal("repository commit is required")
+	}
+	creator, ok := policy.(RepoCreateAuthorizer)
+	if !ok {
+		return authorizePrivateRepoThenCommit(ctx, policy, ownerType, ownerID, privateRepository, commit)
+	}
+	called := false
+	err := creator.AuthorizeRepoCreateCommitted(ctx, ownerType, ownerID, privateRepository, func(commitCtx context.Context) error {
+		if called {
+			return pkgerrors.Internal("repository commit called more than once")
+		}
+		called = true
+		return commit(commitCtx)
+	})
+	if err != nil {
+		return err
+	}
+	if !called {
+		return pkgerrors.Internal("repository was not committed")
+	}
+	return nil
 }
 
 // authorizePrivateRepoThenCommit centralizes private-repository admission.
@@ -1677,6 +1821,13 @@ func (s *BillingService) computeAndPersistUsage(ctx context.Context, owner billi
 	if err != nil {
 		return nil, pkgerrors.Internal("failed to count private repositories").WithCause(err)
 	}
+	repos, err := s.queries.CountReposByOwner(ctx, db.CountReposByOwnerParams{
+		OwnerType: owner.OwnerType,
+		OwnerID:   owner.OwnerID,
+	})
+	if err != nil {
+		return nil, pkgerrors.Internal("failed to count repositories").WithCause(err)
+	}
 	storageBytes, err := s.queries.SumStorageBytesByOwner(ctx, db.SumStorageBytesByOwnerParams{
 		OwnerType: owner.OwnerType,
 		OwnerID:   owner.OwnerID,
@@ -1728,6 +1879,7 @@ func (s *BillingService) computeAndPersistUsage(ctx context.Context, owner billi
 	}
 	metrics := map[string]BillingUsageSummary{
 		BillingMetricPrivateRepos: {MetricKey: BillingMetricPrivateRepos, IncludedQuantity: limits.PrivateRepos, ConsumedQuantity: privateRepos, OverageQuantity: overageQuantity(privateRepos, limits.PrivateRepos)},
+		BillingMetricRepos:        {MetricKey: BillingMetricRepos, IncludedQuantity: limits.Repos, ConsumedQuantity: repos, OverageQuantity: overageQuantity(repos, limits.Repos)},
 		BillingMetricStorageBytes: {MetricKey: BillingMetricStorageBytes, IncludedQuantity: limits.StorageBytes, ConsumedQuantity: storageBytes, OverageQuantity: overageQuantity(storageBytes, limits.StorageBytes)},
 		BillingMetricCIMinutes:    {MetricKey: BillingMetricCIMinutes, IncludedQuantity: limits.CIMinutes, ConsumedQuantity: ciMinutes, OverageQuantity: overageQuantity(ciMinutes, limits.CIMinutes)},
 		BillingMetricAgentRuns:    {MetricKey: BillingMetricAgentRuns, IncludedQuantity: limits.AgentRuns, ConsumedQuantity: agentRuns, OverageQuantity: overageQuantity(agentRuns, limits.AgentRuns)},
@@ -1735,6 +1887,11 @@ func (s *BillingService) computeAndPersistUsage(ctx context.Context, owner billi
 	}
 
 	if owner.OwnerType == BillingOwnerTypeUser {
+		orgs, err := s.queries.CountOrganizationsOwnedByUser(ctx, owner.OwnerID)
+		if err != nil {
+			return nil, pkgerrors.Internal("failed to count owned organizations").WithCause(err)
+		}
+		metrics[BillingMetricOrgs] = BillingUsageSummary{MetricKey: BillingMetricOrgs, IncludedQuantity: limits.Orgs, ConsumedQuantity: orgs, OverageQuantity: overageQuantity(orgs, limits.Orgs)}
 		metrics[BillingMetricSandboxHours] = BillingUsageSummary{MetricKey: BillingMetricSandboxHours, IncludedQuantity: includedHours, ConsumedQuantity: sandboxHours, OverageQuantity: overageQuantity(sandboxHours, includedHours)}
 	}
 	for _, metric := range metrics {
