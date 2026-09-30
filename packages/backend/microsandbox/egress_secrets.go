@@ -58,12 +58,12 @@ func (r *Runtime) BindEgressSecrets(ctx context.Context, workspaceID string, sec
 		return workspaceapi.EgressSecretBinding{}, err
 	}
 	if _, err := r.fileOperation(ctx, ws.ID, guestStateDir, grant.CACertPEM, "write", egressCAFile, "644"); err != nil {
-		relay.Revoke(ws.ID)
+		relay.RevokeGrant(ws.ID, grant)
 		return workspaceapi.EgressSecretBinding{}, fmt.Errorf("write egress relay CA: %w", err)
 	}
 	// A stop that raced the bind must not leave a live binding behind.
 	if _, err := r.runningWorkspace(ws.ID); err != nil {
-		relay.Revoke(ws.ID)
+		relay.RevokeGrant(ws.ID, grant)
 		return workspaceapi.EgressSecretBinding{}, err
 	}
 	return workspaceapi.EgressSecretBinding{Environment: egressrelay.GuestEnvironment(grant, grant.ProxyURL, guestStateDir+"/"+egressCAFile)}, nil

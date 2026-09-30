@@ -562,6 +562,7 @@ func (r *Runtime) Close() error {
 	var processes []*managedProcess
 	var firstErr error
 	for _, ws := range r.workspaces {
+		r.revokeEgressSecrets(ws.ID)
 		ws.State = string(workspaceapi.WorkspaceStopped)
 		if err := writeMetadata(ws); err != nil && firstErr == nil {
 			firstErr = err

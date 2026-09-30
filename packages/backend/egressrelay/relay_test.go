@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,12 +146,38 @@ func TestRelayInterceptsTLSToInjectAndMask(t *testing.T) {
 		response.Body.Close()
 	}
 
-	// Revoking stops substitution on the tunnel that is already open.
+	// Revoking closes the open tunnel; a new one is refused.
+	record.mu.Lock()
+	record.authorization = ""
+	record.mu.Unlock()
 	relay.Revoke("ws-tls")
-	response, err := client.Do(placeholderRequest(t, upstream.URL))
+	_, err = client.Do(placeholderRequest(t, upstream.URL))
+	require.ErrorContains(t, err, "Proxy Authentication Required")
+	record.mu.Lock()
+	assert.Empty(t, record.authorization, "nothing reached the upstream after revocation")
+	record.mu.Unlock()
+}
+
+// An open tunnel ends the moment its binding is replaced.
+func TestRelayClosesTunnelsOnRebind(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(upstream.Close)
+	relay := newRelay(t, Config{Local: []string{upstream.Listener.Addr().String()}})
+	grant := mustGrant(t, relay, "ws", "127.0.0.1")
+	conn, err := net.Dial("tcp", relay.Address())
 	require.NoError(t, err)
-	defer response.Body.Close()
-	assert.Equal(t, http.StatusProxyAuthRequired, response.StatusCode)
+	defer conn.Close()
+	target := upstream.Listener.Addr().String()
+	_, err = io.WriteString(conn, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\nProxy-Authorization: Basic "+basic(grant)+"\r\n\r\n")
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	mustGrant(t, relay, "ws", "127.0.0.1")
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = reader.ReadByte()
+	assert.ErrorIs(t, err, io.EOF, "the relay closed the superseded tunnel")
 }
 
 func TestRelayRefusesWhatItCannotEnforce(t *testing.T) {
@@ -250,15 +277,49 @@ func TestBindRejectsUnenforceableSecrets(t *testing.T) {
 	assert.Error(t, err, "a relay never listens beyond loopback")
 }
 
-func TestMaskingBodyNeverLeaksASplitValue(t *testing.T) {
-	bound := &binding{secrets: []sandbox.EgressProxySecret{{Name: "LONG", Value: "abcabcabd"}, {Name: "SHORT", Value: "zz"}},
-		masker: strings.NewReplacer("abcabcabd", "LONG", "zz", "SHORT"), longest: 9}
-	input := "xxabcabcabcabdyyzzzabcabcab"
-	body := &maskingBody{source: io.NopCloser(iotest.OneByteReader(strings.NewReader(input))), bound: bound}
-	out, err := io.ReadAll(body)
+// liveBinding binds values (named A, B, ...) and returns the relay's binding.
+func liveBinding(t *testing.T, values ...string) *binding {
+	t.Helper()
+	relay := newRelay(t, Config{})
+	var secrets []sandbox.EgressProxySecret
+	for index, value := range values {
+		secrets = append(secrets, sandbox.EgressProxySecret{Name: string(rune('A' + index)), Value: value,
+			Hosts: []string{"api.example.com"}, MatchHeaders: []string{"Authorization"}})
+	}
+	_, err := relay.Bind("ws", secrets)
 	require.NoError(t, err)
-	assert.Equal(t, strings.NewReplacer("abcabcabd", "LONG", "zz", "SHORT").Replace(input), string(out))
-	assert.NotContains(t, string(out), "abcabcabd")
+	relay.mu.Lock()
+	defer relay.mu.Unlock()
+	return relay.byToken[relay.byWorkspace["ws"]]
+}
+
+func TestMaskingBodyNeverLeaksASplitValue(t *testing.T) {
+	for name, values := range map[string][]string{
+		"self overlap":         {"abcabcabd", "zz"},
+		"prefix of another":    {"tok", "tok-extended-secret"},
+		"extension first":      {"tok-extended-secret", "tok"},
+		"escaped forms differ": {"a b/c+d", "q"},
+	} {
+		bound := liveBinding(t, values...)
+		var input strings.Builder
+		for index, value := range values {
+			input.WriteString("x" + value + value[:len(value)/2] + value + "y" + url.QueryEscape(value) + url.PathEscape(value))
+			_ = index
+		}
+		for _, reader := range map[string]func(io.Reader) io.Reader{
+			"one byte": iotest.OneByteReader, "half": iotest.HalfReader, "whole": func(r io.Reader) io.Reader { return r },
+		} {
+			body := &maskingBody{source: io.NopCloser(reader(strings.NewReader(input.String()))), bound: bound}
+			out, err := io.ReadAll(body)
+			require.NoError(t, err)
+			assert.Equal(t, bound.mask(input.String()), string(out), name)
+			for _, value := range values {
+				for _, form := range []string{value, url.QueryEscape(value), url.PathEscape(value)} {
+					assert.NotContains(t, string(out), form, name)
+				}
+			}
+		}
+	}
 }
 
 func TestGuestEnvironmentRoutesBoundHostsThroughTheRelay(t *testing.T) {
@@ -338,3 +399,85 @@ func mustGrant(t *testing.T, relay *Relay, workspace string, hosts ...string) Gr
 }
 
 func bufioReader(conn net.Conn) *bufio.Reader { return bufio.NewReader(conn) }
+
+// Upstream text the masker cannot see is never forwarded: the reason phrase
+// and trailers are replaced or dropped, escaped reflections are masked, and a
+// compressed body is refused rather than passed through.
+func TestRelayMasksEveryUpstreamChannel(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization := r.Header.Get("Authorization")
+		switch r.URL.Query().Get("mode") {
+		case "gzip":
+			w.Header().Set("Content-Encoding", "gzip")
+			_, _ = io.WriteString(w, authorization)
+		case "trailer":
+			w.Header().Set("Trailer", "X-Leak")
+			w.Header().Set("Location", "/p/"+url.PathEscape(testValue)+"?k="+url.QueryEscape(testValue))
+			_, _ = io.WriteString(w, "body")
+			w.Header().Set("X-Leak", authorization)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+	roots := x509.NewCertPool()
+	roots.AddCert(upstream.Certificate())
+	relay := newRelay(t, Config{Local: []string{upstream.Listener.Addr().String()}, RootCAs: roots})
+	client := proxiedClient(t, mustGrant(t, relay, "ws", "127.0.0.1"))
+	get := func(mode string) *http.Response {
+		t.Helper()
+		req := placeholderRequest(t, upstream.URL)
+		req.URL.RawQuery = "mode=" + mode
+		response, err := client.Do(req)
+		require.NoError(t, err)
+		return response
+	}
+	response := get("trailer")
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	response.Body.Close()
+	assert.Equal(t, "body", string(body))
+	assert.Equal(t, "200 OK", response.Status)
+	assert.Empty(t, response.Trailer.Get("X-Leak"), "trailers are dropped")
+	assert.Equal(t, "/p/"+testName+"?k="+testName, response.Header.Get("Location"), "escaped reflections are masked")
+
+	response = get("gzip")
+	body, _ = io.ReadAll(response.Body)
+	response.Body.Close()
+	assert.Equal(t, http.StatusBadGateway, response.StatusCode)
+	assert.NotContains(t, string(body), testValue)
+}
+
+// Credentials go over plaintext HTTP only to Config.Local.
+func TestRelayRefusesPlaintextToPublicHosts(t *testing.T) {
+	relay := newRelay(t, Config{})
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://api.example.com/v1", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	req.Header.Set("Proxy-Authorization", "Basic "+basic(mustGrant(t, relay, "ws", "api.example.com")))
+	relay.ServeHTTP(recorder, req)
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "https only")
+}
+
+// The deny list refuses private and IPv4-mapped private addresses and admits
+// public IPv4 and IPv6 ones.
+func TestRelayDenyListAdmitsPublicAddresses(t *testing.T) {
+	relay := newRelay(t, Config{})
+	for address, denied := range map[string]bool{
+		"8.8.8.8": false, "1.1.1.1": false, "2606:4700:4700::1111": false,
+		"10.0.0.1": true, "127.0.0.1": true, "169.254.169.254": true, "::ffff:10.0.0.1": true, "::1": true, "fd00::1": true,
+	} {
+		assert.Equal(t, denied, relay.denied(net.ParseIP(address)), address)
+	}
+}
+
+// Cleanup of a superseded grant never revokes the workspace's newer binding.
+func TestRevokeGrantSparesANewerBinding(t *testing.T) {
+	relay := newRelay(t, Config{})
+	older := mustGrant(t, relay, "ws", "api.example.com")
+	newer := mustGrant(t, relay, "ws", "api.example.com")
+	relay.RevokeGrant("ws", older)
+	require.NotNil(t, relay.authenticate("Basic "+basic(newer)))
+	relay.RevokeGrant(" ws ", newer)
+	assert.Nil(t, relay.authenticate("Basic "+basic(newer)))
+	relay.RevokeGrant("ws", Grant{})
+}

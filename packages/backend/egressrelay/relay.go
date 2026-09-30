@@ -92,10 +92,19 @@ type Relay struct {
 
 type binding struct {
 	workspaceID string
+	token       string
 	secrets     []sandbox.EgressProxySecret
-	masker      *strings.Replacer
-	longest     int
+	// masks pairs every form of a value the relay can emit or send (literal,
+	// query-escaped, path-escaped) with its placeholder, longest first.
+	masks   []mask
+	longest int
+	// ctx ends when the binding is replaced, revoked, or the relay closes:
+	// in-flight upstream requests are cancelled and open tunnels closed.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
+
+type mask struct{ value, placeholder string }
 
 // New starts a relay serving on config.Listener.
 func New(config Config) (*Relay, error) {
@@ -116,6 +125,12 @@ func New(config Config) (*Relay, error) {
 		if err != nil {
 			return nil, fmt.Errorf("egress relay deny range %q: %w", cidr, err)
 		}
+		// net.IPNet.Contains matches an IPv4-mapped range against every
+		// IPv4 address. Resolved addresses are unmapped and meet the IPv4
+		// ranges instead.
+		if len(network.IP) == net.IPv6len && network.IP.To4() != nil {
+			continue
+		}
 		relay.deny = append(relay.deny, network)
 	}
 	for _, address := range config.Local {
@@ -123,7 +138,7 @@ func New(config Config) (*Relay, error) {
 		if err != nil {
 			return nil, fmt.Errorf("egress relay local destination %q: %w", address, err)
 		}
-		relay.local[net.JoinHostPort(strings.ToLower(host), port)] = true
+		relay.local[localKey(host, port)] = true
 	}
 	ca, err := ironproxy.GenerateCA("Smithers workspace egress relay", 0)
 	if err != nil {
@@ -174,7 +189,7 @@ func (r *Relay) Bind(workspaceID string, secrets []sandbox.EgressProxySecret) (G
 	bound := make([]sandbox.EgressProxySecret, 0, len(secrets))
 	names := map[string]bool{}
 	var hosts []string
-	var pairs []string
+	var masks []mask
 	longest := 0
 	for _, secret := range secrets {
 		if err := secret.Validate(); err != nil {
@@ -195,8 +210,13 @@ func (r *Relay) Bind(workspaceID string, secrets []sandbox.EgressProxySecret) (G
 				hosts = append(hosts, host)
 			}
 		}
-		pairs = append(pairs, secret.Value, sandbox.EgressProxyPlaceholder(secret.Name))
-		longest = max(longest, len(secret.Value))
+		placeholder := sandbox.EgressProxyPlaceholder(secret.Name)
+		for _, form := range []string{secret.Value, url.QueryEscape(secret.Value), url.PathEscape(secret.Value)} {
+			if !slices.ContainsFunc(masks, func(existing mask) bool { return existing.value == form }) {
+				masks = append(masks, mask{value: form, placeholder: placeholder})
+				longest = max(longest, len(form))
+			}
+		}
 		bound = append(bound, secret)
 	}
 	r.mu.Lock()
@@ -212,7 +232,10 @@ func (r *Relay) Bind(workspaceID string, secrets []sandbox.EgressProxySecret) (G
 	if err != nil {
 		return Grant{}, err
 	}
-	r.byToken[token] = &binding{workspaceID: workspaceID, secrets: bound, masker: strings.NewReplacer(pairs...), longest: longest}
+	// Longest first, so a value that extends another is masked whole.
+	slices.SortStableFunc(masks, func(a, b mask) int { return len(b.value) - len(a.value) })
+	ctx, cancel := context.WithCancel(context.Background())
+	r.byToken[token] = &binding{workspaceID: workspaceID, token: token, secrets: bound, masks: masks, longest: longest, ctx: ctx, cancel: cancel}
 	r.byWorkspace[workspaceID] = token
 	proxyURL := url.URL{Scheme: "http", User: url.UserPassword(proxyUser, token), Host: r.listener.Addr().String()}
 	return Grant{ProxyURL: proxyURL.String(), Hosts: hosts, CACertPEM: slices.Clone(r.caPEM)}, nil
@@ -225,8 +248,21 @@ func (r *Relay) Revoke(workspaceID string) {
 	r.revokeLocked(strings.TrimSpace(workspaceID))
 }
 
+// RevokeGrant removes grant's binding only while it is still the workspace's
+// live binding, so cleanup of a failed bind never revokes a newer one.
+func (r *Relay) RevokeGrant(workspaceID string, grant Grant) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	workspaceID = strings.TrimSpace(workspaceID)
+	token, ok := r.byWorkspace[workspaceID]
+	if ok && grant.ProxyURL != "" && strings.Contains(grant.ProxyURL, ":"+token+"@") {
+		r.revokeLocked(workspaceID)
+	}
+}
+
 func (r *Relay) revokeLocked(workspaceID string) {
 	if token, ok := r.byWorkspace[workspaceID]; ok {
+		r.byToken[token].cancel()
 		delete(r.byToken, token)
 		delete(r.byWorkspace, workspaceID)
 	}
@@ -236,6 +272,9 @@ func (r *Relay) revokeLocked(workspaceID string) {
 func (r *Relay) Close() error {
 	r.mu.Lock()
 	r.closed = true
+	for _, bound := range r.byToken {
+		bound.cancel()
+	}
 	r.byToken = map[string]*binding{}
 	r.byWorkspace = map[string]string{}
 	r.mu.Unlock()
@@ -276,6 +315,10 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if !req.URL.IsAbs() || req.URL.Scheme != "http" {
 		http.Error(w, "egress relay forwards absolute http URLs and CONNECT tunnels only", http.StatusBadRequest)
+		return
+	}
+	if !r.local[localKey(req.URL.Hostname(), portOf(req.URL))] {
+		http.Error(w, errPlaintext.Error(), http.StatusForbidden)
 		return
 	}
 	response, err := r.forward(req.Context(), req, bound)
@@ -328,11 +371,13 @@ var (
 	errNotBound      = errors.New("egress relay: destination is not bound to this workspace")
 	errPrivateTarget = errors.New("egress relay: destination is a private address")
 	errRevoked       = errors.New("egress relay: binding was revoked")
+	errPlaintext     = errors.New("egress relay: credentials travel over https only, except to the backend's own address")
+	errEncoded       = errors.New("egress relay: upstream response has a content encoding the relay cannot mask")
 )
 
 func statusFor(err error) int {
 	switch {
-	case errors.Is(err, errNotBound), errors.Is(err, errPrivateTarget):
+	case errors.Is(err, errNotBound), errors.Is(err, errPrivateTarget), errors.Is(err, errPlaintext):
 		return http.StatusForbidden
 	case errors.Is(err, errRevoked):
 		return http.StatusProxyAuthRequired
@@ -375,6 +420,9 @@ func (r *Relay) tunnel(w http.ResponseWriter, req *http.Request, bound *binding)
 		Certificates: []tls.Certificate{*leaf}, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"},
 	})
 	defer conn.Close()
+	// Revoking, replacing or closing ends the tunnel at once.
+	stop := context.AfterFunc(bound.ctx, func() { _ = client.Close() })
+	defer stop()
 	if err := conn.HandshakeContext(req.Context()); err != nil {
 		return
 	}
@@ -412,6 +460,8 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 	if !r.current(bound) {
 		return nil, errRevoked
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(bound.ctx, cancel)
 	outbound := req.Clone(ctx)
 	outbound.RequestURI = ""
 	outbound.Host = req.URL.Host
@@ -440,12 +490,24 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 	}
 	response, err := r.upstream.RoundTrip(outbound)
 	if err != nil {
+		stop()
+		cancel()
 		if errors.Is(err, errPrivateTarget) {
 			return nil, errPrivateTarget
 		}
 		return nil, fmt.Errorf("egress relay: upstream %s: %s", host, bound.mask(err.Error()))
 	}
+	if encoding := strings.TrimSpace(response.Header.Get("Content-Encoding")); encoding != "" && !strings.EqualFold(encoding, "identity") {
+		_ = response.Body.Close()
+		stop()
+		cancel()
+		return nil, errEncoded
+	}
+	// The reason phrase and trailers are upstream text the masker never sees.
+	response.Status = fmt.Sprintf("%d %s", response.StatusCode, http.StatusText(response.StatusCode))
+	response.Trailer = nil
 	removeHopHeaders(response.Header)
+	response.Header.Del("Trailer")
 	for name, values := range response.Header {
 		for index, value := range values {
 			response.Header[name][index] = bound.mask(value)
@@ -454,7 +516,7 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 	response.Header.Del("Content-Length")
 	response.ContentLength = -1
 	response.TransferEncoding = []string{"chunked"}
-	response.Body = &maskingBody{source: response.Body, bound: bound}
+	response.Body = &maskingBody{source: response.Body, bound: bound, release: func() { stop(); cancel() }}
 	return response, nil
 }
 
@@ -467,7 +529,35 @@ func (b *binding) allows(host string) bool {
 	return false
 }
 
-func (b *binding) mask(value string) string { return b.masker.Replace(value) }
+// mask replaces every bound value form in value, leftmost-longest.
+func (b *binding) mask(value string) string {
+	out, _ := b.maskPrefix([]byte(value), len(value))
+	return string(out)
+}
+
+// maskPrefix masks data up to the first position at or past limit where no
+// match starts, and returns the masked bytes and how much of data they
+// consumed. A match starting before limit is consumed whole.
+func (b *binding) maskPrefix(data []byte, limit int) ([]byte, int) {
+	out := make([]byte, 0, len(data))
+	index := 0
+	for index < limit {
+		matched := false
+		for _, candidate := range b.masks {
+			if strings.HasPrefix(string(data[index:]), candidate.value) {
+				out = append(out, candidate.placeholder...)
+				index += len(candidate.value)
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			out = append(out, data[index])
+			index++
+		}
+	}
+	return out, index
+}
 
 func secretBindsHost(secret sandbox.EgressProxySecret, host string) bool {
 	return slices.ContainsFunc(secret.Hosts, func(bound string) bool { return hostMatches(bound, host) })
@@ -496,7 +586,7 @@ func (r *Relay) dial(ctx context.Context, dialer *net.Dialer, network, address s
 	if err != nil {
 		return nil, err
 	}
-	if r.local[net.JoinHostPort(strings.ToLower(host), port)] {
+	if r.local[localKey(host, port)] {
 		return dialer.DialContext(ctx, network, address)
 	}
 	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
@@ -518,6 +608,9 @@ func (r *Relay) dial(ctx context.Context, dialer *net.Dialer, network, address s
 }
 
 func (r *Relay) denied(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
 	return slices.ContainsFunc(r.deny, func(network *net.IPNet) bool { return network.Contains(ip) })
 }
 
@@ -568,6 +661,7 @@ func (r *Relay) leaf(host string) (*tls.Certificate, error) {
 type maskingBody struct {
 	source  io.ReadCloser
 	bound   *binding
+	release func()
 	pending []byte
 	out     []byte
 	eof     bool
@@ -579,7 +673,7 @@ func (m *maskingBody) Read(p []byte) (int, error) {
 			if len(m.pending) == 0 {
 				return 0, io.EOF
 			}
-			m.out = []byte(m.bound.mask(string(m.pending)))
+			m.out, _ = m.bound.maskPrefix(m.pending, len(m.pending))
 			m.pending = nil
 			break
 		}
@@ -588,37 +682,32 @@ func (m *maskingBody) Read(p []byte) (int, error) {
 		m.pending = append(m.pending, chunk[:n]...)
 		if err == io.EOF {
 			m.eof = true
+			continue
 		} else if err != nil {
 			return 0, err
 		}
-		if m.eof {
+		// A match starting in the last longest-1 bytes may continue in the
+		// next read; one starting earlier lies wholly inside pending.
+		limit := len(m.pending) - (m.bound.longest - 1)
+		if limit <= 0 {
 			continue
 		}
-		// Keep the last longest-1 bytes: a value may continue in the next read.
-		keep := m.bound.longest - 1
-		if len(m.pending) <= keep {
-			continue
-		}
-		cut := len(m.pending) - keep
-		// Never cut inside an occurrence: extend the flushed part past any
-		// value that starts before the cut and ends after it.
-		for _, secret := range m.bound.secrets {
-			value := secret.Value
-			for start := max(0, cut-len(value)+1); start < cut; start++ {
-				if strings.HasPrefix(string(m.pending[start:]), value) {
-					cut = max(cut, start+len(value))
-				}
-			}
-		}
-		m.out = []byte(m.bound.mask(string(m.pending[:cut])))
-		m.pending = append([]byte(nil), m.pending[cut:]...)
+		var consumed int
+		m.out, consumed = m.bound.maskPrefix(m.pending, limit)
+		m.pending = append([]byte(nil), m.pending[consumed:]...)
 	}
 	n := copy(p, m.out)
 	m.out = m.out[n:]
 	return n, nil
 }
 
-func (m *maskingBody) Close() error { return m.source.Close() }
+func (m *maskingBody) Close() error {
+	err := m.source.Close()
+	if m.release != nil {
+		m.release()
+	}
+	return err
+}
 
 type bufferedConn struct {
 	net.Conn
@@ -638,6 +727,18 @@ func removeHopHeaders(header http.Header) {
 	for _, name := range hopHeaders {
 		header.Del(name)
 	}
+}
+
+func localKey(host, port string) string { return net.JoinHostPort(strings.ToLower(host), port) }
+
+func portOf(target *url.URL) string {
+	if port := target.Port(); port != "" {
+		return port
+	}
+	if target.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func normalizedHosts(hosts []string) []string {

@@ -1,8 +1,13 @@
 package process
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os/exec"
 	goruntime "runtime"
 	"testing"
@@ -10,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/smithersai/smithers/packages/backend/workspaceconformance"
 )
@@ -87,4 +93,43 @@ func TestRuntimeWithoutRelayRefusesEgressSecrets(t *testing.T) {
 	require.NoError(t, err)
 	workspaceconformance.RunEgressSecretsRefused(t, runtime, ctx, "no-relay")
 	require.ErrorIs(t, runtime.RevokeEgressSecrets(ctx, "no-relay"), workspaceapi.ErrEgressSecretsUnsupported)
+}
+
+// Closing the runtime revokes every binding, even when the relay outlives it.
+func TestRuntimeCloseRevokesEgressSecrets(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	relay, err := egressrelay.New(egressrelay.Config{Listener: listener})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = relay.Close() })
+	runtime, err := New(Config{Root: t.TempDir(), EgressRelay: relay})
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "closing"})
+	require.NoError(t, err)
+	_, err = runtime.StartWorkspace(ctx, "closing")
+	require.NoError(t, err)
+	binding, err := runtime.BindEgressSecrets(ctx, "closing", []sandbox.EgressProxySecret{{
+		Name: "TOKEN", Value: "close-value", Hosts: []string{"api.example.com"}, MatchHeaders: []string{"Authorization"},
+	}})
+	require.NoError(t, err)
+	proxy := binding.Environment["http_proxy"]
+	require.NotEmpty(t, proxy)
+	status := func() int {
+		proxyURL, err := url.Parse(proxy)
+		require.NoError(t, err)
+		conn, err := net.Dial("tcp", proxyURL.Host)
+		require.NoError(t, err)
+		defer conn.Close()
+		password, _ := proxyURL.User.Password()
+		credential := base64.StdEncoding.EncodeToString([]byte(proxyURL.User.Username() + ":" + password))
+		_, err = io.WriteString(conn, "CONNECT api.example.com:443 HTTP/1.1\r\nHost: api.example.com:443\r\nProxy-Authorization: Basic "+credential+"\r\n\r\n")
+		require.NoError(t, err)
+		response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		require.NoError(t, err)
+		return response.StatusCode
+	}
+	require.Equal(t, http.StatusOK, status())
+	require.NoError(t, runtime.Close())
+	require.Equal(t, http.StatusProxyAuthRequired, status())
 }
