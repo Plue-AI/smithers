@@ -889,9 +889,16 @@ export const layer: Layer.Layer<
           return Effect.fail(failure)
         }),
         Effect.mapError(refuse(method, resource)),
-        Effect.mapError((failure) => cause?.reason.description === undefined
-          ? failure
-          : PlatformError.systemError({ ...failure.reason, _tag: "PermissionDenied", description: cause.reason.description, cause: failure.reason.cause }))
+        Effect.mapError((failure) =>
+          cause?.reason.description === undefined
+            ? failure
+            : PlatformError.systemError({
+              ...failure.reason,
+              _tag: "PermissionDenied",
+              description: cause.reason.description,
+              cause: failure.reason.cause
+            })
+        )
       )
     const insideWorkspace = (action: "fs:read" | "fs:write", method: string) => (resource: string) =>
       isInside(path, logicalRoot, resource)
@@ -986,8 +993,11 @@ export const layer: Layer.Layer<
               // The executor's batch framing already requires one entry per
               // member; an answer of another shape is refused, not guessed.
               return result === undefined || Result.isFailure(result) || result.success.operation !== "resolve"
-                ? refuseRead(logicalPath(path, root, pinnedValue), uninspectable,
-                  result !== undefined && Result.isFailure(result) ? result.failure : undefined)
+                ? refuseRead(
+                  logicalPath(path, root, pinnedValue),
+                  uninspectable,
+                  result !== undefined && Result.isFailure(result) ? result.failure : undefined
+                )
                 : followResolution(run, path, root, pinnedValue, result.success.resolution, refuseRead, 0)
             })
           return Effect.result(resource.pipe(
