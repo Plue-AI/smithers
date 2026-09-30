@@ -5,11 +5,13 @@ sidebar:
   order: 7
 ---
 
-Reviews scan every bounded changed and context file before inference, including
-host-supplied immutable snapshots. Detected values become stable typed
-placeholders in prompts, policy, answers and diagnostics. Findings contain names
-and locations without values. Pattern screening cannot recognize every
-credential format; inspect unfamiliar credentials locally before review.
+Reviews scan every bounded changed and context file, including host-supplied
+immutable snapshots, and the review prompt and rubric before inference. Detected
+values become stable typed placeholders in prompts, policy, answers and
+diagnostics. Findings contain names and locations without values. Sample-like
+values, such as `test-` prefixes, paths and URLs, are masked without a finding.
+Pattern screening cannot recognize every credential format; inspect unfamiliar
+credentials locally before review.
 
 Default reviews use tool-free provider requests. Trusted executable overrides
 run outside the workspace with a disposable home and an engine-specific

@@ -144,7 +144,9 @@ it("does not classify counters and code expressions as credentials", async () =>
     failOn: "error"
   }))
   expect(report.findings).toEqual([])
-  expect(await Fs.readFile(record, "utf8")).toContain(source)
+  const prompt = await Fs.readFile(record, "utf8")
+  expect(prompt).not.toContain("<credential:")
+  expect(prompt).toContain("secretCount = count")
 })
 
 it("masks a detected value that a model answer spells with JSON escapes", async () => {
