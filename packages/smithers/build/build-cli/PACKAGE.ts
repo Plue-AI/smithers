@@ -58,8 +58,11 @@ const test = Smithers.Vitest({
   environment: "node",
   passWithNoTests: false,
   // The serial suite reached 93 completed files before the default 20 minute
-  // target bound on the release runner; keep the run finite with room to finish.
-  timeoutMs: 1_800_000,
+  // target bound on the release runner. On a loaded 16-core macOS host
+  // (2026-09-30, #2593) it took 1304 s without coverage and 2063 s with this
+  // configuration's coverage, so 30 minutes could not finish; an hour keeps
+  // the run finite with 1.7x headroom.
+  timeoutMs: 3_600_000,
   cwd
 })
 

@@ -987,11 +987,13 @@ describe("process probes", () => {
 })
 
 /** A minimal running service, one per identity case. */
+// A short grace keeps eleven stops from each waiting out the 5 s default (#3055).
 const identityBase = (key: string): ServiceSupervisor.ServiceSpec => ({
   key,
   cwd: fixtureDir,
   argv: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
-  readiness: { exec: ["true"], timeout: "10s" }
+  readiness: { exec: ["true"], timeout: "10s" },
+  stop: { signal: "SIGTERM", grace: "100ms" }
 })
 
 /** Every canonicalized field, changed away from the base spec. */
@@ -1011,7 +1013,9 @@ const identityDrift: ReadonlyArray<
   })],
   ["readiness", (base) => ({ ...base, readiness: { exec: ["true"], timeout: "20s" } })],
   ["health", (base) => ({ ...base, health: { interval: "1h" } })],
-  ["stop", (base) => ({ ...base, stop: { signal: "SIGTERM", grace: "100ms" } })],
+  ["stop", (base) => ({ ...base, stop: { signal: "SIGTERM", grace: "200ms" } })],
+  ["stop signal", (base) => ({ ...base, stop: { signal: "SIGINT", grace: "100ms" } })],
+  ["stop removal", (base) => ({ ...base, stop: undefined })],
   ["prepare", (base) => ({ ...base, prepare: [["true"]] })],
   ["init", (base) => ({ ...base, init: [["true"]] })],
   ["cleanup", (base) => ({ ...base, cleanup: [["true"]] })]
