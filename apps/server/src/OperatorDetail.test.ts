@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import * as Cause from "effect/Cause"
-import { WORKER_REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { serveRequest } from "./Boundary"
 import { cloudTokenResponse, CLOUD_TOKEN_UNAVAILABLE } from "./cloudToken"
 import type { CloudTokenOutcome } from "./cloudToken"
@@ -132,11 +131,6 @@ for (const outcome of tokenCases) {
     expect(log).toMatchObject({ seam: "cloud token", cause: `${outcome.status}: ${outcome.detail}`.slice(0, 500) })
   })
 }
-
-test("a Cloud token eligibility refusal keeps the allowlist code and its written copy", async () => {
-  const { body } = await served(() => cloudTokenResponse({ status: "not_eligible", detail: "Smithers Cloud has not let this account in yet (NOT_ON_WAITLIST)." }))
-  expect(body).toMatchObject({ code: "account_not_allowlisted", message: WORKER_REFUSAL_COPY.account_not_allowlisted.lead })
-})
 
 test("a route refusal keeps its headers, logs its detail, and leaves Plue's out_of_credit unmarked", async () => {
   const { body, log } = await served(() => routeRefusal("seam_not_configured", "Decisions aren't available on this deployment.", { "x-a": "1" }, { seam: "jev", cause: "AI_GATEWAY_API_KEY is unset" }))

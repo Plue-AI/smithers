@@ -1,4 +1,3 @@
-import { WORKER_REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
@@ -31,23 +30,7 @@ export type CloudTokenOutcome =
   | { readonly status: "ok"; readonly token: string }
   | { readonly status: "not_configured"; readonly detail: string }
   | { readonly status: "unavailable"; readonly detail: string }
-  /*
-   * Smithers Cloud refused this ACCOUNT: it is not off the closed-alpha
-   * waitlist. A fact about the person, not about the bridge, so it is not an
-   * outage and no retry helps. Only the machine-readable codes Cloud itself
-   * publishes land here; anything else stays `not_found`, which is what this
-   * Worker did with every tokenless answer before.
-   */
-  | { readonly status: "not_eligible"; readonly detail: string }
   | { readonly status: "not_found"; readonly detail: string }
-
-/**
- * Smithers Cloud's own machine-readable "not on the list yet" codes, carried
- * through the identity worker verbatim. Matched against both fields the door
- * can put one in, so this Worker and the identity worker can ship in either
- * order.
- */
-const CLOUD_ELIGIBILITY_REFUSALS = ["NOT_ON_WAITLIST", "access_not_granted"] as const
 
 /**
  * The per-user Cloud token door (wave-11b): POST /api/identity/cloud-token on
@@ -95,10 +78,6 @@ export const fetchCloudToken = (login: string): Effect.Effect<CloudTokenOutcome,
     }
     const cloudStatus = typeof body?.cloud?.status === "string" ? body.cloud.status : "unknown"
     const cloudReason = typeof body?.cloud?.reason === "string" ? body.cloud.reason : null
-    const refusal = CLOUD_ELIGIBILITY_REFUSALS.find((code) => code === cloudStatus || code === cloudReason)
-    if (refusal !== undefined) {
-      return { status: "not_eligible", detail: `Smithers Cloud has not let this account in yet (${refusal}).` } as const
-    }
     return {
       status: "not_found",
       detail: `No Smithers Cloud identity is available for this account (${cloudStatus}${
@@ -108,22 +87,18 @@ export const fetchCloudToken = (login: string): Effect.Effect<CloudTokenOutcome,
   })
 
 /**
- * The one reading of a Cloud token outcome that is not a token. Eligibility is
- * a fact about the ACCOUNT and takes the allowlist code with its written copy;
- * everything else is the bridge. The outcome's own detail (an unset variable,
- * a native cause, the door's HTTP status) is operator evidence, so it goes to
+ * The one reading of a Cloud token outcome that is not a token: the bridge.
+ * The outcome's own detail (an unset variable, a native cause, the door's
+ * HTTP status, Cloud's own status code) is operator evidence, so it goes to
  * the refusal log line and the body carries one fixed sentence.
  *
- * It lives beside `fetchCloudToken` because a consumer that reclassifies the
- * same fact for itself is how a closed-alpha refusal came to read as a setup
- * failure on two of these routes and as an outage on a third.
+ * It lives beside `fetchCloudToken` so no consumer reclassifies the same fact
+ * for itself (one route reading it as a setup failure, another as an outage).
  */
 export const CLOUD_TOKEN_UNAVAILABLE = "Smithers Cloud isn't reachable for your account right now."
 
 export const cloudTokenResponse = (outcome: Exclude<CloudTokenOutcome, { readonly status: "ok" }>): Response =>
-  outcome.status === "not_eligible"
-    ? operatorRefusal("account_not_allowlisted", WORKER_REFUSAL_COPY.account_not_allowlisted.lead, "cloud token", outcome.detail)
-    : operatorRefusal("cloud_token_unavailable", CLOUD_TOKEN_UNAVAILABLE, "cloud token", `${outcome.status}: ${outcome.detail}`)
+  operatorRefusal("cloud_token_unavailable", CLOUD_TOKEN_UNAVAILABLE, "cloud token", `${outcome.status}: ${outcome.detail}`)
 
 /**
  * owner/repo, and nothing that could rewrite the upstream path. `.` and `..`

@@ -38,7 +38,7 @@ const run = (options: { identity?: number; token?: boolean; scope?: number; mess
     const request = new Request(input, init)
     calls.push(request)
     const path = new URL(request.url).pathname
-    if (path === "/api/identity/validate") return Response.json({ login: "ada", allowlisted: true, admin: false, scopes: ["read:user"] }, { status: options.identity ?? 200 })
+    if (path === "/api/identity/validate") return Response.json({ login: "ada", admin: false, scopes: ["read:user"] }, { status: options.identity ?? 200 })
     if (path === "/api/identity/cloud-token") {
       if (options.refusal !== undefined) return Response.json({ found: false, cloud: { status: "exchange_failed", reason: options.refusal } })
       return Response.json(options.token === false ? { found: false } : { found: true, token: "private-fixture-token" })
@@ -64,17 +64,14 @@ test("the session exchange uses the validated login and never exposes its token"
   expect(calls[2]!.headers.has("cookie")).toBe(false)
 })
 
-// A closed-alpha refusal is a fact about the account, not an outage: it must
-// not be reported as Smithers Cloud being unreachable.
-for (const refusal of ["access_not_granted", "NOT_ON_WAITLIST"]) {
-  test(`a closed-alpha refusal refuses as the account, not as an outage: ${refusal}`, async () => {
+// Accounts are public: no Cloud token refusal code is a fact about the
+// account. Retired admission codes and unknown ones all read as the bridge.
+for (const refusal of ["access_not_granted", "NOT_ON_WAITLIST", "some_future_code"]) {
+  test(`a Cloud token refusal is the bridge, never an account refusal: ${refusal}`, async () => {
     const { response, calls } = run({ refusal })
     const answer = await response
-    expect(answer.status).toBe(403)
-    expect(await answer.json()).toMatchObject({
-      code: "account_not_allowlisted",
-      message: "This account isn't off the closed-alpha waitlist yet."
-    })
+    expect(answer.status).toBe(503)
+    expect(await answer.json()).toMatchObject({ code: "cloud_token_unavailable" })
     expect(calls.map(request => new URL(request.url).pathname)).toEqual(["/api/identity/validate", "/api/identity/cloud-token"])
   })
 }
@@ -99,7 +96,6 @@ for (const [code, message] of [
   // (internal/middleware/feature_flag.go): the same code, a different refusal.
   ["forbidden", "feature not available"],
   ["forbidden", "repository-bound token cannot access resources outside its repository"],
-  ["access_not_granted", "account is not on the closed-alpha whitelist"],
   ["org_membership_required", "join the organization to read its workspaces"]
 ] as const) {
   test(`a Cloud 403 that is not the scope refusal never degrades: ${code} / ${message}`, async () => {

@@ -11,7 +11,7 @@ const verify = async (id: string | undefined, options: { signedIn?: boolean; ins
   }), id).pipe(Effect.provide(configLayer({ IDENTITY_UPSTREAM_URL: "https://identity.test", IDENTITY_SERVICE_TOKEN: "svc", SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test" })),
   Effect.provide(transportLayer(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
-    if (url.pathname === "/api/identity/validate") return options.signedIn === false ? new Response("", { status: 401 }) : Response.json({ login: "ada", allowlisted: true, admin: false, scopes: [] })
+    if (url.pathname === "/api/identity/validate") return options.signedIn === false ? new Response("", { status: 401 }) : Response.json({ login: "ada", admin: false, scopes: [] })
     if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: "ada-cloud-token" })
     seen.push({ path: url.pathname, auth: new Headers(init?.headers).get("authorization") })
     if (url.pathname === "/api/user/github-repos") return Response.json([{ full_name: "ada/hello", pushed_at: "2026-09-12T00:00:00Z" }])
@@ -64,7 +64,7 @@ test("verification includes later pages so a second installation and every repos
     const url = new URL(input instanceof Request ? input.url : String(input))
     if (url.pathname === "/api/identity/validate") {
       identityCalls.validate++
-      return Response.json({ login: "ada", allowlisted: true, admin: false, scopes: [] })
+      return Response.json({ login: "ada", admin: false, scopes: [] })
     }
     if (url.pathname === "/api/identity/cloud-token") {
       identityCalls.cloudToken++
@@ -94,7 +94,7 @@ test("oversized inventories refuse before any per-repository access calls", asyn
     Effect.provide(transportLayer(async input => {
       calls++
       const url = new URL(input instanceof Request ? input.url : String(input))
-      if (url.pathname === "/api/identity/validate") return Response.json({ login: "ada", allowlisted: true })
+      if (url.pathname === "/api/identity/validate") return Response.json({ login: "ada" })
       if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: "fixture" })
       if (url.pathname === "/api/user/github-repos") return Response.json(Array.from({ length: 100 }, (_, i) => ({ full_name: `ada/page${url.searchParams.get("page")}-${i}` })))
       access++
@@ -112,7 +112,7 @@ test.each(["inventory", "diagnosis"])("bounds and cancels an oversized %s body",
     Effect.provide(configLayer({ IDENTITY_UPSTREAM_URL: "https://identity.test", IDENTITY_SERVICE_TOKEN: "svc", SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test" })),
     Effect.provide(transportLayer(async input => {
       const path = new URL(input instanceof Request ? input.url : String(input)).pathname
-      if (path === "/api/identity/validate") return Response.json({ login: "ada", allowlisted: true })
+      if (path === "/api/identity/validate") return Response.json({ login: "ada" })
       if (path === "/api/identity/cloud-token") return Response.json({ found: true, token: "fixture" })
       if (path === "/api/user/github-repos" && seam === "diagnosis") return Response.json([{ full_name: "ada/repo" }])
       let chunks = 0
@@ -134,7 +134,7 @@ test("an inventory row with dot segments never resolves the access read to anoth
   })).pipe(Effect.provide(configLayer({ IDENTITY_UPSTREAM_URL: "https://identity.test", IDENTITY_SERVICE_TOKEN: "svc", SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test" })),
   Effect.provide(transportLayer(async (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
-    if (url.pathname === "/api/identity/validate") return Response.json({ login: "ada", allowlisted: true, admin: false, scopes: [] })
+    if (url.pathname === "/api/identity/validate") return Response.json({ login: "ada", admin: false, scopes: [] })
     if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: "ada-cloud-token" })
     seen.push(url.pathname)
     if (url.pathname === "/api/user/github-repos") return Response.json([{ full_name: "../.." }, { full_name: "ada/.." }, { full_name: "./x" }, { full_name: "ada/hello" }])

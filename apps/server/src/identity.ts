@@ -19,7 +19,7 @@ import {
 } from "./Responses"
 
 /*
- * The identity seam: the identity worker (GitHub OAuth + allowlist) is the
+ * The identity seam: the identity worker (GitHub OAuth) is the
  * identity authority. This module validates a session against it, proxies
  * the auth and identity routes to it, and turns its answers on the two
  * top-level OAuth navigations into pages a person can read.
@@ -79,9 +79,6 @@ export const proxyToIdentity = (request: Request): Effect.Effect<Response, never
 
 export interface ValidatedIdentity {
   readonly login: string
-  readonly allowlisted: boolean
-  /** Identity authority's public admission decision; never inferred from a missing allowlist row. */
-  readonly admitted?: boolean
   readonly admin: boolean
   readonly scopes: ReadonlyArray<string>
 }
@@ -138,8 +135,6 @@ export const validateSession = (request: Request): Effect.Effect<SessionValidati
     }
     const body = (yield* readJsonOrUndefined(response)) as {
       login?: unknown
-      allowlisted?: unknown
-      admission?: unknown
       admin?: unknown
       scopes?: unknown
     } | undefined
@@ -160,8 +155,6 @@ export const validateSession = (request: Request): Effect.Effect<SessionValidati
       status: "valid",
       identity: {
         login: body.login,
-        allowlisted: body.allowlisted === true,
-        ...(body.admission === "public" ? { admitted: true } : {}),
         admin: body.admin === true,
         scopes: Array.isArray(body.scopes) ? body.scopes.filter((s): s is string => typeof s === "string") : []
       }
@@ -195,21 +188,16 @@ export const requireTurnSession = (
     if (validation.status === "invalid") {
       return refuse("sign_in_required", "Sign in to run a Smithers turn.")
     }
-    const session = validation.identity
-    if (!session.allowlisted && !session.admitted) {
-      return refuse("account_not_allowlisted", "This account is not in the closed-alpha allowlist yet.")
-    }
-    return session
+    return validation.identity
   })
 
 /**
  * A turn-gate refusal that leaves the caller on the visitor's surface: signed
- * out (401) or signed in without admission (403). Neither vouches an account,
- * so both get exactly what a signed-out visitor gets and nothing more. An
- * identity outage (5xx) is never one of them.
+ * out (401). It vouches no account, so it gets exactly what a signed-out
+ * visitor gets and nothing more. An identity outage (5xx) is never one.
  */
 export const isVisitorRefusal = (gate: Response | ValidatedIdentity): gate is Response =>
-  gate instanceof Response && (gate.status === 401 || gate.status === 403)
+  gate instanceof Response && gate.status === 401
 
 /* ------------------------------------------------------------------------ */
 /* The OAuth navigations                                                     */

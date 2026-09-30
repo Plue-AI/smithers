@@ -5,7 +5,7 @@ import * as Redacted from "effect/Redacted"
 import { testConfigLayer } from "./Config"
 import type { ServerConfigShape } from "./Config"
 import { transportLayer } from "./Http"
-import { handleAuthNavigation, probeAuthSession, proxyToIdentity, requireTurnSession, validateSession, validReturnTo } from "./identity"
+import { handleAuthNavigation, isVisitorRefusal, probeAuthSession, proxyToIdentity, requireTurnSession, validateSession, validReturnTo } from "./identity"
 
 /*
  * The identity seam as Effects over injected layers: the transport is a
@@ -47,11 +47,11 @@ const jsonAnswer = (status: number, body: unknown): Response =>
 
 describe("validateSession", () => {
   test("posts the cookie and the service token to /api/identity/validate and reads the identity back", async () => {
-    const { seen, layer } = wire(() => jsonAnswer(200, { login: "will", allowlisted: true, admin: true, scopes: ["a", 7] }))
+    const { seen, layer } = wire(() => jsonAnswer(200, { login: "will", allowlisted: false, admission: "denied", admin: true, scopes: ["a", 7] }))
     const outcome = await run(validateSession(session("smithers_session=abc")), layer, config())
     expect(outcome).toEqual({
       status: "valid",
-      identity: { login: "will", allowlisted: true, admin: true, scopes: ["a"] }
+      identity: { login: "will", admin: true, scopes: ["a"] }
     })
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ url: `${IDENTITY}/api/identity/validate`, method: "POST", body: "{}" })
@@ -135,28 +135,23 @@ describe("validateSession", () => {
 })
 
 describe("requireTurnSession", () => {
-  test("public admission is an explicit authority claim, never implied by a fresh or revoked login", async () => {
+  test("admits every signed-in login, whatever retired admission fields identity still sends", async () => {
     const answers = [
-      [{ login: "new-user", allowlisted: false, admission: "public" }, true],
-      [{ login: "revoked", allowlisted: false }, false],
-      [{ login: "denied", allowlisted: false, admission: "denied" }, false],
-      [{ login: "legacy", allowlisted: false, admission: true }, false],
-      [{ login: "invited", allowlisted: true }, true]
-    ] as const
-    for (const [body, admitted] of answers) {
+      { login: "new-user" },
+      { login: "legacy-denied", allowlisted: false, admission: "denied" },
+      { login: "legacy-member", allowlisted: true }
+    ]
+    for (const body of answers) {
       const outcome = await run(requireTurnSession(session("smithers_session=abc")), wire(() => jsonAnswer(200, body)).layer, config())
-      if (admitted) {
-        expect(outcome).toMatchObject({ login: body.login })
-      } else {
-        expect(outcome).toBeInstanceOf(Response)
-        expect((outcome as Response).status).toBe(403)
-      }
+      expect(outcome).toEqual({ login: body.login, admin: false, scopes: [] })
+      expect(isVisitorRefusal(outcome)).toBe(false)
     }
     const signedOut = await run(requireTurnSession(session("smithers_session=stale")), wire(() => jsonAnswer(200, { admission: "public" })).layer, config())
     expect((signedOut as Response).status).toBe(401)
+    expect(isVisitorRefusal(signedOut)).toBe(true)
   })
   test("fails closed without a seam and asks no one", async () => {
-    const { seen, layer } = wire(() => jsonAnswer(200, { login: "will", allowlisted: true }))
+    const { seen, layer } = wire(() => jsonAnswer(200, { login: "will" }))
     const unseamed = await run(requireTurnSession(session("smithers_session=abc")), layer, testConfigLayer())
     expect(unseamed).toBeInstanceOf(Response)
     expect((unseamed as Response).status).toBe(501)
@@ -165,23 +160,15 @@ describe("requireTurnSession", () => {
     expect(body.message).toBe("Sign-in isn't set up on this deployment.")
     expect(seen).toEqual([])
   })
-  test("refuses 401 signed out and 403 off the allowlist, and admits a member", async () => {
+  test("refuses 401 signed out, and an identity outage is never a visitor refusal", async () => {
     const signedOut = await run(requireTurnSession(session()), wire(() => new Response("{}", { status: 401 })).layer, config())
     expect(signedOut).toBeInstanceOf(Response)
     expect((signedOut as Response).status).toBe(401)
     expect(await (signedOut as Response).json()).toEqual({ status: "error", code: "sign_in_required", message: "Sign in to run a Smithers turn." })
-    const stranger = await run(
-      requireTurnSession(session("smithers_session=abc")),
-      wire(() => jsonAnswer(200, { login: "stranger", allowlisted: false })).layer,
-      config()
-    )
-    expect((stranger as Response).status).toBe(403)
-    const member = await run(
-      requireTurnSession(session("smithers_session=abc")),
-      wire(() => jsonAnswer(200, { login: "will", allowlisted: true })).layer,
-      config()
-    )
-    expect(member).toEqual({ login: "will", allowlisted: true, admin: false, scopes: [] })
+    const outage = await run(requireTurnSession(session("smithers_session=abc")), wire(() => new Response("", { status: 503 })).layer, config())
+    expect((outage as Response).status).toBe(502)
+    expect(isVisitorRefusal(outage)).toBe(false)
+    expect(isVisitorRefusal(new Response("", { status: 403 }))).toBe(false)
   })
 })
 
@@ -259,7 +246,7 @@ describe("proxyToIdentity", () => {
 
   test("the sibling's admin surface is the canonical 404 and never forwarded; no seam is a 501", async () => {
     const { seen, layer } = wire(() => jsonAnswer(200, { ok: true }))
-    const hidden = await run(proxyToIdentity(new Request("https://mvp.test/api/identity/admin/allowlist")), layer, config())
+    const hidden = await run(proxyToIdentity(new Request("https://mvp.test/api/identity/admin/requests")), layer, config())
     expect(hidden.status).toBe(404)
     expect(await hidden.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
     expect(seen).toEqual([])

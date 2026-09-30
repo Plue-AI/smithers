@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
-import { asAdmitted } from "./admittedSession"
+import { asSignedIn } from "./signedInSession"
 import worker from "./index"
 import type { WorkerEnv } from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
@@ -20,7 +20,7 @@ const context: AgentRuntimeContext = {
   limitations: ["Cannot see or control the host environment beyond what this context block states."]
 }
 
-const admitted = asAdmitted(worker.fetch)
+const signedIn = asSignedIn(worker.fetch)
 
 const assetsEnv = (): WorkerEnv => ({
   ...memoryDurableObjects(),
@@ -59,7 +59,7 @@ describe("product worker turn context", () => {
       return originalFetch(input as Request, init)
     }) as typeof fetch
     try {
-      const response = await admitted(
+      const response = await signedIn(
         post({
           runId: "run-context",
           messages: [{ role: "user", content: "hey smithers what app am I in" }],
@@ -81,7 +81,7 @@ describe("product worker turn context", () => {
   })
 
   test("rejects a malformed context with 400", async () => {
-    const response = await admitted(
+    const response = await signedIn(
       post({
         runId: "run-bad-context",
         messages: [{ role: "user", content: "hi" }],

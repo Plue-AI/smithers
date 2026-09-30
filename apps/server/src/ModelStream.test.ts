@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { MODEL_STREAM_PATH, TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
-import { asAdmitted } from "./admittedSession"
+import { asSignedIn } from "./signedInSession"
 import worker from "./index"
 import type { WorkerEnv } from "./index"
 import { floodStream, FLOOD_CHUNK_BYTES } from "./floodStream"
@@ -11,12 +11,12 @@ import { memoryDurableObjects } from "./memoryDurableObjects"
  * The relay boundary, driven through the Worker's real fetch handler with the
  * upstream fetch patched — no network. The contract under test: the relay
  * forwards to the SAME managed-inference upstream the turn path uses (which is
- * what makes it metered), it mints the run id itself, it refuses anonymous and
- * non-allowlisted callers BEFORE any upstream call, and the sealed-step law
+ * what makes it metered), it mints the run id itself, it refuses anonymous
+ * callers BEFORE any upstream call, and the sealed-step law
  * rejects tool-bearing bodies.
  */
 
-const admitted = asAdmitted(worker.fetch)
+const signedIn = asSignedIn(worker.fetch)
 
 const env = (overrides: Partial<WorkerEnv> = {}): WorkerEnv =>
   ({
@@ -63,8 +63,8 @@ const withFetch = (
   return captured
 }
 
-const identityAnswer = (login: string, allowlisted: boolean): Response =>
-  new Response(JSON.stringify({ login, allowlisted }), {
+const identityAnswer = (login: string): Response =>
+  new Response(JSON.stringify({ login }), {
     status: 200,
     headers: { "content-type": "application/json" }
   })
@@ -73,7 +73,7 @@ describe("the model relay route", () => {
   test("forwards the sealed call to the managed-inference upstream and streams its frames back", async () => {
     const captured = withFetch(() => ndjson([{ type: "delta", kind: "text", text: "ok" }, { type: "done" }]))
 
-    const response = await admitted(relayRequest(), env())
+    const response = await signedIn(relayRequest(), env())
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("application/x-ndjson")
     expect(await response.text()).toContain("\"type\":\"done\"")
@@ -88,7 +88,7 @@ describe("the model relay route", () => {
 
   test("mints its own run id — a caller can never choose the charge's idempotency key", async () => {
     const captured = withFetch(() => ndjson([{ type: "done" }]))
-    await admitted(relayRequest(relayBody, { "x-smithers-run-id": "attacker-chosen" }), env())
+    await signedIn(relayRequest(relayBody, { "x-smithers-run-id": "attacker-chosen" }), env())
     const runId = captured[0]!.headers.get("x-smithers-run-id")
     expect(runId).not.toBe("attacker-chosen")
     expect(runId).toMatch(/^[0-9a-f-]{36}$/)
@@ -96,7 +96,7 @@ describe("the model relay route", () => {
 
   test("legacy turns keep client frame ids separate from unique charge ids on repeated requests", async () => {
     const captured = withFetch((request) => new URL(request.url).hostname === "identity.test"
-      ? identityAnswer("will", true)
+      ? identityAnswer("will")
       : ndjson([
         { type: "card", card: { kind: "approval", payload: { runId: request.headers.get("x-smithers-run-id") } } },
         { type: "card", card: { kind: "approval", payload: { runId: "independent-workflow" } } },
@@ -123,7 +123,7 @@ describe("the model relay route", () => {
   test("vouches a validated login so the charge lands on the user's own account", async () => {
     const captured = withFetch((request) =>
       new URL(request.url).hostname === "identity.test"
-        ? identityAnswer("will", true)
+        ? identityAnswer("will")
         : ndjson([{ type: "done" }])
     )
     const response = await worker.fetch(
@@ -149,25 +149,13 @@ describe("the model relay route", () => {
     expect(upstreamCalls).toBe(0)
   })
 
-  test("refuses a signed-in but non-allowlisted account with 403 before any credential is spent", async () => {
-    let upstreamCalls = 0
-    withFetch((request) => {
-      if (new URL(request.url).hostname === "identity.test") return identityAnswer("stranger", false)
-      upstreamCalls += 1
-      return ndjson([{ type: "done" }])
-    })
-    const response = await worker.fetch(relayRequest(relayBody, { cookie: "smithers_session=abc" }), gatedEnv())
-    expect(response.status).toBe(403)
-    expect(upstreamCalls).toBe(0)
-  })
-
   test("rejects a tool-bearing body — the relay serves sealed author calls only", async () => {
     let upstreamCalls = 0
     withFetch(() => {
       upstreamCalls += 1
       return ndjson([{ type: "done" }])
     })
-    const response = await admitted(
+    const response = await signedIn(
       relayRequest({ ...relayBody, tools: [{ type: "function", name: "bash" }] }),
       env()
     )
@@ -177,21 +165,21 @@ describe("the model relay route", () => {
   })
 
   test("rejects a body with no messages", async () => {
-    const response = await admitted(relayRequest({ messages: [] }), env())
+    const response = await signedIn(relayRequest({ messages: [] }), env())
     expect(response.status).toBe(400)
     expect(await response.text()).toContain("messages")
   })
 
   test("surfaces an upstream failure with its status and detail", async () => {
     withFetch(() => new Response(JSON.stringify({ error: "overloaded" }), { status: 529 }))
-    const response = await admitted(relayRequest(), env())
+    const response = await signedIn(relayRequest(), env())
     expect(response.status).toBe(529)
   })
 
   test("an upstream refusal body past the detail ceiling is cancelled, not buffered", async () => {
     const { stream, seen } = floodStream()
     withFetch(() => new Response(stream, { status: 503 }))
-    const response = await admitted(relayRequest(), env())
+    const response = await signedIn(relayRequest(), env())
     expect(response.status).toBe(503)
     expect(((await response.json()) as { message: string }).message).toBe(
       "The model service is having trouble right now (HTTP 503), so the turn did not run. Nothing was charged."

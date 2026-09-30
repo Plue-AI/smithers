@@ -26,7 +26,7 @@ const deployment = (cloud: (call: CloudCall) => Response) => {
     if (url.hostname === "identity.test") {
       if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: `cloud-${(await request.json() as { login: string }).login}` })
       const login = request.headers.get("cookie")?.split("=")[1]
-      return login === undefined ? Response.json({}, { status: 401 }) : Response.json({ login, allowlisted: true, admin: false })
+      return login === undefined ? Response.json({}, { status: 401 }) : Response.json({ login, admin: false })
     }
     if (url.origin !== CLOUD) throw Error(`Unexpected upstream ${url.toString()}`)
     const call = { method: request.method, url: request.url, authorization: request.headers.get("authorization"), body: await request.text() }

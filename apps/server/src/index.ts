@@ -220,8 +220,7 @@ const serveAppDocument = (request: Request, url: URL, document: string): Effect.
 /*
  * Anonymous exploring (PUBLIC-REPOSITORIES.md): a visitor at
  * smithers.sh/smithersai/smithers talks to Smithers about that repository
- * without an admitted account (signed out, or signed in but not yet
- * allowlisted: isVisitorRefusal). The turn names its repository in the
+ * without signing in (isVisitorRefusal). The turn names its repository in the
  * runtime context the client derives each turn (`context.activeRepository`); only a catalog
  * repository opens the door, and it opens onto the anonymous ceilings, never
  * onto a user's budget or billing account: the turn carries no login, so the

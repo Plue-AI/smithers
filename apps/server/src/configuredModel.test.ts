@@ -71,7 +71,7 @@ const memoryCancels = (): NativeNamespace => {
 }
 
 const METERED_CEREBRAS_URL = "https://cloud.test/api/model/cerebras/v1/chat/completions"
-const SESSION: ValidatedIdentity = { login: "alice", allowlisted: true, admin: false, scopes: [] }
+const SESSION: ValidatedIdentity = { login: "alice", admin: false, scopes: [] }
 /** A deployment with sign-in, the Cerebras key and the gateway key. */
 const SIGNED_IN_DEPLOYMENT: Partial<ServerConfigShape> = {
   identityUpstreamUrl: "https://identity.test",

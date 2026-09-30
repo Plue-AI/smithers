@@ -38,8 +38,8 @@ interface CloudCall { readonly method: string; readonly path: string; readonly b
 /** What the identity door answers for a Cloud token; the default is a minted one. */
 type CloudToken = () => Response
 const minted: CloudToken = () => Response.json({ found: true, token: "cloud-alice" })
-/** The account is signed in and still on the closed-alpha waitlist (gateway.ts CLOUD_ELIGIBILITY_REFUSALS). */
-const waitlisted: CloudToken = () => Response.json({ found: false, cloud: { status: "NOT_ON_WAITLIST" } })
+/** The door mints nothing, naming a retired admission code: still the bridge, never the account. */
+const tokenless: CloudToken = () => Response.json({ found: false, cloud: { status: "NOT_ON_WAITLIST" } })
 
 /** The Worker under a stubbed identity door and a stubbed Smithers Cloud. */
 const deployment = (cloud: (call: CloudCall) => Response, token: CloudToken = minted) => {
@@ -55,7 +55,7 @@ const deployment = (cloud: (call: CloudCall) => Response, token: CloudToken = mi
         new Headers(init?.headers ?? {}).get("cookie")
       return cookie === null || cookie === ""
         ? Response.json({ error: "no session" }, { status: 401 })
-        : Response.json({ login: "alice", allowlisted: true, admin: false })
+        : Response.json({ login: "alice", admin: false })
     }
     if (url.hostname !== "cloud.test") throw Error(`Unexpected upstream ${url.toString()}`)
     const call: CloudCall = {
@@ -272,19 +272,23 @@ test("a conflict from Smithers Cloud is the typed approval refusal, with Plue's 
   expect(await body(refusal)).toMatchObject({ code: "trigger_approval_missing", message: sentence })
 })
 
-test("an account still on the waitlist reads as its own eligibility on every trigger route", async () => {
-  const listing = deployment(() => Response.json([]), waitlisted)
-  expect((await body(await listing.fetchAs(`${TRIGGER_REGISTRATIONS_PATH}?repo=org%2Frepo`))).code).toBe("account_not_allowlisted")
+test("a tokenless Cloud door is the bridge on every trigger route, whatever code it names, and Cloud is never called", async () => {
+  const listing = deployment(() => Response.json([]), tokenless)
+  const listed = await listing.fetchAs(`${TRIGGER_REGISTRATIONS_PATH}?repo=org%2Frepo`)
+  expect(listed.status).toBe(503)
+  expect((await body(listed)).code).toBe("cloud_token_unavailable")
   expect(listing.calls).toEqual([])
 
-  const pausing = deployment(() => Response.json([]), waitlisted)
+  const pausing = deployment(() => Response.json([]), tokenless)
   const paused = await pausing.fetchAs(TRIGGER_PAUSE_PATH, { method: "POST", body: JSON.stringify({ repo: "org/repo", slug: "nightly" }) })
-  expect((await body(paused)).code).toBe("account_not_allowlisted")
+  expect((await body(paused)).code).toBe("cloud_token_unavailable")
+  expect(pausing.calls).toEqual([])
 
-  const approving = deployment(() => Response.json({}), waitlisted)
+  const approving = deployment(() => Response.json({}), tokenless)
   const approved = await approving.fetchAs(TRIGGER_APPROVAL_PATH, { method: "POST", body: JSON.stringify(APPROVAL) })
-  expect(approved.status).toBe(403)
-  expect((await body(approved)).code).toBe("account_not_allowlisted")
+  expect(approved.status).toBe(503)
+  expect((await body(approved)).code).toBe("cloud_token_unavailable")
+  expect(approving.calls).toEqual([])
 })
 
 test("the row reader keeps a trigger and drops everything else", () => {

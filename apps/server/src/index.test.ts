@@ -24,7 +24,7 @@ import { floodStream, FLOOD_CHUNK_BYTES } from "./floodStream"
 import type { NativeNamespace } from "./DurableStorage"
 import { REFUSAL_DETAIL_MAX_BYTES } from "./Http"
 import worker, { PLATFORM_PROXY_RULES, TurnCancelRegistry } from "./index"
-import { asAdmitted } from "./admittedSession"
+import { asSignedIn } from "./signedInSession"
 import { memoryDurableObjects } from "./memoryDurableObjects"
 import type { TurnCancelNamespace, TurnCancelStorage, WorkerEnv } from "./index"
 import { AVAILABLE_REPOS, COMING_SOON_REPOS } from "./publicRepoCatalog"
@@ -32,8 +32,8 @@ import { memoryRecommendStorage, RecommendLog } from "./recommend"
 import { TURN_WINDOW_MAX, TurnRateLimiter } from "./turnLimit"
 import { WORKFLOW_ANSWER_MAX_BYTES, WORKFLOW_UPSTREAM_DEADLINE_MS } from "./workflows"
 
-/** The Worker's fetch as one admitted login: every model-spending route fails closed without identity. */
-const admitted = asAdmitted(worker.fetch)
+/** The Worker's fetch as one signed-in login: every model-spending route fails closed without identity. */
+const signedIn = asSignedIn(worker.fetch)
 
 const assetsEnv = (html = "<html><body>smithers</body></html>"): WorkerEnv => ({
   ...memoryDurableObjects(),
@@ -275,7 +275,7 @@ describe("smithers mvp worker", () => {
   })
 
   test("rejects a turn body over the 1 MB cap with 413", async () => {
-    const response = await admitted(
+    const response = await signedIn(
       post("/api/agent/turn", { ...turnBody, instructions: "x".repeat(1100 * 1024) }),
       assetsEnv()
     )
@@ -293,7 +293,7 @@ describe("smithers mvp worker", () => {
         cancelled = true
       }
     })
-    const response = await admitted(
+    const response = await signedIn(
       new Request("https://mvp.test/api/agent/turn", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -324,7 +324,7 @@ describe("smithers mvp worker", () => {
         post("/api/model/stream", { messages: [oversize] })
       ]
     ) {
-      const response = await admitted(request, assetsEnv())
+      const response = await signedIn(request, assetsEnv())
       expect(response.status).toBe(413)
       const body = (await response.json()) as { message: string }
       expect(body.message).toContain("This conversation has grown too long")
@@ -338,7 +338,7 @@ describe("smithers mvp worker", () => {
     const instructions = "é".repeat(768 * 1024)
     expect(instructions.length).toBeLessThan(1024 * 1024)
     expect(new TextEncoder().encode(instructions).byteLength).toBeGreaterThan(1024 * 1024)
-    const response = await admitted(
+    const response = await signedIn(
       post("/api/agent/turn", { ...turnBody, instructions }),
       assetsEnv()
     )
@@ -365,7 +365,7 @@ describe("smithers mvp worker", () => {
         role: index % 2 === 0 ? "user" : "assistant",
         content: "x".repeat(6 * 1024)
       }))
-      const response = await admitted(
+      const response = await signedIn(
         post("/api/agent/turn", { ...turnBody, runId: "run-4-13-wedge", messages }),
         env
       )
@@ -380,7 +380,7 @@ describe("smithers mvp worker", () => {
 
   /* A refusal a reader can act on: which thing is too long, and the way out. */
   test("the oversize refusal names the conversation and the way out", async () => {
-    const response = await admitted(
+    const response = await signedIn(
       post("/api/agent/turn", { ...turnBody, instructions: "x".repeat(1100 * 1024) }),
       assetsEnv()
     )
@@ -411,7 +411,7 @@ describe("smithers mvp worker", () => {
         { status: 429, headers: { "content-type": "application/json", "retry-after": "45" } }
       )) as unknown as typeof fetch
     try {
-      const response = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-429" }), env)
+      const response = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-429" }), env)
       expect(response.status).toBe(429)
       const body = (await response.json()) as { message: string }
       expect(body.message).toContain("rate-limiting")
@@ -438,7 +438,7 @@ describe("smithers mvp worker", () => {
           headers: { "content-type": "text/html" }
         })) as unknown as typeof fetch
     try {
-      const response = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-500" }), env)
+      const response = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-500" }), env)
       expect(response.status).toBe(500)
       const body = (await response.json()) as { message: string }
       expect(body.message).not.toContain("<")
@@ -454,7 +454,7 @@ describe("smithers mvp worker", () => {
     const original = globalThis.fetch
     globalThis.fetch = (async () => new Response(stream, { status: 500 })) as unknown as typeof fetch
     try {
-      const response = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-flood" }), env)
+      const response = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-flood" }), env)
       expect(response.status).toBe(500)
       expect(((await response.json()) as { message: string }).message).toBe(
         "The model service is having trouble right now (HTTP 500), so the turn did not run. Nothing was charged."
@@ -479,7 +479,7 @@ describe("smithers mvp worker", () => {
         }
       )) as unknown as typeof fetch
     try {
-      const response = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-503" }), env)
+      const response = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-503" }), env)
       const body = (await response.json()) as { message: string }
       expect(body.message).toContain("The canary chat queue is draining")
     } finally {
@@ -537,7 +537,7 @@ describe("smithers mvp worker", () => {
       return originalFetch(input as Request, init)
     }) as typeof fetch
     try {
-      const response = await admitted(post("/api/agent/turn", turnBody), env)
+      const response = await signedIn(post("/api/agent/turn", turnBody), env)
       expect(response.status).toBe(200)
       expect(response.headers.get("content-type")).toBe("application/x-ndjson")
       const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line))
@@ -580,7 +580,7 @@ describe("smithers mvp worker", () => {
         headers: { "content-type": "application/json", authorization: "Bearer client-picked-token" },
         body: JSON.stringify(turnBody)
       })
-      const response = await admitted(withClientBearer, env)
+      const response = await signedIn(withClientBearer, env)
       expect(response.status).toBe(200)
       await response.text()
       // The upstream authenticates the deployment, never the browser.
@@ -591,7 +591,7 @@ describe("smithers mvp worker", () => {
   })
 
   test("cancel reports not-found for an unknown run", async () => {
-    const response = await admitted(post("/api/agent/turn/cancel", { runId: "nope" }), assetsEnv())
+    const response = await signedIn(post("/api/agent/turn/cancel", { runId: "nope" }), assetsEnv())
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ status: "not-found" })
   })
@@ -668,7 +668,7 @@ const withMockedFetch = async (
 
 describe("identity seam", () => {
   test("auth and identity routes 501 honestly when no upstream is configured", async () => {
-    for (const path of ["/api/auth/session", "/api/auth/scopes", "/api/identity/request-access"]) {
+    for (const path of ["/api/auth/session", "/api/auth/scopes"]) {
       const response = await worker.fetch(new Request(`https://mvp.test${path}`), assetsEnv())
       expect(response.status).toBe(501)
       const body = (await response.json()) as { message: string }
@@ -684,7 +684,7 @@ describe("identity seam", () => {
       (request) => {
         if (new URL(request.url).hostname !== "identity.test") return undefined
         seen = { url: request.url, headers: request.headers }
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false }), {
+        return new Response(JSON.stringify({ login: "will", admin: false }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -697,7 +697,7 @@ describe("identity seam", () => {
           env
         )
         expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({ login: "will", allowlisted: true, admin: false })
+        expect(await response.json()).toEqual({ login: "will", admin: false })
         expect(seen?.url).toBe("https://identity.test/api/auth/session")
         expect(seen?.headers.get("cookie")).toBe("smithers_session=abc")
         expect(seen?.headers.get("x-user-id")).toBeNull()
@@ -980,14 +980,14 @@ describe("auth navigation seam (wave 8)", () => {
   test("a signed-in session answer passes through untouched", async () => {
     await withIdentity(
       () =>
-        new Response(JSON.stringify({ login: "will", allowlisted: true }), {
+        new Response(JSON.stringify({ login: "will" }), {
           status: 200,
           headers: { "content-type": "application/json" }
         }),
       async () => {
         const response = await worker.fetch(new Request("https://mvp.test/api/auth/session"), env)
         expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({ login: "will", allowlisted: true })
+        expect(await response.json()).toEqual({ login: "will" })
       }
     )
   })
@@ -1223,32 +1223,31 @@ describe("turn seam session gate", () => {
     )
   })
 
-  test("refuses a signed-in but non-allowlisted account with 403", async () => {
-    let upstreamCalls = 0
+  test("a retired allowlisted:false field from identity refuses nothing: the signed-in turn runs as its login", async () => {
+    let seen: Headers | undefined
     await withMockedFetch(
       (request) => {
-        if (new URL(request.url).hostname === "identity.test") {
-          return new Response(JSON.stringify({ login: "stranger", allowlisted: false }), {
-            status: 200,
-            headers: { "content-type": "application/json" }
-          })
-        }
-        upstreamCalls += 1
+        if (new URL(request.url).hostname === "identity.test") return Response.json({ login: "newcomer", allowlisted: false })
+        seen = request.headers
         return ndjsonUpstream([{ type: "done" }])
       },
       async () => {
-        const response = await worker.fetch(post("/api/agent/turn", turnBody, SESSION), identityEnv)
-        expect(response.status).toBe(403)
+        const response = await worker.fetch(
+          post("/api/agent/turn", { ...turnBody, runId: "run-newcomer" }, SESSION),
+          { ...identityEnv, CHAT_PRODUCT_SERVICE_TOKEN: "chat-product-token-123" }
+        )
+        expect(response.status).toBe(200)
+        expect(await response.text()).toContain("\"type\":\"done\"")
       }
     )
-    expect(upstreamCalls).toBe(0)
+    expect(seen?.get("x-user-login")).toBe("newcomer")
   })
 
-  test("lets a validated allowlisted session through to the live turn", async () => {
+  test("lets a validated session through to the live turn", async () => {
     await withMockedFetch(
       (request) =>
         new URL(request.url).hostname === "identity.test"
-          ? new Response(JSON.stringify({ login: "will", allowlisted: true }), {
+          ? new Response(JSON.stringify({ login: "will" }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -1287,7 +1286,7 @@ describe("turn seam session gate", () => {
     await withMockedFetch(
       (request) => {
         if (new URL(request.url).hostname === "identity.test") {
-          return new Response(JSON.stringify({ login: "will", allowlisted: true }), {
+          return new Response(JSON.stringify({ login: "will" }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -1489,35 +1488,6 @@ describe("anonymous exploring of a public catalog repository", () => {
     expect(seen?.get("x-smithers-service-token")).toBeNull()
   })
 
-  test("a signed-in account not yet on the allowlist gets the visitor's catalog turn and cancel, nothing more", async () => {
-    let seen: Headers | undefined
-    let upstreamCalls = 0
-    await withMockedFetch(
-      (request) => {
-        if (new URL(request.url).hostname === "identity.test") return Response.json({ login: "stranger", allowlisted: false })
-        upstreamCalls += 1
-        seen = request.headers
-        return ndjsonUpstream([{ type: "delta", kind: "text", text: "It is a monorepo." }, { type: "done" }])
-      },
-      async () => {
-        const catalog = await worker.fetch(post("/api/agent/turn", exploring("smithersai/smithers", "explore-waitlisted"), SESSION), identityEnv)
-        expect(catalog.status).toBe(200)
-        expect(await catalog.text()).toContain("It is a monorepo.")
-        const cancel = await worker.fetch(post("/api/agent/turn/cancel", { runId: "run-nobody" }, SESSION), identityEnv)
-        expect(cancel.status).toBe(200)
-        expect(((await cancel.json()) as { status: string }).status).toBe("not-found")
-        const other = await worker.fetch(post("/api/agent/turn", exploring("someone/private", "explore-waitlisted-private"), SESSION), identityEnv)
-        expect(other.status).toBe(403)
-        expect(((await other.json()) as { code: string }).code).toBe("account_not_allowlisted")
-      }
-    )
-    expect(upstreamCalls).toBe(1)
-    // The turn runs unattributed under the anonymous ceilings, exactly as a
-    // visitor's: the session names a login, but no spend is vouched for it.
-    expect(seen?.get("x-user-login")).toBeNull()
-    expect(seen?.get("x-smithers-service-token")).toBeNull()
-  })
-
   test("a signed-out catalog turn is a 503 and spends no credential when the turn limiter cannot answer", async () => {
     let upstreamCalls = 0
     const env: WorkerEnv = {
@@ -1633,7 +1603,6 @@ describe("same-origin guard", () => {
             "/api/workflow/rpc",
             "/api/agent/turn",
             "/api/auth/session",
-            "/api/identity/request-access",
             "/api/billing/balance",
             "/rpc"
           ]
@@ -1692,7 +1661,7 @@ describe("billing seam", () => {
         if (url.hostname === "identity.test") {
           calls.push({ host: "identity", path: url.pathname, headers: request.headers })
           return new Response(
-            JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: ["billing:read"] }),
+            JSON.stringify({ login: "will", admin: false, scopes: ["billing:read"] }),
             { status: 200, headers: { "content-type": "application/json" } }
           )
         }
@@ -1750,7 +1719,7 @@ describe("billing seam", () => {
       (request) => {
         const url = new URL(request.url)
         if (url.hostname === "identity.test") {
-          return new Response(JSON.stringify({ login: "will", allowlisted: true }), {
+          return new Response(JSON.stringify({ login: "will" }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -1875,7 +1844,6 @@ describe("the admin surface (non-enumerable)", () => {
     ...assetsEnv(),
     IDENTITY_UPSTREAM_URL: "https://identity.test",
     IDENTITY_SERVICE_TOKEN: "service-token-123",
-    IDENTITY_ADMIN_TOKEN: "identity-admin-123",
     BILLING_UPSTREAM_URL: "https://billing.test",
     BILLING_ADMIN_TOKEN: "billing-admin-123"
   })
@@ -1895,11 +1863,11 @@ describe("the admin surface (non-enumerable)", () => {
     }
 
   const adminValidate = new Response(
-    JSON.stringify({ login: "will", allowlisted: true, admin: true, scopes: [] }),
+    JSON.stringify({ login: "will", admin: true, scopes: [] }),
     { status: 200, headers: { "content-type": "application/json" } }
   )
   const memberValidate = new Response(
-    JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }),
+    JSON.stringify({ login: "will", admin: false, scopes: [] }),
     { status: 200, headers: { "content-type": "application/json" } }
   )
   const noSession = new Response(JSON.stringify({ status: "error" }), { status: 401 })
@@ -1909,9 +1877,7 @@ describe("the admin surface (non-enumerable)", () => {
       const unknown = await worker.fetch(new Request("https://mvp.test/api/definitely-not-a-route"), adminEnv())
       for (
         const path of [
-          "/api/admin/allowlist",
           "/api/admin/grant",
-          "/api/admin/requests",
           "/api/admin/feedback",
           "/api/admin/health"
         ]
@@ -1929,83 +1895,41 @@ describe("the admin surface (non-enumerable)", () => {
   test("a validated NON-admin session is equally undetectable", async () => {
     await withMockedFetch(identityDouble(memberValidate), async () => {
       const unknown = await worker.fetch(new Request("https://mvp.test/api/nope"), adminEnv())
-      const probe = await worker.fetch(new Request("https://mvp.test/api/admin/requests", { headers: SESSION }), adminEnv())
+      const probe = await worker.fetch(new Request("https://mvp.test/api/admin/health", { headers: SESSION }), adminEnv())
       expect(probe.status).toBe(404)
       expect(await probe.text()).toBe(await unknown.text())
     })
   })
 
-  /*
-   * Repro apps/app/canary-repros/access/1.5: `admin` comes from identity's
-   * ADMIN_LOGINS var, so removing a login from the closed-alpha allowlist left
-   * the whole admin surface open to it — including POST /api/admin/allowlist,
-   * the door that edits the allowlist itself. Identity now withholds the claim
-   * from a non-allowlisted login; this Worker refuses on its own evidence too,
-   * so one upstream field cannot re-open the surface on its own.
-   */
-  test("a de-allowlisted admin is as undetectable as a stranger", async () => {
-    const deAllowlistedAdmin = new Response(
+  test("the admin claim alone opens the surface, whatever retired allowlisted field identity sends", async () => {
+    const legacyAdmin = new Response(
       JSON.stringify({ login: "will", allowlisted: false, admin: true, scopes: [] }),
       { status: 200, headers: { "content-type": "application/json" } }
     )
-    await withMockedFetch(identityDouble(deAllowlistedAdmin), async () => {
-      const unknown = await worker.fetch(new Request("https://mvp.test/api/nope"), adminEnv())
-      const unknownBody = await unknown.text()
-      for (
-        const path of [
-          "/api/admin/requests",
-          "/api/admin/health",
-          "/api/admin/feedback",
-          "/api/admin/errors"
-        ]
-      ) {
-        const probe = await worker.fetch(new Request(`https://mvp.test${path}`, { headers: SESSION }), adminEnv())
-        expect(probe.status).toBe(404)
-        expect(await probe.text()).toBe(unknownBody)
-      }
-      // The write door too: a revoked admin cannot re-add itself.
-      const write = await worker.fetch(
-        post("/api/admin/allowlist", { login: "will", action: "add" }, SESSION),
-        adminEnv()
-      )
-      expect(write.status).toBe(404)
-      expect(await write.text()).toBe(unknownBody)
+    await withMockedFetch(identityDouble(legacyAdmin), async () => {
+      const errors = await worker.fetch(new Request("https://mvp.test/api/admin/errors", { headers: SESSION }), adminEnv())
+      expect(errors.status).toBe(200)
+      expect(((await errors.json()) as { status: string }).status).toBe("ok")
     })
   })
 
-  test("admin allowlist writes carry the admin's login as requester and a fresh timestamp", async () => {
-    let seen: { headers: Headers; body: unknown } | undefined
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-      const request = typeof input === "string" ? new Request(input, init) : (input as Request)
-      const url = new URL(request.url)
-      if (url.hostname === "identity.test" && url.pathname === "/api/identity/validate") {
-        return adminValidate.clone()
+  test("the retired allowlist, request-queue and feedback doors are the canonical 404 even for an admin, and reach no upstream", async () => {
+    const recorded: Array<{ path: string; headers: Headers; body: unknown }> = []
+    await withMockedFetch(identityDouble(adminValidate, recorded), async () => {
+      const unknownBody = await (await worker.fetch(new Request("https://mvp.test/api/nope"), adminEnv())).text()
+      for (
+        const probe of [
+          post("/api/admin/allowlist", { login: "octocat", action: "add" }, SESSION),
+          new Request("https://mvp.test/api/admin/requests", { headers: SESSION }),
+          new Request("https://mvp.test/api/admin/feedback", { headers: SESSION })
+        ]
+      ) {
+        const response = await worker.fetch(probe, adminEnv())
+        expect(response.status).toBe(404)
+        expect(await response.text()).toBe(unknownBody)
       }
-      if (url.hostname === "identity.test" && url.pathname === "/api/identity/admin/allowlist") {
-        seen = { headers: request.headers, body: await request.json() }
-        return new Response(
-          JSON.stringify({ applied: true, action: "add", login: "octocat", requester: "will" }),
-          { status: 201, headers: { "content-type": "application/json" } }
-        )
-      }
-      return originalFetch(request)
-    }) as typeof fetch
-    try {
-      const response = await worker.fetch(
-        post("/api/admin/allowlist", { login: "octocat", action: "add" }, SESSION),
-        adminEnv()
-      )
-      expect(response.status).toBe(201)
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-    const body = seen?.body as { login: string; action: string; requester: string; timestamp: string }
-    expect(seen?.headers.get("x-smithers-admin-token")).toBe("identity-admin-123")
-    expect(body.login).toBe("octocat")
-    expect(body.action).toBe("add")
-    expect(body.requester).toBe("will")
-    expect(Number.isFinite(Date.parse(body.timestamp))).toBe(true)
+    })
+    expect(recorded).toEqual([])
   })
 
   const grantKey = "grant-2f4c9e1a-7b3d-4c2e-9a1f-0d5e6c7b8a90"
@@ -2102,7 +2026,7 @@ describe("the admin surface (non-enumerable)", () => {
       }
     )
     const otherAdmin = new Response(
-      JSON.stringify({ login: "hubot", allowlisted: true, admin: true, scopes: [] }),
+      JSON.stringify({ login: "hubot", admin: true, scopes: [] }),
       { status: 200, headers: { "content-type": "application/json" } }
     )
     await withMockedFetch(
@@ -2274,45 +2198,6 @@ describe("the admin surface (non-enumerable)", () => {
     expect(Number.isFinite(Date.parse(body.timestamp))).toBe(true)
   })
 
-  test("admin reads proxy: the request queue", async () => {
-    const seen: Array<{ host: string; path: string; token: string | null }> = []
-    await withMockedFetch(
-      (request) => {
-        const url = new URL(request.url)
-        if (url.hostname === "identity.test" && url.pathname === "/api/identity/validate") {
-          return adminValidate.clone()
-        }
-        if (url.hostname === "identity.test") {
-          seen.push({ host: "identity", path: url.pathname, token: request.headers.get("x-smithers-admin-token") })
-          return new Response(
-            JSON.stringify({
-              requests: [{
-                login: "octocat",
-                note: null,
-                createdAt: "2026-08-08T00:00:00.000Z",
-                updatedAt: "2026-08-08T00:00:00.000Z"
-              }]
-            }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" }
-            }
-          )
-        }
-        return undefined
-      },
-      async () => {
-        const queue = await worker.fetch(new Request("https://mvp.test/api/admin/requests", { headers: SESSION }), adminEnv())
-        expect(queue.status).toBe(200)
-        // The deleted recommendations admin surface is just another unknown route now.
-        const feedback = await worker.fetch(new Request("https://mvp.test/api/admin/feedback", { headers: SESSION }), adminEnv())
-        expect(feedback.status).toBe(404)
-      }
-    )
-    expect(seen.find((c) => c.host === "identity")?.path).toBe("/api/identity/admin/requests")
-    expect(seen.find((c) => c.host === "identity")?.token).toBe("identity-admin-123")
-  })
-
   test("admin.health composes real reads with an honest unconfigured line", async () => {
     await withMockedFetch(
       (request) => {
@@ -2322,12 +2207,6 @@ describe("the admin surface (non-enumerable)", () => {
         }
         if (url.hostname === "identity.test" && url.pathname === "/healthz") {
           return new Response(JSON.stringify({ ok: true, admin: true }), {
-            status: 200,
-            headers: { "content-type": "application/json" }
-          })
-        }
-        if (url.hostname === "identity.test" && url.pathname === "/api/identity/admin/requests") {
-          return new Response(JSON.stringify({ requests: [{}, {}] }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -2345,7 +2224,6 @@ describe("the admin surface (non-enumerable)", () => {
           ...assetsEnv(),
           IDENTITY_UPSTREAM_URL: "https://identity.test",
           IDENTITY_SERVICE_TOKEN: "service-token-123",
-          IDENTITY_ADMIN_TOKEN: "identity-admin-123",
           BILLING_UPSTREAM_URL: "https://billing.test",
           BILLING_ADMIN_TOKEN: "billing-admin-123"
         }
@@ -2353,14 +2231,13 @@ describe("the admin surface (non-enumerable)", () => {
         expect(response.status).toBe(200)
         const body = (await response.json()) as {
           services: Array<{ name: string; status: string }>
-          queueDepth: number | null
           charges: unknown
         }
         expect(body.services.map((s) => `${s.name}:${s.status}`)).toEqual([
           "billing:ok",
           "identity:ok"
         ])
-        expect(body.queueDepth).toBe(2)
+        expect(Object.keys(body).sort()).toEqual(["charges", "checkedAt", "services"])
         // No BILLING_AUTH_TOKEN in this env: charges is honestly absent, not zero.
         expect(body.charges).toBeNull()
       }
@@ -2372,13 +2249,14 @@ describe("the admin surface (non-enumerable)", () => {
       const env: WorkerEnv = {
         ...assetsEnv(),
         IDENTITY_UPSTREAM_URL: "https://identity.test",
-        IDENTITY_SERVICE_TOKEN: "service-token-123"
+        IDENTITY_SERVICE_TOKEN: "service-token-123",
+        BILLING_UPSTREAM_URL: "https://billing.test"
       }
-      const response = await worker.fetch(new Request("https://mvp.test/api/admin/requests", { headers: SESSION }), env)
+      const response = await worker.fetch(post("/api/admin/grant", { login: "octocat", amountUsd: 5, operationKey: grantKey }, SESSION), env)
       expect(response.status).toBe(501)
       const body = (await response.json()) as { message: string }
       expect(body.message).toMatch(/isn't (set up|available) on this deployment\./)
-      expect(body.message).not.toContain("IDENTITY_ADMIN_TOKEN")
+      expect(body.message).not.toContain("BILLING_ADMIN_TOKEN")
     })
   })
 })
@@ -2411,7 +2289,7 @@ describe("the tool-loop forwarding", () => {
           return originalFetch(request)
         }) as typeof fetch
         try {
-          const response = await admitted(
+          const response = await signedIn(
             post("/api/agent/turn", { ...turnBody, runId: "run-tools", tools }),
             env
           )
@@ -2438,7 +2316,7 @@ describe("the tool-loop forwarding", () => {
         return ndjsonUpstream([{ type: "done" }])
       },
       async () => {
-        const response = await admitted(
+        const response = await signedIn(
           post("/api/agent/turn", {
             ...turnBody,
             runId: "run-tool-items",
@@ -2537,7 +2415,7 @@ describe("the server-side kill route (B-3)", () => {
   }
 
   const kill = (runId: string, env: WorkerEnv): Promise<Response> =>
-    admitted(post("/api/agent/turn/cancel", { runId }), env)
+    signedIn(post("/api/agent/turn/cancel", { runId }), env)
 
   test("a mid-stream kill ends the turn with an honest cancelled frame, then not-found", async () => {
     const upstream = hangingUpstream()
@@ -2552,7 +2430,7 @@ describe("the server-side kill route (B-3)", () => {
         return upstream.response()
       },
       async () => {
-        const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-kill" }), env)
+        const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-kill" }), env)
         expect(turn.status).toBe(200)
         const reader = turn.body!.getReader()
         const decoder = new TextDecoder()
@@ -2610,7 +2488,7 @@ describe("the server-side kill route (B-3)", () => {
         ])
       },
       async () => {
-        const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-settled" }), env)
+        const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-settled" }), env)
         expect(turn.status).toBe(200)
         await turn.text()
         const late = await kill("run-settled", env)
@@ -2621,7 +2499,7 @@ describe("the server-side kill route (B-3)", () => {
   })
 
   /*
-   * Owner scoping: any allowlisted login may hold a runId (they arrive in
+   * Owner scoping: any signed-in login may hold a runId (they arrive in
    * client logs, URLs, bug reports), so the kill must check WHO asks, not
    * just WHICH run. The registry records the validated login at register
    * time and refuses everyone else.
@@ -2649,7 +2527,7 @@ describe("the server-side kill route (B-3)", () => {
         const host = new URL(request.url).hostname
         if (host === "identity.test") {
           const login = request.headers.get("cookie")?.includes("smithers_session=bob") ? "bob" : "alice"
-          return new Response(JSON.stringify({ login, allowlisted: true }), {
+          return new Response(JSON.stringify({ login }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -2669,7 +2547,7 @@ describe("the server-side kill route (B-3)", () => {
         env
       )
       expect(turn.status).toBe(200)
-      // Bob is signed in and allowlisted and knows the runId — not his turn.
+      // Bob is signed in and knows the runId — not his turn.
       const stranger = await worker.fetch(
         signedPost("/api/agent/turn/cancel", { runId: "run-owned" }, "bob"),
         env
@@ -2723,7 +2601,7 @@ describe("the server-side kill route (B-3)", () => {
         ])
       },
       async () => {
-        const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-long" }), env)
+        const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-long" }), env)
         expect(turn.status).toBe(200)
         const body = await turn.text()
         expect(body.trim().split("\n")).toHaveLength(chunks + 1)
@@ -2754,9 +2632,9 @@ describe("the server-side kill route (B-3)", () => {
         return upstream.response()
       },
       async () => {
-        const first = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-dupe" }), env)
+        const first = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-dupe" }), env)
         expect(first.status).toBe(200)
-        const second = await admitted(post("/api/agent/turn", { ...turnBody, runId: "run-dupe" }), env)
+        const second = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "run-dupe" }), env)
         expect(second.status).toBe(409)
         // Clean up: kill the hanging turn and drain it.
         await kill("run-dupe", env)
@@ -2773,7 +2651,7 @@ describe("the browser tool route (§2d)", () => {
     try {
       const bootstrap = await worker.fetch(new Request("https://mvp.test/api/bootstrap"), assetsEnv())
       expect(AppBootstrapSchema.parse(await bootstrap.json()).capabilities).not.toContain("browser.read")
-      const response = await admitted(post("/api/tools/browser-fetch", { url: "https://example.com/" }), assetsEnv())
+      const response = await signedIn(post("/api/tools/browser-fetch", { url: "https://example.com/" }), assetsEnv())
       expect(response.status).toBe(501)
       expect(((await response.json()) as { message: string }).message).not.toContain("IDENTITY_UPSTREAM_URL")
     } finally { globalThis.fetch = original }
@@ -2801,12 +2679,12 @@ describe("the browser tool route (§2d)", () => {
         : new Response("<p>Read securely</p>", { headers: { "content-type": "text/html" } })
     } } }
     try {
-      const bootstrap = await admitted(new Request("https://mvp.test/api/bootstrap"), env)
+      const bootstrap = await signedIn(new Request("https://mvp.test/api/bootstrap"), env)
       expect(AppBootstrapSchema.parse(await bootstrap.json()).capabilities).toContain("browser.read")
       const request = post("/api/tools/browser-fetch", { url: "https://first.test/" })
       request.headers.set("authorization", "Bearer never-forward-this")
       request.headers.set("cookie", "never=forward-this")
-      const response = await admitted(request, env)
+      const response = await signedIn(request, env)
       expect(response.status).toBe(200)
       expect(await response.json()).toMatchObject({ finalUrl: "https://next.test/page", text: "Read securely" })
       expect(calls.map(({ address, url, version }) => ({ address, url, version }))).toEqual([
@@ -2824,25 +2702,25 @@ describe("the browser tool route (§2d)", () => {
       calls += 1
       return new Response(null, { status: 302, headers: { location: "https://127.0.0.1/private" } })
     } } }
-    const response = await admitted(post("/api/tools/browser-fetch", { url: "https://8.8.8.8/" }), env)
+    const response = await signedIn(post("/api/tools/browser-fetch", { url: "https://8.8.8.8/" }), env)
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: "request_invalid" })
     expect(calls).toBe(1)
   })
 
   test("a malformed body and a refused target are coded 400s — no fetch happens", async () => {
-    const bad = await admitted(post("/api/tools/browser-fetch", { nope: true }), assetsEnv())
+    const bad = await signedIn(post("/api/tools/browser-fetch", { nope: true }), assetsEnv())
     expect(bad.status).toBe(400)
     const env: WorkerEnv = { ...assetsEnv(), BROWSER_EGRESS: { fetch: async () => { throw new Error("must not fetch") } } }
-    const http = await admitted(post("/api/tools/browser-fetch", { url: "http://example.com/" }), env)
+    const http = await signedIn(post("/api/tools/browser-fetch", { url: "http://example.com/" }), env)
     expect(http.status).toBe(400)
     expect(await http.json()).toMatchObject({ code: "request_invalid", message: expect.stringContaining("https") })
-    const privateIp = await admitted(
+    const privateIp = await signedIn(
       post("/api/tools/browser-fetch", { url: "https://127.0.0.1/" }),
       env
     )
     expect(privateIp.status).toBe(400)
-    const internal = await admitted(
+    const internal = await signedIn(
       post("/api/tools/browser-fetch", { url: "https://db.internal/" }),
       env
     )
@@ -2854,7 +2732,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async () => new Response("unavailable", { status: 503 })) as unknown as typeof fetch
     const env: WorkerEnv = { ...assetsEnv(), BROWSER_EGRESS: { fetch: async () => { throw new Error("must not fetch") } } }
     try {
-      const response = await admitted(post("/api/tools/browser-fetch", { url: "https://example.com/" }), env)
+      const response = await signedIn(post("/api/tools/browser-fetch", { url: "https://example.com/" }), env)
       expect(response.status).toBe(502)
       expect(await response.json()).toMatchObject({ status: "error", code: "upstream_unreachable" })
     } finally {
@@ -2867,7 +2745,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async () => Response.json({ Answer: [{ type: 1, data: "8.8.8.8" }] })) as unknown as typeof fetch
     const env: WorkerEnv = { ...assetsEnv(), BROWSER_EGRESS: { fetch: async () => { throw new Error("binding down") } } }
     try {
-      const response = await admitted(post("/api/tools/browser-fetch", { url: "https://example.com/" }), env)
+      const response = await signedIn(post("/api/tools/browser-fetch", { url: "https://example.com/" }), env)
       expect(response.status).toBe(502)
       expect(await response.json()).toMatchObject({ code: "upstream_unreachable" })
     } finally {
@@ -3011,7 +2889,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes("/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3062,7 +2940,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes("/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), { status: 200, headers: { "content-type": "application/json" } })
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), { status: 200, headers: { "content-type": "application/json" } })
       }
       if (url.includes("/api/identity/cloud-token")) {
         return new Response(JSON.stringify({ found: true, token: "cloud-token-1" }), { status: 200, headers: { "content-type": "application/json" } })
@@ -3116,7 +2994,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes("/api/identity/validate")) {
-        return Response.json({ login: "will", allowlisted: true, admin: false, scopes: [] })
+        return Response.json({ login: "will", admin: false, scopes: [] })
       }
       if (url.includes("/api/identity/cloud-token")) return Response.json({ found: true, token: "cloud-token-1" })
       if (url.startsWith("https://cloud.test/")) {
@@ -3165,7 +3043,7 @@ describe("the browser tool route (§2d)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       seen.push({ url, redirect: init?.redirect })
       if (url.includes("/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3215,7 +3093,7 @@ describe("the browser tool route (§2d)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       seen.push(url)
       if (url.includes("/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3242,7 +3120,7 @@ describe("the browser tool route (§2d)", () => {
         SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test", BILLING_CHECKOUT_ENABLED: checkout ? "1" : "0", BILLING_PORTAL_ENABLED: portal ? "1" : "0" }
       const forwarded: string[] = []
       await withMockedFetch(request => {
-        if (request.url.includes("/api/identity/validate")) return Response.json({ login: "will", allowlisted: true, admin: false, scopes: [] })
+        if (request.url.includes("/api/identity/validate")) return Response.json({ login: "will", admin: false, scopes: [] })
         if (request.url.includes("/api/identity/cloud-token")) return Response.json({ found: true, token: "cloud-token" })
         forwarded.push(new URL(request.url).pathname)
         return Response.json({ url: "https://billing.example/session" })
@@ -3271,7 +3149,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes("/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3309,7 +3187,7 @@ describe("the browser tool route (§2d)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith("https://identity.test/api/identity/validate")) {
         return new Response(
-          JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }),
+          JSON.stringify({ login: "will", admin: false, scopes: [] }),
           { status: 200, headers: { "content-type": "application/json" } }
         )
       }
@@ -3362,7 +3240,7 @@ describe("the browser tool route (§2d)", () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith("https://identity.test/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3434,7 +3312,7 @@ describe("the /api/cloud bridge", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       calls.push({ url, method: init?.method ?? "GET", headers: new Headers(init?.headers), body: init?.body })
       if (url.startsWith("https://identity.test/api/identity/validate")) {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false, scopes: [] }), {
+        return new Response(JSON.stringify({ login: "will", admin: false, scopes: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -3914,9 +3792,9 @@ describe("cloud roles on Cerebras", () => {
         calls.upstream.push(request)
         return upstream(request)
       }
-      // The admitted login's Cloud token door: the metered proxy is paid with this token.
-      if (request.url === "https://identity.admitted.test/api/identity/cloud-token") {
-        return Response.json({ found: true, token: "cloud-token-admitted" })
+      // The signed-in login's Cloud token door: the metered proxy is paid with this token.
+      if (request.url === "https://identity.signed-in.test/api/identity/cloud-token") {
+        return Response.json({ found: true, token: "cloud-token-signed-in" })
       }
       if (host === "identity.test") {
         calls.identity += 1
@@ -3939,7 +3817,7 @@ describe("cloud roles on Cerebras", () => {
   test("a signed-in librarian turn is metered through the Cloud model proxy on the login's token, never the platform key", async () => {
     const wire = network(() => completion("Triggers live in flows/triggers.ts."))
     await withMockedFetch(wire.handler, async () => {
-      const response = await admitted(post("/api/agent/turn", librarian), env)
+      const response = await signedIn(post("/api/agent/turn", librarian), env)
       expect(response.status).toBe(200)
       expect(response.headers.get("content-type")).toBe("application/x-ndjson")
       const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line))
@@ -3951,7 +3829,7 @@ describe("cloud roles on Cerebras", () => {
     expect(wire.calls.upstream.length).toBe(0)
     expect(wire.calls.cerebras.length).toBe(0)
     expect(wire.calls.metered.length).toBe(1)
-    expect(wire.calls.metered[0]!.headers.get("authorization")).toBe("Bearer cloud-token-admitted")
+    expect(wire.calls.metered[0]!.headers.get("authorization")).toBe("Bearer cloud-token-signed-in")
     const sent = (await wire.calls.metered[0]!.json()) as { model: string; messages: Array<{ role: string; content: string }> }
     expect(sent.model).toBe("qwen-3.8-27b")
     expect(sent.messages).toEqual([
@@ -3967,7 +3845,7 @@ describe("cloud roles on Cerebras", () => {
         { status: 402 }
       ))
     await withMockedFetch(wire.handler, async () => {
-      const response = await admitted(post("/api/agent/turn", librarian), env)
+      const response = await signedIn(post("/api/agent/turn", librarian), env)
       expect(response.status).toBe(402)
       expect(((await response.json()) as { code: string }).code).toBe("out_of_credit")
     })
@@ -3978,7 +3856,7 @@ describe("cloud roles on Cerebras", () => {
   test("a provider 402 that is not Plue's out_of_credit stays a provider refusal", async () => {
     const wire = network(() => Response.json({ error: { message: "payment required" } }, { status: 402 }))
     await withMockedFetch(wire.handler, async () => {
-      const response = await admitted(post("/api/agent/turn", librarian), env)
+      const response = await signedIn(post("/api/agent/turn", librarian), env)
       expect(((await response.json()) as { code: string }).code).toBe("upstream_refused")
     })
   })
@@ -3987,8 +3865,8 @@ describe("cloud roles on Cerebras", () => {
     const wire = network(() => completion("ok"))
     await withMockedFetch(wire.handler, async () => {
       const models = { ...env, CEREBRAS_MODEL_LIBRARIAN: "gpt-oss-120b", CEREBRAS_MODEL_FLOWS: "qwen-3-coder-480b" }
-      await (await admitted(post("/api/agent/turn", librarian), models)).text()
-      await (await admitted(post("/api/agent/turn", { ...librarian, runId: "run-flows", role: "flows", purpose: "flows" }), models)).text()
+      await (await signedIn(post("/api/agent/turn", librarian), models)).text()
+      await (await signedIn(post("/api/agent/turn", { ...librarian, runId: "run-flows", role: "flows", purpose: "flows" }), models)).text()
     })
     const sent = await Promise.all(wire.calls.metered.map(async (request) => ((await request.json()) as { model: string }).model))
     expect(sent).toEqual(["gpt-oss-120b", "qwen-3-coder-480b"])
@@ -3999,7 +3877,7 @@ describe("cloud roles on Cerebras", () => {
     const wire = network(() => completion("never"))
     const tools = [{ type: "function", name: "commands", description: "the one tool", parameters: { type: "object", properties: {} } }]
     await withMockedFetch(wire.handler, async () => {
-      const response = await admitted(post("/api/agent/turn", { ...librarian, tools }), env)
+      const response = await signedIn(post("/api/agent/turn", { ...librarian, tools }), env)
       expect(response.status).toBe(400)
       expect(((await response.json()) as { message: string }).message).toContain("Librarian")
     })
@@ -4010,13 +3888,13 @@ describe("cloud roles on Cerebras", () => {
   test("an explainer turn rides upstream carrying tier, purpose and role; unknown hint values are dropped, never refused", async () => {
     const wire = network(() => completion("never"), () => ndjsonUpstream([{ type: "delta", kind: "text", text: "Because." }, { type: "done" }]))
     await withMockedFetch(wire.handler, async () => {
-      const explained = await admitted(
+      const explained = await signedIn(
         post("/api/agent/turn", { ...turnBody, runId: "run-explain", tier: "cheap", purpose: "explain", role: "explainer" }),
         env
       )
       expect(explained.status).toBe(200)
       await explained.text()
-      const odd = await admitted(
+      const odd = await signedIn(
         post("/api/agent/turn", { ...turnBody, runId: "run-odd", tier: "gold", purpose: "p".repeat(201), role: "Not A Role" }),
         env
       )
@@ -4092,7 +3970,7 @@ describe("cloud roles on Cerebras", () => {
   test("without a Cerebras key the librarian is an honest 503 and the chat upstream is never asked instead", async () => {
     const wire = network(() => completion("never"))
     await withMockedFetch(wire.handler, async () => {
-      const response = await admitted(post("/api/agent/turn", librarian), { ...env, CEREBRAS_API_KEY: undefined })
+      const response = await signedIn(post("/api/agent/turn", librarian), { ...env, CEREBRAS_API_KEY: undefined })
       expect(response.status).toBe(503)
       const { message } = (await response.json()) as { message: string }
       expect(message).toMatch(/isn't (set up|available) on this deployment\./)
@@ -4125,7 +4003,7 @@ describe("sibling admin surfaces are unreachable through the transparent proxies
         const url = new URL(request.url)
         if (url.hostname !== "identity.test" && url.hostname !== "billing.test") return undefined
         if (url.pathname === "/api/identity/validate") {
-          return new Response(JSON.stringify({ login: "will", allowlisted: true, admin: true }), {
+          return new Response(JSON.stringify({ login: "will", admin: true }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -4214,7 +4092,7 @@ describe("sibling admin surfaces are unreachable through the transparent proxies
       (request) => {
         const url = new URL(request.url)
         if (url.hostname === "identity.test" && url.pathname === "/api/identity/validate") {
-          return Response.json({ login: "ada", allowlisted: false, admin: false, scopes: [] })
+          return Response.json({ login: "ada", admin: false, scopes: [] })
         }
         if (url.hostname !== "billing.test") return undefined
         forwarded.push(`${request.method} ${url.pathname}`)
@@ -4260,7 +4138,7 @@ describe("Durable Object rejections and the Worker error boundary", () => {
         upstreamCalls += 1
         return new Response("unexpected upstream call", { status: 500 })
       }, async () => {
-        const response = await admitted(post(path, turnBody), {
+        const response = await signedIn(post(path, turnBody), {
           ...assetsEnv(), TURN_CANCELS: rejectingNamespace
         })
         expect(response.status).toBe(502)
@@ -4273,7 +4151,7 @@ describe("Durable Object rejections and the Worker error boundary", () => {
 
   test("a rejected admin log read returns an empty log with an unavailable note", async () => {
     await withMockedFetch(() => new Response(JSON.stringify({
-      login: "will", allowlisted: true, admin: true
+      login: "will", admin: true
     }), { headers: { "content-type": "application/json" } }), async () => {
       const response = await worker.fetch(new Request("https://mvp.test/api/admin/errors", {
         headers: { cookie: "smithers_session=abc" }
@@ -4290,7 +4168,7 @@ describe("Durable Object rejections and the Worker error boundary", () => {
   test("the error boundary awaits promises returned by route handlers", async () => {
     const logged = spyOn(console, "error").mockImplementation(() => {})
     try {
-      const response = await admitted(post("/api/agent/turn", turnBody), {
+      const response = await signedIn(post("/api/agent/turn", turnBody), {
         ...assetsEnv(),
         TURN_CANCELS: { ...rejectingNamespace, idFromName: () => { throw cause } }
       })
@@ -4331,7 +4209,6 @@ describe("configured upstream headers deadlines", () => {
     ...assetsEnv(),
     IDENTITY_UPSTREAM_URL: "https://identity.test",
     IDENTITY_SERVICE_TOKEN: "service-token",
-    IDENTITY_ADMIN_TOKEN: "identity-admin",
     BILLING_UPSTREAM_URL: "https://billing.test",
     BILLING_ADMIN_TOKEN: "billing-admin",
     BILLING_AUTH_TOKEN: "billing-bearer",
@@ -4355,15 +4232,13 @@ describe("configured upstream headers deadlines", () => {
 
   const validate = (request: Request): Response | undefined =>
     new URL(request.url).pathname === "/api/identity/validate"
-      ? Response.json({ login: "deadline-admin", allowlisted: true, admin: true })
+      ? Response.json({ login: "deadline-admin", admin: true })
       : undefined
 
   test.each([
     ["/api/agent/turn", turnBody],
     ["/api/model/stream", { messages: turnBody.messages, instructions: turnBody.instructions }],
-    ["/api/admin/allowlist", { login: "octocat", action: "add" }],
-    ["/api/admin/grant", { login: "octocat", amountUsd: 1, operationKey: "grant-deadline-0001" }],
-    ["/api/admin/requests", undefined]
+    ["/api/admin/grant", { login: "octocat", amountUsd: 1, operationKey: "grant-deadline-0001" }]
   ] as const)("%s returns 504 at its configured 20 ms deadline without naming it", async (path, body) => {
     const aborted: string[] = []
     const cancels = memoryCancels()
@@ -4371,7 +4246,7 @@ describe("configured upstream headers deadlines", () => {
       (request) => validate(request) ?? stalledHeaders(request, aborted),
       async () => {
         const response = await worker.fetch(
-          body === undefined ? new Request(`https://mvp.test${path}`, { headers: SESSION }) : post(path, body, SESSION),
+          post(path, body, SESSION),
           { ...deadlineEnv(), TURN_CANCELS: cancels }
         )
         expect(response.status).toBe(504)
@@ -4394,7 +4269,7 @@ describe("configured upstream headers deadlines", () => {
     )
   })
 
-  test("admin health bounds both healthz reads, balance and queue with the configured deadline", async () => {
+  test("admin health bounds both healthz reads and the balance with the configured deadline", async () => {
     const aborted: string[] = []
     await withMockedFetch(
       (request) => validate(request) ?? stalledHeaders(request, aborted),
@@ -4404,16 +4279,14 @@ describe("configured upstream headers deadlines", () => {
         const body = await response.json() as {
           services: Array<{ status: string; detail: string }>
           charges: unknown
-          queueDepth: unknown
         }
-        expect(aborted.sort()).toEqual(["/api/billing/balance", "/api/identity/admin/requests", "/healthz", "/healthz"])
+        expect(aborted.sort()).toEqual(["/api/billing/balance", "/healthz", "/healthz"])
         expect(body.services).toHaveLength(2)
         for (const service of body.services) {
           expect(service.status).toBe("failed")
           expect(service.detail).toContain("20ms")
         }
         expect(body.charges).toBeNull()
-        expect(body.queueDepth).toBeNull()
       }
     )
   })
@@ -4441,16 +4314,16 @@ describe("generation-scoped turn lifecycle", () => {
       }
     })), async () => {
       const request = () => post("/api/agent/turn", { ...turnBody, runId: "generation-eof" })
-      const old = (await admitted(request(), env)).body!.getReader()
+      const old = (await signedIn(request(), env)).body!.getReader()
       expect(JSON.parse(new TextDecoder().decode((await old.read()).value)).type).toBe("done")
-      const next = await admitted(request(), env)
+      const next = await signedIn(request(), env)
       expect(next.status).toBe(200)
       try {
         first.close()
         expect((await old.read()).done).toBe(true)
         await Bun.sleep(10) // let the old pipe's finalizer run
         expect(settlements).toBe(1)
-        const kill = await admitted(post("/api/agent/turn/cancel", { runId: "generation-eof" }), env)
+        const kill = await signedIn(post("/api/agent/turn/cancel", { runId: "generation-eof" }), env)
         expect(await kill.json()).toEqual({ status: "cancelled" })
       } finally {
         await next.body!.cancel()
@@ -4497,7 +4370,7 @@ describe("generation-scoped turn lifecycle", () => {
     } }
     const pending: Promise<unknown>[] = []
     await withMockedFetch(() => new Response(new ReadableStream<Uint8Array>()), async () => {
-      const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "generation-disconnect" }), env,
+      const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "generation-disconnect" }), env,
         { waitUntil: (promise) => { pending.push(promise) } })
       const disconnect = turn.body!.cancel("client disconnected")
       await started
@@ -4541,7 +4414,7 @@ describe("generation-scoped turn lifecycle", () => {
       await withMockedFetch(() => new Response(new ReadableStream<Uint8Array>({
         cancel() { throw cancelError }
       })), async () => {
-        const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "generation-failure" }), env,
+        const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "generation-failure" }), env,
           { waitUntil: (promise) => { pending.push(promise) } })
         expect(JSON.parse((await turn.text()).trim())).toEqual({
           runId: "generation-failure", type: "done", reason: "stop",
@@ -4592,7 +4465,7 @@ describe("generation-scoped turn lifecycle", () => {
           cancel() { cancelled = true }
         }))
       }, async () => {
-        const turn = await admitted(post("/api/agent/turn", { ...turnBody, runId: "generation-poll-cap" }), env)
+        const turn = await signedIn(post("/api/agent/turn", { ...turnBody, runId: "generation-poll-cap" }), env)
         const text = await turn.text()
         const frames = text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
         expect(frames).toEqual([{ runId: "generation-poll-cap", type: "done", reason: "stop",
@@ -4666,7 +4539,7 @@ describe("the /api/workflow/* routes forward to the box's coding host", () => {
         minted += 1
         return json(200, { found: true, token: token(minted) })
       }
-      if (url.hostname === "identity.test") return json(200, { login: "codeplanesmithers", allowlisted: true, admin: false })
+      if (url.hostname === "identity.test") return json(200, { login: "codeplanesmithers", admin: false })
       const call: CloudCall = { url: request.url, method: request.method, authorization: request.headers.get("authorization"), body: await request.text() }
       calls.push(call)
       return cloud(call, calls.length, request.signal)
@@ -4850,7 +4723,7 @@ describe("the turn routes under the ceiling", () => {
     let upstream = 0
     return withMockedFetch((request) => {
       if (new URL(request.url).hostname === "identity.test") {
-        return new Response(JSON.stringify({ login: "will", allowlisted: true }), {
+        return new Response(JSON.stringify({ login: "will" }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -4991,7 +4864,7 @@ describe("TestSignedInDailyAndGlobalLimits", () => {
     let modelCalls = 0
     return withMockedFetch((outbound) => {
       if (new URL(outbound.url).hostname === "identity.test") {
-        return Response.json({ login: currentLogin, allowlisted: true })
+        return Response.json({ login: currentLogin })
       }
       modelCalls += 1
       return ndjsonUpstream([{ type: "done" }])
@@ -5140,7 +5013,7 @@ describe("the client-error route", () => {
     withMockedFetch(
       (request) =>
         new URL(request.url).hostname === "identity.test"
-          ? new Response(JSON.stringify({ login: "will", allowlisted: true, admin: true }), {
+          ? new Response(JSON.stringify({ login: "will", admin: true }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -5275,7 +5148,7 @@ describe("the client-error route", () => {
     await withMockedFetch(
       (request) =>
         new URL(request.url).hostname === "identity.test"
-          ? new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false }), {
+          ? new Response(JSON.stringify({ login: "will", admin: false }), {
             status: 200,
             headers: { "content-type": "application/json" }
           })
@@ -5420,7 +5293,7 @@ describe("the recommend routes at the router", () => {
   const identity = (validate: Response) => (request: Request): Response | undefined =>
     new URL(request.url).hostname === "identity.test" ? validate.clone() : undefined
 
-  const admin = new Response(JSON.stringify({ login: "will", allowlisted: true, admin: true }), {
+  const admin = new Response(JSON.stringify({ login: "will", admin: true }), {
     status: 200,
     headers: { "content-type": "application/json" }
   })
@@ -5483,7 +5356,7 @@ describe("the recommend routes at the router", () => {
       expect(visitor.status).toBe(404)
       expect(await visitor.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
     })
-    const member = new Response(JSON.stringify({ login: "will", allowlisted: true, admin: false }), {
+    const member = new Response(JSON.stringify({ login: "will", admin: false }), {
       status: 200,
       headers: { "content-type": "application/json" }
     })
@@ -5622,11 +5495,7 @@ describe("the public catalog routes at the Worker", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? new Request(input, init) : new Request(input, init)
       requests.push(request)
-      if (request.url.startsWith("https://identity.test/")) {
-        return request.headers.get("cookie") === "smithers_session=not-admitted"
-          ? Response.json({ login: "visitor", allowlisted: false, admin: false })
-          : new Response(null, { status: 401 })
-      }
+      if (request.url.startsWith("https://identity.test/")) return new Response(null, { status: 401 })
       return Response.json({ full_name: "smithersai/smithers", private: false })
     }) as typeof fetch
     const env: WorkerEnv = {
@@ -5643,16 +5512,14 @@ describe("the public catalog routes at the Worker", () => {
       }
       expect(requests).toHaveLength(2)
       expect(requests.every((request) => request.url === "https://cloud.test/api/repos/smithers-canary/smithers" && !request.headers.has("authorization"))).toBe(true)
-      for (const session of ["expired", "not-admitted"]) {
-        const response = await worker.fetch(new Request("https://app.test/api/repos/smithersai/smithers", {
-          headers: { cookie: `smithers_session=${session}` }
-        }), env)
-        expect(response.status).toBe(200)
-      }
+      const expired = await worker.fetch(new Request("https://app.test/api/repos/smithersai/smithers", {
+        headers: { cookie: "smithers_session=expired" }
+      }), env)
+      expect(expired.status).toBe(200)
       const write = await worker.fetch(new Request("https://app.test/api/repos/smithersai/smithers/issues", { method: "POST" }), env)
       expect(write.status).toBe(401)
       const cloudRequests = requests.filter((request) => request.url.startsWith("https://cloud.test/"))
-      expect(cloudRequests).toHaveLength(4)
+      expect(cloudRequests).toHaveLength(3)
       expect(cloudRequests.every((request) => !request.headers.has("cookie") && !request.headers.has("authorization"))).toBe(true)
     } finally { globalThis.fetch = original }
   })

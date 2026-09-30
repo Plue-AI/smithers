@@ -26,7 +26,6 @@ export interface ServerEnvVars {
   readonly UPSTREAM_TIMEOUT_MS?: string
   readonly IDENTITY_UPSTREAM_URL?: string
   readonly IDENTITY_SERVICE_TOKEN?: string
-  readonly IDENTITY_ADMIN_TOKEN?: string
   readonly BILLING_UPSTREAM_URL?: string
   readonly BILLING_AUTH_TOKEN?: string
   readonly BILLING_PRODUCT_SERVICE_TOKEN?: string
@@ -63,7 +62,6 @@ export interface ServerConfigShape {
   /** Unset = no seam can authenticate anyone, so every session-gated route refuses deployment_not_configured. */
   readonly identityUpstreamUrl: string | undefined
   readonly identityServiceToken: Redacted.Redacted<string> | undefined
-  readonly identityAdminToken: Redacted.Redacted<string> | undefined
   readonly billingUpstreamUrl: string | undefined
   readonly billingAuthToken: Redacted.Redacted<string> | undefined
   readonly billingProductServiceToken: Redacted.Redacted<string> | undefined
@@ -122,7 +120,6 @@ export const configFrom = (env: ServerEnvVars): ServerConfigShape => ({
   upstreamTimeoutMs: upstreamTimeoutFrom(env.UPSTREAM_TIMEOUT_MS),
   identityUpstreamUrl: text(env.IDENTITY_UPSTREAM_URL),
   identityServiceToken: secret(env.IDENTITY_SERVICE_TOKEN),
-  identityAdminToken: secret(env.IDENTITY_ADMIN_TOKEN),
   billingUpstreamUrl: text(env.BILLING_UPSTREAM_URL),
   billingAuthToken: secret(env.BILLING_AUTH_TOKEN),
   billingProductServiceToken: secret(env.BILLING_PRODUCT_SERVICE_TOKEN),

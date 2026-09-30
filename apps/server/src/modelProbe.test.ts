@@ -511,8 +511,8 @@ describe("the model routes, the public catalog and the gated Test", () => {
     return { provider }
   }
 
-  const session = (login: string, allowlisted: boolean) => (): Response =>
-    new Response(JSON.stringify({ login, allowlisted }), { status: 200, headers: { "content-type": "application/json" } })
+  const session = (login: string) => (): Response =>
+    new Response(JSON.stringify({ login }), { status: 200, headers: { "content-type": "application/json" } })
 
   const countingLimits = (count = 0): NativeNamespace & { readonly spent: Array<string> } => {
     const spent: Array<string> = []
@@ -551,7 +551,7 @@ describe("the model routes, the public catalog and the gated Test", () => {
   const codeOf = async (response: Response): Promise<string> => ((await response.json()) as { code: string }).code
 
   test("there is no account credential enrollment: the credential routes are gone and nothing is forwarded", async () => {
-    const { provider } = seams(session("alice", true))
+    const { provider } = seams(session("alice"))
     const env = gatedEnv()
     for (const path of ["/api/model/credential", "/api/model/credential/receipt?id=some-request"]) {
       const response = await worker.fetch(new Request(`https://mvp.test${path}`, {
@@ -595,17 +595,8 @@ describe("the model routes, the public catalog and the gated Test", () => {
     expect(provider.length).toBe(0)
   })
 
-  test("an account off the allowlist still reads the catalog, and is refused the Test", async () => {
-    const { provider } = seams(session("stranger", false))
-    expect((await worker.fetch(catalogRequest(SIGNED_IN), gatedEnv())).status).toBe(200)
-    const response = await worker.fetch(testRequest(SIGNED_IN), gatedEnv())
-    expect(response.status).toBe(403)
-    expect(await codeOf(response)).toBe("account_not_allowlisted")
-    expect(provider.length).toBe(0)
-  })
-
   test("each route answers its own method only", async () => {
-    seams(session("will", true))
+    seams(session("will"))
     const posted = await worker.fetch(new Request(`https://mvp.test${MODEL_CATALOG_PATH}`, { method: "POST" }), gatedEnv())
     expect(await codeOf(posted)).toBe("method_not_allowed")
     const got = await worker.fetch(new Request(`https://mvp.test${MODEL_TEST_PATH}`, { headers: SIGNED_IN }), gatedEnv())
@@ -613,14 +604,14 @@ describe("the model routes, the public catalog and the gated Test", () => {
   })
 
   test("a foreign origin is blocked before the session is read", async () => {
-    const { provider } = seams(session("will", true))
+    const { provider } = seams(session("will"))
     const response = await worker.fetch(testRequest({ ...SIGNED_IN, origin: "https://attacker.example" }), gatedEnv())
     expect(await codeOf(response)).toBe("cross_origin_blocked")
     expect(provider.length).toBe(0)
   })
 
   test("the catalog is free and a Test spends one turn of the login's budget", async () => {
-    const { provider } = seams(session("will", true))
+    const { provider } = seams(session("will"))
     const limits = countingLimits()
     const listed = await worker.fetch(catalogRequest(SIGNED_IN), gatedEnv(limits))
     expect(listed.status).toBe(200)
@@ -644,7 +635,7 @@ describe("the model routes, the public catalog and the gated Test", () => {
   })
 
   test("a spent budget refuses the Test with 429 before the key is spent", async () => {
-    const { provider } = seams(session("will", true))
+    const { provider } = seams(session("will"))
     const response = await worker.fetch(testRequest(SIGNED_IN), gatedEnv(countingLimits(TURN_WINDOW_MAX)))
     expect(response.status).toBe(429)
     expect(await codeOf(response)).toBe("turn_rate_limited")

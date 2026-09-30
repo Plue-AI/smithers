@@ -41,8 +41,8 @@ const WORKFLOW_REQUEST_MAX_BYTES = 1024 * 1024
 
 /**
  * The workflow seam spends the user's own workspace resources, so on any
- * deployment that HAS an identity seam it requires a validated, allowlisted
- * session — the same gate as a turn. Returns the validated identity or the
+ * deployment that HAS an identity seam it requires a validated session — the
+ * same gate as a turn. Returns the validated identity or the
  * refusal response.
  */
 export const requireWorkflowSession = (request: Request): Effect.Effect<ValidatedIdentity | Response, never, Transport | ServerConfig> =>
@@ -59,11 +59,7 @@ export const requireWorkflowSession = (request: Request): Effect.Effect<Validate
     if (validation.status === "invalid") {
       return refuse("sign_in_required", "Sign in to run workflows on your workspace.")
     }
-    const session = validation.identity
-    if (!session.allowlisted && !session.admitted) {
-      return refuse("account_not_allowlisted", "This account is not in the closed-alpha allowlist yet.")
-    }
-    return session
+    return validation.identity
   })
 
 const forwardWorkflow = (request: Request, path: string): Effect.Effect<Response, never, Transport | ServerConfig> =>

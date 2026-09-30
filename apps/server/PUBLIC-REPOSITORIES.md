@@ -93,8 +93,8 @@ forced. `apps/server/scripts/canary/mirror-sync-wiring.test.ts` pins the
 workflow to the `cloudRepo` in `src/publicRepoCatalog.ts`.
 
 Requests carrying a session use the existing authenticated path, preserving
-access to private repositories. An expired or non-allowlisted session falls
-back to an anonymous repository read. Authenticated answers never enter the public
+access to private repositories. An expired session falls back to an
+anonymous repository read. Authenticated answers never enter the public
 cache. The existing same-origin rule applies to these app APIs; only the
 curated catalog is cross-origin.
 
@@ -106,10 +106,9 @@ sign-in requirements are independent of this API policy.
 
 A signed-out visitor at `https://smithers.sh/smithersai/smithers` talks to
 Smithers about that repository without an account. `POST /api/agent/turn`
-admits a request with no valid session, or with a session not yet on the
-allowlist, only when the turn's runtime context names a catalog repository
-(`context.activeRepository`, the selection the `/owner/name` path made); any
-other such turn keeps its `401` sign-in or `403 account_not_allowlisted`
+admits a request with no valid session only when the turn's runtime context
+names a catalog repository (`context.activeRepository`, the selection the
+`/owner/name` path made); any other such turn keeps its `401` sign-in
 refusal. The turn carries no login, so the chat upstream meters it to the
 deployment and it never reaches a user's billing account.
 

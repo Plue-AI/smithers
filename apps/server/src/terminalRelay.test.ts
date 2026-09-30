@@ -77,8 +77,7 @@ const run = (req = request(), options: { identity?: number; token?: boolean; sta
       calls.push(call)
       const target = new URL(call.url)
       if (target.pathname === "/api/identity/validate") {
-        // Session semantics: a valid login need not be on the turn allowlist.
-        return Response.json({ login: "ada", allowlisted: false, admin: false, scopes: [] }, { status: options.identity ?? 200 })
+        return Response.json({ login: "ada", admin: false, scopes: [] }, { status: options.identity ?? 200 })
       }
       if (target.pathname === "/api/identity/cloud-token") {
         return Response.json(options.token === false ? { found: false } : { found: true, token: "private-fixture-token" })

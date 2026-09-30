@@ -2,12 +2,10 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import {
-  ADMIN_ALLOWLIST_PATH,
   ADMIN_ERRORS_PATH,
   ADMIN_GRANT_PATH,
   ADMIN_HEALTH_PATH,
-  ADMIN_RECOMMEND_LOG_PATH,
-  ADMIN_REQUESTS_PATH
+  ADMIN_RECOMMEND_LOG_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
 import { ClientErrors } from "./clientErrorLog"
 import { ServerConfig } from "./Config"
@@ -23,8 +21,8 @@ import { causeMessage, ISOLATION_HEADERS, json, notConfigured, notFound, readBod
 
 /*
  * The admin plugin's server half (Launch Checklist §E). Every /api/admin/*
- * route FIRST validates the session through identity and requires BOTH
- * admin:true and allowlisted:true; anything else gets the canonical 404,
+ * route FIRST validates the session through identity and requires
+ * admin:true; anything else gets the canonical 404,
  * byte-identical to an unknown route. Admin writes carry their audit
  * attribution at write time: requester is the admin's own validated login and
  * the timestamp is fresh — the siblings refuse unattributed writes by contract.
@@ -158,32 +156,11 @@ const readCharges = (config: ServerConfigShape, proxyOrigin: string): Effect.Eff
     Effect.catch(() => Effect.succeed(null))
   )
 
-/** Request-queue depth: the identity admin read, or null when it can't be had. */
-const readQueueDepth = (config: ServerConfigShape): Effect.Effect<number | null, never, Transport> =>
-  Effect.gen(function* () {
-    if (config.identityUpstreamUrl === undefined || config.identityAdminToken === undefined) return null
-    const queue = yield* fetchWithDeadline(
-      "identity",
-      new URL("/api/identity/admin/requests", config.identityUpstreamUrl).toString(),
-      { headers: { "x-smithers-admin-token": Redacted.value(config.identityAdminToken) } },
-      config.upstreamTimeoutMs
-    )
-    if (!queue.ok) {
-      yield* discardBody(queue)
-      return null
-    }
-    const body = (yield* readJsonOrUndefined(queue)) as { requests?: unknown } | undefined
-    return Array.isArray(body?.requests) ? body.requests.length : null
-  }).pipe(
-    // queueDepth stays null — honest absence, not a zero.
-    Effect.catch(() => Effect.succeed(null))
-  )
-
 /**
  * "What failed overnight?" v1: compose the health card's facts from real
- * reads — each sibling's /healthz, the billing ledger's charge totals, and
- * the request-access queue depth. A service that cannot be read says so;
- * nothing is invented. The four reads run together.
+ * reads — each sibling's /healthz and the billing ledger's charge totals.
+ * A service that cannot be read says so; nothing is invented. The three
+ * reads run together.
  */
 const handleAdminHealth = (proxyOrigin: string): Effect.Effect<Response, never, Transport | ServerConfig> =>
   Effect.gen(function* () {
@@ -194,7 +171,7 @@ const handleAdminHealth = (proxyOrigin: string): Effect.Effect<Response, never, 
         .map((field) => `${field}: ${JSON.stringify(body[field])}`)
       return parts.length === 0 ? "healthz ok." : `healthz ok — ${parts.join(" · ")}`
     }
-    const { billing, identity, charges, queueDepth } = yield* Effect.all(
+    const { billing, identity, charges } = yield* Effect.all(
       {
         billing: readServiceHealth(
           "billing",
@@ -210,15 +187,13 @@ const handleAdminHealth = (proxyOrigin: string): Effect.Effect<Response, never, 
           summarize("requestedScopes", "admin", "serviceToken"),
           config.upstreamTimeoutMs
         ),
-        charges: readCharges(config, proxyOrigin),
-        queueDepth: readQueueDepth(config)
+        charges: readCharges(config, proxyOrigin)
       },
       { concurrency: "unbounded" }
     )
     return json(200, {
       services: [billing, identity],
       charges,
-      queueDepth,
       checkedAt: new Date().toISOString()
     })
   })
@@ -293,16 +268,7 @@ const readLimit = (url: URL): number | undefined => {
   return Number.isInteger(asked) && asked > 0 ? asked : undefined
 }
 
-/**
- * Allowlisted is part of the gate because removing a login from the
- * closed-alpha allowlist has to revoke something. It did not: `admin` comes
- * from identity's ADMIN_LOGINS var, so a de-allowlisted admin kept the whole
- * surface — including POST /api/admin/allowlist, the door that edits the
- * allowlist itself (repro apps/app/canary-repros/access/1.5). Identity now
- * withholds the claim from a non-allowlisted login too; this check is the
- * second half of that fix, so the product Worker refuses on its own evidence
- * rather than trusting one upstream field.
- */
+/** The admin claim alone decides the admin surface; a signed-in non-admin gets the canonical 404. */
 export const handleAdmin = (
   request: Request,
   url: URL
@@ -312,49 +278,8 @@ export const handleAdmin = (
     if (validation.status === "unavailable") return validation.response
     if (validation.status === "invalid") return notFound()
     const session = validation.identity
-    if (!session.admin || !session.allowlisted) return notFound()
+    if (!session.admin) return notFound()
     const config = yield* ServerConfig
-
-    if (url.pathname === ADMIN_ALLOWLIST_PATH && request.method === "POST") {
-      if (config.identityUpstreamUrl === undefined) {
-        return notConfigured("The allowlist", "IDENTITY_UPSTREAM_URL is unset. The allowlist is unavailable")
-      }
-      if (config.identityAdminToken === undefined) {
-        return adminTokenNotConfigured("The identity admin page", "IDENTITY_ADMIN_TOKEN")
-      }
-      const body = yield* parseAdminBody(request)
-      if (body instanceof Response) return body
-      const login = typeof body.login === "string" ? body.login.trim() : ""
-      const action = body.action
-      if (login === "" || (action !== "add" && action !== "remove")) {
-        return refuse("request_invalid", "Body must be { login, action: \"add\" | \"remove\" }.")
-      }
-      /*
-       * An admin cannot remove its own login. Now that being allowlisted is
-       * what carries admin, a self-removal is a one-way door: it revokes the
-       * session's admin claim, and the only door that could undo it is this
-       * one. The first caller to try it would lock the closed alpha's admin
-       * surface out of the product with no in-app way back — the operator's
-       * ADMIN_SERVICE_TOKEN would be the only remaining route. Refuse, and
-       * name the route that does work.
-       */
-      if (action === "remove" && login.toLowerCase() === session.login.toLowerCase()) {
-        return refuse(
-          "request_conflict",
-          "You can't remove your own login from the allowlist: it would revoke your admin access through the only door that could restore it. Ask another admin to remove you, or use the identity worker's admin token."
-        )
-      }
-      return yield* forwardAdminCall(
-        config.identityUpstreamUrl,
-        "/api/identity/admin/allowlist",
-        Redacted.value(config.identityAdminToken),
-        {
-          method: "POST",
-          body: { login, action, requester: session.login, timestamp: new Date().toISOString() }
-        },
-        config.upstreamTimeoutMs
-      )
-    }
 
     if (url.pathname === ADMIN_GRANT_PATH && request.method === "GET") {
       if (config.billingUpstreamUrl === undefined) {
@@ -441,22 +366,6 @@ export const handleAdmin = (
       )
       console.log(JSON.stringify({ event: "admin_grant", requester: session.login, userId: login, amountUsd, grantId, status: response.status }))
       return response
-    }
-
-    if (url.pathname === ADMIN_REQUESTS_PATH && request.method === "GET") {
-      if (config.identityUpstreamUrl === undefined) {
-        return notConfigured("The request queue", "IDENTITY_UPSTREAM_URL is unset. The request queue is unavailable")
-      }
-      if (config.identityAdminToken === undefined) {
-        return adminTokenNotConfigured("The identity admin page", "IDENTITY_ADMIN_TOKEN")
-      }
-      return yield* forwardAdminCall(
-        config.identityUpstreamUrl,
-        "/api/identity/admin/requests",
-        Redacted.value(config.identityAdminToken),
-        { method: "GET" },
-        config.upstreamTimeoutMs
-      )
     }
 
     if (url.pathname === ADMIN_HEALTH_PATH && request.method === "GET") {

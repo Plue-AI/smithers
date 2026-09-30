@@ -51,10 +51,9 @@ class TriggerError extends Data.TaggedError("TriggerError")<{ readonly status: n
 class MalformedTriggerAnswer extends Data.TaggedError("MalformedTriggerAnswer")<{}> {}
 
 /**
- * This deployment never got as far as asking, and the reason is a fact about
- * the ACCOUNT rather than about Smithers Cloud: `cloudTokenResponse` classifies
- * it once, beside every other Cloud-token consumer, so a waitlisted user reads
- * a closed-alpha refusal instead of an outage.
+ * This deployment never got as far as asking Smithers Cloud:
+ * `cloudTokenResponse` classifies the outcome once, beside every other
+ * Cloud-token consumer.
  */
 class TokenError extends Data.TaggedError("TokenError")<{ readonly outcome: Exclude<CloudTokenOutcome, { readonly status: "ok" }> }> {}
 

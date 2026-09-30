@@ -131,7 +131,7 @@ describe("catalog reads use one mirror regardless of session", () => {
     const mock = spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init)
       const url = new URL(request.url)
-      if (url.pathname === "/api/identity/validate") return Response.json({ valid: true, login: "codeplanesmithers", allowlisted: true, admin: false })
+      if (url.pathname === "/api/identity/validate") return Response.json({ valid: true, login: "codeplanesmithers", admin: false })
       if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: "fixture-cloud-token" })
       seen.push(request)
       return Response.json({ path: url.pathname })

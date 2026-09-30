@@ -907,7 +907,7 @@ const upstreamRetryAfter = (response: Response): number | null => {
  * (frontDoor.ts). Neither is ever spent by this relay.
  *
  * The router gates the route before any of this runs: anonymous callers get
- * 401, non-allowlisted ones 403, and the per-login turn ceiling applies — all
+ * 401, and the per-login turn ceiling applies — all
  * of it decided before a single upstream byte is spent.
  */
 

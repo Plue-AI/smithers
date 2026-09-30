@@ -120,8 +120,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "spend-gate",
-      title: "Every route that spends a deployment credential gates on session, allowlist and ceiling first",
-      threat: "An anonymous or non-allowlisted caller runs turns, model tests, browser fetches or flows on the deployment's keys and billing account.",
+      title: "Every route that spends a deployment credential gates on session and ceiling first",
+      threat: "An anonymous caller runs turns, model tests, browser fetches or flows on the deployment's keys and billing account.",
       lookFor: [
         "A route in index.ts that reaches handleTurn, handleModelStream, handleModelTest, handleBrowserFetch or forwardToCloud before requireTurnSession or requireWorkflowSession.",
         "An anonymous turn path that opens for a repository outside AVAILABLE_REPOS, or spends a model before both anonymous ceilings admit.",
@@ -157,9 +157,9 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "admin-surface",
       title: "Admin routes answer only a validated admin and attribute every write",
-      threat: "A non-admin user edits the allowlist, grants credit, or reads other users' client errors and recommendation logs.",
+      threat: "A non-admin user grants credit or reads other users' client errors and recommendation logs.",
       lookFor: [
-        "An /api/admin/* branch reached before the session.admin && session.allowlisted check.",
+        "An /api/admin/* branch reached before the session.admin check.",
         "A grant whose amount is not bounded by ADMIN_GRANT_MAX_USD or whose requester is taken from the body.",
         "An admin refusal that differs from the canonical 404, enumerating the admin surface to non-admins."
       ],
@@ -235,7 +235,7 @@ const securityReview = Smithers.SecurityReview({
         "The return_to cookie read without re-running validReturnTo, or set without HttpOnly, Secure and the /api/auth path.",
         "returnToLocation copying query parameters from an upstream Location whose origin differs from the request origin."
       ],
-      paths: ["src/identity.ts", "src/cloudSession.ts", "src/admittedSession.ts"]
+      paths: ["src/identity.ts", "src/cloudSession.ts", "src/signedInSession.ts"]
     },
     {
       id: "anonymous-public-reads",

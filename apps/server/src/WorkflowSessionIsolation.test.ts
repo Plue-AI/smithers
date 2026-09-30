@@ -12,7 +12,7 @@ const BOX = "83e75ae5-0920-4000-8000-00000000000b"
 
 describe("the per-user workflow and setup routes", () => {
   for (const path of ["/api/workflow/provision", "/api/workflow/rpc", "/api/repository-setup/inspect"]) {
-    for (const caller of ["anonymous", "expired", "not-allowlisted", "alice", "bob"]) {
+    for (const caller of ["anonymous", "expired", "alice", "bob", "carol"]) {
       test(`${path} derives authority from the validated ${caller} session, never a supplied login`, async () => {
         const seen: Array<{ url: string; authorization: string | null; login: string | null }> = []
         const original = globalThis.fetch
@@ -30,7 +30,8 @@ describe("the per-user workflow and setup routes", () => {
             expect(url.pathname).toBe("/api/identity/validate")
             const login = request.headers.get("cookie")?.split("=")[1]
             if (login === undefined || login === "expired") return Response.json({}, { status: 401 })
-            return Response.json({ login, allowlisted: login !== "not-allowlisted", admin: false })
+            // Any signed-in login is admitted; a retired allowlist field decides nothing.
+            return Response.json({ login, admin: false, ...(login === "carol" ? { allowlisted: false } : {}) })
           }
           if (url.hostname !== "cloud.test") throw new Error("Unexpected upstream in isolation test")
           seen.push({ url: request.url, authorization: request.headers.get("authorization"), login: request.headers.get("x-user-login") })
@@ -56,9 +57,6 @@ describe("the per-user workflow and setup routes", () => {
           const text = await response.text()
           if (caller === "anonymous" || caller === "expired") {
             expect(response.status).toBe(401)
-            expect(seen).toEqual([])
-          } else if (caller === "not-allowlisted") {
-            expect(response.status).toBe(403)
             expect(seen).toEqual([])
           } else {
             expect(response.status).toBe(200)

@@ -311,7 +311,7 @@ describe("handleTurn over the registry", () => {
     const cancels = memoryCancels()
     const upstream = silentUpstream()
     const layers = layersFor(upstream.response, cancels.namespace)
-    const session = { login: "alice", allowlisted: true, admin: false, scopes: [] }
+    const session = { login: "alice", admin: false, scopes: [] }
     const first = await run(handleTurn(post(TURN), session), layers)
     expect(first.status).toBe(200)
     const second = await run(handleTurn(post(TURN), session), layers)

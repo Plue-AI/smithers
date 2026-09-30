@@ -41,7 +41,7 @@ const makeHost = (upstream: () => Response = () => wire(delta("answer"), done), 
     if (request.url.startsWith("https://identity.invalid/")) {
       validations++
       if (revoked || !request.headers.has("cookie")) return new Response("", { status: 401 })
-      return Response.json({ login: request.headers.get("cookie") === "session=bob" ? "bob" : "alice", allowlisted: true, admin: false, scopes: [] })
+      return Response.json({ login: request.headers.get("cookie") === "session=bob" ? "bob" : "alice", admin: false, scopes: [] })
     }
     if (request.url === "https://model.invalid/chat") { modelCalls++; return upstream() }
     throw new Error(`Unexpected test transport: ${new URL(request.url).hostname}`)

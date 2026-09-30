@@ -122,7 +122,7 @@ export const handleTerminalRelay = (request: Request, url: URL) => Effect.gen(fu
   const origin = request.headers.get("origin")
   if (origin !== null && origin !== url.origin) return refuse("cross_origin_blocked", "WebSocket origin does not match the app.")
   if (!request.headers.get("cookie")?.trim()) return refuse("sign_in_required", "Sign in to open a workspace terminal.")
-  // Session semantics, without the turn allowlist or its offline bypass.
+  // Session semantics, without the turn gate's offline bypass.
   const identity = yield* validateSession(request)
   if (identity.status === "invalid") return refuse("sign_in_required", "Sign in to open a workspace terminal.")
   if (identity.status === "unavailable") return identity.response
