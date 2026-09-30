@@ -221,10 +221,10 @@ describe("the shipped Node executor's supervisor memory", () => {
     expect(recalled["run-1"]).toEqual([])
     expect(recalled["run-2"].map((item) => item.text)).toContain(sentence)
     // Run 2's third frame reads the recalled row, with no env arming it. No
-    // frame moves the tree (the note is written after the run), so each run's
-    // first completion is bounced once and it completes a frame later.
-    expect(requests["run-1"]).toHaveLength(3)
-    expect(requests["run-2"]).toHaveLength(4)
+    // frame moves the tree (the note is written after the run), and an answer
+    // on an unmoved tree completes without a bounce (#2937).
+    expect(requests["run-1"]).toHaveLength(2)
+    expect(requests["run-2"]).toHaveLength(3)
     expect(requests["run-2"][2]).toContain("From memory of this repository")
     expect(requests["run-2"][1]).not.toContain("From memory of this repository")
   }, 60_000)
