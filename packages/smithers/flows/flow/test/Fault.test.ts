@@ -101,6 +101,18 @@ describe("the flow's own rows", () => {
     expect(Fault.of(failed("timeout")).class).toBe("factory")
     expect(Fault.of(failed("request_invalid")).class).toBe("bug")
   })
+
+  it("classifies an attempt that outlived its bound as a dependency fault", () => {
+    const timedOut = new Action.AttemptTimedOut({
+      actionName: "a",
+      attempt: 1,
+      bound: "heartbeat",
+      timeoutMs: 5,
+      message: "late"
+    })
+    expect(Fault.of(timedOut)).toEqual({ class: "dependency", tag: "@smthrs/flow/AttemptTimedOut/attempt_timed_out" })
+    expect(Fault.registered().has("@smthrs/flow/AttemptTimedOut")).toBe(true)
+  })
 })
 
 describe("respond", () => {

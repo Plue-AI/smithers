@@ -214,6 +214,8 @@ register(
 register("@smthrs/flow/PollExhausted", "dependency")
 register("@smthrs/flow/RetryAttemptsExhausted", "dependency")
 register("@smthrs/flow/RetryPolicyExpired", "dependency")
+// An attempt that outlives its bound is the thing it waited on not answering in time.
+register("@smthrs/flow/AttemptTimedOut", "dependency")
 // Invariant refusals: the program, not the person or the platform, is wrong.
 for (
   const tag of [
