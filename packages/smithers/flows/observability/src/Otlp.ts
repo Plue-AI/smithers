@@ -30,6 +30,7 @@ import * as Logger from "effect/Logger"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as References from "effect/References"
+import * as Schema from "effect/Schema"
 import * as Semaphore from "effect/Semaphore"
 import * as Tracer from "effect/Tracer"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
@@ -233,6 +234,15 @@ const refusePlaintextCredentials = (
 const redactText = (text: string): string => String(Redaction.redact(text))
 
 /**
+ * A failed span's error rebuilt with its text redacted. It keeps the original
+ * error's `name` and `stack` (redacted) so the collector's exception type and
+ * trace stay readable; it is exported to the collector and never thrown.
+ */
+class RedactedSpanError extends Schema.TaggedError<RedactedSpanError>()("@smthrs/observability/RedactedSpanError", {
+  message: Schema.String
+}) {}
+
+/**
  * A span failure rendered with credentials removed. The exporter serializes a
  * failed span's cause into its status message and `exception` events, which
  * would otherwise carry any token an error message quoted to the collector.
@@ -240,8 +250,8 @@ const redactText = (text: string): string => String(Redaction.redact(text))
 const redactedExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> => {
   if (exit._tag === "Success" || Cause.hasInterruptsOnly(exit.cause)) return exit
   const errors = Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map((error) => {
-    const redacted = new Error(redactText(error.message))
-    redacted.name = redactText(error.name)
+    const redacted = new RedactedSpanError({ message: redactText(error.message) })
+    Object.defineProperty(redacted, "name", { value: redactText(error.name), configurable: true, writable: true })
     // `prettyErrors` always renders a stack.
     redacted.stack = redactText(String(error.stack))
     return redacted

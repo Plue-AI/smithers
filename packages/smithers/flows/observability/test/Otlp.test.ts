@@ -535,6 +535,7 @@ describe("Otlp", () => {
       expect(traces).toContain("observability_redacted_failure")
       expect(traces).toContain("upstream refused")
       expect(traces).toContain("exception.stacktrace")
+      expect(traces).toMatch(/exception\.type.{0,40}Error/)
       expect(traces).toContain("request.count")
       expect(traces).not.toContain("sk-ant-api03-synthetic-secret-value-0123456789")
       expect(traces).toContain("status.interrupted")

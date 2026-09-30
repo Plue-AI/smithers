@@ -48,7 +48,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
   ["kernel/src/HttpClient.ts", 1, wrappedCause],
   ["kernel/src/test/HostContract.ts", 1, testSupport],
-  ["observability/src/Otlp.ts", 1, "rebuilds an exported error with its message redacted"],
   [
     "platform-node/src/EgressHttpClient.ts",
     1,
