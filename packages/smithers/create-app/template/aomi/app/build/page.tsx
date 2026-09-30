@@ -65,8 +65,7 @@ function RecentColumn() {
   return (
     <section className="aomi-recent" aria-label="Recent">
       {/* A plain row, like the Aomi rail: label on the left, "New" as a text
-          link on the right. `SectionHeader` cannot carry the icon, because its
-          `title` prop collides with the div `title` attribute (see TODO). */}
+          link on the right. */}
       <div className="aomi-recent-head">
         <h2 className="aomi-recent-head-title">
           <Icon className="aomi-section-icon" name="history" size={14} />
