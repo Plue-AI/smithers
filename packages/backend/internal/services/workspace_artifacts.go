@@ -180,8 +180,9 @@ func workspaceArtifactKey(ctx context.Context, scriptDigest string, sources []wo
 
 // workspaceArtifactDigests remembers each source's content digest by file
 // identity, so a fork or resume does not rehash an unchanged release archive.
-// An entry is reused only for the same file (device and inode), size and
-// modification time; any rewrite misses. The streamed transfer still verifies
+// An entry is reused only for the same file (device and inode), size,
+// modification time and inode change time; any rewrite misses, including one
+// that restores the modification time. The streamed transfer still verifies
 // every byte against the digest before a bundle can be published.
 var (
 	workspaceArtifactDigests       sync.Map // source path -> workspaceArtifactDigestEntry
@@ -189,14 +190,16 @@ var (
 )
 
 type workspaceArtifactDigestEntry struct {
-	info   os.FileInfo
-	digest string
+	info    os.FileInfo
+	changed int64
+	digest  string
 }
 
 func workspaceArtifactDigest(ctx context.Context, source string, file *os.File, info os.FileInfo) (string, error) {
-	if cached, ok := workspaceArtifactDigests.Load(source); ok {
+	changed, trusted := workspaceArtifactChangeTime(info)
+	if cached, ok := workspaceArtifactDigests.Load(source); ok && trusted {
 		entry := cached.(workspaceArtifactDigestEntry)
-		if os.SameFile(entry.info, info) && entry.info.Size() == info.Size() && entry.info.ModTime().Equal(info.ModTime()) {
+		if os.SameFile(entry.info, info) && entry.info.Size() == info.Size() && entry.info.ModTime().Equal(info.ModTime()) && entry.changed == changed {
 			return entry.digest, nil
 		}
 	}
@@ -208,13 +211,15 @@ func workspaceArtifactDigest(ctx context.Context, source string, file *os.File, 
 		sum := hex.EncodeToString(content.Sum(nil))
 		// A write during hashing changes the modification time; that digest
 		// describes no single version of the file and is not remembered.
-		if after, err := file.Stat(); err == nil && after.ModTime().Equal(info.ModTime()) && after.Size() == info.Size() {
-			workspaceArtifactDigests.Store(source, workspaceArtifactDigestEntry{info: info, digest: sum})
+		if after, err := file.Stat(); err == nil && trusted && after.ModTime().Equal(info.ModTime()) && after.Size() == info.Size() {
+			if afterChanged, ok := workspaceArtifactChangeTime(after); ok && afterChanged == changed {
+				workspaceArtifactDigests.Store(source, workspaceArtifactDigestEntry{info: info, changed: changed, digest: sum})
+			}
 		}
 		return sum, nil
 	}
 	// Concurrent starts of one unchanged archive share a single read.
-	flight := fmt.Sprintf("%s\x00%d\x00%d", source, info.Size(), info.ModTime().UnixNano())
+	flight := fmt.Sprintf("%s\x00%d\x00%d\x00%d", source, info.Size(), info.ModTime().UnixNano(), changed)
 	digest, err, shared := workspaceArtifactDigestFlights.Do(flight, hash)
 	if err != nil && shared && ctx.Err() == nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		// The caller that led the shared read gave up; this one has not.

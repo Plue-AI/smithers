@@ -52,8 +52,8 @@ func TestWorkspaceArtifactKeyReusesDigestOnlyForUnchangedFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, key, repeated)
 
-	// A rewrite that restores the size and modification time is served from
-	// the cache, and the transfer's own digest check then refuses it.
+	// A rewrite that restores the size and modification time still moves the
+	// inode change time, so it is hashed again rather than served stale.
 	info, err := os.Stat(source)
 	require.NoError(t, err)
 	writeArtifactSource(t, source, 1<<20, 2)
@@ -61,9 +61,12 @@ func TestWorkspaceArtifactKeyReusesDigestOnlyForUnchangedFile(t *testing.T) {
 	disguised := sources()
 	_, err = workspaceArtifactKey(t.Context(), "script", disguised)
 	require.NoError(t, err)
-	require.Equal(t, first[0].digest, disguised[0].digest, "unchanged metadata reuses the remembered digest")
+	require.Equal(t, artifactFileDigest(t, source), disguised[0].digest, "a disguised rewrite is never served from the cache")
+	require.NotEqual(t, first[0].digest, disguised[0].digest)
+
+	// The transfer still refuses bytes that differ from the digest it was keyed on.
 	client := &artifactRecordingClient{content: map[string]string{}}
-	err = streamWorkspaceArtifactChecked(t.Context(), client, "vm", source, "/guest/cli.tar.b64", disguised[0].digest)
+	err = streamWorkspaceArtifactChecked(t.Context(), client, "vm", source, "/guest/cli.tar.b64", first[0].digest)
 	require.ErrorContains(t, err, "changed during transfer")
 
 	// A visible rewrite (new modification time) is hashed again.
