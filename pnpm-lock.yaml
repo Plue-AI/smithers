@@ -318,6 +318,9 @@ importers:
       autoprefixer:
         specifier: ^10.5.4
         version: 10.5.4(postcss@8.5.28)
+      happy-dom:
+        specifier: 20.13.2
+        version: 20.13.2
       playwright:
         specifier: 1.62.1
         version: 1.62.1

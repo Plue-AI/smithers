@@ -86,6 +86,7 @@
     "@types/three": "0.185.4",
     "@vitejs/plugin-react": "6.1.1",
     "autoprefixer": "^10.5.4",
+    "happy-dom": "20.13.2",
     "playwright": "1.62.1",
     "postcss": "^8.5.28",
     "smithers-server": "workspace:*",
