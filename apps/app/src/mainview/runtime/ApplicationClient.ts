@@ -206,8 +206,8 @@ const methodOf = (input: string | URL | Request, init?: RequestInit): string =>
 
 const isMutation = (method: string): boolean => method !== "GET" && method !== "HEAD" && method !== "OPTIONS"
 
-const invalidResponse = (message: string, cause?: unknown): ApplicationClientError =>
-  new ApplicationClientError("invalid-response", message, null, null, null, cause === undefined ? undefined : { cause })
+const invalidResponse = (message: string, cause: unknown): ApplicationClientError =>
+  new ApplicationClientError("invalid-response", message, null, null, null, { cause })
 
 /** One auth, URL, cancellation, and error boundary for every application mode. */
 export const createApplicationClient = (

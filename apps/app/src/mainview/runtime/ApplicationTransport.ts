@@ -27,14 +27,15 @@ const nativeToken = async () => (await import("../native/NativeBridge")).nativeA
 export const loadRuntimeApplicationClient = (): Promise<ApplicationClient> => {
   if (clientRead !== undefined) return clientRead
   const native = nativeRuntimeAvailable()
+  const selected = native ? undefined : selectedBackendTarget(location.origin)
   clientRead = loadApplicationTarget({
     native: native ? nativeTarget :
-      async () => selectedBackendTarget(location.origin)
+      async () => selected
   }).then((target) =>
     createApplicationClient(target, {
       fetchImpl: createAppFetch(),
-      token: native ? nativeToken : selectedBackendTarget(location.origin) === undefined
-        ? developerToken : selectedBackendToken
+      token: native ? nativeToken : selected === undefined
+        ? developerToken : () => selectedBackendToken(target, location.origin)
     })
   )
   void clientRead.catch(() => {
