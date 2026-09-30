@@ -200,39 +200,28 @@ const refusesOlderStore = (
   })
 }
 
-describe("observing verbs over a store they cannot read", { timeout: 240_000 }, () => {
-  // Each store predates something the verbs read: control.db lacks a column
-  // (its runs' state), then a table (the journal); engine.db lacks its runs.
-  it.each([
-    ["control", "a column", "ALTER TABLE flows_runs RENAME COLUMN state_json TO state_json_before"],
-    ["control", "a table", "ALTER TABLE flows_journal_events RENAME TO flows_journal_events_before"],
-    ["engine", "a table", "ALTER TABLE flows_runs RENAME TO flows_runs_before"]
-  ] as const)("refuse typed and change nothing when %s.db lacks %s they read", async (kind, _, statement) => {
+describe("observing verbs over an older store", { timeout: 240_000 }, () => {
+  // Each store predates something some verbs read: control.db lacks its runs'
+  // state column, then its journal table; engine.db lacks its runs table. A
+  // verb that reads what is missing refuses typed; every other verb still
+  // reads the older schema as found. Neither changes the store.
+  it.each(
+    [
+      ["control", "ALTER TABLE flows_runs RENAME COLUMN state_json TO state_json_before", ["logs"]],
+      ["control", "ALTER TABLE flows_journal_events RENAME TO flows_journal_events_before", []],
+      ["engine", "ALTER TABLE flows_runs RENAME TO flows_runs_before", ["logs"]]
+    ] as const
+  )("%s.db after `%s`: readers refuse, %j still answer", async (kind, statement, answering) => {
     const root = await fixture()
     edit(root, kind, (db) => db.exec(statement))
     const before = snapshot(root)
-    const readers = kind === "engine" ? verbs.filter(([, verb]) => verb === "show" || verb === "devtools") : verbs
-    const results = await Promise.all(readers.map((verb) => run(root, verb)))
-    readers.forEach((verb, index) => refusesOlderStore(results[index]!, verb, root))
-    expect(snapshot(root)).toEqual(before)
-  })
-
-  it("reads an older engine schema that still has everything the verbs read", async () => {
-    const root = await fixture()
-    // A table no observing verb reads, as an older engine.db would lack it.
-    edit(root, "engine", (db) => db.exec("CREATE TABLE unrelated_before (id INTEGER)"))
-    const tables = (db: DatabaseSync) =>
-      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<
-        { name: string }
-      >).map((row) => row.name)
-    edit(root, "engine", (db) => {
-      const reads = new Set(["flows_runs", "flows_migrations", "unrelated_before"])
-      for (const table of tables(db)) if (!reads.has(table)) db.exec(`DROP TABLE "${table}"`)
-    })
-    const before = snapshot(root)
-    const shown = await run(root, ["runs", "show", "run-1"])
-    expect(shown.code, shown.stdout + shown.stderr).toBe(0)
-    expect(JSON.parse(shown.stdout)).toMatchObject({ runId: "run-1", status: "parked" })
+    // One at a time: concurrent read-only opens of a quiescent WAL store race (#3170).
+    for (const verb of verbs) {
+      const result = await run(root, verb)
+      if ((answering as ReadonlyArray<string>).includes(verb[1])) {
+        expect(result.code, `${verb.join(" ")}: ${result.stdout}${result.stderr}`).toBe(0)
+      } else refusesOlderStore(result, verb, root)
+    }
     expect(snapshot(root)).toEqual(before)
   })
 })
@@ -262,54 +251,81 @@ describe("observing host", { timeout: 120_000 }, () => {
   })
 })
 
-const postgres = process.env.SMITHERS_HISTORY_TEST_PG_URL
+// The storage matrix (`flows/database/scripts/test-matrix.mjs`) provides SMITHERS_TEST_PG_URL.
+const postgres = process.env.SMITHERS_HISTORY_TEST_PG_URL || process.env.SMITHERS_TEST_PG_URL
+
+/** A project whose stores are PostgreSQL schemas holding one run, selected for this process. */
+const postgresProject = async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "smthrs-observe-pg-")))
+  directories.push(root)
+  const prefix = `test_observe_${randomUUID().replaceAll("-", "")}`
+  const env = { SMITHERS_POSTGRES_URL: postgres!, SMITHERS_POSTGRES_SCHEMA: prefix, SMITHERS_BACKEND: "postgres" }
+  for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+  const database = (kind: string) => NodeDatabase.layer({ filename: join(root, ".flows", `${kind}.db`) })
+  const sql = <A, E>(kind: string, body: (sql: SqlClient) => Effect.Effect<A, E>) =>
+    Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      return yield* body(Context.get(yield* Layer.build(database(kind)), SqlClient))
+    })))
+  /** Every table and column of both schemas, for proving a command wrote nothing. */
+  const schema = () =>
+    sql(
+      "control",
+      (sql) =>
+        sql<{ name: string }>`SELECT table_schema || '.' || table_name || '.' || column_name AS name
+          FROM information_schema.columns WHERE table_schema LIKE ${`${prefix}%`} ORDER BY name`
+    )
+  const cleanup = async () => {
+    await sql(
+      "control",
+      (sql) =>
+        Effect.forEach(
+          ["engine", "control"],
+          (kind) => sql`DROP SCHEMA IF EXISTS ${sql(`${prefix}_${kind}_db`)} CASCADE`
+        )
+    )
+    vi.unstubAllEnvs()
+  }
+  try {
+    await Effect.runPromise(Effect.void.pipe(
+      Effect.provide(NodeRuntime.storage(join(root, ".flows", "engine.db"), root)),
+      Effect.provide(NodeServices.layer),
+      Effect.provide(NodeCrypto.layer)
+    ))
+    await Effect.runPromise(Effect.void.pipe(Effect.provide(NodeControl.engineDurable(root).runtime)))
+    await sql(
+      "engine",
+      (sql) =>
+        sql`INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES('run-1','suspended',0,${
+          JSON.stringify({ version: 1, flowName: "agent/run", payload: {} })
+        })`
+    )
+    await sql("control", (sql) =>
+      Effect.gen(function*() {
+        yield* sql`INSERT INTO control_plans(plan_id,card_json,decoded_input_json,decision) VALUES('plan-1','{}','{}','approved')`
+        yield* sql`INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES('run-1','suspended',0,${
+          JSON.stringify({
+            runId: "run-1",
+            flowId: "fixture",
+            planId: "plan-1",
+            planDigest: "digest",
+            status: "running",
+            createdAt: 0,
+            updatedAt: 0
+          })
+        })`
+      }))
+  } catch (error) {
+    await cleanup()
+    throw error
+  }
+  return { root, env, database, sql, schema, cleanup }
+}
 
 describe.skipIf(!postgres)("observing host over PostgreSQL", { timeout: 120_000 }, () => {
   it("reads both schemas without creating, migrating or waiting on the writer", async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "smthrs-observe-pg-")))
-    directories.push(root)
-    const prefix = `test_observe_${randomUUID().replaceAll("-", "")}`
-    vi.stubEnv("SMITHERS_POSTGRES_URL", postgres!)
-    vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
-    vi.stubEnv("SMITHERS_BACKEND", "postgres")
-    const database = (kind: string) => NodeDatabase.layer({ filename: join(root, ".flows", `${kind}.db`) })
-    const sql = <A, E>(kind: string, body: (sql: SqlClient) => Effect.Effect<A, E>) =>
-      Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-        return yield* body(Context.get(yield* Layer.build(database(kind)), SqlClient))
-      })))
-    const schema = (sql: SqlClient) =>
-      sql<{ name: string }>`SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
-        WHERE table_schema LIKE ${`${prefix}%`} ORDER BY name`
+    const { root, database, schema, cleanup } = await postgresProject()
     try {
-      await Effect.runPromise(Effect.void.pipe(
-        Effect.provide(NodeRuntime.storage(join(root, ".flows", "engine.db"), root)),
-        Effect.provide(NodeServices.layer),
-        Effect.provide(NodeCrypto.layer)
-      ))
-      await Effect.runPromise(Effect.void.pipe(Effect.provide(NodeControl.engineDurable(root).runtime)))
-      await sql(
-        "engine",
-        (sql) =>
-          sql`INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES('run-1','suspended',0,${
-            JSON.stringify({ version: 1, flowName: "agent/run", payload: {} })
-          })`
-      )
-      await sql("control", (sql) =>
-        Effect.gen(function*() {
-          yield* sql`INSERT INTO control_plans(plan_id,card_json,decoded_input_json,decision) VALUES('plan-1','{}','{}','approved')`
-          yield* sql`INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES('run-1','suspended',0,${
-            JSON.stringify({
-              runId: "run-1",
-              flowId: "fixture",
-              planId: "plan-1",
-              planDigest: "digest",
-              status: "running",
-              createdAt: 0,
-              updatedAt: 0
-            })
-          })`
-        }))
-      const before = await sql("control", schema)
+      const before = await schema()
       // A peer mid-write holds both schemas' writer lock throughout the read.
       const exit = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
         const control = Context.get(yield* Layer.build(database("control")), SqlClient)
@@ -323,17 +339,25 @@ describe.skipIf(!postgres)("observing host over PostgreSQL", { timeout: 120_000 
         })))
       })))
       expect(exit).toMatchObject({ _tag: "Success", value: { items: [{ runId: "run-1", status: "parked" }] } })
-      expect(await sql("control", schema)).toEqual(before)
+      expect(await schema()).toEqual(before)
     } finally {
-      await sql(
-        "control",
-        (sql) =>
-          Effect.forEach(
-            ["engine", "control"],
-            (kind) => sql`DROP SCHEMA IF EXISTS ${sql(`${prefix}_${kind}_db`)} CASCADE`
-          )
-      )
-      vi.unstubAllEnvs()
+      await cleanup()
+    }
+  })
+
+  it("refuses typed where an older schema lacks a column a verb reads, and reads the rest as found", async () => {
+    const { root, env, sql, schema, cleanup } = await postgresProject()
+    try {
+      await sql("control", (sql) => sql`ALTER TABLE flows_runs RENAME COLUMN state_json TO state_json_before`)
+      const before = await schema()
+      const listed = await run(root, ["runs", "list"], env)
+      const logs = await run(root, ["runs", "logs", "run-1"], env)
+      refusesOlderStore(listed, ["runs", "list"], root)
+      expect(logs.code, logs.stdout + logs.stderr).toBe(0)
+      expect(JSON.parse(logs.stdout)).toEqual([])
+      expect(await schema()).toEqual(before)
+    } finally {
+      await cleanup()
     }
   })
 })
