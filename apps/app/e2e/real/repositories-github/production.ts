@@ -257,12 +257,11 @@ export const waitForImportJob = async (
 ): Promise<Record<string, unknown> | undefined> => {
   const jobLine = card.locator(".world-card-path").filter({ hasText: /^job\s+\S+$/ }).first()
   const terminalBadge = card.getByText(/^(done|failed)$/, { exact: true }).first()
-  await expect.poll(async () => {
-    const exactJob = await jobLine.textContent().catch(() => null)
-    if (exactJob !== null) return exactJob
-    return await terminalBadge.textContent().catch(() => null)
-  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toMatch(/^(job\s+\S+|done|failed)$/i)
-  const exactJob = await jobLine.textContent().catch(() => null)
+  // Each read is bounded: an unbounded read of a line the card never renders waits out the whole poll.
+  const read = (line: Locator): Promise<string | null> => line.textContent({ timeout: 500 }).catch(() => null)
+  await expect.poll(async () => await read(jobLine) ?? await read(terminalBadge),
+    { timeout: 30_000, intervals: [250, 500, 1_000] }).toMatch(/^(job\s+\S+|done|failed)$/i)
+  const exactJob = await read(jobLine)
   const jobId = exactJob === null ? undefined : /^job\s+(\S+)$/i.exec(exactJob)?.[1]
   if (jobId === undefined) {
     const terminal = (await terminalBadge.textContent())?.trim().toLowerCase()

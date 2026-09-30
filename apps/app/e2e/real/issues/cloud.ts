@@ -24,6 +24,8 @@ type ProductFixtures = {
 
 export type ImportedIssueFixture = ProductFixtures & {
   readonly repo: string
+  /** The owned GitHub source, open in its own page of the signed-in GitHub session. */
+  readonly github: OwnedGitHubRepository
   readonly trackIssue: (number: number) => void
   readonly markWorkflowRunSubmitted: () => void
   readonly trackWorkflowRun: (run: TrackedWorkflowRun) => void
@@ -242,6 +244,7 @@ export const withOwnedImportedRepository = async (
     await body({
       ...fixtures,
       repo,
+      github: owned,
       trackIssue: (number) => trackedIssues.add(number),
       markWorkflowRunSubmitted: () => { workflowRunSubmissionAmbiguous = true },
       trackWorkflowRun: (run) => {
