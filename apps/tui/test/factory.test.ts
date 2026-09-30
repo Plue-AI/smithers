@@ -115,6 +115,31 @@ it("shows each check receipt on the candidate in details, and nothing without re
   }])
 })
 
+it("appends each receipt's duration and names the run that recorded them", () => {
+  const commit = "1a2b3c4d".padEnd(40, "0")
+  const value = {
+    ...stack,
+    items: [
+      item("2405", "proposed", {
+        checks: {
+          state: "passed",
+          failed: [],
+          receipts: [
+            { check: "affected-lint", tier: "fast", status: "passed", commit, runId: "run-verify-21", durationMs: 850 },
+            { check: "affected-test", tier: "slow", status: "passed", commit, runId: "run-verify-21", durationMs: 64_000 },
+            { check: "affected-docs", tier: "fast", status: "passed", commit }
+          ]
+        }
+      })
+    ]
+  } as unknown as MythicalStack
+  expect(Factory.rows(value, now).find((row) => row.label.includes("#2405"))?.details).toEqual([{
+    kind: "text",
+    text: "✓ affected-lint 1a2b3c4 0s · ✓ affected-test 1a2b3c4 1m 04s · ✓ affected-docs 1a2b3c4 · run run-verify-21\n" +
+      "https://github.com/o/r/issues/2405"
+  }])
+})
+
 it("shows the machine an issue's lane runs on in details: its kind and image", () => {
   const value = {
     ...stack,

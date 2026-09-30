@@ -10,6 +10,7 @@ import {
   type MythicalItem,
   MythicalItemSchema,
   mythicalMachine,
+  mythicalReceiptDuration,
   mythicalRoute,
   type MythicalStack,
   MythicalStackSchema
@@ -98,11 +99,26 @@ export const metrics = (stack: MythicalStack): string =>
 /** Rows a group lists before `… N more`: a panel holds 500 rows, and a queue can be longer. */
 export const perGroup = 60
 
-/** Each check receipt on the candidate: `✓ affected-lint 1a2b3c4`. */
-const receipts = (item: MythicalItem): string | undefined =>
-  item.checks?.receipts?.map((receipt) =>
-    `${receipt.status === "passed" ? "✓" : "✗"} ${receipt.check} ${receipt.commit.slice(0, 7)}`
-  ).join(" · ") || undefined
+/**
+ * Each check receipt on the candidate and how long it ran, then the run that
+ * recorded them: `✓ affected-lint 1a2b3c4 42s · run run-1`.
+ */
+const receipts = (item: MythicalItem): string | undefined => {
+  const all = item.checks?.receipts ?? []
+  const runs = [...new Set(all.flatMap((receipt) => receipt.runId === undefined ? [] : [receipt.runId]))]
+  return [
+    ...all.map((receipt) =>
+      [
+        receipt.status === "passed" ? "✓" : "✗",
+        receipt.check,
+        receipt.commit.slice(0, 7),
+        mythicalReceiptDuration(receipt)
+      ]
+        .filter((part) => part !== undefined).join(" ")
+    ),
+    ...runs.map((run) => `run ${run}`)
+  ].join(" · ") || undefined
+}
 
 const detail = (stack: MythicalStack, item: MythicalItem): ReadonlyArray<Panels.Block> => {
   const lines = [
