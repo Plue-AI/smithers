@@ -483,6 +483,22 @@ describe("Node", () => {
         expect(yield* withCrypto(contentKey(cloned))).toBe(yield* withCrypto(contentKey(input)))
       }
 
+      const keyed = { toJSON: (key: string) => ({ key }) }
+      const keyedInputs: ReadonlyArray<unknown> = [
+        { a: keyed, b: keyed },
+        [keyed, keyed],
+        { outer: [{ inner: keyed }], inner: keyed }
+      ]
+      for (const keyedInput of keyedInputs) {
+        const cloned = tagged(Node.succeed(keyedInput).ast, "Succeed").value
+        expect(JSON.stringify(cloned)).toBe(JSON.stringify(keyedInput))
+        expect(yield* withCrypto(contentKey(cloned))).toBe(yield* withCrypto(contentKey(keyedInput)))
+      }
+      expect(tagged(Node.succeed({ a: keyed, b: keyed }).ast, "Succeed").value).toEqual({
+        a: { key: "a" },
+        b: { key: "b" }
+      })
+
       const selfReturning: { readonly toJSON: () => unknown } = {
         toJSON() {
           return selfReturning

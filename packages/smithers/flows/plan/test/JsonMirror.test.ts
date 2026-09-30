@@ -92,6 +92,63 @@ describe("jsonMirror", () => {
     })
   })
 
+  it("passes toJSON the key JSON.stringify passes, per position of a shared source", () => {
+    const calls: Array<string> = []
+    const keyed = {
+      toJSON(key: string) {
+        calls.push(key)
+        return { key }
+      }
+    }
+    const input = { a: keyed, b: keyed, list: [keyed, keyed], nested: { a: keyed } }
+    const mirror = jsonMirror(input, refuseEveryPlannedValue) as {
+      readonly a: unknown
+      readonly nested: { readonly a: unknown }
+    }
+    expect(JSON.stringify(mirror)).toBe(JSON.stringify(input))
+    expect(mirror).toEqual({
+      a: { key: "a" },
+      b: { key: "b" },
+      list: [{ key: "0" }, { key: "1" }],
+      nested: { a: { key: "a" } }
+    })
+    // One replacement per source and key: the repeated key reuses it.
+    expect(calls).toEqual(["a", "b", "0", "1"])
+    expect(mirror.nested.a).toBe(mirror.a)
+    expect(JSON.stringify(jsonMirror(keyed, refuseEveryPlannedValue))).toBe(JSON.stringify(keyed))
+    expect(jsonMirror(keyed, refuseEveryPlannedValue)).toEqual({ key: "" })
+  })
+
+  it("keeps key-insensitive replacements shared and chained toJSON on one key", () => {
+    const plain = { toJSON: () => ({ fixed: true }) }
+    const inner = { toJSON: (key: string) => `inner:${key}` }
+    const chained = { toJSON: () => inner }
+    const when = new Date(0)
+    const mirror = jsonMirror({ a: plain, b: plain, c: chained, d: when, e: when }, refuseEveryPlannedValue) as Record<
+      string,
+      unknown
+    >
+    expect(mirror).toEqual({
+      a: { fixed: true },
+      b: { fixed: true },
+      c: "inner:c",
+      d: "1970-01-01T00:00:00.000Z",
+      e: "1970-01-01T00:00:00.000Z"
+    })
+  })
+
+  it("clones a cycle through toJSON as a cycle whatever key it recurs at", () => {
+    const growing: { readonly toJSON: (key: string) => unknown } = {
+      toJSON(key: string) {
+        return { [`${key}x`]: growing }
+      }
+    }
+    const mirror = jsonMirror({ m: growing }, refuseEveryPlannedValue) as {
+      readonly m: { readonly mx: unknown }
+    }
+    expect(mirror.m.mx).toBe(mirror.m)
+  })
+
   it("refuses a toJSON that returns itself", () => {
     const selfish = {
       toJSON() {
