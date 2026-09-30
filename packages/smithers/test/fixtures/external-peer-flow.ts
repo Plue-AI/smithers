@@ -2,6 +2,8 @@ import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
 import { spawn } from "node:child_process"
+import { access } from "node:fs/promises"
+import { join } from "node:path"
 
 const Work = Action.make("external-peer/Work", {
   implementationVersion: "external-peer/v1",
@@ -61,6 +63,12 @@ const Start = Action.make("external-peer/Start", {
   error: Schema.Unknown
 })
 const Wait = Action.make("external-peer/Wait", { payload: {}, success: Schema.Number, error: Schema.Unknown })
+/** Keeps the control root executing (never parked) until the release gate opens. */
+const Hold = Action.make("external-peer/Hold", {
+  payload: { root: Schema.String },
+  success: Schema.Void,
+  error: Schema.Unknown
+})
 export const layer = Layer.mergeAll(
   Interpreter.layer(Worker),
   workLayer,
@@ -71,7 +79,14 @@ export const layer = Layer.mergeAll(
       yield* Worker.execute({ root, token }, { executionId: `${instance.executionId}/worker`, discard: true })
     })
   ),
-  Wait.toLayer(() => DurableDeferred.await(gate))
+  Wait.toLayer(() => DurableDeferred.await(gate)),
+  Hold.toLayer(({ root }) =>
+    Effect.gen(function*() {
+      while (!(yield* Effect.promise(() => access(join(root, "release")).then(() => true, () => false)))) {
+        yield* Effect.sleep("20 millis")
+      }
+    })
+  )
 )
 export default Flow.make("external-peer", {
   description: "Keep an external worker alive during peer observation.",
@@ -80,8 +95,14 @@ export default Flow.make("external-peer", {
   payload: { root: Schema.String },
   success: Schema.Number,
   error: Schema.Unknown,
-  body: Node.capture(
-    { start: Start.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
-    ({ root }) => Node.andThen(Start.call({ root }), Wait.call({}))
-  )
+  // EXTERNAL_PEER_ROOT=running keeps the root executing instead of parking (#3073).
+  body: process.env.EXTERNAL_PEER_ROOT === "running"
+    ? Node.capture(
+      { start: Start.name, hold: Hold.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
+      ({ root }) => Node.andThen(Start.call({ root }), Node.andThen(Hold.call({ root }), Wait.call({})))
+    )
+    : Node.capture(
+      { start: Start.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
+      ({ root }) => Node.andThen(Start.call({ root }), Wait.call({}))
+    )
 })

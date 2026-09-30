@@ -11,10 +11,11 @@ for (
     ["stall", "requires explicit retry after a live owner stalls beyond heartbeat write tolerance"],
     ["cancel", "cancels the external worker from another host"],
     ["recover", "recovers a genuinely dead owner and settles the parent"],
-    ["recover-released", "recovers a gracefully released worker after the owner exits"]
+    ["recover-released", "recovers a gracefully released worker after the owner exits"],
+    ["recover-running", "releases a still-running root on graceful shutdown for peer recovery"]
   ]
 ) {
-  const timeout = mode === "recover-released" ? 300_000 : 180_000
+  const timeout = mode === "recover-released" || mode === "recover-running" ? 300_000 : 180_000
   it(`public native flow ${behavior}`, async () => {
     const { stdout, stderr } = await execute(process.execPath, ["--experimental-strip-types", fixture, mode!], {
       timeout,

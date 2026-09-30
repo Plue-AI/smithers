@@ -52,7 +52,10 @@ const rows = (root: string) => {
 }
 
 const mode = process.argv[2]
-if (["observe", "stall", "cancel", "recover", "recover-released"].includes(mode!)) {
+// A graceful owner exit must release, not fail, a root that is still running (#3073).
+const releasing = mode === "recover-released" || mode === "recover-running"
+if (mode === "recover-running") process.env.EXTERNAL_PEER_ROOT = "running"
+if (["observe", "stall", "cancel", "recover", "recover-released", "recover-running"].includes(mode!)) {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
   await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
   await mkdir(join(root, "flows", "external-peer"), { recursive: true })
@@ -138,14 +141,31 @@ if (["observe", "stall", "cancel", "recover", "recover-released"].includes(mode!
     await new Promise((resolve) => setTimeout(resolve, 1_000))
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
-    enter("real engine root park")
-    await poll(() => rows(root).find((row) => row.run_id === runId)?.status === "suspended", "real engine root park")
-    if (mode === "recover" || mode === "recover-released") {
+    if (mode === "recover-running") {
+      enter("control root still running")
+      const running = rows(root).find((row) => row.run_id === runId)
+      assert.equal(running?.status, "running", JSON.stringify(rows(root)))
+      assert.equal(running?.owner_pid, original.pid)
+    } else {
+      enter("real engine root park")
+      await poll(() => rows(root).find((row) => row.run_id === runId)?.status === "suspended", "real engine root park")
+    }
+    if (mode === "recover" || releasing) {
       enter(`original owner exit (${mode})`)
-      original.kill(mode === "recover-released" ? "SIGTERM" : "SIGKILL")
+      original.kill(releasing ? "SIGTERM" : "SIGKILL")
       await exited
       await poll(() => !alive(first.pid), "dead owner external worker exit")
-      if (mode === "recover-released") {
+      if (mode === "recover-running") {
+        // Durable state after graceful exit: the running root is released for reclaim, never failed.
+        const durable = rows(root)
+        process.stderr.write(`Durable state after graceful exit: ${JSON.stringify(durable)}\n`)
+        assert.equal(durable.some((row) => row.status === "failed"), false, JSON.stringify(durable))
+        const released = durable.find((row) => row.run_id === runId)
+        assert.equal(released?.status, "suspended", JSON.stringify(durable))
+        assert.equal(released?.waiting_reason, "released", JSON.stringify(durable))
+        assert.equal(released?.owner_pid, null, JSON.stringify(durable))
+      }
+      if (releasing) {
         assert.equal(original.signalCode, null, "NodeRuntime must handle SIGTERM and finish native scope teardown")
         assert.equal(
           rows(root).some((row) =>
@@ -165,6 +185,13 @@ if (["observe", "stall", "cancel", "recover", "recover-released"].includes(mode!
       Effect.gen(function*() {
         const control = yield* Control.Control
         enter("peer host registered")
+        if (mode === "recover-running") {
+          // The public control status after the graceful exit, before any recovery settles it.
+          const page = yield* control.list({ _tag: "runs", filters: { runId } })
+          const status = page._tag === "runs" ? page.items[0]?.status : undefined
+          process.stderr.write(`Control status after graceful exit: ${status}\n`)
+          assert.notEqual(status, "failed", stderr)
+        }
         if (mode === "stall") {
           enter("original stopped for 20 seconds")
           original.kill("SIGSTOP")
@@ -183,7 +210,7 @@ if (["observe", "stall", "cancel", "recover", "recover-released"].includes(mode!
           yield* Effect.promise(() => poll(() => !alive(first.pid), "external worker cancellation"))
           return
         }
-        if (mode === "recover" || mode === "recover-released") {
+        if (mode === "recover" || releasing) {
           enter("dead-owner replacement")
           yield* Effect.promise(() => poll(async () => (await workers(root)).length === 2, "real dead-owner recovery"))
           yield* Effect.promise(() => writeFile(join(root, "release"), "recover"))
