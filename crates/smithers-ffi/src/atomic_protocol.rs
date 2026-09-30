@@ -82,6 +82,7 @@ pub(super) fn syscall(operation: &str) -> &'static str {
         "stat" => "stat",
         "readLink" => "readlink",
         "realPath" => "realpath",
+        "resolve" => "lstat",
         "makeDirectory" => "mkdir",
         "readDirectory" | "glob" => "scandir",
         "remove" => "unlink",

@@ -565,7 +565,11 @@ impl Directory {
             Some(name) => open(Some(&self.0), name_units(name)?, 0, false, false)?,
             None => self.0.try_clone()?,
         };
-        info(&file)?.stat_json()?;
+        // Only a reparse point is refused: a hard-linked file's name is an
+        // answer, not content, and every content operation still refuses it.
+        if info(&file)?.basic.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(denied(BoundaryError::ReparsePoint));
+        }
         // SAFETY: a zero-length buffer queries the required UTF-16 capacity.
         let size =
             unsafe { GetFinalPathNameByHandleW(file.as_raw_handle(), ptr::null_mut(), 0, 0) };
@@ -1273,7 +1277,14 @@ mod tests {
             assert_eq!(root.canonical_path(name).unwrap(), expected);
         }
         fs::hard_link(directory.join("Mémoire.txt"), directory.join("hard")).unwrap();
-        assert!(root.canonical_path(Some(OsStr::new("hard"))).is_err());
+        // Kernel authorization canonicalizes through this answer (#2882).
+        let hard = root.canonical_path(Some(OsStr::new("hard"))).unwrap();
+        assert!(
+            [directory.join("hard"), directory.join("Mémoire.txt")]
+                .iter()
+                .any(|path| path.to_str() == Some(hard.as_str())),
+            "{hard}"
+        );
     }
 
     #[test]

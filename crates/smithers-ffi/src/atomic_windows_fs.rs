@@ -135,6 +135,50 @@ fn joined(base: &str, relative: &str) -> String {
         .to_string_lossy()
         .into_owned()
 }
+/// Resolves `parts` below the pinned root the way kernel authorization needs
+/// it (#2882). Every entry is opened relative to its parent handle with
+/// `FILE_OPEN_REPARSE_POINT`, so no link, junction or mount point is ever
+/// followed: the walk stops at the first reparse point and answers its own
+/// path with its translated text as `target`, and at the first missing
+/// component or non-directory parent, whose requested spelling is kept for
+/// itself and every descendant. Existing entries answer the canonical path of
+/// their own handle.
+fn resolve(root: &Directory, parts: &[&OsStr]) -> io::Result<Value> {
+    let answer = |base: String, rest: &[&OsStr], target: Option<String>| {
+        let path = rest.iter().fold(PathBuf::from(base), |mut path, part| {
+            path.push(part);
+            path
+        });
+        json!({"path":path.to_string_lossy(),"target":target})
+    };
+    let mut current = root.try_clone()?;
+    for (index, part) in parts.iter().enumerate() {
+        let metadata = match current.metadata(part) {
+            Ok(metadata) => metadata,
+            Err(failure) if matches!(code(&failure), "ENOENT" | "ENOTDIR") => {
+                return Ok(answer(current.canonical_path(None)?, &parts[index..], None));
+            }
+            Err(failure) => return Err(failure),
+        };
+        if metadata.basic.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            let target = current.read_link(part)?.to_string_lossy().into_owned();
+            return Ok(answer(
+                current.canonical_path(None)?,
+                std::slice::from_ref(part),
+                Some(target),
+            ));
+        }
+        if index + 1 == parts.len() || !is_directory(&metadata) {
+            return Ok(answer(
+                current.canonical_path(Some(part))?,
+                &parts[index + 1..],
+                None,
+            ));
+        }
+        current = current.child(part)?;
+    }
+    Ok(answer(current.canonical_path(None)?, &[], None))
+}
 fn is_directory(info: &Info) -> bool {
     info.basic.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)
         == FILE_ATTRIBUTE_DIRECTORY
@@ -522,6 +566,7 @@ pub(super) fn run(
             let (dir, name) = parent(&root, request, path, false)?;
             Ok(json!(dir.read_link(name)?.to_string_lossy()))
         }
+        "resolve" => resolve(&root, &confined(&root, request, field(request, "path")?)?),
         "digest" => digest_with_hook(&root, request, content_limit, || {}),
         "glob" => {
             let base = field(request, "root")?;
@@ -647,7 +692,7 @@ pub(super) fn serve() -> io::Result<()> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::windows::fs::symlink_file;
+    use std::os::windows::fs::{symlink_dir, symlink_file};
 
     #[test]
     fn drive_rooted_exclusions_do_not_become_workspace_basenames() {
@@ -812,6 +857,57 @@ mod tests {
             assert_eq!(fixture.refusal(request)["code"], "EEXIST");
         }
         assert_eq!(fs::read(fixture.root.join("file")).unwrap(), b"retained");
+    }
+
+    #[test]
+    fn resolve_answers_canonical_paths_and_stops_at_reparse_points() {
+        let fixture = Fixture::new();
+        let report = fixture.root.join("ReportDir");
+        fs::create_dir(&report).unwrap();
+        fs::write(report.join("Note.txt"), "").unwrap();
+        fs::hard_link(report.join("Note.txt"), fixture.root.join("hard")).unwrap();
+        let outside = fixture.root.parent().unwrap().join("outside");
+        fs::create_dir(&outside).unwrap();
+        symlink_dir(&outside, fixture.root.join("share")).unwrap();
+        let native = |path: &Path| -> PathBuf {
+            let output = std::process::Command::new("node")
+                .args([
+                    "-e",
+                    "console.log(JSON.stringify(require('node:fs').realpathSync.native(process.argv[1])))",
+                ])
+                .arg(path)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            PathBuf::from(serde_json::from_slice::<String>(&output.stdout).unwrap())
+        };
+        let resolve = |path: &str| fixture.execute(fixture.request("resolve", path));
+        let at = |path: PathBuf| json!({"path":path,"target":null});
+        let note = native(&report.join("Note.txt"));
+        assert_eq!(resolve("REPORTDIR/note.TXT"), at(note.clone()));
+        assert_eq!(resolve(""), at(native(&fixture.root)));
+        assert_eq!(
+            resolve("reportdir/New/child"),
+            at(native(&report).join("New").join("child"))
+        );
+        assert_eq!(resolve("ReportDir/Note.txt/child"), at(note.join("child")));
+        // A hard link's name is an answer; its content stays refused.
+        let hard = resolve("hard");
+        assert!(
+            [native(&fixture.root).join("hard"), note]
+                .iter()
+                .any(|path| hard == at(path.clone())),
+            "{hard}"
+        );
+        // A directory link is answered by its own path and text; the share
+        // behind it is never opened.
+        let link = resolve("share/file");
+        assert_eq!(link["path"], json!(native(&fixture.root).join("share")));
+        assert!(link["target"]
+            .as_str()
+            .unwrap()
+            .to_ascii_lowercase()
+            .ends_with("outside"));
     }
 
     #[test]

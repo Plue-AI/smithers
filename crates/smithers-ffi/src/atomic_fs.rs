@@ -105,6 +105,130 @@ fn root(path: &str) -> io::Result<File> {
     )?;
     directory(&start, &components(path)?, false, 0)
 }
+/// Resolves `parts` below the pinned root the way kernel authorization needs
+/// it (#2882), without opening or following any link: each existing component
+/// is read from its parent descriptor and answered in its on-disk spelling.
+/// The walk stops at the first link and answers its own path with its text as
+/// `target`, and at the first missing component or non-directory parent, whose
+/// requested spelling is kept for itself and every descendant.
+fn resolve(root: &File, boundary: &str, parts: &[&OsStr]) -> io::Result<Value> {
+    let answer = |spelled: &[String], rest: &[&OsStr], target: Option<String>| {
+        let names = spelled
+            .iter()
+            .cloned()
+            .chain(rest.iter().map(|part| part.to_string_lossy().into_owned()))
+            .collect::<Vec<_>>();
+        let path = if names.is_empty() {
+            boundary.to_owned()
+        } else {
+            format!("{}/{}", boundary.trim_end_matches('/'), names.join("/"))
+        };
+        json!({"path":path,"target":target})
+    };
+    let mut current = duplicate(root)?;
+    let mut spelled = Vec::with_capacity(parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        let stat = match lstat_at(&current, part) {
+            Ok(stat) => stat,
+            Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) => {
+                return Ok(answer(&spelled, &parts[index..], None))
+            }
+            Err(e) => return Err(e),
+        };
+        spelled.push(on_disk_name(&current, part)?.to_string_lossy().into_owned());
+        let kind = stat.st_mode & libc::S_IFMT;
+        if kind == libc::S_IFLNK {
+            let target = read_link_at(&current, part)?;
+            return Ok(answer(&spelled, &[], Some(target)));
+        }
+        if index + 1 < parts.len() {
+            if kind != libc::S_IFDIR {
+                return Ok(answer(&spelled, &parts[index + 1..], None));
+            }
+            current = open_at(
+                current.as_raw_fd(),
+                part,
+                libc::O_RDONLY | libc::O_DIRECTORY,
+                0,
+            )?;
+        }
+    }
+    Ok(answer(&spelled, &[], None))
+}
+fn read_link_at(dir: &File, name: &OsStr) -> io::Result<String> {
+    let name = cstring(name)?;
+    let mut buffer = vec![0u8; 4096];
+    let len = unsafe {
+        libc::readlinkat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            buffer.as_mut_ptr() as *mut libc::c_char,
+            buffer.len(),
+        )
+    };
+    if len < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    buffer.truncate(len as usize);
+    Ok(String::from_utf8_lossy(&buffer).into_owned())
+}
+#[cfg(target_os = "macos")]
+fn on_disk_name(dir: &File, name: &OsStr) -> io::Result<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStringExt;
+    // A mount point's name attribute is the mounted volume's name, not the
+    // directory entry's, so an entry on another device keeps its spelling.
+    if lstat_at(dir, name)?.st_dev != fstat(dir)?.st_dev {
+        return Ok(name.to_owned());
+    }
+    let path = cstring(name)?;
+    let mut list = libc::attrlist {
+        bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: libc::ATTR_CMN_NAME,
+        volattr: 0,
+        dirattr: 0,
+        fileattr: 0,
+        forkattr: 0,
+    };
+    // u32-aligned: a length word, one attrreference_t, then up to 255 UTF-16
+    // units of name encoded as UTF-8 plus its NUL.
+    let mut buffer = [0u32; 256];
+    let size = std::mem::size_of_val(&buffer);
+    // SAFETY: list and buffer outlive the call and size is the buffer's byte
+    // length. FSOPT_NOFOLLOW reads the entry's own attributes, never a target.
+    if unsafe {
+        libc::getattrlistat(
+            dir.as_raw_fd(),
+            path.as_ptr(),
+            (&mut list as *mut libc::attrlist).cast(),
+            buffer.as_mut_ptr().cast(),
+            size,
+            libc::FSOPT_NOFOLLOW as libc::c_ulong,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the byte view covers exactly the initialized u32 buffer.
+    let bytes = unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), size) };
+    let word =
+        |at: usize| u32::from_ne_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    let reference = 4usize;
+    let start = usize::try_from(i64::from(word(reference) as i32) + reference as i64)
+        .map_err(|_| error(libc::EIO, "name attribute out of range"))?;
+    let length = word(reference + 4) as usize;
+    let end = start
+        .checked_add(length)
+        .filter(|end| length > 0 && *end <= (word(0) as usize).min(size))
+        .ok_or_else(|| error(libc::EIO, "name attribute out of range"))?;
+    // The length counts the trailing NUL.
+    Ok(std::ffi::OsString::from_vec(bytes[start..end - 1].to_vec()))
+}
+#[cfg(not(target_os = "macos"))]
+fn on_disk_name(_dir: &File, name: &OsStr) -> io::Result<std::ffi::OsString> {
+    // Other Unix hosts resolve names exactly as requested, as realpath(3) does.
+    Ok(name.to_owned())
+}
 fn identity(file: &File) -> io::Result<String> {
     let stat = fstat(file)?;
     Ok(format!("{}:{}", stat.st_dev, stat.st_ino))
@@ -701,21 +825,11 @@ fn run(request: &Value, content_limit: usize, response_limit: usize) -> io::Resu
                 return Err(error(libc::EINVAL, "root is not a link"));
             }
             let (dir, name) = parent(&root, request, field(request, "path")?, false, 0)?;
-            let name = cstring(name)?;
-            let mut buffer = vec![0u8; 4096];
-            let len = unsafe {
-                libc::readlinkat(
-                    dir.as_raw_fd(),
-                    name.as_ptr(),
-                    buffer.as_mut_ptr() as *mut libc::c_char,
-                    buffer.len(),
-                )
-            };
-            if len < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            buffer.truncate(len as usize);
-            Ok(json!(String::from_utf8_lossy(&buffer)))
+            Ok(json!(read_link_at(&dir, name)?))
+        }
+        "resolve" => {
+            let parts = confined(request, field(request, "path")?)?;
+            resolve(&root, boundary, &parts)
         }
         "batch" => {
             let members = request["requests"]
@@ -914,6 +1028,57 @@ mod tests {
                 Some(libc::EBUSY)
             );
         }
+    }
+
+    #[test]
+    fn resolve_spells_entries_from_disk_and_stops_at_links_and_missing_components() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(root.join("ReportDir")).unwrap();
+        fs::write(root.join("ReportDir").join("Note.txt"), "").unwrap();
+        fs::hard_link(root.join("ReportDir").join("Note.txt"), root.join("hard")).unwrap();
+        let outside = tempdir().unwrap();
+        fs::write(outside.path().join("target"), "").unwrap();
+        symlink(outside.path().join("target"), root.join("leaf")).unwrap();
+        symlink(outside.path(), root.join("ancestor")).unwrap();
+        let resolve = |path: &Path| run(&request(&root, "resolve", path), 1024, 1024).unwrap();
+        let at = |path: &Path, target: Option<&Path>| json!({"path":path,"target":target});
+        let note = root.join("ReportDir").join("Note.txt");
+        assert_eq!(resolve(&note), at(&note, None));
+        assert_eq!(resolve(&root), at(&root, None));
+        // A hard link's name is an answer; its content stays refused.
+        assert_eq!(resolve(&root.join("hard")), at(&root.join("hard"), None));
+        let insensitive = root.join("REPORTDIR").join("note.TXT");
+        let answered = resolve(&insensitive);
+        // A case-insensitive volume answers with the stored spelling; a
+        // case-sensitive one keeps the missing request as it was spelled.
+        assert!(
+            answered == at(&note, None) || answered == at(&insensitive, None),
+            "{answered}"
+        );
+        let missing = root.join("ReportDir").join("new").join("child");
+        assert_eq!(resolve(&missing), at(&missing, None));
+        let below_file = note.join("child");
+        assert_eq!(resolve(&below_file), at(&below_file, None));
+        // A link is answered by its own path and text; its target is never opened.
+        assert_eq!(
+            resolve(&root.join("leaf")),
+            at(&root.join("leaf"), Some(&outside.path().join("target")))
+        );
+        assert_eq!(
+            resolve(&root.join("ancestor").join("target").join("deeper")),
+            at(&root.join("ancestor"), Some(outside.path()))
+        );
+        assert_eq!(
+            run(
+                &request(&root, "resolve", &outside.path().join("target")),
+                1024,
+                1024
+            )
+            .unwrap_err()
+            .raw_os_error(),
+            Some(libc::EPERM)
+        );
     }
 
     #[test]
