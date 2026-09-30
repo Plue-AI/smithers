@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,6 +30,8 @@ type FactoryProjection struct {
 		Flow  json.RawMessage `json:"flow"`
 		// Presence is rejected, including null: execution is repository-local.
 		Repository json.RawMessage `json:"repository,omitempty"`
+		// Payload is the static object a schedule rule starts its flow with.
+		Payload json.RawMessage `json:"payload,omitempty"`
 	} `json:"on"`
 }
 
@@ -77,6 +80,15 @@ func planFactory(projection FactoryProjection, revision string) ([]factoryRegist
 		if rule.Repository != nil {
 			return nil, nil, errors.New("factory rules cannot select a repository; declare the flow in the target repository's factory")
 		}
+		if rule.Payload != nil {
+			var object map[string]json.RawMessage
+			if json.Unmarshal(rule.Payload, &object) != nil || object == nil {
+				return nil, nil, fmt.Errorf("factory rule %s has a payload that is not a JSON object", rule.Event)
+			}
+			if !strings.HasPrefix(rule.Event, "schedule:") {
+				return nil, nil, fmt.Errorf("factory rule %s has a payload; only a schedule rule can", rule.Event)
+			}
+		}
 		var names []string
 		var name string
 		if json.Unmarshal(rule.Flow, &name) == nil {
@@ -104,6 +116,13 @@ func planFactory(projection FactoryProjection, revision string) ([]factoryRegist
 				input := RegisterRepositoryJobInput{FlowID: name, Mode: "enabled", SourceRevision: revision, FactoryRevision: revision, Input: json.RawMessage(`{}`)}
 				if strings.HasPrefix(rule.Event, "schedule:") {
 					input.Schedule = strings.TrimPrefix(rule.Event, "schedule:")
+					if rule.Payload != nil {
+						var compact bytes.Buffer
+						if err := json.Compact(&compact, rule.Payload); err != nil {
+							return nil, nil, fmt.Errorf("factory rule %s has an invalid payload", rule.Event)
+						}
+						input.SchedulePayload = compact.Bytes()
+					}
 				} else {
 					kind, action, _ := strings.Cut(rule.Event, ".")
 					switch NormalizeTriggerName(kind) {
