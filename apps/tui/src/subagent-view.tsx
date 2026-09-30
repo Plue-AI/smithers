@@ -490,7 +490,7 @@ export function Overview(props: {
         key={id}
         id={`overview:${id}`}
         style={{ height: 1, flexShrink: 0 }}
-        {...(chosen ? { backgroundColor: props.pane === "tree" ? color.element : color.surface } : {})}
+        {...(chosen ? { backgroundColor: props.pane === "tree" ? color.selected : color.surface } : {})}
         onMouseDown={() => props.onSelect(id)}
       >
         {content}

@@ -2,9 +2,12 @@ import { type CapturedSpan, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act, type ReactNode } from "react"
-import { TabStrip } from "../src/tabs-view.tsx"
+import type * as Inbox from "../src/inbox.ts"
+import { chat, Overview } from "../src/subagent-view.tsx"
+import { TabStrip, WorkerList } from "../src/tabs-view.tsx"
 import { applyColorMode, color, type ColorMode, colorModeOf, setTheme, themes } from "../src/theme.ts"
 import * as View from "../src/view.tsx"
+import type { Tab } from "../src/workspace.ts"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 afterEach(async () => {
@@ -108,6 +111,78 @@ describe("NO_COLOR frames", () => {
     expect(has(active, TextAttributes.BOLD)).toBe(true)
     expect(has(spanOf(lines, "Summary"), TextAttributes.INVERSE)).toBe(false)
     expect(has(spanOf(lines, "Summary"), TextAttributes.DIM)).toBe(true)
+  })
+
+  it("show the Summary tree's selected row in reverse video while the tree has focus", async () => {
+    const flow = (key: string, name: string): Inbox.Row => ({
+      key,
+      group: "working",
+      level: 0,
+      status: "running",
+      name,
+      seat: "fn",
+      clock: "4s"
+    })
+    const sections = [{ group: "working" as const, rows: [flow("flow:build", "Build"), flow("flow:deploy", "Deploy")] }]
+    const cards = {
+      transcript: () => {
+        throw new Error("no worker rows")
+      },
+      models: [],
+      now: 0,
+      lane: () => color.brand,
+      focused: undefined,
+      open: new Set<string>(),
+      onOpen: () => {},
+      onFiles: () => {},
+      onAction: () => {}
+    }
+    const summary = (selected: string, pane: "tree" | "cards") => (
+      <Overview
+        sections={sections}
+        selected={selected}
+        pane={pane}
+        width={80}
+        cards={cards}
+        tabs={[]}
+        onSelect={() => {}}
+        review={<text fg={color.text}>Review</text>}
+      />
+    )
+    const reversed = (lines: ReadonlyArray<ReadonlyArray<CapturedSpan>>, text: string) =>
+      lines.flat().some((span) => span.text.includes(text) && has(span, TextAttributes.INVERSE))
+
+    let lines = await draw("none", summary(chat, "tree"), 80, 10)
+    expect(reversed(lines, "Chat")).toBe(true)
+    expect(reversed(lines, "Build")).toBe(false)
+    await act(async () => setup!.renderer.destroy())
+    lines = await draw("none", summary("flow:deploy", "tree"), 80, 10)
+    expect(reversed(lines, "Deploy")).toBe(true)
+    expect(reversed(lines, "Chat")).toBe(false)
+    expect(reversed(lines, "Build")).toBe(false)
+    await act(async () => setup!.renderer.destroy())
+    lines = await draw("none", summary("flow:deploy", "cards"), 80, 10)
+    expect(reversed(lines, "Deploy")).toBe(false)
+  })
+
+  it("show the selected worker in reverse video", async () => {
+    const worker = (id: string) =>
+      ({ id, title: `Worker ${id}`, seat: "openai:gpt-6.1-sol", status: "running", startedAt: 0 }) as Tab
+    const lines = await draw(
+      "none",
+      <WorkerList
+        tabs={[worker("a"), worker("b")]}
+        active="tab:b"
+        models={[]}
+        now={0}
+        eta={() => ""}
+        onSelect={() => {}}
+      />,
+      24,
+      8
+    )
+    expect(has(spanOf(lines, "Worker b"), TextAttributes.INVERSE)).toBe(true)
+    expect(has(spanOf(lines, "Worker a"), TextAttributes.INVERSE)).toBe(false)
   })
 
   it("leave filled panels that are not selected plain", async () => {

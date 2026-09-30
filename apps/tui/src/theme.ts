@@ -138,6 +138,7 @@ const byte = (channels: Uint16Array, at: number) => channels[at]! & 0xff
 const muted = (channels: Uint16Array, at: number) =>
   Math.max(byte(channels, at), byte(channels, at + 1), byte(channels, at + 2)) < 204
 
+/** Italic and underline are emphasis, not color, so they stay. */
 const plain = (buffer: OptimizedBuffer): void => {
   const { fg, bg, attributes } = buffer.buffers
   const [r, g, b] = RGBA.fromHex(color.brand).toInts()
