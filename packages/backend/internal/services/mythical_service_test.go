@@ -414,7 +414,7 @@ func TestMythicalServiceReplaysAPushThatNeverLanded(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, claims, 1)
 		g := mythicalGit{dir: filepath.Join(f.service.scratchRoot, "repo-"+strconv.FormatInt(f.repoID, 10)+".git")}
-		bridge, err := startMythicalBridge(ctx, f.host, "smithers-canary", "smithers")
+		bridge, err := startMythicalBridge(ctx, f.host, "smithers-canary", "smithers", RepositoryStillAt(db.New(f.pool), f.repoID, "smithers-canary", "smithers"))
 		require.NoError(t, err)
 		defer bridge.Close()
 		r := &mythicalRun{row: claims[0], g: g, bridge: bridge, owner: "smithers-canary", repo: "smithers", branch: "main",
@@ -553,7 +553,7 @@ func TestMythicalFactoryReconcilesLocalMainAndRetriesFailure(t *testing.T) {
 func TestMythicalBridgeAnswersTheLargePackProbe(t *testing.T) {
 	ctx := context.Background()
 	host := &fakeMainPullHost{bookmarks: map[string]string{"main": pullOld}}
-	bridge, err := startMythicalBridge(ctx, host, "smithers-canary", "smithers")
+	bridge, err := startMythicalBridge(ctx, host, "smithers-canary", "smithers", nil)
 	require.NoError(t, err)
 	defer bridge.Close()
 	bridge.permit([]mythicalRefUpdate{{Ref: "refs/heads/main", Old: pullOld, New: pullNew}}, repohost.ReceivePackMetadata{})

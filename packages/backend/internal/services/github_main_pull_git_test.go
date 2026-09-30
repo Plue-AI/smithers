@@ -27,6 +27,8 @@ import (
 type gitBackedRepoHost struct {
 	dir  string
 	home string
+	// locked runs when a push takes the repository lock (takeRepositoryLock).
+	locked func()
 }
 
 func newGitBackedRepoHost(t *testing.T, dir string) *gitBackedRepoHost {
@@ -69,7 +71,10 @@ func (h *gitBackedRepoHost) ProxyUploadPack(ctx context.Context, _, _ string, st
 	return h.rpc(ctx, "upload-pack", stdin, stdout, false)
 }
 
-func (h *gitBackedRepoHost) ProxyReceivePack(ctx context.Context, _, _ string, stdin io.Reader, stdout io.Writer, _ ...repohost.ReceivePackMetadata) error {
+func (h *gitBackedRepoHost) ProxyReceivePack(ctx context.Context, _, _ string, stdin io.Reader, stdout io.Writer, meta ...repohost.ReceivePackMetadata) error {
+	if err := takeRepositoryLock(ctx, h.locked, stdin, meta); err != nil {
+		return err
+	}
 	return h.rpc(ctx, "receive-pack", stdin, stdout, false)
 }
 

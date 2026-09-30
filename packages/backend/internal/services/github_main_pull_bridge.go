@@ -44,7 +44,7 @@ type gitHubMainPullUpdate struct {
 // process environment of that run.
 type gitHubMainPullBridge struct {
 	ctx      context.Context
-	identity func(context.Context) error
+	verify   func(context.Context) error
 	host     gitHubMainPullRepoHost
 	owner    string
 	repo     string
@@ -58,9 +58,10 @@ type gitHubMainPullBridge struct {
 const gitHubMainPullBridgePath = "/repository.git"
 
 // Every request is bound to the run's context, so nothing it started can
-// outlive the run. identity, when set, is re-checked immediately before the
-// write is forwarded.
-func startGitHubMainPullBridge(ctx context.Context, host gitHubMainPullRepoHost, owner, repo string, update gitHubMainPullUpdate, identity func(context.Context) error) (*gitHubMainPullBridge, error) {
+// outlive the run. verify, when set, is the write's
+// ReceivePackMetadata.VerifyLocked: repo-host runs it once it holds the
+// repository lock, before any byte of the pack reaches storage.
+func startGitHubMainPullBridge(ctx context.Context, host gitHubMainPullRepoHost, owner, repo string, update gitHubMainPullUpdate, verify func(context.Context) error) (*gitHubMainPullBridge, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return nil, fmt.Errorf("create bridge credential: %w", err)
@@ -69,7 +70,7 @@ func startGitHubMainPullBridge(ctx context.Context, host gitHubMainPullRepoHost,
 	if err != nil {
 		return nil, fmt.Errorf("listen on loopback: %w", err)
 	}
-	bridge := &gitHubMainPullBridge{ctx: ctx, identity: identity, host: host, owner: owner, repo: repo, update: update,
+	bridge := &gitHubMainPullBridge{ctx: ctx, verify: verify, host: host, owner: owner, repo: repo, update: update,
 		secret: hex.EncodeToString(raw[:]), listener: listener}
 	bridge.server = &http.Server{Handler: bridge, ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx }}
@@ -169,14 +170,8 @@ func (b *gitHubMainPullBridge) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		if b.identity != nil {
-			if err := b.identity(ctx); err != nil {
-				http.Error(w, "repository changed during the pull", http.StatusConflict)
-				return
-			}
-		}
 		meta := repohost.ReceivePackMetadata{RepositoryID: update.repositoryID, RefName: update.ref, CommitSHA: update.new, PusherLogin: "github",
-			PusherCredential: middleware.CredentialPlatform}
+			PusherCredential: middleware.CredentialPlatform, VerifyLocked: b.verify}
 		b.proxy(w, "application/x-git-receive-pack-result", func(out io.Writer) error {
 			return b.host.ProxyReceivePack(ctx, b.owner, b.repo, rebuilt, out, meta)
 		})
@@ -190,6 +185,12 @@ func (b *gitHubMainPullBridge) ServeHTTP(w http.ResponseWriter, r *http.Request)
 func (b *gitHubMainPullBridge) proxy(w http.ResponseWriter, contentType string, run func(io.Writer) error) {
 	var body bytes.Buffer
 	if err := run(&body); err != nil {
+		if errors.Is(err, repohost.ErrRepositoryReplaced) {
+			// Deleted, transferred or renamed away while the write waited
+			// for the repository lock; nothing reached storage.
+			http.Error(w, "repository changed during the pull", http.StatusConflict)
+			return
+		}
 		http.Error(w, "repository unavailable", http.StatusBadGateway)
 		return
 	}

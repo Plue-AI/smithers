@@ -225,6 +225,28 @@ type fakeMainPullHost struct {
 	bookmarks map[string]string
 	received  []repohost.ReceivePackCommand
 	meta      []repohost.ReceivePackMetadata
+	// locked runs when a push takes the repository lock, before its
+	// VerifyLocked: the window a delete or transfer races the push in.
+	locked func()
+}
+
+// takeRepositoryLock is what repohost.Client does once repo-host reports the
+// repository lock: locked (the race) and then every VerifyLocked. A refusal
+// drains the pack unwritten and is the push's error.
+func takeRepositoryLock(ctx context.Context, locked func(), stdin io.Reader, meta []repohost.ReceivePackMetadata) error {
+	if locked != nil {
+		locked()
+	}
+	for _, m := range meta {
+		if m.VerifyLocked == nil {
+			continue
+		}
+		if err := m.VerifyLocked(ctx); err != nil {
+			_, _ = io.Copy(io.Discard, stdin)
+			return fmt.Errorf("receive-pack refused under the repository lock: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h *fakeMainPullHost) InfoRefs(context.Context, string, string, string, io.Writer) (string, error) {
@@ -235,13 +257,16 @@ func (h *fakeMainPullHost) ProxyUploadPack(context.Context, string, string, io.R
 	return nil
 }
 
-func (h *fakeMainPullHost) ProxyReceivePack(_ context.Context, _, _ string, stdin io.Reader, _ io.Writer, meta ...repohost.ReceivePackMetadata) error {
-	commands, _, err := repohost.PeekReceivePackCommands(stdin)
+func (h *fakeMainPullHost) ProxyReceivePack(ctx context.Context, _, _ string, stdin io.Reader, _ io.Writer, meta ...repohost.ReceivePackMetadata) error {
+	commands, rest, err := repohost.PeekReceivePackCommands(stdin)
 	if err != nil {
 		return err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if err := takeRepositoryLock(ctx, h.locked, rest, meta); err != nil {
+		return err
+	}
 	h.received = append(h.received, commands...)
 	h.meta = append(h.meta, meta...)
 	for _, command := range commands {

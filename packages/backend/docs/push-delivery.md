@@ -20,9 +20,10 @@ the delivery pending. Delivery IDs continue to deduplicate successful retries.
 
 Repo-host selects native storage by owner and name when it takes the
 repository lock, after the producer authorized the push for a repository ID.
-Git HTTP and SSH hold the pack until repo-host reports the lock, then check that
-owner and name still resolve to that ID. A repository deleted, transferred or
-renamed away in between is refused with `409` over HTTP and an error over SSH;
+Git HTTP, SSH, the mythical stack service and the GitHub main pull hold the pack
+until repo-host reports the lock, then check that owner and name still resolve
+to that ID. A repository deleted, transferred or renamed away in between is
+refused with `409` over HTTP and the internal bridges and an error over SSH;
 nothing reaches the replacement's storage. A retry authorizes against the
 repository the name holds now.
 

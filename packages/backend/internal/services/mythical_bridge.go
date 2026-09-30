@@ -31,11 +31,13 @@ type mythicalRefUpdate struct {
 // stack run, like the main pull's bridge. Fetches are free; a receive-pack is
 // accepted only when its commands are exactly the prepared set, once, and it
 // is forwarded with the metadata the prepared write names (the control-plane
-// flag for the stack's refs, a workspace for a lane's source ref).
+// flag for the stack's refs, a workspace for a lane's source ref), bound under
+// repo-host's lock to the repository the run loaded (verify).
 type mythicalBridge struct {
 	host     gitHubMainPullRepoHost
 	owner    string
 	repo     string
+	verify   func(context.Context) error
 	mu       sync.Mutex
 	allowed  []mythicalRefUpdate
 	meta     repohost.ReceivePackMetadata
@@ -49,6 +51,12 @@ type mythicalBridge struct {
 
 // refused notes err's hold, if it is one, and answers the git client.
 func (b *mythicalBridge) refused(w http.ResponseWriter, err error) {
+	if errors.Is(err, repohost.ErrRepositoryReplaced) {
+		// Deleted, transferred or renamed away while the write waited for the
+		// repository lock; nothing reached storage (#3145).
+		http.Error(w, "repository was replaced during the push", http.StatusConflict)
+		return
+	}
 	if delay, held := repohost.HeldRetryAfter(err); held {
 		b.mu.Lock()
 		b.heldFor = delay
@@ -70,7 +78,9 @@ const mythicalBridgePath = "/repository.git"
 
 var errMythicalBridgeRefused = errors.New("only the prepared mythical stack update is accepted")
 
-func startMythicalBridge(ctx context.Context, host gitHubMainPullRepoHost, owner, repo string) (*mythicalBridge, error) {
+// verify is every write's ReceivePackMetadata.VerifyLocked: repo-host runs it
+// once it holds the repository lock, before any byte of the pack is written.
+func startMythicalBridge(ctx context.Context, host gitHubMainPullRepoHost, owner, repo string, verify func(context.Context) error) (*mythicalBridge, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return nil, fmt.Errorf("create bridge credential: %w", err)
@@ -79,7 +89,7 @@ func startMythicalBridge(ctx context.Context, host gitHubMainPullRepoHost, owner
 	if err != nil {
 		return nil, fmt.Errorf("listen on loopback: %w", err)
 	}
-	bridge := &mythicalBridge{host: host, owner: owner, repo: repo, secret: hex.EncodeToString(raw[:]), listener: listener}
+	bridge := &mythicalBridge{host: host, owner: owner, repo: repo, verify: verify, secret: hex.EncodeToString(raw[:]), listener: listener}
 	bridge.server = &http.Server{Handler: bridge, ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() { _ = bridge.server.Serve(listener) }()
@@ -130,6 +140,7 @@ func (b *mythicalBridge) take(commands []repohost.ReceivePackCommand) (repohost.
 		}
 	}
 	meta := b.meta
+	meta.VerifyLocked = b.verify
 	b.allowed = nil
 	return meta, nil
 }

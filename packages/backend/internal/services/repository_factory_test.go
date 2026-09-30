@@ -100,7 +100,7 @@ func TestLocalFactoryOutcomeClassifiesReconcilerResults(t *testing.T) {
 	f := newMythicalFixture(t)
 	ctx := context.Background()
 	main := f.commit("empty factory", map[string]string{"README.md": "hello"})
-	bridge, err := startMythicalBridge(ctx, &fakeMainPullHost{}, "owner", "repo")
+	bridge, err := startMythicalBridge(ctx, &fakeMainPullHost{}, "owner", "repo", nil)
 	require.NoError(t, err)
 	defer bridge.Close()
 	r := &mythicalRun{row: db.MythicalStack{RepositoryID: 42}, g: f.git, mainTip: main, bridge: bridge}

@@ -551,19 +551,10 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		return fail("create pull directory: " + err.Error())
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	// Immediately before any write, the name must still be this repository:
-	// a deleted or transferred repository's name can be reused.
-	identity := func(ctx context.Context) error {
-		current, err := s.store.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(owner), LowerName: repository.LowerName})
-		if err != nil {
-			return fmt.Errorf("resolve repository: %w", err)
-		}
-		if current.ID != repository.ID {
-			return errors.New("the repository name now belongs to another repository")
-		}
-		return nil
-	}
-	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead}, identity)
+	// The write is bound under repo-host's lock to this repository: a deleted
+	// or transferred repository's name can be reused.
+	verify := RepositoryStillAt(s.store, repository.ID, owner, repository.Name)
+	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead}, verify)
 	if err != nil {
 		return fail(err.Error())
 	}
