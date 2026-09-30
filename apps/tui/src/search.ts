@@ -1,9 +1,12 @@
 /**
  * `text:` in the Ctrl+K palette: ripgrep over the working directory in the
  * background. Literal unless a regex is given, capped, and cancellable. A
- * failure is a typed outcome for the caller to show; there is no fallback.
+ * failure is a typed outcome; the caller presents it as a `SearchFailed`, whose
+ * message is rg's own text for the log, never for the screen. There is no
+ * fallback.
  * The spawn and process-group kill follow `shell.ts`.
  */
+import { Data } from "effect"
 import { spawn } from "node:child_process"
 import { statSync } from "node:fs"
 
@@ -13,10 +16,27 @@ export interface Hit {
   readonly text: string
 }
 
+/** Why a search could not run. */
+export type Reason = "missing-rg" | "missing-directory" | "bad-pattern" | "rg-error"
+
 export type Outcome =
   | { readonly _tag: "done"; readonly hits: ReadonlyArray<Hit>; readonly truncated: boolean }
-  | { readonly _tag: "failed"; readonly reason: "missing-rg" | "bad-pattern" | "rg-error"; readonly message: string }
+  | { readonly _tag: "failed"; readonly reason: Reason; readonly message: string }
   | { readonly _tag: "cancelled" }
+
+/**
+ * A failed search as the tagged failure `Failures` presents: the person reads
+ * the sentence for `reason`; `message` is rg's or the spawn's own text, for
+ * the log.
+ */
+export class SearchFailed extends Data.TaggedError("SearchFailed")<{
+  readonly reason: Reason
+  readonly message: string
+}> {}
+
+/** The tagged failure for one failed outcome. */
+export const failure = (outcome: Extract<Outcome, { readonly _tag: "failed" }>): SearchFailed =>
+  new SearchFailed({ reason: outcome.reason, message: outcome.message })
 
 /** The most hits one search returns. */
 export const limit = 200
@@ -29,12 +49,16 @@ const spawnFailure = (error: unknown, cwd: string): Outcome => {
     // Spawn uses ENOENT for both a missing executable and a missing cwd.
     try {
       if (!statSync(cwd).isDirectory()) {
-        return { _tag: "failed", reason: "rg-error", message: `ENOTDIR: working directory is not a directory: ${cwd}` }
+        return {
+          _tag: "failed",
+          reason: "missing-directory",
+          message: `ENOTDIR: working directory is not a directory: ${cwd}`
+        }
       }
     } catch {
       return {
         _tag: "failed",
-        reason: "rg-error",
+        reason: "missing-directory",
         message: `Working directory unavailable: ${cwd}`
       }
     }

@@ -124,7 +124,7 @@ describe("rg search", () => {
     const dir = join(mkdtempSync(join(tmpdir(), "tui-search-missing-cwd-")), "later")
     expect(existsSync(dir)).toBe(false)
     const outcome = await Search.run({ cwd: dir, query: "needle" }).done
-    expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+    expect(outcome).toMatchObject({ _tag: "failed", reason: "missing-directory" })
     if (outcome._tag !== "failed") return
     expect(outcome.message).toContain(dir)
 
@@ -142,7 +142,7 @@ describe("rg search", () => {
     const file = join(dir, "not-a-directory")
     writeFileSync(file, "needle\n")
     const outcome = await Search.run({ cwd: file, query: "needle" }).done
-    expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+    expect(outcome).toMatchObject({ _tag: "failed", reason: "missing-directory" })
     if (outcome._tag !== "failed") return
     expect(outcome.message).toContain(file)
   })

@@ -25,6 +25,7 @@ import type { Refusal } from "./contributions.ts"
 import type { FlowDiscoveryFailed, FlowError } from "./flows.ts"
 import * as Log from "./log.ts"
 import type { Failure as MonitorFailure } from "./monitors.ts"
+import type { SearchFailed } from "./search.ts"
 import type { Corrupt, WriteFailed } from "./session.ts"
 import type { TabError } from "./tab-error.ts"
 import type { AgentDepthExceeded } from "./workspace.ts"
@@ -41,6 +42,7 @@ export type Known =
   | WriteFailed
   | MonitorFailure
   | Permission.GrantStoreError
+  | SearchFailed
 
 /** The act that failed; it names the sentence an unknown failure gets. */
 export type Act =
@@ -57,6 +59,7 @@ export type Act =
   | "monitor"
   | "resume"
   | "retry"
+  | "search"
   | "session"
   | "sessions"
   | "shell"
@@ -80,6 +83,7 @@ const unknownSentence: Readonly<Record<Act, string>> = {
   monitor: "The monitor stopped.",
   resume: "That conversation could not be opened.",
   retry: "The retry could not start.",
+  search: "Text search could not run.",
   session: "The conversation was not saved.",
   sessions: "Saved conversations could not be listed.",
   shell: "The command could not start.",
@@ -176,6 +180,13 @@ const grant: Readonly<Record<Permission.GrantStoreError["code"], UserFailureCopy
   invalid_resolution: copy("bug", "That answer does not fit this request.")
 }
 
+const search: Readonly<Record<SearchFailed["reason"], UserFailureCopy>> = {
+  "missing-rg": copy("user", "Text search needs ripgrep (rg) installed."),
+  "missing-directory": copy("user", "This folder is gone; text search cannot run here."),
+  "bad-pattern": copy("user", "That pattern is not a valid regex."),
+  "rg-error": copy("infra", "Text search failed.")
+}
+
 export const registry: UserFailureRegistry<Known> = {
   "@smthrs/capability/GrantStoreError": (failure) => grant[failure.code],
   AgentError: agent,
@@ -197,7 +208,8 @@ export const registry: UserFailureRegistry<Known> = {
   JevFailed: (failure) => copy(Evaluator.faults[failure.code], judge[failure.code]),
   LunaFailed: copy("dependency", "Luna could not summarize the change."),
   SourceFailed: copy("infra", "The watched source could not be read."),
-  Refused: copy("user", "The watch command was not approved.")
+  Refused: copy("user", "The watch command was not approved."),
+  SearchFailed: (failure) => search[failure.reason]
 }
 
 /** Where a person reads raw detail: `/conversation` shows the log path. */

@@ -8,6 +8,7 @@ import * as Failures from "../src/failures.ts"
 import { FlowDiscoveryFailed, FlowError } from "../src/flows.ts"
 import * as Log from "../src/log.ts"
 import { MonitorError } from "../src/monitors.ts"
+import * as Search from "../src/search.ts"
 import * as Session from "../src/session.ts"
 import * as Command from "../src/tab-command.ts"
 import { TabError } from "../src/tab-error.ts"
@@ -98,6 +99,21 @@ describe("tagged failures read as one plain sentence", () => {
       fault: "infra"
     })
     expect(Failures.present("approval", Failures.grantRefusal("request_not_found")).fault).toBe("user")
+  })
+
+  it("words every text-search failure by its reason, never rg's text", () => {
+    const cases: ReadonlyArray<readonly [Search.Reason, string, string]> = [
+      ["missing-rg", "Text search needs ripgrep (rg) installed.", "user"],
+      ["missing-directory", "This folder is gone; text search cannot run here.", "user"],
+      ["bad-pattern", "That pattern is not a valid regex.", "user"],
+      ["rg-error", "Text search failed.", "infra"]
+    ]
+    for (const [reason, words, fault] of cases) {
+      const error = Search.failure({ _tag: "failed", reason, message: `rg: ${RAW}` })
+      expect(Failures.present("search", error)).toMatchObject({ tag: "SearchFailed", sentence: words, fault })
+      expect(Failures.line("search", error)).not.toContain(RAW)
+      expect(error.message).toBe(`rg: ${RAW}`)
+    }
   })
 })
 

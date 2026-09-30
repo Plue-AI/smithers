@@ -163,7 +163,7 @@ test("invalid real regex reports a danger status once and a valid query recovers
   writeFileSync(join(cwd, "answer.txt"), "needle\n")
   await mount(palette("text:/[/"))
   await waitFor(() => statuses.length === 1)
-  expect(statuses).toEqual([["Bad pattern: unclosed character class", "danger"]])
+  expect(statuses).toEqual([["That pattern is not a valid regex.", "danger"]])
   expect(state?.search).toBeUndefined()
   await update(palette("text:needle"))
   await waitFor(() => state?.search?.status === "done")
@@ -314,7 +314,7 @@ test("missing rg reports the exact refusal and recovery uses the restored real P
   process.env.PATH = join(root, "missing-bin")
   await mount(palette("text:needle"))
   await waitFor(() => statuses.length === 1)
-  expect(statuses).toEqual([["rg not found", "danger"]])
+  expect(statuses).toEqual([["Text search needs ripgrep (rg) installed.", "danger"]])
   expect(state?.search).toBeUndefined()
   process.env.PATH = originalPath
   writeFileSync(join(cwd, "answer.txt"), "needle\n")
@@ -325,7 +325,7 @@ test("missing rg reports the exact refusal and recovery uses the restored real P
   expect(statuses).toHaveLength(1)
 })
 
-test("a non-directory search location reports the actual process admission error and changing directories recovers", async () => {
+test("a non-directory search location reports a folder sentence, never rg's text, and changing directories recovers", async () => {
   const workspace = cwd
   const invalidDirectory = join(root, "regular-file")
   writeFileSync(invalidDirectory, "not a directory")
@@ -334,8 +334,8 @@ test("a non-directory search location reports the actual process admission error
   await waitFor(() => statuses.length === 1)
   expect(statuses).toHaveLength(1)
   expect(statuses[0]?.[1]).toBe("danger")
-  expect(statuses[0]?.[0]).toStartWith("rg:")
-  expect(statuses[0]?.[0]).toContain("ENOTDIR")
+  expect(statuses[0]?.[0]).toBe("This folder is gone; text search cannot run here.")
+  expect(statuses[0]?.[0]).not.toContain("ENOTDIR")
   expect(state?.search).toBeUndefined()
   writeFileSync(join(workspace, "answer.txt"), "needle\n")
   await update(palette("text:needle"), workspace)
@@ -362,7 +362,7 @@ test("public Search.run turns synchronous process admission refusal into its typ
     admitted.cancel()
   }).not.toThrow()
   const outcome = await admitted.done
-  expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+  expect(outcome).toMatchObject({ _tag: "failed", reason: "missing-directory" })
   if (outcome._tag !== "failed") throw new Error("Expected a search refusal")
   expect(outcome.message).toContain("ENOTDIR")
   expect(() => admitted.cancel()).not.toThrow()

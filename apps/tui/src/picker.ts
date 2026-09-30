@@ -243,14 +243,7 @@ export const useSearch = (options: {
           return
         }
         setSearch(undefined)
-        setStatus(
-          outcome.reason === "missing-rg"
-            ? "rg not found"
-            : outcome.reason === "bad-pattern"
-            ? `Bad pattern: ${outcome.message}`
-            : `rg: ${outcome.message}`,
-          "danger"
-        )
+        setStatus(Failures.line("search", Search.failure(outcome)), "danger")
       })
     }, 150)
     return () => {
