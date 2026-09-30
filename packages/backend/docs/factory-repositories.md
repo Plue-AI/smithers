@@ -21,6 +21,9 @@ The stack service starts the existing coding flow in that repository's own
 workspace, with the approved source and repository policy. It proposes a
 pull request under `changes: "send-upstream"`. The owner merges it, or a
 maintainer applies `automerge` and the stack merges after review approval.
+When GitHub merges the pull request, the next main pull marks the landing
+merged with the GitHub merge commit as its receipt (`github_merge` on
+`GET /landings/{n}`). Smithers never appends it to its own main.
 Do not register a second prompt worker for the same TODO.
 
 For another repository, commit its own factory and the flows it runs there.
