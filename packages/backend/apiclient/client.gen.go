@@ -1083,6 +1083,14 @@ type GetAPIStatusResponseComponentsCanary struct {
 	Detail string `json:"detail"`
 }
 
+// GetAPIReposOwnerRepoIssueViewsResponseItem is generated from docs/api/openapi.yaml.
+type GetAPIReposOwnerRepoIssueViewsResponseItem struct {
+	ID     string   `json:"id"`
+	Title  string   `json:"title"`
+	State  *string  `json:"state,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+}
+
 // GetAPILinearIDOpsParams is the query of GET /api/linear/{id}/ops.
 type GetAPILinearIDOpsParams struct {
 	Status *string
@@ -1135,6 +1143,14 @@ type GetAPIReposOwnerRepoChangesChangeIDFindingsParams struct {
 // GetAPIReposOwnerRepoChangesChangeIDOperationsParams is the query of GET /api/repos/{owner}/{repo}/changes/{change_id}/operations.
 type GetAPIReposOwnerRepoChangesChangeIDOperationsParams struct {
 	Rev *int64
+}
+
+// GetAPIReposOwnerRepoIssuesParams is the query of GET /api/repos/{owner}/{repo}/issues.
+type GetAPIReposOwnerRepoIssuesParams struct {
+	State  *string
+	View   *string
+	Cursor *string
+	Limit  *int64
 }
 
 // GetAPIReposOwnerRepoIssuesStateEventsParams is the query of GET /api/repos/{owner}/{repo}/issues/state-events.
@@ -1918,6 +1934,13 @@ func (c *Client) GetAPIIntegrationsSkills(ctx context.Context) (AnyJSON, error) 
 func (c *Client) PostAPIIntegrationsLinearIDSync(ctx context.Context, id string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/integrations/linear/"+url.PathEscape(id)+"/sync", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIReposOwnerRepoIssueViews calls GET /api/repos/{owner}/{repo}/issue-views.
+func (c *Client) GetAPIReposOwnerRepoIssueViews(ctx context.Context, owner string, repo string) ([]GetAPIReposOwnerRepoIssueViewsResponseItem, error) {
+	var out []GetAPIReposOwnerRepoIssueViewsResponseItem
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issue-views", nil, nil, &out)
 	return out, err
 }
 
@@ -3314,9 +3337,22 @@ func (c *Client) GetAPIReposOwnerRepoHooksIDDeliveries(ctx context.Context, owne
 }
 
 // GetAPIReposOwnerRepoIssues calls GET /api/repos/{owner}/{repo}/issues.
-func (c *Client) GetAPIReposOwnerRepoIssues(ctx context.Context, owner string, repo string) ([]Issue, error) {
+func (c *Client) GetAPIReposOwnerRepoIssues(ctx context.Context, owner string, repo string, params GetAPIReposOwnerRepoIssuesParams) ([]Issue, error) {
+	query := url.Values{}
+	if params.State != nil {
+		query.Set("state", *params.State)
+	}
+	if params.View != nil {
+		query.Set("view", *params.View)
+	}
+	if params.Cursor != nil {
+		query.Set("cursor", *params.Cursor)
+	}
+	if params.Limit != nil {
+		query.Set("limit", strconv.FormatInt(*params.Limit, 10))
+	}
 	var out []Issue
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues", nil, nil, &out)
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues", query, nil, &out)
 	return out, err
 }
 

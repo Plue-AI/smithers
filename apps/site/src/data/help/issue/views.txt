@@ -1,14 +1,9 @@
-smthrs issue list — List issues
+smthrs issue views — List the repository's saved issue views
 
-Usage: smthrs issue list [options]
+Usage: smthrs issue views [options]
 
 Options:
-  --all
-  --cursor <string>
-  --limit <number>                           (default: 30)
   --repo, -R <string>
-  --state <open|closed|fixed|verified|all>   (default: open)
-  --view <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

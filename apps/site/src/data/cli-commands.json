@@ -5299,6 +5299,10 @@
                 "all"
               ],
               "description": "Filter by state"
+            },
+            "view": {
+              "type": "string",
+              "description": "Saved issue view id from issue views; replaces --state"
             }
           },
           "required": [
@@ -5354,6 +5358,27 @@
           "required": [
             "number"
           ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "issue views",
+      "description": "List the repository's saved issue views",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
           "additionalProperties": false
         },
         "options": {

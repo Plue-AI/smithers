@@ -658,7 +658,8 @@ export const definitions = {
       "cursor": z.string().describe("Pagination cursor (from previous response)").optional(),
       "limit": z.coerce.number().describe("Results per page").default(30),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
-      "state": z.enum(["open", "closed", "fixed", "verified", "all"]).describe("Filter by state").default("open")
+      "state": z.enum(["open", "closed", "fixed", "verified", "all"]).describe("Filter by state").default("open"),
+      "view": z.string().describe("Saved issue view id from issue views; replaces --state").optional()
     })
   },
   "issue reopen": {
@@ -669,6 +670,11 @@ export const definitions = {
   "issue view": {
     description: "View an issue",
     args: z.object({ "number": z.string().describe("Issue number") }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
+  "issue views": {
+    description: "List the repository's saved issue views",
+    args: z.object({}),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "label create": {

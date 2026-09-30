@@ -52,13 +52,19 @@ add(
     c.pages(
       (cursor) =>
         repo(c, o, "/issues") +
-        query({ limit: o.limit ?? 30, state: o.state === "all" ? undefined : o.state ?? "open", cursor }),
+        query({
+          limit: o.limit ?? 30,
+          // A saved view carries its own state; the API refuses both.
+          ...(o.view ? { view: o.view } : { state: o.state === "all" ? undefined : o.state ?? "open" }),
+          cursor
+        }),
       str(o.cursor),
       o.all === true,
       "issues"
     )
 )
 add("issue view", (c, a, o) => c.request("GET", repo(c, o, `/issues/${positive(a.number)}`)))
+add("issue views", (c, _a, o) => c.request("GET", repo(c, o, "/issue-views")))
 for (const action of ["close", "reopen"]) {
   add(`issue ${action}`, async (c, a, o) => {
     const path = repo(c, o, `/issues/${positive(a.number)}`)

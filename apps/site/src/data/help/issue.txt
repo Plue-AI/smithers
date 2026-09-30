@@ -10,6 +10,7 @@ Commands:
   list     List issues
   reopen   Reopen an issue
   view     View an issue
+  views    List the repository's saved issue views
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

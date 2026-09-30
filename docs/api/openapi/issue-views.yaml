@@ -1,0 +1,68 @@
+paths:
+  /api/repos/{owner}/{repo}/issue-views:
+    get:
+      summary: GET /api/repos/{owner}/{repo}/issue-views
+      description: The saved issue views the repository's factory declares on its default bookmark (`S.Factory({ issueViews })` in `.smithers/FACTORY.ts`), in declaration order. `GET /api/repos/{owner}/{repo}/issues?view=<id>` lists issues through one. None declared is an empty list; an unreadable projection is an error.
+      operationId: get_api_repos_owner_repo_issue_views
+      tags:
+        - Issue Views
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - id
+                    - title
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^[a-z0-9][a-z0-9-]{0,63}$
+                    title:
+                      type: string
+                    state:
+                      type: string
+                      enum:
+                        - open
+                        - closed
+                        - fixed
+                        - verified
+                        - all
+                    labels:
+                      type: array
+                      items:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'

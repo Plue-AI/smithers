@@ -1325,6 +1325,21 @@ export interface PostApiIntegrationsLinearIdSyncInput {
 export const postApiIntegrationsLinearIdSync = (transport: Transport, input: PostApiIntegrationsLinearIdSyncInput): Promise<PostApiIntegrationsLinearIdSyncResponse> =>
   transport.request("POST", `/api/integrations/linear/${segment(input.path.id)}/sync`) as Promise<PostApiIntegrationsLinearIdSyncResponse>
 
+export type GetApiReposOwnerRepoIssueViewsResponse = Array<{
+  id: string
+  title: string
+  state?: "open" | "closed" | "fixed" | "verified" | "all"
+  labels?: Array<string>
+}>
+
+export interface GetApiReposOwnerRepoIssueViewsInput {
+  readonly path: { readonly owner: string; readonly repo: string }
+}
+
+/** GET /api/repos/{owner}/{repo}/issue-views */
+export const getApiReposOwnerRepoIssueViews = (transport: Transport, input: GetApiReposOwnerRepoIssueViewsInput): Promise<GetApiReposOwnerRepoIssueViewsResponse> =>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issue-views`) as Promise<GetApiReposOwnerRepoIssueViewsResponse>
+
 export type GetApiLinearIdOpsResponse = LinearSyncOps
 
 export interface GetApiLinearIdOpsInput {
@@ -3235,11 +3250,12 @@ export type GetApiReposOwnerRepoIssuesResponse = Array<Issue>
 
 export interface GetApiReposOwnerRepoIssuesInput {
   readonly path: { readonly owner: string; readonly repo: string }
+  readonly query?: { readonly state?: "open" | "closed" | "fixed" | "verified" | "all"; readonly view?: string; readonly cursor?: string; readonly limit?: number }
 }
 
 /** GET /api/repos/{owner}/{repo}/issues */
 export const getApiReposOwnerRepoIssues = (transport: Transport, input: GetApiReposOwnerRepoIssuesInput): Promise<GetApiReposOwnerRepoIssuesResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues`) as Promise<GetApiReposOwnerRepoIssuesResponse>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues${search({ state: input.query?.state, view: input.query?.view, cursor: input.query?.cursor, limit: input.query?.limit })}`) as Promise<GetApiReposOwnerRepoIssuesResponse>
 
 export type PostApiReposOwnerRepoIssuesResponse = Issue
 

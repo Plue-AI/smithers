@@ -3202,6 +3202,73 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/issue-views:
+    get:
+      summary: GET /api/repos/{owner}/{repo}/issue-views
+      description: The saved issue views the repository's factory declares on its default bookmark (`S.Factory({ issueViews })` in `.smithers/FACTORY.ts`), in declaration order. `GET /api/repos/{owner}/{repo}/issues?view=<id>` lists issues through one. None declared is an empty list; an unreadable projection is an error.
+      operationId: get_api_repos_owner_repo_issue_views
+      tags:
+        - Issue Views
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - id
+                    - title
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^[a-z0-9][a-z0-9-]{0,63}$
+                    title:
+                      type: string
+                    state:
+                      type: string
+                      enum:
+                        - open
+                        - closed
+                        - fixed
+                        - verified
+                        - all
+                    labels:
+                      type: array
+                      items:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/linear/{id}/ops:
     get:
       summary: GET /api/linear/{id}/ops
@@ -11555,6 +11622,7 @@ paths:
   /api/repos/{owner}/{repo}/issues:
     get:
       summary: GET /api/repos/{owner}/{repo}/issues
+      description: One page of the repository's issues, newest first. `state` keeps one state (`open`, `closed`, `fixed`, `verified`; `all` or none keeps every state). `view` applies a saved issue view the factory declares (`GET /api/repos/{owner}/{repo}/issue-views`) and cannot be combined with `state`. A private conversation is listed only to its author.
       operationId: get_api_repos_owner_repo_issues
       tags:
         - Repositories
@@ -11569,6 +11637,32 @@ paths:
           required: true
           schema:
             type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - closed
+              - fixed
+              - verified
+              - all
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       x-smithers-client-contract: multi-v1
       security:
         - tokenAuth: []

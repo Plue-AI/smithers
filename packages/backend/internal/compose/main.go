@@ -573,6 +573,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithIssueMentionService(mentionService),
 		services.WithIssueNotificationService(notificationService),
 		services.WithIssueOwnershipGuard(repoOwnershipFence),
+		services.WithIssueFactoryReader(repoHostClient),
 	)
 	adminOrgService := services.NewAdminOrgService(queries)
 	adminRepoService := services.NewAdminRepoService(queries)

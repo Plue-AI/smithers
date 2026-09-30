@@ -1824,6 +1824,7 @@ func buildRouter(
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/conflicts", landingHandler.GetLandingConflicts)
 			// Ticket 12: Issue read routes — gated by feature_flags.issues.
 			r.With(append(readRepo, gateIssues)...).Get("/repos/{owner}/{repo}/issues", issueHandler.ListIssues)
+			r.With(append(readRepo, gateIssues)...).Get("/repos/{owner}/{repo}/issue-views", issueHandler.ListIssueViews)
 			r.With(append(readRepo, gateIssues)...).Get("/repos/{owner}/{repo}/issues/{number}", issueHandler.GetIssue)
 			r.With(append(readRepo, gateIssues)...).Get("/repos/{owner}/{repo}/issues/{number}/comments", issueHandler.ListIssueComments)
 
