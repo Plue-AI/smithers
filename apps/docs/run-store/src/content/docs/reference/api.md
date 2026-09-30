@@ -79,7 +79,8 @@ const create: (runId: string, stateJson: string, options?: CreateOptions) => Eff
 
 Inserts a `pending` row. `stateJson` is JSON text: it is parsed, bounded, and
 stored as the caller's own bytes. `created_at_ms` is stamped from the Effect
-`Clock`.
+`Clock`. A `runId` that begins with the journal's `companionPrefix` names a
+companion stream and fails `invalid_run`.
 
 #### get
 
@@ -416,6 +417,31 @@ lengths, and validity flags, never the value that failed.
 
 Run state has no byte ceiling by design: it is what a resume re-enters, so a
 large state has to persist.
+
+### Ownership transitions
+
+```ts
+const OwnershipTransition: Schema<"claimed" | "activated" | "released" | "stolen" | "expired">
+const ownershipEventType: (transition: OwnershipTransition) => string // "flows.consensus.<transition>"
+const companionStream: string // "run-store"
+```
+
+Every transition the consensus strategy grants is appended as a
+`flows.consensus.<transition>` fact, with payload `{ runId, owner,
+grantedAtMs }`, to the run's companion stream
+`JournalEvent.companionRunId(companionStream, runId)`, in the transaction that
+made it. `claim` records `claimed`; `activate` records `activated`, or
+`released` when the snapshot moved on; `claimAndOwn` records `claimed` or
+`stolen` and then `activated`, with a `released` first when an owner re-owns
+its own stale run; `steal` records `stolen`; `abandonClaim` and an owner's
+non-running `transitionOwned` record `released`; `recoverClaim` records
+`expired`. A refused operation and a heartbeat record nothing, and a
+rolled-back transaction leaves no fact.
+
+The facts sit beside the run's own stream, so a consumer that reads that stream
+by position never sees one. They are recorded when the caller runs with a
+`Journal` in its context, which the ordinary composition
+(`Layer.mergeAll(SqlJournal.layer(...), RunStore.layer)`) provides.
 
 ### RunStore constructors and layers
 

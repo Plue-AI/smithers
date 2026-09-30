@@ -94,7 +94,11 @@ successful steal writes the claim columns of a stale running row, and the
 caller follows with `activate`. That is why the takeover path and the ordinary
 claim path converge on the same second step.
 
-Heartbeats renew the strategy's lease and never enter the journal.
+Every transition the strategy grants — `claimed`, `activated`, `released`,
+`stolen`, `expired` — is appended as a `flows.consensus.*` fact on the run's
+`run-store` companion journal stream in the same transaction, beside the run's
+own stream rather than in it. Heartbeats renew the strategy's lease and never
+enter the journal.
 
 ## Competition is a value, failure is an error
 
