@@ -255,17 +255,19 @@ type invokedFlowRecord struct {
 	TriggerRef           string
 	TriggerCommit        string
 	SourceRevision       string
+	// LaunchRedaction is the sealed set of secret values a launch injected.
+	LaunchRedaction string
 }
 
 func scanInvokedFlow(row pgx.Row) (invokedFlowRecord, error) {
 	var record invokedFlowRecord
 	err := row.Scan(&record.UserID, &record.RepositoryID, &record.FlowID, &record.OperationID, &record.WorkspaceID, &record.Status,
-		&record.StepID, &record.LogCursor, &record.TriggerRef, &record.TriggerCommit, &record.SourceRevision)
+		&record.StepID, &record.LogCursor, &record.TriggerRef, &record.TriggerCommit, &record.SourceRevision, &record.LaunchRedaction)
 	return record, err
 }
 
 const invokedFlowColumns = `i.user_id, r.repository_id, i.flow_id, i.operation_id, COALESCE(i.workspace_id::text,''), r.status,
-	i.workflow_step_id, i.log_cursor, r.trigger_ref, i.trigger_commit, i.source_revision
+	i.workflow_step_id, i.log_cursor, r.trigger_ref, i.trigger_commit, i.source_revision, i.launch_redaction
 	FROM workflow_run_flow_invocations i JOIN workflow_runs r ON r.id=i.workflow_run_id WHERE i.workflow_run_id=$1`
 
 // ResolveFlowHostTarget authorizes an invoked run's host on the invoker's
@@ -377,12 +379,106 @@ func (s *InvokedFlowService) FlowHostEnvironment(ctx context.Context, authority 
 		if shared {
 			return nil, repositoryJobFlowFailure{code: "runtime_workspace_shared", retryable: false}
 		}
+		runID, err := strconv.ParseInt(authority.Target.BindingID, 10, 64)
+		if err != nil {
+			return nil, repositoryJobFlowFailure{code: "runtime_target_unsupported", retryable: false}
+		}
+		if err := s.retainLaunchRedaction(ctx, runID, secretValues(secrets)); err != nil {
+			return nil, repositoryJobFlowFailure{code: "runtime_environment_unavailable", retryable: true}
+		}
 	}
 	return environment, nil
 }
 
+// retainLaunchRedaction keeps the exact secret values a launch injected, sealed
+// like stored secrets, so the run's log masks them after the secret rotates or
+// is deleted. Launches of one run accumulate; the set is deleted with the run.
+func (s *InvokedFlowService) retainLaunchRedaction(ctx context.Context, runID int64, values []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var sealed string
+	if err := tx.QueryRow(ctx, `SELECT launch_redaction FROM workflow_run_flow_invocations WHERE workflow_run_id=$1 FOR UPDATE`, runID).Scan(&sealed); err != nil {
+		return err
+	}
+	retained, err := s.secrets.openRedactionValues(sealed)
+	if err != nil {
+		return err
+	}
+	merged := mergeRedactionValues(retained, values)
+	if len(merged) == len(retained) {
+		return tx.Commit(ctx)
+	}
+	if sealed, err = s.secrets.sealRedactionValues(merged); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE workflow_run_flow_invocations SET launch_redaction=$2 WHERE workflow_run_id=$1`, runID, sealed); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// mergeRedactionValues is base followed by the values it lacks.
+func mergeRedactionValues(base, values []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(values))
+	merged := make([]string, 0, len(base)+len(values))
+	for _, list := range [][]string{base, values} {
+		for _, value := range list {
+			if _, ok := seen[value]; !ok {
+				seen[value] = struct{}{}
+				merged = append(merged, value)
+			}
+		}
+	}
+	return merged
+}
+
+// redactionValues is the set a projection masks: every retained launch value
+// plus the repository's current secrets.
+func (s *InvokedFlowService) redactionValues(ctx context.Context, record invokedFlowRecord) ([]string, error) {
+	retained, err := s.secrets.openRedactionValues(record.LaunchRedaction)
+	if err != nil {
+		return nil, fmt.Errorf("open retained Flow log redaction: %w", err)
+	}
+	_, current, err := s.secrets.RepositoryEnvironmentAndSecrets(ctx, record.RepositoryID, false)
+	if err != nil {
+		return nil, fmt.Errorf("load invoked Flow log redaction: %w", err)
+	}
+	return mergeRedactionValues(retained, secretValues(current)), nil
+}
+
 // invokedFlowLogEntryLimit bounds one journal event's log line.
 const invokedFlowLogEntryLimit = 16 << 10
+
+const (
+	// invokedFlowEventPayloadLimit bounds one event's payload that redaction
+	// scans; a larger payload is logged as its size only, never truncated
+	// unmasked.
+	invokedFlowEventPayloadLimit = 4 << 20
+	// invokedFlowPageRedactionBudget bounds the payload bytes one projection
+	// page scans.
+	invokedFlowPageRedactionBudget = 16 << 20
+)
+
+// invokedFlowLogEntries renders a page of events as log lines. Redaction runs
+// here, before any projection transaction opens; an event past the per-event
+// or per-page bound is logged by kind and size alone.
+func invokedFlowLogEntries(events []flowruntime.FlowRuntimeEvent, redactionPatterns []secretPattern) []string {
+	entries := make([]string, 0, len(events))
+	budget := invokedFlowPageRedactionBudget
+	for _, event := range events {
+		size := len(event.Payload)
+		if size > invokedFlowEventPayloadLimit || size > budget {
+			entries = append(entries, fmt.Sprintf("%s [payload omitted: %d bytes]", redactInvokedFlowEntry(redactionPatterns, event.Kind), size))
+			continue
+		}
+		budget -= size
+		entries = append(entries, invokedFlowLogEntry(event, redactionPatterns))
+	}
+	return entries
+}
 
 // invokedFlowLogEntry renders one journal event as a log line: its kind and
 // payload.
@@ -476,6 +572,72 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 	if s == nil || s.pool == nil {
 		return errors.New("invoked Flow projection is unavailable")
 	}
+	// Redaction scales with payload size, so it runs before the transaction
+	// opens; a launch or log cursor that moves meanwhile redoes it.
+	for attempt := 0; attempt < invokedFlowProjectionAttempts; attempt++ {
+		prepared, err := s.prepareInvokedFlowLogs(ctx, update, projection.WorkflowRunID)
+		if err != nil {
+			return err
+		}
+		if prepared == nil {
+			// The run was deleted with its repository; nothing is left to project.
+			return nil
+		}
+		err = s.projectFlowRuntimeTx(ctx, update, projection, *prepared)
+		if !errors.Is(err, errInvokedFlowLogsStale) {
+			return err
+		}
+	}
+	return errInvokedFlowLogsStale
+}
+
+// invokedFlowProjectionAttempts bounds how often a concurrently changing
+// redaction set or log cursor restarts one projection.
+const invokedFlowProjectionAttempts = 3
+
+var errInvokedFlowLogsStale = errors.New("invoked Flow log redaction changed during projection")
+
+// invokedFlowLogs is a projection's redacted log lines, rendered outside its
+// transaction against the launch redaction and cursor it read.
+type invokedFlowLogs struct {
+	launchRedaction string
+	logCursor       string
+	events          []string
+	failure         string
+}
+
+func (s *InvokedFlowService) prepareInvokedFlowLogs(ctx context.Context, update flowdispatch.ProjectionUpdate, runID int64) (*invokedFlowLogs, error) {
+	record, err := scanInvokedFlow(s.pool.QueryRow(ctx, "SELECT "+invokedFlowColumns, runID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	logs := &invokedFlowLogs{launchRedaction: record.LaunchRedaction, logCursor: record.LogCursor}
+	status := invokedRunStatus(update)
+	logEvents := len(update.Events) > 0 && update.EventsAfter == record.LogCursor && update.Checkpoint.Cursor != record.LogCursor
+	if !logEvents && status != "failure" {
+		return logs, nil
+	}
+	var patterns []secretPattern
+	if s.secrets != nil {
+		values, err := s.redactionValues(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		patterns = newSecretPatterns(values)
+	}
+	if logEvents {
+		logs.events = invokedFlowLogEntries(update.Events, patterns)
+	}
+	if status == "failure" {
+		logs.failure = redactInvokedFlowEntry(patterns, invokedFlowFailure(update.Checkpoint))
+	}
+	return logs, nil
+}
+
+func (s *InvokedFlowService) projectFlowRuntimeTx(ctx context.Context, update flowdispatch.ProjectionUpdate, projection invokedFlowProjection, prepared invokedFlowLogs) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -488,6 +650,9 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 	}
 	if err != nil {
 		return err
+	}
+	if record.LaunchRedaction != prepared.launchRedaction || record.LogCursor != prepared.logCursor {
+		return errInvokedFlowLogsStale
 	}
 	checkpoint := update.Checkpoint
 	if update.OperationID != record.OperationID || update.Scope != repositoryJobFlowScope(record.RepositoryID, record.UserID) ||
@@ -546,17 +711,10 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 			return fmt.Errorf("log invoked Flow source: %w", err)
 		}
 	}
-	var redact map[string]string
-	if s.secrets != nil && (len(update.Events) > 0 || status == "failure") {
-		if _, redact, err = s.secrets.RepositoryEnvironmentAndSecrets(ctx, record.RepositoryID, false); err != nil {
-			return fmt.Errorf("load invoked Flow log redaction: %w", err)
-		}
-	}
-	redactionPatterns := newSecretPatterns(secretValues(redact))
 	// A page is logged once: only when it continues the logged journal.
 	if len(update.Events) > 0 && update.EventsAfter == record.LogCursor && checkpoint.Cursor != record.LogCursor {
-		for _, event := range update.Events {
-			if err := appendLog("stdout", invokedFlowLogEntry(event, redactionPatterns)); err != nil {
+		for _, entry := range prepared.events {
+			if err := appendLog("stdout", entry); err != nil {
 				return fmt.Errorf("log invoked Flow event: %w", err)
 			}
 		}
@@ -588,7 +746,7 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 		}
 		changed = tag.RowsAffected() == 1
 		if changed && status == "failure" {
-			if err := appendLog("system", redactInvokedFlowEntry(redactionPatterns, invokedFlowFailure(checkpoint))); err != nil {
+			if err := appendLog("system", prepared.failure); err != nil {
 				return fmt.Errorf("log invoked Flow failure: %w", err)
 			}
 		}

@@ -3,6 +3,7 @@ package services
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -443,4 +444,34 @@ func injectedEnvByteSize(env map[string]string) int {
 		total += len(name) + len(value)
 	}
 	return total
+}
+
+// sealRedactionValues seals a run's retained redaction values like a stored
+// secret, so they are encrypted at rest.
+func (s *SecretInjector) sealRedactionValues(values []string) (string, error) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return s.secretCodec.EncryptString(string(encoded))
+}
+
+// openRedactionValues is sealRedactionValues' inverse; an empty seal holds no
+// values.
+func (s *SecretInjector) openRedactionValues(sealed string) ([]string, error) {
+	if sealed == "" {
+		return nil, nil
+	}
+	encoded, err := s.secretCodec.DecryptString(sealed)
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(encoded), &values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }
