@@ -282,10 +282,42 @@ const readRemoteUrls = async (
   return remotes
 }
 
+/** Upper bound for a `.git` gitdir pointer file or a `commondir` file. */
+const maximumGitPointerBytes = 4096
+
+/** Reads one small regular (non-symlink) pointer file, trimmed; undefined otherwise. */
+const readGitPointer = async (path: string): Promise<string | undefined> => {
+  try {
+    const stats = await Fs.lstat(path)
+    if (!stats.isFile() || stats.size > maximumGitPointerBytes) return undefined
+    const text = (await Fs.readFile(path, "utf8")).trim()
+    return text === "" || text.includes("\n") ? undefined : text
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The Git config holding a checkout's remotes. An ordinary checkout keeps it
+ * at `.git/config`. A linked worktree's `.git` is a `gitdir: <path>` file; its
+ * remotes live in the common directory its `commondir` file names (or in the
+ * gitdir itself when there is none).
+ */
+const gitConfigPath = async (root: string): Promise<string> => {
+  const dotGit = NodePath.join(root, ".git")
+  const pointer = await readGitPointer(dotGit)
+  const match = pointer === undefined ? null : /^gitdir:\s*(.+)$/.exec(pointer)
+  if (match === null) return NodePath.join(dotGit, "config")
+  const gitDirectory = NodePath.resolve(root, match[1]!)
+  const common = await readGitPointer(NodePath.join(gitDirectory, "commondir"))
+  return NodePath.join(common === undefined ? gitDirectory : NodePath.resolve(gitDirectory, common), "config")
+}
+
 /**
  * Finds the Smithers Cloud repository a workspace's `origin` (or any) remote points
- * at, reading the colocated `.git/config` first and the jj git backend's
- * config second. Never spawns git or jj.
+ * at, reading the colocated Git config first (`.git/config`, or a linked
+ * worktree's common-directory config) and the jj git backend's config second.
+ * Never spawns git or jj.
  *
  * @category discovery
  * @since 0.1.0
@@ -295,8 +327,8 @@ export const discoverSmithersCloudRepository = async (
   environment: Readonly<Record<string, string | undefined>>
 ): Promise<DiscoveredSmithersCloudRepository | undefined> => {
   const hosts = smithersCloudHostsOf(environment)
-  for (const relative of [".git/config", ".jj/repo/store/git/config"]) {
-    const remotes = await readRemoteUrls(NodePath.join(root, relative))
+  for (const path of [await gitConfigPath(root), NodePath.join(root, ".jj/repo/store/git/config")]) {
+    const remotes = await readRemoteUrls(path)
     const ordered = [...remotes.filter((r) => r.name === "origin"), ...remotes.filter((r) => r.name !== "origin")]
     for (const remote of ordered) {
       const found = parseSmithersCloudRemote(remote.url, hosts)

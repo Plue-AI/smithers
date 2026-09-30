@@ -4,6 +4,7 @@
  */
 import * as RemoteCache from "@smthrs/targets/RemoteCache"
 import * as Secret from "@smthrs/targets/Secret"
+import { execFileSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
@@ -149,6 +150,76 @@ describe("discoverSmithersCloudRepository", () => {
     await config(root, "secret-config", "[remote \"origin\"]\nurl = git@jjhub.tech:secret/repo.git\n")
     await Fs.symlink(NodePath.join(root, "secret-config"), NodePath.join(root, ".git", "config"))
     expect(await discoverSmithersCloudRepository(root, {})).toBeUndefined()
+  })
+
+  it("discovers the same repository from a real linked Git worktree as from its primary checkout", async () => {
+    const primary = await temporaryRoot()
+    const linked = NodePath.join(await temporaryRoot(), "linked")
+    const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+      execFileSync("git", [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        ...args
+      ], {
+        cwd,
+        encoding: "utf8",
+        env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))),
+        stdio: ["ignore", "pipe", "pipe"]
+      })
+    git(primary, "init", "-q")
+    git(primary, "commit", "-q", "--allow-empty", "-m", "root")
+    git(primary, "config", "remote.origin.url", "https://jjhub.tech/alice/review.git")
+    git(primary, "worktree", "add", "-q", "--detach", linked, "HEAD")
+    expect((await Fs.lstat(NodePath.join(linked, ".git"))).isFile()).toBe(true)
+    expect(git(linked, "config", "--get", "remote.origin.url").trim()).toBe("https://jjhub.tech/alice/review.git")
+    const expected = { repo: "alice/review", host: "jjhub.tech" }
+    expect(await discoverSmithersCloudRepository(primary, {})).toEqual(expected)
+    expect(await discoverSmithersCloudRepository(linked, {})).toEqual(expected)
+    git(primary, "config", "remote.origin.url", "https://github.com/alice/review.git")
+    expect(await discoverSmithersCloudRepository(linked, {})).toBeUndefined()
+    expect(await discoverSmithersCloudRepository(linked, { SMITHERS_CLOUD_HOSTS: "github.com" }))
+      .toEqual({ repo: "alice/review", host: "github.com" })
+  })
+
+  it("follows a relative gitdir pointer with and without a commondir file", async () => {
+    const base = await temporaryRoot()
+    const root = NodePath.join(base, "checkout")
+    await config(root, ".git", "gitdir: ../store/worktrees/one\n")
+    await config(base, "store/worktrees/one/config", "[remote \"origin\"]\nurl = git@jjhub.tech:own/dir.git\n")
+    // Without commondir, the gitdir itself holds the config.
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual({ repo: "own/dir", host: "jjhub.tech" })
+    await config(base, "store/worktrees/one/commondir", "../..\n")
+    await config(base, "store/config", "[remote \"origin\"]\nurl = git@jjhub.tech:common/dir.git\n")
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual({ repo: "common/dir", host: "jjhub.tech" })
+  })
+
+  it("ignores malformed, oversized, and symlinked gitdir pointers but still reads the jj backend", async () => {
+    const root = await temporaryRoot()
+    const target = await temporaryRoot()
+    await config(target, "config", "[remote \"origin\"]\nurl = git@jjhub.tech:pointer/target.git\n")
+    await config(root, ".jj/repo/store/git/config", "[remote \"origin\"]\nurl = git@jjhub.tech:jj/fallback.git\n")
+    const fallback = { repo: "jj/fallback", host: "jjhub.tech" }
+    for (
+      const pointer of [
+        `${target}\n`,
+        `gitdir:\n`,
+        `gitdir: ${target}\nextra: line\n`,
+        `gitdir: ${target}\n${"#".repeat(4096)}`
+      ]
+    ) {
+      await config(root, ".git", pointer)
+      expect(await discoverSmithersCloudRepository(root, {}), JSON.stringify(pointer.slice(0, 40))).toEqual(fallback)
+    }
+    await config(root, ".git", `gitdir: ${target}\n`)
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual({ repo: "pointer/target", host: "jjhub.tech" })
+    await config(root, "pointer", `gitdir: ${target}\n`)
+    await Fs.rm(NodePath.join(root, ".git"))
+    await Fs.symlink(NodePath.join(root, "pointer"), NodePath.join(root, ".git"))
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual(fallback)
   })
 
   it("accepts a valid config at 256 KiB and rejects the next byte", async () => {
