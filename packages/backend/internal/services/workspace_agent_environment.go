@@ -68,6 +68,10 @@ func (s *WorkspaceService) runWorkspaceAgentEnvironmentSetup(ctx context.Context
 	if err := s.setWorkspaceProvisioningStage(ctx, workspace.ID, "environment_setup"); err != nil {
 		return err
 	}
+	if err := waitForWorkspaceArtifactBootstrap(ctx, client, vmID); err != nil {
+		s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, "environment_setup_failed")
+		return pkgerrors.Internal("workspace bootstrap failed before environment setup").WithCause(err)
+	}
 	profile, err := renderWorkspaceAgentEnvironmentProfile(config.Env, config.ProxyBound)
 	if err != nil {
 		s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, "environment_setup_failed")
@@ -113,8 +117,7 @@ func (s *WorkspaceService) runWorkspaceAgentEnvironmentSetup(ctx context.Context
 	}
 
 	setupResponse, setupErr := client.Execute(ctx, vmID, sandbox.ExecRequest{
-		Command: "PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin; export PATH; if systemctl cat " + shellQuote(workspaceClaudeService+".service") + " >/dev/null 2>&1; then systemctl start " + shellQuote(workspaceClaudeService+".service") + " >/dev/null 2>&1 || exit $?; fi; " +
-			"chmod 600 " + shellQuote(workspaceAgentEnvironmentWrapperPath) + " && /bin/bash " + shellQuote(workspaceAgentEnvironmentWrapperPath),
+		Command:   "PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin; export PATH; chmod 600 " + shellQuote(workspaceAgentEnvironmentWrapperPath) + " && /bin/bash " + shellQuote(workspaceAgentEnvironmentWrapperPath),
 		TimeoutMS: agentEnvironmentInt64Ptr(workspaceAgentEnvironmentTimeoutMS),
 	})
 	cleanupOK := s.cleanupWorkspaceAgentEnvironmentFiles(ctx, client, vmID)

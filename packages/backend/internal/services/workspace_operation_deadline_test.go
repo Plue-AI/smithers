@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,21 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
+
+type resumeDeadlineSandbox struct {
+	*mockWorkspaceSandboxVMClient
+	artifactDeadline time.Duration
+}
+
+func (s *resumeDeadlineSandbox) Execute(ctx context.Context, id string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	if strings.HasPrefix(strings.TrimPrefix(req.Command, workspaceArtifactGuestPath), "owner=$(cat ") {
+		deadline, ok := ctx.Deadline()
+		if ok {
+			s.artifactDeadline = time.Until(deadline)
+		}
+	}
+	return s.mockWorkspaceSandboxVMClient.Execute(ctx, id, req)
+}
 
 func assertWorkspaceOperationDeadline(t *testing.T, ctx context.Context, limit time.Duration) {
 	t.Helper()
@@ -77,6 +93,11 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 		)
 	})
 
+	t.Run("reaper cannot preempt live provision", func(t *testing.T) {
+		assert.Greater(t, workspaceStaleAfter, workspaceProvisionTimeout)
+		assert.Greater(t, workspaceStartingWithVMStaleAfter, workspaceProvisionTimeout)
+	})
+
 	t.Run("fork vm", func(t *testing.T) {
 		vm := &mockWorkspaceSandboxVMClient{
 			forkVMFn: func(ctx context.Context, _ string, _ sandbox.ForkRequest) (sandbox.CreateResult, error) {
@@ -85,7 +106,7 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 			},
 		}
 		svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm))
-		_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-source", "container", nil)
+		_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-source", "child", "container", nil)
 		require.NoError(t, err)
 	})
 
@@ -118,4 +139,21 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 		err := svc.cloneWorkspaceRepository(context.Background(), "vm-created", "https://api.jjhub.tech/alice/demo.git", "token", "main", 0)
 		require.NoError(t, err)
 	})
+}
+
+func TestWorkspaceResumeKeepsFastStartAndAllowsArtifactRepair(t *testing.T) {
+	client := &resumeDeadlineSandbox{mockWorkspaceSandboxVMClient: &mockWorkspaceSandboxVMClient{}}
+	client.startVMFn = func(ctx context.Context, _ string, _ sandbox.StartRequest) (sandbox.StartResult, error) {
+		assertWorkspaceOperationDeadline(t, ctx, workspaceResumeTimeout)
+		return sandbox.StartResult{}, nil
+	}
+	workspace := sampleDBWorkspace("resume-artifact-deadline")
+	workspace.Status = "suspended"
+	workspace.VmID = "vm-resume-artifact"
+	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(client))
+	_, err := service.resumeWorkspaceVM(t.Context(), workspace)
+	require.NoError(t, err)
+	require.Greater(t, client.artifactDeadline, workspaceResumeTimeout,
+		"artifact repair must not inherit the provider's 30-second start budget")
+	require.LessOrEqual(t, client.artifactDeadline, workspaceResumeProvisionTimeout)
 }

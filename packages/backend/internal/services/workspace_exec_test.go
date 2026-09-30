@@ -67,7 +67,7 @@ func TestWorkspaceService_CreateSession_ReplacesStalePendingWorkspaceWithoutVM(t
 			workspace := sampleUnnamedDBWorkspace("ws-stale")
 			workspace.Status = "starting"
 			workspace.VmID = ""
-			workspace.UpdatedAt = time.Now().Add(-6 * time.Minute)
+			workspace.UpdatedAt = time.Now().Add(-workspaceStaleAfter - time.Minute)
 			return []db.Workspace{workspace}, nil
 		},
 		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {

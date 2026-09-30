@@ -615,13 +615,15 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	if s.billing != nil {
 		idleTimeout = int64(workspace.IdleTimeoutSecs)
 	}
-	resumeCtx, cancel := context.WithTimeout(ctx, workspaceResumeTimeout)
+	resumeCtx, cancel := context.WithTimeout(ctx, workspaceResumeProvisionTimeout)
 	defer cancel()
+	setupCtx, cancelSetup := context.WithTimeout(resumeCtx, workspaceResumeTimeout)
+	defer cancelSetup()
 
 	var binding *workspaceProviderBinding
 	if (s.providerConnections != nil || s.providerBootstrap) && workspace.Kind != "agent" {
 		var err error
-		binding, err = s.resolveWorkspaceProviderBindings(resumeCtx, workspace)
+		binding, err = s.resolveWorkspaceProviderBindings(setupCtx, workspace)
 		if err != nil {
 			return workspace, err
 		}
@@ -629,10 +631,10 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	var egress *sandbox.EgressProxyPolicy
 	if binding != nil {
 		egress = binding.egress
-	} else if outsider, err := s.outsiderWorkspace(resumeCtx, workspace.ID); err != nil || outsider {
+	} else if outsider, err := s.outsiderWorkspace(setupCtx, workspace.ID); err != nil || outsider {
 		// Without provider bindings a resume keeps the box's proxy; a box
 		// that ran outsider-started work gets its narrowed one instead.
-		if egress, err = s.workspaceEgressProxy(resumeCtx, workspace.RepositoryID, workspace.ID); err != nil {
+		if egress, err = s.workspaceEgressProxy(setupCtx, workspace.RepositoryID, workspace.ID); err != nil {
 			return workspace, err
 		}
 	}
@@ -640,15 +642,25 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	// Readiness is a first-boot contract. Resume returns when the controller
 	// reports the sandbox running; it must not wait for a one-shot boot signal.
 	waitForReady := false
-	if _, err := s.sandbox.StartSandbox(resumeCtx, workspace.VmID, sandbox.StartRequest{
+	startCtx, cancelStart := context.WithTimeout(resumeCtx, workspaceResumeTimeout)
+	defer cancelStart()
+	if _, err := s.sandbox.StartSandbox(startCtx, workspace.VmID, sandbox.StartRequest{
 		EgressProxy:        egress,
 		IdleTimeoutSeconds: &idleTimeout,
 		WaitForReady:       &waitForReady,
 	}); err != nil {
 		return workspace, err
 	}
-	if err := s.waitForWorkspaceGuestActivation(resumeCtx, workspace); err != nil {
+	if err := s.waitForWorkspaceGuestActivation(startCtx, workspace); err != nil {
 		return workspace, err
+	}
+	if err := finishWorkspaceArtifacts(resumeCtx, s.sandbox, workspace.VmID, workspaceBootstrapScriptForKind(workspace.Kind)); err != nil {
+		return workspace, err
+	}
+	if client, ok := s.sandbox.(workspaceArtifactClient); ok {
+		if err := waitForWorkspaceArtifactBootstrap(resumeCtx, client, workspace.VmID); err != nil {
+			return workspace, err
+		}
 	}
 	if binding != nil {
 		// Refresh persistent auth settings without repeating the repository setup script.
@@ -917,7 +929,7 @@ func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Wo
 			return pkgerrors.Internal("update workspace status: " + err.Error())
 		}
 		if err := s.stopRuntimeWorkspaceLocked(ctx, suspended, current.UserID, "suspend"); err != nil {
-			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 			defer cancel()
 			running, updateErr := s.q.UpdateWorkspaceStatus(rollbackCtx, db.UpdateWorkspaceStatusParams{ID: current.ID, Status: "running"})
 			if updateErr == nil {
@@ -1015,7 +1027,7 @@ func (s *WorkspaceService) suspendWorkspaceIfSessionless(ctx context.Context, wo
 		if err := s.stopRuntimeWorkspaceLocked(ctx, suspended, current.UserID, "sessionless-suspend"); err != nil {
 			// Reconcile the product row back to running because the runtime stop
 			// did not reach its required terminal state.
-			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 			defer cancel()
 			running, updateErr := s.q.UpdateWorkspaceStatus(rollbackCtx, db.UpdateWorkspaceStatusParams{ID: current.ID, Status: "running"})
 			if updateErr == nil {

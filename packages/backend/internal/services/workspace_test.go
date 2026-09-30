@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -619,6 +620,16 @@ func (m *mockWorkspaceSandboxVMClient) ForkSandbox(ctx context.Context, sourceVM
 }
 
 func (m *mockWorkspaceSandboxVMClient) Execute(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	// Artifact RPCs have their own file-transfer/ordering tests; the legacy
+	// callbacks below model repository and provider commands.
+	if isWorkspaceArtifactCommand(req.Command) {
+		code := int32(0)
+		stdout := ""
+		if strings.HasPrefix(strings.TrimPrefix(req.Command, workspaceArtifactGuestPath), "if ! test -L ") {
+			stdout = "done"
+		}
+		return sandbox.ExecResult{StatusCode: &code, Stdout: stdout}, nil
+	}
 	if m.execAwaitFn != nil {
 		return m.execAwaitFn(ctx, vmID, req)
 	}

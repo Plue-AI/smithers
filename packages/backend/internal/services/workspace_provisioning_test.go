@@ -57,21 +57,10 @@ func assertWorkspaceClaudeBootstrap(t *testing.T, req sandbox.CreateRequest) {
 
 	require.NotNil(t, req.Init)
 	assert.True(t, req.Init.Enabled)
-	require.Len(t, req.Init.Services, 2)
-	service := req.Init.Services[0]
-	assert.Equal(t, workspaceClaudeService, service.Name)
-	assert.Equal(t, sandbox.ServiceModeOneshot, service.Mode)
-	assert.Equal(t, []string{workspaceClaudeScriptPath}, service.Exec)
-	assert.Equal(t, "root", service.User)
-	assert.Contains(t, service.After, "network-online.target")
-	assert.Contains(t, service.WantedBy, "multi-user.target")
-	require.NotNil(t, service.RemainAfterExit)
-	assert.True(t, *service.RemainAfterExit)
-	// The bootstrap unit must NOT be the ready gate — it runs multi-minute
-	// npm/node downloads that would starve the 90s ready timeout.
-	assert.Nil(t, service.ReadySignal)
-
-	ready := req.Init.Services[1]
+	// Only the boot barrier belongs to Create. Toolchain bootstrap starts
+	// after its bounded artifact transfer.
+	require.Len(t, req.Init.Services, 1)
+	ready := req.Init.Services[0]
 	assert.Equal(t, workspaceReadyService, ready.Name)
 	assert.Equal(t, sandbox.ServiceModeOneshot, ready.Mode)
 	assert.Equal(t, []string{"/bin/true"}, ready.Exec)
@@ -112,7 +101,10 @@ func TestWorkspaceService_BuildWorkspaceVMRequestIncludesCodingHostWhenAvailable
 	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 
-	file, ok := req.Files[workspaceCodingHostB64Path]
+	require.NotContains(t, req.Files, workspaceCodingHostB64Path)
+	files := map[string]sandbox.SandboxFile{}
+	require.True(t, addWorkspaceCodingHost(files))
+	file, ok := files[workspaceCodingHostB64Path+".part00000000"]
 	require.True(t, ok)
 	assert.False(t, file.Executable)
 	assert.Empty(t, file.Encoding)
@@ -651,11 +643,12 @@ func TestBuildForkBookmarkSwitchCommand_InitializesMissingJjRepo(t *testing.T) {
 	initCommand := "jj git init --colocate " + shellQuote(defaultWorkspaceClonePath)
 	fetchCommand := "git -C " + shellQuote(defaultWorkspaceClonePath) + " fetch origin"
 
-	assert.Contains(t, command, "if ! command -v jj >/dev/null 2>&1; then "+shellQuote(workspaceClaudeScriptPath)+"; fi")
+	assert.Contains(t, command, workspaceRuntimeReadyCommand())
+	assert.NotContains(t, command, shellQuote(workspaceClaudeScriptPath))
 	assert.Contains(t, command, "if [ -d "+jjDir+" ]")
 	assert.Contains(t, command, "chown -R "+shellQuote(defaultWorkspaceUser)+":"+shellQuote(defaultWorkspaceUser)+" "+jjDir)
 	assert.Contains(t, command, initCommand)
-	assert.Less(t, strings.Index(command, shellQuote(workspaceClaudeScriptPath)), strings.Index(command, "export GIT_CONFIG_KEY_0"))
+	assert.Less(t, strings.Index(command, workspaceRuntimeReadyCommand()), strings.Index(command, "export GIT_CONFIG_KEY_0"))
 	assert.Less(t, strings.Index(command, initCommand), strings.Index(command, fetchCommand))
 }
 
@@ -714,7 +707,7 @@ func TestWorkspaceService_CreateWorkspace_ReplacesStalePendingWorkspaceWithoutVM
 			workspace := sampleDBWorkspace("ws-stale")
 			workspace.Status = "pending"
 			workspace.VmID = ""
-			workspace.UpdatedAt = time.Now().Add(-6 * time.Minute)
+			workspace.UpdatedAt = time.Now().Add(-workspaceStaleAfter - time.Minute)
 			return []db.Workspace{workspace}, nil
 		},
 		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {

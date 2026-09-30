@@ -19,8 +19,8 @@ done
 
 # The configured coding host is separate from the interactive/general CLI.
 # Failure leaves the workspace usable; a bound gateway preflight refuses it.
-if [ -s {{printf "%q" .CodingHostB64Path}} ]; then
-  if ! base64 -d < {{printf "%q" .CodingHostB64Path}} | gzip -dc > {{printf "%q" .CodingHostPath}}.tmp; then
+if [ -s {{printf "%q" .CodingHostB64Path}}.part00000000 ]; then
+  if ! cat {{printf "%q" .CodingHostB64Path}}.part* | base64 -d | gzip -dc > {{printf "%q" .CodingHostPath}}.tmp; then
     echo "smithers workspace bootstrap: coding host payload decode failed" >&2
     rm -f {{printf "%q" .CodingHostPath}}.tmp {{printf "%q" .CodingHostPath}}
   elif [ ! -s {{printf "%q" .CodingHostPath}}.tmp ]; then
@@ -43,8 +43,8 @@ fi
 # preflight and tree export. The bootstrap unit runs as root, so `install`
 # lands a root-owned 0755 binary the developer user can only execute. Failure
 # leaves the workspace usable; the coding flow refuses instead of corrupting.
-if [ -s {{printf "%q" .JJExportB64Path}} ]; then
-  if ! base64 -d < {{printf "%q" .JJExportB64Path}} | gzip -dc > {{printf "%q" .JJExportPath}}.tmp; then
+if [ -s {{printf "%q" .JJExportB64Path}}.part00000000 ]; then
+  if ! cat {{printf "%q" .JJExportB64Path}}.part* | base64 -d | gzip -dc > {{printf "%q" .JJExportPath}}.tmp; then
     echo "smithers workspace bootstrap: jj export helper payload decode failed" >&2
     rm -f {{printf "%q" .JJExportPath}}.tmp {{printf "%q" .JJExportPath}}
   elif [ ! -s {{printf "%q" .JJExportPath}}.tmp ]; then
@@ -74,7 +74,7 @@ fi
 # End configured jj export staging.
 
 # Install the deployed npm package without a registry or a second CLI binary.
-if [ -s {{printf "%q" .CLIPackageB64Path}}.part0000 ]; then
+if [ -s {{printf "%q" .CLIPackageB64Path}}.part00000000 ]; then
   mkdir -p {{printf "%q" .CLIPackageDir}}
   if cat {{printf "%q" .CLIPackageB64Path}}.part* | base64 -d | tar -xzf - -C {{printf "%q" .CLIPackageDir}}; then
     ln -sfn {{printf "%q" (printf "%s/node_modules/@smthrs/cli/bin/smithers.mjs" .CLIPackageDir)}} {{.LocalBinDir}}/smithers

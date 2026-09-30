@@ -1462,7 +1462,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{registrationPool: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
-			resumes: background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
+			resumes: background.Jobs[string]{Timeout: 6 * time.Minute, FailureTTL: time.Minute},
 			limit:   middleware.GlobalAPIRateLimit(queries)}
 		mountBrowserFlow(router, cfg, queries, browser, &repositorySetupAPI{repos: repoService, setup: repositorySetupService})
 	}

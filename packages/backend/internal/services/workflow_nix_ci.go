@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -610,9 +611,17 @@ func (w *WorkflowSandboxSchedulerWorker) provisionNixCIGuest(
 			return "", "", ctx.Err()
 		}
 		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), "attempt-"+strconv.Itoa(attempt))
-		vm, err := w.sandbox.CreateSandbox(createCtx, req)
+		vm, err := createWorkspaceSandbox(createCtx, w.sandbox, req)
 		if err == nil {
 			return vm.ID, cloneToken, nil
+		}
+		if vm.ID != "" {
+			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			deleteErr := w.sandbox.DeleteSandbox(deleteCtx, vm.ID)
+			cancelDelete()
+			if deleteErr != nil {
+				return "", "", errors.Join(err, fmt.Errorf("clean up failed CI guest %s: %w", vm.ID, deleteErr))
+			}
 		}
 		lastErr = err
 		w.logger.Warn("NixOS CI guest create failed", "task_id", task.ID, "attempt", attempt, "error", err)

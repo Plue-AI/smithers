@@ -40,6 +40,10 @@ const (
 	// sandbox provider failure, not the old ready-signal hang, so reprovisioning is
 	// the right fallback then.
 	workspaceResumeTimeout = 30 * time.Second
+	// Resuming a disk from an older release can stream a new CLI archive and
+	// install its toolchain after the fast provider start. Keep that repair
+	// bounded separately so a normal StartSandbox failure still returns promptly.
+	workspaceResumeProvisionTimeout = 5 * time.Minute
 	// Forking is an optimization for derived workspaces, not the provision's
 	// whole job. A wedged Microsandbox fork request must leave enough of the outer
 	// provisioning budget for the cold create+clone fallback.
@@ -65,28 +69,23 @@ const (
 	// workspaceProvisionTimeout. Both call sites treat a fork failure as a
 	// fallback, never as a provisioning failure.
 	workspaceForkTimeout = 150 * time.Second
-	// Snapshot boots skip the package bootstrap and should either become usable
-	// promptly or leave time for a bare-image fallback. Bare creates are slower:
-	// Microsandbox materializes the image and installs the default packages
-	// synchronously under the create request. Keep separate budgets so a cold
-	// apt mirror is not canceled at the snapshot-optimized deadline while the
-	// complete provision remains bounded by workspaceProvisionTimeout.
-	workspaceGoldenVMCreateAttemptTimeout = 2 * time.Minute
-	workspaceBareVMCreateAttemptTimeout   = 4 * time.Minute
+	// Snapshot boots skip apt but must still stage a changed deployment bundle
+	// and finish its toolchain bootstrap. Bare creates also materialize the image
+	// and install default packages synchronously. Keep separate budgets with
+	// enough room for a golden failure, bare fallback, clone, and settlement.
+	workspaceGoldenVMCreateAttemptTimeout = 4 * time.Minute
+	workspaceBareVMCreateAttemptTimeout   = 7 * time.Minute
 	// ExecAwait also carries a VM-side timeout. The client-side bounds sit 30
 	// seconds above it for response/transport headroom while ensuring a wedged
 	// Microsandbox HTTP request cannot monopolize the full provisioning context.
 	workspaceForkSwitchTimeout = 150 * time.Second
 	workspaceCloneTimeout      = 210 * time.Second
-	workspaceProvisionTimeout  = 10 * time.Minute
-	workspaceStaleAfter        = 5 * time.Minute
-	// workspaceStartingWithVMStaleAfter is the reap threshold for workspaces
-	// stranded in 'starting' WITH a registered VM (an API crash mid-provision).
-	// It must exceed workspaceProvisionTimeout: a live detached provisioning
-	// goroutine holds 'starting'+vm_id for at most that long before it either
-	// flips the row to running or marks it failed itself, so anything older is
-	// provably orphaned and safe to fail + reclaim.
-	workspaceStartingWithVMStaleAfter = workspaceProvisionTimeout + workspaceStaleAfter
+	workspaceProvisionTimeout  = 15 * time.Minute
+	// A live provision can spend its whole budget before VM registration (for
+	// example golden failure followed by a bare create and toolchain bootstrap).
+	// Neither pending nor starting-with-VM rows may be reaped before it ends.
+	workspaceStaleAfter               = workspaceProvisionTimeout + time.Minute
+	workspaceStartingWithVMStaleAfter = workspaceStaleAfter
 	// workspaceSessionProvisionGrace is how long CreateSession waits for
 	// provisioning to finish before returning the pending session ticket and
 	// letting provisioning continue in the background. Fast paths (VM already
@@ -107,7 +106,7 @@ const (
 	workspaceClaudeService             = "smithers-workspace-claude-bootstrap"
 	workspaceReadyService              = "smithers-workspace-ready"
 	workspaceCodingHostPath            = "/usr/local/bin/smithers-coding-host"
-	workspaceCodingHostB64Path         = "/tmp/smithers-workspace-coding-host.b64"
+	workspaceCodingHostB64Path         = workspaceArtifactCurrent + "/smithers-workspace-coding-host.b64"
 	workspaceCodingHostBinaryEnv       = "SMITHERS_WORKSPACE_CODING_HOST_BINARY"
 	// The coding host's flows shell out to this native jj helper for their
 	// --eligible preflight and tree export, so every workspace kind needs it
@@ -120,7 +119,7 @@ const (
 	workspaceCodingHostSmokeLog  = "/tmp/smithers-workspace-coding-host-smoke.log"
 	workspaceJJExportSmokeLog    = "/tmp/smithers-workspace-jj-export-smoke.log"
 	workspaceJJExportPath        = "/usr/local/bin/smithers-jj-export"
-	workspaceJJExportB64Path     = "/tmp/smithers-workspace-jj-export.b64"
+	workspaceJJExportB64Path     = workspaceArtifactCurrent + "/smithers-workspace-jj-export.b64"
 	workspaceJJExportBinaryEnv   = "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"
 	workspaceDefaultJJExportPath = "/usr/local/lib/smithers/smithers-jj-export"
 	workspaceJJReleaseAPIURL     = "https://api.github.com/repos/jj-vcs/jj/releases/tags/v0.39.0"
@@ -138,7 +137,7 @@ const (
 
 	workspaceCLIPackageEnv     = "SMITHERS_WORKSPACE_CLI_PACKAGE"
 	workspaceDefaultCLIPackage = "/opt/smithers/cli.tar"
-	workspaceCLIPackageB64Path = "/tmp/smithers-workspace-cli-package.b64"
+	workspaceCLIPackageB64Path = workspaceArtifactCurrent + "/smithers-workspace-cli-package.b64"
 	workspaceCLIPackageDir     = "/usr/local/lib/smithers-cli"
 
 	// MaxActiveWorkspacesPerUser caps the number of non-deleted workspaces
@@ -157,7 +156,7 @@ const (
 	MaxActiveWorkspacesPerUser = 100
 )
 
-var defaultWorkspacePackages = []string{"ca-certificates", "git", "nodejs", "npm"}
+var defaultWorkspacePackages = []string{"ca-certificates", "git", "nodejs", "npm", "util-linux"}
 
 const defaultWorkspaceEnvironmentSource = ".smithers/environment.nix"
 

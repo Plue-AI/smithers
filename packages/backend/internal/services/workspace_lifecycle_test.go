@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -298,7 +299,7 @@ func TestWorkspaceService_CleanupStalePendingWorkspaces_FailsZombies(t *testing.
 	var updated []string
 	q := &mockWorkspaceQuerier{
 		listStalePendingWorkspacesFn: func(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error) {
-			require.Equal(t, int32(300), staleAfterSecs)
+			require.Equal(t, int32(workspaceStaleAfter/time.Second), staleAfterSecs)
 			first := sampleDBWorkspace("ws-stale-1")
 			first.Status = "pending"
 			first.VmID = ""

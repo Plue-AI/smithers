@@ -259,7 +259,7 @@ func (s *WorkspaceService) agentForkSource(ctx context.Context, workspace db.Wor
 func (s *WorkspaceService) forkAgentWorkspace(ctx context.Context, workspace db.Workspace, input CreateAgentWorkspaceInput, egress *sandbox.EgressProxyPolicy, source db.Workspace, sameBookmark bool) (out AgentWorkspaceResult, retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	forkCtx := sandboxProvisionContext(ctx, "fork", "workspace", workspace.ID, workspaceProvisionAttempt(workspace.ProvisioningGeneration, "agent-"+source.ID))
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.Kind, egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, egress)
 	if err != nil {
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		return AgentWorkspaceResult{}, err

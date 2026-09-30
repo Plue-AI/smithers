@@ -362,17 +362,20 @@ func (s *GoldenSnapshotService) bakeWith(ctx context.Context, rowID string, buil
 	}
 
 	createCtx := sandboxProvisionContext(ctx, "create", "golden_snapshot_bake", rowID, "builder")
-	vm, err := s.sandbox.CreateSandbox(createCtx, build())
-	if err != nil {
-		return "", fmt.Errorf("create builder vm: %w", err)
-	}
+	vm, err := createWorkspaceSandbox(createCtx, s.sandbox, build())
 	defer func() {
+		if vm.ID == "" {
+			return
+		}
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancelCleanup()
 		if err := s.sandbox.DeleteSandbox(cleanupCtx, vm.ID); err != nil {
 			slog.Warn("golden snapshot builder vm cleanup failed", "vm_id", vm.ID, "error", err)
 		}
 	}()
+	if err != nil {
+		return "", fmt.Errorf("create builder vm: %w", err)
+	}
 
 	timeoutMS := int64(60_000)
 	for {

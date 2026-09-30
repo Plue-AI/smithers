@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -29,12 +28,14 @@ func TestWorkspaceCodingHostAndNpmCLI(t *testing.T) {
 	}
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
 	t.Setenv(workspaceCLIPackageEnv, filepath.Join(dir, "cli.tar"))
-	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
-	require.NoError(t, err)
+	files := map[string]sandbox.SandboxFile{}
+	require.True(t, addWorkspaceCodingHost(files))
+	addWorkspaceJJExport(files)
+	addWorkspaceCLI(files)
 	require.Contains(t, buildWorkspaceClaudeBootstrapScript(), "/usr/local/lib/smithers-cli/node_modules/@smthrs/cli/bin/smithers.mjs")
 	require.NotContains(t, buildWorkspaceClaudeBootstrapScript(), "init --global")
-	for path, expected := range map[string][]byte{workspaceCodingHostB64Path: host, workspaceCLIPackageB64Path + ".part0000": []byte("npm package archive")} {
-		data, err := base64.StdEncoding.DecodeString(req.Files[path].Content)
+	for path, expected := range map[string][]byte{workspaceCodingHostB64Path: host, workspaceCLIPackageB64Path: []byte("npm package archive")} {
+		data, err := base64.StdEncoding.DecodeString(files[path+".part00000000"].Content)
 		require.NoError(t, err)
 		decoder, err := gzip.NewReader(bytes.NewReader(data))
 		require.NoError(t, err)
@@ -67,7 +68,7 @@ func TestWorkspaceCodingHostStagingExecutesAndRefusesBrokenPayload(t *testing.T)
 				t.Setenv(workspaceCodingHostBinaryEnv, path)
 				files := map[string]sandbox.SandboxFile{}
 				require.True(t, addWorkspaceCodingHost(files))
-				require.NoError(t, os.WriteFile(payload, []byte(files[workspaceCodingHostB64Path].Content), 0600))
+				require.NoError(t, os.WriteFile(payload+".part00000000", []byte(files[workspaceCodingHostB64Path+".part00000000"].Content), 0600))
 				script := buildWorkspaceClaudeBootstrapScript()
 				if nix {
 					script = buildWorkspaceNixBootstrapScript()
@@ -110,13 +111,15 @@ func TestWorkspaceJJExportStagedAlongsideCodingHost(t *testing.T) {
 	}
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
 	t.Setenv(workspaceJJExportBinaryEnv, filepath.Join(dir, "export"))
-	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
-	require.NoError(t, err)
+	files := map[string]sandbox.SandboxFile{}
+	require.True(t, addWorkspaceCodingHost(files))
+	addWorkspaceJJExport(files)
+	addWorkspaceCLI(files)
 	for path, expected := range map[string][]byte{
 		workspaceCodingHostB64Path: host,
 		workspaceJJExportB64Path:   export,
 	} {
-		data, err := base64.StdEncoding.DecodeString(req.Files[path].Content)
+		data, err := base64.StdEncoding.DecodeString(files[path+".part00000000"].Content)
 		require.NoError(t, err)
 		decoder, err := gzip.NewReader(bytes.NewReader(data))
 		require.NoError(t, err)
@@ -168,7 +171,7 @@ func TestWorkspaceJJExportStagingExecutesAndRefusesBrokenPayload(t *testing.T) {
 				t.Setenv(workspaceJJExportBinaryEnv, path)
 				files := map[string]sandbox.SandboxFile{}
 				require.True(t, addWorkspaceJJExport(files))
-				require.NoError(t, os.WriteFile(payload, []byte(files[workspaceJJExportB64Path].Content), 0600))
+				require.NoError(t, os.WriteFile(payload+".part00000000", []byte(files[workspaceJJExportB64Path+".part00000000"].Content), 0600))
 				script := buildWorkspaceClaudeBootstrapScript()
 				if nix {
 					script = buildWorkspaceNixBootstrapScript()

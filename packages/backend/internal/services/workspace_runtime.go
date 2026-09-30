@@ -463,14 +463,14 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 	}
 	snapshotCtx, err := s.workspaceRuntimeContext(ctx, source, input.UserID, workspaceLifecycleOperation(source, "fork-snapshot:"+created.ID))
 	if err != nil {
-		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 		_, _ = s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, source, input.UserID)
 		cancel()
 		s.markWorkspaceProvisionFailed(ctx, created, err)
 		return WorkspaceResponse{}, err
 	}
 	cold, snapshotErr := snapshots.CreateColdSnapshot(snapshotCtx, source.ID, workspaceapi.ColdSnapshotSpec{ID: temporarySnapshotID})
-	resumeCtx, cancelResume := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+	resumeCtx, cancelResume := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 	_, resumeErr := s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, source, input.UserID)
 	cancelResume()
 	if snapshotErr != nil {
@@ -594,7 +594,7 @@ func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, i
 	}
 	suspended, err := s.q.SuspendRunningWorkspace(ctx, row.ID)
 	if err != nil {
-		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 		_, _ = s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, row, input.UserID)
 		cancel()
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -607,13 +607,13 @@ func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, i
 
 	operationCtx, err := s.workspaceRuntimeContext(ctx, suspended, input.UserID, workspaceLifecycleOperation(suspended, "snapshot:"+runtimeSnapshotID))
 	if err != nil {
-		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+		resumeCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 		_, _ = s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, suspended, input.UserID)
 		cancel()
 		return WorkspaceSnapshotResponse{}, err
 	}
 	created, snapshotErr := snapshots.CreateColdSnapshot(operationCtx, row.ID, workspaceapi.ColdSnapshotSpec{ID: runtimeSnapshotID})
-	resumeCtx, cancelResume := detachedRuntimeContext(ctx, workspaceResumeTimeout)
+	resumeCtx, cancelResume := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
 	resumed, resumeErr := s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, suspended, input.UserID)
 	cancelResume()
 	if snapshotErr != nil {

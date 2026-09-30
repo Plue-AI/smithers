@@ -325,6 +325,10 @@ func (m *mockWorkflowSandboxVMClient) CreateSandbox(ctx context.Context, req san
 }
 
 func (m *mockWorkflowSandboxVMClient) Execute(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	if isWorkspaceArtifactCommand(req.Command) {
+		code := int32(0)
+		return sandbox.ExecResult{StatusCode: &code}, nil
+	}
 	m.mu.Lock()
 	m.execCalls = append(m.execCalls, req)
 	m.mu.Unlock()
@@ -1087,4 +1091,8 @@ func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t
 		_, got := env["DEPLOY_TOKEN"]
 		assert.Equal(t, tc.trusted, got, "%s on %q", tc.event, tc.ref)
 	}
+}
+
+func (m *mockWorkflowSandboxVMClient) WriteFile(context.Context, string, string, sandbox.WriteFileRequest) error {
+	return nil
 }

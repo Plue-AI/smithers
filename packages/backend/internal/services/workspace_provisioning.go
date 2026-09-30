@@ -126,80 +126,6 @@ func workspaceJJExport() string {
 	return workspaceDefaultJJExportPath
 }
 
-// addWorkspaceCLI stages the deployed npm package, including production dependencies.
-func addWorkspaceCLI(files map[string]sandbox.SandboxFile) bool {
-	if !addWorkspaceExecutable(files, workspaceCLIPackage(), workspaceCLIPackageB64Path, workspaceCLIPackageEnv, "npm CLI package") {
-		return false
-	}
-	// The installed dependency tree exceeds one guest RPC's 64 MiB frame.
-	// Each file is itself base64-encoded by that transport, so keep these
-	// already-encoded pieces below 16 MiB and concatenate them in the guest.
-	encoded := files[workspaceCLIPackageB64Path].Content
-	delete(files, workspaceCLIPackageB64Path)
-	const pieceSize = 16 << 20
-	for index, offset := 0, 0; offset < len(encoded); index, offset = index+1, offset+pieceSize {
-		end := min(offset+pieceSize, len(encoded))
-		files[fmt.Sprintf("%s.part%04d", workspaceCLIPackageB64Path, index)] = sandbox.SandboxFile{Content: encoded[offset:end]}
-	}
-	return true
-}
-
-func addWorkspaceCodingHost(files map[string]sandbox.SandboxFile) bool {
-	path := strings.TrimSpace(os.Getenv(workspaceCodingHostBinaryEnv))
-	if path == "" {
-		path = workspaceCodingHostPath
-	}
-	return addWorkspaceExecutable(files, path, workspaceCodingHostB64Path, workspaceCodingHostBinaryEnv, "coding host")
-}
-
-// addWorkspaceJJExport stages the native jj helper the coding host's flows exec
-// as /usr/local/bin/smithers-jj-export. Missing payloads only warn: the helper
-// is a coding-flow dependency, not a provisioning precondition.
-func addWorkspaceJJExport(files map[string]sandbox.SandboxFile) bool {
-	return addWorkspaceExecutable(files, workspaceJJExport(), workspaceJJExportB64Path, workspaceJJExportBinaryEnv, "jj export helper")
-}
-
-// Runtime helpers reuse the existing single-file guest transport.
-func addWorkspaceExecutable(files map[string]sandbox.SandboxFile, cliPath, target, env, label string) bool {
-	raw, err := os.ReadFile(cliPath)
-	if err != nil || len(raw) == 0 {
-		reason := "read_failed"
-		if err == nil {
-			reason = "empty_payload"
-		}
-		slog.Warn("workspace smithers "+label+" payload unavailable",
-			"reason", reason,
-			"configured_path", strings.TrimSpace(os.Getenv(env)) != "",
-			"error_type", fmt.Sprintf("%T", err),
-		)
-		return false
-	}
-	var compressed bytes.Buffer
-	gz := newWorkspaceGzipWriter(&compressed)
-	if _, err := gz.Write(raw); err != nil {
-		_ = gz.Close()
-		slog.Warn("workspace smithers "+label+" payload unavailable",
-			"reason", "compress_failed",
-			"configured_path", strings.TrimSpace(os.Getenv(env)) != "",
-			"error_type", fmt.Sprintf("%T", err),
-		)
-		return false
-	}
-	if err := gz.Close(); err != nil {
-		slog.Warn("workspace smithers "+label+" payload unavailable",
-			"reason", "compress_failed",
-			"configured_path", strings.TrimSpace(os.Getenv(env)) != "",
-			"error_type", fmt.Sprintf("%T", err),
-		)
-		return false
-	}
-	files[target] = sandbox.SandboxFile{
-		Content: base64.StdEncoding.EncodeToString(compressed.Bytes()),
-	}
-	slog.Info("workspace smithers "+label+" payload staged", "bytes", len(raw), "compressed_bytes", compressed.Len())
-	return true
-}
-
 // freshWorkspaceVMRequest is the create request for a brand-new workspace VM:
 // it boots from the golden toolchain snapshot when one is ready (bare base
 // image otherwise, exactly the old behavior). On snapshot boots the apt deps
@@ -234,7 +160,7 @@ func (s *WorkspaceService) createWorkspaceVMAttempt(ctx context.Context, req san
 	}
 	createCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return s.sandbox.CreateSandbox(createCtx, req)
+	return createWorkspaceSandbox(createCtx, s.sandbox, req)
 }
 
 // forkWorkspaceSandbox bounds a single fork operation so callers can
@@ -245,13 +171,13 @@ func (s *WorkspaceService) createWorkspaceVMAttempt(ctx context.Context, req san
 // so it is sized from the kind exactly like a cold create (see
 // workspaceSizeForKind); without that it is admitted and booted at the
 // provider defaults, 512 MiB and 1 vCPU.
-func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID, kind string, egress *sandbox.EgressProxyPolicy) (sandbox.CreateResult, error) {
+func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID, workspaceID, kind string, egress *sandbox.EgressProxyPolicy) (sandbox.CreateResult, error) {
 	forkCtx, cancel := context.WithTimeout(ctx, workspaceForkTimeout)
 	defer cancel()
 	memoryMB, vcpuCount := s.workspaceSizeForKind(kind)
 	// RFD-004: the child is a fresh sandbox with a fresh network; it needs
 	// its own proxy policy or it boots with no proxy at all.
-	return s.sandbox.ForkSandbox(forkCtx, sourceVMID, sandbox.ForkRequest{
+	vm, err := s.sandbox.ForkSandbox(forkCtx, sourceVMID, sandbox.ForkRequest{
 		IdleTimeoutSeconds: &s.workspaceIdleTimeoutSeconds,
 		Persistence: &sandbox.PersistencePolicy{
 			Type:     s.workspacePersistence,
@@ -263,6 +189,20 @@ func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID,
 		VCPUCount:   vcpuCount,
 		Kind:        sandboxKindForWorkspace(kind),
 	})
+	if err != nil {
+		return vm, err
+	}
+	client, ok := s.sandbox.(workspaceArtifactClient)
+	if !ok {
+		return vm, errors.New("workspace provider lacks artifact file transfer")
+	}
+	if err := client.WriteFile(forkCtx, vm.ID, workspaceArtifactOwnerPath, sandbox.WriteFileRequest{Content: workspaceArtifactOwner(workspaceID)}); err != nil {
+		return vm, err
+	}
+	if err := finishWorkspaceArtifacts(forkCtx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(kind)); err != nil {
+		return vm, err
+	}
+	return vm, waitForWorkspaceArtifactBootstrap(forkCtx, client, vm.ID)
 }
 
 // workspaceSizeForKind is the guest size a workspace of this kind gets on
@@ -571,14 +511,12 @@ func (s *WorkspaceService) buildContainerWorkspaceVMRequest(ctx context.Context,
 	remainAfterExit := true
 	emitReadySignal := true
 	files := map[string]sandbox.SandboxFile{
+		workspaceArtifactOwnerPath: {Content: workspaceArtifactOwner(workspaceID)},
 		workspaceClaudeScriptPath: {
 			Content:    buildWorkspaceClaudeBootstrapScript(),
 			Executable: true,
 		},
 	}
-	addWorkspaceCLI(files)
-	addWorkspaceCodingHost(files)
-	addWorkspaceJJExport(files)
 
 	memoryMB, vcpuCount := s.workspaceSizeForKind(kind)
 	return sandbox.CreateRequest{
@@ -1647,6 +1585,13 @@ func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace d
 	vm := sandbox.CreateResult{ID: workspace.VmID}
 	if vm.ID == "" {
 		vm, err = s.createFreshWorkspaceVM(ctx, workspace.RepositoryID, workspace.ID, workspace.ProvisioningGeneration, workspace.Kind, binding)
+	} else {
+		err = finishWorkspaceArtifacts(ctx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(workspace.Kind))
+		if err == nil {
+			if client, ok := s.sandbox.(workspaceArtifactClient); ok {
+				err = waitForWorkspaceArtifactBootstrap(ctx, client, vm.ID)
+			}
+		}
 	}
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
@@ -1864,7 +1809,7 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 		slog.Warn("fork egress policy unavailable; falling back to cold clone", "workspace_id", workspace.ID, "error", err)
 		return workspace, false
 	}
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.Kind, binding.egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, binding.egress)
 	if err != nil {
 		// Interface implementations can return a VM id alongside an error even
 		// though the real client reaps partial responses itself. Never let that
@@ -1950,7 +1895,7 @@ func buildForkBookmarkSwitchCommand(token, bookmark string) string {
 		// RFD-004: the child's disk carries the parent's head reporter; stop it
 		// before the first jj operation here can land on the parent's ref.
 		"systemctl stop " + workspaceHeadReporterService + ".service >/dev/null 2>&1 || true",
-		"if ! command -v jj >/dev/null 2>&1; then " + shellQuote(workspaceClaudeScriptPath) + "; fi",
+		workspaceRuntimeReadyCommand(),
 		"command -v jj >/dev/null 2>&1",
 	}
 	// The bearer credential rides GIT_CONFIG_* env vars (invisible in
@@ -2064,7 +2009,6 @@ func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth in
 		"install -d -o "+shellQuote(defaultWorkspaceUser)+" -g "+shellQuote(defaultWorkspaceUser)+" "+shellQuote(defaultWorkspaceHome),
 		"rm -rf "+shellQuote(defaultWorkspaceClonePath),
 		asDev+"git clone "+cloneFlags+" -- "+shellQuote(cloneURL)+" "+shellQuote(defaultWorkspaceClonePath),
-		"if ! command -v jj >/dev/null 2>&1; then "+shellQuote(workspaceClaudeScriptPath)+"; fi",
 		"command -v jj >/dev/null 2>&1",
 		// `jj git init` INITIALIZES a repo, so it must NOT be given `-R` (which
 		// addresses an already-existing jj repo) — `jj -R <path> git init`
@@ -2101,7 +2045,7 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 		return workspace, err
 	}
 	binding.apply(&req)
-	vm, err := s.sandbox.CreateSandbox(createCtx, req)
+	vm, err := createWorkspaceSandbox(createCtx, s.sandbox, req)
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
 		status := "success"
@@ -2203,7 +2147,7 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, err
 	}
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.Kind, binding.egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, binding.egress)
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
 		status := "success"

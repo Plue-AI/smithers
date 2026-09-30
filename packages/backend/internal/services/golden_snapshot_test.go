@@ -168,7 +168,11 @@ func (f *fakeGoldenVMClient) CreateSandbox(_ context.Context, req sandbox.Create
 	return sandbox.CreateResult{ID: "vm-builder"}, nil
 }
 
-func (f *fakeGoldenVMClient) Execute(_ context.Context, _ string, _ sandbox.ExecRequest) (sandbox.ExecResult, error) {
+func (f *fakeGoldenVMClient) Execute(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	if isWorkspaceArtifactCommand(req.Command) {
+		code := int32(0)
+		return sandbox.ExecResult{StatusCode: &code}, nil
+	}
 	f.execCalls++
 	code := int32(1)
 	if f.execCalls >= f.execAttemptsUntilReady {
@@ -368,4 +372,8 @@ func TestWorkspaceService_FreshVMRequestUsesGoldenSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, bareReq.SnapshotID)
 	assert.NotEmpty(t, bareReq.Packages, "bare-image boots keep the apt bootstrap")
+}
+
+func (f *fakeGoldenVMClient) WriteFile(context.Context, string, string, sandbox.WriteFileRequest) error {
+	return nil
 }

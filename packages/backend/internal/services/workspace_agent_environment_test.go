@@ -54,6 +54,9 @@ func (s *agentEnvironmentWorkspaceSandbox) WriteFile(_ context.Context, _ string
 
 func (s *agentEnvironmentWorkspaceSandbox) Execute(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 	s.commands = append(s.commands, req.Command)
+	if strings.HasPrefix(strings.TrimPrefix(req.Command, workspaceArtifactGuestPath), "if ! test -L ") {
+		return sandbox.ExecResult{StatusCode: new(int32), Stdout: "done"}, nil
+	}
 	if strings.Contains(req.Command, "mkdir -p") {
 		return sandbox.ExecResult{StatusCode: &s.prepareStatus}, nil
 	}

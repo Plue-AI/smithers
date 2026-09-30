@@ -9,11 +9,11 @@ func workspaceRuntimeReadyCommand() string {
 	return strings.Join([]string{
 		"smithers_runtime_ready() {",
 		"  jj --version 2>/dev/null | grep -Eq '^jj 0\\.39\\.0([-+].*)?$' || return 1",
-		"  if [ -s " + shellQuote(workspaceCodingHostB64Path) + " ]; then",
+		"  if [ -s " + shellQuote(workspaceCodingHostB64Path+".part00000000") + " ]; then",
 		"    test -x " + shellQuote(workspaceCodingHostPath) + " || return 1",
 		"    case $(" + shellQuote(workspaceCodingHostPath) + " --version 2>/dev/null) in 1.*|smithers\\ 1.*) ;; *) return 1;; esac",
 		"  fi",
-		"  if [ -s " + shellQuote(workspaceJJExportB64Path) + " ]; then " + shellQuote(workspaceJJExportPath) + " --version >/dev/null 2>&1 || return 1; fi",
+		"  if [ -s " + shellQuote(workspaceJJExportB64Path+".part00000000") + " ]; then " + shellQuote(workspaceJJExportPath) + " --version >/dev/null 2>&1 || return 1; fi",
 		"}",
 		"for smithers_runtime_attempt in $(seq 1 120); do",
 		"  if smithers_runtime_ready; then break; fi",
