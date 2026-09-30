@@ -3347,8 +3347,8 @@ export const make = (
     /** One launched run's drive, for as long as this composition owns its fiber. */
     interface Drive {
       /**
-       * Whether the flow body has exited, leaving only the engine's own
-       * terminal write.
+       * Whether the flow body has exited without parking, leaving only the
+       * engine's own terminal write.
        *
        * The control status and the engine's terminal transition are two
        * writes, in that order: `settle` runs on the body's exit, INSIDE the
@@ -3406,36 +3406,6 @@ export const make = (
       )
 
     const driveFibers = new Map<Drive, Fiber.Fiber<unknown, unknown>>()
-    yield* Scope.addFinalizer(
-      scope,
-      Effect.suspend(() =>
-        Effect.forEach(
-          Array.from(driveFibers),
-          ([drive, fiber]) => releaseDrive(drive, fiber),
-          { discard: true, concurrency: "unbounded" }
-        )
-      )
-    )
-    // A detached terminal write is the run's outcome of record, so a closing
-    // scope gives it the same bounded chance `releaseDrive` gives the engine's
-    // own terminal write. Its ordering releases when the host's observation
-    // ends, and closing the host ends every observation, so this waits for a
-    // write that is already on its way rather than for a projection.
-    yield* Scope.addFinalizer(
-      scope,
-      Effect.suspend(() =>
-        Effect.forEach(
-          Array.from(terminalWrites.values()),
-          (fiber) =>
-            Effect.andThen(
-              Effect.ignore(Effect.timeout(Fiber.await(fiber), settlementGrace)),
-              Fiber.interrupt(fiber)
-            ),
-          { discard: true, concurrency: "unbounded" }
-        )
-      )
-    )
-
     const driver = (runId: string, planId: string) =>
       Effect.gen(function*() {
         const admitted = yield* waitForRunning(
@@ -3894,8 +3864,11 @@ export const make = (
             Effect.onExit((exit) =>
               Effect.andThen(
                 Effect.sync(() => {
+                  // A park is not a settlement: the drive follows the parked run
+                  // until a wake re-enters it, so a closing scope has no
+                  // terminal write of the engine's to wait for (#3210).
                   const drive = launchedDrives.get(payload.runId)
-                  if (drive !== undefined) drive.settled = true
+                  if (drive !== undefined) drive.settled = !instance.suspended
                 }),
                 settle(payload.runId, instance.suspended, exit, instance.waiting?.reason)
               )
@@ -3916,6 +3889,42 @@ export const make = (
         // `settle` still observes the body's original failure before conversion.
         Effect.mapError(settlementFailure)
       )).pipe(Scope.provide(scope))
+
+    // Added after `agent/run` is registered, so a closing scope runs them
+    // BEFORE that registration is released. A parked drive is still following
+    // the engine's trampoline; were it left running past the release, its next
+    // poll or wake re-executed the flow into "Flow agent/run is not registered",
+    // which `settleDriverFailure` reads as a launch failure and tries to record
+    // as `failed` on a run shutdown should only release (#3210).
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.suspend(() =>
+        Effect.forEach(
+          Array.from(driveFibers),
+          ([drive, fiber]) => releaseDrive(drive, fiber),
+          { discard: true, concurrency: "unbounded" }
+        )
+      )
+    )
+    // A detached terminal write is the run's outcome of record, so a closing
+    // scope gives it the same bounded chance `releaseDrive` gives the engine's
+    // own terminal write. Its ordering releases when the host's observation
+    // ends, and closing the host ends every observation, so this waits for a
+    // write that is already on its way rather than for a projection.
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.suspend(() =>
+        Effect.forEach(
+          Array.from(terminalWrites.values()),
+          (fiber) =>
+            Effect.andThen(
+              Effect.ignore(Effect.timeout(Fiber.await(fiber), settlementGrace)),
+              Fiber.interrupt(fiber)
+            ),
+          { discard: true, concurrency: "unbounded" }
+        )
+      )
+    )
 
     /**
      * Takes up every resume delegation this executor hosts, once.

@@ -44,7 +44,7 @@ import { RunStore } from "@smthrs/run-store"
 import type * as Fixture from "@smthrs/testing/Fixture"
 import type * as ModelLike from "@smthrs/testing/ModelLike"
 import * as RecordedModel from "@smthrs/testing/RecordedModel"
-import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream, Tracer } from "effect"
+import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Logger, Option, Schema, Stream, Tracer } from "effect"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -733,6 +733,62 @@ const driveTwoParks: Effect.Effect<
 const textOf = (request: ModelRequest.ModelRequest): string =>
   request.messages.flatMap((message) => message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])))
     .join("\n")
+
+/**
+ * A module that parks on a human ask and journals the answer it resumes with.
+ *
+ * Nothing in these tests answers it, so any entry past the ask is a re-drive
+ * nobody requested.
+ */
+const unansweredAsk = () => {
+  const answers: Array<unknown> = []
+  const Answered = Action.make("test/UnansweredAsk", {
+    payload: { answer: Schema.Json },
+    success: Schema.Json,
+    error: Schema.Never
+  })
+  const flow = Flow.make("agents/module", {
+    payload: Executable.Payload,
+    success: Schema.Unknown,
+    error: Schema.Unknown,
+    body: () =>
+      HumanTask.action.call({ name: "ship-it", kind: "confirm", prompt: "Ship the change?", maxAttempts: 1 }).pipe(
+        Node.bindPlanned((answer) => Answered.call({ answer }))
+      )
+  })
+  const catalog: Executable.Catalog = {
+    executables: [{
+      descriptor: moduleDescriptor,
+      input: undefined,
+      delegate: "test/Module",
+      lowered: { cache: undefined, placement: undefined, priority: undefined },
+      invocation: (input) => ({
+        flow: moduleDescriptor.name,
+        input,
+        prompt: "",
+        model: null,
+        placement: null,
+        placementOptions: null,
+        capabilities: [],
+        flows: ["test/Module"]
+      }),
+      flow,
+      layer: Interpreter.layer(flow)
+    }],
+    refused: []
+  }
+  const registration = Layer.mergeAll(
+    Interpreter.layer(flow),
+    HumanTask.layer,
+    Answered.toLayer(({ answer }) =>
+      Effect.sync(() => {
+        answers.push(answer)
+        return answer
+      })
+    )
+  )
+  return { answers, catalog, registration }
+}
 
 describe("AgentSession", () => {
   it.each([false, true])("claim-demanded journal row carries usage and refused=%s", (refused) => {
@@ -1980,52 +2036,7 @@ describe("AgentSession", () => {
    * — so nothing here is waiting for a clock to prove a negative.
    */
   it("never re-drives a run parked on a human ask nobody has answered", async () => {
-    const answers: Array<unknown> = []
-    const Answered = Action.make("test/UnansweredAsk", {
-      payload: { answer: Schema.Json },
-      success: Schema.Json,
-      error: Schema.Never
-    })
-    const flow = Flow.make("agents/module", {
-      payload: Executable.Payload,
-      success: Schema.Unknown,
-      error: Schema.Unknown,
-      body: () =>
-        HumanTask.action.call({ name: "ship-it", kind: "confirm", prompt: "Ship the change?", maxAttempts: 1 }).pipe(
-          Node.bindPlanned((answer) => Answered.call({ answer }))
-        )
-    })
-    const catalog: Executable.Catalog = {
-      executables: [{
-        descriptor: moduleDescriptor,
-        input: undefined,
-        delegate: "test/Module",
-        lowered: { cache: undefined, placement: undefined, priority: undefined },
-        invocation: (input) => ({
-          flow: moduleDescriptor.name,
-          input,
-          prompt: "",
-          model: null,
-          placement: null,
-          placementOptions: null,
-          capabilities: [],
-          flows: ["test/Module"]
-        }),
-        flow,
-        layer: Interpreter.layer(flow)
-      }],
-      refused: []
-    }
-    const registration = Layer.mergeAll(
-      Interpreter.layer(flow),
-      HumanTask.layer,
-      Answered.toLayer(({ answer }) =>
-        Effect.sync(() => {
-          answers.push(answer)
-          return answer
-        })
-      )
-    )
+    const { answers, catalog, registration } = unansweredAsk()
     const observed = await Effect.runPromise(
       Effect.gen(function*() {
         const gate = yield* Deferred.make<void>()
@@ -2070,6 +2081,70 @@ describe("AgentSession", () => {
     // Every wait above is a bounded count of scheduler turns, not a clock, so
     // the result does not depend on speed. The budget covers a loaded machine:
     // measured there, admission took 7 s and reaching the park 26 s.
+  }, 120_000)
+
+  /**
+   * A parked run's drive fiber is still following the engine's trampoline when
+   * the host shuts down. It must be released while `agent/run` is registered:
+   * a poll that fired after the registration closed re-executed the flow into
+   * "Flow agent/run is not registered", which the driver reported as a launch
+   * failure and tried to record as `failed` (#3210).
+   */
+  it("releases a parked drive at shutdown without writing a failure", async () => {
+    const { answers, catalog, registration } = unansweredAsk()
+    const written: Array<ControlSchema.RunStatus> = []
+    const errors: Array<string> = []
+    let parkedAtMs = 0
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        yield* Effect.gen(function*() {
+          const control = yield* Control.Control
+          const runtime = yield* ControlRuntime.ControlRuntime
+          const card = yield* control.plan({ flowId: "agents/module", input: { plan: { changes: ["native"] } } })
+          yield* control.approve(card.approval)
+          const receipt = yield* control.run({
+            _tag: "Plan",
+            planId: card.planId,
+            digest: card.digest,
+            envelope: card.envelope,
+            idempotencyKey: "run:parked-shutdown"
+          })
+          if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+            return yield* Effect.die("expected admission")
+          }
+          yield* awaitStatus(runtime, receipt.runId, "parked")
+          parkedAtMs = Date.now()
+        }).pipe(Effect.provide(stack({
+          gate,
+          notes: [],
+          resolve: () => Effect.die("a module must not resolve a model seat"),
+          modules: { catalog, layer: registration },
+          wrapRuntime: (runtime) => ({
+            ...runtime,
+            writeStatus: (id, fence, status) => {
+              written.push(status)
+              return runtime.writeStatus(id, fence, status)
+            }
+          })
+        })))
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(Logger.layer([Logger.make((entry) => {
+          if (entry.logLevel === "Error") errors.push(String(entry.message))
+        })], { mergeWithExisting: false }))
+      )
+    )
+    const closeMs = Date.now() - parkedAtMs
+
+    // Shutdown neither re-entered the flow nor reported a launch failure, and
+    // the park is the last status this host wrote.
+    expect(errors).toEqual([])
+    expect(written).toEqual(["running", "parked"])
+    expect(answers).toEqual([])
+    // Released at once: a parked drive never ends on its own, so waiting the
+    // settled-drive grace for it only held the window open.
+    expect(closeMs).toBeLessThan(5_000)
   }, 120_000)
 
   it("journals a bounded cause when the model fails, for an empty and an absent input", async () => {

@@ -177,6 +177,8 @@ if (
       }
       if (releasing) {
         assert.equal(original.signalCode, null, "NodeRuntime must handle SIGTERM and finish native scope teardown")
+        // Shutdown releases the root; it never re-drives it into a launch failure (#3210).
+        assert.doesNotMatch(stderr, /could not start on the engine|terminal control status could not be written/)
         assert.equal(
           rows(root).some((row) =>
             row.run_id.endsWith("/worker") && row.status === "suspended" && row.waiting_reason === "released"
