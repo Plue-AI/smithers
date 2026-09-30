@@ -926,6 +926,34 @@ describe("a run remembers what the person decided", () => {
     expect(result.left[0]!.source).toBe("t2")
   })
 
+  it("denies a command naming a refused file through a differently named symlink, even with a command grant", async () => {
+    const root = scripted()
+    writeFileSync(join(root, "NOTES.md"), "existing\n")
+    symlinkSync("NOTES.md", join(root, "alias.txt"))
+    const commands = ["cat NOTES.md", "cat alias.txt", `cat ${join(root, "alias.txt")}`]
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const write = yield* Effect.forkChild(authorize(notes("write")))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(write)
+        const run = yield* Effect.forkChild(authorize(callOf("bash", { command: "true" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+        yield* Fiber.join(run)
+        const messages: Array<string | undefined> = []
+        for (const command of commands) {
+          messages.push(exitMessage(yield* Effect.exit(authorize(callOf("bash", { command })))))
+        }
+        yield* authorize(callOf("bash", { command: "cat check.mjs" }))
+        return { messages, pending: (yield* grants.list).length }
+      }), root)
+    expect(result.pending).toBe(0)
+    expect(result.messages).toEqual(commands.map((command) =>
+      `Denied: bash ${command}. It names NOTES.md, whose change the person refused for the rest of the run; do not change it another way.`
+    ))
+  })
+
   it("a denial wins over a allowing edits for the run", async () => {
     const result = await withStore("ask", (grants) =>
       Effect.gen(function*() {

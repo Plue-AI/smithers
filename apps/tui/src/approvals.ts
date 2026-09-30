@@ -1043,7 +1043,7 @@ const touches = (shell: Command, path: string): "names" | "may" | undefined => {
       const resolved = isAbsolute(word) ? word : join(shell.base, word)
       const target = key(real(resolved))
       const named = key(basename(word)) === name
-      if (named && target === refused) return "names"
+      if (target === refused) return "names"
       may ||= named || refused.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
         covers(key(resolved), refused))
     }
