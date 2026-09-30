@@ -9,7 +9,8 @@ import {
   extractReadableText,
   isPublicAddress,
   type ResolveHost,
-  resolveHostOverHttps
+  resolveHostOverHttps,
+  ResolverFault
 } from "../src/BrowserFetch.ts"
 import { refusalOf } from "../src/Refusal.ts"
 import { WORKER_FAILURES } from "../src/WorkerFailureCodes.ts"
@@ -636,7 +637,7 @@ describe("browserFetch guards", () => {
     expect(empty).toEqual({ ok: false, code: "unresolved", message: "The host example.com could not be resolved." })
     const outage = await browserFetch("https://example.com/", {
       resolveHost: async () => {
-        throw new Error("status 503")
+        throw new ResolverFault("status 503")
       },
       fetchImpl: async () => okPage("unexpected")
     })
@@ -664,7 +665,7 @@ describe("browserFetch guards", () => {
     expect(resolverFault).toEqual({
       ok: false,
       code: "resolver_unavailable",
-      message: "The name resolver did not answer (unknown error); try again."
+      message: "The name resolver did not answer; try again."
     })
     expect(fetches).toBe(0)
     const fetchFault = await browserFetch("https://example.com/", {
@@ -676,7 +677,7 @@ describe("browserFetch guards", () => {
     expect(fetchFault).toEqual({
       ok: false,
       code: "read_failed",
-      message: "Reading example.com failed: unknown error"
+      message: "Reading example.com failed; try again."
     })
   })
 
@@ -687,8 +688,21 @@ describe("browserFetch guards", () => {
         throw new Error("connection refused")
       }
     })
-    expect(outcome.ok).toBe(false)
-    if (outcome.ok === false) expect(outcome.message).toContain("connection refused")
+    expect(outcome).toEqual({ ok: false, code: "read_failed", message: "Reading example.com failed; try again." })
+  })
+
+  test("a foreign resolver error's own text never reaches the reader", async () => {
+    const outcome = await browserFetch("https://example.com/", {
+      resolveHost: async () => {
+        throw Object.assign(new Error("getaddrinfo EAI_AGAIN internal.corp.example"), { code: "EAI_AGAIN" })
+      },
+      fetchImpl: async () => okPage("unexpected")
+    })
+    expect(outcome).toEqual({
+      ok: false,
+      code: "resolver_unavailable",
+      message: "The name resolver did not answer; try again."
+    })
   })
 
   test("the total deadline bounds a resolver that never returns", async () => {
@@ -820,8 +834,7 @@ describe("browserFetch guards", () => {
           })
         )
     })
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.message).toContain("body disconnected")
+    expect(outcome).toEqual({ ok: false, code: "read_failed", message: "Reading example.com failed; try again." })
   })
 })
 
@@ -910,6 +923,7 @@ describe("resolveHostOverHttps", () => {
         { status: 503 }
       ))
     await expect(resolveHostOverHttps("example.com")).rejects.toThrow("status 503")
+    await expect(resolveHostOverHttps("example.com")).rejects.toBeInstanceOf(ResolverFault)
     expect(cancelled).toBeGreaterThan(0)
   })
 

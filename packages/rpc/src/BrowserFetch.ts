@@ -305,14 +305,14 @@ const guardTarget = async (
     /*
      * A resolver that errors (DoH 429/503, blocked egress, a network fault) is
      * not the same answer as a name that does not exist: the first is worth a
-     * retry, the second is bad input. Carry the cause so the user, the model
-     * and the operator can tell them apart.
+     * retry, the second is bad input. The code tells them apart; only a
+     * `ResolverFault`'s own wording is shown, never a foreign error's text.
      */
-    const cause = error instanceof Error ? error.message : "unknown error"
+    const detail = error instanceof ResolverFault ? ` (${error.detail})` : ""
     return {
       ok: false,
       code: "resolver_unavailable",
-      message: `The name resolver did not answer (${cause}); try again.`
+      message: `The name resolver did not answer${detail}; try again.`
     }
   }
   if (addresses.length === 0) {
@@ -524,19 +524,20 @@ export const browserFetch = async (
   const timeout = AbortSignal.timeout(timeoutMs)
 
   let current = url
-  const failedRead = (error: unknown): BrowserFetchFailure => ({
+  // A transport error's own text (socket, TLS, resolver internals) is never shown.
+  const failedRead = (): BrowserFetchFailure => ({
     ok: false,
     code: timeout.aborted ? "timeout" : "read_failed",
     message: timeout.aborted
       ? `Reading ${current.host} took too long and was stopped.`
-      : `Reading ${current.host} failed: ${error instanceof Error ? error.message : "unknown error"}`
+      : `Reading ${current.host} failed; try again.`
   })
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     let guarded: Awaited<ReturnType<typeof guardTarget>>
     try {
       guarded = await abortable(guardTarget(current, deps.resolveHost, timeout), timeout)
-    } catch (error) {
-      return failedRead(error)
+    } catch {
+      return failedRead()
     }
     if ("ok" in guarded) return guarded
     if (deps.fetchImpl === undefined) {
@@ -562,8 +563,8 @@ export const browserFetch = async (
         }, address),
         timeout
       )
-    } catch (error) {
-      return failedRead(error)
+    } catch {
+      return failedRead()
     }
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location")
@@ -599,8 +600,8 @@ export const browserFetch = async (
     let raw: string
     try {
       raw = await readCapped(response.body, timeout)
-    } catch (error) {
-      return failedRead(error)
+    } catch {
+      return failedRead()
     }
     const text = contentType.includes("html") || contentType.includes("xhtml")
       ? extractReadableText(raw)
@@ -618,6 +619,21 @@ export const browserFetch = async (
   return TOO_MANY_REDIRECTS
 }
 
+/** A DNS-over-HTTPS resolver fault in this module's own words: an HTTP status,
+ * a DNS rcode, or an unreadable answer. Only this detail reaches a reader.
+ * @since 1.0.0
+ * @category errors
+ */
+export class ResolverFault extends Error {
+  readonly _tag = "ResolverFault"
+  readonly detail: string
+  constructor(detail: string) {
+    super(detail)
+    this.name = "ResolverFault"
+    this.detail = detail
+  }
+}
+
 /** The workerd DNS resolver: DNS-over-HTTPS, since workerd exposes no dns module.
  * @since 1.0.0
  * @category conversions
@@ -631,15 +647,15 @@ export const resolveHostOverHttps: ResolveHost = async (hostname, signal) => {
     if (!response.ok) {
       // A resolver fault is not an empty answer set: surface it so guardTarget can say "try again".
       void response.body?.cancel().catch(() => {})
-      throw new Error(`status ${response.status}`)
+      throw new ResolverFault(`status ${response.status}`)
     }
     const body = (await response.json().catch(() => undefined)) as
       | { Status?: unknown; Answer?: Array<{ type?: unknown; data?: unknown }> }
       | undefined
     // An unreadable body or a SERVFAIL/REFUSED rcode is an outage, never an unknown name.
-    if (typeof body !== "object" || body === null) throw new Error("malformed resolver answer")
+    if (typeof body !== "object" || body === null) throw new ResolverFault("malformed resolver answer")
     if (body.Status !== undefined && body.Status !== 0 && body.Status !== 3) {
-      throw new Error(`DNS status ${String(body.Status)}`)
+      throw new ResolverFault(`DNS status ${String(body.Status)}`)
     }
     const wanted = type === "A" ? 1 : 28
     return (body.Answer ?? [])
