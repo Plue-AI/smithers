@@ -704,6 +704,17 @@ const GraphDrawerSchema = z.object({
  * @since 1.0.0
  * @category schemas
  */
+/** Where an issue comment was written: the app, or the chat it was mirrored from. */
+const IssueCommentOriginSchema = z.enum(["app", "slack", "telegram"])
+
+const IssueLastCommentSchema = z.object({
+  commenter: z.string(),
+  persona: z.string().optional(),
+  excerpt: z.string(),
+  origin: IssueCommentOriginSchema,
+  createdAt: z.string()
+}).nullable()
+
 const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({
     ...cardBaseShape,
@@ -1147,9 +1158,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       liveTail: z.boolean().optional(),
       /**
        * Progressive inspection uses one card: a cheap turn list by default,
-       * the full timeline or the run's graph on demand.
+       * the full timeline, the run's graph, its steps or its DevTools on demand.
        */
-      traceView: z.enum(["turns", "timeline", "graph", "steps"]).optional(),
+      traceView: z.enum(["turns", "timeline", "graph", "steps", "devtools"]).optional(),
       /**
        * The plan the launch was approved on, snapshotted when the run started.
        *
@@ -1494,7 +1505,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           createdAt: z.string().nullable().optional(),
           assignees: z.array(z.object({ login: z.string(), avatar: z.string().optional() })).optional(),
           labelColors: z.record(z.string(), z.string()).optional(),
-          authorAvatar: z.string().optional()
+          authorAvatar: z.string().optional(),
+          /** The newest comment (the backend's `last_comment`); absent when the read carried none. */
+          lastComment: IssueLastCommentSchema.optional()
         })
       ),
       /**
@@ -1584,9 +1597,12 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
             .optional(),
           commentBody: z.string(),
           createdAt: z.string().nullable(),
-          authorAvatar: z.string().optional()
+          authorAvatar: z.string().optional(),
+          /** Where the comment was written (the backend's `origin`); absent when the read did not say. */
+          origin: IssueCommentOriginSchema.optional()
         })
       ),
+      lastComment: IssueLastCommentSchema.optional(),
       /* The restyled issue card's GitHub facts (cards/IssueCards.tsx IssueExtras); see the issue-list row. */
       createdAt: z.string().nullable().optional(),
       assignees: z.array(z.object({ login: z.string(), avatar: z.string().optional() })).optional(),

@@ -2044,6 +2044,31 @@
 }
 .run-trace-kv dt { color: var(--text-muted); }
 .run-trace-kv dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+/* DevTools: the node tree beside the selected node's evidence; one column when narrow. */
+.run-devtools { display: grid; grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr); gap: var(--sp-2); align-items: start; }
+.run-devtools-tree { max-height: 32rem; }
+@container (max-width: 40rem) {
+	.run-devtools { grid-template-columns: minmax(0, 1fr); }
+	.run-devtools-tree { max-height: 14rem; }
+}
+.run-devtools-count { color: var(--text-muted); font-weight: 500; }
+.run-devtools-frames {
+	list-style: none;
+	margin: 0;
+	padding: var(--sp-2);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--code-bg);
+	max-height: 14rem;
+	overflow: auto;
+	font-family: var(--font-mono);
+	font-size: var(--fs-small);
+	line-height: 1.5;
+}
+.run-devtools-frame { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; }
+.run-devtools-seq, .run-devtools-at { color: var(--text-muted); }
+.run-devtools-payload { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-trace-block { display: flex; flex-direction: column; gap: 0.25rem; }
 .run-trace-code,
 .run-trace-failure pre {

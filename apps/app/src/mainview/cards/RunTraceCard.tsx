@@ -18,6 +18,7 @@ import { RunTraceSummary } from "./RunTraceSummary"
 import { runTriggersOf, runTriggerWords } from "./RunTrigger"
 import { AgentMark } from "../AgentMark"
 import { StepList, stepFacts } from "./RunTraceSteps"
+import { DevToolsPane } from "./RunDevTools"
 import { traceSteps } from "./TraceSteps"
 import { CodingPocBody } from "./CodingPocCard"
 import { CodingVibeBody } from "./CodingVibeCard"
@@ -220,6 +221,7 @@ export const RunTraceBody = ({
   const inspecting = card.payload.selection !== undefined
   const wall = model.extent.end - model.extent.start
   const settled = TERMINAL_RUN_PHASES.has(phase)
+  const latestSeq = (card.payload.events ?? []).reduce((max, record) => Math.max(max, sequenceOf(record)), 0)
   /*
    * The phase word is the RUN's verdict, so the counts beside it are the run's
    * too: a cursor moves the log below it, never what the run finished doing.
@@ -330,6 +332,29 @@ export const RunTraceBody = ({
             </p>
           ) : null}
         </>
+      ) : view === "devtools" ? (
+        <>
+          <div className="run-trace-bar" data-view="devtools" role="group" aria-label="Trace presentation">
+            <button
+              type="button"
+              className="run-trace-filter run-trace-view"
+              aria-pressed={false}
+              {...flowAction(onRunCommand, "runs.trace.view", flowArgs("runs.trace.view", { runId, view: "turns" }))}
+            >
+              Timeline
+            </button>
+            <span className="run-trace-bar-title">DevTools</span>
+            <span className="run-trace-clock" data-testid={`run-trace-devtools-facts-${runId}`}>
+              {whole.counts.spans === 0
+                ? "no journal yet"
+                : `${count(whole.counts.spans, "span")}${
+                  whole.counts.running > 0 ? ` · ${whole.counts.running} running` : ""
+                }${whole.counts.failed > 0 ? ` · ${whole.counts.failed} failed` : ""} · t = ${durationWords(ran.wall)}`}
+            </span>
+          </div>
+          {/* DevTools follows the live run: the whole journal, whatever the cursor of the other views says. */}
+          <DevToolsPane model={whole} selected={selectedSpan(card, whole)} runId={runId} latestSeq={latestSeq} onRunCommand={onRunCommand} />
+        </>
       ) : view === "graph" && runGraph !== undefined ? (
         <FlowRunGraph
           card={card}
@@ -371,6 +396,14 @@ export const RunTraceBody = ({
                   Graph
                 </button>
               )}
+              <button
+                type="button"
+                className="run-trace-filter run-trace-view"
+                aria-pressed={false}
+                {...flowAction(onRunCommand, "runs.trace.view", flowArgs("runs.trace.view", { runId, view: "devtools" }))}
+              >
+                DevTools
+              </button>
             </div>
           ) : null}
           <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />

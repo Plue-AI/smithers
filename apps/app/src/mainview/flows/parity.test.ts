@@ -409,7 +409,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 13, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
+      "../cards/RunTraceCard.tsx": 15, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
       "../cards/RunTraceSummary.tsx": 3, // + Take over / Release (runs.takeover, runs.release).

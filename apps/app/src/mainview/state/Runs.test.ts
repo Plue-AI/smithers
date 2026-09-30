@@ -2367,6 +2367,7 @@ describe("trace gestures retain their source view", () => {
     ["runs.trace.filter", "failed", { filter: "failed" }],
     ["runs.trace.select", "call-1 2", { selection: "call-1", cursorSeq: 2, liveTail: false }],
     ["runs.trace.view", "timeline", { traceView: "timeline" }],
+    ["runs.trace.view", "devtools", { traceView: "devtools" }],
     ["runs.trace.live", "", { liveTail: true }],
     ["runs.graph.follow", "off", { graph: { follow: false, node: "gate", tab: "code" } }],
     ["runs.coding.select", "memory", { codingChangeId: "memory" }]
@@ -2445,7 +2446,7 @@ describe("trace gestures retain their source view", () => {
     expect(payload(fixture.store, "other")?.filter).toBe("all")
   })
 
-  for (const [flow, args] of cases.slice(4)) {
+  for (const [flow, args] of cases.slice(5)) {
     test(`${flow} waits for its card receipt while Chat remains usable`, async () => {
       const fixture = await ready()
       const dispatch = fixture.store.dispatch
