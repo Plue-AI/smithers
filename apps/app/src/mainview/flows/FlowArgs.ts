@@ -68,6 +68,7 @@ export interface FlowInput {
   readonly "secrets.delete": { readonly name: string; readonly repo: string }
   readonly "history.parallel": { readonly value: number; readonly repo: string }
   readonly "history.retry": { readonly id: string; readonly repo: string }
+  readonly "history.todo": { readonly title?: string; readonly body?: string; readonly repo: string }
   readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.fix": { readonly number: number; readonly repo: string }
@@ -250,6 +251,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "history.retry": payload => line(token(payload, "id"), token(payload, "repo")),
+  "history.todo": payload => JSON.stringify(payload),
   "history.view": payload => line(token(payload, "view"), token(payload, "repo")),
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),

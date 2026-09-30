@@ -293,3 +293,22 @@ describe("the Wiki row", () => {
     expect(bare).not.toContain("<details>")
   })
 })
+
+describe("filing a TODO (#2782)", () => {
+  test("New TODO opens history.todo's form for this repository, and a refused filing retries the same TODO", () => {
+    const html = render()
+    const door = JSON.stringify({ repo: REPO }).replaceAll('"', "&quot;")
+    expect(html).toContain(`data-testid="stack-todo" data-flow="history.todo" data-flow-args="${door}">New TODO</button>`)
+    const args = JSON.stringify({ title: "Fix the footer", repo: REPO })
+    const failed = render({ failure: { act: "todo", message: "only a maintainer the factory's policy names files a TODO", args } })
+    expect(failed).toContain('data-act="todo"')
+    expect(failed).toContain("<p>Smithers could not file this TODO.</p>")
+    expect(failed).toContain(`data-flow="history.todo" data-flow-args="${args.replaceAll('"', "&quot;")}">Retry</button>`)
+    expect(failed).toContain("only a maintainer the factory&#x27;s policy names files a TODO</pre>")
+  })
+
+  test("an absent history offers no TODO door: there is no stack to file on", () => {
+    const absent = { ...STACK, state: "absent" as const, items: [], changes: [], lanes: [] }
+    expect(render({ snapshot: { stack: absent, error: null } })).not.toContain("history.todo")
+  })
+})

@@ -1026,6 +1026,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (!/^[\w-]{1,64}$/.test(rest)) return no("history.retry takes an item id")
     return ok(repo === undefined ? { id: rest } : { id: rest, repo })
   },
+  /* `<title> [owner/repo]`, or the form's `{ title, body, repo }`. */
+  "history.todo": (args, known) => {
+    const structured = structuredFields("history.todo", args, ["title", "body", "repo"])
+    if (structured !== undefined) return structured
+    const { rest, repo } = splitTrailingRepo(args, known)
+    return ok({ ...(rest === "" ? {} : { title: rest }), ...(repo === undefined ? {} : { repo }) })
+  },
   "history.view": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
     if (rest !== "issues" && rest !== "metrics") return no("history.view takes issues or metrics")

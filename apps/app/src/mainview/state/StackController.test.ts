@@ -452,3 +452,136 @@ test("signed out, History parks behind sign-in and reads nothing", async () => {
   expect(fake.reads()).toBe(0)
   expect(stackCard(store)).toBeUndefined()
 })
+
+/*
+ * history.todo (#2782): a TODO filed for the coding factory through
+ * POST …/mythical/todos, acknowledged before the filing answers, durable on
+ * the History card, and followed in one notice through the factory's lanes
+ * until its pull request opens, it lands, or it stops.
+ */
+const todoKey = (key: string) => `stack.todo.${encodeURIComponent(REPO)}#${key}`
+const todoToasts = (store: AppStore) => [...store.collections.toasts.values()].filter(row => row.key.startsWith(todoKey("")))
+const filed = (id: string, title: string) => Response.json(item(id, "queued", { issue: { number: 9, title, url: `https://github.com/${REPO}/issues/9` } }), { status: 201 })
+
+test("history.todo answers before the filing does, keeps Chat usable, and follows the TODO until its pull request opens", async () => {
+  const { store, controller, fake } = await setup()
+  fake.set(snapshot(1, []))
+  const filing = deferred<Response>()
+  fake.handlers.set(`POST ${BASE}/todos`, () => filing.promise)
+  const asked = await controller.commands.run("history.todo", JSON.stringify({ title: " Add the footer link ", body: "Make it findable.", repo: REPO }))
+  expect(asked).toMatchObject({ status: "executed", value: "Requested" })
+  // The request is durable before the filing answers.
+  const pending = stackCard(store)?.payload.todos ?? []
+  expect(pending).toMatchObject([{ title: "Add the footer link", body: "Make it findable." }])
+  expect(pending[0]?.item).toBeUndefined()
+  await waitFor(() => fake.writes.length === 1)
+  expect(fake.writes[0]).toEqual({ method: "POST", path: `${BASE}/todos`, body: JSON.stringify({ title: "Add the footer link", body: "Make it findable." }) })
+  // Chat and the other acts stay usable meanwhile.
+  expect(await controller.commands.run("history.view", `metrics ${REPO}`)).toMatchObject({ status: "executed" })
+  // The same TODO asked again joins the filing in flight.
+  expect(await controller.commands.run("history.todo", JSON.stringify({ title: "Add the footer link", body: "Make it findable.", repo: REPO }))).toMatchObject({ status: "executed", value: "Requested" })
+  expect(stackCard(store)?.payload.todos).toHaveLength(1)
+  const key = todoKey(pending[0]!.key)
+  await waitFor(() => toast(store, key)?.status === "running")
+  expect(toast(store, key)?.title).toBe("Add the footer link")
+
+  fake.set(snapshot(2, [item("i9", "queued")]))
+  filing.resolve(filed("i9", "Add the footer link"))
+  await waitFor(() => stackCard(store)?.payload.todos?.[0]?.item === "i9")
+  await waitFor(() => toast(store, key)?.detail === "queued")
+  expect(fake.writes).toHaveLength(1)
+
+  await waitFor(() => fake.streams() === 1)
+  fake.set(snapshot(3, [item("i9", "running", { lane: 0 })]))
+  fake.hint(3)
+  await waitFor(() => toast(store, key)?.detail === "implementing")
+  fake.set(snapshot(4, [item("i9", "verifying", { lane: 0, checks: { state: "pending", failed: [] } })]))
+  fake.hint(4)
+  await waitFor(() => toast(store, key)?.detail === "checking")
+  // The TODO's notice is the only one: no lane notice repeats it.
+  await new Promise(resolve => setTimeout(resolve, 60))
+  expect(toast(store, itemKey("i9"))).toBeUndefined()
+  expect(toast(store, key)?.status).toBe("running")
+
+  fake.set(snapshot(5, [item("i9", "proposed", { pullRequest: { number: 41, url: `https://github.com/${REPO}/pull/41`, state: "open" } })]))
+  fake.hint(5)
+  await waitFor(() => toast(store, key)?.status === "ok")
+  expect(toast(store, key)?.detail).toBe("PR #41")
+  await waitFor(() => stackCard(store)?.payload.todos === undefined)
+  expect(stackCard(store)?.payload.failure).toBeNull()
+})
+
+test("a refused filing fails on the card and its notice, and Retry files it again", async () => {
+  const { store, controller, fake } = await setup()
+  fake.set(snapshot(1, []))
+  fake.handlers.set(`POST ${BASE}/todos`, async () => Response.json({ message: "only a maintainer the factory's policy names files a TODO" }, { status: 403 }))
+  expect(await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))).toMatchObject({ status: "executed", value: "Requested" })
+  const args = JSON.stringify({ title: "Fix the footer", repo: REPO })
+  await waitFor(() => stackCard(store)?.payload.failure?.act === "todo")
+  expect(stackCard(store)?.payload.failure).toMatchObject({ act: "todo", args })
+  expect(stackCard(store)?.payload.todos).toBeUndefined()
+  await waitFor(() => todoToasts(store)[0]?.status === "failed")
+  expect(todoToasts(store)[0]?.action).toEqual({ flow: "history.todo", args, label: "Retry" })
+
+  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i3", "Fix the footer"))
+  fake.set(snapshot(2, [item("i3", "landed")]))
+  expect(await controller.commands.run("history.todo", args)).toMatchObject({ status: "executed", value: "Requested" })
+  expect(stackCard(store)?.payload.failure).toBeNull()
+  await waitFor(() => todoToasts(store).some(row => row.status === "ok" && row.detail === "landed"))
+})
+
+test("a TODO the factory stops settles failed with the stop's words and Retry", async () => {
+  const { store, controller, fake } = await setup()
+  fake.set(snapshot(1, [item("i5", "queued")]))
+  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i5", "Issue i5"))
+  await controller.commands.run("history.todo", JSON.stringify({ title: "Issue i5", repo: REPO }))
+  await waitFor(() => fake.streams() === 1)
+  fake.set(snapshot(2, [item("i5", "blocked", { reason: "out of attempts" })]))
+  fake.hint(2)
+  await waitFor(() => todoToasts(store)[0]?.status === "failed")
+  expect(todoToasts(store)[0]).toMatchObject({ detail: "blocked · out of attempts", action: { flow: "history.retry", args: `i5 ${REPO}`, label: "Retry" } })
+  // The card's issue list, not a failure row, keeps the stopped TODO.
+  expect(stackCard(store)?.payload.failure).toBeNull()
+  expect(stackCard(store)?.payload.todos).toBeUndefined()
+})
+
+test("a TODO without a title opens its form instead of filing; a typed line files its title in the active repository", async () => {
+  const { store, fake, controller } = await setup()
+  expect(await controller.commands.run("history.todo", JSON.stringify({ repo: REPO }))).toMatchObject({ status: "form", flow: "history.todo", fields: ["title"] })
+  expect(fake.writes).toEqual([])
+  await store.dispatch({ type: "repositories.loaded", actor: "system",
+    repositories: [{ id: REPO, org: "smithersai", ownerKind: "org", name: "smithers", head: null }] }).isPersisted.promise
+  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i2", "Fix the footer link"))
+  expect(await controller.commands.run("history.todo", "Fix the footer link")).toMatchObject({ status: "executed", value: "Requested" })
+  await waitFor(() => fake.writes.length === 1)
+  expect(fake.writes[0]?.body).toBe(JSON.stringify({ title: "Fix the footer link" }))
+})
+
+test("a reload reconnects filed TODOs without filing them again, and a lost answer is found by its title", async () => {
+  const storage = new Map<string, string>()
+  const local = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value) }, removeItem: (key: string) => { storage.delete(key) } }
+  const first = await createAppStore({ kind: "localStorage", storage: local })
+  await first.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: `stack:${REPO}`, kind: "stack", title: `History · ${REPO}`, status: "active", createdAt: 1, ordinal: 1,
+    payload: { repo: REPO, failure: null, todos: [
+      { key: "a", title: "Issue i4", body: "", requestedAt: 1, item: "i4" },
+      { key: "b", title: "Issue i6", body: "", requestedAt: 1 },
+      { key: "c", title: "Never filed", body: "", requestedAt: 1 }
+    ] }
+  } }).isPersisted.promise
+  await first.dispose?.()
+  const fake = cloud()
+  fake.set(snapshot(1, [item("i4", "running", { lane: 0 }), item("i6", "queued")]))
+  const { store } = await setup(fake, await createAppStore({ kind: "localStorage", storage: local }))
+  await waitFor(() => toast(store, todoKey("a"))?.detail === "implementing")
+  await waitFor(() => toast(store, todoKey("c"))?.status === "failed")
+  expect(toast(store, todoKey("c"))?.detail).toBe("Smithers could not confirm this TODO was filed.")
+  await waitFor(() => stackCard(store)?.payload.todos?.find(row => row.key === "b")?.item === "i6")
+  await waitFor(() => fake.streams() === 1)
+  fake.set(snapshot(2, [item("i4", "landed"), item("i6", "declined", { reason: "a duplicate of #4" })]))
+  fake.hint(2)
+  await waitFor(() => toast(store, todoKey("a"))?.status === "ok" && toast(store, todoKey("b"))?.status === "failed")
+  expect(toast(store, todoKey("b"))?.detail).toBe("declined · a duplicate of #4")
+  expect(fake.writes).toEqual([])
+  await waitFor(() => stackCard(store)?.payload.todos === undefined)
+})

@@ -1498,8 +1498,9 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     minimal: { repo: "smithersai/smithers", failure: null },
     full: {
       repo: "smithersai/smithers",
-      failure: { act: "backfill", message: "Refused", args: "smithersai/smithers" },
+      failure: { act: "todo", message: "Refused", args: "{\"title\":\"Fix the footer\",\"repo\":\"smithersai/smithers\"}" },
       bootstrap: { requestedAt: 1 },
+      todos: [{ key: "0a1b2c3d", title: "Fix the footer", body: "", requestedAt: 1, item: "item-9" }, { key: "4e5f6a7b", title: "Add a link", body: "In the footer.", requestedAt: 2 }],
       view: "metrics"
     }
   },

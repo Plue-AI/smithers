@@ -1793,9 +1793,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
    * The repository's mythical stack (@smthrs/rpc/Mythical, epic #1745). The
    * snapshot itself is live server state the stack seam keeps in memory and
    * never journals; the card holds what the person asked for: `failure` is
-   * the last failed act, visible with its retry until one succeeds, and
+   * the last failed act, visible with its retry until one succeeds,
    * `bootstrap` is the durable creation request whose notice runs until the
-   * stack reads active, across reloads.
+   * stack reads active, across reloads, and `todos` are the TODOs this person
+   * filed whose notice runs until the factory settles each (`item`, once
+   * the stack answered the filing).
    */
   z.object({
     ...cardBaseShape,
@@ -1803,11 +1805,18 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       repo: z.string(),
       failure: z.object({
-        act: z.enum(["bootstrap", "backfill", "parallel", "retry"]),
+        act: z.enum(["bootstrap", "backfill", "parallel", "retry", "todo"]),
         message: z.string(),
         args: z.string()
       }).nullable(),
       bootstrap: z.object({ requestedAt: z.number() }).optional(),
+      todos: z.array(z.object({
+        key: z.string(),
+        title: z.string(),
+        body: z.string(),
+        requestedAt: z.number(),
+        item: z.string().optional()
+      })).optional(),
       /** The issue list (default) or the metrics table; changed through `history.view`. */
       view: z.enum(["issues", "metrics"]).optional()
     })
