@@ -8,6 +8,7 @@
 
 export * from "./Annotations.ts"
 export * from "./CapabilityCeiling.ts"
+export * from "./DeadlineExceeded.ts"
 export * from "./ExecutionIdRequired.ts"
 export * from "./ExecutionIds.ts"
 export * from "./Flow.ts"

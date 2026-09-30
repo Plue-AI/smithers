@@ -22,6 +22,7 @@ import type * as Planned from "@smthrs/plan/Planned"
 import type * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
+import type * as Duration from "effect/Duration"
 import type * as Effect from "effect/Effect"
 import type * as Option from "effect/Option"
 import type * as Schema from "effect/Schema"
@@ -133,6 +134,17 @@ export interface Flow<
    * execution result; it is not a typed `execute` failure.
    */
   readonly maxRounds?: number | undefined
+  /**
+   * How long one execution of this flow may take, counted from its first
+   * start.
+   *
+   * The start is journaled, so the bound survives park, resume and process
+   * death: a restarted engine honors the original deadline. On expiry the
+   * execution settles with a {@link module:DeadlineExceeded.DeadlineExceeded}
+   * defect whether it was running or parked, and its attached children are
+   * cancelled with it. Absent means unbounded.
+   */
+  readonly deadline?: Duration.Duration | undefined
 
   /**
    * Describes an inline call to this flow without executing it.
@@ -408,6 +420,7 @@ export interface Any {
   readonly idempotencyKey?: ((payload: any) => string) | undefined
   readonly suspendedRetryPolicy?: RetryPolicy.RetryPolicy | undefined
   readonly maxRounds?: number | undefined
+  readonly deadline?: Duration.Duration | undefined
 }
 
 /**

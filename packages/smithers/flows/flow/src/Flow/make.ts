@@ -11,7 +11,9 @@ import type * as Effects from "@smthrs/plan/Effects"
 import * as Node from "@smthrs/plan/Node"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { FlowRuntime } from "../FlowRuntime/FlowRuntime.ts"
@@ -71,7 +73,8 @@ const Proto = {
         body: this.body,
         idempotencyKey: this.idempotencyKey,
         suspendedRetryPolicy: this.suspendedRetryPolicy,
-        maxRounds: this.maxRounds
+        maxRounds: this.maxRounds,
+        deadline: this.deadline
       }),
       DeclarationSite.declaredAt(this)
     )
@@ -88,7 +91,8 @@ const Proto = {
         body: this.body,
         idempotencyKey: this.idempotencyKey,
         suspendedRetryPolicy: this.suspendedRetryPolicy,
-        maxRounds: this.maxRounds
+        maxRounds: this.maxRounds,
+        deadline: this.deadline
       }),
       DeclarationSite.declaredAt(this)
     )
@@ -198,6 +202,7 @@ const makeProto = <
   readonly idempotencyKey?: ((payload: Payload["Type"]) => string) | undefined
   readonly suspendedRetryPolicy?: RetryPolicy.RetryPolicy | undefined
   readonly maxRounds?: number | undefined
+  readonly deadline?: Duration.Duration | undefined
 }): Flow<Tag, Payload, Success, Error, Requires> => {
   function Flow() {}
   Object.setPrototypeOf(Flow, Proto)
@@ -280,6 +285,11 @@ interface MakeOptions<
    * The round budget a trampoline lineage started from this flow runs under.
    */
   readonly maxRounds?: number | undefined
+  /**
+   * How long one execution may take, counted from its journaled first start.
+   * A positive finite duration; see {@link Flow.deadline}.
+   */
+  readonly deadline?: Duration.Input | undefined
   readonly annotations?: Context.Context<never>
 }
 
@@ -351,6 +361,15 @@ export const make = <
   ) {
     throw new RangeError(`Flow.make: "${tag}" maxRounds must be a positive safe integer`)
   }
+  const deadline = options.deadline === undefined
+    ? undefined
+    : Option.getOrUndefined(Duration.fromInput(options.deadline))
+  if (
+    options.deadline !== undefined &&
+    (deadline === undefined || !Duration.isFinite(deadline) || Duration.toMillis(deadline) <= 0)
+  ) {
+    throw new RangeError(`Flow.make: "${tag}" deadline must be a positive finite duration`)
+  }
   // Captured here, where the stack still names the author's file, and carried
   // as a non-enumerable property so no digest can see it
   // (`internal/DeclarationSite.ts`).
@@ -372,7 +391,8 @@ export const make = <
       ) => Node.Node<BodySuccess<Success["Type"]>, Error["Type"], Requires>,
       idempotencyKey: options.idempotencyKey as any,
       suspendedRetryPolicy: options.suspendedRetryPolicy,
-      maxRounds: options.maxRounds
+      maxRounds: options.maxRounds,
+      deadline
     }),
     site
   )
