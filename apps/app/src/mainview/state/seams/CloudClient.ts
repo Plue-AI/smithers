@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { clientRefusal, refusalOf, retryAfterHeader } from "@smthrs/rpc/Refusal"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { refusalLine } from "@smthrs/rpc/RefusalCopy"
@@ -53,6 +54,12 @@ export const cloudFailure = async (response: Response, fallback: string): Promis
     refusal
   }
 }
+
+/**
+ * Smithers Cloud answered, but not with what the request needs (`expected`,
+ * e.g. a session stream). Reported like an unreachable Cloud: nothing judged it.
+ */
+export class CloudAnswerUnusable extends Data.TaggedError("CloudAnswerUnusable")<{ readonly expected: string }> {}
 
 /**
  * A request that never reached Smithers Cloud: infra-class, because nothing

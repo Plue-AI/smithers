@@ -27,13 +27,14 @@
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
 import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, retryable, stackCounts } from "@smthrs/rpc/StackView"
+import { Data } from "effect"
 import { actorSharedState } from "../ActorBindings"
 import type { Card, Toast } from "../AppState"
 import type { FailureController } from "../controller/failures"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import { resolveTargetRepo } from "../RepoContext"
 import type { CloudFailure } from "./CloudClient"
-import { cloudFailure, cloudUnreachable, createCloudClient } from "./CloudClient"
+import { CloudAnswerUnusable, cloudFailure, cloudUnreachable, createCloudClient } from "./CloudClient"
 import type { SeamContext } from "./SeamContext"
 import { readResult } from "./SeamContext"
 
@@ -55,6 +56,9 @@ export interface StackSnapshots {
   readonly get: (repo: string) => StackSnapshot | undefined
   readonly subscribe: (listener: () => void) => () => void
 }
+
+/** The history's event stream said this viewer lost access; the read fails as a 403. */
+class HistoryAccessRevoked extends Data.TaggedError("HistoryAccessRevoked")<Record<never, never>> {}
 
 export interface StackSeam {
   readonly showStack: (repo?: string) => Promise<Result>
@@ -310,7 +314,7 @@ export const createStackSeam = (
           if ("error" in answer) { readFailed(watch, answer); continue }
           const parsed = MythicalStackSchema.safeParse(answer.body)
           if (parsed.success) apply(watch, parsed.data)
-          else readFailed(watch, cloudUnreachable(new Error("the stack answer was not a stack")))
+          else readFailed(watch, cloudUnreachable(new CloudAnswerUnusable({ expected: "stack" })))
         } while (watch.dirty && watch.current())
       } catch (error) {
         if (watch.current()) readFailed(watch, cloudUnreachable(error))
@@ -332,7 +336,7 @@ export const createStackSeam = (
     })
     if (!watch.current()) { await response.body?.cancel().catch(() => {}); return undefined }
     if (!response.ok || response.body === null || !(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
-      const failure = response.ok ? cloudUnreachable(new Error("Smithers Cloud did not provide the history's event stream.")) :
+      const failure = response.ok ? cloudUnreachable(new CloudAnswerUnusable({ expected: "history event stream" })) :
         await cloudFailure(response, `Smithers Cloud could not open the history's event stream (HTTP ${response.status}).`)
       await response.body?.cancel().catch(() => {})
       return failure
@@ -352,7 +356,7 @@ export const createStackSeam = (
         const blocks = buffer.split(/\r?\n\r?\n/)
         buffer = blocks.pop() ?? ""
         if (blocks.some((block) => /^event:\s*revoked\s*$/m.test(block))) {
-          const failure = cloudUnreachable(new Error("Access to this history was revoked."))
+          const failure = cloudUnreachable(new HistoryAccessRevoked())
           return { ...failure, status: 403 }
         }
         if (blocks.some((block) => /^event:\s*mythical\s*$/m.test(block))) void refresh(watch)

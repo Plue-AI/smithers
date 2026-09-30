@@ -857,6 +857,17 @@ for (const status of [401, 403, 404]) {
   })
 }
 
+test("a 200 answer that is not an event stream reads as an unreachable Cloud, not as its own words", async () => {
+  const { seam, store } = await harness({
+    [`GET api/repos/${REPO}/agent/sessions/${SESSION_ID}`]: json(200, AGENT_SESSION_WIRE.session()),
+    [`GET api/repos/${REPO}/agent/sessions/${SESSION_ID}/messages`]: json(200, [])
+  }, { repairIntervalMs: 10, stream: () => json(200, { message: "not a stream" }) })
+  await seam.viewSession(SESSION_ID, REPO)
+  await until(() => payloadOf(store)?.error !== undefined)
+  expect(payloadOf(store)?.error).toStartWith("Could not reach Smithers Cloud.")
+  expect(payloadOf(store)?.error).not.toContain("not a stream")
+})
+
 test("stream server failures remain visible and back off until recovery", async () => {
   const waits: number[] = []
   const realTimeout = globalThis.setTimeout

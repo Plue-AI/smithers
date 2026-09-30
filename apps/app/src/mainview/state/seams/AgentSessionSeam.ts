@@ -51,7 +51,7 @@ import { actorSharedState } from "../ActorBindings"
 import { CardSchema, type Card } from "../AppState"
 import { canonicalStoredJsonValue } from "../EventValue"
 import { resolveTargetRepo } from "../RepoContext"
-import { cloudFailure, cloudUnreachable, createCloudClient } from "./CloudClient"
+import { CloudAnswerUnusable, cloudFailure, cloudUnreachable, createCloudClient } from "./CloudClient"
 import type { CloudFailure } from "./CloudClient"
 import { readResult } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
@@ -509,7 +509,7 @@ export const createAgentSessionSeam = (ctx: SeamContext, options: { readonly rep
       }
       if (response.body === null || !contentType.includes("text/event-stream")) {
         await response.body?.cancel().catch(() => {})
-        await observe(() => refused(cloudUnreachable(new Error("Smithers Cloud did not provide a session stream."))))
+        await observe(() => refused(cloudUnreachable(new CloudAnswerUnusable({ expected: "session stream" }))))
         return
       }
       failures = 0

@@ -22,6 +22,7 @@ import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import { presentAppFailure } from "../controller/AppFailure"
 import { actorSharedState } from "../ActorBindings"
+import { Data } from "effect"
 
 export interface RepoImportSeam {
   readonly importRepository: (repo?: string, options?: { readonly registration?: boolean }) => Promise<string | void | { readonly value: string }>
@@ -67,6 +68,9 @@ interface ImportJobAnswer {
   readonly repository: { readonly owner: string; readonly name: string } | null
   readonly workspaceId: string | null
 }
+
+/** A retry whose request was replaced while it read the job; its flight settles as superseded. */
+class RepoImportSuperseded extends Data.TaggedError("RepoImportSuperseded")<Record<never, never>> {}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -520,11 +524,11 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       if (requestKind === "retry" && jobId !== null) {
         if (recover) {
           const observed = await ctx.http(cloud("/github/import/" + encodeURIComponent(jobId)))
-          if (!current()) throw new Error("The import request was superseded.")
+          if (!current()) throw new RepoImportSuperseded()
           if (!observed.ok) return observed
           const job = parseImportJob(await observed.clone().json().catch(() => undefined))
           if (job?.status !== "failed") return observed
-          if (!current()) throw new Error("The import request was superseded.")
+          if (!current()) throw new RepoImportSuperseded()
         }
         return ctx.http(cloud("/github/import/" + encodeURIComponent(jobId) + "/retry"), { method: "POST" })
       }
