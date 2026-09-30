@@ -18,13 +18,19 @@ it("sums a UTC day across runs and survives a new ledger over the same directory
   const root = fresh()
   const first = Spend.ledger(root)
   await Effect.runPromise(first.record({ day: today(), runId: "a", stepKey: "1", spent: 600 }))
+  await Effect.runPromise(
+    first.record({ day: today(), runId: "a", stepKey: "2", spent: 10, costUsd: 0.5, costSource: "estimated" })
+  )
   await Effect.runPromise(first.record({ day: today(), runId: "b", stepKey: "1", spent: 400 }))
   await Effect.runPromise(first.record({ day: "2020-01-01", runId: "old", stepKey: "1", spent: 9 }))
   const second = Spend.ledger(root)
-  expect(await Effect.runPromise(second.total(today()))).toBe(1000)
+  expect(await Effect.runPromise(second.total(today()))).toBe(1010)
   expect(await Effect.runPromise(second.total("2020-01-01"))).toBe(9)
   expect(await Effect.runPromise(second.total("2019-01-01"))).toBe(0)
-  expect([...(await Effect.runPromise(second.run("a")))]).toEqual([["1", 600]])
+  expect([...(await Effect.runPromise(second.run("a")))]).toEqual([["1", { spent: 600 }], ["2", {
+    spent: 10,
+    costUsd: 0.5
+  }]])
 })
 
 it("counts a retried record once, and tolerates only a torn final line", async () => {
@@ -47,6 +53,16 @@ it("refuses a line that is not a spend record instead of counting zero", async (
   writeFileSync(join(root, `${today()}.jsonl`), "{\"day\":1}\n")
   await Effect.runPromise(Effect.flip(Spend.ledger(root).total(today())))
   expect(readFileSync(join(root, `${today()}.jsonl`), "utf8")).toBe("{\"day\":1}\n")
+})
+
+it.each(["-1", "\"0.5\"", "null"])("refuses a spend record whose USD is %s", async (cost) => {
+  const root = fresh()
+  mkdirSync(root, { recursive: true })
+  writeFileSync(
+    join(root, `${today()}.jsonl`),
+    `{"day":"${today()}","runId":"a","stepKey":"1","spent":5,"costUsd":${cost}}\n`
+  )
+  await Effect.runPromise(Effect.flip(Spend.ledger(root).run("a")))
 })
 
 it("keeps its directory under the session directory override", () => {

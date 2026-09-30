@@ -78,11 +78,14 @@ export class DelegationError extends Schema.TaggedError<DelegationError>()("flow
  * The run budget threaded into every leaf call. A host that implements a
  * budget capability enforces it; the chain only carries it.
  *
+ * A USD ceiling is not carried here: it is enforced where every model call is
+ * made, by `@smthrs/agent`'s `Budget.make({ usd })`, which a chain's leaves
+ * spend through like any other call.
+ *
  * @category models
  * @since 0.1.0
  */
 export interface Budget {
-  readonly maxUsd?: number | undefined
   readonly maxMinutes?: number | undefined
 }
 

@@ -73,7 +73,10 @@ const plan: Trellis.Plan = {
 
 const bounds = { tierOrder: ["weak", "strong"], maxDepth: 3, maxDeriskRounds: 2, maxAttempts: 2 } as const
 
-const budget: DelegationChain.Budget = { maxUsd: 5 }
+const budget: DelegationChain.Budget = { maxMinutes: 5 }
+// A USD ceiling is the model boundary's `Budget.make({ usd })`; the chain carries none (#1842).
+// @ts-expect-error `maxUsd` is not a chain budget field.
+void ({ maxUsd: 5 } satisfies DelegationChain.Budget)
 
 const keys = (value: Record<string, unknown>): ReadonlyArray<string> => Object.keys(value).sort()
 

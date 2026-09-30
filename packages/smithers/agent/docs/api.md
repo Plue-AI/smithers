@@ -1166,19 +1166,25 @@ spent it. Enforcement sits at the model boundary in `FlowEngineLike`, which
 every model call passes through, so a step that assembles its own loop cannot
 evade a budget declared for the run.
 
-### Budget.Policy, Budget.TokenBudget, Budget.LatencyBudget, Budget.OnExceeded
+### Budget.Policy, Budget.TokenBudget, Budget.UsdBudget, Budget.LatencyBudget, Budget.OnExceeded
 
 ```ts
 const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
 
 interface Policy {
   readonly tokens?: TokenBudget | undefined
+  readonly usd?: UsdBudget | undefined
   readonly latency?: LatencyBudget | undefined
 }
 
 interface TokenBudget {
   readonly max: number
   readonly onExceeded?: OnExceeded | undefined
+}
+
+interface UsdBudget {
+  readonly max: number
+  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
 }
 
 interface LatencyBudget {
@@ -1196,6 +1202,14 @@ whole interval again. The ceiling counts active time only: time the run spends
 suspended on an approval, a question, or a budget raise is recorded durably and
 subtracted, including across a process restart. That includes a native module
 execution suspended on a `HumanTask`, an approval, or a timer.
+
+A USD budget admits calls as a token budget does, in dollars: each call costs
+its `Pricing.cost`, the provider's reported charge or its usage at the rate
+card with `Policy.prices` rows over it, and the largest call so far is the next
+one's forecast. A call whose model has no price leaves the run's spend unknown,
+so the next admission fails with `AccountingUnavailable` rather than counting
+it free. It cannot `park`, because an approval envelope carries no USD ceiling
+to raise; `Budget.make` rejects that as a `ConfigurationError`.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 

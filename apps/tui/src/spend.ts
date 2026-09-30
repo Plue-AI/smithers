@@ -24,7 +24,9 @@ const isEntry = (value: unknown): value is Budget.LedgerEntry =>
   typeof (value as Budget.LedgerEntry).day === "string" &&
   typeof (value as Budget.LedgerEntry).runId === "string" &&
   typeof (value as Budget.LedgerEntry).stepKey === "string" &&
-  Number.isFinite((value as Budget.LedgerEntry).spent)
+  Number.isFinite((value as Budget.LedgerEntry).spent) &&
+  ((value as Budget.LedgerEntry).costUsd === undefined ||
+    (Number.isFinite((value as Budget.LedgerEntry).costUsd) && (value as Budget.LedgerEntry).costUsd! >= 0))
 
 /** One day's entries; the first record of a `(runId, stepKey)` wins. */
 const read = (root: string, day: string): ReadonlyArray<Budget.LedgerEntry> => {
@@ -63,9 +65,12 @@ export const ledger = (root: string = directory()): Budget.Ledger => ({
   run: (runId) =>
     Effect.try(() => {
       const today = new Date().toISOString().slice(0, 10)
-      const held = new Map<string, number>()
+      const held = new Map<string, Budget.Charge>()
       for (const day of [previousDay(today), today]) {
-        for (const entry of read(root, day)) if (entry.runId === runId) held.set(entry.stepKey, entry.spent)
+        for (const entry of read(root, day)) {
+          if (entry.runId !== runId) continue
+          held.set(entry.stepKey, { spent: entry.spent, ...(entry.costUsd === undefined ? {} : { costUsd: entry.costUsd }) })
+        }
       }
       return held
     })

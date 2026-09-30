@@ -2735,7 +2735,7 @@ describe("a per-day cap across runs", () => {
     // A retried write of the same step, with a different figure, is the same charge.
     await Effect.runPromise(ledger.record({ day, runId: "run-a", stepKey: "a1", spent: 900 }))
     expect(await Effect.runPromise(ledger.total(day))).toBe(400)
-    expect(await Effect.runPromise(ledger.run("run-a"))).toEqual(new Map([["a1", 400]]))
+    expect(await Effect.runPromise(ledger.run("run-a"))).toEqual(new Map([["a1", { spent: 400 }]]))
   })
 
   it("fails closed when a run's own spend cannot be recovered from the ledger", async () => {

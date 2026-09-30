@@ -44,6 +44,15 @@ describe("FailureCopy.describe", () => {
       line: "2100 of 2000 tokens used today.",
       actions: ["resume", "details"]
     })
+    expect(FailureCopy.describe({ ...exceeded, scope: "usd", used: 5.25, max: 5 })).toMatchObject({
+      headline: "Spend budget reached",
+      line: "$5.25 of $5.00 used.",
+      actions: ["resume", "details"]
+    })
+    expect(FailureCopy.describe({ _tag: "flows/agent/BudgetExceeded", scope: "usd" })).toMatchObject({
+      headline: "Spend budget reached",
+      line: "The run spent its budget."
+    })
     expect(FailureCopy.describe({ _tag: "flows/agent/BudgetExceeded" }).line).toBe("The run spent its budget.")
   })
 

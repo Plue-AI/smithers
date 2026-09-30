@@ -220,9 +220,19 @@ export const describe = (error: unknown, seat?: string): Description => {
     }
   }
   if (budget !== undefined) {
+    const measured = typeof budget.used === "number" && typeof budget.max === "number"
+    if (budget.scope === "usd") {
+      return {
+        headline: "Spend budget reached",
+        fault,
+        line: measured
+          ? `$${(budget.used as number).toFixed(2)} of $${(budget.max as number).toFixed(2)} used.`
+          : "The run spent its budget.",
+        actions: ["resume", "details"]
+      }
+    }
     const daily = budget.scope === "daily"
     const tokens = budget.scope !== "latency"
-    const measured = typeof budget.used === "number" && typeof budget.max === "number"
     return {
       headline: daily ? "Daily token cap reached" : tokens ? "Token budget reached" : "Time budget reached",
       fault,

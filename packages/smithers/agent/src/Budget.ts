@@ -58,6 +58,12 @@
  * quota service. Durable execution ownership must prevent multiple hosts from
  * dispatching the same run concurrently.
  *
+ * - **A USD ceiling charges each call its price.** `usd` admits calls the same
+ *   way `tokens` does, in dollars: each call costs its {@link Pricing.cost}, the
+ *   provider's reported charge or its usage at the rate card. A call whose
+ *   model has no price leaves the run's spend unknown, so admission under a USD
+ *   ceiling then fails closed rather than counting it as free.
+ *
  * `onExceeded` is the composition's choice of what that means: `fail` reports a
  * typed {@link BudgetExceeded}, `warn` journals and proceeds,
  * `skip-remaining` latches, so every later call in the run is refused without
@@ -142,6 +148,25 @@ export interface LatencyBudget {
 }
 
 /**
+ * The soft USD admission ceiling for one run, and what exceeding it means.
+ *
+ * Each call is charged its {@link Pricing.cost} under {@link Policy.prices}
+ * over the rate card; a forecast is the largest call so far, as for
+ * {@link TokenBudget}. A recorded call with no price makes the run's spend
+ * unknown, and admission then fails with {@link AccountingUnavailable}; price
+ * such a model with a {@link Policy.prices} row. It cannot `park`: an approval
+ * envelope carries no USD ceiling to raise.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface UsdBudget {
+  /** Finite, non-negative dollars. */
+  readonly max: number
+  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
+}
+
+/**
  * Relative charges for uncached input, cache-read, cache-write and output
  * tokens: the shape of a {@link Pricing.Rates} row.
  * @category schemas
@@ -172,6 +197,7 @@ export interface Policy {
    */
   readonly prices?: Readonly<Record<string, Pricing.Rates>> | undefined
   readonly tokens?: TokenBudget | undefined
+  readonly usd?: UsdBudget | undefined
   readonly latency?: LatencyBudget | undefined
   /**
    * Tokens per UTC day across every run recorded in the {@link Options.ledger}.
@@ -220,8 +246,17 @@ export interface LedgerEntry {
 export interface Ledger {
   readonly total: (day: string) => Effect.Effect<number, unknown>
   readonly record: (entry: LedgerEntry) => Effect.Effect<void, unknown>
-  readonly run: (runId: string) => Effect.Effect<ReadonlyMap<string, number>, unknown>
+  /** One run's charged steps, by step key. */
+  readonly run: (runId: string) => Effect.Effect<ReadonlyMap<string, Charge>, unknown>
 }
+
+/**
+ * What one step was charged: its tokens, and its USD when its model is priced.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export type Charge = Pick<LedgerEntry, "spent" | "costUsd">
 
 /**
  * An in-process {@link Ledger}, for tests and hosts with no durable store.
@@ -247,7 +282,10 @@ export const memoryLedger = (): Ledger => {
     run: (runId) =>
       Effect.sync(() =>
         new Map(
-          [...entries.values()].filter((entry) => entry.runId === runId).map((entry) => [entry.stepKey, entry.spent])
+          [...entries.values()].filter((entry) => entry.runId === runId).map((entry) => [
+            entry.stepKey,
+            { spent: entry.spent, ...(entry.costUsd === undefined ? {} : { costUsd: entry.costUsd }) }
+          ])
         )
       )
   }
@@ -282,7 +320,7 @@ export class ConfigurationError extends Schema.TaggedError<ConfigurationError>()
 export class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()(
   "flows/agent/BudgetExceeded",
   {
-    scope: Schema.Literals(["tokens", "latency", "daily"]),
+    scope: Schema.Literals(["tokens", "usd", "latency", "daily"]),
     onExceeded: OnExceeded,
     used: Schema.Number,
     /** Forecast held by other in-flight calls; absent on older encoded errors. */
@@ -769,12 +807,20 @@ export const tokensOf = (usage: ModelEvent.Usage, weights?: typeof TokenWeights.
 interface State {
   readonly tokens: number
   readonly largestCall: number
+  /** USD of the priced steps, and the largest one: the next call's USD forecast. */
+  readonly usd: number
+  readonly largestUsd: number
+  /** The first counted step with no price, which leaves a USD ceiling's spend unknown. */
+  readonly unpriced: string | undefined
   readonly counted: ReadonlyMap<string, number>
   readonly latched: BudgetExceeded | undefined
 }
 
+/** Dollars to the micro-dollar, without a float's tail. */
+const dollars = (value: number): string => `$${Number(value.toFixed(6))}`
+
 const exceeded = (
-  scope: "tokens" | "latency" | "daily",
+  scope: BudgetExceeded["scope"],
   onExceeded: OnExceeded,
   used: number,
   max: number,
@@ -792,6 +838,10 @@ const exceeded = (
       ? `This machine has spent ${used} of its ${max} tokens for the UTC day across all runs, and the next call is projected at ${next}`
       : scope === "tokens"
       ? `The run has spent ${used} of its ${max} approved tokens, has ${reserved} reserved, and the next call is projected at ${next}`
+      : scope === "usd"
+      ? `The run has spent ${dollars(used)} of its ${dollars(max)} approved, has ${
+        dollars(reserved)
+      } reserved, and the next call is projected at ${dollars(next)}`
       : `The run has been running for ${used} ms of its ${max} ms budget`
   })
 
@@ -946,7 +996,7 @@ const recoveryPageSize = 500
 export const defaultRecoveryEntries = 1_000_000
 
 interface RecoveredLedger {
-  readonly usage: ReadonlyMap<string, number>
+  readonly usage: ReadonlyMap<string, Charge>
   readonly startedAt: number | undefined
   readonly latched: BudgetExceeded | undefined
   /** Closed suspension spans, summed. */
@@ -973,7 +1023,7 @@ const recoverUsage = (
   entryLimit: number
 ): Effect.Effect<RecoveredLedger, AccountingUnavailable> =>
   Effect.gen(function*() {
-    const recovered = new Map<string, number>()
+    const recovered = new Map<string, Charge>()
     let startedAt = Number.POSITIVE_INFINITY
     let latched: BudgetExceeded | undefined
     let suspendedMillis = 0
@@ -1017,10 +1067,15 @@ const recoverUsage = (
             Effect.mapError(() => undecodable(entry, "usage"))
           )
           const previous = recovered.get(payload.stepKey)
-          if (previous !== undefined && previous !== payload.spent) {
+          if (previous !== undefined && previous.spent !== payload.spent) {
             return yield* Effect.fail(unavailable("recover", runId, "its usage records disagree about one model step"))
           }
-          recovered.set(payload.stepKey, payload.spent)
+          if (previous === undefined) {
+            recovered.set(payload.stepKey, {
+              spent: payload.spent,
+              ...(payload.costUsd === undefined ? {} : { costUsd: payload.costUsd })
+            })
+          }
         } else if (entry.eventType === budgetStartedEvent) {
           const payload = yield* Schema.decodeUnknownEffect(BudgetStartedRecord)(entry.payload).pipe(
             Effect.mapError(() => undecodable(entry, "budget-started"))
@@ -1174,6 +1229,10 @@ const Configuration = Schema.Struct({
       max: NonNegativeInteger,
       onExceeded: Schema.optional(OnExceeded)
     })),
+    usd: Schema.optional(Schema.Struct({
+      max: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+      onExceeded: Schema.optional(Schema.Literals(["fail", "warn", "skip-remaining"]))
+    })),
     latency: Schema.optional(Schema.Struct({
       maxMillis: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
       onExceeded: Schema.optional(OnExceeded)
@@ -1226,6 +1285,9 @@ export const make = (
       const state = yield* Ref.make<State>({
         tokens: 0,
         largestCall: 0,
+        usd: 0,
+        largestUsd: 0,
+        unpriced: undefined,
         counted: new Map<string, number>(),
         latched: undefined
       })
@@ -1305,10 +1367,11 @@ export const make = (
       run: RunAccount,
       runId: string,
       stepKey: string,
-      spent: number,
+      charge: Charge,
       pending?: AccountingUnavailable
     ): Effect.Effect<boolean, AccountingUnavailable> =>
       Ref.modify(run.state, (current): readonly [Result.Result<boolean, AccountingUnavailable>, State] => {
+        const { spent, costUsd } = charge
         const previous = current.counted.get(stepKey)
         if (previous !== undefined) {
           const conflict = previous === spent
@@ -1333,6 +1396,9 @@ export const make = (
             ...current,
             tokens: current.tokens + spent,
             largestCall: Math.max(current.largestCall, spent),
+            usd: current.usd + (costUsd ?? 0),
+            largestUsd: Math.max(current.largestUsd, costUsd ?? 0),
+            unpriced: current.unpriced ?? (costUsd === undefined ? stepKey : undefined),
             counted
           }
         ] as const
@@ -1357,14 +1423,14 @@ export const make = (
                 run.suspendedSince = ledger.suspendedSince
                 yield* Effect.forEach(
                   ledger.usage,
-                  ([stepKey, spent]) => account(run, runId, stepKey, spent),
+                  ([stepKey, charge]) => account(run, runId, stepKey, charge),
                   { discard: true }
                 )
                 if (spendLedger !== undefined) {
                   const held = yield* spendLedger.run(runId).pipe(
                     Effect.mapError((cause) => unavailable("recover", runId, String(cause), cause))
                   )
-                  yield* Effect.forEach(held, ([stepKey, spent]) => account(run, runId, stepKey, spent), {
+                  yield* Effect.forEach(held, ([stepKey, charge]) => account(run, runId, stepKey, charge), {
                     discard: true
                   })
                 }
@@ -1580,12 +1646,14 @@ export const make = (
           : mode === "reserve" || run.reservations.size > 0
           ? forecast
           : current.largestCall
+        // A `warn` ceiling still lets a stricter one refuse the same call.
+        let warned: Verdict | undefined
         if (
           tokens !== undefined &&
           (tokens.max === 0 ||
             (mode === "reading" ? current.tokens >= tokens.max : current.tokens + reserved + next > tokens.max))
         ) {
-          return yield* settle(
+          const verdict = yield* settle(
             run,
             runId,
             exceeded(
@@ -1597,8 +1665,50 @@ export const make = (
               reserved
             )
           )
+          if (verdict._tag !== "warn") return verdict
+          warned = verdict
         }
-        return { _tag: "proceed" }
+        const usd = policy.usd
+        if (usd !== undefined) {
+          // An unpriced step's dollars are unknown, not zero.
+          if (current.unpriced !== undefined) {
+            return yield* Effect.fail(
+              unavailable(
+                "recover",
+                runId,
+                `its model step ${
+                  JSON.stringify(current.unpriced)
+                } has no USD price, so its USD ceiling cannot say what allowance is left`
+              )
+            )
+          }
+          // The same forecast as tokens, in dollars.
+          const forecastUsd = current.largestUsd || usd.max
+          let reservedUsd = 0
+          if (mode !== "reading") {
+            for (const key of run.reservations.keys()) {
+              if (!current.counted.has(key)) reservedUsd += forecastUsd
+            }
+          }
+          const nextUsd = mode === "reading"
+            ? 0
+            : mode === "reserve" || run.reservations.size > 0
+            ? forecastUsd
+            : current.largestUsd
+          if (
+            usd.max === 0 ||
+            (mode === "reading" ? current.usd >= usd.max : current.usd + reservedUsd + nextUsd > usd.max)
+          ) {
+            const verdict = yield* settle(
+              run,
+              runId,
+              exceeded("usd", usd.onExceeded ?? "fail", current.usd, usd.max, nextUsd, reservedUsd)
+            )
+            if (verdict._tag !== "warn") return verdict
+            warned ??= verdict
+          }
+        }
+        return warned ?? { _tag: "proceed" }
       })
 
     const check = (stepKey: string | undefined): Effect.Effect<Verdict, AccountingUnavailable> =>
@@ -1648,6 +1758,7 @@ export const make = (
           Effect.gen(function*() {
             const spent = tokensOf(usage, modelId === undefined ? undefined : policy.weights?.[modelId])
             const priced = Pricing.cost(usage, modelId, { table: prices, at: yield* Clock.currentTimeMillis })
+            const charge: Charge = { spent, ...(priced === undefined ? {} : { costUsd: priced.costUsd }) }
             // A malformed cost must not poison the numeric accumulator. Keep the
             // ledger unavailable until that step supplies a valid record.
             const payload = yield* Schema.encodeEffect(UsageRecord)({ stepKey, spent, ...priced }).pipe(
@@ -1664,7 +1775,7 @@ export const make = (
                 entered = true
                 const pending = run.pending.get(stepKey) ??
                   unavailable("record", runId, "a paid model step has uncommitted usage")
-                const counted = yield* account(run, runId, stepKey, spent, pending)
+                const counted = yield* account(run, runId, stepKey, charge, pending)
                 if (!counted && !run.pending.has(stepKey)) return
                 if (spendLedger !== undefined) {
                   const now = yield* Clock.currentTimeMillis
@@ -1704,7 +1815,7 @@ export const make = (
                   unavailable("record", runId, "a paid model step could not enter usage accounting")
                 // Cancellation must retain the known cost as well as its key.
                 // This synchronous transition also detects conflicting retries.
-                yield* account(run, runId, stepKey, spent, pending).pipe(Effect.ignore)
+                yield* account(run, runId, stepKey, charge, pending).pipe(Effect.ignore)
               })
             ))
           }), stepKey),
@@ -1748,7 +1859,7 @@ export const make = (
           return Effect.map(recoverUsage(runId, recoveryEntries), (ledger) => {
             let tokens = 0
             let largestCall = 0
-            for (const spent of ledger.usage.values()) {
+            for (const { spent } of ledger.usage.values()) {
               tokens += spent
               largestCall = Math.max(largestCall, spent)
             }

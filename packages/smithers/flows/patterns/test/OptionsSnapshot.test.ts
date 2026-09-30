@@ -455,7 +455,7 @@ const declarations: ReadonlyArray<Declaration> = [
       maxDepth: 1,
       maxDeriskRounds: 1,
       maxAttempts: 1,
-      budget: { maxUsd: 5 } as { maxUsd?: number | undefined }
+      budget: { maxMinutes: 5 } as { maxMinutes?: number | undefined }
     }),
     (options) => DelegationChain.make(options),
     (options) => {
@@ -469,7 +469,7 @@ const declarations: ReadonlyArray<Declaration> = [
       options.maxDepth = 2
       options.maxDeriskRounds = 2
       options.maxAttempts = 2
-      options.budget.maxUsd = 9
+      options.budget.maxMinutes = 9
     }
   )
 ]
@@ -981,7 +981,7 @@ describe("options are snapshotted at the call", () => {
       const execute: Record<string, (work: DelegationChain.Work) => Effect.Effect<string>> = {
         weak: (work) =>
           Effect.sync(() => {
-            trace.push(`weak ${work.budget?.maxUsd}`)
+            trace.push(`weak ${work.budget?.maxMinutes}`)
             return "weak"
           })
       }
@@ -1012,7 +1012,7 @@ describe("options are snapshotted at the call", () => {
         maxDepth: 1,
         maxDeriskRounds: 1,
         maxAttempts: 1,
-        budget: { maxUsd: 1 } as { maxUsd?: number | undefined },
+        budget: { maxMinutes: 1 } as { maxMinutes?: number | undefined },
         concurrency: 1
       }
       const running = DelegationChain.run("prompt", options)
@@ -1027,7 +1027,7 @@ describe("options are snapshotted at the call", () => {
       options.maxDepth = 0
       options.maxDeriskRounds = 0
       options.maxAttempts = 0
-      options.budget.maxUsd = 9
+      options.budget.maxMinutes = 9
       options.concurrency = 0
 
       expect(yield* running).toEqual(["weak"])
