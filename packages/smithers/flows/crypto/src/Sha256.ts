@@ -206,7 +206,11 @@ export const digestSync = (input: string | Uint8Array): Digest => encodeHex(sha2
  */
 export const syncCrypto: Crypto.Crypto = Crypto.make({
   randomBytes: () => {
-    throw new Error("@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness")
+    throw PlatformError.badArgument({
+      module: "@smthrs/crypto",
+      method: "randomBytes",
+      description: "@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness"
+    })
   },
   digest: (algorithm, input) =>
     algorithm === "SHA-256"

@@ -145,9 +145,9 @@ digests comparable with `===`.
 ## syncCrypto refused the operation
 
 **Symptom.** A `BadArgument` reading
-`syncCrypto supports only SHA-256, not SHA-384`, or a throw reading
-`@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto
-layer for randomness`.
+`syncCrypto supports only SHA-256, not SHA-384`, or a `BadArgument` defect
+from `randomBytes` reading `@smthrs/crypto syncCrypto provides SHA-256 only;
+supply a platform Crypto layer for randomness`.
 
 **Cause.** `syncCrypto` is a hashing adapter, not a platform layer. It answers
 `SHA-256` only and refuses randomness rather than returning weak bytes, which

@@ -244,5 +244,16 @@ describe("host parity and synchronous service policy", () => {
     expect(() => Effect.runSync(syncCrypto.randomBytes(16))).toThrow(
       "@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness"
     )
+    const exit = Effect.runSyncExit(syncCrypto.randomBytes(16))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+      _tag: "PlatformError",
+      reason: {
+        _tag: "BadArgument",
+        module: "@smthrs/crypto",
+        method: "randomBytes",
+        description: "@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness"
+      }
+    })
   })
 })

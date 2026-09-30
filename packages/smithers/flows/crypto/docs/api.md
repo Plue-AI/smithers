@@ -202,7 +202,8 @@ with no platform layer.
 - An input whose buffer cannot be copied fails with a `badArgument` described
   as `syncCrypto could not snapshot SHA-256 input`, with the original
   `TypeError` as `cause`.
-- `randomBytes` throws
+- `randomBytes` throws a `PlatformError.badArgument` with
+  `module: "@smthrs/crypto"` and `method: "randomBytes"`, described as
   `@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness`.
   Because `Crypto.make` derives random numbers, UUIDs, and shuffling from
   `randomBytes`, every random operation fails the same way.
