@@ -8,8 +8,10 @@
  * step key is derived at dispatch from the running flow's own declaration,
  * ordinal and scope. This service turns a durable engine into that question:
  * a dispatch served from a durable record reports `replayed`, and the first
- * dispatch that would run an action body reports `would-execute` and dies with
- * {@link WouldExecute} before any attempt row, snapshot, boundary or body.
+ * dispatch that would run an action body dies with {@link WouldExecute} before
+ * any attempt row, snapshot, boundary or body. It reports `resumes` when it
+ * would re-enter a recorded attempt that never finished (a step parked inside
+ * its body), and `would-execute` when no record matches its key at all.
  *
  * The death is a defect on purpose. A typed failure would enter the action's
  * retry policy, and the default policy never gives up; a defect is never
@@ -32,8 +34,9 @@ import * as Schema from "effect/Schema"
  * `stepKeyDigest` is the identity `flows_attempts` rows are keyed on, so a
  * reader joins it to the recorded attempts directly. `action` is the declared
  * action name. `outcome` is `replayed` for a dispatch served from a durable
- * record (a recorded failure included) and `would-execute` for the dispatch
- * that would have run its body.
+ * record (a recorded failure included), `resumes` for one that would re-enter
+ * a recorded attempt that never finished, and `would-execute` for one no
+ * record matches.
  *
  * @since 1.0.0
  * @category models
@@ -44,7 +47,7 @@ export interface Dispatch {
   readonly attempt: number
   readonly action: string
   readonly tier: "sealed" | "compensable" | "irreversible"
-  readonly outcome: "replayed" | "would-execute"
+  readonly outcome: "replayed" | "resumes" | "would-execute"
 }
 
 /**

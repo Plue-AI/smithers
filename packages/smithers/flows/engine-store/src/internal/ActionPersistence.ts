@@ -2046,7 +2046,11 @@ export const make = (deps: Dependencies) => {
               attempt: input.attempt,
               action: actionKind(input.action)
             }
-            yield* deps.replayOnly.observe({ ...refused, tier: input.tier, outcome: "would-execute" })
+            yield* deps.replayOnly.observe({
+              ...refused,
+              tier: input.tier,
+              outcome: runningRow === undefined ? "would-execute" : "resumes"
+            })
             return yield* Effect.die(new ReplayOnly.WouldExecute(refused))
           }
           const adopted = runningRow !== undefined

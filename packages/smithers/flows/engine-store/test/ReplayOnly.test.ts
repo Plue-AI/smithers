@@ -197,6 +197,29 @@ describe("ReplayOnly", () => {
       expect(seen.map((dispatch) => [dispatch.action, dispatch.outcome])).toEqual([["ReplayOnly/failing", "replayed"]])
     })))
 
+  it.effect("a step parked inside its own body is re-entered, reported as resumes", () =>
+    run(Effect.gen(function*() {
+      let entered = 0
+      const inner = DurableDeferred.make("replay-only-inner", { success: Schema.String })
+      const waiter = Action.make({
+        name: "ReplayOnly/waiter",
+        tier: "irreversible",
+        idempotencyKey: "waiter",
+        success: Schema.String,
+        execute: Effect.suspend(() => {
+          entered += 1
+          return DurableDeferred.await(inner)
+        })
+      })
+      yield* park(waiter)
+      const { seen, row } = yield* verify(waiter)
+
+      expect(entered).toBe(1)
+      expect(row.status).toBe("failed")
+      expect(seen.map((dispatch) => [dispatch.action, dispatch.outcome])).toEqual([["ReplayOnly/waiter", "resumes"]])
+      expect((yield* attempt(seen[0]!.stepKeyDigest))?.state).toBe("running")
+    })))
+
   it("names the refused dispatch in its message", () => {
     const refused = new ReplayOnly.WouldExecute({ runId: "r", stepKeyDigest: "d", attempt: 2, action: "a" })
     expect(refused.message).toBe("Action a (step d, attempt 2) would execute")
