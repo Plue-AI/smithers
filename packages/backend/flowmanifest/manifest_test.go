@@ -107,6 +107,85 @@ func TestLoadRejectsTheRetiredLibrarianHost(t *testing.T) {
 	}
 }
 
+// nativeManifest adds the Linux arm64 workspace helper exactly as
+// distribution/flow-host-manifest.mjs writes it for native bundles (#2273).
+func nativeManifest(t *testing.T) (string, map[string]rawHost) {
+	t.Helper()
+	path, hosts := bundledManifest(t)
+	helper := filepath.Join(filepath.Dir(path), "linux-arm64", "smithers-jj-export")
+	if err := os.MkdirAll(filepath.Dir(helper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	contents := []byte("linux helper")
+	if err := os.WriteFile(helper, contents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(contents)
+	hosts["jjExport"] = rawHost{Executable: "linux-arm64/smithers-jj-export", SHA256: hex.EncodeToString(digest[:]), Flows: []string{}}
+	return path, hosts
+}
+
+// The packaged app hands its bundle manifest to the backend; before #3182 the
+// helper entry made every native owned backend exit at startup.
+func TestLoadAcceptsTheNativeLinuxHelper(t *testing.T) {
+	path, hosts := nativeManifest(t)
+	writeManifest(t, path, hosts)
+	registry, err := Load(path)
+	if err != nil {
+		t.Fatalf("native bundle manifest rejected: %v", err)
+	}
+	if registry.Coding.SHA256 != hosts["coding"].SHA256 {
+		t.Fatalf("wrong registry: %+v", registry)
+	}
+}
+
+func TestLoadRejectsAnAlteredOrMisplacedNativeHelper(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(directory string, helper *rawHost)
+		want   string
+	}{
+		{"tampered", func(directory string, _ *rawHost) {
+			if err := os.WriteFile(filepath.Join(directory, "linux-arm64", "smithers-jj-export"), []byte("altered"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, "checksum"},
+		{"not_executable", func(directory string, _ *rawHost) {
+			if err := os.Chmod(filepath.Join(directory, "linux-arm64", "smithers-jj-export"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, "executable regular file"},
+		{"missing", func(directory string, _ *rawHost) {
+			if err := os.Remove(filepath.Join(directory, "linux-arm64", "smithers-jj-export")); err != nil {
+				t.Fatal(err)
+			}
+		}, "stat jjExport"},
+		{"other_path", func(_ string, helper *rawHost) { helper.Executable = "../smithers-jj-export" }, "linux-arm64/smithers-jj-export"},
+		{"declares_flows", func(_ string, helper *rawHost) { helper.Flows = []string{"coding/dispatch"} }, "unexpected flows"},
+		{"bad_digest", func(_ string, helper *rawHost) { helper.SHA256 = strings.ToUpper(helper.SHA256) }, "digest"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, hosts := nativeManifest(t)
+			helper := hosts["jjExport"]
+			test.change(filepath.Dir(path), &helper)
+			hosts["jjExport"] = helper
+			writeManifest(t, path, hosts)
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s helper accepted or wrong error: %v", test.name, err)
+			}
+		})
+	}
+}
+
+func TestLoadStillRequiresTheCodingHostBesideTheHelper(t *testing.T) {
+	path, hosts := nativeManifest(t)
+	delete(hosts, "coding")
+	writeManifest(t, path, hosts)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "host set") {
+		t.Fatalf("helper-only manifest accepted: %v", err)
+	}
+}
+
 func TestLoadManifestValidation(t *testing.T) {
 	for _, test := range []struct {
 		name   string

@@ -22,6 +22,14 @@ var expectedFlows = map[string][]string{
 	"coding": {"coding/dispatch"},
 }
 
+// A native bundle also carries the Linux arm64 workspace helper the backend
+// plants into guests (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY). It runs no Flow,
+// so it sits outside the host set, but its digest is checked with the hosts.
+const (
+	linuxHelperFamily     = "jjExport"
+	linuxHelperExecutable = "linux-arm64/smithers-jj-export"
+)
+
 // Host is a validated packaged executable. Source revision is deliberately
 // absent: it belongs to the authorized repository/workspace binding.
 type Host struct {
@@ -78,12 +86,29 @@ func Load(path string) (Registry, error) {
 	if decoder.Decode(new(any)) != io.EOF {
 		return Registry{}, errors.New("Flow host manifest contains trailing data")
 	}
-	if raw.Version != 1 || len(raw.Hosts) != len(expectedFlows) {
+	hosts := make(map[string]rawHost, len(raw.Hosts))
+	for family, entry := range raw.Hosts {
+		hosts[family] = entry
+	}
+	if helper, ok := hosts[linuxHelperFamily]; ok {
+		delete(hosts, linuxHelperFamily)
+		if helper.Executable != linuxHelperExecutable {
+			return Registry{}, fmt.Errorf("%s helper must be %s", linuxHelperFamily, linuxHelperExecutable)
+		}
+		if len(helper.Flows) != 0 {
+			return Registry{}, fmt.Errorf("%s Flow host declares unexpected flows", linuxHelperFamily)
+		}
+		helperPath := filepath.Join(filepath.Dir(path), filepath.FromSlash(linuxHelperExecutable))
+		if err := verifyExecutable(helperPath, linuxHelperFamily, helper.SHA256); err != nil {
+			return Registry{}, err
+		}
+	}
+	if raw.Version != 1 || len(hosts) != len(expectedFlows) {
 		return Registry{}, errors.New("Flow host manifest has unsupported version or host set")
 	}
 	var registry Registry
 	for family, wanted := range expectedFlows {
-		entry, ok := raw.Hosts[family]
+		entry, ok := hosts[family]
 		if !ok {
 			return Registry{}, fmt.Errorf("Flow host manifest lacks %s", family)
 		}
@@ -101,36 +126,45 @@ func verifyHost(directory, family string, entry rawHost, wanted []string) (Host,
 	if name == "" || name == "." || filepath.Base(name) != name || strings.ContainsAny(name, "/\\\x00") {
 		return Host{}, fmt.Errorf("%s Flow host executable is not a bundle basename", family)
 	}
-	if len(entry.SHA256) != 64 || entry.SHA256 != strings.ToLower(entry.SHA256) {
-		return Host{}, fmt.Errorf("%s Flow host digest is invalid", family)
-	}
-	if _, err := hex.DecodeString(entry.SHA256); err != nil {
-		return Host{}, fmt.Errorf("%s Flow host digest is invalid: %w", family, err)
-	}
 	flows := append([]string(nil), entry.Flows...)
 	sort.Strings(flows)
 	if !reflect.DeepEqual(flows, wanted) {
 		return Host{}, fmt.Errorf("%s Flow host declares unexpected flows", family)
 	}
 	path := filepath.Join(directory, name)
+	if err := verifyExecutable(path, family, entry.SHA256); err != nil {
+		return Host{}, err
+	}
+	return Host{Executable: path, SHA256: entry.SHA256, Flows: flows}, nil
+}
+
+// verifyExecutable checks that path is a nonempty executable regular file,
+// not a symlink, whose SHA-256 is want.
+func verifyExecutable(path, family, want string) error {
+	if len(want) != 64 || want != strings.ToLower(want) {
+		return fmt.Errorf("%s Flow host digest is invalid", family)
+	}
+	if _, err := hex.DecodeString(want); err != nil {
+		return fmt.Errorf("%s Flow host digest is invalid: %w", family, err)
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
-		return Host{}, fmt.Errorf("stat %s Flow host: %w", family, err)
+		return fmt.Errorf("stat %s Flow host: %w", family, err)
 	}
 	if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o111 == 0 {
-		return Host{}, fmt.Errorf("%s Flow host is not an executable regular file", family)
+		return fmt.Errorf("%s Flow host is not an executable regular file", family)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return Host{}, fmt.Errorf("open %s Flow host: %w", family, err)
+		return fmt.Errorf("open %s Flow host: %w", family, err)
 	}
 	defer file.Close()
 	digest := sha256.New()
 	if _, err := io.Copy(digest, file); err != nil {
-		return Host{}, fmt.Errorf("hash %s Flow host: %w", family, err)
+		return fmt.Errorf("hash %s Flow host: %w", family, err)
 	}
-	if hex.EncodeToString(digest.Sum(nil)) != entry.SHA256 {
-		return Host{}, fmt.Errorf("%s Flow host checksum differs from manifest", family)
+	if hex.EncodeToString(digest.Sum(nil)) != want {
+		return fmt.Errorf("%s Flow host checksum differs from manifest", family)
 	}
-	return Host{Executable: path, SHA256: entry.SHA256, Flows: flows}, nil
+	return nil
 }
