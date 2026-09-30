@@ -466,7 +466,7 @@ const claimingReplay = (directory: string): string => {
   const cell = [
     "```cell",
     "await ctx.call(\"agent.delegate\", { id: \"design\", title: \"Estimation design\", prompt: \"design it\" })",
-    "ctx.done(\"Delegated the estimation design to codex astra.\")",
+    "ctx.done(\"Delegated the estimation design to codex sol.\")",
     "```"
   ].join("\n")
   writeFileSync(
@@ -523,7 +523,7 @@ describe("Host.run completion over a failed request", () => {
     const { answer, delegations } = await claimingTurn(() => ({ id: "design", status: "requested" }))
 
     expect(delegations).toBe(1)
-    expect(answer).toBe("Delegated the estimation design to codex astra.")
+    expect(answer).toBe("Delegated the estimation design to codex sol.")
   })
 })
 
@@ -1324,7 +1324,7 @@ describe("Host.run seat routing", () => {
     expect(routed?._tag === "seat-routed" && routed.candidates).toEqual([
       "luna",
       "sol",
-      "astra",
+      "sol",
       "opus",
       "fable",
       "sonnet"

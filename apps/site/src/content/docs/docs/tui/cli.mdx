@@ -8,7 +8,7 @@ sidebar:
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
 ```text
-smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n]
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n] [--environment name]
 ```
 
 From a source checkout, use `bun run tui` with the same arguments.
@@ -24,6 +24,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
 | `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
+| `--environment name` | | Run on a saved execution location. |
 | `--help` | `-h` | Show options. |
 
 The token budget uses reported usage to estimate the next call. An admitted call can consume more than its estimate.
@@ -66,3 +67,15 @@ smthrs tui /path/to/project
 ## Exit
 
 `/quit` or `/exit`. Ctrl+D exits with an empty editor; Ctrl+C twice within 500 ms exits. Stop background work with its own controls first.
+
+## Execution environment
+
+Run the TUI on a saved machine with its existing agents and login state:
+
+```bash
+smthrs tui --environment dev
+```
+
+Create the location with `smthrs environment add`. The machine must have `smthrs`
+and the agent tools installed. Other CLI commands use the same location through
+`smthrs environment exec dev -- smthrs ...`.

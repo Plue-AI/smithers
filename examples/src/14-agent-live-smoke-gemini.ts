@@ -62,6 +62,7 @@ export const liveGeminiSeats = (baseUrl: string, apiKey: string) =>
             const routeConfig = yield* Effect.fromResult(
               Route.openaiChatCompatible({
                 id: "gemini",
+                providerName: "gcp.gemini",
                 baseUrl,
                 path: "/chat/completions",
                 apiKey: Redacted.make(apiKey)

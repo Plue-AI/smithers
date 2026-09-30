@@ -1339,6 +1339,28 @@
     },
     {
       "name": "@smthrs/cli",
+      "subpath": "./ExecutionEnvironment",
+      "development": "./src/ExecutionEnvironment.ts",
+      "published": {
+        "types": "./dist/esm/ExecutionEnvironment.d.ts",
+        "import": "./dist/esm/ExecutionEnvironment.js",
+        "require": "./dist/cjs/ExecutionEnvironment.js"
+      },
+      "reason": "Generic execution environments and their CLI projection share persistent locations without provider credential imports; local execution and SSH boundaries have behavioral and integration coverage."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./cli/EnvironmentCommands",
+      "development": "./src/cli/EnvironmentCommands.ts",
+      "published": {
+        "types": "./dist/esm/cli/EnvironmentCommands.d.ts",
+        "import": "./dist/esm/cli/EnvironmentCommands.js",
+        "require": "./dist/cjs/cli/EnvironmentCommands.js"
+      },
+      "reason": "Generic execution environments and their CLI projection share persistent locations without provider credential imports; local execution and SSH boundaries have behavioral and integration coverage."
+    },
+    {
+      "name": "@smthrs/cli",
       "subpath": "./CloudSandbox",
       "development": "./src/CloudSandbox.ts",
       "published": {

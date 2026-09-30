@@ -127,7 +127,7 @@ const seats = (scripts: Readonly<Record<string, Script>>, requests: Array<{ seat
   })
 }
 
-/** Both Claude and OpenAI run here, so an important review routes to Opus, Fable and Astra, merged by Fable. */
+/** Both Claude and OpenAI run here, so an important review routes to Opus, Fable and Sol, merged by Fable. */
 const environment = (cwd: string) => ({
   ANTHROPIC_API_KEY: "sk-ant-test",
   OPENAI_API_KEY: "sk-test",
@@ -141,14 +141,14 @@ const panel = {
   seats: [
     { seat: "opus", backups: [] },
     { seat: "fable", backups: [] },
-    { seat: "astra", backups: [] }
+    { seat: "sol", backups: [] }
   ],
   merger: "fable"
 }
 const scripts: Readonly<Record<string, Script>> = {
   opus: { answer: "opus view", refuse: true },
   fable: { answer: "fable view", merged: "merged view", refuse: true },
-  astra: { answer: "astra view" }
+  sol: { answer: "sol view" }
 }
 const variant = "Change nothing."
 
@@ -219,7 +219,7 @@ describe("a worker routed to a panel", () => {
           `try { await ctx.call("ui.publish", { id: "p", title: "P", rows: [] }) } catch (error) { console.log(String(error)) }`
         ].join("\n")
       },
-      astra: { answer: "astra view", refuse: true }
+      sol: { answer: "sol view", refuse: true }
     })
     try {
       // Every other slot is held by a worker that never answers.
@@ -237,13 +237,13 @@ describe("a worker routed to a panel", () => {
           seats: [
             { seat: "opus", backups: ["sol"] },
             { seat: "fable", backups: [] },
-            { seat: "astra", backups: [] }
+            { seat: "sol", backups: [] }
           ],
           merger: "fable"
         }
       })
-      // Fable and Astra were each refused once and asked again after their park.
-      for (const seat of ["fable", "astra"]) {
+      // Fable and Sol were each refused once and asked again after their park.
+      for (const seat of ["fable", "sol"]) {
         expect(f.runs().filter((request) => request.seat === seat).length).toBeGreaterThanOrEqual(2)
       }
       // Opus was refused both calls, started no worker and published nothing.
@@ -254,7 +254,7 @@ describe("a worker routed to a panel", () => {
       expect(f.workspace.snapshot().tabs).toHaveLength(poolSize)
       expect(f.workspace.snapshot().panels).toEqual([])
       const merge = merges(f.runs())[0]!.text
-      for (const view of ["opus view", "fable view", "astra view"]) expect(merge).toContain(view)
+      for (const view of ["opus view", "fable view", "sol view"]) expect(merge).toContain(view)
       // Every run, members and merger, had the routed variant.
       expect(f.runs().every(({ text }) => text.includes(variant))).toBe(true)
 
@@ -266,7 +266,7 @@ describe("a worker routed to a panel", () => {
       expect(events.some((event) => event._tag === "model-parked" || event._tag === "model-unparked")).toBe(false)
       expect(events.filter((event) => event._tag === "resolved")).toHaveLength(1)
       const persisted = JSON.stringify(events)
-      for (const view of ["opus view", "astra view"]) expect(persisted).not.toContain(`ctx.done(\\"${view}\\")`)
+      for (const view of ["opus view", "sol view"]) expect(persisted).not.toContain(`ctx.done(\\"${view}\\")`)
     } finally {
       await f.dispose()
     }
@@ -280,7 +280,7 @@ describe("a worker routed to a panel", () => {
     const f = workspaceOver({
       opus: { answer: "opus view", gate },
       fable: { answer: "fable view", merged: "merged view", gate, mergeGate },
-      astra: { answer: "astra view", gate }
+      sol: { answer: "sol view", gate }
     })
     try {
       f.workspace.request({ id: "panel", title: "Review", prompt: review })
@@ -311,7 +311,7 @@ describe("a worker routed to a panel", () => {
       f.workspace.request({ id: "panel", title: "Review", prompt: review })
       const tab = await f.settled()
       expect(tab).toMatchObject({ status: "done", answer: "merged view" })
-      expect(tab.answered?.map(([seat]) => seat).sort()).toEqual(["astra", "fable", "opus"])
+      expect(tab.answered?.map(([seat]) => seat).sort()).toEqual(["sol", "fable", "opus"])
       const runs = f.runs()
       const first = runs.findIndex(({ text }) => text.includes("Independent answers"))
       // The merger was refused, parked and asked again; no member was asked after it first was.
@@ -336,7 +336,7 @@ describe("a worker routed to a panel", () => {
       seats: seats({
         opus: { answer: "", hang },
         fable: { answer: "", merged: "", hang },
-        astra: { answer: "", hang }
+        sol: { answer: "", hang }
       }, requests)
     })
     try {
@@ -390,7 +390,7 @@ describe("a worker routed to a panel", () => {
       const first = (seat: string, merging: boolean) =>
         requests.find((request) => request.seat === seat && request.text.includes("Independent answers") === merging)!
           .text.split("\n").filter((line) => line === variant)
-      return ["opus", "fable", "astra"].map((seat) => first(seat, false)).concat([first("fable", true)])
+      return ["opus", "fable", "sol"].map((seat) => first(seat, false)).concat([first("fable", true)])
     }
     const fresh = await systems(false)
     expect(fresh.every((lines) => lines.length === 1)).toBe(true)
@@ -412,7 +412,7 @@ describe("a worker routed to a panel", () => {
       seats: seats({
         opus: { answer: "opus view", tokens: 100, gate },
         fable: { answer: "fable view", merged: "merged", tokens: 100, gate },
-        astra: { answer: "astra view", tokens: 100, gate }
+        sol: { answer: "sol view", tokens: 100, gate }
       }, requests)
     })
     try {
@@ -429,7 +429,7 @@ describe("a worker routed to a panel", () => {
       await host.dispose()
     }
     const merge = merges(requests)[0]!.text
-    for (const view of ["opus view", "fable view", "astra view"]) expect(merge).toContain(view)
+    for (const view of ["opus view", "fable view", "sol view"]) expect(merge).toContain(view)
     expect(merge).not.toContain("failed and gave no answer")
     // Every call spent 100 tokens: the whole panel stayed within the worker's 1200.
     expect(requests.length * 100).toBeLessThanOrEqual(1200)

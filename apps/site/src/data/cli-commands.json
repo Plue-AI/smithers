@@ -3679,6 +3679,200 @@
       }
     },
     {
+      "name": "environment add",
+      "description": "Save an execution location",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "local": {
+              "default": false,
+              "description": "Run on this machine",
+              "type": "boolean"
+            },
+            "ssh": {
+              "description": "SSH alias or user@host; uses your SSH configuration and known_hosts",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "Cloud workspace OWNER/REPO/ID",
+              "type": "string"
+            },
+            "directory": {
+              "type": "string",
+              "description": "Absolute working directory on the execution machine"
+            },
+            "home": {
+              "description": "Persistent home on the execution machine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "local",
+            "directory"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "environment exec",
+      "description": "Run a command: environment exec NAME -- COMMAND [ARGS...]",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "arg": {
+              "default": [],
+              "description": "Command arguments; use -- followed by the command",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "terminal": {
+              "default": false,
+              "description": "Allocate a remote terminal for an interactive command",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "arg",
+            "terminal"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "environment forward",
+      "description": "Forward a loopback port over SSH",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "localPort": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Local port on 127.0.0.1"
+            },
+            "remotePort": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Remote port on 127.0.0.1"
+            }
+          },
+          "required": [
+            "localPort",
+            "remotePort"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "environment list",
+      "description": "List saved execution locations"
+    },
+    {
+      "name": "environment remove",
+      "description": "Forget an execution location",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "environment shell",
+      "description": "Open a terminal in the execution environment",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "environment view",
+      "description": "Show an execution location",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Saved execution environment"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "eval baseline",
       "description": "Write a committed baseline from a saved evaluation run",
       "schema": {
@@ -10110,6 +10304,10 @@
             },
             "budgetTokens": {
               "description": "Token ceiling per turn and worker; unbounded by default",
+              "type": "string"
+            },
+            "environment": {
+              "description": "Run the TUI app in a saved execution environment",
               "type": "string"
             }
           },

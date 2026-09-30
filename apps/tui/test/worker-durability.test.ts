@@ -54,7 +54,7 @@ describe("worker durability", () => {
       environment: {}
     }
     expect(workerFallbackSeats("anthropic:claude-opus-5-5", available, {})).toEqual(["sol"])
-    expect(workerFallbackSeats("claude-code:fable", available, {})).toEqual(["astra"])
+    expect(workerFallbackSeats("claude-code:fable", available, {})).toEqual(["sol"])
     // Kimi, Sol's backup, does not run here; a seat off the graph has none.
     expect(workerFallbackSeats("openai:gpt-6-sol", available, {})).toEqual([])
     expect(workerFallbackSeats("cerebras:qwen", available, {})).toEqual([])

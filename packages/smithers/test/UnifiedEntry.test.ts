@@ -168,3 +168,47 @@ describe("unified process entry", () => {
     clean(signals)
   })
 })
+
+it.each([[[]], [["--environment", "dev"]]])("lets an interactive TUI own Ctrl+C (%j)", async (extra) => {
+  const { host, signals, result } = fixture(["tui", ...extra])
+  serve.mockImplementation(async (_args, options) => {
+    signals.emit("SIGINT")
+    expect(config().signal?.aborted).toBe(false)
+    expect(result.codes).toEqual([])
+    signals.emit("SIGTERM")
+    expect(config().signal?.aborted).toBe(true)
+    options.exit(0)
+  })
+  await main(host)
+  expect(result.codes.at(-1)).toBe(143)
+  clean(signals)
+})
+
+it("keeps TUI print mode cancellable", async () => {
+  const { host, signals, result } = fixture(["tui", "--environment", "dev", "-p", "hello"])
+  serve.mockImplementation(async () => {
+    signals.emit("SIGINT")
+    expect(config().signal?.aborted).toBe(true)
+  })
+  await main(host)
+  expect(result.codes.at(-1)).toBe(130)
+  clean(signals)
+})
+
+it.each([
+  ["--ui", "plain"],
+  ["--ui=plain"],
+  ["--audience", "human"],
+  ["--help"]
+])("preserves interactive TUI Ctrl+C after global prefix %j", async (...prefix) => {
+  const { host, signals, result } = fixture([...prefix, "tui", "--environment", "dev"])
+  serve.mockImplementation(async (_args, options) => {
+    signals.emit("SIGINT")
+    expect(config().signal?.aborted).toBe(false)
+    expect(result.codes).toEqual([])
+    options.exit(0)
+  })
+  await main(host)
+  expect(result.codes.at(-1)).toBe(0)
+  clean(signals)
+})

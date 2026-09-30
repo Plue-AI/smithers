@@ -32,6 +32,7 @@ import { constants } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import * as CliError from "../CliError.ts"
+import * as Environment from "../ExecutionEnvironment.ts"
 
 /**
  * The TUI's own flags, forwarded unchanged.
@@ -40,6 +41,8 @@ import * as CliError from "../CliError.ts"
  * @since 1.0.0
  */
 export interface Options {
+  /** Execute the app where this environment keeps its agents and sessions. */
+  readonly environment?: string | undefined
   readonly directory?: string | undefined
   readonly model?: string | undefined
   readonly continue?: boolean | undefined
@@ -257,8 +260,29 @@ export const run = async (
   options: Options,
   environment: Record<string, string | undefined>,
   packageRoot: URL = cliRoot(),
-  machine: Host = host
+  machine: Host = host,
+  signal?: AbortSignal
 ): Promise<number> => {
+  if (options.environment !== undefined) {
+    const profile = await Environment.get(options.environment, environment)
+    const controller = new AbortController()
+    const cancel = () => controller.abort()
+    signal?.addEventListener("abort", cancel, { once: true })
+    if (signal?.aborted) cancel()
+    const ignore = () => {}
+    process.on("SIGINT", ignore)
+    for (const event of forwarded) process.on(event, cancel)
+    try {
+      return await Environment.run(profile, ["smthrs", "tui", ...argv(options)], environment, {
+        terminal: options.print === undefined,
+        signal: controller.signal
+      })
+    } finally {
+      signal?.removeEventListener("abort", cancel)
+      process.removeListener("SIGINT", ignore)
+      for (const event of forwarded) process.removeListener(event, cancel)
+    }
+  }
   const chosen = launch(environment, packageRoot, machine)
   if (chosen instanceof CliError.UnsupportedError) throw chosen
   if (chosen.runtime === "node" && checkout(packageRoot, machine)) await rebuild(packageRoot)

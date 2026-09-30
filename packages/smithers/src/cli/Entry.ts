@@ -51,7 +51,22 @@ export const main = async (host: Host): Promise<void> => {
     controller.abort(new Error(`smthrs interrupted by ${signal}`))
     queueMicrotask(() => host.removeListener(signal, listener))
   }
-  const onSigint = () => interrupt("SIGINT", onSigint)
+  const onSigint = () => {
+    // Interactive TUI handles Ctrl+C itself; print mode remains cancellable.
+    const parsed = Argv.parse(normalizeArguments(host.argv))
+    let offset = 0
+    while (parsed.rest[offset]?.startsWith("-") && parsed.rest[offset] !== "--") {
+      const flag = parsed.rest[offset]!
+      const value = parsed.options.get(flag.split("=")[0]!)
+      offset += !flag.includes("=") && typeof value === "string" ? 2 : 1
+    }
+    const args = parsed.rest.slice(offset)
+    if (
+      args[0] === "tui" &&
+      !args.some((arg) => arg === "-p" || arg === "--print" || arg.startsWith("--print=") || /^-p.+/.test(arg))
+    ) return
+    interrupt("SIGINT", onSigint)
+  }
   const onSigterm = () => interrupt("SIGTERM", onSigterm)
   host.on("SIGINT", onSigint)
   host.on("SIGTERM", onSigterm)
@@ -86,7 +101,7 @@ export const main = async (host: Host): Promise<void> => {
       const text = verbose && stated === Failure.unknownSentence
         ? `${stated}\n${Failure.operatorDetail(cause)}`
         : stated
-      host.stderr.write(`${String(Redaction.redactDiagnostic(text))}\n`)
+      host.stderr.write(`${String(Redaction.redact(text))}\n`)
       exit(1)
     }
   } finally {

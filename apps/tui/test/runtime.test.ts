@@ -656,14 +656,14 @@ describe("background work", () => {
 
   it("retries a failed tab on the model it was requested with", async () => {
     const f = setup()
-    f.workspace.request({ ...request, model: "astra" })
+    f.workspace.request({ ...request, model: "sol" })
     await tick()
     f.complete({ _tag: "failed", message: "boom", detail: "boom" })
     await tick()
     expect(f.workspace.retry(request.id)).toEqual({ id: request.id, status: "requested" })
     await tick()
-    expect(f.workspace.snapshot().tabs[0]?.seat).toBe(Models.delegateModels.astra)
-    expect(f.input().seat).toBe(Models.delegateModels.astra)
+    expect(f.workspace.snapshot().tabs[0]?.seat).toBe(Models.delegateModels.sol)
+    expect(f.input().seat).toBe(Models.delegateModels.sol)
     f.complete({ _tag: "done", answer: "Done" })
     await tick()
   })
@@ -697,8 +697,8 @@ describe("background work", () => {
 
   it("uses the named delegate model for the worker and preserves the default seat", async () => {
     const named = setup()
-    named.workspace.request({ ...request, model: "astra" })
-    expect(named.workspace.snapshot().tabs[0]?.seat).toBe(Models.delegateModels.astra)
+    named.workspace.request({ ...request, model: "sol" })
+    expect(named.workspace.snapshot().tabs[0]?.seat).toBe(Models.delegateModels.sol)
     await tick()
     expect(named.input().seat).toBe("openai:gpt-6.1-sol")
     named.complete({ _tag: "done", answer: "Done" })

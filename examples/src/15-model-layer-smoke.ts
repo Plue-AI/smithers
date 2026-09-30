@@ -50,7 +50,7 @@ export const executorLayer = RequestExecutor.layer.pipe(
  */
 export const ask = (question: string, modelId: string, baseUrl: string, apiKey: Redacted.Redacted<string>) =>
   Effect.gen(function*() {
-    const routeConfig = yield* Effect.fromResult(Route.openaiChatCompatible({ id: "smoke", baseUrl, apiKey }))
+    const routeConfig = yield* Effect.fromResult(Route.openaiChatCompatible({ id: "smoke", providerName: "openai", baseUrl, apiKey }))
     const model = yield* Route.toModel(routeConfig)
     const request = ModelRequest.make({
       modelId,

@@ -151,3 +151,17 @@ and the next action in a few words; never call an accepted launch completed.
 
 Use `smthrs environment` for persistent local, SSH, or Cloud locations.
 Tools manage their own login in the selected home; profiles describe locations.
+
+## Recovery and completion gates
+
+- Track admission, running, READY, verified and landed as separate receipts.
+  READY work is pending until its queue drains; filtered or claimed open work
+  is not completed. Require current evidence for final classifications.
+- Retain assignment, result, claim owner and failure evidence across quarantine
+  and restart. Repair uses a new execution identity without stealing claims.
+- Unknown quota is not exhausted quota. Retry unavailable observations without
+  authorizing launches beyond computed account ceilings.
+- Resolve compatible helpers from immutable host source or explicit configuration.
+- Verify before rebase and verify the final candidate again. Parse structured
+  final reports rather than incidental tool text. Preserve meaningful errors
+  and cancellation receipts through every recovery transition.

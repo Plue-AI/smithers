@@ -137,10 +137,8 @@ try {
               TMPDIR: scratch,
               TERM: "xterm-256color",
               COLORTERM: "truecolor",
-              ...(scenario === "monitor" ? {} : {
-                SMITHERS_TUI_REPLAY: setup.replay,
-                SMITHERS_TUI_REPLAY_SPEED: "20"
-              }),
+              SMITHERS_TUI_REPLAY: setup.replay,
+              SMITHERS_TUI_REPLAY_SPEED: "20",
               SMITHERS_TUI_SESSION_DIR: join(scratch, "sessions"),
               ...(process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
                 ? { SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY }
@@ -280,22 +278,6 @@ try {
         }
         if (scenario === "fix-add" && spawnSync(process.execPath, ["check.mjs"], { cwd: work }).status !== 0) {
           throw new Error("The recorded agent did not fix the check")
-        }
-        if (scenario === "monitor") {
-          const rows = records()
-          const monitor = rows.filter((row) => row.type === "monitor" && row.monitor.id === "checks").at(-1)?.monitor
-          const updates = rows.filter((row) => row.type === "monitor-update" && row.id === "checks" && !row.failed)
-          if (JSON.stringify(provider.calls) !== JSON.stringify({ coordinator: 2, judge: 1, luna: 1 }) ||
-              updates.length !== 1 || monitor?.updates !== 1 || monitor.status !== "stopped") {
-            throw new Error(`Monitor recording receipts: ${JSON.stringify({ calls: provider.calls, updates, monitor })}`)
-          }
-        }
-        if (scenario === "monitor-refusal") {
-          const monitor = records().filter((row) => row.type === "monitor" && row.monitor.id === "checks").at(-1)?.monitor
-          if (monitor?.status !== "failed" || monitor.failure?._tag !== "JevFailed" ||
-              Object.values(provider.calls).some((count) => count !== 0)) {
-            throw new Error(`Monitor refusal receipts: ${JSON.stringify({ calls: provider.calls, monitor })}`)
-          }
         }
         await page.close()
         const staging = mkdtempSync(join(cache, `${digest}.`))

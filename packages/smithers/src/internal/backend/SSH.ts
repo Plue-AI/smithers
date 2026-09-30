@@ -77,7 +77,8 @@ export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promi
   if (!["ssh", "ssh.exe"].includes(words.shift()?.toLowerCase() || "")) {
     throw endpointRefused("Workspace SSH executable must be ssh")
   }
-  let destination = false
+  let destination: string | undefined
+  let destinationIndex = -1
   for (let i = 0; i < words.length; i++) {
     const word = words[i]!
     if (word.startsWith("-o")) {
@@ -105,7 +106,8 @@ export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promi
       if (destination || !/^[A-Za-z0-9._+@[\]:-]+$/.test(word)) {
         throw endpointRefused("SSH requires one destination and no remote command")
       }
-      destination = true
+      destination = word
+      destinationIndex = i
     }
   }
   if (!destination) throw endpointRefused("SSH destination required")
@@ -128,6 +130,10 @@ export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promi
     "-o",
     "StrictHostKeyChecking=yes",
     "-o",
+    "ControlMaster=no",
+    "-o",
+    "ControlPath=none",
+    "-o",
     `HostKeyAlias=${hostKeyAlias}`,
     "-o",
     `UserKnownHostsFile=${knownHosts}`,
@@ -139,7 +145,8 @@ export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promi
     "ServerAliveInterval=30",
     "-o",
     "ServerAliveCountMax=10",
-    ...words
+    ...words.filter((_word, index) => index !== destinationIndex),
+    destination
   ]
 }
 /**

@@ -28,6 +28,7 @@ run-kind targets; `flow start` starts durable flows.
 | `init [name]`, `generate app/flow/package/ci` | Initialize a workspace or scaffold a declared resource. |
 | `install`, `git-hooks [--write]` | Use the declared installation toolchain and Git hooks. |
 | `cache status/prune/clear`, `clean [patterns...]`, `gc` | Maintain action results, declared cleanup targets, or terminal run history. |
+| `environment add/list/view/remove/exec/shell/forward` | Save an execution location and run commands there. |
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
@@ -96,6 +97,43 @@ message and exit non-zero. Local `smthrs ls` reads apps from the checkout's
 The Go executable is removed. Its `status` is now `change status`, `run view` is
 `runs show --cloud`, other `run` operations are under `runs --cloud`, and
 `workflow run` is `flow start --cloud`. `workflow watch` is `runs watch --cloud`.
+
+## Execution environments
+
+Save a persistent location, then run ordinary commands there:
+
+```bash
+smthrs environment add dev --ssh developer@my-machine --directory /home/developer/workspace
+smthrs environment exec dev --terminal -- codex login --device-auth
+smthrs environment exec dev --terminal -- claude
+smthrs environment exec dev -- smthrs flow start review
+smthrs tui --environment dev
+```
+
+The tool's native login stays in the execution machine's home. CLI commands and the
+TUI run the installed Smithers runtime there, using the same agents and sessions.
+The machine needs the commands you invoke installed on its PATH. SSH uses your SSH
+configuration and requires a known host key. Profiles select existing compute;
+Cloud allocation and admission limits still apply.
+
+Use `--local` for this machine, or `--workspace OWNER/REPO/ID` for an existing Cloud
+workspace with the saved Smithers login. `--directory` is an absolute path on the
+execution machine. `--home` optionally selects its persistent home. The registry is
+`$XDG_CONFIG_HOME/smithers/environments.json`, defaulting to
+`~/.config/smithers/environments.json`; it stores location settings only. Removing a
+profile forgets the reference and does not delete compute or files.
+
+```bash
+smthrs environment shell dev
+smthrs environment forward dev --local-port 1455 --remote-port 1455
+```
+
+Forwarding supports SSH profiles and binds loopback on both machines. Keep it
+running while an application uses a local browser callback. Cloud workspace
+profiles require the application's device or pasted-code login flow. `exec` preserves every argument after `--`; flags
+before it belong to Smithers. It inherits terminal I/O and returns the command's
+exit status. A disconnected SSH command fails; it has no durable execution receipt.
+Use the existing flow and run commands for durable work.
 
 ## Pending human waits
 

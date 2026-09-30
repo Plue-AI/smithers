@@ -17,6 +17,7 @@ import * as Agents from "./Agents.ts"
 import * as Argv from "./cli/Argv.ts"
 import * as Bridge from "./cli/ControlBridge.ts"
 import { createApprovalsCli, createFlowCli, createRunsCli } from "./cli/ControlCommands.ts"
+import { createEnvironmentCli } from "./cli/EnvironmentCommands.ts"
 import * as Generate from "./cli/Generate.ts"
 import { createGenerateCli, initialize } from "./cli/Generate.ts"
 import { appendHistoryCommands } from "./cli/HistoryCommands.ts"
@@ -128,6 +129,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     .command(createCredentialsCli())
     .command(createTriggersCli(config))
     .command(createIntegrationsCli())
+    .command(createEnvironmentCli(config))
     .command(createEvalCli(config))
     .command("init", {
       description: "Initialize workspace and target declarations plus a starter flow, preserving existing files",
@@ -266,13 +268,20 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
         resume: z.boolean().default(false).describe("Pick a session to continue"),
         print: z.string().optional().describe("Answer one prompt, print it, and exit"),
         approve: z.enum(["all", "ask", "deny"]).optional().describe("Consequential calls: all, ask, or deny"),
-        budgetTokens: z.string().optional().describe("Token ceiling per turn and worker; unbounded by default")
+        budgetTokens: z.string().optional().describe("Token ceiling per turn and worker; unbounded by default"),
+        environment: z.string().optional().describe("Run the TUI app in a saved execution environment")
       }),
       alias: { model: "m", continue: "c", resume: "r", print: "p" },
       run: (c) =>
         Presentation.guard(c, async () => {
           config.exit?.(
-            await TuiCmd.run({ ...c.options, directory: c.args.directory }, config.environment ?? process.env)
+            await TuiCmd.run(
+              { ...c.options, directory: c.args.directory },
+              config.environment ?? process.env,
+              undefined,
+              undefined,
+              config.signal
+            )
           )
           return undefined
         })
@@ -403,6 +412,12 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
           ...argv.slice(0, separator),
           ...argv.slice(separator + 1).map((value) => `--clone-arg=${value}`)
         ]
+      }
+    }
+    if (parsed.rest[offset] === "environment" && index !== undefined && argv[index + 1] === "exec") {
+      const separator = argv.indexOf("--", index + 2)
+      if (separator >= 0) {
+        argv = [...argv.slice(0, separator), ...argv.slice(separator + 1).map((value) => `--arg=${value}`)]
       }
     }
     const typed = parsed.rest[offset]

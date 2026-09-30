@@ -51,11 +51,12 @@ To send a provider's calls to another origin, such as an inference gateway, set 
 Every call on these keys is metered in the owner's credit ledger at the provider's list price, including long-context rates, and is refused when the credit is spent. Fund it from the running container:
 
 ```sh
-docker exec smithers /opt/smithers/bin/smithers-backend credits grant -owner user:OWNER -usd 25 -key 2026-10
+docker exec smithers /opt/smithers/bin/smithers-backend credits grant -owner user:OWNER -usd 25 -key 2026-10 \
+  -actor OPERATOR -reason "October credit"
 docker exec smithers /opt/smithers/bin/smithers-backend credits balance -owner user:OWNER
 ```
 
-`-owner` is `user:NAME` or `org:NAME`. A grant is applied once per `-key`; `-expires` takes an RFC 3339 time.
+`-owner` is `user:NAME` or `org:NAME`. A grant is applied once per `-key`. `-actor` (who granted it) and `-reason` are required and recorded in the grant's audit trail; `-expires` takes an RFC 3339 time.
 
 ## Subscription connections
 

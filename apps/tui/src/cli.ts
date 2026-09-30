@@ -13,20 +13,10 @@ export const usage = `Usage: smithers-tui [directory] [options]
       --budget-tokens <n>    Token cap per turn and worker (default 200M; 0 or none disables)
       --budget-daily-tokens <n>  Token cap per UTC day on this machine (default 2B; 0 or none disables)
       --box <owner/repo/id>  Run worker tools in this Smithers Cloud workspace (or SMITHERS_BOX)
-      --harness <owner/repo/id>  Run the Claude Code seat on this workspace's signed-in claude (or SMITHERS_HARNESS)
   -h, --help                 Show help`
 
 /** Whether `reference` names a Smithers Cloud workspace: `OWNER/REPO/WORKSPACE_ID`. */
 export const validBox = (reference: string): boolean => /^[\w.-]+\/[\w.-]+\/[\w-]+$/.test(reference)
-
-/**
- * Whether two valid references reach the same workspace. The id alone names it,
- * and the backend reads it as a UUID, so case and hyphens do not distinguish two.
- */
-export const sameWorkspace = (left: string, right: string): boolean => {
-  const id = (reference: string) => reference.split("/")[2]!.toLowerCase().replaceAll("-", "")
-  return id(left) === id(right)
-}
 
 const options = {
   model: { type: "string", short: "m" },
@@ -37,7 +27,6 @@ const options = {
   "budget-tokens": { type: "string" },
   "budget-daily-tokens": { type: "string" },
   box: { type: "string" },
-  harness: { type: "string" },
   help: { type: "boolean", short: "h" }
 } as const
 
@@ -79,9 +68,6 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
     if (values.print !== undefined && values.print.trim() === "") return { error: "--print needs a prompt" } as const
     if (values.box !== undefined && !validBox(values.box)) {
       return { error: "--box needs owner/repo/workspace-id" } as const
-    }
-    if (values.harness !== undefined && !validBox(values.harness)) {
-      return { error: "--harness needs owner/repo/workspace-id" } as const
     }
     const directory = resolve(cwd, positionals[0] ?? ".")
     try {

@@ -112,42 +112,6 @@ it("takes a Smithers Cloud workspace for worker tools and refuses a malformed on
   expect(Cli.parse(["--box", "acme/app/ws;rm"], "/")).toEqual({ error: "--box needs owner/repo/workspace-id" })
 })
 
-it("takes a harness workspace for the Claude Code seat and refuses a malformed one", () => {
-  expect(Cli.parse(["--harness", "acme/harness/ws_02"], "/")).toMatchObject({
-    values: { harness: "acme/harness/ws_02" }
-  })
-  expect(Cli.parse(["--harness", "acme"], "/")).toEqual({ error: "--harness needs owner/repo/workspace-id" })
+it("refuses the retired provider-specific remote option", () => {
+  expect(Cli.parse(["--harness", "acme/app/ws_02"], "/")).toEqual({ error: "Unknown option --harness" })
 })
-
-it("takes two spellings of one workspace id as the same workspace", () => {
-  const id = "0f8fad5b-d9cb-469f-a165-70867728950e"
-  expect(Cli.sameWorkspace(`acme/app/${id}`, `other/repo/${id.toUpperCase()}`)).toBe(true)
-  expect(Cli.sameWorkspace(`acme/app/${id}`, `acme/app/${id.replaceAll("-", "")}`)).toBe(true)
-  expect(Cli.sameWorkspace(`acme/app/${id}`, "acme/app/1f8fad5b-d9cb-469f-a165-70867728950e")).toBe(false)
-})
-
-const refused =
-  "The worker workspace (--box or SMITHERS_BOX) is the harness workspace (--harness or SMITHERS_HARNESS). Worker tools run repository code, which could read the harness's Claude login; use a separate workspace for worker tools.\n"
-
-it.each([
-  { name: "flags", args: ["--box", "acme/app/ws_03", "--harness", "acme/app/WS_03"], env: {} },
-  { name: "environment", args: [], env: { SMITHERS_BOX: "acme/app/ws_03", SMITHERS_HARNESS: "acme/app/ws_03" } },
-  {
-    name: "a flag over the environment",
-    args: ["--box", "acme/app/ws_03"],
-    env: {
-      SMITHERS_BOX: "acme/app/ws_04",
-      SMITHERS_HARNESS: "acme/app/ws_03"
-    }
-  }
-])("refuses worker tools on the harness workspace, where the Claude login lives ($name)", ({ args, env }) => {
-  const app = resolve(import.meta.dir, "../src/main.tsx")
-  const result = spawnSync("bun", [app, ...args, "--print", "ping"], {
-    encoding: "utf8",
-    env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl"), ...env },
-    timeout: 10_000
-  })
-  expect(result.status).toBe(1)
-  expect(result.stdout).toBe("")
-  expect(result.stderr).toBe(refused)
-}, 25_000)

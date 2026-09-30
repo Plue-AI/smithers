@@ -1,18 +1,16 @@
-smthrs tui — Open the terminal coding agent
+smthrs environment add — Save an execution location
 
-Usage: smthrs tui [directory] [options]
+Usage: smthrs environment add <name> [options]
 
 Arguments:
-  directory  Working directory; defaults to cwd
+  name  Saved execution environment
 
 Options:
-  --model, -m <string>      Chat seat as provider:model
-  --continue, -c            Continue the latest session in the directory
-  --resume, -r              Pick a session to continue
-  --print, -p <string>      Answer one prompt, print it, and exit
-  --approve <all|ask|deny>  Consequential calls: all, ask, or deny
-  --budget-tokens <string>  Token ceiling per turn and worker; unbounded by default
-  --environment <string>    Run the TUI app in a saved execution environment
+  --local               Run on this machine
+  --ssh <string>        SSH alias or user@host; uses your SSH configuration and known_hosts
+  --workspace <string>  Cloud workspace OWNER/REPO/ID
+  --directory <string>  Absolute working directory on the execution machine
+  --home <string>       Persistent home on the execution machine
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

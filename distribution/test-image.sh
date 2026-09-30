@@ -254,7 +254,8 @@ token_response=$(curl -fsS -X POST "$origin/api/auth/local/token" \
   --data "{\"username\":\"$owner_username\",\"password\":\"$owner_password\",\"name\":\"distribution-acceptance\"}")
 api_token=$(printf '%s' "$token_response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 test -n "$api_token"
-docker exec "$app" /opt/smithers/bin/smithers-backend credits grant -owner "user:$owner_username" -usd 5 -key distribution-acceptance >/dev/null
+docker exec "$app" /opt/smithers/bin/smithers-backend credits grant -owner "user:$owner_username" -usd 5 -key distribution-acceptance \
+  -actor distribution-acceptance -reason "Image acceptance" >/dev/null
 created_repository=$(curl -fsS -X POST "$origin/api/user/repos" \
   -H 'Content-Type: application/json' \
   -H "Authorization: token $api_token" \

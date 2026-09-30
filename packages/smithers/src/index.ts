@@ -86,6 +86,11 @@ export * as Environment from "./Environment.ts"
  * @category execution
  * @since 1.0.0
  */
+export * as ExecutionEnvironment from "./ExecutionEnvironment.ts"
+/**
+ * @category execution
+ * @since 1.0.0
+ */
 export * as ExecutorOwnership from "./ExecutorOwnership.ts"
 /**
  * @category diagnostics
