@@ -271,6 +271,9 @@ func TestWorkflowsSQL_H_DefinitionsRunsTasksAndStatusesRoundTrip(t *testing.T) {
 		TriggerRef:           "main",
 		TriggerCommitSha:     "sha-h-success",
 		DispatchInputs:       []byte(`{}`),
+		// Task-derived status belongs to agent-plane runs; a sandbox run
+		// reaches a terminal outcome only through its scheduler claim (0091).
+		ExecutionPlane: "agent",
 	})
 	require.NoError(t, err)
 	successStep, err := q.CreateWorkflowStep(ctx, CreateWorkflowStepParams{WorkflowRunID: successRun.ID, Name: "success", Position: 1, Status: "queued"})

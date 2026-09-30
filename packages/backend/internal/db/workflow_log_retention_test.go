@@ -12,8 +12,7 @@ func TestWorkflowLogRetentionBoundedAndPreservesRecent(t *testing.T) {
 	ctx := context.Background()
 	f := mustCreateWorkflowTaskFixture(t, q, pool, "log-retention")
 	cutoff := time.Now().UTC().Truncate(time.Microsecond).Add(-30 * 24 * time.Hour)
-	_, err := pool.Exec(ctx, `UPDATE workflow_runs SET status='success', completed_at=$1 WHERE id=$2`, cutoff.Add(-time.Hour), f.runID)
-	require.NoError(t, err)
+	mustFinishWorkflowRun(t, pool, f.runID, cutoff.Add(-time.Hour))
 	for i, age := range []time.Duration{-time.Hour, -time.Minute, -time.Microsecond, 0, time.Hour} {
 		log, err := q.InsertWorkflowLog(ctx, InsertWorkflowLogParams{WorkflowRunID: f.runID, WorkflowStepID: f.stepID, Sequence: int64(i + 1), Stream: "stdout", Entry: "hello"})
 		require.NoError(t, err)
@@ -38,9 +37,8 @@ func TestWorkflowLogRetentionEnforcesDatabaseBatchCeiling(t *testing.T) {
 	ctx := context.Background()
 	f := mustCreateWorkflowTaskFixture(t, q, pool, "log-retention-cap")
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
-	_, err := pool.Exec(ctx, `UPDATE workflow_runs SET status='success', completed_at=$1 WHERE id=$2`, cutoff.Add(-time.Hour), f.runID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO workflow_logs (workflow_run_id, workflow_step_id, sequence, stream, entry, created_at)
+	mustFinishWorkflowRun(t, pool, f.runID, cutoff.Add(-time.Hour))
+	_, err := pool.Exec(ctx, `INSERT INTO workflow_logs (workflow_run_id, workflow_step_id, sequence, stream, entry, created_at)
  SELECT $1, $2, n, 'stdout', 'x', $3::timestamptz - interval '1 second' FROM generate_series(1,1005) n`, f.runID, f.stepID, cutoff)
 	require.NoError(t, err)
 	for _, limit := range []int32{0, -1} {
@@ -106,8 +104,7 @@ func TestWorkflowLogRetentionSkipsLockedParent(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.InsertWorkflowRunLogNextSequence(ctx, InsertWorkflowRunLogNextSequenceParams{WorkflowRunID: f.runID, WorkflowStepID: f.stepID, Stream: "stdout", Entry: "run"})
 	require.NoError(t, err)
-	_, err = sharedPool.Exec(ctx, `UPDATE workflow_runs SET status='success',completed_at=$1 WHERE id=$2`, cutoff.Add(-time.Hour), f.runID)
-	require.NoError(t, err)
+	mustFinishWorkflowRun(t, sharedPool, f.runID, cutoff.Add(-time.Hour))
 	for _, table := range []string{"workflow_logs", "workflow_run_logs"} {
 		_, err = sharedPool.Exec(ctx, "UPDATE "+table+" SET created_at=$1 WHERE workflow_run_id=$2", cutoff.Add(-time.Hour), f.runID)
 		require.NoError(t, err)

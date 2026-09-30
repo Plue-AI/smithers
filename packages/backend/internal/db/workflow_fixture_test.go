@@ -62,6 +62,19 @@ func mustCreateWorkflowTaskFixture(t *testing.T, q *Queries, pool DBTX, prefix s
 	}
 }
 
+// mustFinishWorkflowRun moves a fixture run through running to success with
+// completedAt. A sandbox-plane run cannot jump from queued to a terminal
+// scheduler outcome (migration 0091's terminal claim fence), so a fixture
+// that needs a finished run takes the same route a scheduler does.
+func mustFinishWorkflowRun(t *testing.T, pool DBTX, runID int64, completedAt time.Time) {
+	t.Helper()
+	for _, status := range []string{"running", "success"} {
+		tag, err := pool.Exec(context.Background(), `UPDATE workflow_runs SET status=$1, completed_at=$2 WHERE id=$3`, status, completedAt, runID)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), tag.RowsAffected(), "workflow run %d did not reach %s", runID, status)
+	}
+}
+
 func mustCreateWorkflowTask(t *testing.T, q *Queries, fixture workflowTaskFixture, status string) WorkflowTask {
 	t.Helper()
 
