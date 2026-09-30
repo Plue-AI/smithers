@@ -3710,6 +3710,16 @@ export const make = (
         // record and is not rewritten.
         const controlRun = yield* controlRunBeforeRound(payload.runId)
         if (controlRun !== undefined && ["completed", "failed", "cancelled"].includes(controlRun.status)) return []
+        const reclaimControl = claimForResume(payload.runId).pipe(
+          // Admission and the engine claim are separate transactions. A peer
+          // can acquire the control fence between them; losing that race is
+          // a release, never a terminal failure that cancels this run's children.
+          Effect.catchTag("/control/ClaimLost", () =>
+            Effect.andThen(
+              FlowRuntime.annotateWaiting({ reason: "released" }),
+              Flow.suspend(instance)
+            ))
+        )
         // The engine follows a discarded execution through later rounds in
         // the registration scope. Such a round can start before the control
         // resume bridge runs; its previous park released the control fence.
@@ -3743,7 +3753,7 @@ export const make = (
             yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
             return yield* Flow.suspend(instance)
           }
-          yield* claimForResume(payload.runId)
+          yield* reclaimControl
           // One answer buys one re-drive. The delegation is durable and only a
           // host clears it, and this round IS the host taking it up: left
           // standing it would re-drive the run's NEXT park too, which is the
@@ -3760,7 +3770,7 @@ export const make = (
             Effect.as(true),
             Effect.catchTag("/control/ClaimLost", () => Effect.succeed(false))
           )
-          if (!owned) yield* claimForResume(payload.runId)
+          if (!owned) yield* reclaimControl
         }
         const fiber = yield* Effect.forkChild(
           body(payload, instance).pipe(
@@ -3785,13 +3795,14 @@ export const make = (
         return yield* Fiber.join(fiber).pipe(
           Effect.ensuring(Effect.sync(() => {
             if (activeBodies.get(payload.runId) === fiber) activeBodies.delete(payload.runId)
-          })),
-          // `settle` above already read the true exit, so the operator's line
-          // and the control plane's recorded cause are unchanged. This is
-          // only the shape the engine has to persist.
-          Effect.mapError(settlementFailure)
+          }))
         )
-      })).pipe(Scope.provide(scope))
+      }).pipe(
+        // Pre-body reads and control claims fail through this same boundary.
+        // Preserve their typed fields in the engine's JSON settlement too.
+        // `settle` still observes the body's original failure before conversion.
+        Effect.mapError(settlementFailure)
+      )).pipe(Scope.provide(scope))
 
     /**
      * Takes up every resume delegation this executor hosts, once.

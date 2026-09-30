@@ -85,6 +85,7 @@ import * as Serve from "../Serve.ts"
 import { packageVersion } from "../Version.ts"
 import * as AuthoredRebuild from "./AuthoredRebuild.ts"
 
+import * as ControlAffinity from "./ControlAffinity.ts"
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
 import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
 import * as ExecutionDatabasePath from "./ExecutionDatabasePath.ts"
@@ -1252,8 +1253,13 @@ export const make = (
           registry: yield* Registry.Registry,
           catalog
         })
+        const controlAffinity = ControlAffinity.make({
+          runs: yield* RunStore.RunStore.pipe(Effect.provide(engine.stores)),
+          claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
+        })
         admission = (runId) =>
           routing.canExecute(workspaceRoot, runId).pipe(
+            Effect.flatMap((allowed) => allowed ? controlAffinity(runId) : Effect.succeed(false)),
             Effect.flatMap((allowed) => allowed ? moduleAdmission(runId) : Effect.succeed(false)),
             Effect.catchCause((cause) =>
               Cause.hasInterruptsOnly(cause)

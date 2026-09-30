@@ -268,3 +268,10 @@ see [`examples/src/39-agent-policies.ts`](https://github.com/smithersai/smithers
 the provider refuses, the run parks, the engine is killed while it waits, and a
 second engine over the same file waits out the recorded deadline, spends a
 correction, and finishes with the provider called three times in all.
+
+Local hosts sharing a store check the separate control owner before recovering
+a released execution. A live owner retains its run and detached children even
+when its heartbeat is stale. After the owner exits and its lease expires, another
+host can recover the run. Losing a control claim during recovery releases the
+execution without cancelling its children; other control failures retain their
+typed fields in the durable result.
