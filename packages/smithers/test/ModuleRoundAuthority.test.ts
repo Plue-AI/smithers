@@ -259,12 +259,12 @@ describe("module round execution authority", () => {
         outsideAllowed: false
       }])
       expect(accounting).toEqual([
-        { stage: "provider", tokens: mode === "ensure" ? 12 : 7 },
-        { stage: "ceiling", tokens: mode === "ensure" ? 62 : 57, decision: "refuse" },
-        ...(mode === "ensure" ? [{ stage: "parent-after-child", tokens: 62 }] : [])
+        { stage: "provider", tokens: mode === "ensure" ? 10 : 5 },
+        { stage: "ceiling", tokens: mode === "ensure" ? 60 : 55, decision: "refuse" },
+        ...(mode === "ensure" ? [{ stage: "parent-after-child", tokens: 60 }] : [])
       ])
-      // The host asks once more to confirm completion on an unchanged workspace.
-      expect(requests).toBe(2)
+      // An answer on an unchanged workspace completes without a second request (#2937).
+      expect(requests).toBe(1)
     } finally {
       await agent.close()
       await rm(root, { recursive: true, force: true, maxRetries: 5 })

@@ -204,6 +204,7 @@ export const make = (
             const shared: Budget.Service = {
               check: (step) => account(budget.check(step === undefined ? undefined : key(step))),
               reserve: (step) => account(budget.reserve(key(step))),
+              admitReading: (step) => account(budget.admitReading(key(step))),
               record: (step, usage, modelId) => account(budget.record(key(step), usage, modelId)),
               usage: account(budget.usage),
               usageOf: (id) => account(budget.usageOf(id)),
