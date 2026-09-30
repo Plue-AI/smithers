@@ -337,6 +337,7 @@ const settled = (end: (transcript: Transcript.Transcript) => Transcript.Transcri
 /** What WorkerView needs beyond its tab: the way back and its children's cards. */
 const chrome = {
   onBack: () => {},
+  onRelease: () => {},
   earlierOpen: false,
   onEarlier: () => {},
   tabs: [],
@@ -436,6 +437,7 @@ describe("WorkerView", () => {
 
   it("keeps Back in the first header row and follows a click", async () => {
     const back: Array<string> = []
+    const actions: Array<string> = []
     const { captureCharFrame, mockMouse } = await mount(
       <WorkerView
         tab={tab("a", "running")}
@@ -449,6 +451,7 @@ describe("WorkerView", () => {
         onAction={() => {}}
         {...chrome}
         onBack={() => back.push("back")}
+        onRelease={() => actions.push("release")}
       />,
       90,
       24
@@ -462,6 +465,36 @@ describe("WorkerView", () => {
     const crumb = find(frame, "Back (ctrl+y)")
     await mockMouse.click(crumb.x + 1, crumb.y)
     expect(back).toEqual(["back"])
+    expect(actions).toEqual([])
+    expect(frame).not.toContain("Release (ctrl+y)")
+  })
+
+  it("labels a driven worker Release and releases without navigating back", async () => {
+    const events: Array<string> = []
+    const { captureCharFrame, mockMouse } = await mount(
+      <WorkerView
+        tab={tab("a", "running", { driver: { by: "you", from: 2_000, messages: 0 } })}
+        transcript={transcript}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+        {...chrome}
+        onBack={() => events.push("back")}
+        onRelease={() => events.push("release")}
+      />,
+      90,
+      24
+    )
+    const frame = captureCharFrame()
+    expect(frame.split("\n")[0]).toContain("Release (ctrl+y)")
+    expect(frame).not.toContain("Back (ctrl+y)")
+    const release = find(frame, "Release (ctrl+y)")
+    await mockMouse.click(release.x + 1, release.y)
+    expect(events).toEqual(["release"])
   })
 
   it("draws its own children as a card grid at the call that delegated them", async () => {

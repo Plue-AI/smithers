@@ -237,6 +237,8 @@ export function WorkerView(props: {
   readonly viewportRef?: RefObject<ScrollBoxRenderable | null>
   /** Titles from the chat down to this worker's parent. */
   readonly onBack: () => void
+  /** Return execution to the worker while keeping its tab open. */
+  readonly onRelease: () => void
   /** Every tab, for this worker's own children. */
   readonly tabs: ReadonlyArray<Tab>
   readonly cards: SubagentView.Cards
@@ -274,8 +276,13 @@ export function WorkerView(props: {
           <text wrapMode="none" style={{ flexShrink: 1 }}>
             <span fg={tone}>{glyph}</span> <strong fg={color.text}>{tab.title}</strong>
           </text>
-          <text fg={color.brand} wrapMode="none" style={{ flexShrink: 0 }} onMouseDown={props.onBack}>
-            Back (ctrl+y)
+          <text
+            fg={color.brand}
+            wrapMode="none"
+            style={{ flexShrink: 0 }}
+            onMouseDown={tab.driver === undefined ? props.onBack : props.onRelease}
+          >
+            {tab.driver === undefined ? "Back (ctrl+y)" : "Release (ctrl+y)"}
           </text>
         </box>
         <box style={{ flexDirection: "row", height: 1 }}>

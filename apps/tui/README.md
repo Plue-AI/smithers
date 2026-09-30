@@ -400,8 +400,9 @@ the color of its state (running, waiting for queued, parked or children, done,
 failed, stopped), its model and its clock. Tabs are
 never shortened: when they overflow, `‹ n` and `n ›` count and open the hidden
 ones. Click a tab, a worker or a card to open it. A worker's tab starts with
-`▌ Subagent · <title>` in its lane color and `Back (ctrl+y)`, then its status,
-model, clock and tokens, and buttons for the actions its status allows:
+its title in its lane color and `Back (ctrl+y)` (`Release (ctrl+y)` while
+driving it), then its status, model, clock and buttons for the actions its
+status allows:
 **Alt+X** Stop, **Alt+R** Resume, **Alt+M** Switch model, **Alt+W** Wait for reset, **Alt+S**
 Steer. Its composer starts focused; typing and pasting return to it after Tab
 selects transcript rows. Its transcript is drawn with the chat's own cells;

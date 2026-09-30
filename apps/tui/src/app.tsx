@@ -2844,6 +2844,7 @@ export function App(props: AppProps) {
                   scrollRef={panelScroll}
                   viewportRef={workerScroll}
                   onBack={() => clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
+                  onRelease={() => workspace.release(workerTab.id)}
                   tabs={snapshot.tabs}
                   cards={{
                     ...cards,
