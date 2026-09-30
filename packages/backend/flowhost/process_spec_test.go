@@ -247,13 +247,15 @@ func TestBuildProcessSpecGivesTheHostOnlyItsWorkspaceJournal(t *testing.T) {
 	noPassword.URL = "postgres://" + journal.Name + "@journal.internal:5432/" + journal.Name
 	schemaSelected := journal
 	schemaSelected.URL = journal.URL + "&schema=public"
+	userSelected := journal
+	userSelected.URL = journal.URL + "&user=postgres"
 	wrongSchema := journal
 	wrongSchema.Schema = "public"
 	wrongScheme := journal
 	wrongScheme.URL = strings.Replace(journal.URL, "postgres://", "http://", 1)
 	for name, invalid := range map[string]JournalDatabase{
 		"another workspace": other, "the backend database": backendDatabase, "another role": otherRole,
-		"no credential": noPassword, "a selected schema": schemaSelected, "another schema": wrongSchema,
+		"no credential": noPassword, "a selected schema": schemaSelected, "a selected user": userSelected, "another schema": wrongSchema,
 		"not postgres": wrongScheme, "unparseable": {Name: journal.Name, Schema: JournalSchema, URL: "postgres://%zz"},
 	} {
 		launch.Journal = invalid

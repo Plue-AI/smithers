@@ -71,6 +71,32 @@ func TestNewPostgresJournalsRefusesAnUnusableConfiguration(t *testing.T) {
 		_, err = NewPostgresJournals(ctx, pool, address, journalTestKey)
 		require.Error(t, err, address)
 	}
+	// A parameter the host's driver would read as its identity or database
+	// is refused, so a configured credential never reaches a host.
+	for _, parameter := range []string{"user=postgres", "password=backend-secret", "dbname=smithers", "host=other", "options=-c%20role%3Dpostgres", "schema=public"} {
+		_, err = NewPostgresJournals(ctx, pool, "postgres://db:5432/?sslmode=require&"+parameter, journalTestKey)
+		require.ErrorContains(t, err, "transport parameters", parameter)
+		assert.NotContains(t, err.Error(), "backend-secret")
+	}
+}
+
+func TestJournalIdentityNamesTheEndpointNotTheCredential(t *testing.T) {
+	workspace := uuid.NewString()
+	describe := func(address string, key []byte) JournalDatabase {
+		journal, err := (&PostgresJournals{address: mustURL(t, address), key: key}).Describe(workspace)
+		require.NoError(t, err)
+		return journal
+	}
+	base := describe("postgres://journal.internal:5432/?sslmode=require", journalTestKey)
+	assert.Empty(t, JournalDatabase{}.identity(), "a SQLite host keeps its identity")
+	password, _ := mustURL(t, base.URL).User.Password()
+	assert.NotContains(t, base.identity(), password)
+	assert.Contains(t, base.identity(), base.Name)
+	assert.Equal(t, base.identity(), describe("postgres://journal.internal:5432/?sslmode=require", []byte(strings.Repeat("r", 32))).identity())
+	for _, moved := range []string{"postgres://other.internal:5432/?sslmode=require", "postgres://journal.internal:6543/?sslmode=require", "postgres://journal.internal:5432/?sslmode=disable"} {
+		assert.NotEqual(t, base.identity(), describe(moved, journalTestKey).identity(), moved)
+	}
+	assert.Equal(t, base.Name, JournalDatabase{Name: base.Name, URL: "postgres://%zz"}.identity())
 }
 
 func TestScramVerifierIsPostgresStoredForm(t *testing.T) {
@@ -253,6 +279,19 @@ func TestPostgresJournalsProvisionIsIdempotentAcrossConcurrentStarts(t *testing.
 	fresh, err := pgx.Connect(ctx, repaired.URL)
 	require.NoError(t, err)
 	_ = fresh.Close(ctx)
+
+	// A provision interrupted between creating the database (which refuses
+	// connections until PUBLIC's grant is gone) and opening it completes on
+	// the next start.
+	_, err = server.superuser.Exec(ctx, "ALTER DATABASE "+first.Name+" WITH ALLOW_CONNECTIONS false")
+	require.NoError(t, err)
+	_, err = pgx.Connect(ctx, first.URL)
+	require.Error(t, err)
+	_, err = journals.Provision(ctx, workspace)
+	require.NoError(t, err)
+	var open bool
+	require.NoError(t, server.superuser.QueryRow(ctx, `SELECT datallowconn FROM pg_database WHERE datname = $1`, first.Name).Scan(&open))
+	assert.True(t, open)
 
 	// A server privilege only a superuser could have given the role is never
 	// handed to a host: a CREATEROLE backend cannot alter such a role, and a

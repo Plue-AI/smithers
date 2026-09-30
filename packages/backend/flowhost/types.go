@@ -181,8 +181,8 @@ type HostLaunch struct {
 	// Journal, when set, keeps the host's control and engine journals in the
 	// workspace's own PostgreSQL database instead of SQLite in the state
 	// directory (#2099). The resolver supplies it from Config.Journals on
-	// every inspect and start; its database name is part of the service
-	// identity, its credential is not.
+	// every inspect and start; its endpoint, database and schema are part of
+	// the service identity, its credential is not.
 	Journal JournalDatabase
 	// Superseded asks only to inspect a live host the catalog has replaced,
 	// by Binding.ServiceIdentity, while a run still depends on it. Such a

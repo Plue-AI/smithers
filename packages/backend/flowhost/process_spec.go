@@ -110,7 +110,7 @@ func hostServiceIdentity(launch HostLaunch) string {
 		Repository                                 string
 		// Omitted when empty, so SQLite hosts keep their existing identity.
 		Journal string `json:",omitempty"`
-	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.Name}
+	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.identity()}
 	data, _ := json.Marshal(identity)
 	digest := sha256.Sum256(data)
 	return "flow-host:" + hex.EncodeToString(digest[:])

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -24,8 +25,7 @@ import (
 // workspace with repository commands, so the credential it holds reaches only
 // that workspace's journals, never the backend's database (#2175).
 type JournalDatabase struct {
-	// Name is the workspace's database and role name. It is not secret and
-	// is part of the host's service identity.
+	// Name is the workspace's database and role name. It is not secret.
 	Name string
 	// URL is the host-reachable connection string with the workspace role's
 	// credential. It is minted for every inspect and start and is never part
@@ -45,6 +45,20 @@ const JournalSchema = "flows"
 // hold, so one repository cannot exhaust the server's connections.
 const journalConnectionLimit = 32
 
+// journalTransportParameters are the only query parameters a journal URL
+// carries. Any other (user, password, dbname, host, options, schema) could
+// replace the workspace's own role or database in the host's driver.
+var journalTransportParameters = []string{"application_name", "connect_timeout", "sslmode", "sslrootcert"}
+
+func journalTransportOnly(query url.Values) bool {
+	for name := range query {
+		if !slices.Contains(journalTransportParameters, name) {
+			return false
+		}
+	}
+	return true
+}
+
 // JournalDatabaseName is a workspace's journal database and role name.
 func JournalDatabaseName(workspaceID string) (string, error) {
 	parsed, err := uuid.Parse(workspaceID)
@@ -52,6 +66,21 @@ func JournalDatabaseName(workspaceID string) (string, error) {
 		return "", errors.New("journal database needs a canonical workspace id")
 	}
 	return "smithers_flows_" + strings.ReplaceAll(workspaceID, "-", ""), nil
+}
+
+// identity is the journal's part of the host's service identity: where the
+// host connects and to which database, never the credential. A SQLite host
+// has none.
+func (journal JournalDatabase) identity() string {
+	if journal == (JournalDatabase{}) {
+		return ""
+	}
+	endpoint, err := url.Parse(journal.URL)
+	if err != nil {
+		return journal.Name
+	}
+	endpoint.User = nil
+	return endpoint.String() + "#" + journal.Schema
 }
 
 // environment is what BuildProcessSpec gives the host for its journal: the
@@ -71,8 +100,8 @@ func (journal JournalDatabase) environment(workspaceID string) (map[string]strin
 	if password, ok := parsed.User.Password(); !ok || password == "" {
 		return nil, errors.New("flow host journal database URL has no credential")
 	}
-	if parsed.Query().Has("schema") {
-		return nil, errors.New("flow host journal database URL must not select a schema")
+	if !journalTransportOnly(parsed.Query()) {
+		return nil, errors.New("flow host journal database URL may carry only transport parameters")
 	}
 	return map[string]string{"SMITHERS_POSTGRES_URL": journal.URL, "SMITHERS_POSTGRES_SCHEMA": journal.Schema}, nil
 }
@@ -103,9 +132,10 @@ func NewPostgresJournals(ctx context.Context, pool *pgxpool.Pool, address string
 	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.Host == "" {
 		return nil, errors.New("flow journal address must be a postgres:// URL with a host")
 	}
-	query := parsed.Query()
-	query.Del("schema")
-	parsed.RawQuery, parsed.User, parsed.Path, parsed.RawPath, parsed.Fragment = query.Encode(), nil, "", "", ""
+	if !journalTransportOnly(parsed.Query()) {
+		return nil, errors.New("flow journal address may carry only transport parameters: " + strings.Join(journalTransportParameters, ", "))
+	}
+	parsed.RawQuery, parsed.User, parsed.Path, parsed.RawPath, parsed.Fragment = parsed.Query().Encode(), nil, "", "", ""
 	var database string
 	if err = pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil {
 		return nil, fmt.Errorf("flow journals: %w", err)
@@ -189,18 +219,22 @@ func (journals *PostgresJournals) Provision(ctx context.Context, workspaceID str
 	if _, err = conn.Exec(ctx, "GRANT "+role+" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE"); err != nil {
 		return JournalDatabase{}, fmt.Errorf("flow journal role membership: %w", err)
 	}
+	// A new database refuses connections until PUBLIC's default CONNECT is
+	// revoked, so no other workspace's role can open a session in between.
 	if !exists {
-		if _, err = conn.Exec(ctx, "CREATE DATABASE "+role+" OWNER "+role+" ENCODING 'UTF8' TEMPLATE template0"); err != nil {
+		if _, err = conn.Exec(ctx, "CREATE DATABASE "+role+" OWNER "+role+" ENCODING 'UTF8' TEMPLATE template0 ALLOW_CONNECTIONS false"); err != nil {
 			return JournalDatabase{}, fmt.Errorf("flow journal database: %w", err)
 		}
 	}
-	// PUBLIC's default CONNECT would let every other workspace's role in; only
-	// the owner's revoke removes it.
+	// Only the owner's revoke removes PUBLIC's grant.
 	if err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+role); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, "REVOKE ALL ON DATABASE "+role+" FROM PUBLIC")
+		if _, err := tx.Exec(ctx, "REVOKE ALL ON DATABASE "+role+" FROM PUBLIC"); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, "ALTER DATABASE "+role+" WITH ALLOW_CONNECTIONS true")
 		return err
 	}); err != nil {
 		return JournalDatabase{}, fmt.Errorf("flow journal database grants: %w", err)

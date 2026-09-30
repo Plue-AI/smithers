@@ -78,7 +78,9 @@ stores on SQLite in the workspace state directory.
 Set `SMITHERS_FLOW_JOURNAL_POSTGRES_URL` to keep each workspace coding host's
 control and engine stores on the backend's PostgreSQL server instead. The value
 is the server address as the host reaches it (for a microVM guest, a routable
-host rather than loopback); its user, password and database are replaced.
+host rather than loopback); its user, password and database are replaced, and
+its query may carry only `sslmode`, `sslrootcert`, `connect_timeout` and
+`application_name`.
 Before a host starts, the backend creates or repairs that workspace's own login
 role and a database it owns, named `smithers_flows_<workspace>`. The role has
 no server privileges and a connection limit of 32, and only it may connect to
