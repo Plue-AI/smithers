@@ -6,17 +6,56 @@ import { join } from "node:path"
 
 export const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-const identity = (pid: number) => {
+/** Runs `/bin/ps` synchronously; injectable so inspection failures are testable. */
+export type PsRunner = (args: ReadonlyArray<string>) => string
+
+export const runPs: PsRunner = (args) =>
+  execFileSync("/bin/ps", args, {
+    encoding: "utf8",
+    timeout: 1000,
+    killSignal: "SIGKILL",
+    env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }
+  })
+
+/** What one inspection established about a pid. */
+export type Observation =
+  | { readonly state: "absent" }
+  | { readonly state: "zombie"; readonly command: string }
+  | { readonly state: "running"; readonly command: string }
+
+/**
+ * Inspects `pid` through `ps`, failing loudly instead of guessing.
+ *
+ * `ps -p` exits 1 with no output for an unknown pid; that alone is absence,
+ * and only when `kill(pid, 0)` agrees (ESRCH). A timeout, a spawn error, a
+ * signal, any other status, or a disagreeing kill probe is a failed
+ * inspection: reporting it as absence would let a teardown assertion pass on
+ * a live owned process.
+ */
+export const inspect = (pid: number, run: PsRunner = runPs): Observation => {
+  let output: string
   try {
-    return execFileSync("/bin/ps", ["-ww", "-o", "stat=,command=", "-p", String(pid)], {
-      encoding: "utf8",
-      timeout: 1000,
-      killSignal: "SIGKILL",
-      env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }
-    }).trim()
-  } catch {
-    return "gone"
+    output = run(["-ww", "-o", "stat=,command=", "-p", String(pid)]).trim()
+  } catch (error) {
+    const failure = error as {
+      readonly status?: number | null
+      readonly signal?: string | null
+      readonly stdout?: unknown
+    }
+    const stdout = typeof failure.stdout === "string" ? failure.stdout.trim() : ""
+    if (failure.status !== 1 || (failure.signal ?? null) !== null || stdout !== "") {
+      throw new Error(`process inspection of ${pid} failed`, { cause: error })
+    }
+    try {
+      process.kill(pid, 0)
+    } catch (probe) {
+      if ((probe as NodeJS.ErrnoException).code === "ESRCH") return { state: "absent" }
+      throw new Error(`process inspection of ${pid} failed`, { cause: probe })
+    }
+    throw new Error(`ps reported ${pid} absent but it still accepts signals`)
   }
+  if (output === "") throw new Error(`ps exited 0 without describing ${pid}`)
+  return output.startsWith("Z") ? { state: "zombie", command: output } : { state: "running", command: output }
 }
 
 export const until = async (check: () => Promise<boolean>, timeoutMs = 5000) => {
@@ -34,7 +73,10 @@ interface Record {
   readonly tick?: number
 }
 
-export const fixture = async (options: { readonly natural: boolean; readonly inheritedOutput: boolean }) => {
+export const fixture = async (
+  options: { readonly natural: boolean; readonly inheritedOutput: boolean; readonly ps?: PsRunner }
+) => {
+  const observe = (pid: number) => inspect(pid, options.ps)
   const directory = await mkdtemp(join(tmpdir(), "smithers-build-child-"))
   const token = randomUUID()
   const beatPath = join(directory, "beat.json")
@@ -69,21 +111,22 @@ export const fixture = async (options: { readonly natural: boolean; readonly inh
     ready: () => until(async () => (await read(beatPath))?.token === token),
     exit: () => writeFile(exitPath, "go"),
     leader: () => read(leaderPath),
-    stopped: (record: Record) => {
-      const observed = identity(record.pid)
-      return observed === "gone" || observed.startsWith("Z")
-    },
+    /** Whether the process is absent or a zombie; throws when inspection fails. */
+    stopped: (record: Record) => observe(record.pid).state !== "running",
+    /**
+     * Kills this fixture's own surviving processes, then removes its records.
+     * An inspection failure rejects and keeps the records, so a teardown is
+     * never reported as complete over an unverified survivor.
+     */
     dispose: async () => {
       for (const path of [beatPath, leaderPath]) {
         const record = await read(path)
+        if (record?.token !== token) continue
+        const observed = observe(record.pid)
         // Only the unique process created by this fixture may be cleaned up.
-        if (record?.token === token && identity(record.pid).includes(token)) {
-          process.kill(record.pid, "SIGKILL")
-          await until(async () => {
-            const observed = identity(record.pid)
-            return observed === "gone" || observed.startsWith("Z")
-          })
-        }
+        if (observed.state !== "running" || !observed.command.includes(token)) continue
+        process.kill(record.pid, "SIGKILL")
+        await until(async () => observe(record.pid).state !== "running")
       }
       await rm(directory, { recursive: true, force: true })
     }
