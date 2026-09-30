@@ -192,9 +192,10 @@ export const createWorkflowPumpController = (
   }
 
   /** The approval cards a run is waiting on, bound to the existing round trip. */
-  const upsertRunApprovals = async (runId: string, repo: string, workspaceId: string, rows: ReadonlyArray<ApprovalRow>): Promise<number> => {
+  const upsertRunApprovals = async (runId: string, repo: string, workspaceId: string, rows: ReadonlyArray<ApprovalRow>, current: () => boolean): Promise<number> => {
+    if (!current()) return 0
     await reconcileRunApprovals(store, { repo, runId, workspaceId }, rows)
-    if (ctx.disposed) return 0
+    if (!current()) return 0
     let found = 0
     for (const approval of rows) {
       if (approval.runId !== runId || approval.status !== "pending") continue
@@ -219,6 +220,7 @@ export const createWorkflowPumpController = (
           repo, gatewayBindingVersion: 1, workspaceId
         }
       }
+      if (!current()) return 0
       store.dispatch({ type: "card.upsert", actor: "system", card })
     }
     return found
@@ -242,8 +244,10 @@ export const createWorkflowPumpController = (
    */
   const pumpWorkflowRun = async (cardId: string, observeOnce = false): Promise<void> => {
     if (ctx.disposed || ctx.runPumps.has(cardId)) return
+    const epoch = ctx.accountEpoch
     const pump = { stopped: false }
     ctx.runPumps.set(cardId, pump)
+    const ownsPump = (): boolean => !ctx.disposed && ctx.accountEpoch === epoch && !pump.stopped && ctx.runPumps.get(cardId) === pump
     let failures = 0
     /** A gate the run announced whose approval row is not in hand yet. */
     let approvalPending = false
@@ -266,8 +270,8 @@ export const createWorkflowPumpController = (
      * counts toward the quiet bound. `true` means this pump is done.
      */
     const applyFailed = (error: unknown): boolean => {
+      if (!ownsPump()) return true
       ctx.failures.report("run.pump", error, cardId)
-      if (pump.stopped || ctx.runPumps.get(cardId) !== pump) return true
       if (error instanceof RuntimeProjectionIntegrityError || (error instanceof AppEventIntegrityError && error.reason === "event")) {
         patchRunCard(cardId, { observationError: "The workspace returned conflicting recorded history. The last verified evidence was preserved.", phase: "stopped" })
         return true
@@ -278,7 +282,7 @@ export const createWorkflowPumpController = (
     }
     try {
       for (;;) {
-        if (pump.stopped) return
+        if (!ownsPump()) return
         const card = store.collections.cards.get(cardId)
         if (ctx.disposed || card === undefined || card.kind !== "run-trace" || card.runtimeView?.revision !== undefined) return
         if (pendingWorkflowLaunch(card)) return
@@ -340,7 +344,7 @@ export const createWorkflowPumpController = (
         }
 
         const summary = await gateway.run(repo, runId, binding)
-        if (pump.stopped || ctx.runPumps.get(cardId) !== pump) return
+        if (!ownsPump()) return
         if (summary.status !== "ok" || summary.value === undefined) {
           failures += 1
           if (failures >= 2 && !pump.stopped) {
@@ -364,13 +368,14 @@ export const createWorkflowPumpController = (
         if (row.status === "waiting-approval" || row.waitingReason === "approval") approvalPending = true
         if (approvalPending || runAwaitsApproval(card.payload)) {
           const approvals = await gateway.approvals(repo, runId, binding)
-          if (pump.stopped || ctx.runPumps.get(cardId) !== pump) return
+          if (!ownsPump()) return
           // Keep asking until the gate is actually in hand: a parked run can
           // be readable a beat before its approval row is.
           if (approvals.status === "ok") {
             let found: number
             try {
-              found = await upsertRunApprovals(runId, repo, workspaceId, approvals.value)
+              found = await upsertRunApprovals(runId, repo, workspaceId, approvals.value, ownsPump)
+              if (!ownsPump()) return
             } catch (error) {
               if (applyFailed(error)) return
               await pokeableWait(cardId, RUN_POLL_MS)
@@ -392,7 +397,7 @@ export const createWorkflowPumpController = (
         let transcriptRead = false
         if (card.payload.follow === true && (!wasFollowing || revision === undefined || revision !== transcriptRevision)) {
           const transcript = await gateway.transcript(repo, runId, binding)
-          if (pump.stopped || ctx.runPumps.get(cardId) !== pump) return
+          if (!ownsPump()) return
           if (transcript.status === "ok") {
             transcriptObservation = [...transcript.value]
             transcriptCursor = transcript.cursor
@@ -417,7 +422,7 @@ export const createWorkflowPumpController = (
         if (revision === undefined || revision !== journalRevision || projectionPending || journalPending) {
           const journal = await readJournalPages(repo, runId, binding, journalCursor)
           journalComplete = journal.complete
-          if (pump.stopped || ctx.runPumps.get(cardId) !== pump) return
+          if (!ownsPump()) return
           const current = store.committedRuntimeRun(runtimeRunKey(card.payload))
           // An inspection that won this race already replaced our prefix.
           // Reconcile its cursor next cycle instead of appending twice.
@@ -473,7 +478,7 @@ export const createWorkflowPumpController = (
           await pokeableWait(cardId, RUN_POLL_MS)
           continue
         }
-        if (pump.stopped || ctx.disposed || ctx.runPumps.get(cardId) !== pump) return
+        if (!ownsPump()) return
         // A transport response is not an applied cursor. Advance acknowledgments
         // only after persistence, including a validated read that changed nothing.
         if (transcriptRead) transcriptRevision = revision
@@ -493,7 +498,7 @@ export const createWorkflowPumpController = (
           if (eventReadError !== undefined) patchRunCard(cardId, {
             observationError: `The run has settled, but its recorded engine evidence could not be read: ${eventReadError}`
           })
-          if (ctx.disposed || pump.stopped || ctx.runPumps.get(cardId) !== pump) return
+          if (!ownsPump()) return
           // A transcript line is a committed transition, so it frames the
           // failure from the same flow id and journalled code the card renders
           // from, read back from the evidence this cycle just persisted.
@@ -525,6 +530,7 @@ export const createWorkflowPumpController = (
         await pokeableWait(cardId, RUN_POLL_MS)
       }
     } catch (error) {
+      if (!ownsPump()) return
       ctx.failures.report("run.pump", error, cardId)
       /*
        * The store refused a transition outright (a lost owner, a privacy
@@ -532,7 +538,7 @@ export const createWorkflowPumpController = (
        * next can land, so it stops and the card says why; "Check again" is the
        * next act. A store refusing even that has its own failure surface.
        */
-      if (ctx.runPumps.get(cardId) === pump && !pump.stopped) {
+      if (ownsPump()) {
         try { patchRunCard(cardId, { observationError: "This browser did not save the run's latest evidence.", phase: "stopped" }) } catch {}
       }
     } finally {
@@ -605,6 +611,9 @@ export const createWorkflowPumpController = (
 
   /** Boot reconciliation: a live run card's pump resumes. */
   const resumeWorkflowRuns = (): void => {
+    const epoch = ctx.accountEpoch
+    const current = (): boolean => !ctx.disposed && ctx.accountEpoch === epoch
+    if (!current()) return
     ctx.resumeFlowAuthoring()
     for (const card of liveRunCards()) void pumpWorkflowRun(card.id)
     // Inbox-only and already-settled runs may have no live pump. A previous
@@ -622,9 +631,10 @@ export const createWorkflowPumpController = (
     }
     // A run recorded with no box has none to ask; its card refuses a decision with that sentence.
     for (const scope of scopes) if (scope.workspaceId !== undefined) void gateway.approvals(scope.repo, scope.runId, { workspaceId: scope.workspaceId }).then(async result => {
-      if (result.status === "ok" && !ctx.disposed) await reconcileRunApprovals(store, scope, result.value)
-      else if (result.status !== "ok") ctx.failures.report("approval.reconcile", result.message, scope.runId)
-    }).catch(error => ctx.failures.report("approval.reconcile", error, scope.runId))
+      if (!current()) return
+      if (result.status === "ok") await reconcileRunApprovals(store, scope, result.value)
+      else ctx.failures.report("approval.reconcile", result.message, scope.runId)
+    }).catch(error => { if (current()) ctx.failures.report("approval.reconcile", error, scope.runId) })
   }
   ctx.resumeWorkflowRuns = resumeWorkflowRuns
 

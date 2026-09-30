@@ -1242,15 +1242,29 @@ export const createRunsController = (
   const openApproval = async (runId: string, sourceCard?: string): Promise<CommandResult> => {
     const guard = workflows.workflowIdentityGuard()
     if (guard !== undefined) return guard
+    const epoch = ctx.accountEpoch
+    const owner = ctx.accountOwner()
+    const current = (): boolean => !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === owner
+    const accountChanged = "The account changed before the approvals could be read. Run the command again."
+    if (!current()) return accountChanged
     const target = resolveRun(runId, sourceCard)
     if ("error" in target) return target.error
     const repo = target.repo
     const binding = { workspaceId: target.workspaceId }
-    const provisioned = await workflows.provisionWorkspace(repo, binding)
-    if (provisioned !== true) return provisioned
-    const approvals = await gateway.approvals(repo, runId, binding)
-    if (approvals.status !== "ok") return approvals.message
-    await reconcileRunApprovals(store, target, approvals.value)
+    let approvals: Awaited<ReturnType<typeof gateway.approvals>>
+    try {
+      const provisioned = await workflows.provisionWorkspace(repo, binding)
+      if (!current()) return accountChanged
+      if (provisioned !== true) return provisioned
+      approvals = await gateway.approvals(repo, runId, binding)
+      if (!current()) return accountChanged
+      if (approvals.status !== "ok") return approvals.message
+      await reconcileRunApprovals(store, target, approvals.value)
+    } catch (error) {
+      if (!current()) return accountChanged
+      throw error
+    }
+    if (!current()) return accountChanged
     const alreadyOpen = [...store.collections.cards.values()].filter(
       (card) =>
         store.approvalRequest(card.id) !== undefined && card.kind === "approval" && card.payload.runId === runId &&
@@ -1266,6 +1280,7 @@ export const createRunsController = (
     const pending = approvals.value.filter((row) => row.status === "pending")
     if (pending.length === 0) return `Run ${runId} has no approvals pending.`
     for (const approval of pending) {
+      if (!current()) return accountChanged
       const card: Card = {
         id: approvalCardIdFor(store, target, approval.requestId),
         kind: "approval",
@@ -1284,7 +1299,7 @@ export const createRunsController = (
       }
       store.dispatch({ type: "card.upsert", actor: "system", card })
     }
-    return { value: `${pending.length} approval${pending.length === 1 ? "" : "s"} opened for run ${runId}.` }
+    return current() ? { value: `${pending.length} approval${pending.length === 1 ? "" : "s"} opened for run ${runId}.` } : accountChanged
   }
 
   return {
