@@ -579,3 +579,182 @@ describe("LlmLint.review containment follow-up", () => {
     )
   })
 })
+
+describe("legacy saved review compatibility (#3206)", () => {
+  const savedLegacyFailure = async () => {
+    const cli = await engine({ fail: ["src/b.ts"], findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(Effect.flip(review(cli.executable)))
+    const [failed] = await runs()
+    const { elapsedMs: _elapsed, ...usage } = failed!.usage
+    const legacy = { ...failed!, usage }
+    const name = Path.join(store, "runs", `${failed!.run}.json`)
+    await Fs.writeFile(name, JSON.stringify(legacy))
+    return { failed: failed!, legacy, name }
+  }
+
+  it("resumes a real saved legacy run without repeating its completed batch or resetting spend", async () => {
+    const failedCli = await engine({ fail: ["src/b.ts"], findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(Effect.flip(review(failedCli.executable)))
+    const [failed] = await runs()
+    expect(failed!.batches).toHaveLength(1)
+    const { elapsedMs: _elapsed, ...legacyUsage } = failed!.usage
+    const legacy = { ...failed!, usage: legacyUsage }
+    const record = Path.join(store, "runs", `${failed!.run}.json`)
+    await Fs.writeFile(record, JSON.stringify(legacy))
+    const resumedCli = await engine({})
+    const resumed = await Effect.runPromise(review(resumedCli.executable))
+    expect(await resumedCli.calls()).toEqual(["src/b.ts"])
+    expect(resumed.run).toBe(failed!.run)
+    expect(resumed.manifest).toEqual(failed!.manifest)
+    expect(resumed.findings).toEqual([danger])
+    const [completed] = await runs()
+    expect(completed!.owner).toBe(failed!.owner)
+    expect(completed!.startedAt).toBe(failed!.startedAt)
+    expect(completed!.batches[0]).toEqual(failed!.batches[0])
+    expect(completed!.usage.modelCalls).toBe(failed!.usage.modelCalls + 1)
+    expect(completed!.usage.promptTokens).toBeGreaterThan(failed!.usage.promptTokens)
+    expect(completed!.usage.elapsedMs).toBeGreaterThanOrEqual(0)
+    expect(completed!.usage.legacyElapsedUnknown).toBe(true)
+  })
+
+  it("keeps unknown historical time across another new-format failure and resume", async () => {
+    const { failed, name } = await savedLegacyFailure()
+    const failing = await engine({ fail: ["src/b.ts"] })
+    await Effect.runPromise(Effect.flip(review(failing.executable)))
+    const upgraded = JSON.parse(await Fs.readFile(name, "utf8")) as LlmLint.RunRecord
+    expect(upgraded.usage).toMatchObject({ modelCalls: failed.usage.modelCalls + 1, legacyElapsedUnknown: true })
+    const elapsed = upgraded.usage.elapsedMs
+    const cli = await engine({})
+    await Effect.runPromise(review(cli.executable))
+    const [completed] = await runs()
+    expect(await cli.calls()).toEqual(["src/b.ts"])
+    expect(completed!.usage).toMatchObject({ modelCalls: failed.usage.modelCalls + 2, legacyElapsedUnknown: true })
+    expect(completed!.usage.elapsedMs).toBeGreaterThanOrEqual(elapsed)
+    expect(completed!.batches[0]).toEqual(failed.batches[0])
+  })
+
+  it("resumes a current measured record without adding the legacy marker", async () => {
+    const failing = await engine({ fail: ["src/b.ts"] })
+    await Effect.runPromise(Effect.flip(review(failing.executable)))
+    const [failed] = await runs()
+    const name = Path.join(store, "runs", `${failed!.run}.json`)
+    await Fs.writeFile(name, JSON.stringify({ ...failed!, usage: { ...failed!.usage, elapsedMs: 2_000 } }))
+    const cli = await engine({})
+    await Effect.runPromise(review(cli.executable, { budget: { wallMs: 60_000 } }))
+    const [completed] = await runs()
+    expect(await cli.calls()).toEqual(["src/b.ts"])
+    expect(completed!.usage.elapsedMs).toBeGreaterThanOrEqual(2_000)
+    expect(completed!.usage).not.toHaveProperty("legacyElapsedUnknown")
+    expect(completed!.startedAt).toBe(failed!.startedAt)
+  })
+
+  it("does not reuse another owner's legacy batches or spend", async () => {
+    const { failed } = await savedLegacyFailure()
+    const cli = await engine({})
+    const report = await Effect.runPromise(review(cli.executable, {}, "//other:security"))
+    expect(await cli.calls()).toEqual(["src/a.ts", "src/b.ts"])
+    expect(report.findings).toEqual([])
+    const [fresh] = await runs()
+    expect(fresh!.owner).toBe("//other:security")
+    expect(fresh!.manifest).toEqual(failed.manifest)
+    expect(fresh!.usage.modelCalls).toBe(2)
+    expect(fresh!.usage).not.toHaveProperty("legacyElapsedUnknown")
+  })
+
+  it("reviews both batches again instead of reusing a completed legacy verdict", async () => {
+    const first = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(first.executable))
+    const [completed] = await runs()
+    const { elapsedMs: _elapsed, ...usage } = completed!.usage
+    await Fs.writeFile(Path.join(store, "runs", `${completed!.run}.json`), JSON.stringify({ ...completed!, usage }))
+    const cli = await engine({})
+    const fresh = await Effect.runPromise(review(cli.executable))
+    expect(await cli.calls()).toEqual(["src/a.ts", "src/b.ts"])
+    expect(fresh.findings).toEqual([])
+    expect((await runs())[0]!.usage).not.toHaveProperty("legacyElapsedUnknown")
+  })
+
+  it.each(["modelCalls", "promptTokens"] as const)(
+    "retains legacy %s spend at the budget boundary",
+    async (counter) => {
+      const { failed } = await savedLegacyFailure()
+      const cli = await engine({})
+      const failure = await Effect.runPromise(Effect.flip(review(cli.executable, {
+        budget: { [counter]: failed.usage[counter] }
+      })))
+      expect(failure.message).toContain("Review budget exhausted:")
+      expect(failure.message).toContain(counter === "modelCalls" ? "model calls" : "prompt tokens")
+      expect(await cli.calls()).toEqual([])
+      const [refused] = await runs()
+      expect(refused!.usage.modelCalls).toBe(failed.usage.modelCalls)
+      expect(refused!.usage.promptTokens).toBe(failed.usage.promptTokens)
+      expect(refused!.usage.legacyElapsedUnknown).toBe(true)
+      expect(refused!.batches).toEqual(failed.batches)
+    }
+  )
+
+  it.each([false, true])(
+    "refuses unknown historical time under a wall budget (already upgraded: %s)",
+    async (upgraded) => {
+      const { legacy, name } = await savedLegacyFailure()
+      if (upgraded) {
+        await Fs.writeFile(
+          name,
+          JSON.stringify({
+            ...legacy,
+            usage: { ...legacy.usage, elapsedMs: 2_000, legacyElapsedUnknown: true }
+          })
+        )
+      }
+      const bytes = await Fs.readFile(name, "utf8")
+      const cli = await engine({})
+      const failure = await Effect.runPromise(Effect.flip(review(cli.executable, { budget: { wallMs: 60_000 } })))
+      expect(failure).toMatchObject({ phase: "review" })
+      expect(failure.message).toBe("Review cannot resume under a wall-clock budget: legacy elapsed time is unknown")
+      expect(await cli.calls()).toEqual([])
+      expect(await Fs.readFile(name, "utf8")).toBe(bytes)
+    }
+  )
+
+  it.each([
+    ["legacy negative calls", { modelCalls: -1, promptTokens: 100 }],
+    ["legacy missing tokens", { modelCalls: 1 }],
+    ["current negative elapsed", { modelCalls: 1, promptTokens: 100, elapsedMs: -1 }],
+    ["current null elapsed", { modelCalls: 1, promptTokens: 100, elapsedMs: null }],
+    ["current fractional elapsed", { modelCalls: 1, promptTokens: 100, elapsedMs: 0.5 }],
+    ["current text counter", { modelCalls: 1, promptTokens: "100", elapsedMs: 0 }],
+    ["current false marker", { modelCalls: 1, promptTokens: 100, elapsedMs: 0, legacyElapsedUnknown: false }],
+    ["marker without elapsed", { modelCalls: 1, promptTokens: 100, legacyElapsedUnknown: true }],
+    ["unrecognized spend", { modelCalls: 1, promptTokens: 100, usdSpent: "1.20" }]
+  ])("refuses malformed %s without replacing the record or issuing a call", async (_name, usage) => {
+    const { legacy, name } = await savedLegacyFailure()
+    const malformed = JSON.stringify({ ...legacy, usage })
+    await Fs.writeFile(name, malformed)
+    const cli = await engine({})
+    const failure = await Effect.runPromise(Effect.flip(review(cli.executable)))
+    expect(failure).toMatchObject({ phase: "store" })
+    expect(await cli.calls()).toEqual([])
+    expect(await Fs.readFile(name, "utf8")).toBe(malformed)
+  })
+
+  it.each(["null record", "text record", "null usage", "invalid owner", "invalid manifest", "invalid batch"])(
+    "refuses a malformed %s before legacy upgrade",
+    async (kind) => {
+      const { legacy, name } = await savedLegacyFailure()
+      const values: Record<string, unknown> = {
+        "null record": null,
+        "text record": "not a run",
+        "null usage": { ...legacy, usage: null },
+        "invalid owner": { ...legacy, owner: 42 },
+        "invalid manifest": { ...legacy, manifest: null },
+        "invalid batch": { ...legacy, batches: [{ index: 0, files: ["src/a.ts"] }] }
+      }
+      const malformed = JSON.stringify(values[kind])
+      await Fs.writeFile(name, malformed)
+      const cli = await engine({})
+      expect(await Effect.runPromise(Effect.flip(review(cli.executable)))).toMatchObject({ phase: "store" })
+      expect(await cli.calls()).toEqual([])
+      expect(await Fs.readFile(name, "utf8")).toBe(malformed)
+    }
+  )
+})

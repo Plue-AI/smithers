@@ -479,7 +479,14 @@ export const RunRecord = Schema.Struct({
     attempts: Schema.Array(ReviewAttempt)
   })),
   /** Model calls and estimated prompt tokens spent across every invocation of this run. */
-  usage: Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int, elapsedMs: Schema.Int }),
+  usage: Schema.Struct({
+    modelCalls: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    promptTokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    /** Measured elapsed time; legacy runs measure only the time since their upgrade. */
+    elapsedMs: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    /** Historical elapsed time was not recorded. Such a run cannot resume under a wall budget. */
+    legacyElapsedUnknown: Schema.optional(Schema.Literal(true))
+  }),
   error: Schema.optional(Schema.String),
   startedAt: Schema.String,
   updatedAt: Schema.String
@@ -542,6 +549,27 @@ const storeError = (cause: unknown) =>
 
 const decodeFindingRecord = Schema.decodeUnknownSync(FindingRecord)
 const decodeRunRecord = Schema.decodeUnknownSync(RunRecord)
+const decodeLegacyRunRecord = Schema.decodeUnknownSync(Schema.Struct({
+  ...RunRecord.fields,
+  usage: Schema.Struct({
+    modelCalls: RunRecord.fields.usage.fields.modelCalls,
+    promptTokens: RunRecord.fields.usage.fields.promptTokens
+  })
+}))
+
+const decodeStoredRunRecord = (stored: unknown): RunRecord => {
+  if (typeof stored === "object" && stored !== null && "usage" in stored) {
+    const usage = stored.usage
+    if (
+      typeof usage === "object" && usage !== null &&
+      !Object.hasOwn(usage, "elapsedMs") && !Object.hasOwn(usage, "legacyElapsedUnknown")
+    ) {
+      const legacy = decodeLegacyRunRecord(stored, { onExcessProperty: "error" })
+      return { ...legacy, usage: { ...legacy.usage, elapsedMs: 0, legacyElapsedUnknown: true } }
+    }
+  }
+  return decodeRunRecord(stored, { onExcessProperty: "error" })
+}
 
 /**
  * Every finding persisted in a store, in fingerprint order.
@@ -2753,7 +2781,7 @@ export const review = (
     const previous = storeRoot === undefined ? undefined : yield* Effect.try({
       try: () => {
         const stored = PrivateStore.read(storeRoot, runName)
-        return stored === undefined ? undefined : decodeRunRecord(stored)
+        return stored === undefined ? undefined : decodeStoredRunRecord(stored)
       },
       catch: storeError
     })
@@ -2762,6 +2790,14 @@ export const review = (
     const resumed = previous !== undefined && previous.status !== "completed" && previous.owner === store?.owner
       ? previous
       : undefined
+    if (resumed?.usage.legacyElapsedUnknown && payload.budget?.wallMs !== undefined) {
+      return yield* Effect.fail(
+        new LlmReviewError({
+          phase: "review",
+          message: "Review cannot resume under a wall-clock budget: legacy elapsed time is unknown"
+        })
+      )
+    }
     // A resumed run keeps spending its declared budget; completed batches are never free.
     spend.modelCalls = resumed?.usage.modelCalls ?? 0
     spend.promptTokens = resumed?.usage.promptTokens ?? 0
@@ -2774,7 +2810,7 @@ export const review = (
       total: loadedBatches.length,
       batches: resumed?.batches ?? [],
       usage: resumed?.usage ?? { modelCalls: 0, promptTokens: 0, elapsedMs: 0 },
-      startedAt: now(),
+      startedAt: resumed?.startedAt ?? now(),
       updatedAt: now()
     }
     let settled = false
@@ -2789,7 +2825,8 @@ export const review = (
             usage: {
               modelCalls: spend.modelCalls,
               promptTokens: spend.promptTokens,
-              elapsedMs: Date.now() - spend.started
+              elapsedMs: Date.now() - spend.started,
+              ...(resumed?.usage.legacyElapsedUnknown ? { legacyElapsedUnknown: true as const } : {})
             },
             updatedAt: now()
           }
