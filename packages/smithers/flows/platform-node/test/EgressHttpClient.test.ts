@@ -397,7 +397,14 @@ describe("authorized destination connections", () => {
       if (refused._tag === "Failure") {
         expect(refused.failure).toMatchObject({
           _tag: "HttpClientError",
-          reason: { _tag: "TransportError", cause: { message: "No approved address for family" } }
+          reason: {
+            _tag: "TransportError",
+            cause: {
+              _tag: "@smthrs/platform-node/EgressAddressError",
+              code: "no_approved_address",
+              message: "No approved address for family"
+            }
+          }
         })
       }
       expect(origin.seen).toEqual(["GET /v4"])

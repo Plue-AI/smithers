@@ -35,6 +35,7 @@ import { Destination, withDestinationPinning } from "@smthrs/kernel/HttpClient"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { HttpClient } from "effect/unstable/http/HttpClient"
@@ -42,6 +43,21 @@ import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { isIP } from "node:net"
+
+/**
+ * A pinned connection asked for an address family none of the authorized
+ * addresses has. It is the `cause` of the `TransportError` the request fails
+ * with; `code` is always `no_approved_address`.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class EgressAddressError extends Schema.TaggedError<EgressAddressError>()(
+  "@smthrs/platform-node/EgressAddressError",
+  { code: Schema.Literal("no_approved_address"), message: Schema.String }
+) {
+  override readonly name = "EgressAddressError"
+}
 
 /**
  * The hosts a proxy is never for. A proxy is how a process leaves its machine;
@@ -202,7 +218,16 @@ export const layer = (
                     ? addresses.filter((item) => item.family === options.family)
                     : addresses
                   const first = candidates[0]
-                  if (first === undefined) return callback(new Error("No approved address for family"), "", 4)
+                  if (first === undefined) {
+                    return callback(
+                      new EgressAddressError({
+                        code: "no_approved_address",
+                        message: "No approved address for family"
+                      }),
+                      "",
+                      4
+                    )
+                  }
                   if (options.all) callback(null, candidates)
                   else callback(null, first.address, first.family)
                 }

@@ -48,11 +48,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
   ["kernel/src/HttpClient.ts", 1, wrappedCause],
   ["kernel/src/test/HostContract.ts", 1, testSupport],
-  [
-    "platform-node/src/EgressHttpClient.ts",
-    1,
-    "a DNS lookup callback error; the HTTP client reports it as a tagged transport error"
-  ],
   ["platform-node/src/ScopedProcess.ts", 1, wrappedCause],
   [
     "src/internal/SandboxedFlowGuest.ts",

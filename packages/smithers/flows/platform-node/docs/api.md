@@ -487,6 +487,10 @@ Dispatchers close after their response body and are destroyed on failure or
 cancellation. Ordinary requests without the web destination policy retain the
 shared dispatcher, including local model connections.
 
+A request whose pinned addresses include none of the family Undici asks for
+fails with a `TransportError` whose `cause` is an `EgressAddressError` (`_tag`
+`@smthrs/platform-node/EgressAddressError`, `code` `no_approved_address`).
+
 Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
 fail closed. The transport sets Host from the URL and discards caller-supplied
 proxy authorization and connection framing headers.
