@@ -282,6 +282,33 @@ describe("Node.race", () => {
     }))
 })
 
+describe("a losing member with its own structure", () => {
+  it.effect("interrupts every running node under a loser that combines two of them", () =>
+    Effect.gen(function*() {
+      const { layer, trace } = tracing()
+      const shared = Block.call({ name: "shared" })
+      const loser = Node.all({ direct: shared, mapped: shared.pipe(Node.map((value) => value + 1)) })
+      const result = yield* run(
+        Interpreter.interpret(Node.race({ loser, winner: Value.call({ name: "winner", value: 4 }) })),
+        layer
+      )
+      expect(result.value).toBe(4)
+      expect(trace.interrupted).toEqual(["shared", "shared"])
+    }))
+
+  it.effect("interrupts the nodes inside a loser that no other node reads", () =>
+    Effect.gen(function*() {
+      const { layer, trace } = tracing()
+      const loser = Block.call({ name: "inner" }).pipe(Node.map((value) => value + 1))
+      const result = yield* run(
+        Interpreter.interpret(Node.any({ loser, winner: Value.call({ name: "winner", value: 4 }) })),
+        layer
+      )
+      expect(result.value).toBe(4)
+      expect(trace.interrupted).toEqual(["inner"])
+    }))
+})
+
 describe("a losing child execution", () => {
   it.effect("is cancelled through the runtime, not only its join", () =>
     Effect.gen(function*() {

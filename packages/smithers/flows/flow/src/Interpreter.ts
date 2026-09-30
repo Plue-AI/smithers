@@ -886,18 +886,20 @@ const interpretWithPolicy = (
      * ownership an `All` failure respects — and keeps running, together with
      * everything inside the subtree it depends on.
      */
+    // Graph building gives every node exactly one structural parent and reads
+    // each child through that parent's key material, so the walk below never
+    // reaches a node twice and every node in a subtree has a reader.
     const losingWork = (joinId: string, roots: ReadonlyArray<string>) => {
       const subtree = new Set<string>()
       const pending = [...roots]
       while (pending.length > 0) {
         const id = pending.pop()!
-        if (subtree.has(id)) continue
         subtree.add(id)
         pending.push(...sources.get(id) ?? [])
       }
       const kept = new Set<string>()
       const shared = [...subtree].filter((id) =>
-        (readers.get(id) ?? []).some((reader) => reader !== joinId && !subtree.has(reader))
+        readers.get(id)!.some((reader) => reader !== joinId && !subtree.has(reader))
       )
       while (shared.length > 0) {
         const id = shared.pop()!
